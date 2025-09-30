@@ -1,13 +1,13 @@
 # gentest
 
-`gentest` experiments with attribute-driven test discovery for C++ projects. Test entry points are annotated with
-`[[test::case]]` (plus a `clang::annotate` fallback), then a clang-tooling generator materialises the runtime glue that
-invokes every discovered function through a single `gentest::run_all_tests` entry-point.
+`gentest` experiments with attribute-driven test discovery for C++ projects. Test entry points rely on standard C++
+attributes (`[[using gentest : ...]]`), then a clang-tooling generator materialises the runtime glue that invokes every
+discovered function through a single `gentest::run_all_tests` entry-point.
 
 ## What's in the tree?
 - `include/gentest/runner.h` – lightweight assertion helpers and the declaration of `gentest::run_all_tests`.
-- `include/gentest/attributes.h` – convenience macro that emits both the `[[test::case]]` attribute and a
-  `[[clang::annotate(... )]]` fallback.
+- `include/gentest/attributes.h` – guidance for annotating tests using
+  `[[using gentest : ...]]` attributes (no vendor macros required).
 - `tools/gentest_codegen` – the clang-based manifest generator that scans sources and emits `test_impl.cpp` files.
 - `cmake/GentestCodegen.cmake` – helper that wires code-generation results into any CMake target through the
   `gentest_attach_codegen()` function.
@@ -26,12 +26,22 @@ ctest --preset=debug --output-on-failure
 libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
 
 ## Authoring new test suites
-1. Create a test source (e.g. `tests/widgets/cases.cpp`) and tag functions with the macro:
+1. Create a test source (e.g. `tests/widgets/cases.cpp`) and tag functions with
+   namespaced attributes understood by the generator. Suppress the
+   `-Wunknown-attributes` diagnostic locally to keep builds quiet:
    ```c++
-   GENTEST_TEST_CASE("widgets/basic/health")
+   #if defined(__clang__)
+   #pragma clang diagnostic push
+   #pragma clang diagnostic ignored "-Wunknown-attributes"
+   #endif
+
+   [[using gentest : test("widgets/basic/health"), slow, linux, req("BUG-42")]]
    void widget_smoke() {
        gentest::expect_eq(create_widget().status(), widget_status::healthy);
    }
+   #if defined(__clang__)
+   #pragma clang diagnostic pop
+   #endif
    ```
 2. Add a target in `tests/CMakeLists.txt` and call `gentest_attach_codegen()` to hook the generator:
    ```cmake
@@ -45,7 +55,8 @@ libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
    appends the generated `test_impl.cpp` to the target sources.
 
 Running the resulting binary executes every annotated function, printing `[ PASS ]` / `[ FAIL ]` lines and returning a
-non-zero exit status when any test throws `gentest::failure`. Pass `--list` to enumerate discovered cases without
-executing them.
+non-zero exit status when any test throws `gentest::failure`. Pass `--list` to enumerate discovered cases and inspect
+their metadata: the generator includes tags, requirement IDs, and skip markers that originate from the `[[using
+gentest : ...]]` attribute list.
 
 See [`AGENTS.md`](AGENTS.md) for contribution guidelines and additional workflow conventions.

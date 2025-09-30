@@ -14,7 +14,9 @@ foreach(suite IN LISTS _gentest_test_suites)
             ${PROJECT_NAME})
 
     target_compile_features(${target_name} PRIVATE cxx_std_23)
-    target_compile_options(${target_name} PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Wno-unknown-attributes>)
+    target_compile_options(${target_name} PRIVATE
+        $<$<CXX_COMPILER_ID:Clang>:-Wno-unknown-attributes>
+        $<$<CXX_COMPILER_ID:Clang>:-Wno-attributes>)
 
     target_include_directories(${target_name}
         PRIVATE
@@ -27,6 +29,7 @@ foreach(suite IN LISTS _gentest_test_suites)
         CLANG_ARGS
             -std=c++23
             -Wno-unknown-attributes
+            -Wno-attributes
             -I${PROJECT_SOURCE_DIR}/include
             -I${CMAKE_CURRENT_SOURCE_DIR}
     )

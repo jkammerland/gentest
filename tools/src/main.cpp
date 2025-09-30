@@ -1,11 +1,15 @@
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <clang/AST/Attr.h>
 #include <clang/AST/Decl.h>
 #include <clang/AST/DeclCXX.h>
+#include <clang/AST/Expr.h>
 #include <clang/AST/RecursiveASTVisitor.h>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
+#include <clang/Basic/SourceManager.h>
 #include <clang/Frontend/CompilerInstance.h>
+#include <clang/Lex/Lexer.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
@@ -39,6 +43,319 @@ using namespace clang::ast_matchers;
 
 constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
 
+namespace {
+
+bool is_identifier_char(char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == '-'; }
+
+std::string trim_copy(std::string_view text) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
+        text.remove_prefix(1);
+    }
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0) {
+        text.remove_suffix(1);
+    }
+    return std::string(text);
+}
+
+std::string unquote(std::string_view value) {
+    std::string trimmed = trim_copy(value);
+    if (trimmed.size() >= 2 && trimmed.front() == '"' && trimmed.back() == '"') {
+        std::string decoded;
+        decoded.reserve(trimmed.size() - 2);
+        bool escape = false;
+        for (std::size_t idx = 1; idx + 1 < trimmed.size(); ++idx) {
+            const char ch = trimmed[idx];
+            if (escape) {
+                switch (ch) {
+                case '\\': decoded.push_back('\\'); break;
+                case '"': decoded.push_back('"'); break;
+                case 'n': decoded.push_back('\n'); break;
+                case 'r': decoded.push_back('\r'); break;
+                case 't': decoded.push_back('\t'); break;
+                default: decoded.push_back(ch); break;
+                }
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else {
+                decoded.push_back(ch);
+            }
+        }
+        if (escape) {
+            decoded.push_back('\\');
+        }
+        return decoded;
+    }
+    return trimmed;
+}
+
+struct ParsedAttribute {
+    std::string              name;
+    std::vector<std::string> arguments;
+};
+
+std::vector<std::string> split_arguments(std::string_view arguments) {
+    std::vector<std::string> parts;
+    std::string              current;
+    int                      depth       = 0;
+    bool                     in_string   = false;
+    bool                     escape_next = false;
+
+    for (char ch : arguments) {
+        if (in_string) {
+            current.push_back(ch);
+            if (escape_next) {
+                escape_next = false;
+            } else if (ch == '\\') {
+                escape_next = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        switch (ch) {
+        case '"':
+            in_string = true;
+            current.push_back(ch);
+            break;
+        case '(':
+        case '[':
+        case '{':
+            ++depth;
+            current.push_back(ch);
+            break;
+        case ')':
+        case ']':
+        case '}':
+            if (depth > 0) {
+                --depth;
+            }
+            current.push_back(ch);
+            break;
+        case ',':
+            if (depth == 0) {
+                auto token = trim_copy(current);
+                if (!token.empty()) {
+                    parts.push_back(unquote(token));
+                }
+                current.clear();
+                break;
+            }
+            [[fallthrough]];
+        default: current.push_back(ch); break;
+        }
+    }
+
+    auto token = trim_copy(current);
+    if (!token.empty()) {
+        parts.push_back(unquote(token));
+    }
+    return parts;
+}
+
+std::vector<ParsedAttribute> parse_attribute_list(std::string_view list) {
+    std::vector<ParsedAttribute> attributes;
+    std::size_t                  index = 0;
+
+    auto skip_whitespace = [&](std::size_t &cursor) {
+        while (cursor < list.size() && std::isspace(static_cast<unsigned char>(list[cursor])) != 0) {
+            ++cursor;
+        }
+    };
+
+    while (index < list.size()) {
+        skip_whitespace(index);
+        if (index >= list.size()) {
+            break;
+        }
+        if (list[index] == ',') {
+            ++index;
+            continue;
+        }
+
+        const std::size_t name_start = index;
+        if (!std::isalpha(static_cast<unsigned char>(list[index])) && list[index] != '_') {
+            ++index;
+            continue;
+        }
+        ++index;
+        while (index < list.size() && is_identifier_char(list[index])) {
+            ++index;
+        }
+        std::string name = std::string(list.substr(name_start, index - name_start));
+
+        skip_whitespace(index);
+
+        std::vector<std::string> args;
+        if (index < list.size() && list[index] == '(') {
+            ++index;
+            const std::size_t args_start = index;
+            int               depth      = 1;
+            bool              in_string  = false;
+            bool              escape     = false;
+            for (; index < list.size(); ++index) {
+                const char ch = list[index];
+                if (in_string) {
+                    if (escape) {
+                        escape = false;
+                    } else if (ch == '\\') {
+                        escape = true;
+                    } else if (ch == '"') {
+                        in_string = false;
+                    }
+                    continue;
+                }
+                if (ch == '"') {
+                    in_string = true;
+                    continue;
+                }
+                if (ch == '(') {
+                    ++depth;
+                    continue;
+                }
+                if (ch == ')') {
+                    --depth;
+                    if (depth == 0) {
+                        auto inside = list.substr(args_start, index - args_start);
+                        args        = split_arguments(inside);
+                        ++index; // consume ')'
+                        break;
+                    }
+                }
+            }
+        }
+
+        attributes.push_back(ParsedAttribute{std::move(name), std::move(args)});
+
+        while (index < list.size() && list[index] != ',') {
+            if (!std::isspace(static_cast<unsigned char>(list[index]))) {
+                break;
+            }
+            ++index;
+        }
+        if (index < list.size() && list[index] == ',') {
+            ++index;
+        }
+    }
+
+    return attributes;
+}
+
+std::vector<ParsedAttribute> parse_gentest_attributes_from_text(std::string_view source) {
+    std::vector<ParsedAttribute> collected;
+    std::size_t                  search_position = 0;
+
+    while (search_position < source.size()) {
+        const std::size_t open = source.find("[[", search_position);
+        if (open == std::string_view::npos) {
+            break;
+        }
+        std::size_t cursor = open + 2;
+
+        while (cursor < source.size() && std::isspace(static_cast<unsigned char>(source[cursor])) != 0) {
+            ++cursor;
+        }
+        if (cursor + 5 >= source.size() || source.compare(cursor, 5, "using") != 0) {
+            search_position = cursor;
+            continue;
+        }
+        cursor += 5;
+
+        while (cursor < source.size() && std::isspace(static_cast<unsigned char>(source[cursor])) != 0) {
+            ++cursor;
+        }
+
+        const std::size_t ns_begin = cursor;
+        while (cursor < source.size() && is_identifier_char(source[cursor])) {
+            ++cursor;
+        }
+        if (ns_begin == cursor) {
+            search_position = cursor;
+            continue;
+        }
+        const std::string namespace_name(source.substr(ns_begin, cursor - ns_begin));
+        if (namespace_name != "gentest") {
+            search_position = cursor;
+            continue;
+        }
+
+        while (cursor < source.size() && std::isspace(static_cast<unsigned char>(source[cursor])) != 0) {
+            ++cursor;
+        }
+        if (cursor >= source.size() || source[cursor] != ':') {
+            search_position = cursor;
+            continue;
+        }
+        ++cursor;
+
+        const std::size_t list_begin = cursor;
+        const std::size_t close      = source.find("]]", cursor);
+        if (close == std::string_view::npos) {
+            break;
+        }
+
+        auto attributes = parse_attribute_list(source.substr(list_begin, close - list_begin));
+        collected.insert(collected.end(), std::make_move_iterator(attributes.begin()), std::make_move_iterator(attributes.end()));
+
+        search_position = close + 2;
+    }
+
+    return collected;
+}
+
+std::vector<ParsedAttribute> collect_gentest_attributes_for(const FunctionDecl &func, const SourceManager &sm) {
+    std::vector<ParsedAttribute> result;
+
+    SourceLocation begin = func.getBeginLoc();
+    if (!begin.isValid()) {
+        return result;
+    }
+
+    SourceLocation file_location = sm.getFileLoc(begin);
+    if (!file_location.isValid()) {
+        return result;
+    }
+
+    const FileID file_id = sm.getFileID(file_location);
+    if (file_id.isInvalid()) {
+        return result;
+    }
+
+    const llvm::StringRef buffer = sm.getBufferData(file_id);
+    const unsigned        offset = sm.getFileOffset(file_location);
+
+    std::size_t cursor = offset;
+    while (cursor > 0) {
+        std::size_t position = cursor;
+        while (position > 0 && std::isspace(static_cast<unsigned char>(buffer[position - 1])) != 0) {
+            --position;
+        }
+
+        if (position < 2 || buffer[position - 1] != ']' || buffer[position - 2] != ']') {
+            break;
+        }
+
+        const llvm::StringRef prefix = buffer.take_front(position);
+        const std::size_t     open   = prefix.rfind("[[");
+        if (open == llvm::StringRef::npos) {
+            break;
+        }
+
+        llvm::StringRef attribute_text = buffer.slice(open, position);
+        auto            parsed         = parse_gentest_attributes_from_text(attribute_text.str());
+        if (!parsed.empty()) {
+            result.insert(result.begin(), parsed.begin(), parsed.end());
+        }
+
+        cursor = open;
+    }
+
+    return result;
+}
+
+} // namespace
+
 struct CollectorOptions {
     std::string                          entry = "gentest::run_all_tests";
     std::filesystem::path                output_path;
@@ -49,10 +366,14 @@ struct CollectorOptions {
 };
 
 struct TestCaseInfo {
-    std::string qualified_name;
-    std::string display_name;
-    std::string filename;
-    unsigned    line = 0;
+    std::string              qualified_name;
+    std::string              display_name;
+    std::string              filename;
+    unsigned                 line = 0;
+    std::vector<std::string> tags;
+    std::vector<std::string> requirements;
+    bool                     should_skip = false;
+    std::string              skip_reason;
 };
 
 class TestCaseCollector : public MatchFinder::MatchCallback {
@@ -99,28 +420,76 @@ class TestCaseCollector : public MatchFinder::MatchCallback {
     }
 
   private:
-    static constexpr std::string_view kCasePrefix = "gentest::case:";
+    struct AttributeSummary {
+        std::optional<std::string> case_name;
+        std::vector<std::string>   tags;
+        std::vector<std::string>   requirements;
+        bool                       should_skip = false;
+        std::string                skip_reason;
+    };
 
-    static std::optional<TestCaseInfo> classify(const FunctionDecl &func, const SourceManager &sm, const LangOptions &lang) {
-        std::optional<std::string> display;
+    static void add_unique(std::vector<std::string> &values, std::string value) {
+        if (std::find(values.begin(), values.end(), value) == values.end()) {
+            values.push_back(std::move(value));
+        }
+    }
 
-        for (const auto *attr : func.specific_attrs<AnnotateAttr>()) {
-            llvm::StringRef annotation = attr->getAnnotation();
-            if (!annotation.starts_with(kCasePrefix)) {
-                continue;
-            }
-            llvm::StringRef value = annotation.drop_front(kCasePrefix.size());
-            if (!value.empty()) {
-                display = value.str();
+    static AttributeSummary extract_metadata(const FunctionDecl &func, const SourceManager &sm, const LangOptions &lang) {
+        AttributeSummary summary;
+        (void)lang;
+
+        auto parsed = collect_gentest_attributes_for(func, sm);
+
+        for (const auto &attr : parsed) {
+            std::string lowered = attr.name;
+            std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+
+            if (lowered == "test") {
+                if (!attr.arguments.empty()) {
+                    summary.case_name = attr.arguments.front();
+                }
+                for (std::size_t idx = 1; idx < attr.arguments.size(); ++idx) {
+                    add_unique(summary.tags, "test=" + attr.arguments[idx]);
+                }
+            } else if (lowered == "req" || lowered == "requires") {
+                if (attr.arguments.empty()) {
+                    add_unique(summary.requirements, attr.name);
+                } else {
+                    for (const auto &req : attr.arguments) {
+                        add_unique(summary.requirements, req);
+                    }
+                }
+            } else if (lowered == "skip") {
+                summary.should_skip = true;
+                if (!attr.arguments.empty()) {
+                    std::string reason = attr.arguments.front();
+                    for (std::size_t idx = 1; idx < attr.arguments.size(); ++idx) {
+                        reason.append(", ");
+                        reason.append(attr.arguments[idx]);
+                    }
+                    summary.skip_reason = std::move(reason);
+                }
+            } else {
+                if (attr.arguments.empty()) {
+                    add_unique(summary.tags, attr.name);
+                } else if (attr.arguments.size() == 1) {
+                    add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
+                } else {
+                    for (const auto &arg : attr.arguments) {
+                        add_unique(summary.tags, attr.name + "=" + arg);
+                    }
+                }
             }
         }
 
-        if (!display.has_value()) {
-            // Fallback to qualified name if annotation missing
-            display = func.getQualifiedNameAsString();
-            if (display->empty()) {
-                display = func.getNameAsString();
-            }
+        return summary;
+    }
+
+    static std::optional<TestCaseInfo> classify(const FunctionDecl &func, const SourceManager &sm, const LangOptions &lang) {
+        AttributeSummary metadata = extract_metadata(func, sm, lang);
+        if (!metadata.case_name.has_value()) {
+            return std::nullopt;
         }
 
         if (!func.doesThisDeclarationHaveABody()) {
@@ -146,9 +515,13 @@ class TestCaseCollector : public MatchFinder::MatchCallback {
 
         TestCaseInfo info{};
         info.qualified_name = std::move(qualified);
-        info.display_name   = std::move(*display);
+        info.display_name   = std::move(*metadata.case_name);
         info.filename       = filename.str();
         info.line           = line;
+        info.tags           = std::move(metadata.tags);
+        info.requirements   = std::move(metadata.requirements);
+        info.should_skip    = metadata.should_skip;
+        info.skip_reason    = std::move(metadata.skip_reason);
         return info;
     }
 
@@ -234,27 +607,100 @@ std::optional<std::string> render_cases(const CollectorOptions &options, const s
         forward_decl_block.append("\n");
     }
 
+    std::vector<std::string> tag_array_names;
+    std::vector<std::string> requirement_array_names;
+    tag_array_names.reserve(cases.size());
+    requirement_array_names.reserve(cases.size());
+
+    std::string trait_declarations;
+    for (std::size_t idx = 0; idx < cases.size(); ++idx) {
+        const auto       &test   = cases[idx];
+        const std::string tag_id = "kCase" + std::to_string(idx) + "Tags";
+        const std::string req_id = "kCase" + std::to_string(idx) + "Requirements";
+
+        tag_array_names.push_back(tag_id);
+        requirement_array_names.push_back(req_id);
+
+        trait_declarations.append("constexpr std::array<std::string_view, ");
+        trait_declarations.append(std::to_string(test.tags.size()));
+        trait_declarations.append("> ");
+        trait_declarations.append(tag_id);
+        if (test.tags.empty()) {
+            trait_declarations.append("{};\n");
+        } else {
+            trait_declarations.append(" = {\n");
+            for (const auto &tag : test.tags) {
+                trait_declarations.append("    \"");
+                trait_declarations.append(escape_string(tag));
+                trait_declarations.append("\",\n");
+            }
+            trait_declarations.append("};\n");
+        }
+
+        trait_declarations.append("constexpr std::array<std::string_view, ");
+        trait_declarations.append(std::to_string(test.requirements.size()));
+        trait_declarations.append("> ");
+        trait_declarations.append(req_id);
+        if (test.requirements.empty()) {
+            trait_declarations.append("{};\n");
+        } else {
+            trait_declarations.append(" = {\n");
+            for (const auto &req : test.requirements) {
+                trait_declarations.append("    \"");
+                trait_declarations.append(escape_string(req));
+                trait_declarations.append("\",\n");
+            }
+            trait_declarations.append("};\n");
+        }
+
+        trait_declarations.append("\n");
+    }
+
     std::string case_entries;
     if (cases.empty()) {
         case_entries = "    // No test cases discovered during code generation.\n";
     } else {
-        case_entries.reserve(cases.size() * 64);
-        for (const auto &test : cases) {
-            case_entries.append("    Case{\"");
+        case_entries.reserve(cases.size() * 128);
+        for (std::size_t idx = 0; idx < cases.size(); ++idx) {
+            const auto &test = cases[idx];
+            case_entries.append("    Case{\n");
+            case_entries.append("        \"");
             case_entries.append(escape_string(test.display_name));
-            case_entries.append("\", &");
+            case_entries.append("\",\n");
+            case_entries.append("        &");
             case_entries.append(test.qualified_name);
-            case_entries.append(", \"");
+            case_entries.append(",\n");
+            case_entries.append("        \"");
             case_entries.append(escape_string(test.filename));
-            case_entries.append("\", ");
+            case_entries.append("\",\n");
+            case_entries.append("        ");
             case_entries.append(std::to_string(test.line));
+            case_entries.append(",\n");
+            case_entries.append("        std::span{");
+            case_entries.append(tag_array_names[idx]);
             case_entries.append("},\n");
+            case_entries.append("        std::span{");
+            case_entries.append(requirement_array_names[idx]);
+            case_entries.append("},\n");
+            case_entries.append("        ");
+            if (!test.skip_reason.empty()) {
+                case_entries.append("\"");
+                case_entries.append(escape_string(test.skip_reason));
+                case_entries.append("\"");
+            } else {
+                case_entries.append("std::string_view{}");
+            }
+            case_entries.append(",\n");
+            case_entries.append("        ");
+            case_entries.append(test.should_skip ? "true" : "false");
+            case_entries.append("\n    },\n");
         }
     }
 
     std::string output = template_content;
     replace_all(output, "{{FORWARD_DECLS}}", forward_decl_block);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(cases.size()));
+    replace_all(output, "{{TRAIT_DECLS}}", trait_declarations);
     replace_all(output, "{{CASE_INITS}}", case_entries);
     replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
 
@@ -411,7 +857,7 @@ int main(int argc, const char **argv) {
     TestCaseCollector         collector{cases};
 
     MatchFinder finder;
-    finder.addMatcher(functionDecl(isDefinition(), hasAttr(attr::Annotate)).bind("gentest.func"), &collector);
+    finder.addMatcher(functionDecl(isDefinition()).bind("gentest.func"), &collector);
 
     const int status = tool.run(newFrontendActionFactory(&finder).get());
     if (status != 0) {

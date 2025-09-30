@@ -21,7 +21,8 @@
 
 ## Testing Guidelines
 - Each suite requires a `cases.cpp` with annotated functions and leverages the shared `support/test_entry.cpp` main that calls `gentest::run_all_tests`.
-- Annotate tests with `GENTEST_TEST_CASE("suite/name")`; the macro emits both `[[test::case]]` (future plugin support) and `[[clang::annotate]]` for the current generator.
+- Annotate tests with `[[using gentest : test("suite/name"), ...]]`. The `test("...")` entry supplies the manifest name;
+  additional tokens (e.g. `slow`, `req("BUG-1")`, `skip("ci only")`) are collected for future filtering.
 - Extend `tests/CMakeLists.txt` via `gentest_attach_codegen(TARGET ...)` so the generator runs before compilation and the produced `test_impl.cpp` is added automatically.
 - Generated code supports `--list` to print available cases and returns non-zero on any `gentest::failure`; verify both local suites with `ctest` before submitting.
 

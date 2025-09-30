@@ -12,11 +12,18 @@
 
 {{FORWARD_DECLS}}
 namespace {
+
+{{TRAIT_DECLS}}
+
 struct Case {
-    std::string_view name;
+    std::string_view                  name;
     void (*fn)();
-    std::string_view file;
-    unsigned line;
+    std::string_view                  file;
+    unsigned                          line;
+    std::span<const std::string_view> tags;
+    std::span<const std::string_view> requirements;
+    std::string_view                  skip_reason;
+    bool                              should_skip;
 };
 
 constexpr std::array<Case, {{CASE_COUNT}}> kCases = {
@@ -38,7 +45,45 @@ bool wants_list(std::span<const char*> args) {
 auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     if (wants_list(args)) {
         for (const auto& test : kCases) {
-            std::cout << test.name << " (" << test.file << ':' << test.line << ")\n";
+            std::cout << test.name;
+            bool first_section = true;
+            if (!test.tags.empty() || !test.requirements.empty() || test.should_skip) {
+                std::cout << " [";
+                if (!test.tags.empty()) {
+                    std::cout << "tags=";
+                    for (std::size_t idx = 0; idx < test.tags.size(); ++idx) {
+                        if (idx != 0) {
+                            std::cout << ',';
+                        }
+                        std::cout << test.tags[idx];
+                    }
+                    first_section = false;
+                }
+                if (!test.requirements.empty()) {
+                    if (!first_section) {
+                        std::cout << ';';
+                    }
+                    std::cout << "requires=";
+                    for (std::size_t idx = 0; idx < test.requirements.size(); ++idx) {
+                        if (idx != 0) {
+                            std::cout << ',';
+                        }
+                        std::cout << test.requirements[idx];
+                    }
+                    first_section = false;
+                }
+                if (test.should_skip) {
+                    if (!first_section) {
+                        std::cout << ';';
+                    }
+                    std::cout << "skip";
+                    if (!test.skip_reason.empty()) {
+                        std::cout << '=' << test.skip_reason;
+                    }
+                }
+                std::cout << ']';
+            }
+            std::cout << " (" << test.file << ':' << test.line << ")\n";
         }
         return 0;
     }
@@ -46,6 +91,14 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     std::size_t executed = 0;
     int failures = 0;
     for (const auto& test : kCases) {
+        if (test.should_skip) {
+            std::cout << "[ SKIP ] " << test.name;
+            if (!test.skip_reason.empty()) {
+                std::cout << " :: " << test.skip_reason;
+            }
+            std::cout << "\n";
+            continue;
+        }
         ++executed;
         try {
             test.fn();

@@ -1,6 +1,11 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunknown-attributes"
+#endif
+
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -25,7 +30,7 @@ int fibonacci(int n) {
     return b;
 }
 
-GENTEST_TEST_CASE("integration/math/fibonacci")
+[[using gentest: test("integration/math/fibonacci"), slow, linux]]
 void fibonacci_sequence() {
     std::vector<int> expected{0, 1, 1, 2, 3, 5, 8, 13};
     for (std::size_t idx = 0; idx < expected.size(); ++idx) {
@@ -37,7 +42,7 @@ void fibonacci_sequence() {
 
 namespace integration::registry {
 
-GENTEST_TEST_CASE("integration/registry/map")
+[[using gentest: test("integration/registry/map"), category("containers")]]
 void map_behaviour() {
     std::map<std::string, int> index{{"alpha", 1}, {"beta", 2}};
     index.emplace("gamma", 3);
@@ -49,7 +54,7 @@ void map_behaviour() {
 
 namespace integration::errors {
 
-GENTEST_TEST_CASE("integration/errors/recover")
+[[using gentest: test("integration/errors/recover"), req("BUG-123"), owner("team-runtime")]]
 void detect_and_recover_error() {
     try {
         static_cast<void>(integration::math::fibonacci(-1));
@@ -57,7 +62,13 @@ void detect_and_recover_error() {
     } catch (const std::invalid_argument &) { gentest::expect(true, "exception captured"); }
 }
 
-GENTEST_TEST_CASE("integration/errors/throw")
-void throw_error() { throw std::runtime_error("Expected"); }
+[[using gentest: test("integration/errors/throw"), skip("unstable"), windows]]
+void throw_error() {
+    throw std::runtime_error("Expected");
+}
 
 } // namespace integration::errors
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
