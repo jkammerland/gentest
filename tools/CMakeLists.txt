@@ -1,3 +1,7 @@
+# Suppress optional LibEdit lookup messages from LLVM/Clang configs when using
+# vcpkg toolchains. Our tool does not depend on LibEdit.
+set(CMAKE_DISABLE_FIND_PACKAGE_LibEdit ON)
+
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
 

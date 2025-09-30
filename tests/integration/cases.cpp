@@ -19,8 +19,8 @@ int fibonacci(int n) {
     int b = 1;
     for (int i = 2; i <= n; ++i) {
         const int next = a + b;
-        a = b;
-        b = next;
+        a              = b;
+        b              = next;
     }
     return b;
 }
@@ -54,9 +54,10 @@ void detect_and_recover_error() {
     try {
         static_cast<void>(integration::math::fibonacci(-1));
         gentest::fail("expected an exception for negative fibonacci argument");
-    } catch (const std::invalid_argument&) {
-        gentest::expect(true, "exception captured");
-    }
+    } catch (const std::invalid_argument &) { gentest::expect(true, "exception captured"); }
 }
+
+GENTEST_TEST_CASE("integration/errors/throw")
+void throw_error() { throw std::runtime_error("Expected"); }
 
 } // namespace integration::errors
