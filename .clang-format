@@ -36,4 +36,3 @@ SpaceBeforeAssignmentOperators: true
 SpaceBeforeCtorInitializerColon: true
 SpaceBeforeInheritanceColon: true
 IndentWidth: 4
-...
