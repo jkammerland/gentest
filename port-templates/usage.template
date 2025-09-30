@@ -1,0 +1,14 @@
+{{PACKAGE_NAME}} provides CMake targets:
+
+    find_package(unofficial-{{PACKAGE_NAME}} CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE unofficial::{{PACKAGE_NAME}}::{{PACKAGE_NAME}})
+
+# Alternative target names (if applicable):
+# For header-only libraries:
+#     target_link_libraries(main PRIVATE unofficial::{{PACKAGE_NAME}}::{{PACKAGE_NAME}}-header-only)
+
+# For libraries with multiple components:
+#     target_link_libraries(main PRIVATE 
+#         unofficial::{{PACKAGE_NAME}}::core
+#         unofficial::{{PACKAGE_NAME}}::utils
+#     )

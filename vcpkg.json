@@ -1,0 +1,15 @@
+{
+  "name": "gentest",
+  "version": "0.1.0",
+  "description": "A C++ project using vcpkg",
+  "dependencies": [
+    {
+      "name": "fmt",
+      "version>=": "11.0.2"
+    },
+    {
+      "name": "nanobench",
+      "version>=": "4.3.11"
+    }
+  ]
+}

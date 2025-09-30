@@ -1,0 +1,67 @@
+# Port template for {{PACKAGE_NAME}}
+# Replace all {{PLACEHOLDER}} values with actual values
+
+# Available common variables:
+# CURRENT_BUILDTREES_DIR = ${VCPKG_ROOT_DIR}\buildtrees\${PORT}
+# CURRENT_PACKAGES_DIR   = ${VCPKG_ROOT_DIR}\packages\${PORT}_${TARGET_TRIPLET}
+# CURRENT_PORT_DIR       = ${VCPKG_ROOT_DIR}\ports\${PORT}
+# VCPKG_CMAKE_SYSTEM_NAME  = linux, windows, or darwin
+# VCPKG_TARGET_ARCHITECTURE = x86, x64, or arm
+# VCPKG_LIBRARY_LINKAGE     = static or dynamic
+# VCPKG_CRT_LINKAGE         = static or dynamic
+
+# Check for features if needed
+# vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+#     FEATURES
+#         feature1    ENABLE_FEATURE1
+#         feature2    ENABLE_FEATURE2
+# )
+
+# Download source code
+vcpkg_download_distfile(ARCHIVE
+    URLS "{{SOURCE_URL}}"
+    FILENAME "{{PACKAGE_NAME}}-{{VERSION}}.tar.gz"
+    SHA512 {{SHA512_HASH}}
+)
+
+# Extract source archive
+vcpkg_extract_source_archive(
+    SOURCE_PATH
+    ARCHIVE "${ARCHIVE}"
+    # Apply patches if needed
+    # PATCHES
+    #     fix-cmake.patch
+    #     fix-headers.patch
+)
+
+# Configure the build
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -DBUILD_EXAMPLES=OFF
+        -DBUILD_TESTS=OFF
+        # ${FEATURE_OPTIONS}
+    # OPTIONS_RELEASE
+    #     -DOPTIMIZATION=ON
+    # OPTIONS_DEBUG
+    #     -DDEBUG_LOGGING=ON
+)
+
+# Build and install
+vcpkg_cmake_install()
+
+# Fix CMake targets (creates unofficial-{{PACKAGE_NAME}}-config.cmake)
+vcpkg_cmake_config_fixup(
+    # PACKAGE_NAME unofficial-{{PACKAGE_NAME}}
+    # CONFIG_PATH lib/cmake/{{PACKAGE_NAME}}
+)
+
+# Clean up unnecessary files
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
+
+# Install license/copyright file
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")
+
+# Optional: Handle usage file
+# file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
