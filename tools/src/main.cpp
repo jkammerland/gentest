@@ -28,6 +28,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -94,6 +95,22 @@ struct ParsedAttribute {
     std::string              name;
     std::vector<std::string> arguments;
 };
+
+struct AttributeCollection {
+    std::vector<ParsedAttribute> gentest;
+    std::vector<std::string>     other_namespaces;
+};
+
+constexpr std::array<std::string_view, 2> kAllowedValueAttributes{"category", "owner"};
+constexpr std::array<std::string_view, 4> kAllowedFlagAttributes{"fast", "slow", "linux", "windows"};
+
+bool is_allowed_value_attribute(std::string_view name) {
+    return std::find(kAllowedValueAttributes.begin(), kAllowedValueAttributes.end(), name) != kAllowedValueAttributes.end();
+}
+
+bool is_allowed_flag_attribute(std::string_view name) {
+    return std::find(kAllowedFlagAttributes.begin(), kAllowedFlagAttributes.end(), name) != kAllowedFlagAttributes.end();
+}
 
 std::vector<std::string> split_arguments(std::string_view arguments) {
     std::vector<std::string> parts;
@@ -305,22 +322,22 @@ std::vector<ParsedAttribute> parse_gentest_attributes_from_text(std::string_view
     return collected;
 }
 
-std::vector<ParsedAttribute> collect_gentest_attributes_for(const FunctionDecl &func, const SourceManager &sm) {
-    std::vector<ParsedAttribute> result;
+AttributeCollection collect_gentest_attributes_for(const FunctionDecl &func, const SourceManager &sm) {
+    AttributeCollection collected;
 
     SourceLocation begin = func.getBeginLoc();
     if (!begin.isValid()) {
-        return result;
+        return collected;
     }
 
     SourceLocation file_location = sm.getFileLoc(begin);
     if (!file_location.isValid()) {
-        return result;
+        return collected;
     }
 
     const FileID file_id = sm.getFileID(file_location);
     if (file_id.isInvalid()) {
-        return result;
+        return collected;
     }
 
     const llvm::StringRef buffer = sm.getBufferData(file_id);
@@ -343,16 +360,67 @@ std::vector<ParsedAttribute> collect_gentest_attributes_for(const FunctionDecl &
             break;
         }
 
-        llvm::StringRef attribute_text = buffer.slice(open, position);
-        auto            parsed         = parse_gentest_attributes_from_text(attribute_text.str());
+        const std::size_t close_marker = buffer.find("]]", open);
+        if (close_marker == llvm::StringRef::npos) {
+            break;
+        }
+
+        const std::string attribute_text = buffer.slice(open, close_marker + 2).str();
+
+        std::string_view view(attribute_text);
+        if (!view.starts_with("[[")) {
+            cursor = open;
+            continue;
+        }
+        view.remove_prefix(2);
+        while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
+            view.remove_prefix(1);
+        }
+        if (!view.starts_with("using")) {
+            cursor = open;
+            continue;
+        }
+        view.remove_prefix(5);
+        while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
+            view.remove_prefix(1);
+        }
+        std::size_t ns_len = 0;
+        while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
+            ++ns_len;
+        }
+        std::string namespace_name(view.substr(0, ns_len));
+        view.remove_prefix(ns_len);
+        while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
+            view.remove_prefix(1);
+        }
+        if (view.empty() || view.front() != ':') {
+            cursor = open;
+            continue;
+        }
+        view.remove_prefix(1);
+
+        std::size_t args_end = view.rfind("]]");
+        if (args_end == std::string_view::npos) {
+            cursor = open;
+            continue;
+        }
+        std::string args_text = trim_copy(view.substr(0, args_end));
+
+        if (namespace_name != "gentest") {
+            collected.other_namespaces.push_back(attribute_text);
+            cursor = open;
+            continue;
+        }
+
+        auto parsed = parse_attribute_list(args_text);
         if (!parsed.empty()) {
-            result.insert(result.begin(), parsed.begin(), parsed.end());
+            collected.gentest.insert(collected.gentest.begin(), parsed.begin(), parsed.end());
         }
 
         cursor = open;
     }
 
-    return result;
+    return collected;
 }
 
 std::vector<int> parse_version_components(std::string_view text) {
@@ -549,6 +617,10 @@ class TestCaseCollector : public MatchFinder::MatchCallback {
             loc = sm->getExpansionLoc(loc);
         }
 
+        if (!sm->isWrittenInMainFile(loc)) {
+            return;
+        }
+
         if (sm->isInSystemHeader(loc) || sm->isWrittenInBuiltinFile(loc)) {
             return;
         }
@@ -582,11 +654,37 @@ class TestCaseCollector : public MatchFinder::MatchCallback {
         }
     }
 
-    static AttributeSummary extract_metadata(const FunctionDecl &func, const SourceManager &sm, const LangOptions &lang) {
+    AttributeSummary extract_metadata(const FunctionDecl &func, const SourceManager &sm, const LangOptions &lang) const {
         AttributeSummary summary;
         (void)lang;
 
-        auto parsed = collect_gentest_attributes_for(func, sm);
+        const auto  collected = collect_gentest_attributes_for(func, sm);
+        const auto &parsed    = collected.gentest;
+
+        auto report = [&](std::string_view message) {
+            const SourceLocation  loc     = sm.getSpellingLoc(func.getBeginLoc());
+            const llvm::StringRef file    = sm.getFilename(loc);
+            const unsigned        line    = sm.getSpellingLineNumber(loc);
+            const std::string     subject = func.getQualifiedNameAsString();
+            if (!file.empty()) {
+                llvm::errs() << "gentest_codegen: " << file << ':' << line << ": " << message;
+            } else {
+                llvm::errs() << "gentest_codegen: " << message;
+            }
+            if (!subject.empty()) {
+                llvm::errs() << " (" << subject << ')';
+            }
+            llvm::errs() << '\n';
+        };
+
+        for (const auto &message : collected.other_namespaces) {
+            std::string text = "attribute '" + message + "' ignored (unsupported attribute namespace)";
+            report(text);
+        }
+
+        if (parsed.empty()) {
+            return summary;
+        }
 
         for (const auto &attr : parsed) {
             std::string lowered = attr.name;
@@ -618,23 +716,46 @@ class TestCaseCollector : public MatchFinder::MatchCallback {
                     }
                     summary.skip_reason = std::move(reason);
                 }
+            } else if (attr.arguments.empty()) {
+                if (!is_allowed_flag_attribute(lowered)) {
+                    had_error_ = true;
+                    std::ostringstream stream;
+                    stream << "unknown gentest attribute '" << attr.name << "'";
+                    report(stream.str());
+                    continue;
+                }
+                add_unique(summary.tags, attr.name);
             } else {
-                if (attr.arguments.empty()) {
-                    add_unique(summary.tags, attr.name);
-                } else if (attr.arguments.size() == 1) {
-                    add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
-                } else {
-                    for (const auto &arg : attr.arguments) {
-                        add_unique(summary.tags, attr.name + "=" + arg);
+                if (!is_allowed_value_attribute(lowered)) {
+                    had_error_ = true;
+                    std::ostringstream stream;
+                    stream << "unknown gentest attribute '" << attr.name << "' with argument" << (attr.arguments.size() == 1 ? "" : "s")
+                           << " (";
+                    for (std::size_t idx = 0; idx < attr.arguments.size(); ++idx) {
+                        if (idx != 0) {
+                            stream << ", ";
+                        }
+                        stream << '"' << attr.arguments[idx] << '"';
                     }
+                    stream << ')';
+                    report(stream.str());
+                    continue;
+                }
+                for (const auto &value : attr.arguments) {
+                    add_unique(summary.tags, attr.name + "=" + value);
                 }
             }
+        }
+
+        if (!summary.case_name.has_value()) {
+            report("expected [[using gentest : test(\"...\")]] attribute on this test function");
+            had_error_ = true;
         }
 
         return summary;
     }
 
-    static std::optional<TestCaseInfo> classify(const FunctionDecl &func, const SourceManager &sm, const LangOptions &lang) {
+    std::optional<TestCaseInfo> classify(const FunctionDecl &func, const SourceManager &sm, const LangOptions &lang) const {
         AttributeSummary metadata = extract_metadata(func, sm, lang);
         if (!metadata.case_name.has_value()) {
             return std::nullopt;
@@ -675,6 +796,10 @@ class TestCaseCollector : public MatchFinder::MatchCallback {
 
     std::vector<TestCaseInfo>                                         &out_;
     std::set<std::pair<std::string, std::pair<std::string, unsigned>>> seen_;
+    mutable bool                                                       had_error_ = false;
+
+  public:
+    [[nodiscard]] bool has_errors() const { return had_error_; }
 };
 
 std::string read_template_file(const std::filesystem::path &path) {
@@ -1028,6 +1153,9 @@ int main(int argc, const char **argv) {
     const int status = tool.run(newFrontendActionFactory(&finder).get());
     if (status != 0) {
         return status;
+    }
+    if (collector.has_errors()) {
+        return 1;
     }
 
     std::sort(cases.begin(), cases.end(),
