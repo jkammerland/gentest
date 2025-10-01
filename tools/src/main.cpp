@@ -15,6 +15,7 @@
 #include <clang/Tooling/JSONCompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
 #include <cstddef>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -352,6 +353,153 @@ std::vector<ParsedAttribute> collect_gentest_attributes_for(const FunctionDecl &
     }
 
     return result;
+}
+
+std::vector<int> parse_version_components(std::string_view text) {
+    std::vector<int> components;
+    std::size_t      pos = 0;
+    while (pos < text.size()) {
+        if (!std::isdigit(static_cast<unsigned char>(text[pos]))) {
+            return {};
+        }
+        std::size_t end = pos;
+        while (end < text.size() && std::isdigit(static_cast<unsigned char>(text[end])) != 0) {
+            ++end;
+        }
+        components.push_back(std::stoi(std::string(text.substr(pos, end - pos))));
+        if (end >= text.size()) {
+            break;
+        }
+        if (text[end] != '.') {
+            return {};
+        }
+        pos = end + 1;
+    }
+    return components;
+}
+
+bool version_less(const std::vector<int> &lhs, const std::vector<int> &rhs) {
+    return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+}
+
+std::vector<std::string> detect_platform_include_dirs() {
+    std::vector<std::string> dirs;
+#if defined(__linux__)
+    namespace fs = std::filesystem;
+
+    auto append_unique = [&dirs](const fs::path &candidate) {
+        if (!fs::exists(candidate) || !fs::is_directory(candidate)) {
+            return;
+        }
+        auto normalized = candidate.lexically_normal().string();
+        if (std::find(dirs.begin(), dirs.end(), normalized) == dirs.end()) {
+            dirs.push_back(std::move(normalized));
+        }
+    };
+
+    auto detect_latest_version = [](const fs::path &root) -> std::optional<fs::path> {
+        if (!fs::exists(root) || !fs::is_directory(root)) {
+            return std::nullopt;
+        }
+        std::optional<fs::path> best;
+        std::vector<int>        best_version;
+        for (const auto &entry : fs::directory_iterator(root)) {
+            if (!entry.is_directory()) {
+                continue;
+            }
+            auto version = parse_version_components(entry.path().filename().string());
+            if (version.empty()) {
+                continue;
+            }
+            if (!best.has_value() || version_less(best_version, version)) {
+                best         = entry.path();
+                best_version = std::move(version);
+            }
+        }
+        return best;
+    };
+
+    if (auto cxx_root = detect_latest_version("/usr/include/c++")) {
+        append_unique(*cxx_root);
+
+        fs::path architecture_dir;
+        for (const auto &entry : fs::directory_iterator(*cxx_root)) {
+            if (!entry.is_directory()) {
+                continue;
+            }
+            const auto name = entry.path().filename().string();
+            if (name == "backward") {
+                continue;
+            }
+            if (!name.empty() && name.find('-') != std::string::npos) {
+                architecture_dir = entry.path();
+                break;
+            }
+            if (architecture_dir.empty()) {
+                architecture_dir = entry.path();
+            }
+        }
+        if (!architecture_dir.empty()) {
+            append_unique(architecture_dir);
+        }
+        append_unique(*cxx_root / "backward");
+    }
+
+    auto detect_gcc_internal = [&](const fs::path &root) {
+        if (!fs::exists(root) || !fs::is_directory(root)) {
+            return std::optional<fs::path>{};
+        }
+
+        std::optional<fs::path> best;
+        std::vector<int>        best_version;
+
+        for (const auto &triple_dir : fs::directory_iterator(root)) {
+            if (!triple_dir.is_directory()) {
+                continue;
+            }
+            for (const auto &version_dir : fs::directory_iterator(triple_dir.path())) {
+                if (!version_dir.is_directory()) {
+                    continue;
+                }
+                auto version = parse_version_components(version_dir.path().filename().string());
+                if (version.empty()) {
+                    continue;
+                }
+                if (!best.has_value() || version_less(best_version, version)) {
+                    best         = version_dir.path();
+                    best_version = std::move(version);
+                }
+            }
+        }
+
+        if (best) {
+            fs::path include_dir = *best / "include";
+            if (fs::exists(include_dir)) {
+                return std::optional<fs::path>{include_dir};
+            }
+        }
+        return std::optional<fs::path>{};
+    };
+
+    if (auto internal = detect_gcc_internal("/usr/lib/gcc")) {
+        append_unique(*internal);
+    }
+    if (auto internal = detect_gcc_internal("/usr/lib64/gcc")) {
+        append_unique(*internal);
+    }
+
+    append_unique(fs::path("/usr/include"));
+#endif
+    return dirs;
+}
+
+bool contains_isystem_entry(const clang::tooling::CommandLineArguments &args, const std::string &dir) {
+    for (std::size_t i = 0; i + 1 < args.size(); ++i) {
+        if (args[i] == "-isystem" && args[i + 1] == dir) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -796,59 +944,77 @@ int main(int argc, const char **argv) {
 
     clang::tooling::ClangTool tool{*database, options.sources};
 
-    const auto                                   extra_args = options.clang_args;
-    static const std::array<std::string_view, 4> default_system_includes{
-        "/usr/lib/gcc/x86_64-redhat-linux/15/../../../../include/c++/15",
-        "/usr/lib/gcc/x86_64-redhat-linux/15/../../../../include/c++/15/x86_64-redhat-linux",
-        "/usr/lib/gcc/x86_64-redhat-linux/15/../../../../include/c++/15/backward", "/usr/lib/gcc/x86_64-redhat-linux/15/include"};
+    const auto extra_args           = options.clang_args;
+    const auto default_include_dirs = detect_platform_include_dirs();
 
     if (options.compilation_database) {
-        tool.appendArgumentsAdjuster([extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
-            clang::tooling::CommandLineArguments adjusted;
-            static constexpr std::string_view    compiler = "clang++";
-            if (!command_line.empty()) {
-                adjusted.emplace_back(compiler);
-                adjusted.emplace_back("--gcc-toolchain=/usr");
-                adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                for (const auto &dir : default_system_includes) {
-                    adjusted.emplace_back("-isystem");
-                    adjusted.emplace_back(std::string(dir));
+        tool.appendArgumentsAdjuster(
+            [extra_args, default_include_dirs](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
+                clang::tooling::CommandLineArguments adjusted;
+                if (!command_line.empty()) {
+                    adjusted.emplace_back(command_line.front());
+                    adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+                    for (const auto &dir : default_include_dirs) {
+                        if (contains_isystem_entry(command_line, dir) || contains_isystem_entry(adjusted, dir)) {
+                            continue;
+                        }
+                        adjusted.emplace_back("-isystem");
+                        adjusted.emplace_back(dir);
+                    }
+                    for (std::size_t i = 1; i < command_line.size(); ++i) {
+                        const auto &arg = command_line[i];
+                        if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
+                            arg == "-fmodule-header") {
+                            continue;
+                        }
+                        adjusted.push_back(arg);
+                    }
+                } else {
+                    static constexpr std::string_view compiler = "clang++";
+                    adjusted.emplace_back(compiler);
+#if defined(__linux__)
+                    adjusted.emplace_back("--gcc-toolchain=/usr");
+#endif
+                    adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+                    for (const auto &dir : default_include_dirs) {
+                        if (contains_isystem_entry(command_line, dir) || contains_isystem_entry(adjusted, dir)) {
+                            continue;
+                        }
+                        adjusted.emplace_back("-isystem");
+                        adjusted.emplace_back(dir);
+                    }
                 }
-                for (std::size_t i = 1; i < command_line.size(); ++i) {
-                    const auto &arg = command_line[i];
-                    if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
-                        arg == "-fmodule-header") {
+                return adjusted;
+            });
+    } else {
+        tool.appendArgumentsAdjuster(
+            [extra_args, default_include_dirs](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
+                clang::tooling::CommandLineArguments adjusted;
+                static constexpr std::string_view    compiler = "clang++";
+                adjusted.emplace_back(compiler);
+#if defined(__linux__)
+                adjusted.emplace_back("--gcc-toolchain=/usr");
+#endif
+                adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+                for (const auto &dir : default_include_dirs) {
+                    if (contains_isystem_entry(command_line, dir) || contains_isystem_entry(adjusted, dir)) {
                         continue;
                     }
-                    adjusted.push_back(arg);
-                }
-            } else {
-                adjusted.emplace_back(compiler);
-                adjusted.emplace_back("--gcc-toolchain=/usr");
-                adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                for (const auto &dir : default_system_includes) {
                     adjusted.emplace_back("-isystem");
-                    adjusted.emplace_back(std::string(dir));
+                    adjusted.emplace_back(dir);
                 }
-            }
-            return adjusted;
-        });
-    } else {
-        tool.appendArgumentsAdjuster([extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
-            clang::tooling::CommandLineArguments adjusted;
-            static constexpr std::string_view    compiler = "clang++";
-            adjusted.emplace_back(compiler);
-            adjusted.emplace_back("--gcc-toolchain=/usr");
-            adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-            for (const auto &dir : default_system_includes) {
-                adjusted.emplace_back("-isystem");
-                adjusted.emplace_back(std::string(dir));
-            }
-            if (!command_line.empty()) {
-                adjusted.insert(adjusted.end(), command_line.begin() + 1, command_line.end());
-            }
-            return adjusted;
-        });
+                if (!command_line.empty()) {
+                    for (std::size_t i = 1; i < command_line.size(); ++i) {
+                        const auto &arg = command_line[i];
+                        if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
+                            arg == "-fmodule-header") {
+                            continue;
+                        }
+                        adjusted.push_back(arg);
+                    }
+                }
+                return adjusted;
+            });
     }
 
     tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
