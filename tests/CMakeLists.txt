@@ -14,10 +14,6 @@ foreach(suite IN LISTS _gentest_test_suites)
             ${PROJECT_NAME})
 
     target_compile_features(${target_name} PRIVATE cxx_std_23)
-    target_compile_options(${target_name} PRIVATE
-        $<$<CXX_COMPILER_ID:Clang>:-Wno-unknown-attributes>
-        $<$<CXX_COMPILER_ID:Clang>:-Wno-attributes>)
-
     target_include_directories(${target_name}
         PRIVATE
             ${PROJECT_SOURCE_DIR}/include

@@ -15,3 +15,10 @@ target_sources(${PROJECT_NAME}
             BASE_DIRS ${PROJECT_SOURCE_DIR}/include
             FILES ${_gentest_headers}
 )
+
+target_compile_options(${PROJECT_NAME}
+    INTERFACE
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-Wno-unknown-attributes;-Wno-attributes>
+        $<$<COMPILE_LANG_AND_ID:CXX,AppleClang>:-Wno-unknown-attributes;-Wno-attributes>
+        $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-attributes>
+        $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/wd5030>)

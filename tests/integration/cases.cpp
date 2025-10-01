@@ -1,10 +1,4 @@
-#include "gentest/attributes.h"
 #include "gentest/runner.h"
-
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunknown-attributes"
-#endif
 
 #include <map>
 #include <stdexcept>
@@ -68,7 +62,3 @@ void throw_error() {
 }
 
 } // namespace integration::errors
-
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
