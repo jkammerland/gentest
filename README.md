@@ -27,22 +27,16 @@ libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
 
 ## Authoring new test suites
 1. Create a test source (e.g. `tests/widgets/cases.cpp`) and tag functions with
-   namespaced attributes understood by the generator. Suppress the
-   `-Wunknown-attributes` diagnostic locally to keep builds quiet:
+   namespaced attributes understood by the generator:
    ```c++
-   #if defined(__clang__)
-   #pragma clang diagnostic push
-   #pragma clang diagnostic ignored "-Wunknown-attributes"
-   #endif
-
    [[using gentest : test("widgets/basic/health"), slow, linux, req("BUG-42")]]
    void widget_smoke() {
        gentest::expect_eq(create_widget().status(), widget_status::healthy);
    }
-   #if defined(__clang__)
-   #pragma clang diagnostic pop
-   #endif
    ```
+   The interface target `${PROJECT_NAME}` exports the right warning suppressions to
+   consumers (e.g. `-Wno-unknown-attributes` on Clang/GCC, `/wd5030` on MSVC), so no
+   local `#pragma` blocks are required.
 2. Add a target in `tests/CMakeLists.txt` and call `gentest_attach_codegen()` to hook the generator:
    ```cmake
    add_executable(gentest_widgets_tests support/test_entry.cpp widgets/cases.cpp)
@@ -53,6 +47,11 @@ libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
    ```
    The helper injects a custom command that runs `gentest_codegen`, consumes the active `compile_commands.json`, and
    appends the generated `test_impl.cpp` to the target sources.
+
+`gentest_codegen` also supports a lint-only mode to validate attributes without emitting code:
+```bash
+$ ./build/tools/gentest_codegen --check --compdb ./build/debug -- -std=c++23 tests/unit/cases.cpp
+```
 
 Running the resulting binary executes every annotated function, printing `[ PASS ]` / `[ FAIL ]` lines and returning a
 non-zero exit status when any test throws `gentest::failure`. Pass `--list` to enumerate discovered cases and inspect

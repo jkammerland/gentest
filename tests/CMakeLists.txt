@@ -35,3 +35,24 @@ foreach(suite IN LISTS _gentest_test_suites)
 endforeach()
 
 unset(_gentest_test_suites)
+
+# Lint-only checks for generator
+add_test(NAME gentest_codegen_check_valid
+    COMMAND $<TARGET_FILE:gentest_codegen>
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
+        -- -std=c++23
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+add_test(NAME gentest_codegen_check_invalid
+    COMMAND $<TARGET_FILE:gentest_codegen>
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
+        -- -std=c++23
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+set_tests_properties(gentest_codegen_check_invalid PROPERTIES WILL_FAIL TRUE)

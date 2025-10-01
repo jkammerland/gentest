@@ -101,16 +101,7 @@ struct AttributeCollection {
     std::vector<std::string>     other_namespaces;
 };
 
-constexpr std::array<std::string_view, 2> kAllowedValueAttributes{"category", "owner"};
-constexpr std::array<std::string_view, 4> kAllowedFlagAttributes{"fast", "slow", "linux", "windows"};
-
-bool is_allowed_value_attribute(std::string_view name) {
-    return std::find(kAllowedValueAttributes.begin(), kAllowedValueAttributes.end(), name) != kAllowedValueAttributes.end();
-}
-
-bool is_allowed_flag_attribute(std::string_view name) {
-    return std::find(kAllowedFlagAttributes.begin(), kAllowedFlagAttributes.end(), name) != kAllowedFlagAttributes.end();
-}
+#include "attr_rules.hpp"
 
 std::vector<std::string> split_arguments(std::string_view arguments) {
     std::vector<std::string> parts;
@@ -579,6 +570,7 @@ struct CollectorOptions {
     std::vector<std::string>             sources;
     std::vector<std::string>             clang_args;
     std::optional<std::filesystem::path> compilation_database;
+    bool                                  check_only = false;
 };
 
 struct TestCaseInfo {
@@ -686,25 +678,38 @@ class TestCaseCollector : public MatchFinder::MatchCallback {
             return summary;
         }
 
+        // Track attribute usage for duplicate/conflict detection
+        bool                          saw_test      = false;
+        std::set<std::string>         seen_flags;
+        std::optional<std::string>    seen_category;
+        std::optional<std::string>    seen_owner;
+
         for (const auto &attr : parsed) {
             std::string lowered = attr.name;
             std::transform(lowered.begin(), lowered.end(), lowered.begin(),
                            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 
             if (lowered == "test") {
-                if (!attr.arguments.empty()) {
-                    summary.case_name = attr.arguments.front();
+                if (saw_test) {
+                    had_error_ = true;
+                    report("duplicate gentest attribute 'test'");
+                    continue;
                 }
-                for (std::size_t idx = 1; idx < attr.arguments.size(); ++idx) {
-                    add_unique(summary.tags, "test=" + attr.arguments[idx]);
+                saw_test = true;
+                if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
+                    had_error_ = true;
+                    report("'test' requires exactly one non-empty string argument");
+                    continue;
                 }
+                summary.case_name = attr.arguments.front();
             } else if (lowered == "req" || lowered == "requires") {
                 if (attr.arguments.empty()) {
-                    add_unique(summary.requirements, attr.name);
-                } else {
-                    for (const auto &req : attr.arguments) {
-                        add_unique(summary.requirements, req);
-                    }
+                    had_error_ = true;
+                    report("'req' requires at least one string argument");
+                    continue;
+                }
+                for (const auto &req : attr.arguments) {
+                    add_unique(summary.requirements, req);
                 }
             } else if (lowered == "skip") {
                 summary.should_skip = true;
@@ -717,16 +722,32 @@ class TestCaseCollector : public MatchFinder::MatchCallback {
                     summary.skip_reason = std::move(reason);
                 }
             } else if (attr.arguments.empty()) {
-                if (!is_allowed_flag_attribute(lowered)) {
+                if (!gentest::detail::is_allowed_flag_attribute(lowered)) {
                     had_error_ = true;
                     std::ostringstream stream;
                     stream << "unknown gentest attribute '" << attr.name << "'";
                     report(stream.str());
                     continue;
                 }
+                if (seen_flags.contains(lowered)) {
+                    had_error_ = true;
+                    std::ostringstream stream;
+                    stream << "duplicate gentest flag attribute '" << attr.name << "'";
+                    report(stream.str());
+                    continue;
+                }
+                // Simple conflict check for platform flags
+                if ((lowered == "linux" && seen_flags.contains("windows")) || (lowered == "windows" && seen_flags.contains("linux"))) {
+                    had_error_ = true;
+                    std::ostringstream stream;
+                    stream << "conflicting gentest flags 'linux' and 'windows'";
+                    report(stream.str());
+                    continue;
+                }
+                seen_flags.insert(lowered);
                 add_unique(summary.tags, attr.name);
             } else {
-                if (!is_allowed_value_attribute(lowered)) {
+                if (!gentest::detail::is_allowed_value_attribute(lowered)) {
                     had_error_ = true;
                     std::ostringstream stream;
                     stream << "unknown gentest attribute '" << attr.name << "' with argument" << (attr.arguments.size() == 1 ? "" : "s")
@@ -741,8 +762,33 @@ class TestCaseCollector : public MatchFinder::MatchCallback {
                     report(stream.str());
                     continue;
                 }
-                for (const auto &value : attr.arguments) {
-                    add_unique(summary.tags, attr.name + "=" + value);
+                // Enforce exactly one string for category/owner for now
+                if (lowered == "category") {
+                    if (attr.arguments.size() != 1) {
+                        had_error_ = true;
+                        report("'category' requires exactly one string argument");
+                        continue;
+                    }
+                    if (seen_category.has_value()) {
+                        had_error_ = true;
+                        report("duplicate 'category' attribute");
+                        continue;
+                    }
+                    seen_category = attr.arguments.front();
+                    add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
+                } else if (lowered == "owner") {
+                    if (attr.arguments.size() != 1) {
+                        had_error_ = true;
+                        report("'owner' requires exactly one string argument");
+                        continue;
+                    }
+                    if (seen_owner.has_value()) {
+                        had_error_ = true;
+                        report("duplicate 'owner' attribute");
+                        continue;
+                    }
+                    seen_owner = attr.arguments.front();
+                    add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
                 }
             }
         }
@@ -982,8 +1028,8 @@ std::optional<std::string> render_cases(const CollectorOptions &options, const s
 
 CollectorOptions parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory    category{"gentest codegen"};
-    static llvm::cl::opt<std::string>  output_option{"output", llvm::cl::desc("Path to the output source file"), llvm::cl::Required,
-                                                    llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  output_option{"output", llvm::cl::desc("Path to the output source file"),
+                                                    llvm::cl::init("") , llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
@@ -993,6 +1039,8 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> clang_option{llvm::cl::ConsumeAfter, llvm::cl::desc("-- <clang arguments>")};
     static llvm::cl::opt<std::string>  template_option{"template", llvm::cl::desc("Path to the template file used for code generation"),
                                                       llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<bool>         check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"),
+                                                   llvm::cl::init(false), llvm::cl::cat(category)};
 
     llvm::cl::HideUnrelatedOptions(category);
     llvm::cl::ParseCommandLineOptions(argc, argv, "gentest clang code generator\n");
@@ -1002,6 +1050,7 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     opts.output_path = std::filesystem::path{output_option.getValue()};
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.clang_args.assign(clang_option.begin(), clang_option.end());
+    opts.check_only  = check_option.getValue();
     if (!opts.clang_args.empty() && opts.clang_args.front() == "--") {
         opts.clang_args.erase(opts.clang_args.begin());
     }
@@ -1012,6 +1061,9 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         opts.template_path = std::filesystem::path{template_option.getValue()};
     } else if (!kTemplateDir.empty()) {
         opts.template_path = std::filesystem::path{kTemplateDir} / "test_impl.cpp.tpl";
+    }
+    if (!opts.check_only && opts.output_path.empty()) {
+        llvm::errs() << "gentest_codegen: --output is required unless --check is specified\n";
     }
     return opts;
 }
@@ -1158,8 +1210,15 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
-    std::sort(cases.begin(), cases.end(),
-              [](const TestCaseInfo &lhs, const TestCaseInfo &rhs) { return lhs.display_name < rhs.display_name; });
+    if (options.check_only) {
+        // Validation path only
+        return 0;
+    }
+
+    if (options.output_path.empty()) {
+        llvm::errs() << "gentest_codegen: --output is required unless --check is specified\n";
+        return 1;
+    }
 
     return emit(options, cases);
 }
