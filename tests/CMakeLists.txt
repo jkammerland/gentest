@@ -56,3 +56,28 @@ add_test(NAME gentest_codegen_check_invalid
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
 set_tests_properties(gentest_codegen_check_invalid PROPERTIES WILL_FAIL TRUE)
+
+# End-to-end behavioral checks with robust counting
+add_test(NAME unit_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DPASS=3 -DFAIL=0 -DSKIP=0
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME unit_list_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DLIST=ON -DCASES=3
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME integration_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_integration_tests>
+        -DPASS=3 -DFAIL=0 -DSKIP=1
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME integration_list_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_integration_tests>
+        -DLIST=ON -DCASES=4
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
