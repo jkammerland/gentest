@@ -24,3 +24,9 @@ if(${PROJECT_NAME}_BUILD_TESTING)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# Optional clang-tidy plugin (editor diagnostics) — default OFF
+option(GENTEST_BUILD_TIDY_PLUGIN "Build gentest clang-tidy plugin" OFF)
+if(GENTEST_BUILD_TIDY_PLUGIN)
+    add_subdirectory(tools/tidy)
+endif()

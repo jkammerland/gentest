@@ -6,7 +6,12 @@ find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
 
 add_executable(gentest_codegen
-    src/main.cpp)
+    src/main.cpp
+    src/parse.cpp
+    src/discovery.cpp
+    src/validate.cpp
+    src/emit.cpp
+    src/tooling_support.cpp)
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_23)
 

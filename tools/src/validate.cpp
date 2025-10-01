@@ -1,0 +1,147 @@
+// Implementation of validation for gentest attributes
+
+#include "validate.hpp"
+#include "attr_rules.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace gentest::codegen {
+
+namespace {
+void add_unique(std::vector<std::string> &values, std::string value) {
+    if (std::find(values.begin(), values.end(), value) == values.end()) {
+        values.push_back(std::move(value));
+    }
+}
+} // namespace
+
+auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
+                         const std::function<void(const std::string &)> &report) -> AttributeSummary {
+    AttributeSummary summary;
+
+    bool                        saw_test      = false;
+    std::set<std::string>       seen_flags;
+    std::optional<std::string>  seen_category;
+    std::optional<std::string>  seen_owner;
+
+    for (const auto &attr : parsed) {
+        std::string lowered = attr.name;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+
+        if (lowered == "test") {
+            if (saw_test) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'test'");
+                continue;
+            }
+            saw_test = true;
+            if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
+                summary.had_error = true;
+                report("'test' requires exactly one non-empty string argument");
+                continue;
+            }
+            summary.case_name = attr.arguments.front();
+        } else if (lowered == "req" || lowered == "requires") {
+            if (attr.arguments.empty()) {
+                summary.had_error = true;
+                report("'req' requires at least one string argument");
+                continue;
+            }
+            for (const auto &req : attr.arguments) {
+                add_unique(summary.requirements, req);
+            }
+        } else if (lowered == "skip") {
+            summary.should_skip = true;
+            if (!attr.arguments.empty()) {
+                std::string reason = attr.arguments.front();
+                for (std::size_t idx = 1; idx < attr.arguments.size(); ++idx) {
+                    reason.append(", ");
+                    reason.append(attr.arguments[idx]);
+                }
+                summary.skip_reason = std::move(reason);
+            }
+        } else if (attr.arguments.empty()) {
+            if (!gentest::detail::is_allowed_flag_attribute(lowered)) {
+                summary.had_error = true;
+                std::ostringstream stream;
+                stream << "unknown gentest attribute '" << attr.name << "'";
+                report(stream.str());
+                continue;
+            }
+            if (seen_flags.contains(lowered)) {
+                summary.had_error = true;
+                std::ostringstream stream;
+                stream << "duplicate gentest flag attribute '" << attr.name << "'";
+                report(stream.str());
+                continue;
+            }
+            if ((lowered == "linux" && seen_flags.contains("windows")) || (lowered == "windows" && seen_flags.contains("linux"))) {
+                summary.had_error = true;
+                report("conflicting gentest flags 'linux' and 'windows'");
+                continue;
+            }
+            seen_flags.insert(lowered);
+            add_unique(summary.tags, attr.name);
+        } else {
+            if (!gentest::detail::is_allowed_value_attribute(lowered)) {
+                summary.had_error = true;
+                std::ostringstream stream;
+                stream << "unknown gentest attribute '" << attr.name << "' with argument" << (attr.arguments.size() == 1 ? "" : "s")
+                       << " (";
+                for (std::size_t idx = 0; idx < attr.arguments.size(); ++idx) {
+                    if (idx != 0) {
+                        stream << ", ";
+                    }
+                    stream << '"' << attr.arguments[idx] << '"';
+                }
+                stream << ')';
+                report(stream.str());
+                continue;
+            }
+            if (lowered == "category") {
+                if (attr.arguments.size() != 1) {
+                    summary.had_error = true;
+                    report("'category' requires exactly one string argument");
+                    continue;
+                }
+                if (seen_category.has_value()) {
+                    summary.had_error = true;
+                    report("duplicate 'category' attribute");
+                    continue;
+                }
+                seen_category = attr.arguments.front();
+                add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
+            } else if (lowered == "owner") {
+                if (attr.arguments.size() != 1) {
+                    summary.had_error = true;
+                    report("'owner' requires exactly one string argument");
+                    continue;
+                }
+                if (seen_owner.has_value()) {
+                    summary.had_error = true;
+                    report("duplicate 'owner' attribute");
+                    continue;
+                }
+                seen_owner = attr.arguments.front();
+                add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
+            }
+        }
+    }
+
+    if (!summary.case_name.has_value()) {
+        summary.had_error = true;
+        report("expected [[using gentest : test(\"...\")]] attribute on this test function");
+    }
+
+    return summary;
+}
+
+} // namespace gentest::codegen
+
