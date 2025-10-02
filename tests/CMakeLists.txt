@@ -1,6 +1,7 @@
 set(_gentest_test_suites
     unit
-    integration)
+    integration
+    failing)
 
 foreach(suite IN LISTS _gentest_test_suites)
     set(target_name "${PROJECT_NAME}_${suite}_tests")
@@ -81,3 +82,12 @@ add_test(NAME integration_list_counts
         -DPROG=$<TARGET_FILE:gentest_integration_tests>
         -DLIST=ON -DCASES=4
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME failing_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_failing_tests>
+        -DPASS=0 -DFAIL=1 -DSKIP=0
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+# The raw failing suite run is expected to fail
+set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)

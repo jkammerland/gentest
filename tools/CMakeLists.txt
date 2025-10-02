@@ -7,6 +7,7 @@ find_package(Clang CONFIG REQUIRED)
 
 add_executable(gentest_codegen
     src/main.cpp
+    src/parse_core.cpp
     src/parse.cpp
     src/discovery.cpp
     src/validate.cpp

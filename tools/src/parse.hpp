@@ -2,6 +2,7 @@
 #pragma once
 
 #include "model.hpp"
+#include "parse_core.hpp"
 
 #include <clang/AST/Decl.h>
 #include <clang/Basic/SourceManager.h>
@@ -13,8 +14,4 @@ namespace gentest::codegen {
 auto collect_gentest_attributes_for(const clang::FunctionDecl& func,
                                     const clang::SourceManager& sm) -> AttributeCollection;
 
-// Parse comma-separated attribute list into parsed attributes.
-auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>;
-
 } // namespace gentest::codegen
-
