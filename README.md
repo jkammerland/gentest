@@ -53,6 +53,21 @@ libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
 $ ./build/tools/gentest_codegen --check --compdb ./build/debug -- -std=c++23 tests/unit/cases.cpp
 ```
 
+## Clang-Tidy Check (optional)
+
+An optional clang-tidy plugin is provided to surface the same diagnostics in editors.
+
+- Build the module (only if Clang tidy dev libraries are available):
+  - Configure with `-DGENTEST_BUILD_TIDY_PLUGIN=ON` and build.
+- Load the check:
+  - `clang-tidy -load ./build/tools/tidy/libGentestTidyModule.so -checks=gentest-attributes <file.cpp>`
+- Behavior:
+  - Unknown `gentest::` attributes (including wrong arity/types) are hard errors.
+  - Attributes in other namespaces are warned as “ignored (unsupported attribute namespace)”.
+  - Duplicate/conflicting flags (e.g., `linux` vs `windows`) and duplicate `test`, `owner`, `category` are errors.
+
+This shares rules with the generator, so IDE diagnostics match codegen behavior.
+
 Running the resulting binary executes every annotated function, printing `[ PASS ]` / `[ FAIL ]` lines and returning a
 non-zero exit status when any test throws `gentest::failure`. Pass `--list` to enumerate discovered cases and inspect
 their metadata: the generator includes tags, requirement IDs, and skip markers that originate from the `[[using

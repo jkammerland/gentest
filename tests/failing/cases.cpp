@@ -8,4 +8,3 @@ void will_fail() {
 }
 
 } // namespace failing
-

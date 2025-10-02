@@ -4,7 +4,7 @@
 #include "parse.hpp"
 #include "validate.hpp"
 
-#include <algorithm>
+#include <utility>
 #include <clang/AST/Decl.h>
 #include <clang/Basic/SourceManager.h>
 #include <llvm/Support/raw_ostream.h>
@@ -138,4 +138,3 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
 bool TestCaseCollector::has_errors() const { return had_error_; }
 
 } // namespace gentest::codegen
-

@@ -2,12 +2,10 @@
 
 #include "emit.hpp"
 
-#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>

@@ -1,7 +1,8 @@
 set(_gentest_test_suites
     unit
     integration
-    failing)
+    failing
+    skiponly)
 
 foreach(suite IN LISTS _gentest_test_suites)
     set(target_name "${PROJECT_NAME}_${suite}_tests")
@@ -91,3 +92,15 @@ add_test(NAME failing_counts
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
+
+add_test(NAME skiponly_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_skiponly_tests>
+        -DPASS=0 -DFAIL=0 -DSKIP=2
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME skiponly_list_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_skiponly_tests>
+        -DLIST=ON -DCASES=2
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)

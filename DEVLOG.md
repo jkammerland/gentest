@@ -1,0 +1,38 @@
+Devlog 2025-10-02 (Refactor + Robust Tests)
+
+  - Goals
+      - Split generator into clear modules (discovery, parse, validate, emit, tooling)
+      - Enforce strict attribute validation and editor diagnostics
+      - Replace fragile golden tests with behavior-driven checks
+      - Add skip-only coverage
+  - Key changes
+      - Generator refactor:
+          - parse_core.hpp/.cpp: parse_attribute_list (no Clang deps)
+          - parse.hpp/.cpp: source scanning for [[using gentest: …]], uses core parser
+          - validate.hpp/.cpp: central rule enforcement (unknown gentest:: error; duplicates/conflicts error; value types checked)
+          - discovery.hpp/.cpp: AST matchers + metadata extraction
+          - emit.hpp/.cpp: template-based codegen only
+          - tooling_support.hpp/.cpp: platform include dir discovery + arg helpers
+          - main.cpp: minimal orchestrator; uses module interfaces
+      - Lint-only mode:
+          - gentest_codegen --check validates without output; CI tests for valid/invalid cases
+      - Behavioral tests:
+          - cmake/CheckTestCounts.cmake: counts “[ PASS ] / [ FAIL ] / [ SKIP ]”, asserts exit code semantics, and supports “--list” for discovery counts
+          - count/list checks for unit, integration, failing (one failure), and skiponly (two skips)
+      - Tidy plugin (optional):
+          - gentest-attributes check, reuses the same rules as generator
+          - README documents how to load it via -load into clang-tidy
+  - Fixes and cleanup
+      - Removed duplication of attribute rules and of parse_attribute_list; attr rules centralized in attr_rules.hpp; parsing centralized in parse_core.cpp.
+      - Removed Fedora-specific include assumptions; generator augments includes generically where needed and otherwise relies on the compilation database.
+      - Removed local pragma snippets from docs; INTERFACE target now exports warning suppressions so consumers don’t see “scoped attribute ignored”.
+  - Status
+      - Preset build/test runs clean across all suites and checks.
+      - Unknown gentest:: attributes hard-fail; other namespaces warn.
+      - INTERFACE warning flags propagate to consumers (Clang/GCC/MSVC).
+  - Next ideas (optional)
+      - Add a couple of core tests for skip(reason) at the parser/validator layer.
+      - Minimize logic in parse.cpp further if trim_copy can be moved into a small shared utility (not necessary, just polish).
+      - Expand tidy plugin docs with a minimal .clang-tidy example configuration for easy editor adoption.
+
+  If you want, I can add the skip(reason) unit assertions and a tiny .clang-tidy example next.

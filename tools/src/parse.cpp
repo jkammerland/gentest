@@ -2,7 +2,6 @@
 
 #include "parse.hpp"
 
-#include <algorithm>
 #include <cctype>
 #include <string>
 #include <string_view>
@@ -25,38 +24,6 @@ std::string trim_copy(std::string_view text) {
         text.remove_suffix(1);
     }
     return std::string(text);
-}
-
-std::string unquote(std::string_view value) {
-    std::string trimmed = trim_copy(value);
-    if (trimmed.size() >= 2 && trimmed.front() == '"' && trimmed.back() == '"') {
-        std::string decoded;
-        decoded.reserve(trimmed.size() - 2);
-        bool escape = false;
-        for (std::size_t idx = 1; idx + 1 < trimmed.size(); ++idx) {
-            const char ch = trimmed[idx];
-            if (escape) {
-                switch (ch) {
-                case '\\': decoded.push_back('\\'); break;
-                case '"': decoded.push_back('"'); break;
-                case 'n': decoded.push_back('\n'); break;
-                case 'r': decoded.push_back('\r'); break;
-                case 't': decoded.push_back('\t'); break;
-                default: decoded.push_back(ch); break;
-                }
-                escape = false;
-            } else if (ch == '\\') {
-                escape = true;
-            } else {
-                decoded.push_back(ch);
-            }
-        }
-        if (escape) {
-            decoded.push_back('\\');
-        }
-        return decoded;
-    }
-    return trimmed;
 }
 
 } // namespace
