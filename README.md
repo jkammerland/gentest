@@ -104,4 +104,33 @@ Execution order: free (non-member) tests run first. Member tests are grouped per
 shuffle the order of tests within each fixture group without interleaving with other groups by passing
 `--shuffle-fixtures` (optionally `--seed N` for reproducibility).
 
+## Templates
+
+Generated files are produced strictly from templates — no emission logic is inlined in the generator beyond simple
+placeholder substitutions. This keeps the output format easy to reason about and maintain.
+
+- Main file: `tools/templates/test_impl.cpp.tpl`
+  - Placeholders:
+    - `{{INCLUDE_SOURCES}}`: includes of the suite’s `cases.cpp` files.
+    - `{{FORWARD_DECLS}}`: optional forward declarations for free functions (member tests don’t need these).
+    - `{{TRAIT_DECLS}}`: constexpr arrays for tags and requirement IDs.
+    - `{{WRAPPER_IMPLS}}`: per-test wrappers with a uniform `void(void*)` signature.
+    - `{{CASE_INITS}}`: initializer list that builds the `kCases` array.
+    - `{{GROUP_RUNNERS}}`: per-fixture group runner functions.
+    - `{{RUN_GROUPS}}`: calls to run those groups inside the entry function.
+    - `{{ENTRY_FUNCTION}}`: fully qualified entry symbol (defaults to `gentest::run_all_tests`).
+
+- Partials under `tools/templates/partials/`:
+  - `wrapper_free.tpl`, `wrapper_ephemeral.tpl`, `wrapper_stateful.tpl`
+  - `case_entry.tpl`
+  - `group_runner_stateless.tpl`, `group_runner_stateful.tpl`
+  - `array_decl_empty.tpl`, `array_decl_nonempty.tpl`
+  - `forward_decl_line.tpl`, `forward_decl_ns.tpl`
+
+All templated braces that should appear literally in C++ must be doubled (`{{` and `}}`), including initializer lists,
+function bodies, and `std::random_device{{}}` calls. Placeholders use single braces (e.g. `{name}`, `{file}`).
+
+The emitter loads these partials once and fills them exclusively via `fmt::format(fmt::runtime(template), ...)` with
+named arguments. This avoids “append soup” and makes formatting changes localized to template files.
+
 See [`AGENTS.md`](AGENTS.md) for contribution guidelines and additional workflow conventions.

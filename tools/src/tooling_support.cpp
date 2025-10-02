@@ -4,13 +4,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <clang/Tooling/ArgumentsAdjusters.h>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <clang/Tooling/ArgumentsAdjusters.h>
 
 namespace gentest::codegen {
 
@@ -40,7 +39,7 @@ static std::vector<int> parse_version_components(std::string_view text) {
 }
 
 static bool version_less(const std::vector<int> &lhs, const std::vector<int> &rhs) {
-    return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+    return std::ranges::lexicographical_compare(lhs, rhs);
 }
 
 auto detect_platform_include_dirs() -> std::vector<std::string> {
@@ -53,7 +52,7 @@ auto detect_platform_include_dirs() -> std::vector<std::string> {
             return;
         }
         auto normalized = candidate.lexically_normal().string();
-        if (std::find(dirs.begin(), dirs.end(), normalized) == dirs.end()) {
+        if (std::ranges::find(dirs, normalized) == dirs.end()) {
             dirs.push_back(std::move(normalized));
         }
     };
@@ -159,4 +158,3 @@ bool contains_isystem_entry(const CommandLineArguments &args, const std::string 
 }
 
 } // namespace gentest::codegen
-

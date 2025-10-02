@@ -13,13 +13,12 @@ add_executable(gentest_codegen
     src/discovery.cpp
     src/validate.cpp
     src/emit.cpp
+    src/render.cpp
     src/tooling_support.cpp)
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_23)
 
-target_compile_definitions(gentest_codegen
-    PRIVATE
-        GENTEST_TEMPLATE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/templates")
+## Embedded templates are used by default; --template can point to an external file if desired
 
 if(DEFINED LLVM_INCLUDE_DIRS)
     target_include_directories(gentest_codegen PRIVATE ${LLVM_INCLUDE_DIRS})

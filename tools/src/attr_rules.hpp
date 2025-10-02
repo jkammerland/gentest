@@ -12,15 +12,15 @@ inline constexpr std::array<std::string_view, 4> kAllowedFlagAttributes{"fast", 
 inline constexpr std::array<std::string_view, 1> kAllowedFixtureFlags{"stateful_fixture"};
 
 inline bool is_allowed_value_attribute(std::string_view name) {
-    return std::find(kAllowedValueAttributes.begin(), kAllowedValueAttributes.end(), name) != kAllowedValueAttributes.end();
+    return std::ranges::find(kAllowedValueAttributes, name) != kAllowedValueAttributes.end();
 }
 
 inline bool is_allowed_flag_attribute(std::string_view name) {
-    return std::find(kAllowedFlagAttributes.begin(), kAllowedFlagAttributes.end(), name) != kAllowedFlagAttributes.end();
+    return std::ranges::find(kAllowedFlagAttributes, name) != kAllowedFlagAttributes.end();
 }
 
 inline bool is_allowed_fixture_flag(std::string_view name) {
-    return std::find(kAllowedFixtureFlags.begin(), kAllowedFixtureFlags.end(), name) != kAllowedFixtureFlags.end();
+    return std::ranges::find(kAllowedFixtureFlags, name) != kAllowedFixtureFlags.end();
 }
 
 } // namespace gentest::detail
