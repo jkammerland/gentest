@@ -53,6 +53,9 @@ target_link_libraries(gentest_codegen
         ${_gentest_llvm_libs}
         fmt::fmt)
 
+# Provide generator with project version for --help output in generated code
+target_compile_definitions(gentest_codegen PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")
+
 unset(_gentest_llvm_libs)
 unset(_gentest_clang_includes)
 unset(_gentest_clang_libs)

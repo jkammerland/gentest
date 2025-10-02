@@ -127,6 +127,37 @@ std::uint64_t parse_seed(std::span<const char*> args) {
 } // namespace
 
 namespace {
+bool wants_help(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--help") return true;
+    return false;
+}
+
+bool wants_list_tests(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--list-tests") return true;
+    return false;
+}
+
+const char* get_arg_value(std::span<const char*> args, std::string_view prefix) {
+    for (const auto* arg : args) {
+        if (!arg) continue;
+        std::string_view s(arg);
+        if (s.rfind(prefix, 0) == 0) return arg + prefix.size();
+    }
+    return nullptr;
+}
+
+bool wildcard_match(std::string_view text, std::string_view pattern) {
+    std::size_t ti = 0, pi = 0, star = std::string_view::npos, mark = 0;
+    while (ti < text.size()) {
+        if (pi < pattern.size() && (pattern[pi] == '?' || pattern[pi] == text[ti])) { ++ti; ++pi; continue; }
+        if (pi < pattern.size() && pattern[pi] == '*') { star = pi++; mark = ti; continue; }
+        if (star != std::string_view::npos) { pi = star + 1; ti = ++mark; continue; }
+        return false;
+    }
+    while (pi < pattern.size() && pattern[pi] == '*') ++pi;
+    return pi == pattern.size();
+}
+
 std::string join_span(std::span<const std::string_view> items, char sep) {
     std::string out;
     for (std::size_t i = 0; i < items.size(); ++i) {
@@ -171,6 +202,22 @@ void execute_one(const Case& test, void* ctx, Counters& c) {
 {{GROUP_RUNNERS}}
 
 auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
+    if (wants_help(args)) {
+        fmt::print("gentest v{{VERSION}}\n");
+        fmt::print("Usage: [options]\n");
+        fmt::print("  --help                Show this help\n");
+        fmt::print("  --list-tests          List test names (one per line)\n");
+        fmt::print("  --list                List tests with metadata\n");
+        fmt::print("  --run-test=<name>     Run a single test by exact name\n");
+        fmt::print("  --filter=<pattern>    Run tests matching wildcard pattern (*, ?)\n");
+        fmt::print("  --shuffle-fixtures    Shuffle order within each fixture group\n");
+        fmt::print("  --seed N              RNG seed used with --shuffle-fixtures\n");
+        return 0;
+    }
+    if (wants_list_tests(args)) {
+        for (const auto& t : kCases) fmt::print("{}\n", t.name);
+        return 0;
+    }
     if (wants_list(args)) {
         for (const auto& test : kCases) {
             std::string sections;
@@ -202,23 +249,43 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     }
     Counters counters;
 
-    // Run free tests first (no fixture)
-    for (const auto& test : kCases) {
-        if (!test.fixture.empty()) continue; // fixtures handled in groups
-        execute_one(test, nullptr, counters);
+    // Selection support: --run-test / --filter
+    const char* run_exact = get_arg_value(args, "--run-test=");
+    const char* filter_pat = get_arg_value(args, "--filter=");
+    if (run_exact || filter_pat) {
+        std::vector<std::size_t> sel;
+        if (run_exact) {
+            for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].name == run_exact) { sel.push_back(i); break; }
+            if (sel.empty()) { fmt::print(stderr, "Test not found: {}\n", run_exact); return 1; }
+        } else {
+            for (std::size_t i = 0; i < kCases.size(); ++i) if (wildcard_match(kCases[i].name, filter_pat)) sel.push_back(i);
+            if (sel.empty()) { fmt::print("Executed 0 test(s).\n"); return 0; }
+        }
+        // Free tests
+        for (auto i : sel) { const auto& t = kCases[i]; if (!t.fixture.empty()) continue; execute_one(t, nullptr, counters); }
+        // Fixture tests: for now run selected ones as ephemeral in selection mode to avoid UB on unknown fixture types.
+        const bool         shuffle = wants_shuffle(args);
+        const std::uint64_t seed    = parse_seed(args);
+        // Group by fixture name
+        std::vector<std::pair<std::string_view, std::vector<std::size_t>>> groups;
+        for (auto i : sel) { const auto& t = kCases[i]; if (t.fixture.empty()) continue; auto it = std::find_if(groups.begin(), groups.end(), [&](auto& g){return g.first==t.fixture;}); if (it==groups.end()) groups.push_back({t.fixture,{i}}); else it->second.push_back(i); }
+        for (std::size_t gid = 0; gid < groups.size(); ++gid) {
+            auto order = groups[gid].second;
+            if (shuffle && order.size() > 1) { std::mt19937_64 rng(seed ? (seed + gid) : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(order.begin(), order.end(), rng); }
+            for (auto i : order) execute_one(kCases[i], nullptr, counters);
+        }
+        if (counters.failures == 0) fmt::print("Executed {} test(s).\n", counters.executed);
+        else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+        return counters.failures == 0 ? 0 : 1;
     }
 
-    // Run fixture groups next
+    // Default path: run all tests with built-in grouping
+    for (const auto& t : kCases) { if (!t.fixture.empty()) continue; execute_one(t, nullptr, counters); }
     const bool         shuffle = wants_shuffle(args);
     const std::uint64_t seed    = parse_seed(args);
-
     {{RUN_GROUPS}}
-
-    if (counters.failures == 0) {
-        fmt::print("Executed {} test(s).\n", counters.executed);
-    } else {
-        fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
-    }
+    if (counters.failures == 0) fmt::print("Executed {} test(s).\n", counters.executed);
+    else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
     return counters.failures == 0 ? 0 : 1;
 }
 

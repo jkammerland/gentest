@@ -78,6 +78,12 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
     replace_all(output, "{{CASE_INITS}}", case_entries);
     replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
+    // Version for --help
+#if defined(GENTEST_VERSION_STR)
+    replace_all(output, "{{VERSION}}", GENTEST_VERSION_STR);
+#else
+    replace_all(output, "{{VERSION}}", "0.0.0");
+#endif
     replace_all(output, "{{GROUP_RUNNERS}}", group_runners);
     replace_all(output, "{{RUN_GROUPS}}", run_groups);
 
