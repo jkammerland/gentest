@@ -1,4 +1,4 @@
-// Validation of gentest attributes into a summary used by generator and tools
+// Validation of gentest attributes into summaries used by generator and tools.
 #pragma once
 
 #include "model.hpp"
@@ -11,6 +11,11 @@
 
 namespace gentest::codegen {
 
+// Summary of function-level attributes after validation.
+// - case_name: discovery name (required)
+// - tags/requirements: collected metadata
+// - should_skip/skip_reason: skip semantics
+// - had_error: any validation error encountered (diagnosed via `report`)
 struct AttributeSummary {
     std::optional<std::string> case_name;
     std::vector<std::string>   tags;
@@ -20,20 +25,27 @@ struct AttributeSummary {
     bool                       had_error = false;
 };
 
+// Summary of class/struct-level attributes after validation.
+// - stateful: whether the fixture instance should be shared across methods
+// - had_error: any validation error encountered (diagnosed via `report`)
 struct FixtureAttributeSummary {
     bool had_error = false;
     bool stateful  = false;
 };
 
-// Validate a parsed `gentest::` attribute list and collect metadata.
-// `report` is invoked for each diagnostic message.
+// Validate a parsed `gentest::` attribute list (function scope) and collect
+// metadata.
+// Args:
+//  - parsed: output of parse_attribute_list
+//  - report: callback for each diagnostic message
+// Returns: AttributeSummary populated with validated information.
 auto validate_attributes(const std::vector<ParsedAttribute>& parsed,
                          const std::function<void(const std::string&)>& report) -> AttributeSummary;
 
 // Validate class/struct-level attributes applicable to fixtures.
-// Recognized:
-//  - stateful_fixture (flag)
-// Unknown gentest:: attributes at class scope are hard errors.
+// Recognized: stateful_fixture (flag). Unknown gentest:: attributes at class
+// scope are hard errors; other namespaces are reported by discovery.
+// Args/returns: like validate_attributes, but returning fixture semantics only.
 auto validate_fixture_attributes(const std::vector<ParsedAttribute>& parsed,
                                  const std::function<void(const std::string&)>& report) -> FixtureAttributeSummary;
 

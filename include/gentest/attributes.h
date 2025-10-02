@@ -13,3 +13,6 @@
 // while attributes such as `req("BUG-123")` or `skip("reason")` attach
 // requirements or skipping instructions. All information is extracted by the
 // code generator—no macros or compiler-specific annotations required.
+
+// This header intentionally declares no symbols; it documents the attribute
+// format consumed by the generator and serves as a stable include for tests.
