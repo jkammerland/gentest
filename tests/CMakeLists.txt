@@ -117,3 +117,53 @@ add_test(NAME fixtures_list_counts
         -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
         -DLIST=ON -DCASES=4
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+# CLI checks for VSCode integration
+add_test(NAME unit_help
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DEXPECT_SUBSTRING=gentest
+        -DARGS=--help
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
+
+add_test(NAME unit_list_tests_lines
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DLINES=3
+        -DARGS=--list-tests
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)
+
+add_test(NAME integration_list_tests_lines
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_integration_tests>
+        -DLINES=4
+        -DARGS=--list-tests
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)
+
+add_test(NAME run_test_exact
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DPASS=1 -DFAIL=0 -DSKIP=0
+        -DARGS=--run-test=unit/arithmetic/sum
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME run_test_not_found
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DEXPECT_RC=1
+        -DARGS=--run-test=does/not/exist
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckExitCode.cmake)
+
+add_test(NAME filter_single
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DPASS=1 -DFAIL=0 -DSKIP=0
+        -DARGS=--filter=*strings*
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME fixtures_list_tests_lines
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
+        -DLINES=4
+        -DARGS=--list-tests
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)
