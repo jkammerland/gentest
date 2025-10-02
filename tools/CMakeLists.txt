@@ -4,6 +4,7 @@ set(CMAKE_DISABLE_FIND_PACKAGE_LibEdit ON)
 
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
+find_package(fmt CONFIG REQUIRED)
 
 add_executable(gentest_codegen
     src/main.cpp
@@ -50,7 +51,8 @@ llvm_map_components_to_libnames(_gentest_llvm_libs Support)
 target_link_libraries(gentest_codegen
     PRIVATE
         ${_gentest_clang_libs}
-        ${_gentest_llvm_libs})
+        ${_gentest_llvm_libs}
+        fmt::fmt)
 
 unset(_gentest_llvm_libs)
 unset(_gentest_clang_includes)

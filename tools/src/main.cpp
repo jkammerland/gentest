@@ -13,6 +13,7 @@
 #include <clang/Tooling/Tooling.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/raw_ostream.h>
+#include <fmt/core.h>
 
 #include "discovery.hpp"
 #include "emit.hpp"
@@ -85,8 +86,8 @@ int main(int argc, const char **argv) {
     if (options.compilation_database) {
         database = clang::tooling::CompilationDatabase::loadFromDirectory(options.compilation_database->string(), db_error);
         if (!database) {
-            llvm::errs() << "gentest_codegen: failed to load compilation database at '" << options.compilation_database->string()
-                         << "': " << db_error << "\n";
+            llvm::errs() << fmt::format("gentest_codegen: failed to load compilation database at '{}': {}\n",
+                                        options.compilation_database->string(), db_error);
             return 1;
         }
     } else {
@@ -191,10 +192,9 @@ int main(int argc, const char **argv) {
         return 0;
     }
     if (options.output_path.empty()) {
-        llvm::errs() << "gentest_codegen: --output is required unless --check is specified\n";
+        llvm::errs() << fmt::format("gentest_codegen: --output is required unless --check is specified\n");
         return 1;
     }
 
     return gentest::codegen::emit(options, cases);
 }
-

@@ -11,6 +11,8 @@
 #include <utility>
 
 #include <llvm/Support/raw_ostream.h>
+#include <fmt/core.h>
+#include <fmt/core.h>
 
 namespace gentest::codegen {
 
@@ -51,7 +53,7 @@ std::string escape_string(std::string_view value) {
 auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases) -> std::optional<std::string> {
     const auto template_content = read_template_file(options.template_path);
     if (template_content.empty()) {
-        llvm::errs() << "gentest_codegen: failed to load template file '" << options.template_path.string() << "'\n";
+        llvm::errs() << fmt::format("gentest_codegen: failed to load template file '{}'\n", options.template_path.string());
         return std::nullopt;
     }
 
@@ -59,9 +61,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     // but harmless and keeps template consistent)
     std::map<std::string, std::set<std::string>> forward_decls;
     for (const auto &test : cases) {
-        if (!test.fixture_qualified_name.empty()) {
-            continue; // methods don't get free function forward decls
-        }
+        if (!test.fixture_qualified_name.empty()) continue; // skip methods
         std::string scope;
         std::string basename = test.qualified_name;
         if (auto pos = basename.rfind("::"); pos != std::string::npos) {
@@ -73,24 +73,14 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
 
     std::string forward_decl_block;
     for (const auto &[scope, functions] : forward_decls) {
+        std::string lines;
+        for (const auto &name : functions) {
+            lines += fmt::format("void {}();\n", name);
+        }
         if (scope.empty()) {
-            for (const auto &name : functions) {
-                forward_decl_block.append("void ");
-                forward_decl_block.append(name);
-                forward_decl_block.append("();\n");
-            }
+            forward_decl_block += lines;
         } else {
-            forward_decl_block.append("namespace ");
-            forward_decl_block.append(scope);
-            forward_decl_block.append(" {\n");
-            for (const auto &name : functions) {
-                forward_decl_block.append("void ");
-                forward_decl_block.append(name);
-                forward_decl_block.append("();\n");
-            }
-            forward_decl_block.append("} // namespace ");
-            forward_decl_block.append(scope);
-            forward_decl_block.append("\n");
+            forward_decl_block += fmt::format("namespace {} {{\n{}}} // namespace {}\n", scope, lines, scope);
         }
     }
 
@@ -98,6 +88,18 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     std::vector<std::string> requirement_array_names;
     tag_array_names.reserve(cases.size());
     requirement_array_names.reserve(cases.size());
+
+    auto format_sv_array = [&](const std::string &name, const std::vector<std::string> &values) {
+        if (values.empty()) {
+            return fmt::format("constexpr std::array<std::string_view, 0> {}{};\n\n", name, "{}");
+        }
+        std::string body;
+        for (const auto &v : values) {
+            body += fmt::format("    \"{}\",\n", escape_string(v));
+        }
+        return fmt::format("constexpr std::array<std::string_view, {count}> {name} = {{\n{body}}};\n\n",
+                           fmt::arg("count", values.size()), fmt::arg("name", name), fmt::arg("body", body));
+    };
 
     std::string trait_declarations;
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
@@ -107,39 +109,8 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
         tag_array_names.emplace_back(tag_name);
         requirement_array_names.emplace_back(req_name);
 
-        trait_declarations.append("constexpr std::array<std::string_view, ");
-        trait_declarations.append(std::to_string(test.tags.size()));
-        trait_declarations.append("> ");
-        trait_declarations.append(tag_name);
-        if (test.tags.empty()) {
-            trait_declarations.append("{};\n");
-        } else {
-            trait_declarations.append(" = {\n");
-            for (const auto &tag : test.tags) {
-                trait_declarations.append("    \"");
-                trait_declarations.append(escape_string(tag));
-                trait_declarations.append("\",\n");
-            }
-            trait_declarations.append("};\n");
-        }
-
-        trait_declarations.append("constexpr std::array<std::string_view, ");
-        trait_declarations.append(std::to_string(test.requirements.size()));
-        trait_declarations.append("> ");
-        trait_declarations.append(req_name);
-        if (test.requirements.empty()) {
-            trait_declarations.append("{};\n");
-        } else {
-            trait_declarations.append(" = {\n");
-            for (const auto &req : test.requirements) {
-                trait_declarations.append("    \"");
-                trait_declarations.append(escape_string(req));
-                trait_declarations.append("\",\n");
-            }
-            trait_declarations.append("};\n");
-        }
-
-        trait_declarations.append("\n");
+        trait_declarations += format_sv_array(tag_name, test.tags);
+        trait_declarations += format_sv_array(req_name, test.requirements);
     }
 
     // Build wrapper implementations for all cases (free and member tests)
@@ -151,44 +122,46 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test = cases[idx];
         const auto  w    = make_wrapper_name(idx);
-        wrapper_impls.append("static void ");
-        wrapper_impls.append(w);
-        wrapper_impls.append("(void* __ctx) {\n");
-        if (test.fixture_qualified_name.empty()) {
-            // Free test
-            wrapper_impls.append("    (void)__ctx;\n");
-            wrapper_impls.append("    ");
-            wrapper_impls.append(test.qualified_name);
-            wrapper_impls.append("();\n");
-        } else {
-            // Member test
-            // Extract method basename from qualified name (after last '::')
-            std::string method_name = test.qualified_name;
-            auto        pos         = method_name.rfind("::");
-            if (pos != std::string::npos) method_name = method_name.substr(pos + 2);
 
+        if (test.fixture_qualified_name.empty()) {
+            wrapper_impls += fmt::format(
+                R"(static void {w}(void* __ctx) {{
+    (void)__ctx;
+    {fn}();
+}}
+
+)",
+                fmt::arg("w", w), fmt::arg("fn", test.qualified_name));
+        } else {
+            std::string method_name = test.qualified_name;
+            if (auto pos = method_name.rfind("::"); pos != std::string::npos) {
+                method_name = method_name.substr(pos + 2);
+            }
             if (test.fixture_stateful) {
-                wrapper_impls.append("    auto* __fx = static_cast<");
-                wrapper_impls.append(test.fixture_qualified_name);
-                wrapper_impls.append("*>(__ctx);\n");
-                wrapper_impls.append("    __gentest_maybe_setup(*__fx);\n");
-                wrapper_impls.append("    __fx->");
-                wrapper_impls.append(method_name);
-                wrapper_impls.append("();\n");
-                wrapper_impls.append("    __gentest_maybe_teardown(*__fx);\n");
+                wrapper_impls += fmt::format(
+                    R"(static void {w}(void* __ctx) {{
+    auto* __fx = static_cast<{fixture}*>(__ctx);
+    __gentest_maybe_setup(*__fx);
+    __fx->{method}();
+    __gentest_maybe_teardown(*__fx);
+}}
+
+)",
+                    fmt::arg("w", w), fmt::arg("fixture", test.fixture_qualified_name), fmt::arg("method", method_name));
             } else {
-                wrapper_impls.append("    (void)__ctx;\n");
-                wrapper_impls.append("    ");
-                wrapper_impls.append(test.fixture_qualified_name);
-                wrapper_impls.append(" __fx;\n");
-                wrapper_impls.append("    __gentest_maybe_setup(__fx);\n");
-                wrapper_impls.append("    __fx.");
-                wrapper_impls.append(method_name);
-                wrapper_impls.append("();\n");
-                wrapper_impls.append("    __gentest_maybe_teardown(__fx);\n");
+                wrapper_impls += fmt::format(
+                    R"(static void {w}(void* __ctx) {{
+    (void)__ctx;
+    {fixture} __fx;
+    __gentest_maybe_setup(__fx);
+    __fx.{method}();
+    __gentest_maybe_teardown(__fx);
+}}
+
+)",
+                    fmt::arg("w", w), fmt::arg("fixture", test.fixture_qualified_name), fmt::arg("method", method_name));
             }
         }
-        wrapper_impls.append("}\n\n");
     }
 
     std::string case_entries;
@@ -198,49 +171,31 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
         case_entries.reserve(cases.size() * 128);
         for (std::size_t idx = 0; idx < cases.size(); ++idx) {
             const auto &test = cases[idx];
-            case_entries.append("    Case{\n");
-            case_entries.append("        \"");
-            case_entries.append(escape_string(test.display_name));
-            case_entries.append("\",\n");
-            case_entries.append("        &");
-            case_entries.append(make_wrapper_name(idx));
-            case_entries.append(",\n");
-            case_entries.append("        \"");
-            case_entries.append(escape_string(test.filename));
-            case_entries.append("\",\n");
-            case_entries.append("        ");
-            case_entries.append(std::to_string(test.line));
-            case_entries.append(",\n");
-            case_entries.append("        std::span{");
-            case_entries.append(tag_array_names[idx]);
-            case_entries.append("},\n");
-            case_entries.append("        std::span{");
-            case_entries.append(requirement_array_names[idx]);
-            case_entries.append("},\n");
-            case_entries.append("        ");
-            if (!test.skip_reason.empty()) {
-                case_entries.append("\"");
-                case_entries.append(escape_string(test.skip_reason));
-                case_entries.append("\"");
-            } else {
-                case_entries.append("std::string_view{}");
-            }
-            case_entries.append(",\n");
-            case_entries.append("        ");
-            case_entries.append(test.should_skip ? "true" : "false");
-            case_entries.append(",\n");
-            case_entries.append("        ");
-            if (!test.fixture_qualified_name.empty()) {
-                case_entries.append("\"");
-                case_entries.append(escape_string(test.fixture_qualified_name));
-                case_entries.append("\"");
-            } else {
-                case_entries.append("std::string_view{}");
-            }
-            case_entries.append(",\n");
-            case_entries.append("        ");
-            case_entries.append(test.fixture_stateful ? "true" : "false");
-            case_entries.append("\n    },\n");
+            const auto  entry = fmt::format(
+                R"(    Case{{
+        "{name}",
+        &{wrapper},
+        "{file}",
+        {line},
+        std::span{{{tags}}},
+        std::span{{{reqs}}},
+        {skip_reason},
+        {should_skip},
+        {fixture},
+        {stateful}
+    }},
+)",
+                fmt::arg("name", escape_string(test.display_name)),
+                fmt::arg("wrapper", make_wrapper_name(idx)),
+                fmt::arg("file", escape_string(test.filename)),
+                fmt::arg("line", test.line),
+                fmt::arg("tags", tag_array_names[idx]),
+                fmt::arg("reqs", requirement_array_names[idx]),
+                fmt::arg("skip_reason", !test.skip_reason.empty() ? "\"" + escape_string(test.skip_reason) + "\"" : std::string("std::string_view{}")),
+                fmt::arg("should_skip", test.should_skip ? "true" : "false"),
+                fmt::arg("fixture", !test.fixture_qualified_name.empty() ? "\"" + escape_string(test.fixture_qualified_name) + "\"" : std::string("std::string_view{}")),
+                fmt::arg("stateful", test.fixture_stateful ? "true" : "false"));
+            case_entries += entry;
         }
     }
 
@@ -259,40 +214,28 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
         const auto &fixture = kv.first;
         const auto &idxs    = kv.second;
         if (idxs.empty()) continue;
-        // Determine if group is stateful (any case says so)
         bool stateful = false;
-        for (auto i : idxs) {
-            if (cases[i].fixture_stateful) { stateful = true; break; }
-        }
-        group_runners.append("static void __gentest_run_group_");
-        group_runners.append(std::to_string(gid));
-        group_runners.append("(bool __shuffle, std::uint64_t __seed, Counters& __c) {\n");
-        group_runners.append("    using Fixture = ");
-        group_runners.append(fixture);
-        group_runners.append(";\n");
-        group_runners.append("    const std::array<std::size_t, ");
-        group_runners.append(std::to_string(idxs.size()));
-        group_runners.append("> __idxs = {");
+        for (auto i : idxs) if (cases[i].fixture_stateful) { stateful = true; break; }
+        std::string idx_list;
         for (std::size_t j = 0; j < idxs.size(); ++j) {
-            if (j != 0) group_runners.append(", ");
-            group_runners.append(std::to_string(idxs[j]));
+            if (j != 0) idx_list += ", ";
+            idx_list += std::to_string(idxs[j]);
         }
-        group_runners.append("};\n");
-        group_runners.append("    std::vector<std::size_t> __order(__idxs.begin(), __idxs.end());\n");
-        group_runners.append("    if (__shuffle && __order.size() > 1) { std::mt19937_64 __rng(__seed ? (__seed + ");
-        group_runners.append(std::to_string(gid));
-        group_runners.append(") : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(__order.begin(), __order.end(), __rng); }\n");
-        if (stateful) {
-            group_runners.append("    Fixture __fx;\n");
-            group_runners.append("    for (auto __i : __order) { execute_one(kCases[__i], &__fx, __c); }\n");
-        } else {
-            group_runners.append("    for (auto __i : __order) { execute_one(kCases[__i], nullptr, __c); }\n");
-        }
-        group_runners.append("}\n\n");
+        group_runners += fmt::format(
+            R"(static void __gentest_run_group_{gid}(bool __shuffle, std::uint64_t __seed, Counters& __c) {{
+    using Fixture = {fixture};
+    const std::array<std::size_t, {count}> __idxs = {{{idxs}}};
+    std::vector<std::size_t> __order(__idxs.begin(), __idxs.end());
+    if (__shuffle && __order.size() > 1) {{ std::mt19937_64 __rng(__seed ? (__seed + {gid}) : std::mt19937_64::result_type(std::random_device{{}}())); std::shuffle(__order.begin(), __order.end(), __rng); }}
+{body}
+}}
 
-        run_groups.append("    __gentest_run_group_");
-        run_groups.append(std::to_string(gid));
-        run_groups.append("(shuffle, seed, counters);\n");
+)",
+            fmt::arg("gid", gid), fmt::arg("fixture", fixture), fmt::arg("count", idxs.size()), fmt::arg("idxs", idx_list),
+            fmt::arg("body", stateful ? std::string("    Fixture __fx;\n    for (auto __i : __order) { execute_one(kCases[__i], &__fx, __c); }\n")
+                                       : std::string("    for (auto __i : __order) { execute_one(kCases[__i], nullptr, __c); }\n")));
+
+        run_groups += fmt::format("    __gentest_run_group_{gid}(shuffle, seed, counters);\n", fmt::arg("gid", gid));
         ++gid;
     }
 
@@ -315,10 +258,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
         std::error_code ec;
         fs::path rel = fs::proximate(spath, out_dir, ec);
         if (ec) rel = spath;
-        auto norm = rel.generic_string();
-        includes.append("#include \"");
-        includes.append(norm);
-        includes.append("\"\n");
+        includes += fmt::format("#include \"{}\"\n", rel.generic_string());
     }
     replace_all(output, "{{INCLUDE_SOURCES}}", includes);
 
@@ -332,14 +272,13 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases) {
         std::error_code ec;
         fs::create_directories(out_path.parent_path(), ec);
         if (ec) {
-            llvm::errs() << "gentest_codegen: failed to create directory '" << out_path.parent_path().string() << "': "
-                         << ec.message() << "\n";
+            llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", out_path.parent_path().string(), ec.message());
             return 1;
         }
     }
 
     if (opts.template_path.empty()) {
-        llvm::errs() << "gentest_codegen: no template path configured" << '\n';
+        llvm::errs() << fmt::format("gentest_codegen: no template path configured\n");
         return 1;
     }
 
@@ -350,7 +289,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases) {
 
     std::ofstream file(out_path, std::ios::binary);
     if (!file) {
-        llvm::errs() << "gentest_codegen: failed to open output file '" << out_path.string() << "'\n";
+        llvm::errs() << fmt::format("gentest_codegen: failed to open output file '{}'\n", out_path.string());
         return 1;
     }
     file << *content;

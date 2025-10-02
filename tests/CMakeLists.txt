@@ -13,7 +13,8 @@ foreach(suite IN LISTS _gentest_test_suites)
 
     target_link_libraries(${target_name}
         PRIVATE
-            ${PROJECT_NAME})
+            ${PROJECT_NAME}
+            fmt::fmt)
 
     target_compile_features(${target_name} PRIVATE cxx_std_23)
     target_include_directories(${target_name}

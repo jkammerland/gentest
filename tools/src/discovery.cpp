@@ -5,6 +5,7 @@
 #include "validate.hpp"
 
 #include <utility>
+#include <fmt/core.h>
 #include <clang/AST/Decl.h>
 #include <clang/Basic/SourceManager.h>
 #include <llvm/Support/raw_ostream.h>
@@ -73,20 +74,13 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         const llvm::StringRef file    = sm.getFilename(loc);
         const unsigned        line    = sm.getSpellingLineNumber(loc);
         const std::string     subject = func.getQualifiedNameAsString();
-        if (!file.empty()) {
-            llvm::errs() << "gentest_codegen: " << file << ':' << line << ": " << message;
-        } else {
-            llvm::errs() << "gentest_codegen: " << message;
-        }
-        if (!subject.empty()) {
-            llvm::errs() << " (" << subject << ')';
-        }
-        llvm::errs() << '\n';
+        const std::string     locpfx  = !file.empty() ? fmt::format("{}:{}: ", file.str(), line) : std::string{};
+        const std::string     subj    = !subject.empty() ? fmt::format(" ({})", subject) : std::string{};
+        llvm::errs() << fmt::format("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
 
     for (const auto &message : collected.other_namespaces) {
-        std::string text = "attribute '" + message + "' ignored (unsupported attribute namespace)";
-        report(text);
+        report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
     }
 
     if (parsed.empty()) {
@@ -111,7 +105,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         qualified = func.getNameAsString();
     }
     if (qualified.find("(anonymous namespace)") != std::string::npos) {
-        llvm::errs() << "gentest_codegen: ignoring test in anonymous namespace: " << qualified << "\n";
+        llvm::errs() << fmt::format("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
         return std::nullopt;
     }
 
@@ -138,8 +132,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         if (const auto *record = method->getParent()) {
             const auto class_attrs = collect_gentest_attributes_for(*record, sm);
             for (const auto &message : class_attrs.other_namespaces) {
-                std::string text = "attribute '" + message + "' ignored (unsupported attribute namespace)";
-                report(text);
+                report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
             }
             auto fixture_summary = validate_fixture_attributes(class_attrs.gentest, [&](const std::string &m) {
                 had_error_ = true;

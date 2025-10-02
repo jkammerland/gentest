@@ -3,8 +3,10 @@
 
 #include <array>
 #include <exception>
-#include <iostream>
+#include <string>
+#include <fmt/core.h>
 #include <random>
+#include <algorithm>
 #include <type_traits>
 #include <span>
 #include <string_view>
@@ -95,26 +97,26 @@ struct Counters { std::size_t executed = 0; int failures = 0; };
 
 void execute_one(const Case& test, void* ctx, Counters& c) {
     if (test.should_skip) {
-        std::cout << "[ SKIP ] " << test.name;
         if (!test.skip_reason.empty()) {
-            std::cout << " :: " << test.skip_reason;
+            fmt::print("[ SKIP ] {} :: {}\n", test.name, test.skip_reason);
+        } else {
+            fmt::print("[ SKIP ] {}\n", test.name);
         }
-        std::cout << "\n";
         return;
     }
     ++c.executed;
     try {
         test.fn(ctx);
-        std::cout << "[ PASS ] " << test.name << "\n";
+        fmt::print("[ PASS ] {}\n", test.name);
     } catch (const gentest::failure& err) {
         ++c.failures;
-        std::cerr << "[ FAIL ] " << test.name << " :: " << err.what() << "\n";
+        fmt::print(stderr, "[ FAIL ] {} :: {}\n", test.name, err.what());
     } catch (const std::exception& err) {
         ++c.failures;
-        std::cerr << "[ FAIL ] " << test.name << " :: unexpected std::exception: " << err.what() << "\n";
+        fmt::print(stderr, "[ FAIL ] {} :: unexpected std::exception: {}\n", test.name, err.what());
     } catch (...) {
         ++c.failures;
-        std::cerr << "[ FAIL ] " << test.name << " :: unknown exception" << "\n";
+        fmt::print(stderr, "[ FAIL ] {} :: unknown exception\n", test.name);
     }
 }
 } // namespace
@@ -126,45 +128,36 @@ void execute_one(const Case& test, void* ctx, Counters& c) {
 auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     if (wants_list(args)) {
         for (const auto& test : kCases) {
-            std::cout << test.name;
-            bool first_section = true;
+            std::string sections;
             if (!test.tags.empty() || !test.requirements.empty() || test.should_skip) {
-                std::cout << " [";
+                sections.push_back(' ');
+                sections.push_back('[');
+                bool first = true;
                 if (!test.tags.empty()) {
-                    std::cout << "tags=";
-                    for (std::size_t idx = 0; idx < test.tags.size(); ++idx) {
-                        if (idx != 0) {
-                            std::cout << ',';
-                        }
-                        std::cout << test.tags[idx];
+                    sections.append("tags=");
+                    for (std::size_t i = 0; i < test.tags.size(); ++i) {
+                        if (i != 0) sections.push_back(',');
+                        sections.append(test.tags[i]);
                     }
-                    first_section = false;
+                    first = false;
                 }
                 if (!test.requirements.empty()) {
-                    if (!first_section) {
-                        std::cout << ';';
+                    if (!first) sections.push_back(';');
+                    sections.append("requires=");
+                    for (std::size_t i = 0; i < test.requirements.size(); ++i) {
+                        if (i != 0) sections.push_back(',');
+                        sections.append(test.requirements[i]);
                     }
-                    std::cout << "requires=";
-                    for (std::size_t idx = 0; idx < test.requirements.size(); ++idx) {
-                        if (idx != 0) {
-                            std::cout << ',';
-                        }
-                        std::cout << test.requirements[idx];
-                    }
-                    first_section = false;
+                    first = false;
                 }
                 if (test.should_skip) {
-                    if (!first_section) {
-                        std::cout << ';';
-                    }
-                    std::cout << "skip";
-                    if (!test.skip_reason.empty()) {
-                        std::cout << '=' << test.skip_reason;
-                    }
+                    if (!first) sections.push_back(';');
+                    sections.append("skip");
+                    if (!test.skip_reason.empty()) { sections.push_back('='); sections.append(test.skip_reason); }
                 }
-                std::cout << ']';
+                sections.push_back(']');
             }
-            std::cout << " (" << test.file << ':' << test.line << ")\n";
+            fmt::print("{}{} ({}:{})\n", test.name, sections, test.file, test.line);
         }
         return 0;
     }
@@ -183,9 +176,9 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     {{RUN_GROUPS}}
 
     if (counters.failures == 0) {
-        std::cout << "Executed " << counters.executed << " test(s).\n";
+        fmt::print("Executed {} test(s).\n", counters.executed);
     } else {
-        std::cerr << "Executed " << counters.executed << " test(s) with " << counters.failures << " failure(s).\n";
+        fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
     }
     return counters.failures == 0 ? 0 : 1;
 }

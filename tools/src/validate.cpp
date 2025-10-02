@@ -7,7 +7,7 @@
 #include <cctype>
 #include <optional>
 #include <set>
-#include <sstream>
+#include <fmt/core.h>
 #include <string>
 #include <vector>
 
@@ -70,16 +70,12 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
         } else if (attr.arguments.empty()) {
             if (!gentest::detail::is_allowed_flag_attribute(lowered)) {
                 summary.had_error = true;
-                std::ostringstream stream;
-                stream << "unknown gentest attribute '" << attr.name << "'";
-                report(stream.str());
+                report(fmt::format("unknown gentest attribute '{}'", attr.name));
                 continue;
             }
             if (seen_flags.contains(lowered)) {
                 summary.had_error = true;
-                std::ostringstream stream;
-                stream << "duplicate gentest flag attribute '" << attr.name << "'";
-                report(stream.str());
+                report(fmt::format("duplicate gentest flag attribute '{}'", attr.name));
                 continue;
             }
             if ((lowered == "linux" && seen_flags.contains("windows")) || (lowered == "windows" && seen_flags.contains("linux"))) {
@@ -92,43 +88,41 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
         } else {
             if (!gentest::detail::is_allowed_value_attribute(lowered)) {
                 summary.had_error = true;
-                std::ostringstream stream;
-                stream << "unknown gentest attribute '" << attr.name << "' with argument" << (attr.arguments.size() == 1 ? "" : "s")
-                       << " (";
+                std::string joined;
                 for (std::size_t idx = 0; idx < attr.arguments.size(); ++idx) {
-                    if (idx != 0) {
-                        stream << ", ";
-                    }
-                    stream << '"' << attr.arguments[idx] << '"';
+                    if (idx != 0) joined += ", ";
+                    joined += '"';
+                    joined += attr.arguments[idx];
+                    joined += '"';
                 }
-                stream << ')';
-                report(stream.str());
+                report(fmt::format("unknown gentest attribute '{}' with argument{} ({})",
+                                   attr.name, attr.arguments.size() == 1 ? "" : "s", joined));
                 continue;
             }
             if (lowered == "category") {
                 if (attr.arguments.size() != 1) {
-                    summary.had_error = true;
-                    report("'category' requires exactly one string argument");
-                    continue;
-                }
+                summary.had_error = true;
+                report(fmt::format("'{}' requires exactly one string argument", lowered));
+                continue;
+            }
                 if (seen_category.has_value()) {
-                    summary.had_error = true;
-                    report("duplicate 'category' attribute");
-                    continue;
-                }
+                summary.had_error = true;
+                report(fmt::format("duplicate '{}' attribute", lowered));
+                continue;
+            }
                 seen_category = attr.arguments.front();
                 add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
             } else if (lowered == "owner") {
                 if (attr.arguments.size() != 1) {
-                    summary.had_error = true;
-                    report("'owner' requires exactly one string argument");
-                    continue;
-                }
+                summary.had_error = true;
+                report(fmt::format("'{}' requires exactly one string argument", lowered));
+                continue;
+            }
                 if (seen_owner.has_value()) {
-                    summary.had_error = true;
-                    report("duplicate 'owner' attribute");
-                    continue;
-                }
+                summary.had_error = true;
+                report(fmt::format("duplicate '{}' attribute", lowered));
+                continue;
+            }
                 seen_owner = attr.arguments.front();
                 add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
             }
@@ -170,17 +164,19 @@ auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed,
 
         // All other gentest attributes are unknown at class scope.
         summary.had_error = true;
-        std::ostringstream stream;
-        stream << "unknown gentest class attribute '" << attr.name << "'";
+        std::string joined;
         if (!attr.arguments.empty()) {
-            stream << " with argument" << (attr.arguments.size() == 1 ? "" : "s") << " (";
             for (std::size_t idx = 0; idx < attr.arguments.size(); ++idx) {
-                if (idx != 0) stream << ", ";
-                stream << '"' << attr.arguments[idx] << '"';
+                if (idx != 0) joined += ", ";
+                joined += '"';
+                joined += attr.arguments[idx];
+                joined += '"';
             }
-            stream << ')';
+            report(fmt::format("unknown gentest class attribute '{}' with argument{} ({})",
+                               attr.name, attr.arguments.size() == 1 ? "" : "s", joined));
+        } else {
+            report(fmt::format("unknown gentest class attribute '{}'", attr.name));
         }
-        report(stream.str());
     }
 
     return summary;

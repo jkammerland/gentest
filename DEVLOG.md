@@ -35,7 +35,10 @@ Devlog 2025-10-02 (Refactor + Robust Tests)
         - Member tests are grouped per fixture; optional `--shuffle-fixtures` shuffles within a group only.
         - Generated TU includes the test sources so fixture types are complete; tests no longer compile `cases.cpp` directly.
         - New header `include/gentest/fixture.h` exposes `gentest::FixtureSetup` and `gentest::FixtureTearDown` interfaces.
-      - Added `tests/fixtures` suite with ephemeral and stateful examples; counts and `--list` checks added.
+        - Added `tests/fixtures` suite with ephemeral and stateful examples; counts and `--list` checks added.
+      - Output and emission cleanup:
+        - Generated runtime switched from iostream to `fmt::print` to simplify output and reduce noise.
+        - Emitter refactored to use block `fmt::format` constructions for wrappers, case entries, and group runners instead of many small appends.
   - Next ideas (optional)
       - Add a couple of core tests for skip(reason) at the parser/validator layer.
       - Minimize logic in parse.cpp further if trim_copy can be moved into a small shared utility (not necessary, just polish).

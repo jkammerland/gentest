@@ -13,6 +13,7 @@ discovered function through a single `gentest::run_all_tests` entry-point.
   `gentest_attach_codegen()` function.
 - `tests/` – two suites (`unit` and `integration`) that demonstrate codegen-driven execution through the shared
   `gentest::run_all_tests` harness.
+ - The generated runtime uses `fmt::print` for output; CMake links `fmt::fmt` to test targets automatically.
 
 ## Local workflow
 ```bash
@@ -22,8 +23,8 @@ ctest --preset=debug --output-on-failure
 ```
 
 `gentest_codegen` relies on clang libraries and the active build’s `compile_commands.json`. vcpkg users can install the
-`llvm[clang,clang-tools-extra]` port, and everyone else should ensure `clang++` is on `PATH` together with the host
-libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
+`llvm[clang,clang-tools-extra]` port plus `fmt` (pulled automatically for tests), and everyone else should ensure
+`clang++` is on `PATH` together with the host libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
 
 ## Authoring new test suites
 1. Create a test source (e.g. `tests/widgets/cases.cpp`) and tag functions with
