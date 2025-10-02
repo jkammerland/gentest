@@ -20,10 +20,21 @@ struct AttributeSummary {
     bool                       had_error = false;
 };
 
+struct FixtureAttributeSummary {
+    bool had_error = false;
+    bool stateful  = false;
+};
+
 // Validate a parsed `gentest::` attribute list and collect metadata.
 // `report` is invoked for each diagnostic message.
 auto validate_attributes(const std::vector<ParsedAttribute>& parsed,
                          const std::function<void(const std::string&)>& report) -> AttributeSummary;
 
-} // namespace gentest::codegen
+// Validate class/struct-level attributes applicable to fixtures.
+// Recognized:
+//  - stateful_fixture (flag)
+// Unknown gentest:: attributes at class scope are hard errors.
+auto validate_fixture_attributes(const std::vector<ParsedAttribute>& parsed,
+                                 const std::function<void(const std::string&)>& report) -> FixtureAttributeSummary;
 
+} // namespace gentest::codegen

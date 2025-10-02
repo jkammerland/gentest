@@ -55,8 +55,13 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
         return std::nullopt;
     }
 
+    // Forward declarations for free functions (not strictly needed when we include sources,
+    // but harmless and keeps template consistent)
     std::map<std::string, std::set<std::string>> forward_decls;
     for (const auto &test : cases) {
+        if (!test.fixture_qualified_name.empty()) {
+            continue; // methods don't get free function forward decls
+        }
         std::string scope;
         std::string basename = test.qualified_name;
         if (auto pos = basename.rfind("::"); pos != std::string::npos) {
@@ -137,6 +142,55 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
         trait_declarations.append("\n");
     }
 
+    // Build wrapper implementations for all cases (free and member tests)
+    std::string wrapper_impls;
+    wrapper_impls.reserve(cases.size() * 160);
+
+    auto make_wrapper_name = [](std::size_t idx) { return std::string("kCaseInvoke_") + std::to_string(idx); };
+
+    for (std::size_t idx = 0; idx < cases.size(); ++idx) {
+        const auto &test = cases[idx];
+        const auto  w    = make_wrapper_name(idx);
+        wrapper_impls.append("static void ");
+        wrapper_impls.append(w);
+        wrapper_impls.append("(void* __ctx) {\n");
+        if (test.fixture_qualified_name.empty()) {
+            // Free test
+            wrapper_impls.append("    (void)__ctx;\n");
+            wrapper_impls.append("    ");
+            wrapper_impls.append(test.qualified_name);
+            wrapper_impls.append("();\n");
+        } else {
+            // Member test
+            // Extract method basename from qualified name (after last '::')
+            std::string method_name = test.qualified_name;
+            auto        pos         = method_name.rfind("::");
+            if (pos != std::string::npos) method_name = method_name.substr(pos + 2);
+
+            if (test.fixture_stateful) {
+                wrapper_impls.append("    auto* __fx = static_cast<");
+                wrapper_impls.append(test.fixture_qualified_name);
+                wrapper_impls.append("*>(__ctx);\n");
+                wrapper_impls.append("    __gentest_maybe_setup(*__fx);\n");
+                wrapper_impls.append("    __fx->");
+                wrapper_impls.append(method_name);
+                wrapper_impls.append("();\n");
+                wrapper_impls.append("    __gentest_maybe_teardown(*__fx);\n");
+            } else {
+                wrapper_impls.append("    (void)__ctx;\n");
+                wrapper_impls.append("    ");
+                wrapper_impls.append(test.fixture_qualified_name);
+                wrapper_impls.append(" __fx;\n");
+                wrapper_impls.append("    __gentest_maybe_setup(__fx);\n");
+                wrapper_impls.append("    __fx.");
+                wrapper_impls.append(method_name);
+                wrapper_impls.append("();\n");
+                wrapper_impls.append("    __gentest_maybe_teardown(__fx);\n");
+            }
+        }
+        wrapper_impls.append("}\n\n");
+    }
+
     std::string case_entries;
     if (cases.empty()) {
         case_entries = "    // No test cases discovered during code generation.\n";
@@ -149,7 +203,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
             case_entries.append(escape_string(test.display_name));
             case_entries.append("\",\n");
             case_entries.append("        &");
-            case_entries.append(test.qualified_name);
+            case_entries.append(make_wrapper_name(idx));
             case_entries.append(",\n");
             case_entries.append("        \"");
             case_entries.append(escape_string(test.filename));
@@ -174,16 +228,99 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
             case_entries.append(",\n");
             case_entries.append("        ");
             case_entries.append(test.should_skip ? "true" : "false");
+            case_entries.append(",\n");
+            case_entries.append("        ");
+            if (!test.fixture_qualified_name.empty()) {
+                case_entries.append("\"");
+                case_entries.append(escape_string(test.fixture_qualified_name));
+                case_entries.append("\"");
+            } else {
+                case_entries.append("std::string_view{}");
+            }
+            case_entries.append(",\n");
+            case_entries.append("        ");
+            case_entries.append(test.fixture_stateful ? "true" : "false");
             case_entries.append("\n    },\n");
         }
+    }
+
+    // Build per-fixture groups and corresponding runner functions
+    std::map<std::string, std::vector<std::size_t>> groups;
+    for (std::size_t idx = 0; idx < cases.size(); ++idx) {
+        const auto &test = cases[idx];
+        if (test.fixture_qualified_name.empty()) continue;
+        groups[test.fixture_qualified_name].push_back(idx);
+    }
+
+    std::string group_runners;
+    std::string run_groups;
+    std::size_t gid = 0;
+    for (const auto &kv : groups) {
+        const auto &fixture = kv.first;
+        const auto &idxs    = kv.second;
+        if (idxs.empty()) continue;
+        // Determine if group is stateful (any case says so)
+        bool stateful = false;
+        for (auto i : idxs) {
+            if (cases[i].fixture_stateful) { stateful = true; break; }
+        }
+        group_runners.append("static void __gentest_run_group_");
+        group_runners.append(std::to_string(gid));
+        group_runners.append("(bool __shuffle, std::uint64_t __seed, Counters& __c) {\n");
+        group_runners.append("    using Fixture = ");
+        group_runners.append(fixture);
+        group_runners.append(";\n");
+        group_runners.append("    const std::array<std::size_t, ");
+        group_runners.append(std::to_string(idxs.size()));
+        group_runners.append("> __idxs = {");
+        for (std::size_t j = 0; j < idxs.size(); ++j) {
+            if (j != 0) group_runners.append(", ");
+            group_runners.append(std::to_string(idxs[j]));
+        }
+        group_runners.append("};\n");
+        group_runners.append("    std::vector<std::size_t> __order(__idxs.begin(), __idxs.end());\n");
+        group_runners.append("    if (__shuffle && __order.size() > 1) { std::mt19937_64 __rng(__seed ? (__seed + ");
+        group_runners.append(std::to_string(gid));
+        group_runners.append(") : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(__order.begin(), __order.end(), __rng); }\n");
+        if (stateful) {
+            group_runners.append("    Fixture __fx;\n");
+            group_runners.append("    for (auto __i : __order) { execute_one(kCases[__i], &__fx, __c); }\n");
+        } else {
+            group_runners.append("    for (auto __i : __order) { execute_one(kCases[__i], nullptr, __c); }\n");
+        }
+        group_runners.append("}\n\n");
+
+        run_groups.append("    __gentest_run_group_");
+        run_groups.append(std::to_string(gid));
+        run_groups.append("(shuffle, seed, counters);\n");
+        ++gid;
     }
 
     std::string output = template_content;
     replace_all(output, "{{FORWARD_DECLS}}", forward_decl_block);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(cases.size()));
     replace_all(output, "{{TRAIT_DECLS}}", trait_declarations);
+    replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
     replace_all(output, "{{CASE_INITS}}", case_entries);
     replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
+    replace_all(output, "{{GROUP_RUNNERS}}", group_runners);
+    replace_all(output, "{{RUN_GROUPS}}", run_groups);
+
+    // Include sources in the generated file so fixture types are visible
+    namespace fs = std::filesystem;
+    std::string includes;
+    const fs::path out_dir = options.output_path.has_parent_path() ? options.output_path.parent_path() : fs::current_path();
+    for (const auto &src : options.sources) {
+        fs::path spath(src);
+        std::error_code ec;
+        fs::path rel = fs::proximate(spath, out_dir, ec);
+        if (ec) rel = spath;
+        auto norm = rel.generic_string();
+        includes.append("#include \"");
+        includes.append(norm);
+        includes.append("\"\n");
+    }
+    replace_all(output, "{{INCLUDE_SOURCES}}", includes);
 
     return output;
 }

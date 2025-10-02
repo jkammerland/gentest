@@ -2,14 +2,14 @@ set(_gentest_test_suites
     unit
     integration
     failing
-    skiponly)
+    skiponly
+    fixtures)
 
 foreach(suite IN LISTS _gentest_test_suites)
     set(target_name "${PROJECT_NAME}_${suite}_tests")
 
     add_executable(${target_name}
-        support/test_entry.cpp
-        ${suite}/cases.cpp)
+        support/test_entry.cpp)
 
     target_link_libraries(${target_name}
         PRIVATE
@@ -103,4 +103,16 @@ add_test(NAME skiponly_list_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_skiponly_tests>
         -DLIST=ON -DCASES=2
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME fixtures_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
+        -DPASS=4 -DFAIL=0 -DSKIP=0
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME fixtures_list_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
+        -DLIST=ON -DCASES=4
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)

@@ -30,9 +30,17 @@ Devlog 2025-10-02 (Refactor + Robust Tests)
       - Preset build/test runs clean across all suites and checks.
       - Unknown gentest:: attributes hard-fail; other namespaces warn.
       - INTERFACE warning flags propagate to consumers (Clang/GCC/MSVC).
+      - New: Fixture support with member tests, including stateful fixtures and optional setup/teardown hooks.
+        - Generator now detects class-level `[[using gentest: stateful_fixture]]`.
+        - Member tests are grouped per fixture; optional `--shuffle-fixtures` shuffles within a group only.
+        - Generated TU includes the test sources so fixture types are complete; tests no longer compile `cases.cpp` directly.
+        - New header `include/gentest/fixture.h` exposes `gentest::FixtureSetup` and `gentest::FixtureTearDown` interfaces.
+      - Added `tests/fixtures` suite with ephemeral and stateful examples; counts and `--list` checks added.
   - Next ideas (optional)
       - Add a couple of core tests for skip(reason) at the parser/validator layer.
       - Minimize logic in parse.cpp further if trim_copy can be moved into a small shared utility (not necessary, just polish).
       - Expand tidy plugin docs with a minimal .clang-tidy example configuration for easy editor adoption.
+      - Expose `--shuffle-fixtures` and `--seed` in README examples; consider environment fallback (e.g. `GENTEST_SHUFFLE`).
+      - Validate and document fixture attribute semantics further (errors for class-scope attributes other than `stateful_fixture`).
 
   If you want, I can add the skip(reason) unit assertions and a tiny .clang-tidy example next.

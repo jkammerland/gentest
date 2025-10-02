@@ -37,9 +37,10 @@ libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
    The interface target `${PROJECT_NAME}` exports the right warning suppressions to
    consumers (e.g. `-Wno-unknown-attributes` on Clang/GCC, `/wd5030` on MSVC), so no
    local `#pragma` blocks are required.
-2. Add a target in `tests/CMakeLists.txt` and call `gentest_attach_codegen()` to hook the generator:
+2. Add a target in `tests/CMakeLists.txt` and call `gentest_attach_codegen()` to hook the generator (the generated
+   source will include your `cases.cpp`, so you don't add it directly to the target sources):
    ```cmake
-   add_executable(gentest_widgets_tests support/test_entry.cpp widgets/cases.cpp)
+   add_executable(gentest_widgets_tests support/test_entry.cpp)
    gentest_attach_codegen(gentest_widgets_tests
        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/widgets/test_impl.cpp
        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/widgets/cases.cpp)
@@ -72,5 +73,34 @@ Running the resulting binary executes every annotated function, printing `[ PASS
 non-zero exit status when any test throws `gentest::failure`. Pass `--list` to enumerate discovered cases and inspect
 their metadata: the generator includes tags, requirement IDs, and skip markers that originate from the `[[using
 gentest : ...]]` attribute list.
+
+## Fixtures (member-function tests)
+
+Member functions can be tagged as tests and run via an auto-generated fixture harness. Two modes are supported:
+
+- Stateless (default): each member test gets a fresh instance of the enclosing type.
+- Stateful: mark the class/struct with `[[using gentest: stateful_fixture]]` to reuse a single instance for all its
+  member tests.
+
+Optional setup/teardown hooks are available by inheriting from the provided interfaces in `gentest/fixture.h`:
+
+```c++
+struct MyFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() override { /* assertions allowed here */ }
+    void tearDown() override { /* assertions allowed here */ }
+
+    [[using gentest: test("suite/member-a")]]
+    void a();
+
+    [[using gentest: test("suite/member-b")]]
+    void b();
+};
+
+struct [[using gentest: stateful_fixture]] StatefulFixture { /* ... */ };
+```
+
+Execution order: free (non-member) tests run first. Member tests are grouped per-fixture and run together. You can
+shuffle the order of tests within each fixture group without interleaving with other groups by passing
+`--shuffle-fixtures` (optionally `--seed N` for reproducibility).
 
 See [`AGENTS.md`](AGENTS.md) for contribution guidelines and additional workflow conventions.

@@ -4,26 +4,49 @@
 #include <array>
 #include <exception>
 #include <iostream>
+#include <random>
+#include <type_traits>
 #include <span>
 #include <string_view>
 #include <vector>
 
 #include "gentest/runner.h"
+#include "gentest/fixture.h"
+
+// Include test sources so fixture types are visible for wrappers
+{{INCLUDE_SOURCES}}
 
 {{FORWARD_DECLS}}
 namespace {
 
 {{TRAIT_DECLS}}
 
+// Per-case invocation wrappers. All wrappers use a uniform signature
+//   void(void* ctx)
+// Free tests ignore ctx; ephemeral fixtures construct a new instance per call;
+// stateful fixtures expect ctx to point to the shared fixture instance.
+template <typename T>
+inline void __gentest_maybe_setup(T& t) {
+    if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) t.setUp();
+}
+
+template <typename T>
+inline void __gentest_maybe_teardown(T& t) {
+    if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) t.tearDown();
+}
+{{WRAPPER_IMPLS}}
+
 struct Case {
     std::string_view                  name;
-    void (*fn)();
+    void (*fn)(void*);
     std::string_view                  file;
     unsigned                          line;
     std::span<const std::string_view> tags;
     std::span<const std::string_view> requirements;
     std::string_view                  skip_reason;
     bool                              should_skip;
+    std::string_view                  fixture;        // empty for free tests
+    bool                              fixture_stateful;
 };
 
 constexpr std::array<Case, {{CASE_COUNT}}> kCases = {
@@ -40,7 +63,65 @@ bool wants_list(std::span<const char*> args) {
     }
     return false;
 }
+
+bool wants_shuffle(std::span<const char*> args) {
+    for (const auto* arg : args) {
+        if (arg != nullptr && std::string_view(arg) == "--shuffle-fixtures") {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::uint64_t parse_seed(std::span<const char*> args) {
+    for (std::size_t i = 0; i + 1 < args.size(); ++i) {
+        if (args[i] != nullptr && std::string_view(args[i]) == "--seed") {
+            if (args[i + 1]) {
+                std::uint64_t v = 0;
+                for (const char ch : std::string_view(args[i + 1])) {
+                    if (ch < '0' || ch > '9') { v = 0; break; }
+                    v = v * 10 + static_cast<std::uint64_t>(ch - '0');
+                }
+                if (v != 0) return v;
+            }
+        }
+    }
+    return 0;
+}
 } // namespace
+
+namespace {
+struct Counters { std::size_t executed = 0; int failures = 0; };
+
+void execute_one(const Case& test, void* ctx, Counters& c) {
+    if (test.should_skip) {
+        std::cout << "[ SKIP ] " << test.name;
+        if (!test.skip_reason.empty()) {
+            std::cout << " :: " << test.skip_reason;
+        }
+        std::cout << "\n";
+        return;
+    }
+    ++c.executed;
+    try {
+        test.fn(ctx);
+        std::cout << "[ PASS ] " << test.name << "\n";
+    } catch (const gentest::failure& err) {
+        ++c.failures;
+        std::cerr << "[ FAIL ] " << test.name << " :: " << err.what() << "\n";
+    } catch (const std::exception& err) {
+        ++c.failures;
+        std::cerr << "[ FAIL ] " << test.name << " :: unexpected std::exception: " << err.what() << "\n";
+    } catch (...) {
+        ++c.failures;
+        std::cerr << "[ FAIL ] " << test.name << " :: unknown exception" << "\n";
+    }
+}
+} // namespace
+
+// Group runners for fixture-based tests.
+// Generated per-fixture group; invoked after free tests.
+{{GROUP_RUNNERS}}
 
 auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     if (wants_list(args)) {
@@ -87,40 +168,26 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         }
         return 0;
     }
+    Counters counters;
 
-    std::size_t executed = 0;
-    int failures = 0;
+    // Run free tests first (no fixture)
     for (const auto& test : kCases) {
-        if (test.should_skip) {
-            std::cout << "[ SKIP ] " << test.name;
-            if (!test.skip_reason.empty()) {
-                std::cout << " :: " << test.skip_reason;
-            }
-            std::cout << "\n";
-            continue;
-        }
-        ++executed;
-        try {
-            test.fn();
-            std::cout << "[ PASS ] " << test.name << "\n";
-        } catch (const gentest::failure& err) {
-            ++failures;
-            std::cerr << "[ FAIL ] " << test.name << " :: " << err.what() << "\n";
-        } catch (const std::exception& err) {
-            ++failures;
-            std::cerr << "[ FAIL ] " << test.name << " :: unexpected std::exception: " << err.what() << "\n";
-        } catch (...) {
-            ++failures;
-            std::cerr << "[ FAIL ] " << test.name << " :: unknown exception" << "\n";
-        }
+        if (!test.fixture.empty()) continue; // fixtures handled in groups
+        execute_one(test, nullptr, counters);
     }
 
-    if (failures == 0) {
-        std::cout << "Executed " << executed << " test(s).\n";
+    // Run fixture groups next
+    const bool         shuffle = wants_shuffle(args);
+    const std::uint64_t seed    = parse_seed(args);
+
+    {{RUN_GROUPS}}
+
+    if (counters.failures == 0) {
+        std::cout << "Executed " << counters.executed << " test(s).\n";
     } else {
-        std::cerr << "Executed " << executed << " test(s) with " << failures << " failure(s).\n";
+        std::cerr << "Executed " << counters.executed << " test(s) with " << counters.failures << " failure(s).\n";
     }
-    return failures == 0 ? 0 : 1;
+    return counters.failures == 0 ? 0 : 1;
 }
 
 auto {{ENTRY_FUNCTION}}(int argc, char** argv) -> int {

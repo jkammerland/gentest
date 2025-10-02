@@ -34,11 +34,16 @@ struct TestCaseInfo {
     std::string              display_name;
     std::string              filename;
     unsigned                 line = 0;
+    // Tags and metadata
     std::vector<std::string> tags;
     std::vector<std::string> requirements;
     bool                     should_skip = false;
     std::string              skip_reason;
+    // Fixture/method support
+    // If non-empty, this case represents a member test on the given fixture type.
+    std::string              fixture_qualified_name;
+    // True if the enclosing fixture is marked as stateful.
+    bool                     fixture_stateful = false;
 };
 
 } // namespace gentest::codegen
-

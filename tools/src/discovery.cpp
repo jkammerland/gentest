@@ -132,6 +132,23 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
     info.requirements   = std::move(summary.requirements);
     info.should_skip    = summary.should_skip;
     info.skip_reason    = std::move(summary.skip_reason);
+
+    // If this is a method, collect fixture attributes from the parent class/struct.
+    if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {
+        if (const auto *record = method->getParent()) {
+            const auto class_attrs = collect_gentest_attributes_for(*record, sm);
+            for (const auto &message : class_attrs.other_namespaces) {
+                std::string text = "attribute '" + message + "' ignored (unsupported attribute namespace)";
+                report(text);
+            }
+            auto fixture_summary = validate_fixture_attributes(class_attrs.gentest, [&](const std::string &m) {
+                had_error_ = true;
+                report(m);
+            });
+            info.fixture_qualified_name = record->getQualifiedNameAsString();
+            info.fixture_stateful       = fixture_summary.stateful;
+        }
+    }
     return info;
 }
 

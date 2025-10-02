@@ -143,5 +143,47 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
     return summary;
 }
 
-} // namespace gentest::codegen
+auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed,
+                                 const std::function<void(const std::string &)> &report) -> FixtureAttributeSummary {
+    FixtureAttributeSummary summary{};
+    bool                    saw_stateful = false;
 
+    for (const auto &attr : parsed) {
+        std::string lowered = attr.name;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+
+        if (attr.arguments.empty()) {
+            if (gentest::detail::is_allowed_fixture_flag(lowered)) {
+                if (lowered == "stateful_fixture") {
+                    if (saw_stateful) {
+                        summary.had_error = true;
+                        report("duplicate gentest attribute 'stateful_fixture' on fixture");
+                        continue;
+                    }
+                    saw_stateful     = true;
+                    summary.stateful = true;
+                }
+                continue;
+            }
+        }
+
+        // All other gentest attributes are unknown at class scope.
+        summary.had_error = true;
+        std::ostringstream stream;
+        stream << "unknown gentest class attribute '" << attr.name << "'";
+        if (!attr.arguments.empty()) {
+            stream << " with argument" << (attr.arguments.size() == 1 ? "" : "s") << " (";
+            for (std::size_t idx = 0; idx < attr.arguments.size(); ++idx) {
+                if (idx != 0) stream << ", ";
+                stream << '"' << attr.arguments[idx] << '"';
+            }
+            stream << ')';
+        }
+        report(stream.str());
+    }
+
+    return summary;
+}
+
+} // namespace gentest::codegen
