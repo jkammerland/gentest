@@ -15,3 +15,17 @@ void hello() {
 void params_test(int i) {
     gentest::expect(i >= 0, "non-negative");
 }
+
+// Multi-argument parameterization across separate blocks
+
+[[using gentest: test("templates/pairs")]]
+[[using gentest: parameters(int, 1, 2)]]
+[[using gentest: parameters(int, 5, 6)]]
+void pairs(int a, int b) {
+    gentest::expect(true, "dummy");
+}
+
+[[using gentest: test("templates/strs"), parameters(std::string, "a", "b")]]
+void strs(std::string s) {
+    gentest::expect(!s.empty(), "non-empty");
+}

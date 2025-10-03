@@ -6,6 +6,7 @@
 
 #include <utility>
 #include <fmt/core.h>
+#include "render.hpp"
 #include <clang/AST/Decl.h>
 #include <clang/Basic/SourceManager.h>
 #include <llvm/Support/raw_ostream.h>
@@ -133,8 +134,46 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         if (seen_.insert(key).second) out_.push_back(std::move(info));
     };
 
-    if (summary.parameters.has_value()) {
-        for (const auto &combo : type_combos) for (const auto &v : summary.parameters->values) add_case(combo, v);
+    if (!summary.parameter_sets.empty()) {
+        // Build Cartesian product of parameter values across axes
+        std::vector<std::vector<std::string>> val_combos{{}};
+        for (const auto &ps : summary.parameter_sets) {
+            std::vector<std::vector<std::string>> next;
+            for (const auto &acc : val_combos) {
+                for (const auto &v : ps.values) {
+                    auto w = acc; w.push_back(v); next.push_back(std::move(w));
+                }
+            }
+            val_combos = std::move(next);
+        }
+        // Normalize type names for string-likes
+        auto is_string_type = [](std::string type) {
+            // Remove spaces and lowercase
+            type.erase(std::remove_if(type.begin(), type.end(), [](unsigned char c){ return std::isspace(c); }), type.end());
+            std::string lower = type;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c){ return std::tolower(c); });
+            if (lower.find("string_view") != std::string::npos) return true;
+            if (lower.find("string") != std::string::npos) return true;
+            if (lower.find("char*") != std::string::npos) return true;
+            return false;
+        };
+        for (const auto &combo : type_combos) {
+            for (const auto &vals : val_combos) {
+                std::string call;
+                for (std::size_t i = 0; i < vals.size(); ++i) {
+                    if (i) call += ", ";
+                    const auto &ps = summary.parameter_sets[i];
+                    if (is_string_type(ps.type_name)) {
+                        call += '"';
+                        call += render::escape_string(vals[i]);
+                        call += '"';
+                    } else {
+                        call += vals[i];
+                    }
+                }
+                add_case(combo, call);
+            }
+        }
     } else {
         for (const auto &combo : type_combos) add_case(combo, "");
     }

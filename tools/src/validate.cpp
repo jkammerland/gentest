@@ -99,15 +99,10 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 report("'parameters' requires a type and at least one value");
                 continue;
             }
-            if (summary.parameters.has_value()) {
-                summary.had_error = true;
-                report("duplicate 'parameters' attribute");
-                continue;
-            }
             AttributeSummary::ParamSet set;
             set.type_name = attr.arguments.front();
             for (std::size_t i = 1; i < attr.arguments.size(); ++i) set.values.push_back(attr.arguments[i]);
-            summary.parameters = std::move(set);
+            summary.parameter_sets.push_back(std::move(set));
         } else if (attr.arguments.empty()) {
             if (!gentest::detail::is_allowed_flag_attribute(lowered)) {
                 summary.had_error = true;

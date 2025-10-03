@@ -25,9 +25,9 @@ struct AttributeSummary {
     bool                       had_error = false;
     // Template matrix: list of (param, types...)
     std::vector<std::pair<std::string, std::vector<std::string>>> template_sets;
-    // Parameterized tests: type name and literal values
+    // Parameterized tests: multiple parameters supported; each has a type name and literal values.
     struct ParamSet { std::string type_name; std::vector<std::string> values; };
-    std::optional<ParamSet> parameters;
+    std::vector<ParamSet> parameter_sets;
 };
 
 // Summary of class/struct-level attributes after validation.
