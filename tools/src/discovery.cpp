@@ -134,7 +134,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         if (seen_.insert(key).second) out_.push_back(std::move(info));
     };
 
-    if (!summary.parameter_sets.empty()) {
+    if (!summary.parameter_sets.empty() || !summary.param_packs.empty()) {
         // Build Cartesian product of parameter values across axes
         std::vector<std::vector<std::string>> val_combos{{}};
         for (const auto &ps : summary.parameter_sets) {
@@ -146,6 +146,25 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
             val_combos = std::move(next);
         }
+        // Track scalar types in order
+        std::vector<std::string> scalar_types;
+        for (const auto &ps : summary.parameter_sets) scalar_types.push_back(ps.type_name);
+        // Build pack combos: each element carries concatenated args and types
+        using ArgTypes = std::pair<std::vector<std::string>, std::vector<std::string>>;
+        std::vector<ArgTypes> pack_combos{{}}; // start with empty (args, types)
+        for (const auto &pp : summary.param_packs) {
+            std::vector<ArgTypes> next;
+            for (const auto &partial : pack_combos) {
+                for (const auto &row : pp.rows) {
+                    ArgTypes nt = partial;
+                    nt.first.insert(nt.first.end(), row.begin(), row.end());
+                    nt.second.insert(nt.second.end(), pp.types.begin(), pp.types.end());
+                    next.push_back(std::move(nt));
+                }
+            }
+            pack_combos = std::move(next);
+        }
+        if (pack_combos.empty()) pack_combos.push_back({{}, {}});
         // Normalize type names for string-likes
         auto is_string_type = [](std::string type) {
             // Remove spaces and lowercase
@@ -155,23 +174,55 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             if (lower.find("string_view") != std::string::npos) return true;
             if (lower.find("string") != std::string::npos) return true;
             if (lower.find("char*") != std::string::npos) return true;
+            if (lower.find("wchar_t*") != std::string::npos) return true;
+            if (lower.find("u8string") != std::string::npos || lower.find("char8_t*") != std::string::npos) return true;
+            if (lower.find("u16string") != std::string::npos || lower.find("char16_t*") != std::string::npos) return true;
+            if (lower.find("u32string") != std::string::npos || lower.find("char32_t*") != std::string::npos) return true;
             return false;
         };
+        auto is_char_type = [](std::string type) {
+            type.erase(std::remove_if(type.begin(), type.end(), [](unsigned char c){ return std::isspace(c); }), type.end());
+            std::string lower = type;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c){ return std::tolower(c); });
+            return lower == "char" || lower == "wchar_t" || lower == "char8_t" || lower == "char16_t" || lower == "char32_t";
+        };
+        auto string_prefix = [](const std::string &type) -> const char* {
+            std::string t = type; t.erase(std::remove_if(t.begin(), t.end(), [](unsigned char c){ return std::isspace(c); }), t.end());
+            std::string l = t; std::transform(l.begin(), l.end(), l.begin(), [](unsigned char c){ return std::tolower(c); });
+            if (l.find("wstring") != std::string::npos || l.find("wchar_t*") != std::string::npos) return "L";
+            if (l.find("u8string") != std::string::npos || l.find("char8_t*") != std::string::npos) return "u8";
+            if (l.find("u16string") != std::string::npos || l.find("char16_t*") != std::string::npos) return "u";
+            if (l.find("u32string") != std::string::npos || l.find("char32_t*") != std::string::npos) return "U";
+            return "";
+        };
         for (const auto &combo : type_combos) {
-            for (const auto &vals : val_combos) {
-                std::string call;
-                for (std::size_t i = 0; i < vals.size(); ++i) {
-                    if (i) call += ", ";
-                    const auto &ps = summary.parameter_sets[i];
-                    if (is_string_type(ps.type_name)) {
-                        call += '"';
-                        call += render::escape_string(vals[i]);
-                        call += '"';
-                    } else {
-                        call += vals[i];
+            for (const auto &pack : pack_combos) {
+                for (const auto &vals : val_combos) {
+                    std::string call;
+                    std::vector<std::string> types_concat = pack.second; // pack types
+                    types_concat.insert(types_concat.end(), scalar_types.begin(), scalar_types.end());
+                    std::vector<std::string> args_concat = pack.first; // pack args
+                    args_concat.insert(args_concat.end(), vals.begin(), vals.end());
+                    for (std::size_t i = 0; i < args_concat.size(); ++i) {
+                        if (i) call += ", ";
+                        const auto &ty = types_concat[i];
+                        std::string ty_lower = ty; std::transform(ty_lower.begin(), ty_lower.end(), ty_lower.begin(), [](unsigned char c){ return std::tolower(c); });
+                        if (ty_lower == "raw") {
+                            call += args_concat[i];
+                        } else if (is_string_type(ty)) {
+                            call += string_prefix(ty);
+                            call += '"'; call += render::escape_string(args_concat[i]); call += '"';
+                        } else if (is_char_type(ty)) {
+                            // Naive: wrap single-char tokens; otherwise assume already a literal
+                            const std::string &tok = args_concat[i];
+                            if (tok.size() == 1) { call += '\''; call += render::escape_string(tok); call += '\''; }
+                            else { call += tok; }
+                        } else {
+                            call += args_concat[i];
+                        }
                     }
+                    add_case(combo, call);
                 }
-                add_case(combo, call);
             }
         }
     } else {

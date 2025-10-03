@@ -103,6 +103,59 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
             set.type_name = attr.arguments.front();
             for (std::size_t i = 1; i < attr.arguments.size(); ++i) set.values.push_back(attr.arguments[i]);
             summary.parameter_sets.push_back(std::move(set));
+        } else if (lowered == "parameters_pack") {
+            if (attr.arguments.size() < 2) {
+                summary.had_error = true;
+                report("'parameters_pack' requires a type tuple and at least one value tuple");
+                continue;
+            }
+            auto parse_tuple = [&](const std::string &text, std::vector<std::string> &out) {
+                std::string s = text;
+                // Strip outer parens if present
+                if (!s.empty() && s.front() == '(' && s.back() == ')') {
+                    s = s.substr(1, s.size() - 2);
+                }
+                // Split on commas with nesting support by reusing split_arguments-like logic
+                // Here we implement a small local splitter: no quotes unescaping required.
+                std::vector<std::string> parts;
+                std::string cur; int depth=0; bool in_str=false; bool esc=false;
+                for (char ch : s) {
+                    if (in_str) { cur.push_back(ch); if (esc) esc=false; else if (ch=='\\') esc=true; else if (ch=='"') in_str=false; continue; }
+                    if (ch=='"') { in_str=true; cur.push_back(ch); continue; }
+                    if (ch=='('||ch=='['||ch=='{') { ++depth; cur.push_back(ch); continue; }
+                    if (ch==')'||ch==']'||ch=='}') { if (depth>0) --depth; cur.push_back(ch); continue; }
+                    if (ch==',' && depth==0) { if (!cur.empty()) { std::string t = cur; // trim
+                            auto l = t.find_first_not_of(" \t\n\r"); auto r = t.find_last_not_of(" \t\n\r");
+                            if (l!=std::string::npos) out.push_back(t.substr(l, r-l+1));
+                        } cur.clear(); continue; }
+                    cur.push_back(ch);
+                }
+                if (!cur.empty()) { std::string t = cur; auto l = t.find_first_not_of(" \t\n\r"); auto r = t.find_last_not_of(" \t\n\r"); if (l!=std::string::npos) out.push_back(t.substr(l, r-l+1)); }
+            };
+            AttributeSummary::ParamPack pack;
+            // First argument: types tuple
+            parse_tuple(attr.arguments.front(), pack.types);
+            if (pack.types.empty()) {
+                summary.had_error = true;
+                report("'parameters_pack' first tuple must list at least one type");
+                continue;
+            }
+            // Remaining arguments: value tuples matching arity
+            for (std::size_t i = 1; i < attr.arguments.size(); ++i) {
+                std::vector<std::string> row; parse_tuple(attr.arguments[i], row);
+                if (row.size() != pack.types.size()) {
+                    summary.had_error = true;
+                    report("'parameters_pack' value tuple arity mismatch");
+                    continue;
+                }
+                pack.rows.push_back(std::move(row));
+            }
+            if (pack.rows.empty()) {
+                summary.had_error = true;
+                report("'parameters_pack' requires at least one value tuple");
+                continue;
+            }
+            summary.param_packs.push_back(std::move(pack));
         } else if (attr.arguments.empty()) {
             if (!gentest::detail::is_allowed_flag_attribute(lowered)) {
                 summary.had_error = true;

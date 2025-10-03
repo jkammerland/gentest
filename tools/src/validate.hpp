@@ -28,6 +28,9 @@ struct AttributeSummary {
     // Parameterized tests: multiple parameters supported; each has a type name and literal values.
     struct ParamSet { std::string type_name; std::vector<std::string> values; };
     std::vector<ParamSet> parameter_sets;
+    // Parameter packs: bundle multiple arguments per test row to avoid Cartesian products.
+    struct ParamPack { std::vector<std::string> types; std::vector<std::vector<std::string>> rows; };
+    std::vector<ParamPack> param_packs;
 };
 
 // Summary of class/struct-level attributes after validation.
