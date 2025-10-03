@@ -67,6 +67,47 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 }
                 summary.skip_reason = std::move(reason);
             }
+        } else if (lowered == "template") {
+            if (attr.arguments.size() < 2) {
+                summary.had_error = true;
+                report("'template' requires a parameter name and at least one type");
+                continue;
+            }
+            const std::string &param = attr.arguments.front();
+            if (param.empty()) {
+                summary.had_error = true;
+                report("'template' parameter name must be non-empty");
+                continue;
+            }
+            bool dup = false;
+            for (auto &p : summary.template_sets) if (p.first == param) dup = true;
+            if (dup) {
+                summary.had_error = true;
+                report("duplicate 'template' attribute for the same parameter");
+                continue;
+            }
+            std::vector<std::string> types(attr.arguments.begin() + 1, attr.arguments.end());
+            if (types.empty()) {
+                summary.had_error = true;
+                report("'template' requires at least one type");
+                continue;
+            }
+            summary.template_sets.emplace_back(param, std::move(types));
+        } else if (lowered == "parameters") {
+            if (attr.arguments.size() < 2) {
+                summary.had_error = true;
+                report("'parameters' requires a type and at least one value");
+                continue;
+            }
+            if (summary.parameters.has_value()) {
+                summary.had_error = true;
+                report("duplicate 'parameters' attribute");
+                continue;
+            }
+            AttributeSummary::ParamSet set;
+            set.type_name = attr.arguments.front();
+            for (std::size_t i = 1; i < attr.arguments.size(); ++i) set.values.push_back(attr.arguments[i]);
+            summary.parameters = std::move(set);
         } else if (attr.arguments.empty()) {
             if (!gentest::detail::is_allowed_flag_attribute(lowered)) {
                 summary.had_error = true;

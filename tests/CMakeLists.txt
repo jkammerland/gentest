@@ -3,7 +3,8 @@ set(_gentest_test_suites
     integration
     failing
     skiponly
-    fixtures)
+    fixtures
+    templates)
 
 foreach(suite IN LISTS _gentest_test_suites)
     set(target_name "${PROJECT_NAME}_${suite}_tests")
@@ -117,6 +118,19 @@ add_test(NAME fixtures_list_counts
         -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
         -DLIST=ON -DCASES=4
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME templates_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_templates_tests>
+        -DPASS=7 -DFAIL=0 -DSKIP=0
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME templates_list_tests_lines
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_templates_tests>
+        -DLINES=7
+        -DARGS=--list-tests
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)
 
 # CLI checks for VSCode integration
 add_test(NAME unit_help

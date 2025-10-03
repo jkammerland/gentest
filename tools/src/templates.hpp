@@ -301,7 +301,7 @@ auto {{ENTRY_FUNCTION}}(int argc, char** argv) -> int {
 
 inline constexpr std::string_view wrapper_free = R"FMT(static void {w}(void* ctx_) {{
     (void)ctx_;
-    {fn}();
+    {fn}{args};
 }}
 
 )FMT";
@@ -310,7 +310,7 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
     (void)ctx_;
     {fixture} fx_;
     gentest_maybe_setup(fx_);
-    fx_.{method}();
+    fx_.{method}{args};
     gentest_maybe_teardown(fx_);
 }}
 
@@ -319,7 +319,7 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
 inline constexpr std::string_view wrapper_stateful = R"FMT(static void {w}(void* ctx_) {{
     auto* fx_ = static_cast<{fixture}*>(ctx_);
     gentest_maybe_setup(*fx_);
-    fx_->{method}();
+    fx_->{method}{args};
     gentest_maybe_teardown(*fx_);
 }}
 

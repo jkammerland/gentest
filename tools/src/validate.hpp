@@ -23,6 +23,11 @@ struct AttributeSummary {
     bool                       should_skip = false;
     std::string                skip_reason;
     bool                       had_error = false;
+    // Template matrix: list of (param, types...)
+    std::vector<std::pair<std::string, std::vector<std::string>>> template_sets;
+    // Parameterized tests: type name and literal values
+    struct ParamSet { std::string type_name; std::vector<std::string> values; };
+    std::optional<ParamSet> parameters;
 };
 
 // Summary of class/struct-level attributes after validation.

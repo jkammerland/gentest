@@ -25,8 +25,9 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
     std::optional<TestCaseInfo> classify(const clang::FunctionDecl &func, const clang::SourceManager &sm,
                                          const clang::LangOptions &lang) const;
 
-    std::vector<TestCaseInfo>                                         &out_;
-    std::set<std::pair<std::string, std::pair<std::string, unsigned>>> seen_;
+    std::vector<TestCaseInfo> &out_;
+    // Dedup emitted test cases by a composite key (qualified + display + file:line)
+    std::set<std::string>     seen_;
     mutable bool                                                       had_error_ = false;
 };
 

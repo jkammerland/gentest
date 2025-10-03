@@ -65,6 +65,10 @@ struct TestCaseInfo {
     std::string              fixture_qualified_name;
     // True if the enclosing fixture is marked as stateful.
     bool                     fixture_stateful = false;
+    // Template instantiation info (for display and call generation)
+    std::vector<std::string> template_args;
+    // Call-time arguments for free/member tests (e.g., parameterized value list joined by ',').
+    std::string              call_arguments;
 };
 
 } // namespace gentest::codegen

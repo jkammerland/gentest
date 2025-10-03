@@ -38,6 +38,8 @@ std::string render_forward_decls(const std::vector<TestCaseInfo> &cases, const s
     std::map<std::string, std::set<std::string>> forward_decls;
     for (const auto &test : cases) {
         if (!test.fixture_qualified_name.empty()) continue;
+        // Skip templated instantiations in forward decls (not valid syntax)
+        if (test.qualified_name.find('<') != std::string::npos) continue;
         std::string scope;
         std::string basename = test.qualified_name;
         if (auto pos = basename.rfind("::"); pos != std::string::npos) {
@@ -94,17 +96,18 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::s
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test = cases[idx];
         const auto  w    = make_wrapper_name(idx);
+        auto args = test.call_arguments.empty() ? std::string("()") : fmt::format("({})", test.call_arguments);
         if (test.fixture_qualified_name.empty()) {
-            out += fmt::format(fmt::runtime(tpl_free), fmt::arg("w", w), fmt::arg("fn", test.qualified_name));
+            out += fmt::format(fmt::runtime(tpl_free), fmt::arg("w", w), fmt::arg("fn", test.qualified_name), fmt::arg("args", args));
         } else {
             std::string method_name = test.qualified_name;
             if (auto pos = method_name.rfind("::"); pos != std::string::npos) method_name = method_name.substr(pos + 2);
             if (test.fixture_stateful) {
                 out += fmt::format(fmt::runtime(tpl_stateful), fmt::arg("w", w), fmt::arg("fixture", test.fixture_qualified_name),
-                                   fmt::arg("method", method_name));
+                                   fmt::arg("method", method_name), fmt::arg("args", args));
             } else {
                 out += fmt::format(fmt::runtime(tpl_ephemeral), fmt::arg("w", w), fmt::arg("fixture", test.fixture_qualified_name),
-                                   fmt::arg("method", method_name));
+                                   fmt::arg("method", method_name), fmt::arg("args", args));
             }
         }
     }

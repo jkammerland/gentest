@@ -29,9 +29,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     const auto *sm   = result.SourceManager;
     const auto &lang = result.Context->getLangOpts();
 
-    if (func->isTemplated() || func->isDependentContext()) {
-        return;
-    }
+    // Allow templated functions; instantiation handled by codegen.
 
     auto loc = func->getBeginLoc();
     if (loc.isInvalid()) {
@@ -49,17 +47,97 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         return;
     }
 
-    std::optional<TestCaseInfo> info = classify(*func, *sm, lang);
-    if (!info.has_value()) {
+    // Inline classification to support template/parameter expansion
+    const auto  collected = collect_gentest_attributes_for(*func, *sm);
+    const auto &parsed    = collected.gentest;
+    auto report = [&](std::string_view message) {
+        const SourceLocation  sloc    = sm->getSpellingLoc(func->getBeginLoc());
+        const llvm::StringRef file    = sm->getFilename(sloc);
+        const unsigned        lnum    = sm->getSpellingLineNumber(sloc);
+        const std::string     subject = func->getQualifiedNameAsString();
+        const std::string     locpfx  = !file.empty() ? fmt::format("{}:{}: ", file.str(), lnum) : std::string{};
+        const std::string     subj    = !subject.empty() ? fmt::format(" ({})", subject) : std::string{};
+        llvm::errs() << fmt::format("gentest_codegen: {}{}{}\n", locpfx, message, subj);
+    };
+    for (const auto &message : collected.other_namespaces) {
+        report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
+    }
+    if (parsed.empty()) return;
+    auto summary = validate_attributes(parsed, [&](const std::string &m) { had_error_ = true; report(m); });
+    if (!summary.case_name.has_value()) return;
+    if (!func->doesThisDeclarationHaveABody()) return;
+
+    std::string qualified = func->getQualifiedNameAsString();
+    if (qualified.empty()) qualified = func->getNameAsString();
+    if (qualified.find("(anonymous namespace)") != std::string::npos) {
+        llvm::errs() << fmt::format("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
         return;
     }
+    auto file_loc = sm->getFileLoc(func->getLocation());
+    auto filename = sm->getFilename(file_loc);
+    if (filename.empty()) return;
+    unsigned lnum = sm->getSpellingLineNumber(file_loc);
 
-    auto key = std::make_pair(info->qualified_name, std::make_pair(info->filename, info->line));
-    if (!seen_.insert(std::move(key)).second) {
-        return;
+    // Build type combinations
+    std::vector<std::vector<std::string>> type_combos{{}};
+    if (!summary.template_sets.empty()) {
+        type_combos.clear();
+        type_combos.emplace_back();
+        for (const auto &pair : summary.template_sets) {
+            std::vector<std::vector<std::string>> next;
+            for (const auto &acc : type_combos) {
+                for (const auto &ty : pair.second) {
+                    auto w = acc; w.push_back(ty); next.push_back(std::move(w));
+                }
+            }
+            type_combos = std::move(next);
+        }
     }
+    if (type_combos.empty()) type_combos.push_back({});
 
-    out_.push_back(std::move(info.value()));
+    auto make_qualified = [&](const std::vector<std::string>& tmpl) {
+        if (tmpl.empty()) return qualified;
+        std::string q = qualified; q += '<';
+        for (std::size_t i = 0; i < tmpl.size(); ++i) { if (i) q += ", "; q += tmpl[i]; }
+        q += '>';
+        return q;
+    };
+    auto make_display = [&](const std::string& base, const std::vector<std::string>& tmpl, const std::string& call_args) {
+        std::string nm = base;
+        if (!tmpl.empty()) { nm += '<'; for (std::size_t i=0;i<tmpl.size();++i){ if(i) nm+=","; nm+=tmpl[i]; } nm+='>'; }
+        if (!call_args.empty()) { nm += '('; nm += call_args; nm += ')'; }
+        return nm;
+    };
+    auto add_case = [&](const std::vector<std::string>& tmpl, const std::string& call_args){
+        TestCaseInfo info{};
+        info.qualified_name = make_qualified(tmpl);
+        info.display_name   = make_display(*summary.case_name, tmpl, call_args);
+        info.filename       = filename.str();
+        info.line           = lnum;
+        info.tags           = summary.tags;
+        info.requirements   = summary.requirements;
+        info.should_skip    = summary.should_skip;
+        info.skip_reason    = summary.skip_reason;
+        info.template_args  = tmpl;
+        info.call_arguments = call_args;
+        if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
+            if (const auto *record = method->getParent()) {
+                const auto class_attrs = collect_gentest_attributes_for(*record, *sm);
+                for (const auto &message : class_attrs.other_namespaces) report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
+                auto fixture_summary = validate_fixture_attributes(class_attrs.gentest, [&](const std::string &m) { had_error_ = true; report(m); });
+                info.fixture_qualified_name = record->getQualifiedNameAsString();
+                info.fixture_stateful       = fixture_summary.stateful;
+            }
+        }
+        std::string key = info.qualified_name + "#" + info.display_name + "@" + info.filename + ":" + std::to_string(info.line);
+        if (seen_.insert(key).second) out_.push_back(std::move(info));
+    };
+
+    if (summary.parameters.has_value()) {
+        for (const auto &combo : type_combos) for (const auto &v : summary.parameters->values) add_case(combo, v);
+    } else {
+        for (const auto &combo : type_combos) add_case(combo, "");
+    }
 }
 
 std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func, const SourceManager &sm,
