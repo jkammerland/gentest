@@ -133,4 +133,50 @@ function bodies, and `std::random_device{{}}` calls. Placeholders use single bra
 The emitter loads these partials once and fills them exclusively via `fmt::format(fmt::runtime(template), ...)` with
 named arguments. This avoids “append soup” and makes formatting changes localized to template files.
 
+## Parameterization & Type Matrices
+
+gentest supports generating statically typed test matrices and parameterized tests entirely via attributes. Attributes
+can be split across multiple `[[...]]` blocks on the same function.
+
+- Template matrices (Cartesian product across type lists):
+  ```c++
+  template <typename T, typename U>
+  [[using gentest: test("templates/hello"), template(T, int, long), template(U, float, double)]]
+  void hello() { gentest::expect(true, "compile"); }
+  // Expands: hello<int,double>, hello<int,float>, hello<long,double>, hello<long,float>
+  ```
+
+- Multiple parameter axes (Cartesian product across value lists):
+  ```c++
+  [[using gentest: test("templates/pairs")]]
+  [[using gentest: parameters(int, 1, 2)]]
+  [[using gentest: parameters(int, 5, 6)]]
+  void pairs(int a, int b) { /* 4 tests: (1,5), (1,6), (2,5), (2,6) */ }
+  ```
+
+- String-like types are auto-quoted in generated calls; both quoted and unquoted forms are accepted in attributes:
+  ```c++
+  [[using gentest: test("templates/strs"), parameters(std::string, "a", b)]]
+  void strs(std::string s) { /* calls: ("a"), ("b") */ }
+  ```
+
+- Mixed axes and templates:
+  ```c++
+  template <typename T>
+  [[using gentest: test("templates/bar"), template(T, int, long), parameters(std::string, x, y)]]
+  void bar(std::string s) { /* 4 tests: bar<int>("x"), bar<int>("y"), bar<long>("x"), bar<long>("y") */ }
+  ```
+
+- parameters_pack: bundle multiple arguments per row to avoid Cartesian explosion:
+  ```c++
+  [[using gentest: test("templates/pack"), parameters_pack((int, string), (42, a), (7, "b"))]]
+  void pack(int a, std::string b) { /* 2 tests: (42, "a"), (7, "b") */ }
+  ```
+
+Notes
+- Supported string-like types include: string/std::string, string_view/std::string_view, char*/const char*, and wide/UTF variants
+  (wstring, u8string, u16string, u32string and their corresponding char* forms). Values are quoted with the appropriate prefix.
+- Char-like types (char, wchar_t, char8_t, char16_t, char32_t) are wrapped as character literals when a single character; otherwise
+  the token is used verbatim (or you can provide explicit literals).
+
 See [`AGENTS.md`](AGENTS.md) for contribution guidelines and additional workflow conventions.

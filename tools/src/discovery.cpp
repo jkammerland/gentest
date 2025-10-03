@@ -195,6 +195,22 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             if (l.find("u32string") != std::string::npos || l.find("char32_t*") != std::string::npos) return "U";
             return "";
         };
+        auto is_string_literal = [](std::string s) {
+            auto trim = [](std::string &x){ auto l=x.find_first_not_of(" \t\n\r"); auto r=x.find_last_not_of(" \t\n\r"); if(l==std::string::npos){x.clear();} else { x = x.substr(l, r-l+1);} };
+            trim(s);
+            if (s.size()>=2 && s.front()=='"' && s.back()=='"') return true;
+            if (s.size()>=3 && (s[0]=='L' || s[0]=='u' || s[0]=='U') && s[1]=='"' && s.back()=='"') return true;
+            if (s.size()>=4 && s[0]=='u' && s[1]=='8' && s[2]=='"' && s.back()=='"') return true;
+            return false;
+        };
+        auto is_char_literal = [](std::string s) {
+            auto trim = [](std::string &x){ auto l=x.find_first_not_of(" \t\n\r"); auto r=x.find_last_not_of(" \t\n\r"); if(l==std::string::npos){x.clear();} else { x = x.substr(l, r-l+1);} };
+            trim(s);
+            if (s.size()>=3 && s.front()=='\'' && s.back()=='\'') return true;
+            if (s.size()>=4 && (s[0]=='L' || s[0]=='u' || s[0]=='U') && s[1]=='\'' && s.back()=='\'') return true;
+            if (s.size()>=5 && s[0]=='u' && s[1]=='8' && s[2]=='\'' && s.back()=='\'') return true;
+            return false;
+        };
         for (const auto &combo : type_combos) {
             for (const auto &pack : pack_combos) {
                 for (const auto &vals : val_combos) {
@@ -210,12 +226,16 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                         if (ty_lower == "raw") {
                             call += args_concat[i];
                         } else if (is_string_type(ty)) {
-                            call += string_prefix(ty);
-                            call += '"'; call += render::escape_string(args_concat[i]); call += '"';
+                            if (is_string_literal(args_concat[i])) {
+                                call += args_concat[i];
+                            } else {
+                                call += string_prefix(ty);
+                                call += '"'; call += render::escape_string(args_concat[i]); call += '"';
+                            }
                         } else if (is_char_type(ty)) {
-                            // Naive: wrap single-char tokens; otherwise assume already a literal
                             const std::string &tok = args_concat[i];
-                            if (tok.size() == 1) { call += '\''; call += render::escape_string(tok); call += '\''; }
+                            if (is_char_literal(tok)) { call += tok; }
+                            else if (tok.size() == 1) { call += '\''; call += render::escape_string(tok); call += '\''; }
                             else { call += tok; }
                         } else {
                             call += args_concat[i];
