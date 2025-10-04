@@ -13,6 +13,7 @@ add_executable(gentest_codegen
     src/discovery.cpp
     src/validate.cpp
     src/emit.cpp
+    src/type_kind.cpp
     src/render.cpp
     src/tooling_support.cpp)
 

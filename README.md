@@ -173,6 +173,25 @@ can be split across multiple `[[...]]` blocks on the same function.
   void pack(int a, std::string b) { /* 2 tests: (42, "a"), (7, "b") */ }
   ```
 
+### NTTP (Non-Type Template Parameters)
+
+`template()` also supports non-type template parameters via the `NTTP:` prefix. NTTP values are concatenated after type
+arguments inside `<...>` in the order attributes appear and can be split across multiple `[[...]]` blocks.
+
+```c++
+template <typename T, int N>
+[[using gentest: test("templates/nttp"), template(T, int), template(NTTP: N, 1, 2)]]
+void nttp() {
+    // Example: instantiates nttp<int,1>() and nttp<int,2>()
+}
+```
+
+You can mix type sets and NTTP sets across blocks; the generator forms the Cartesian product across all sets in
+declaration order and uses that to materialize test wrappers and display names.
+
+<!-- Guardrails intentionally not enforced. If you want a large matrix,
+     the generator will emit all instances as requested by attributes. -->
+
 Notes
 - Supported string-like types include: string/std::string, string_view/std::string_view, char*/const char*, and wide/UTF variants
   (wstring, u8string, u16string, u32string and their corresponding char* forms). Values are quoted with the appropriate prefix.

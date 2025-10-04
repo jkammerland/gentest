@@ -14,6 +14,7 @@
 //   The emitter uses simple string replacement for these.
 // - Partials (formatted with fmt::format):
 //   wrapper_free:     {w}, {fn}
+//   wrapper_free_fixtures: {w}, {fn}, {decls}, {setup}, {teardown}, {call}
 //   wrapper_ephemeral:{w}, {fixture}, {method}
 //   wrapper_stateful: {w}, {fixture}, {method}
 //   case_entry:       {name}, {wrapper}, {file}, {line}, {tags}, {reqs},
@@ -303,6 +304,13 @@ inline constexpr std::string_view wrapper_free = R"FMT(static void {w}(void* ctx
     (void)ctx_;
     {fn}{args};
 }}
+
+)FMT";
+
+inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static void {w}(void* ctx_) {{
+    (void)ctx_;
+{decls}{setup}    {fn}{call};
+{teardown}}}
 
 )FMT";
 

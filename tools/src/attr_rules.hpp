@@ -7,7 +7,7 @@
 
 namespace gentest::detail {
 
-inline constexpr std::array<std::string_view, 5> kAllowedValueAttributes{"category", "owner", "template", "parameters", "parameters_pack"};
+inline constexpr std::array<std::string_view, 6> kAllowedValueAttributes{"category", "owner", "template", "parameters", "parameters_pack", "fixtures"};
 inline constexpr std::array<std::string_view, 4> kAllowedFlagAttributes{"fast", "slow", "linux", "windows"};
 inline constexpr std::array<std::string_view, 1> kAllowedFixtureFlags{"stateful_fixture"};
 

@@ -4,9 +4,11 @@
 #include "parse.hpp"
 #include "validate.hpp"
 
+#include <algorithm>
 #include <utility>
 #include <fmt/core.h>
 #include "render.hpp"
+#include "type_kind.hpp"
 #include <clang/AST/Decl.h>
 #include <clang/Basic/SourceManager.h>
 #include <llvm/Support/raw_ostream.h>
@@ -16,6 +18,9 @@
 
 using namespace clang;
 using namespace clang::ast_matchers;
+using gentest::codegen::TypeKind;
+using gentest::codegen::classify_type;
+using gentest::codegen::quote_for_type;
 
 namespace gentest::codegen {
 
@@ -68,6 +73,15 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (!summary.case_name.has_value()) return;
     if (!func->doesThisDeclarationHaveABody()) return;
 
+    // 'fixtures(...)' applies only to free functions; reject on member functions.
+    if (!summary.fixtures_types.empty()) {
+        if (llvm::isa<CXXMethodDecl>(func)) {
+            had_error_ = true;
+            report("'fixtures(...)' is not supported on member tests");
+            return;
+        }
+    }
+
     std::string qualified = func->getQualifiedNameAsString();
     if (qualified.empty()) qualified = func->getNameAsString();
     if (qualified.find("(anonymous namespace)") != std::string::npos) {
@@ -95,24 +109,52 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
     if (type_combos.empty()) type_combos.push_back({});
+    // Build NTTP combinations
+    std::vector<std::vector<std::string>> nttp_combos{{}};
+    if (!summary.template_nttp_sets.empty()) {
+        nttp_combos.clear();
+        nttp_combos.emplace_back();
+        for (const auto &pair : summary.template_nttp_sets) {
+            std::vector<std::vector<std::string>> next;
+            for (const auto &acc : nttp_combos) {
+                for (const auto &val : pair.second) {
+                    auto w = acc; w.push_back(val); next.push_back(std::move(w));
+                }
+            }
+            nttp_combos = std::move(next);
+        }
+    }
+    if (nttp_combos.empty()) nttp_combos.push_back({});
 
-    auto make_qualified = [&](const std::vector<std::string>& tmpl) {
-        if (tmpl.empty()) return qualified;
+    auto make_qualified = [&](const std::vector<std::string>& tmpl, const std::vector<std::string>& nttp) {
+        if (tmpl.empty() && nttp.empty()) return qualified;
         std::string q = qualified; q += '<';
-        for (std::size_t i = 0; i < tmpl.size(); ++i) { if (i) q += ", "; q += tmpl[i]; }
+        std::size_t idx = 0;
+        for (std::size_t i = 0; i < tmpl.size(); ++i, ++idx) { if (idx) q += ", "; q += tmpl[i]; }
+        for (std::size_t i = 0; i < nttp.size(); ++i, ++idx) { if (idx) q += ", "; q += nttp[i]; }
         q += '>';
         return q;
     };
-    auto make_display = [&](const std::string& base, const std::vector<std::string>& tmpl, const std::string& call_args) {
+    auto make_display = [&](const std::string& base, const std::vector<std::string>& tmpl, const std::vector<std::string>& nttp, const std::string& call_args) {
         std::string nm = base;
-        if (!tmpl.empty()) { nm += '<'; for (std::size_t i=0;i<tmpl.size();++i){ if(i) nm+=","; nm+=tmpl[i]; } nm+='>'; }
+        if (!tmpl.empty() || !nttp.empty()) {
+            nm += '<';
+            std::size_t idx = 0;
+            for (std::size_t i=0;i<tmpl.size();++i,++idx){ if(idx) nm+=","; nm+=tmpl[i]; }
+            for (std::size_t i=0;i<nttp.size();++i,++idx){ if(idx) nm+=","; nm+=nttp[i]; }
+            nm+='>';
+        }
         if (!call_args.empty()) { nm += '('; nm += call_args; nm += ')'; }
         return nm;
     };
-    auto add_case = [&](const std::vector<std::string>& tmpl, const std::string& call_args){
+    // Determine the enclosing scope for qualifying unqualified fixture types
+    std::string enclosing_scope;
+    if (auto p = qualified.rfind("::"); p != std::string::npos) enclosing_scope = qualified.substr(0, p);
+
+    auto add_case = [&](const std::vector<std::string>& tmpl, const std::vector<std::string>& nttp, const std::string& call_args){
         TestCaseInfo info{};
-        info.qualified_name = make_qualified(tmpl);
-        info.display_name   = make_display(*summary.case_name, tmpl, call_args);
+        info.qualified_name = make_qualified(tmpl, nttp);
+        info.display_name   = make_display(*summary.case_name, tmpl, nttp, call_args);
         info.filename       = filename.str();
         info.line           = lnum;
         info.tags           = summary.tags;
@@ -121,6 +163,14 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.skip_reason    = summary.skip_reason;
         info.template_args  = tmpl;
         info.call_arguments = call_args;
+        // Qualify fixture type names if unqualified, using the function's enclosing scope
+        if (!summary.fixtures_types.empty()) {
+            for (const auto &ty : summary.fixtures_types) {
+                if (ty.find("::") != std::string::npos) info.free_fixtures.push_back(ty);
+                else if (!enclosing_scope.empty()) info.free_fixtures.push_back(enclosing_scope + "::" + ty);
+                else info.free_fixtures.push_back(ty);
+            }
+        }
         if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
             if (const auto *record = method->getParent()) {
                 const auto class_attrs = collect_gentest_attributes_for(*record, *sm);
@@ -170,7 +220,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             // Remove spaces and lowercase
             type.erase(std::remove_if(type.begin(), type.end(), [](unsigned char c){ return std::isspace(c); }), type.end());
             std::string lower = type;
-            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c){ return std::tolower(c); });
+            std::ranges::transform(lower, lower.begin(), [](unsigned char c){ return std::tolower(c); });
             if (lower.find("string_view") != std::string::npos) return true;
             if (lower.find("string") != std::string::npos) return true;
             if (lower.find("char*") != std::string::npos) return true;
@@ -183,12 +233,12 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         auto is_char_type = [](std::string type) {
             type.erase(std::remove_if(type.begin(), type.end(), [](unsigned char c){ return std::isspace(c); }), type.end());
             std::string lower = type;
-            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c){ return std::tolower(c); });
+            std::ranges::transform(lower, lower.begin(), [](unsigned char c){ return std::tolower(c); });
             return lower == "char" || lower == "wchar_t" || lower == "char8_t" || lower == "char16_t" || lower == "char32_t";
         };
         auto string_prefix = [](const std::string &type) -> const char* {
             std::string t = type; t.erase(std::remove_if(t.begin(), t.end(), [](unsigned char c){ return std::isspace(c); }), t.end());
-            std::string l = t; std::transform(l.begin(), l.end(), l.begin(), [](unsigned char c){ return std::tolower(c); });
+            std::string l = t; std::ranges::transform(l, l.begin(), [](unsigned char c){ return std::tolower(c); });
             if (l.find("wstring") != std::string::npos || l.find("wchar_t*") != std::string::npos) return "L";
             if (l.find("u8string") != std::string::npos || l.find("char8_t*") != std::string::npos) return "u8";
             if (l.find("u16string") != std::string::npos || l.find("char16_t*") != std::string::npos) return "u";
@@ -211,42 +261,30 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             if (s.size()>=5 && s[0]=='u' && s[1]=='8' && s[2]=='\'' && s.back()=='\'') return true;
             return false;
         };
+        // No expansion guardrails: generate all combinations as requested by attributes.
+
         for (const auto &combo : type_combos) {
-            for (const auto &pack : pack_combos) {
-                for (const auto &vals : val_combos) {
-                    std::string call;
-                    std::vector<std::string> types_concat = pack.second; // pack types
-                    types_concat.insert(types_concat.end(), scalar_types.begin(), scalar_types.end());
-                    std::vector<std::string> args_concat = pack.first; // pack args
-                    args_concat.insert(args_concat.end(), vals.begin(), vals.end());
-                    for (std::size_t i = 0; i < args_concat.size(); ++i) {
-                        if (i) call += ", ";
-                        const auto &ty = types_concat[i];
-                        std::string ty_lower = ty; std::transform(ty_lower.begin(), ty_lower.end(), ty_lower.begin(), [](unsigned char c){ return std::tolower(c); });
-                        if (ty_lower == "raw") {
-                            call += args_concat[i];
-                        } else if (is_string_type(ty)) {
-                            if (is_string_literal(args_concat[i])) {
-                                call += args_concat[i];
-                            } else {
-                                call += string_prefix(ty);
-                                call += '"'; call += render::escape_string(args_concat[i]); call += '"';
-                            }
-                        } else if (is_char_type(ty)) {
-                            const std::string &tok = args_concat[i];
-                            if (is_char_literal(tok)) { call += tok; }
-                            else if (tok.size() == 1) { call += '\''; call += render::escape_string(tok); call += '\''; }
-                            else { call += tok; }
-                        } else {
-                            call += args_concat[i];
+            for (const auto &nt : nttp_combos) {
+                for (const auto &pack : pack_combos) {
+                    for (const auto &vals : val_combos) {
+                        std::string call;
+                        std::vector<std::string> types_concat = pack.second; // pack types
+                        types_concat.insert(types_concat.end(), scalar_types.begin(), scalar_types.end());
+                        std::vector<std::string> args_concat = pack.first; // pack args
+                        args_concat.insert(args_concat.end(), vals.begin(), vals.end());
+                        for (std::size_t i = 0; i < args_concat.size(); ++i) {
+                            if (i) call += ", ";
+                            const auto &ty = types_concat[i];
+                            auto kind = classify_type(ty);
+                            call += quote_for_type(kind, args_concat[i], ty);
                         }
+                        add_case(combo, nt, call);
                     }
-                    add_case(combo, call);
                 }
             }
         }
     } else {
-        for (const auto &combo : type_combos) add_case(combo, "");
+        for (const auto &combo : type_combos) for (const auto &nt : nttp_combos) add_case(combo, nt, "");
     }
 }
 

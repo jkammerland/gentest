@@ -25,12 +25,15 @@ struct AttributeSummary {
     bool                       had_error = false;
     // Template matrix: list of (param, types...)
     std::vector<std::pair<std::string, std::vector<std::string>>> template_sets;
+    std::vector<std::pair<std::string, std::vector<std::string>>> template_nttp_sets;
     // Parameterized tests: multiple parameters supported; each has a type name and literal values.
     struct ParamSet { std::string type_name; std::vector<std::string> values; };
     std::vector<ParamSet> parameter_sets;
     // Parameter packs: bundle multiple arguments per test row to avoid Cartesian products.
     struct ParamPack { std::vector<std::string> types; std::vector<std::vector<std::string>> rows; };
     std::vector<ParamPack> param_packs;
+    // Free-function fixtures declared via fixtures(A, B, ...)
+    std::vector<std::string> fixtures_types;
 };
 
 // Summary of class/struct-level attributes after validation.

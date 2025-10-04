@@ -30,7 +30,8 @@ TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const st
                                 const std::string &tpl_array_nonempty);
 
 // Render per-test invocation wrappers for free/member tests.
-std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free, const std::string &tpl_ephemeral,
+std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free,
+                            const std::string &tpl_free_fixtures, const std::string &tpl_ephemeral,
                             const std::string &tpl_stateful);
 
 // Render kCases initializer entries from discovered tests and trait arrays.

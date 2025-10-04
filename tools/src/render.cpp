@@ -88,7 +88,8 @@ TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const st
     return out;
 }
 
-std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free, const std::string &tpl_ephemeral,
+std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free,
+                            const std::string &tpl_free_fixtures, const std::string &tpl_ephemeral,
                             const std::string &tpl_stateful) {
     auto make_wrapper_name = [](std::size_t idx) { return std::string("kCaseInvoke_") + std::to_string(idx); };
     std::string out;
@@ -96,18 +97,50 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::s
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test = cases[idx];
         const auto  w    = make_wrapper_name(idx);
-        auto args = test.call_arguments.empty() ? std::string("()") : fmt::format("({})", test.call_arguments);
+        auto args = test.call_arguments.empty() ? std::string() : test.call_arguments;
         if (test.fixture_qualified_name.empty()) {
-            out += fmt::format(fmt::runtime(tpl_free), fmt::arg("w", w), fmt::arg("fn", test.qualified_name), fmt::arg("args", args));
+            if (!test.free_fixtures.empty()) {
+                // Declarations, setup/teardown, and call composed with fixture references + value args
+                std::string decls;
+                std::string setup;
+                std::string teardown;
+                std::string fixture_args;
+                for (std::size_t j = 0; j < test.free_fixtures.size(); ++j) {
+                    const auto &ty = test.free_fixtures[j];
+                    const std::string var = fmt::format("fx{}_", j);
+                    decls += fmt::format("    {} {}{{}};\n", ty, var);
+                    setup += fmt::format("    gentest_maybe_setup({});\n", var);
+                    // teardown in reverse order; we'll build after loop
+                    if (!fixture_args.empty()) fixture_args += ", ";
+                    fixture_args += var;
+                }
+                for (std::size_t j = test.free_fixtures.size(); j-- > 0;) {
+                    const std::string var = fmt::format("fx{}_", j);
+                    teardown += fmt::format("    gentest_maybe_teardown({});\n", var);
+                }
+                std::string combined;
+                if (!fixture_args.empty() && !args.empty()) combined = fixture_args + ", " + args;
+                else if (!fixture_args.empty()) combined = fixture_args;
+                else combined = args; // should not happen when using this partial
+                const std::string call = fmt::format("({})", combined);
+                out += fmt::format(fmt::runtime(tpl_free_fixtures), fmt::arg("w", w), fmt::arg("fn", test.qualified_name),
+                                   fmt::arg("decls", decls), fmt::arg("setup", setup), fmt::arg("teardown", teardown),
+                                   fmt::arg("call", call));
+            } else {
+                auto call = args.empty() ? std::string("()") : fmt::format("({})", args);
+                out += fmt::format(fmt::runtime(tpl_free), fmt::arg("w", w), fmt::arg("fn", test.qualified_name), fmt::arg("args", call));
+            }
         } else {
             std::string method_name = test.qualified_name;
             if (auto pos = method_name.rfind("::"); pos != std::string::npos) method_name = method_name.substr(pos + 2);
             if (test.fixture_stateful) {
+                auto call = args.empty() ? std::string("()") : fmt::format("({})", args);
                 out += fmt::format(fmt::runtime(tpl_stateful), fmt::arg("w", w), fmt::arg("fixture", test.fixture_qualified_name),
-                                   fmt::arg("method", method_name), fmt::arg("args", args));
+                                   fmt::arg("method", method_name), fmt::arg("args", call));
             } else {
+                auto call = args.empty() ? std::string("()") : fmt::format("({})", args);
                 out += fmt::format(fmt::runtime(tpl_ephemeral), fmt::arg("w", w), fmt::arg("fixture", test.fixture_qualified_name),
-                                   fmt::arg("method", method_name), fmt::arg("args", args));
+                                   fmt::arg("method", method_name), fmt::arg("args", call));
             }
         }
     }

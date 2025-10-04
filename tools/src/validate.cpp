@@ -73,14 +73,27 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 report("'template' requires a parameter name and at least one type");
                 continue;
             }
-            const std::string &param = attr.arguments.front();
+            const std::string &raw_param = attr.arguments.front();
+            std::string param = raw_param;
+            bool is_nttp = false;
+            {
+                std::string norm = raw_param;
+                // detect NTTP: prefix
+                auto pos = norm.find(':');
+                if (pos != std::string::npos) {
+                    std::string tag = norm.substr(0, pos);
+                    std::transform(tag.begin(), tag.end(), tag.begin(), [](unsigned char c){ return std::tolower(c); });
+                    if (tag == "nttp") { is_nttp = true; param = norm.substr(pos+1); }
+                }
+            }
             if (param.empty()) {
                 summary.had_error = true;
                 report("'template' parameter name must be non-empty");
                 continue;
             }
             bool dup = false;
-            for (auto &p : summary.template_sets) if (p.first == param) dup = true;
+            if (!is_nttp) { for (auto &p : summary.template_sets) if (p.first == param) dup = true; }
+            else           { for (auto &p : summary.template_nttp_sets) if (p.first == param) dup = true; }
             if (dup) {
                 summary.had_error = true;
                 report("duplicate 'template' attribute for the same parameter");
@@ -92,7 +105,8 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 report("'template' requires at least one type");
                 continue;
             }
-            summary.template_sets.emplace_back(param, std::move(types));
+            if (is_nttp) summary.template_nttp_sets.emplace_back(param, std::move(types));
+            else         summary.template_sets.emplace_back(param, std::move(types));
         } else if (lowered == "parameters") {
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;
@@ -156,6 +170,20 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 continue;
             }
             summary.param_packs.push_back(std::move(pack));
+        } else if (lowered == "fixtures") {
+            if (attr.arguments.empty()) {
+                summary.had_error = true;
+                report("'fixtures' requires at least one type name");
+                continue;
+            }
+            for (const auto &ty : attr.arguments) {
+                if (ty.empty()) {
+                    summary.had_error = true;
+                    report("'fixtures' contains an empty type token");
+                    break;
+                }
+                summary.fixtures_types.push_back(ty);
+            }
         } else if (attr.arguments.empty()) {
             if (!gentest::detail::is_allowed_flag_attribute(lowered)) {
                 summary.had_error = true;

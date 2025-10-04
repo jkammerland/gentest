@@ -69,6 +69,10 @@ struct TestCaseInfo {
     std::vector<std::string> template_args;
     // Call-time arguments for free/member tests (e.g., parameterized value list joined by ',').
     std::string              call_arguments;
+    // Free-function fixtures declared via [[using gentest: fixtures(A, B, ...)]].
+    // These are constructed ephemerally in the wrapper and passed by reference
+    // to the test function in declaration order.
+    std::vector<std::string> free_fixtures;
 };
 
 } // namespace gentest::codegen

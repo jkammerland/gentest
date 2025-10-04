@@ -41,6 +41,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
 
     // Load partials
     const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
+    const auto tpl_wrapper_free_fix  = std::string(tpl::wrapper_free_fixtures);
     const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
     const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
     const auto tpl_case_entry        = std::string(tpl::case_entry);
@@ -58,7 +59,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     std::vector<std::string> tag_array_names         = std::move(traits.tag_names);
     std::vector<std::string> requirement_array_names = std::move(traits.req_names);
 
-    std::string wrapper_impls = render::render_wrappers(cases, tpl_wrapper_free, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
+    std::string wrapper_impls = render::render_wrappers(cases, tpl_wrapper_free, tpl_wrapper_free_fix, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
 
     std::string case_entries;
     if (cases.empty()) {

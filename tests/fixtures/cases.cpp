@@ -1,5 +1,6 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
+#include "gentest/fixture.h"
 
 #include <vector>
 
@@ -41,3 +42,32 @@ struct [[using gentest: stateful_fixture]] Counter /* optionally implement setup
 };
 
 } // namespace fixtures::stateful
+
+// Free-function fixtures composed via attribute
+namespace fixtures::free_compose {
+
+struct A : gentest::FixtureSetup, gentest::FixtureTearDown {
+    int phase = 0;
+    void setUp() override {
+        gentest::expect_eq(phase, 0, "A::setUp before test");
+        phase = 1;
+    }
+    void tearDown() override {
+        gentest::expect_eq(phase, 2, "A::tearDown after test");
+        phase = 3;
+    }
+};
+
+struct B { const char* msg = "ok"; };
+class C { public: int v = 7; };
+
+[[using gentest: test("fixtures/free/basic"), fixtures(A, B, C)]]
+constexpr void free_basic(A& a, B& b, C& c) {
+    // setUp must have run for A
+    gentest::expect_eq(a.phase, 1, "A setUp ran");
+    a.phase = 2; // allow tearDown to validate
+    gentest::expect(std::string(b.msg) == "ok", "B default value");
+    gentest::expect_eq(c.v, 7, "C default value");
+}
+
+} // namespace fixtures::free_compose
