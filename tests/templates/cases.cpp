@@ -1,6 +1,7 @@
 #include "gentest/runner.h"
 #include <chrono>
 #include <type_traits>
+#include <string_view>
 
 // Template matrix test
 
@@ -102,4 +103,149 @@ void nttp() {
     } else {
         gentest::expect(N == 1 || N == 2, "NTTP N in {1,2}");
     }
+}
+
+// Interleaved template parameters (NTTP then type); validate both
+template <int N, typename T>
+[[using gentest: test("templates/interleaved"), template(NTTP: N, 1, 2), template(T, int, long)]]
+void interleaved() {
+    if constexpr (!std::is_integral_v<T>) {
+        gentest::expect(false, "T must be integral");
+    } else {
+        gentest::expect(N == 1 || N == 2, "N in {1,2}");
+    }
+}
+
+// Three type parameters; small matrix to exercise expansion of >2 templates
+template <typename T, typename U, typename V>
+[[using gentest: test("templates/triad"), template(T, int, long), template(U, float), template(V, char)]]
+void triad() {
+    if constexpr (!std::is_integral_v<T>) {
+        gentest::expect(false, "T integral");
+    } else if constexpr (!std::is_floating_point_v<U>) {
+        gentest::expect(false, "U floating");
+    } else if constexpr (!std::is_integral_v<V>) {
+        gentest::expect(false, "V integral-ish");
+    } else {
+        gentest::expect(true, "triad ok");
+    }
+}
+
+// Two NTTPs only; ensure cross product expands correctly and values are visible
+template <int A, int B>
+[[using gentest: test("templates/nttp_pair"), template(NTTP: A, 1, 2), template(NTTP: B, 5)]]
+void nttp_pair() {
+    gentest::expect((A == 1 || A == 2) && B == 5, "NTTP pair values");
+}
+
+// Interleaved with three params: type, NTTP, NTTP
+template <typename A, int N, int M>
+[[using gentest: test("templates/interleaved2"), template(A, long), template(NTTP: M, 3, 4), template(NTTP: N, 1)]]
+void interleaved2() {
+    if constexpr (!std::is_same_v<A, long>) {
+        gentest::expect(false, "A must be long");
+    } else {
+        gentest::expect((N == 1) && (M == 3 || M == 4), "N==1 and M in {3,4}");
+    }
+}
+
+// Triad with interleaving: NTTP, type, type
+template <int N, typename T, typename U>
+[[using gentest: test("templates/triad_interleaved"), template(T, int, long), template(NTTP: N, 7, 8), template(U, double)]]
+void triad_interleaved() {
+    if constexpr (!std::is_integral_v<T> || !std::is_floating_point_v<U>) {
+        gentest::expect(false, "type checks");
+    } else {
+        gentest::expect(N == 7 || N == 8, "N in {7,8}");
+    }
+}
+
+// Boolean parameter axis
+[[using gentest: test("templates/bool_params"), parameters(bool, true, false)]]
+void bool_params(bool b) {
+    gentest::expect(b == true || b == false, "bool axis values");
+}
+
+// Boolean NTTP
+template <bool B>
+[[using gentest: test("templates/nttp_bool"), template(NTTP: B, true, false)]]
+void nttp_bool() {
+    if constexpr (B) {
+        gentest::expect(true, "B==true path");
+    } else {
+        gentest::expect(true, "B==false path");
+    }
+}
+
+// string_view axis with mixed quoted/unquoted
+[[using gentest: test("templates/sv_params"), parameters(std::string_view, hello, "world")]]
+void sv_params(std::string_view sv) {
+    gentest::expect(sv == "hello" || sv == "world", "string_view values");
+}
+
+// const char* axis with mixed quoted/unquoted
+[[using gentest: test("templates/cstr_params"), parameters(const char*, qux, "baz")]]
+void cstr_params(const char* s) {
+    std::string str{s};
+    gentest::expect(str == "qux" || str == "baz", "cstr values");
+}
+
+// u8string axis ensures correct UTF-8 literal prefixing
+[[using gentest: test("templates/u8strs"), parameters(std::u8string, alpha, beta)]]
+void u8strs(std::u8string s) {
+    gentest::expect(s == u8"alpha" || s == u8"beta", "u8string values");
+}
+
+// wchar_t* axis with mixed quoted/unquoted
+[[using gentest: test("templates/wcstr_params"), parameters(const wchar_t*, Wide, L"X")]]
+void wcstr_params(const wchar_t* s) {
+    std::wstring ws{s};
+    gentest::expect(ws == L"Wide" || ws == L"X", "wchar_t* values");
+}
+
+// char16_t* axis
+[[using gentest: test("templates/u16cstr_params"), parameters(const char16_t*, hello, u"w")]]
+void u16cstr_params(const char16_t* s) {
+    std::u16string us{s};
+    gentest::expect(us == u"hello" || us == u"w", "char16_t* values");
+}
+
+// char32_t* axis
+[[using gentest: test("templates/u32cstr_params"), parameters(const char32_t*, Cat, U"Dog")]]
+void u32cstr_params(const char32_t* s) {
+    std::u32string us{s};
+    gentest::expect(us == U"Cat" || us == U"Dog", "char32_t* values");
+}
+
+// wstring_view axis
+[[using gentest: test("templates/wsv_params"), parameters(std::wstring_view, Alpha, L"Beta")]]
+void wsv_params(std::wstring_view sv) {
+    gentest::expect(sv == L"Alpha" || sv == L"Beta", "wstring_view values");
+}
+
+// u16string axis (non-view)
+[[using gentest: test("templates/u16strs"), parameters(std::u16string, alpha, u"beta")]]
+void u16strs(std::u16string s) {
+    gentest::expect(s == u"alpha" || s == u"beta", "u16string values");
+}
+
+// u32string_view axis
+[[using gentest: test("templates/u32sv_params"), parameters(std::u32string_view, One, U"Two")]]
+void u32sv_params(std::u32string_view sv) {
+    gentest::expect(sv == U"One" || sv == U"Two", "u32string_view values");
+}
+
+// Combined boolean + string axis
+[[using gentest: test("templates/bool_and_str"), parameters(bool, true, false), parameters(std::string, Hello, "World")]]
+void bool_and_str(bool b, std::string s) {
+    gentest::expect((b == true || b == false) && (s == "Hello" || s == "World"), "bool+string values");
+}
+
+// parameters_pack with cstr + bool
+[[using gentest: test("templates/pack_cstr_bool"), parameters_pack((const char*, bool), (Alpha, true), ("Beta", false))]]
+void pack_cstr_bool(const char* s, bool b) {
+    std::string str{s};
+    const bool row1 = (str == "Alpha" && b == true);
+    const bool row2 = (str == "Beta" && b == false);
+    gentest::expect(row1 || row2, "pack cstr+bool rows");
 }

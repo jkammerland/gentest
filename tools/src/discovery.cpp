@@ -93,9 +93,11 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (filename.empty()) return;
     unsigned lnum = sm->getSpellingLineNumber(file_loc);
 
-    // Validate template attribute usage against the function's template parameter list
-    std::vector<std::string> fn_type_params_order;
-    std::vector<std::string> fn_nttp_params_order;
+    // Validate template attribute usage against the function's template parameter list.
+    // We allow arbitrary interleaving of type and NTTP parameters; we require a corresponding
+    // attribute set for each parameter by name and kind.
+    struct TParam { enum Kind { Type, NTTP } kind; std::string name; };
+    std::vector<TParam> fn_params_order;
     if (!summary.template_sets.empty() || !summary.template_nttp_sets.empty()) {
         const FunctionTemplateDecl *ftd = func->getDescribedFunctionTemplate();
         if (ftd == nullptr) {
@@ -104,112 +106,83 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             return;
         }
         const TemplateParameterList *tpl = ftd->getTemplateParameters();
-        bool saw_nttp = false;
         for (unsigned i = 0; i < tpl->size(); ++i) {
             const NamedDecl *p = tpl->getParam(i);
             if (llvm::isa<TemplateTypeParmDecl>(p)) {
-                if (saw_nttp) {
-                    had_error_ = true;
-                    report("interleaved template parameters are not supported (types must precede NTTPs)");
-                    return;
-                }
-                fn_type_params_order.push_back(p->getNameAsString());
+                fn_params_order.push_back({TParam::Type, p->getNameAsString()});
             } else if (llvm::isa<NonTypeTemplateParmDecl>(p)) {
-                saw_nttp = true;
-                fn_nttp_params_order.push_back(p->getNameAsString());
+                fn_params_order.push_back({TParam::NTTP, p->getNameAsString()});
             } else {
-                // Template template parameters not supported yet
                 had_error_ = true;
                 report("template-template parameters are not supported");
                 return;
             }
         }
-        // Names provided in attributes must match declaration order by kind
-        auto attr_type_names = std::vector<std::string>{};
-        attr_type_names.reserve(summary.template_sets.size());
-        for (const auto &p : summary.template_sets) attr_type_names.push_back(p.first);
-        auto attr_nttp_names = std::vector<std::string>{};
-        attr_nttp_names.reserve(summary.template_nttp_sets.size());
-        for (const auto &p : summary.template_nttp_sets) attr_nttp_names.push_back(p.first);
-
-        // Unknown names or kind mismatch
-        auto name_in = [](const std::vector<std::string>& v, const std::string& s){ return std::find(v.begin(), v.end(), s) != v.end(); };
-        for (const auto &nm : attr_type_names) {
-            if (!name_in(fn_type_params_order, nm)) {
-                had_error_ = true;
-                report(fmt::format("unknown or wrong-kind template parameter '{}' in 'template(...)'", nm));
-                return;
-            }
-        }
-        for (const auto &nm : attr_nttp_names) {
-            if (!name_in(fn_nttp_params_order, nm)) {
-                had_error_ = true;
-                report(fmt::format("unknown or wrong-kind template parameter '{}' in 'template(NTTP: ...)'", nm));
-                return;
-            }
-        }
-        // Require full coverage (no defaults considered yet) and correct order
-        if (attr_type_names != fn_type_params_order) {
-            had_error_ = true;
-            report("type template parameter attributes must appear for all type parameters in declaration order");
-            return;
-        }
-        if (attr_nttp_names != fn_nttp_params_order) {
-            had_error_ = true;
-            report("NTTP attributes must appear for all NTTP parameters in declaration order");
-            return;
-        }
-    }
-
-    // Build type combinations
-    std::vector<std::vector<std::string>> type_combos{{}};
-    if (!summary.template_sets.empty()) {
-        type_combos.clear();
-        type_combos.emplace_back();
-        for (const auto &pair : summary.template_sets) {
-            std::vector<std::vector<std::string>> next;
-            for (const auto &acc : type_combos) {
-                for (const auto &ty : pair.second) {
-                    auto w = acc; w.push_back(ty); next.push_back(std::move(w));
+        // Build lookup maps
+        std::map<std::string, std::vector<std::string>> type_map;
+        for (const auto &p : summary.template_sets) type_map.emplace(p.first, p.second);
+        std::map<std::string, std::vector<std::string>> nttp_map;
+        for (const auto &p : summary.template_nttp_sets) nttp_map.emplace(p.first, p.second);
+        // Verify each declared parameter has a corresponding attribute set of the correct kind
+        for (const auto &tp : fn_params_order) {
+            if (tp.kind == TParam::Type) {
+                if (!type_map.contains(tp.name)) {
+                    had_error_ = true;
+                    report(fmt::format("missing 'template({0}, ...)' attribute for type parameter '{0}'", tp.name));
+                    return;
+                }
+            } else {
+                if (!nttp_map.contains(tp.name)) {
+                    had_error_ = true;
+                    report(fmt::format("missing 'template(NTTP: {0}, ...)' attribute for non-type parameter '{0}'", tp.name));
+                    return;
                 }
             }
-            type_combos = std::move(next);
+        }
+        // Unknown names present in attributes
+        for (const auto &kv : type_map) {
+            bool known = false; for (const auto &tp : fn_params_order) if (tp.kind==TParam::Type && tp.name==kv.first) { known=true; break; }
+            if (!known) { had_error_ = true; report(fmt::format("unknown type template parameter '{}' in attributes", kv.first)); return; }
+        }
+        for (const auto &kv : nttp_map) {
+            bool known = false; for (const auto &tp : fn_params_order) if (tp.kind==TParam::NTTP && tp.name==kv.first) { known=true; break; }
+            if (!known) { had_error_ = true; report(fmt::format("unknown NTTP template parameter '{}' in attributes", kv.first)); return; }
         }
     }
-    if (type_combos.empty()) type_combos.push_back({});
-    // Build NTTP combinations
-    std::vector<std::vector<std::string>> nttp_combos{{}};
-    if (!summary.template_nttp_sets.empty()) {
-        nttp_combos.clear();
-        nttp_combos.emplace_back();
-        for (const auto &pair : summary.template_nttp_sets) {
-            std::vector<std::vector<std::string>> next;
-            for (const auto &acc : nttp_combos) {
-                for (const auto &val : pair.second) {
-                    auto w = acc; w.push_back(val); next.push_back(std::move(w));
-                }
-            }
-            nttp_combos = std::move(next);
-        }
-    }
-    if (nttp_combos.empty()) nttp_combos.push_back({});
 
-    auto make_qualified = [&](const std::vector<std::string>& tmpl, const std::vector<std::string>& nttp) {
-        if (tmpl.empty() && nttp.empty()) return qualified;
+    // Build combined template argument combinations in declaration order
+    std::vector<std::vector<std::string>> combined_tpl_combos{{}};
+    if (!fn_params_order.empty()) {
+        // Reuse maps for values
+        std::map<std::string, std::vector<std::string>> type_map;
+        for (const auto &p : summary.template_sets) type_map.emplace(p.first, p.second);
+        std::map<std::string, std::vector<std::string>> nttp_map;
+        for (const auto &p : summary.template_nttp_sets) nttp_map.emplace(p.first, p.second);
+        combined_tpl_combos.clear();
+        combined_tpl_combos.emplace_back();
+        for (const auto &tp : fn_params_order) {
+            const auto &vals = (tp.kind == TParam::Type) ? type_map[tp.name] : nttp_map[tp.name];
+            std::vector<std::vector<std::string>> next;
+            for (const auto &acc : combined_tpl_combos) {
+                for (const auto &v : vals) { auto w = acc; w.push_back(v); next.push_back(std::move(w)); }
+            }
+            combined_tpl_combos = std::move(next);
+        }
+    }
+    if (combined_tpl_combos.empty()) combined_tpl_combos.push_back({});
+
+    auto make_qualified = [&](const std::vector<std::string>& tpl_ordered) {
+        if (tpl_ordered.empty()) return qualified;
         std::string q = qualified; q += '<';
-        std::size_t idx = 0;
-        for (std::size_t i = 0; i < tmpl.size(); ++i, ++idx) { if (idx) q += ", "; q += tmpl[i]; }
-        for (std::size_t i = 0; i < nttp.size(); ++i, ++idx) { if (idx) q += ", "; q += nttp[i]; }
+        for (std::size_t i = 0; i < tpl_ordered.size(); ++i) { if (i) q += ", "; q += tpl_ordered[i]; }
         q += '>';
         return q;
     };
-    auto make_display = [&](const std::string& base, const std::vector<std::string>& tmpl, const std::vector<std::string>& nttp, const std::string& call_args) {
+    auto make_display = [&](const std::string& base, const std::vector<std::string>& tpl_ordered, const std::string& call_args) {
         std::string nm = base;
-        if (!tmpl.empty() || !nttp.empty()) {
+        if (!tpl_ordered.empty()) {
             nm += '<';
-            std::size_t idx = 0;
-            for (std::size_t i=0;i<tmpl.size();++i,++idx){ if(idx) nm+=","; nm+=tmpl[i]; }
-            for (std::size_t i=0;i<nttp.size();++i,++idx){ if(idx) nm+=","; nm+=nttp[i]; }
+            for (std::size_t i=0;i<tpl_ordered.size();++i){ if(i) nm+=","; nm+=tpl_ordered[i]; }
             nm+='>';
         }
         if (!call_args.empty()) { nm += '('; nm += call_args; nm += ')'; }
@@ -219,17 +192,17 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     std::string enclosing_scope;
     if (auto p = qualified.rfind("::"); p != std::string::npos) enclosing_scope = qualified.substr(0, p);
 
-    auto add_case = [&](const std::vector<std::string>& tmpl, const std::vector<std::string>& nttp, const std::string& call_args){
+    auto add_case = [&](const std::vector<std::string>& tpl_ordered, const std::string& call_args){
         TestCaseInfo info{};
-        info.qualified_name = make_qualified(tmpl, nttp);
-        info.display_name   = make_display(*summary.case_name, tmpl, nttp, call_args);
+        info.qualified_name = make_qualified(tpl_ordered);
+        info.display_name   = make_display(*summary.case_name, tpl_ordered, call_args);
         info.filename       = filename.str();
         info.line           = lnum;
         info.tags           = summary.tags;
         info.requirements   = summary.requirements;
         info.should_skip    = summary.should_skip;
         info.skip_reason    = summary.skip_reason;
-        info.template_args  = tmpl;
+        info.template_args  = tpl_ordered;
         info.call_arguments = call_args;
         // Qualify fixture type names if unqualified, using the function's enclosing scope
         if (!summary.fixtures_types.empty()) {
@@ -331,28 +304,26 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         };
         // No expansion guardrails: generate all combinations as requested by attributes.
 
-        for (const auto &combo : type_combos) {
-            for (const auto &nt : nttp_combos) {
-                for (const auto &pack : pack_combos) {
-                    for (const auto &vals : val_combos) {
-                        std::string call;
-                        std::vector<std::string> types_concat = pack.second; // pack types
-                        types_concat.insert(types_concat.end(), scalar_types.begin(), scalar_types.end());
-                        std::vector<std::string> args_concat = pack.first; // pack args
-                        args_concat.insert(args_concat.end(), vals.begin(), vals.end());
-                        for (std::size_t i = 0; i < args_concat.size(); ++i) {
-                            if (i) call += ", ";
-                            const auto &ty = types_concat[i];
-                            auto kind = classify_type(ty);
-                            call += quote_for_type(kind, args_concat[i], ty);
-                        }
-                        add_case(combo, nt, call);
+        for (const auto &tpl_combo : combined_tpl_combos) {
+            for (const auto &pack : pack_combos) {
+                for (const auto &vals : val_combos) {
+                    std::string call;
+                    std::vector<std::string> types_concat = pack.second; // pack types
+                    types_concat.insert(types_concat.end(), scalar_types.begin(), scalar_types.end());
+                    std::vector<std::string> args_concat = pack.first; // pack args
+                    args_concat.insert(args_concat.end(), vals.begin(), vals.end());
+                    for (std::size_t i = 0; i < args_concat.size(); ++i) {
+                        if (i) call += ", ";
+                        const auto &ty = types_concat[i];
+                        auto kind = classify_type(ty);
+                        call += quote_for_type(kind, args_concat[i], ty);
                     }
+                    add_case(tpl_combo, call);
                 }
             }
         }
     } else {
-        for (const auto &combo : type_combos) for (const auto &nt : nttp_combos) add_case(combo, nt, "");
+        for (const auto &tpl_combo : combined_tpl_combos) add_case(tpl_combo, "");
     }
 }
 
