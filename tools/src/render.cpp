@@ -90,6 +90,16 @@ TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const st
 
 namespace {
 // Small helpers to simplify wrapper emission and avoid inline string assembly
+enum class WrapperKind { Free, FreeWithFixtures, MemberEphemeral, MemberStateful };
+
+struct WrapperSpec {
+    WrapperKind              kind;
+    std::string              wrapper_name;   // kCaseInvoke_N
+    std::string              callee;         // free function (qualified) or fixture type (qualified)
+    std::string              method;         // member method name (unqualified)
+    std::vector<std::string> fixtures;       // for FreeWithFixtures
+    std::string              value_args;     // comma-separated value args (may be empty)
+};
 std::string build_fixture_decls(const std::vector<std::string>& types) {
     std::string decls;
     for (std::size_t i = 0; i < types.size(); ++i) {
@@ -117,46 +127,81 @@ std::string build_fixture_arg_list(std::size_t count) {
     for (std::size_t i = 0; i < count; ++i) { if (i) args += ", "; args += fmt::format("fx{}_", i); }
     return args;
 }
+
+std::string extract_method_name(std::string qualified) {
+    if (auto pos = qualified.rfind("::"); pos != std::string::npos) return qualified.substr(pos + 2);
+    return qualified;
+}
+
+std::string format_call_args(const std::string& value_args) {
+    return value_args.empty() ? std::string("()") : fmt::format("({})", value_args);
+}
+
+std::string render_wrapper(const WrapperSpec& spec,
+                           const std::string& tpl_free,
+                           const std::string& tpl_free_fixtures,
+                           const std::string& tpl_ephemeral,
+                           const std::string& tpl_stateful) {
+    switch (spec.kind) {
+    case WrapperKind::Free: {
+        const auto call = format_call_args(spec.value_args);
+        return fmt::format(fmt::runtime(tpl_free), fmt::arg("w", spec.wrapper_name), fmt::arg("fn", spec.callee), fmt::arg("args", call));
+    }
+    case WrapperKind::FreeWithFixtures: {
+        const std::string decls    = build_fixture_decls(spec.fixtures);
+        const std::string setup    = build_fixture_setup(spec.fixtures);
+        const std::string teardown = build_fixture_teardown(spec.fixtures);
+        std::string       combined = build_fixture_arg_list(spec.fixtures.size());
+        if (!spec.value_args.empty()) combined += combined.empty() ? spec.value_args : ", " + spec.value_args;
+        const std::string call = fmt::format("({})", combined);
+        return fmt::format(fmt::runtime(tpl_free_fixtures), fmt::arg("w", spec.wrapper_name), fmt::arg("fn", spec.callee),
+                           fmt::arg("decls", decls), fmt::arg("setup", setup), fmt::arg("teardown", teardown), fmt::arg("call", call));
+    }
+    case WrapperKind::MemberEphemeral: {
+        const auto call = format_call_args(spec.value_args);
+        return fmt::format(fmt::runtime(tpl_ephemeral), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
+                           fmt::arg("method", spec.method), fmt::arg("args", call));
+    }
+    case WrapperKind::MemberStateful: {
+        const auto call = format_call_args(spec.value_args);
+        return fmt::format(fmt::runtime(tpl_stateful), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
+                           fmt::arg("method", spec.method), fmt::arg("args", call));
+    }
+    }
+    return {};
+}
+
+WrapperSpec build_wrapper_spec(const TestCaseInfo& test, std::size_t idx) {
+    WrapperSpec spec{};
+    spec.wrapper_name = std::string("kCaseInvoke_") + std::to_string(idx);
+    spec.value_args   = test.call_arguments; // may be empty
+    if (test.fixture_qualified_name.empty()) {
+        if (!test.free_fixtures.empty()) {
+            spec.kind     = WrapperKind::FreeWithFixtures;
+            spec.callee   = test.qualified_name;
+            spec.fixtures = test.free_fixtures;
+        } else {
+            spec.kind   = WrapperKind::Free;
+            spec.callee = test.qualified_name;
+        }
+    } else {
+        spec.kind   = test.fixture_stateful ? WrapperKind::MemberStateful : WrapperKind::MemberEphemeral;
+        spec.callee = test.fixture_qualified_name;
+        spec.method = extract_method_name(test.qualified_name);
+    }
+    return spec;
+}
 } // namespace
 
 std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free,
                             const std::string &tpl_free_fixtures, const std::string &tpl_ephemeral,
                             const std::string &tpl_stateful) {
-    auto make_wrapper_name = [](std::size_t idx) { return std::string("kCaseInvoke_") + std::to_string(idx); };
     std::string out;
     out.reserve(cases.size() * 160);
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
-        const auto &test = cases[idx];
-        const auto  w    = make_wrapper_name(idx);
-        auto args = test.call_arguments.empty() ? std::string() : test.call_arguments;
-        if (test.fixture_qualified_name.empty()) {
-            if (!test.free_fixtures.empty()) {
-                const std::string decls    = build_fixture_decls(test.free_fixtures);
-                const std::string setup    = build_fixture_setup(test.free_fixtures);
-                const std::string teardown = build_fixture_teardown(test.free_fixtures);
-                std::string       combined = build_fixture_arg_list(test.free_fixtures.size());
-                if (!args.empty()) combined += combined.empty() ? args : ", " + args;
-                const std::string call = fmt::format("({})", combined);
-                out += fmt::format(fmt::runtime(tpl_free_fixtures), fmt::arg("w", w), fmt::arg("fn", test.qualified_name),
-                                   fmt::arg("decls", decls), fmt::arg("setup", setup), fmt::arg("teardown", teardown),
-                                   fmt::arg("call", call));
-            } else {
-                auto call = args.empty() ? std::string("()") : fmt::format("({})", args);
-                out += fmt::format(fmt::runtime(tpl_free), fmt::arg("w", w), fmt::arg("fn", test.qualified_name), fmt::arg("args", call));
-            }
-        } else {
-            std::string method_name = test.qualified_name;
-            if (auto pos = method_name.rfind("::"); pos != std::string::npos) method_name = method_name.substr(pos + 2);
-            if (test.fixture_stateful) {
-                auto call = args.empty() ? std::string("()") : fmt::format("({})", args);
-                out += fmt::format(fmt::runtime(tpl_stateful), fmt::arg("w", w), fmt::arg("fixture", test.fixture_qualified_name),
-                                   fmt::arg("method", method_name), fmt::arg("args", call));
-            } else {
-                auto call = args.empty() ? std::string("()") : fmt::format("({})", args);
-                out += fmt::format(fmt::runtime(tpl_ephemeral), fmt::arg("w", w), fmt::arg("fixture", test.fixture_qualified_name),
-                                   fmt::arg("method", method_name), fmt::arg("args", call));
-            }
-        }
+        const auto& test = cases[idx];
+        const auto  spec = build_wrapper_spec(test, idx);
+        out += render_wrapper(spec, tpl_free, tpl_free_fixtures, tpl_ephemeral, tpl_stateful);
     }
     return out;
 }

@@ -194,3 +194,18 @@ Devlog 2025-10-03 (Review + Refactor Plan)
 
   Status
   - All suites green (unit/integration/failing/skiponly/fixtures/templates). Interleaved templates + additional string/boolean axes covered. Lint-only negative tests surface clear diagnostics.
+
+Devlog 2025-10-03 (WrapperSpec + Validation Toggle)
+
+  - Wrapper emission polish
+      - Added helper functions in render.cpp to generate fixture declarations, setup/teardown, and argument lists.
+      - Introduced a lightweight WrapperSpec model (kind, wrapper_name, callee, method, fixtures, value_args) and a single switch-based renderer.
+      - render_wrappers now builds a WrapperSpec per case and formats using the existing templates — no behavior change.
+
+  - Template validation toggle
+      - tools/CMakeLists.txt exposes GENTEST_ENABLE_TEMPLATE_VALIDATION (default ON).
+      - When OFF, generator defines GENTEST_DISABLE_TEMPLATE_VALIDATION and skips template attribute checks, falling back to attribute-order expansion.
+
+  - Tests and status
+      - Rebuilt and ran ctest (debug preset): all tests still pass; no count changes.
+      - Code is easier to read and extend (single source of truth for wrappers; validation can be toggled during debugging).
