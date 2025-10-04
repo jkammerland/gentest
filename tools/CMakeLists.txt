@@ -57,6 +57,12 @@ target_link_libraries(gentest_codegen
 # Provide generator with project version for --help output in generated code
 target_compile_definitions(gentest_codegen PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")
 
+# Toggle for template attribute validation (default ON)
+option(GENTEST_ENABLE_TEMPLATE_VALIDATION "Enable template attribute validation in generator" ON)
+if(NOT GENTEST_ENABLE_TEMPLATE_VALIDATION)
+    target_compile_definitions(gentest_codegen PRIVATE GENTEST_DISABLE_TEMPLATE_VALIDATION)
+endif()
+
 unset(_gentest_llvm_libs)
 unset(_gentest_clang_includes)
 unset(_gentest_clang_libs)

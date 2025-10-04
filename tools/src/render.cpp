@@ -88,6 +88,37 @@ TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const st
     return out;
 }
 
+namespace {
+// Small helpers to simplify wrapper emission and avoid inline string assembly
+std::string build_fixture_decls(const std::vector<std::string>& types) {
+    std::string decls;
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        decls += fmt::format("    {} fx{}_{{}};\n", types[i], i);
+    }
+    return decls;
+}
+
+std::string build_fixture_setup(const std::vector<std::string>& types) {
+    (void)types;
+    std::string setup;
+    for (std::size_t i = 0; i < types.size(); ++i) setup += fmt::format("    gentest_maybe_setup(fx{}_);\n", i);
+    return setup;
+}
+
+std::string build_fixture_teardown(const std::vector<std::string>& types) {
+    (void)types;
+    std::string td;
+    for (std::size_t i = types.size(); i-- > 0;) td += fmt::format("    gentest_maybe_teardown(fx{}_);\n", i);
+    return td;
+}
+
+std::string build_fixture_arg_list(std::size_t count) {
+    std::string args;
+    for (std::size_t i = 0; i < count; ++i) { if (i) args += ", "; args += fmt::format("fx{}_", i); }
+    return args;
+}
+} // namespace
+
 std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free,
                             const std::string &tpl_free_fixtures, const std::string &tpl_ephemeral,
                             const std::string &tpl_stateful) {
@@ -100,28 +131,11 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::s
         auto args = test.call_arguments.empty() ? std::string() : test.call_arguments;
         if (test.fixture_qualified_name.empty()) {
             if (!test.free_fixtures.empty()) {
-                // Declarations, setup/teardown, and call composed with fixture references + value args
-                std::string decls;
-                std::string setup;
-                std::string teardown;
-                std::string fixture_args;
-                for (std::size_t j = 0; j < test.free_fixtures.size(); ++j) {
-                    const auto &ty = test.free_fixtures[j];
-                    const std::string var = fmt::format("fx{}_", j);
-                    decls += fmt::format("    {} {}{{}};\n", ty, var);
-                    setup += fmt::format("    gentest_maybe_setup({});\n", var);
-                    // teardown in reverse order; we'll build after loop
-                    if (!fixture_args.empty()) fixture_args += ", ";
-                    fixture_args += var;
-                }
-                for (std::size_t j = test.free_fixtures.size(); j-- > 0;) {
-                    const std::string var = fmt::format("fx{}_", j);
-                    teardown += fmt::format("    gentest_maybe_teardown({});\n", var);
-                }
-                std::string combined;
-                if (!fixture_args.empty() && !args.empty()) combined = fixture_args + ", " + args;
-                else if (!fixture_args.empty()) combined = fixture_args;
-                else combined = args; // should not happen when using this partial
+                const std::string decls    = build_fixture_decls(test.free_fixtures);
+                const std::string setup    = build_fixture_setup(test.free_fixtures);
+                const std::string teardown = build_fixture_teardown(test.free_fixtures);
+                std::string       combined = build_fixture_arg_list(test.free_fixtures.size());
+                if (!args.empty()) combined += combined.empty() ? args : ", " + args;
                 const std::string call = fmt::format("({})", combined);
                 out += fmt::format(fmt::runtime(tpl_free_fixtures), fmt::arg("w", w), fmt::arg("fn", test.qualified_name),
                                    fmt::arg("decls", decls), fmt::arg("setup", setup), fmt::arg("teardown", teardown),
