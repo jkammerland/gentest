@@ -19,6 +19,15 @@ void add_unique(std::vector<std::string> &values, std::string value) {
         values.push_back(std::move(value));
     }
 }
+
+static std::string trim_copy(std::string s) {
+    auto is_ws = [](unsigned char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'||c=='\f'||c=='\v'; };
+    auto b = s.begin();
+    while (b!=s.end() && is_ws(static_cast<unsigned char>(*b))) ++b;
+    auto e = s.end();
+    while (e!=b && is_ws(static_cast<unsigned char>(*(e-1)))) --e;
+    return std::string(b, e);
+}
 } // namespace
 
 auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
@@ -74,16 +83,16 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 continue;
             }
             const std::string &raw_param = attr.arguments.front();
-            std::string param = raw_param;
+            std::string param = trim_copy(raw_param);
             bool is_nttp = false;
             {
-                std::string norm = raw_param;
+                std::string norm = trim_copy(raw_param);
                 // detect NTTP: prefix
                 auto pos = norm.find(':');
                 if (pos != std::string::npos) {
-                    std::string tag = norm.substr(0, pos);
+                    std::string tag = trim_copy(norm.substr(0, pos));
                     std::transform(tag.begin(), tag.end(), tag.begin(), [](unsigned char c){ return std::tolower(c); });
-                    if (tag == "nttp") { is_nttp = true; param = norm.substr(pos+1); }
+                    if (tag == "nttp") { is_nttp = true; param = trim_copy(norm.substr(pos+1)); }
                 }
             }
             if (param.empty()) {

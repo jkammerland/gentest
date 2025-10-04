@@ -93,6 +93,74 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (filename.empty()) return;
     unsigned lnum = sm->getSpellingLineNumber(file_loc);
 
+    // Validate template attribute usage against the function's template parameter list
+    std::vector<std::string> fn_type_params_order;
+    std::vector<std::string> fn_nttp_params_order;
+    if (!summary.template_sets.empty() || !summary.template_nttp_sets.empty()) {
+        const FunctionTemplateDecl *ftd = func->getDescribedFunctionTemplate();
+        if (ftd == nullptr) {
+            had_error_ = true;
+            report("'template(...)' attributes present but function is not a template");
+            return;
+        }
+        const TemplateParameterList *tpl = ftd->getTemplateParameters();
+        bool saw_nttp = false;
+        for (unsigned i = 0; i < tpl->size(); ++i) {
+            const NamedDecl *p = tpl->getParam(i);
+            if (llvm::isa<TemplateTypeParmDecl>(p)) {
+                if (saw_nttp) {
+                    had_error_ = true;
+                    report("interleaved template parameters are not supported (types must precede NTTPs)");
+                    return;
+                }
+                fn_type_params_order.push_back(p->getNameAsString());
+            } else if (llvm::isa<NonTypeTemplateParmDecl>(p)) {
+                saw_nttp = true;
+                fn_nttp_params_order.push_back(p->getNameAsString());
+            } else {
+                // Template template parameters not supported yet
+                had_error_ = true;
+                report("template-template parameters are not supported");
+                return;
+            }
+        }
+        // Names provided in attributes must match declaration order by kind
+        auto attr_type_names = std::vector<std::string>{};
+        attr_type_names.reserve(summary.template_sets.size());
+        for (const auto &p : summary.template_sets) attr_type_names.push_back(p.first);
+        auto attr_nttp_names = std::vector<std::string>{};
+        attr_nttp_names.reserve(summary.template_nttp_sets.size());
+        for (const auto &p : summary.template_nttp_sets) attr_nttp_names.push_back(p.first);
+
+        // Unknown names or kind mismatch
+        auto name_in = [](const std::vector<std::string>& v, const std::string& s){ return std::find(v.begin(), v.end(), s) != v.end(); };
+        for (const auto &nm : attr_type_names) {
+            if (!name_in(fn_type_params_order, nm)) {
+                had_error_ = true;
+                report(fmt::format("unknown or wrong-kind template parameter '{}' in 'template(...)'", nm));
+                return;
+            }
+        }
+        for (const auto &nm : attr_nttp_names) {
+            if (!name_in(fn_nttp_params_order, nm)) {
+                had_error_ = true;
+                report(fmt::format("unknown or wrong-kind template parameter '{}' in 'template(NTTP: ...)'", nm));
+                return;
+            }
+        }
+        // Require full coverage (no defaults considered yet) and correct order
+        if (attr_type_names != fn_type_params_order) {
+            had_error_ = true;
+            report("type template parameter attributes must appear for all type parameters in declaration order");
+            return;
+        }
+        if (attr_nttp_names != fn_nttp_params_order) {
+            had_error_ = true;
+            report("NTTP attributes must appear for all NTTP parameters in declaration order");
+            return;
+        }
+    }
+
     // Build type combinations
     std::vector<std::vector<std::string>> type_combos{{}};
     if (!summary.template_sets.empty()) {

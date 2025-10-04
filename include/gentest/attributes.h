@@ -8,6 +8,13 @@
 //   [[using gentest : test("suite/case"), req("BUG-123"), slow, linux]]
 //   void my_test();
 //
+// Fixture composition for free functions:
+//   [[using gentest : test("suite/free"), fixtures(A, B, C)]]
+//   void my_free_test(A& a, B& b, C& c);
+//   - A/B/C are default-constructed per invocation and passed by reference.
+//   - If a fixture derives from gentest::FixtureSetup/TearDown, setUp/tearDown are called automatically.
+//   - Applies to free functions only (not member tests) and is always ephemeral.
+//
 // The `test("...")` attribute is required and defines the public case name.
 // Additional attribute names (e.g. `slow`, `linux`) are collected as tags,
 // while attributes such as `req("BUG-123")` or `skip("reason")` attach

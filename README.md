@@ -104,6 +104,49 @@ Execution order: free (non-member) tests run first. Member tests are grouped per
 shuffle the order of tests within each fixture group without interleaving with other groups by passing
 `--shuffle-fixtures` (optionally `--seed N` for reproducibility).
 
+### Free-Function Fixtures
+
+Use `[[using gentest: fixtures(A, B, C, ...)]]` on a free function to have the generator default-construct fixtures and
+pass them by reference to your test. No attributes are required on the fixture types; they are ordinary structs/classes.
+
+Behavior
+- Ephemeral instances: a fresh instance of each fixture is constructed for every test invocation.
+- Setup/Teardown: if a fixture derives from `gentest::FixtureSetup` and/or `gentest::FixtureTearDown`, the generated
+  runner automatically calls `setUp()` before the test body and `tearDown()` after it. Hooks remain optional.
+- Order: `setUp()` is called in the declaration order of fixtures; `tearDown()` is called in reverse order.
+- Scope: `fixtures(...)` applies to free functions only (not member tests). Stateful semantics are not supported here.
+- Composition: works with templates and parameters; fixture references appear first in the function’s argument list,
+  followed by any parameterized values.
+
+Example
+```c++
+#include "gentest/fixture.h" // for optional setup/teardown interfaces
+
+namespace fx {
+struct A : gentest::FixtureSetup, gentest::FixtureTearDown {
+    int phase = 0;
+    void setUp() override { phase = 1; }
+    void tearDown() override { /* validate post-conditions */ }
+};
+struct B { const char* msg = "ok"; };
+class C { public: int v = 7; };
+} // namespace fx
+
+[[using gentest: test("fixtures/free/basic"), fixtures(A, B, C)]]
+constexpr void free_basic(fx::A& a, fx::B& b, fx::C& c) {
+    gentest::expect_eq(a.phase, 1, "A::setUp ran");
+    gentest::expect(std::string(b.msg) == "ok", "default value");
+    gentest::expect_eq(c.v, 7, "default value");
+}
+
+// With parameters too
+[[using gentest: test("fixtures/free/with-params"), fixtures(A), parameters(int, 1, 2)]]
+void free_with_params(fx::A& a, int v) {
+    (void)a;
+    gentest::expect(v == 1 || v == 2, "param axis");
+}
+```
+
 ## Templates
 
 Generated files are produced strictly from templates — no emission logic is inlined in the generator beyond simple
