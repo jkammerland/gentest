@@ -124,3 +124,73 @@ Devlog 2025-10-03 (Free-function Fixtures)
   - Tests
       - Added `fixtures/free/basic` exercising A,B,C fixtures with setup/teardown validation.
       - Updated fixtures suite counts; all tests pass.
+
+Devlog 2025-10-03 (Review + Refactor Plan)
+
+  Scope of review
+  - Compared current HEAD against two commits back (3db383e – free-function fixtures). Since then we:
+    - Implemented template param validation and later relaxed it to support interleaving.
+    - Added many positive/negative tests for templates, NTTPs, boolean and string-like parameter axes.
+    - Fixed string-pointer literal handling (const char*/wchar_t*/char8_t*/char16_t*/char32_t*), and extended detection for *_string_view types.
+    - Removed expansion guardrails by design.
+
+  Current state (progress)
+  - Templates and parameters: robust expansion across types + NTTP + value axes, including interleaved declaration orders.
+  - Fixtures: free-function fixtures (ephemeral) with optional setup/teardown; member fixtures unchanged and still supported.
+  - CLI and emission: single TU generation with fmt-based templates; output format stable; tests assert counts via runners.
+  - Validation: early, precise diagnostics for attribute misuse (unknown names, missing coverage, duplicates/conflicts).
+
+  Hotspots and layering opportunities
+  - discovery.cpp:run
+    - Nested expansion loops and localized helpers make this function long and harder to evolve.
+      - File: tools/src/discovery.cpp:228, 241, 245, 263 – nested for-chains for val/pack/template combos.
+      - Suggestion: extract an AxisExpander utility that accepts a vector<vector<string>> and returns Cartesian products. Then compose:
+        - template_arg_combos = expand_in_order(params_order, type_sets, nttp_sets)
+        - value_arg_combos    = expand(parameter_sets)
+        - pack_arg_combos     = expand(param_packs.rows)
+        Each expansion becomes one call instead of hand-rolled loops.
+    - Local string/char literal helpers duplicate logic we already centralized in type_kind.
+      - File: tools/src/discovery.cpp:260-306 – is_string_type/is_char_type/string_prefix/is_string_literal/is_char_literal.
+      - Suggestion: remove these lambdas and rely solely on classify_type/quote_for_type (tools/src/type_kind.cpp:38, 51).
+    - Template validation is correct but lives inline in run().
+      - File: tools/src/discovery.cpp:96-172 – validation + ordered expansion build.
+      - Suggestion: factor into two helpers:
+        - validate_template_attributes(FunctionDecl&, const AttributeSummary&)
+        - build_template_arg_combos(const FunctionDecl&, const AttributeSummary&)
+      - This reduces cyclomatic complexity of run() and keeps the flow readable.
+    - Fixture type qualification via string concatenation can be brittle.
+      - File: tools/src/discovery.cpp:191-214 – qualifies unqualified tokens with enclosing scope.
+      - Suggestion: in a follow-up, prefer AST-derived fully-qualified parameter types from the function signature when fixtures(...) is used; use attribute tokens only for count/order. This eliminates namespace guessing.
+
+  - render.cpp
+    - render_wrappers still branches across four wrapper styles and constructs multiple strings inline.
+      - File: tools/src/render.cpp:91-147.
+      - Suggestion: introduce a small WrapperSpec { kind, callee, method, fixtures[], value_args } built earlier. Then a single switch drives template selection. Extract helpers:
+        - build_fixture_decls(set)
+        - build_fixture_setup_teardown(set)
+        - build_call_args(fixtures, values)
+      - Reduces local string assembly and makes new wrapper kinds (e.g., group subset runners) trivial.
+
+  - type_kind.cpp
+    - Recently added normalize_keep_ptr + broadened prefix detection are good. Two normalizers could be unified behind a parameter flag or small policy to avoid drift.
+      - File: tools/src/type_kind.cpp:10, 24, 38, 51.
+      - Suggestion: consolidate normalization and add explicit tests for char8_t* and std::u8string_view (we have u8string but not the view in tests yet).
+
+  Testing gaps worth filling
+  - Positive: interleaved triads mixing two NTTPs and a type with uneven value counts (already partially covered; add u8string_view and char8_t* axes).
+  - Negative (lint-only): duplicate fixtures(...) tokens across multiple blocks; fixtures on member tests (already errors but add explicit smoke test).
+  - Mixed axes: large but controlled matrices that mix multiple string encodings with booleans to keep quoting consistent.
+
+  Proposed next refactors (no behavior change)
+  1) Extract AxisExpander (header-only helper) and rewire discovery to use it for all Cartesian products.
+  2) Move template attribute validation + ordered combo build into dedicated functions in discovery.cpp (or a small discovery_utils.hpp).
+  3) Replace discovery’s local string/char helpers with type_kind exclusively; delete the lambdas.
+  4) Introduce WrapperSpec and split render_wrappers into tiny helpers for declarations/setup/teardown/call assembly.
+  5) Optional: plan the AST-based fixture signature adoption (keep behind a flag or apply only when fixtures(...) present).
+
+  Risks and mitigations
+  - Refactors touch code-gen plumbing. Keep PRs mechanical and gated by existing tests; expand template/fixture E2E tests first so behavior remains pinned.
+  - Ensure no reliance on formatting in tests; continue using count/list checks.
+
+  Status
+  - All suites green (unit/integration/failing/skiponly/fixtures/templates). Interleaved templates + additional string/boolean axes covered. Lint-only negative tests surface clear diagnostics.

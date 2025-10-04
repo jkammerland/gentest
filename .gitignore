@@ -3,6 +3,7 @@ build/
 out/
 cmake-build-*/
 .build/
+shmem.md
 
 # IDE and editor files
 .vscode/

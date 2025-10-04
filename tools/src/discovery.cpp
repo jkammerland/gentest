@@ -9,6 +9,8 @@
 #include <fmt/core.h>
 #include "render.hpp"
 #include "type_kind.hpp"
+#include "axis_expander.hpp"
+#include "discovery_utils.hpp"
 #include <clang/AST/Decl.h>
 #include <clang/Basic/SourceManager.h>
 #include <llvm/Support/raw_ostream.h>
@@ -93,80 +95,36 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (filename.empty()) return;
     unsigned lnum = sm->getSpellingLineNumber(file_loc);
 
-    // Validate template attribute usage against the function's template parameter list.
-    // We allow arbitrary interleaving of type and NTTP parameters; we require a corresponding
-    // attribute set for each parameter by name and kind.
-    struct TParam { enum Kind { Type, NTTP } kind; std::string name; };
-    std::vector<TParam> fn_params_order;
+    // Validate template attribute usage and collect declaration order (optional under flag).
+    std::vector<disc::TParam> fn_params_order;
     if (!summary.template_sets.empty() || !summary.template_nttp_sets.empty()) {
-        const FunctionTemplateDecl *ftd = func->getDescribedFunctionTemplate();
-        if (ftd == nullptr) {
-            had_error_ = true;
-            report("'template(...)' attributes present but function is not a template");
-            return;
+        if (!disc::collect_template_params(*func, fn_params_order)) {
+#ifndef GENTEST_DISABLE_TEMPLATE_VALIDATION
+            had_error_ = true; report("'template(...)' attributes present but function is not a template"); return;
+#else
+            fn_params_order.clear(); // fallback to attribute order later
+#endif
         }
-        const TemplateParameterList *tpl = ftd->getTemplateParameters();
-        for (unsigned i = 0; i < tpl->size(); ++i) {
-            const NamedDecl *p = tpl->getParam(i);
-            if (llvm::isa<TemplateTypeParmDecl>(p)) {
-                fn_params_order.push_back({TParam::Type, p->getNameAsString()});
-            } else if (llvm::isa<NonTypeTemplateParmDecl>(p)) {
-                fn_params_order.push_back({TParam::NTTP, p->getNameAsString()});
-            } else {
-                had_error_ = true;
-                report("template-template parameters are not supported");
+#ifndef GENTEST_DISABLE_TEMPLATE_VALIDATION
+        if (!fn_params_order.empty()) {
+            if (!disc::validate_template_attributes(summary.template_sets, summary.template_nttp_sets, fn_params_order,
+                                                    [&](const std::string& m){ had_error_ = true; report(m); })) {
                 return;
             }
         }
-        // Build lookup maps
-        std::map<std::string, std::vector<std::string>> type_map;
-        for (const auto &p : summary.template_sets) type_map.emplace(p.first, p.second);
-        std::map<std::string, std::vector<std::string>> nttp_map;
-        for (const auto &p : summary.template_nttp_sets) nttp_map.emplace(p.first, p.second);
-        // Verify each declared parameter has a corresponding attribute set of the correct kind
-        for (const auto &tp : fn_params_order) {
-            if (tp.kind == TParam::Type) {
-                if (!type_map.contains(tp.name)) {
-                    had_error_ = true;
-                    report(fmt::format("missing 'template({0}, ...)' attribute for type parameter '{0}'", tp.name));
-                    return;
-                }
-            } else {
-                if (!nttp_map.contains(tp.name)) {
-                    had_error_ = true;
-                    report(fmt::format("missing 'template(NTTP: {0}, ...)' attribute for non-type parameter '{0}'", tp.name));
-                    return;
-                }
-            }
-        }
-        // Unknown names present in attributes
-        for (const auto &kv : type_map) {
-            bool known = false; for (const auto &tp : fn_params_order) if (tp.kind==TParam::Type && tp.name==kv.first) { known=true; break; }
-            if (!known) { had_error_ = true; report(fmt::format("unknown type template parameter '{}' in attributes", kv.first)); return; }
-        }
-        for (const auto &kv : nttp_map) {
-            bool known = false; for (const auto &tp : fn_params_order) if (tp.kind==TParam::NTTP && tp.name==kv.first) { known=true; break; }
-            if (!known) { had_error_ = true; report(fmt::format("unknown NTTP template parameter '{}' in attributes", kv.first)); return; }
-        }
+#endif
     }
 
-    // Build combined template argument combinations in declaration order
-    std::vector<std::vector<std::string>> combined_tpl_combos{{}};
-    if (!fn_params_order.empty()) {
-        // Reuse maps for values
-        std::map<std::string, std::vector<std::string>> type_map;
-        for (const auto &p : summary.template_sets) type_map.emplace(p.first, p.second);
-        std::map<std::string, std::vector<std::string>> nttp_map;
-        for (const auto &p : summary.template_nttp_sets) nttp_map.emplace(p.first, p.second);
-        combined_tpl_combos.clear();
-        combined_tpl_combos.emplace_back();
-        for (const auto &tp : fn_params_order) {
-            const auto &vals = (tp.kind == TParam::Type) ? type_map[tp.name] : nttp_map[tp.name];
-            std::vector<std::vector<std::string>> next;
-            for (const auto &acc : combined_tpl_combos) {
-                for (const auto &v : vals) { auto w = acc; w.push_back(v); next.push_back(std::move(w)); }
-            }
-            combined_tpl_combos = std::move(next);
+    // Build combined template argument combinations
+    std::vector<std::vector<std::string>> combined_tpl_combos;
+    if (!summary.template_sets.empty() || !summary.template_nttp_sets.empty()) {
+#ifndef GENTEST_DISABLE_TEMPLATE_VALIDATION
+        if (!fn_params_order.empty()) {
+            combined_tpl_combos = disc::build_template_arg_combos(summary.template_sets, summary.template_nttp_sets, fn_params_order);
+        } else
+#endif
+        {
+            combined_tpl_combos = disc::build_template_arg_combos_attr_order(summary.template_sets, summary.template_nttp_sets);
         }
     }
     if (combined_tpl_combos.empty()) combined_tpl_combos.push_back({});
@@ -227,16 +185,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
     if (!summary.parameter_sets.empty() || !summary.param_packs.empty()) {
         // Build Cartesian product of parameter values across axes
-        std::vector<std::vector<std::string>> val_combos{{}};
-        for (const auto &ps : summary.parameter_sets) {
-            std::vector<std::vector<std::string>> next;
-            for (const auto &acc : val_combos) {
-                for (const auto &v : ps.values) {
-                    auto w = acc; w.push_back(v); next.push_back(std::move(w));
-                }
-            }
-            val_combos = std::move(next);
-        }
+        std::vector<std::vector<std::string>> axes_vals; axes_vals.reserve(summary.parameter_sets.size());
+        for (const auto& ps : summary.parameter_sets) axes_vals.push_back(ps.values);
+        std::vector<std::vector<std::string>> val_combos = gentest::codegen::util::cartesian(axes_vals);
         // Track scalar types in order
         std::vector<std::string> scalar_types;
         for (const auto &ps : summary.parameter_sets) scalar_types.push_back(ps.type_name);
@@ -256,52 +207,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             pack_combos = std::move(next);
         }
         if (pack_combos.empty()) pack_combos.push_back({{}, {}});
-        // Normalize type names for string-likes
-        auto is_string_type = [](std::string type) {
-            // Remove spaces and lowercase
-            type.erase(std::remove_if(type.begin(), type.end(), [](unsigned char c){ return std::isspace(c); }), type.end());
-            std::string lower = type;
-            std::ranges::transform(lower, lower.begin(), [](unsigned char c){ return std::tolower(c); });
-            if (lower.find("string_view") != std::string::npos) return true;
-            if (lower.find("string") != std::string::npos) return true;
-            if (lower.find("char*") != std::string::npos) return true;
-            if (lower.find("wchar_t*") != std::string::npos) return true;
-            if (lower.find("u8string") != std::string::npos || lower.find("char8_t*") != std::string::npos) return true;
-            if (lower.find("u16string") != std::string::npos || lower.find("char16_t*") != std::string::npos) return true;
-            if (lower.find("u32string") != std::string::npos || lower.find("char32_t*") != std::string::npos) return true;
-            return false;
-        };
-        auto is_char_type = [](std::string type) {
-            type.erase(std::remove_if(type.begin(), type.end(), [](unsigned char c){ return std::isspace(c); }), type.end());
-            std::string lower = type;
-            std::ranges::transform(lower, lower.begin(), [](unsigned char c){ return std::tolower(c); });
-            return lower == "char" || lower == "wchar_t" || lower == "char8_t" || lower == "char16_t" || lower == "char32_t";
-        };
-        auto string_prefix = [](const std::string &type) -> const char* {
-            std::string t = type; t.erase(std::remove_if(t.begin(), t.end(), [](unsigned char c){ return std::isspace(c); }), t.end());
-            std::string l = t; std::ranges::transform(l, l.begin(), [](unsigned char c){ return std::tolower(c); });
-            if (l.find("wstring") != std::string::npos || l.find("wchar_t*") != std::string::npos) return "L";
-            if (l.find("u8string") != std::string::npos || l.find("char8_t*") != std::string::npos) return "u8";
-            if (l.find("u16string") != std::string::npos || l.find("char16_t*") != std::string::npos) return "u";
-            if (l.find("u32string") != std::string::npos || l.find("char32_t*") != std::string::npos) return "U";
-            return "";
-        };
-        auto is_string_literal = [](std::string s) {
-            auto trim = [](std::string &x){ auto l=x.find_first_not_of(" \t\n\r"); auto r=x.find_last_not_of(" \t\n\r"); if(l==std::string::npos){x.clear();} else { x = x.substr(l, r-l+1);} };
-            trim(s);
-            if (s.size()>=2 && s.front()=='"' && s.back()=='"') return true;
-            if (s.size()>=3 && (s[0]=='L' || s[0]=='u' || s[0]=='U') && s[1]=='"' && s.back()=='"') return true;
-            if (s.size()>=4 && s[0]=='u' && s[1]=='8' && s[2]=='"' && s.back()=='"') return true;
-            return false;
-        };
-        auto is_char_literal = [](std::string s) {
-            auto trim = [](std::string &x){ auto l=x.find_first_not_of(" \t\n\r"); auto r=x.find_last_not_of(" \t\n\r"); if(l==std::string::npos){x.clear();} else { x = x.substr(l, r-l+1);} };
-            trim(s);
-            if (s.size()>=3 && s.front()=='\'' && s.back()=='\'') return true;
-            if (s.size()>=4 && (s[0]=='L' || s[0]=='u' || s[0]=='U') && s[1]=='\'' && s.back()=='\'') return true;
-            if (s.size()>=5 && s[0]=='u' && s[1]=='8' && s[2]=='\'' && s.back()=='\'') return true;
-            return false;
-        };
         // No expansion guardrails: generate all combinations as requested by attributes.
 
         for (const auto &tpl_combo : combined_tpl_combos) {
