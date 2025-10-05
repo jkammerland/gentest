@@ -27,9 +27,19 @@ int fibonacci(int n) {
 [[using gentest: test("integration/math/fibonacci"), slow, linux]]
 void fibonacci_sequence() {
     std::vector<int> expected{0, 1, 1, 2, 3, 5, 8, 13};
+    gentest::expect_eq(expected.size(), std::size_t{8}, "expected sample size");
+    int previous = -1;
     for (std::size_t idx = 0; idx < expected.size(); ++idx) {
-        gentest::expect_eq(fibonacci(static_cast<int>(idx)), expected[idx], "fibonacci value");
+        const int value = fibonacci(static_cast<int>(idx));
+        gentest::expect_eq(value, expected[idx], "fibonacci value");
+        if (idx > 1) {
+            const int recurrence = expected[idx - 1] + expected[idx - 2];
+            gentest::expect_eq(value, recurrence, "fibonacci recurrence");
+        }
+        gentest::expect(value >= previous, "sequence non-decreasing");
+        previous = value;
     }
+    gentest::expect_eq(fibonacci(7), 13, "explicit fibonacci(7)");
 }
 
 } // namespace integration::math
@@ -42,6 +52,9 @@ void map_behaviour() {
     index.emplace("gamma", 3);
     gentest::expect_eq(index.size(), std::size_t{3}, "map size");
     gentest::expect(index.contains("beta"), "beta must be present");
+    gentest::expect(index.contains("alpha"), "alpha present");
+    gentest::expect(!index.contains("delta"), "delta absent");
+    gentest::expect_eq(index.at("gamma"), 3, "gamma value");
 }
 
 } // namespace integration::registry
@@ -50,10 +63,15 @@ namespace integration::errors {
 
 [[using gentest: test("integration/errors/recover"), req("BUG-123"), owner("team-runtime")]]
 void detect_and_recover_error() {
+    bool caught_invalid_argument = false;
     try {
         static_cast<void>(integration::math::fibonacci(-1));
         gentest::fail("expected an exception for negative fibonacci argument");
-    } catch (const std::invalid_argument &) { gentest::expect(true, "exception captured"); }
+    } catch (const std::invalid_argument &) {
+        caught_invalid_argument = true;
+        gentest::expect(true, "exception captured");
+    }
+    gentest::expect(caught_invalid_argument, "invalid_argument thrown");
 }
 
 [[using gentest: test("integration/errors/throw"), skip("unstable"), windows]]
