@@ -4,6 +4,7 @@ out/
 cmake-build-*/
 .build/
 shmem.md
+mocking-support/
 
 # IDE and editor files
 .vscode/
