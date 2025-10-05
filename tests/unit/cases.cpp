@@ -1,5 +1,6 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
+using namespace gentest::asserts;
 
 #include <array>
 #include <numeric>
@@ -11,21 +12,21 @@ namespace unit {
 void sum_is_computed() {
     std::array values{1, 2, 3, 4};
     const auto result = std::accumulate(values.begin(), values.end(), 0);
-    gentest::expect_eq(result, 10, "sum should match");
+    EXPECT_EQ(result, 10);
 }
 
 [[using gentest: test("unit/strings/concatenate"), req("#42"), slow]]
 void concatenate_strings() {
     std::string greeting = "hello";
     greeting += " world";
-    gentest::expect(greeting == "hello world", "string concatenation");
+    EXPECT_TRUE(greeting == "hello world");
 }
 
 [[using gentest: test("unit/conditions/negate"), linux]]
 void negate_condition() {
     bool flag = false;
-    gentest::expect(!flag, "flag expected to be false");
-    gentest::expect_ne(flag, true, "flag should not be true");
+    EXPECT_TRUE(!flag);
+    EXPECT_NE(flag, true);
 }
 
 } // namespace unit

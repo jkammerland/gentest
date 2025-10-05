@@ -40,6 +40,53 @@ endforeach()
 
 unset(_gentest_test_suites)
 
+# Concurrency target (no default add_test to avoid suite-wide failure)
+add_executable(${PROJECT_NAME}_concurrency_tests
+    support/test_entry.cpp)
+target_link_libraries(${PROJECT_NAME}_concurrency_tests PRIVATE ${PROJECT_NAME} fmt::fmt)
+target_compile_features(${PROJECT_NAME}_concurrency_tests PRIVATE cxx_std_23)
+target_include_directories(${PROJECT_NAME}_concurrency_tests PRIVATE ${PROJECT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
+gentest_attach_codegen(${PROJECT_NAME}_concurrency_tests
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/concurrency/test_impl.cpp
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/concurrency/cases.cpp
+    CLANG_ARGS -std=c++23 -Wno-unknown-attributes -Wno-attributes -I${PROJECT_SOURCE_DIR}/include -I${CMAKE_CURRENT_SOURCE_DIR})
+
+# Focused checks: ensure pass-only selection passes, and failing selection returns non-zero
+add_test(NAME concurrency_pass_single
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+        -DPASS=1 -DFAIL=0 -DSKIP=0
+        -DARGS=--run-test=concurrency/child_expect_pass
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME concurrency_fail_single_death
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+        -DARGS=--run-test=concurrency/child_expect_fail
+        -DEXPECT_SUBSTRING=gentest: fatal: assertion/expectation recorded without an active test context.
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
+add_test(NAME concurrency_multi_pass_single
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+        -DPASS=1 -DFAIL=0 -DSKIP=0
+        -DARGS=--run-test=concurrency/multi_adopt_expect_pass
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME concurrency_multi_fail_single
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+        -DPASS=0 -DFAIL=1 -DSKIP=0
+        -DARGS=--run-test=concurrency/multi_adopt_expect_fail
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME concurrency_multi_noadopt_death
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+        -DARGS=--run-test=concurrency/no_adopt_expect_death_multi
+        -DEXPECT_SUBSTRING=gentest: fatal: assertion/expectation recorded without an active test context.
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
 # Lint-only checks for generator
 add_test(NAME gentest_codegen_check_valid
     COMMAND $<TARGET_FILE:gentest_codegen>

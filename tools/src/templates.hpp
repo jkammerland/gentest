@@ -182,18 +182,41 @@ void execute_one(const Case& test, void* ctx, Counters& c) {
         return;
     }
     ++c.executed;
+    auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
+    ctxinfo->display_name = std::string(test.name);
+    ctxinfo->active = true;
+    gentest::detail::set_current_test(ctxinfo);
+    bool threw = false;
     try {
         test.fn(ctx);
-        fmt::print("[ PASS ] {}\n", test.name);
     } catch (const gentest::failure& err) {
-        ++c.failures;
-        fmt::print(stderr, "[ FAIL ] {} :: {}\n", test.name, err.what());
+        threw = true;
+        ctxinfo->failures.push_back(std::string("FAIL() :: ") + err.what());
+    } catch (const gentest::assertion&) {
+        threw = true;
+        // messages already recorded
     } catch (const std::exception& err) {
-        ++c.failures;
-        fmt::print(stderr, "[ FAIL ] {} :: unexpected std::exception: {}\n", test.name, err.what());
+        threw = true;
+        ctxinfo->failures.push_back(std::string("unexpected std::exception: ") + err.what());
     } catch (...) {
+        threw = true;
+        ctxinfo->failures.push_back("unknown exception");
+    }
+    ctxinfo->active = false;
+    gentest::detail::set_current_test(nullptr);
+
+    if (!ctxinfo->failures.empty()) {
         ++c.failures;
-        fmt::print(stderr, "[ FAIL ] {} :: unknown exception\n", test.name);
+        fmt::print(stderr, "[ FAIL ] {} :: {} issue(s)\n", test.name, ctxinfo->failures.size());
+        for (const auto& m : ctxinfo->failures) {
+            fmt::print(stderr, "    - {}\n", m);
+        }
+    } else if (!threw) {
+        fmt::print("[ PASS ] {}\n", test.name);
+    } else {
+        // threw but no messages recorded: still a failure
+        ++c.failures;
+        fmt::print(stderr, "[ FAIL ] {}\n", test.name);
     }
 }
 } // namespace
