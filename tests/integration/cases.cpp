@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
-namespace integration::math {
+namespace [[using gentest: suite("integration")]] integration {
+
+namespace math {
 
 int fibonacci(int n) {
     if (n < 0) {
@@ -24,7 +26,7 @@ int fibonacci(int n) {
     return b;
 }
 
-[[using gentest: test("integration/math/fibonacci"), slow, linux]]
+[[using gentest: test("math/fibonacci"), slow, linux]]
 void fibonacci_sequence() {
     std::vector<int> expected{0, 1, 1, 2, 3, 5, 8, 13};
     for (std::size_t idx = 0; idx < expected.size(); ++idx) {
@@ -32,11 +34,11 @@ void fibonacci_sequence() {
     }
 }
 
-} // namespace integration::math
+} // namespace math
 
-namespace integration::registry {
+namespace registry {
 
-[[using gentest: test("integration/registry/map"), category("containers")]]
+[[using gentest: test("registry/map"), category("containers")]]
 void map_behaviour() {
     std::map<std::string, int> index{{"alpha", 1}, {"beta", 2}};
     index.emplace("gamma", 3);
@@ -44,11 +46,11 @@ void map_behaviour() {
     gentest::expect(index.contains("beta"), "beta must be present");
 }
 
-} // namespace integration::registry
+} // namespace registry
 
-namespace integration::errors {
+namespace errors {
 
-[[using gentest: test("integration/errors/recover"), req("BUG-123"), owner("team-runtime")]]
+[[using gentest: test("errors/recover"), req("BUG-123"), owner("team-runtime")]]
 void detect_and_recover_error() {
     try {
         static_cast<void>(integration::math::fibonacci(-1));
@@ -56,9 +58,11 @@ void detect_and_recover_error() {
     } catch (const std::invalid_argument &) { gentest::expect(true, "exception captured"); }
 }
 
-[[using gentest: test("integration/errors/throw"), skip("unstable"), windows]]
+[[using gentest: test("errors/throw"), skip("unstable"), windows]]
 void throw_error() {
     throw std::runtime_error("Expected");
 }
 
-} // namespace integration::errors
+} // namespace errors
+
+} // namespace integration

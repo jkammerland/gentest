@@ -12,6 +12,13 @@
 
 namespace gentest::codegen {
 
+enum class FixtureLifetime {
+    None,
+    MemberEphemeral,
+    MemberSuite,
+    MemberGlobal,
+};
+
 // Parsed attribute name with its argument strings as written in source.
 struct ParsedAttribute {
     std::string              name;
@@ -46,15 +53,17 @@ struct CollectorOptions {
 
 // Description of a discovered test function or member function.
 // - qualified_name: fully qualified symbol name used to call the test
-// - display_name: display string exposed to users (from test("..."))
+// - display_name: display string exposed to users (from test("...") and suite prefix)
+// - suite_name: logical suite (from enclosing namespace attribute)
 // - filename/line: origin information for list/diagnostics
 // - tags/requirements/skip/skip_reason: validation results
 // - fixture_*: present for member tests; empty for free functions
 struct TestCaseInfo {
-    std::string              qualified_name;
-    std::string              display_name;
-    std::string              filename;
-    unsigned                 line = 0;
+    std::string qualified_name;
+    std::string display_name;
+    std::string filename;
+    std::string suite_name;
+    unsigned    line = 0;
     // Tags and metadata
     std::vector<std::string> tags;
     std::vector<std::string> requirements;
@@ -62,13 +71,12 @@ struct TestCaseInfo {
     std::string              skip_reason;
     // Fixture/method support
     // If non-empty, this case represents a member test on the given fixture type.
-    std::string              fixture_qualified_name;
-    // True if the enclosing fixture is marked as stateful.
-    bool                     fixture_stateful = false;
+    std::string     fixture_qualified_name;
+    FixtureLifetime fixture_lifetime = FixtureLifetime::None;
     // Template instantiation info (for display and call generation)
     std::vector<std::string> template_args;
     // Call-time arguments for free/member tests (e.g., parameterized value list joined by ',').
-    std::string              call_arguments;
+    std::string call_arguments;
     // Free-function fixtures declared via [[using gentest: fixtures(A, B, ...)]].
     // These are constructed ephemerally in the wrapper and passed by reference
     // to the test function in declaration order.

@@ -1,13 +1,14 @@
 // Implementation of validation for gentest attributes
 
 #include "validate.hpp"
+
 #include "attr_rules.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <fmt/core.h>
 #include <optional>
 #include <set>
-#include <fmt/core.h>
 #include <string>
 #include <vector>
 
@@ -21,23 +22,25 @@ void add_unique(std::vector<std::string> &values, std::string value) {
 }
 
 static std::string trim_copy(std::string s) {
-    auto is_ws = [](unsigned char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'||c=='\f'||c=='\v'; };
-    auto b = s.begin();
-    while (b!=s.end() && is_ws(static_cast<unsigned char>(*b))) ++b;
+    auto is_ws = [](unsigned char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; };
+    auto b     = s.begin();
+    while (b != s.end() && is_ws(static_cast<unsigned char>(*b)))
+        ++b;
     auto e = s.end();
-    while (e!=b && is_ws(static_cast<unsigned char>(*(e-1)))) --e;
+    while (e != b && is_ws(static_cast<unsigned char>(*(e - 1))))
+        --e;
     return std::string(b, e);
 }
 } // namespace
 
-auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
-                         const std::function<void(const std::string &)> &report) -> AttributeSummary {
+auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::function<void(const std::string &)> &report)
+    -> AttributeSummary {
     AttributeSummary summary;
 
-    bool                        saw_test      = false;
-    std::set<std::string>       seen_flags;
-    std::optional<std::string>  seen_category;
-    std::optional<std::string>  seen_owner;
+    bool                       saw_test = false;
+    std::set<std::string>      seen_flags;
+    std::optional<std::string> seen_category;
+    std::optional<std::string> seen_owner;
 
     for (const auto &attr : parsed) {
         std::string lowered = attr.name;
@@ -83,16 +86,19 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 continue;
             }
             const std::string &raw_param = attr.arguments.front();
-            std::string param = trim_copy(raw_param);
-            bool is_nttp = false;
+            std::string        param     = trim_copy(raw_param);
+            bool               is_nttp   = false;
             {
                 std::string norm = trim_copy(raw_param);
                 // detect NTTP: prefix
                 auto pos = norm.find(':');
                 if (pos != std::string::npos) {
                     std::string tag = trim_copy(norm.substr(0, pos));
-                    std::transform(tag.begin(), tag.end(), tag.begin(), [](unsigned char c){ return std::tolower(c); });
-                    if (tag == "nttp") { is_nttp = true; param = trim_copy(norm.substr(pos+1)); }
+                    std::transform(tag.begin(), tag.end(), tag.begin(), [](unsigned char c) { return std::tolower(c); });
+                    if (tag == "nttp") {
+                        is_nttp = true;
+                        param   = trim_copy(norm.substr(pos + 1));
+                    }
                 }
             }
             if (param.empty()) {
@@ -101,8 +107,15 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 continue;
             }
             bool dup = false;
-            if (!is_nttp) { for (auto &p : summary.template_sets) if (p.first == param) dup = true; }
-            else           { for (auto &p : summary.template_nttp_sets) if (p.first == param) dup = true; }
+            if (!is_nttp) {
+                for (auto &p : summary.template_sets)
+                    if (p.first == param)
+                        dup = true;
+            } else {
+                for (auto &p : summary.template_nttp_sets)
+                    if (p.first == param)
+                        dup = true;
+            }
             if (dup) {
                 summary.had_error = true;
                 report("duplicate 'template' attribute for the same parameter");
@@ -114,8 +127,10 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 report("'template' requires at least one type");
                 continue;
             }
-            if (is_nttp) summary.template_nttp_sets.emplace_back(param, std::move(types));
-            else         summary.template_sets.emplace_back(param, std::move(types));
+            if (is_nttp)
+                summary.template_nttp_sets.emplace_back(param, std::move(types));
+            else
+                summary.template_sets.emplace_back(param, std::move(types));
         } else if (lowered == "parameters") {
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;
@@ -124,7 +139,8 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
             }
             AttributeSummary::ParamSet set;
             set.type_name = attr.arguments.front();
-            for (std::size_t i = 1; i < attr.arguments.size(); ++i) set.values.push_back(attr.arguments[i]);
+            for (std::size_t i = 1; i < attr.arguments.size(); ++i)
+                set.values.push_back(attr.arguments[i]);
             summary.parameter_sets.push_back(std::move(set));
         } else if (lowered == "parameters_pack") {
             if (attr.arguments.size() < 2) {
@@ -141,19 +157,57 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 // Split on commas with nesting support by reusing split_arguments-like logic
                 // Here we implement a small local splitter: no quotes unescaping required.
                 std::vector<std::string> parts;
-                std::string cur; int depth=0; bool in_str=false; bool esc=false;
+                std::string              cur;
+                int                      depth  = 0;
+                bool                     in_str = false;
+                bool                     esc    = false;
                 for (char ch : s) {
-                    if (in_str) { cur.push_back(ch); if (esc) esc=false; else if (ch=='\\') esc=true; else if (ch=='"') in_str=false; continue; }
-                    if (ch=='"') { in_str=true; cur.push_back(ch); continue; }
-                    if (ch=='('||ch=='['||ch=='{') { ++depth; cur.push_back(ch); continue; }
-                    if (ch==')'||ch==']'||ch=='}') { if (depth>0) --depth; cur.push_back(ch); continue; }
-                    if (ch==',' && depth==0) { if (!cur.empty()) { std::string t = cur; // trim
-                            auto l = t.find_first_not_of(" \t\n\r"); auto r = t.find_last_not_of(" \t\n\r");
-                            if (l!=std::string::npos) out.push_back(t.substr(l, r-l+1));
-                        } cur.clear(); continue; }
+                    if (in_str) {
+                        cur.push_back(ch);
+                        if (esc)
+                            esc = false;
+                        else if (ch == '\\')
+                            esc = true;
+                        else if (ch == '"')
+                            in_str = false;
+                        continue;
+                    }
+                    if (ch == '"') {
+                        in_str = true;
+                        cur.push_back(ch);
+                        continue;
+                    }
+                    if (ch == '(' || ch == '[' || ch == '{') {
+                        ++depth;
+                        cur.push_back(ch);
+                        continue;
+                    }
+                    if (ch == ')' || ch == ']' || ch == '}') {
+                        if (depth > 0)
+                            --depth;
+                        cur.push_back(ch);
+                        continue;
+                    }
+                    if (ch == ',' && depth == 0) {
+                        if (!cur.empty()) {
+                            std::string t = cur; // trim
+                            auto        l = t.find_first_not_of(" \t\n\r");
+                            auto        r = t.find_last_not_of(" \t\n\r");
+                            if (l != std::string::npos)
+                                out.push_back(t.substr(l, r - l + 1));
+                        }
+                        cur.clear();
+                        continue;
+                    }
                     cur.push_back(ch);
                 }
-                if (!cur.empty()) { std::string t = cur; auto l = t.find_first_not_of(" \t\n\r"); auto r = t.find_last_not_of(" \t\n\r"); if (l!=std::string::npos) out.push_back(t.substr(l, r-l+1)); }
+                if (!cur.empty()) {
+                    std::string t = cur;
+                    auto        l = t.find_first_not_of(" \t\n\r");
+                    auto        r = t.find_last_not_of(" \t\n\r");
+                    if (l != std::string::npos)
+                        out.push_back(t.substr(l, r - l + 1));
+                }
             };
             AttributeSummary::ParamPack pack;
             // First argument: types tuple
@@ -165,7 +219,8 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
             }
             // Remaining arguments: value tuples matching arity
             for (std::size_t i = 1; i < attr.arguments.size(); ++i) {
-                std::vector<std::string> row; parse_tuple(attr.arguments[i], row);
+                std::vector<std::string> row;
+                parse_tuple(attr.arguments[i], row);
                 if (row.size() != pack.types.size()) {
                     summary.had_error = true;
                     report("'parameters_pack' value tuple arity mismatch");
@@ -216,39 +271,40 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
                 summary.had_error = true;
                 std::string joined;
                 for (std::size_t idx = 0; idx < attr.arguments.size(); ++idx) {
-                    if (idx != 0) joined += ", ";
+                    if (idx != 0)
+                        joined += ", ";
                     joined += '"';
                     joined += attr.arguments[idx];
                     joined += '"';
                 }
-                report(fmt::format("unknown gentest attribute '{}' with argument{} ({})",
-                                   attr.name, attr.arguments.size() == 1 ? "" : "s", joined));
+                report(fmt::format("unknown gentest attribute '{}' with argument{} ({})", attr.name, attr.arguments.size() == 1 ? "" : "s",
+                                   joined));
                 continue;
             }
             if (lowered == "category") {
                 if (attr.arguments.size() != 1) {
-                summary.had_error = true;
-                report(fmt::format("'{}' requires exactly one string argument", lowered));
-                continue;
-            }
+                    summary.had_error = true;
+                    report(fmt::format("'{}' requires exactly one string argument", lowered));
+                    continue;
+                }
                 if (seen_category.has_value()) {
-                summary.had_error = true;
-                report(fmt::format("duplicate '{}' attribute", lowered));
-                continue;
-            }
+                    summary.had_error = true;
+                    report(fmt::format("duplicate '{}' attribute", lowered));
+                    continue;
+                }
                 seen_category = attr.arguments.front();
                 add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
             } else if (lowered == "owner") {
                 if (attr.arguments.size() != 1) {
-                summary.had_error = true;
-                report(fmt::format("'{}' requires exactly one string argument", lowered));
-                continue;
-            }
+                    summary.had_error = true;
+                    report(fmt::format("'{}' requires exactly one string argument", lowered));
+                    continue;
+                }
                 if (seen_owner.has_value()) {
-                summary.had_error = true;
-                report(fmt::format("duplicate '{}' attribute", lowered));
-                continue;
-            }
+                    summary.had_error = true;
+                    report(fmt::format("duplicate '{}' attribute", lowered));
+                    continue;
+                }
                 seen_owner = attr.arguments.front();
                 add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
             }
@@ -263,29 +319,41 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed,
     return summary;
 }
 
-auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed,
-                                 const std::function<void(const std::string &)> &report) -> FixtureAttributeSummary {
+auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed, const std::function<void(const std::string &)> &report)
+    -> FixtureAttributeSummary {
     FixtureAttributeSummary summary{};
-    bool                    saw_stateful = false;
+    bool                    saw_fixture = false;
 
     for (const auto &attr : parsed) {
         std::string lowered = attr.name;
         std::transform(lowered.begin(), lowered.end(), lowered.begin(),
                        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 
-        if (attr.arguments.empty()) {
-            if (gentest::detail::is_allowed_fixture_flag(lowered)) {
-                if (lowered == "stateful_fixture") {
-                    if (saw_stateful) {
-                        summary.had_error = true;
-                        report("duplicate gentest attribute 'stateful_fixture' on fixture");
-                        continue;
-                    }
-                    saw_stateful     = true;
-                    summary.stateful = true;
-                }
+        if (gentest::detail::is_allowed_fixture_attribute(lowered)) {
+            if (saw_fixture) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'fixture' on fixture type");
                 continue;
             }
+            saw_fixture = true;
+            if (attr.arguments.size() != 1) {
+                summary.had_error = true;
+                report("'fixture' requires exactly one argument: 'suite' or 'global'");
+                continue;
+            }
+            std::string arg        = attr.arguments.front();
+            std::string normalized = arg;
+            std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            if (normalized == "suite") {
+                summary.lifetime = FixtureLifetime::MemberSuite;
+            } else if (normalized == "global") {
+                summary.lifetime = FixtureLifetime::MemberGlobal;
+            } else {
+                summary.had_error = true;
+                report(fmt::format("unknown fixture scope '{}'; expected 'suite' or 'global'", arg));
+            }
+            continue;
         }
 
         // All other gentest attributes are unknown at class scope.
@@ -293,15 +361,67 @@ auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed,
         std::string joined;
         if (!attr.arguments.empty()) {
             for (std::size_t idx = 0; idx < attr.arguments.size(); ++idx) {
-                if (idx != 0) joined += ", ";
+                if (idx != 0)
+                    joined += ", ";
                 joined += '"';
                 joined += attr.arguments[idx];
                 joined += '"';
             }
-            report(fmt::format("unknown gentest class attribute '{}' with argument{} ({})",
-                               attr.name, attr.arguments.size() == 1 ? "" : "s", joined));
+            report(fmt::format("unknown gentest class attribute '{}' with argument{} ({})", attr.name,
+                               attr.arguments.size() == 1 ? "" : "s", joined));
         } else {
             report(fmt::format("unknown gentest class attribute '{}'", attr.name));
+        }
+    }
+
+    return summary;
+}
+
+auto validate_namespace_attributes(const std::vector<ParsedAttribute> &parsed, const std::function<void(const std::string &)> &report)
+    -> SuiteAttributeSummary {
+    SuiteAttributeSummary summary{};
+    bool                  saw_suite = false;
+
+    for (const auto &attr : parsed) {
+        std::string lowered = attr.name;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+
+        if (lowered == "suite") {
+            if (saw_suite) {
+                summary.had_error = true;
+                report("duplicate gentest namespace attribute 'suite'");
+                continue;
+            }
+            if (attr.arguments.size() != 1) {
+                summary.had_error = true;
+                report("'suite' requires exactly one string argument");
+                continue;
+            }
+            if (attr.arguments.front().empty()) {
+                summary.had_error = true;
+                report("'suite' argument must not be empty");
+                continue;
+            }
+            saw_suite          = true;
+            summary.suite_name = attr.arguments.front();
+            continue;
+        }
+
+        summary.had_error = true;
+        std::string joined;
+        if (!attr.arguments.empty()) {
+            for (std::size_t idx = 0; idx < attr.arguments.size(); ++idx) {
+                if (idx != 0)
+                    joined += ", ";
+                joined += '"';
+                joined += attr.arguments[idx];
+                joined += '"';
+            }
+            report(fmt::format("unknown gentest namespace attribute '{}' with argument{} ({})", attr.name,
+                               attr.arguments.size() == 1 ? "" : "s", joined));
+        } else {
+            report(fmt::format("unknown gentest namespace attribute '{}'", attr.name));
         }
     }
 

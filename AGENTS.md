@@ -8,7 +8,8 @@
 - `tests/` is organised by suite (`unit`, `integration`, …); each suite pairs its `cases.cpp` with a generated `test_impl.cpp` plus the shared `support/test_entry.cpp`.
 
 ## Build, Test, and Development Commands
-- Preferred workflow: `cmake --preset=debug`, `cmake --build --preset=debug`, then `ctest --preset=debug --output-on-failure`.
+- Preferred workflow (system LLVM/Clang 20+): `cmake --preset=debug-system`, `cmake --build --preset=debug-system`, then `ctest --preset=debug-system --output-on-failure`.
+- Legacy vcpkg workflow (downloads its own LLVM toolchain): `cmake --preset=debug`, `cmake --build --preset=debug`, then `ctest --preset=debug --output-on-failure`.
 - Regenerate codegen artefacts by rebuilding the relevant test target (`cmake --build --preset=debug --target gentest_unit_tests`).
 - Sanitizer runs are exposed via presets (`cmake --workflow --preset=alusan`) and reuse the same code-generation path.
 - Keep `compile_commands.json` enabled (`CMAKE_EXPORT_COMPILE_COMMANDS`) so `gentest_codegen` can reuse the active compilation database.

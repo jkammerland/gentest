@@ -2,8 +2,11 @@
 #pragma once
 
 #include "model.hpp"
+#include "validate.hpp"
 
 #include <clang/ASTMatchers/ASTMatchFinder.h>
+#include <set>
+#include <unordered_map>
 
 namespace gentest::codegen {
 
@@ -27,8 +30,9 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
 
     std::vector<TestCaseInfo> &out_;
     // Dedup emitted test cases by a composite key (qualified + display + file:line)
-    std::set<std::string>     seen_;
-    mutable bool                                                       had_error_ = false;
+    std::set<std::string>                                                           seen_;
+    mutable bool                                                                    had_error_ = false;
+    mutable std::unordered_map<const clang::NamespaceDecl *, SuiteAttributeSummary> suite_cache_;
 };
 
 } // namespace gentest::codegen

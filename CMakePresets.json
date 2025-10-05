@@ -96,6 +96,17 @@
       "description": "Debug build with no optimizations (-O0), full debug info (-g), suitable for interactive debugging"
     },
     {
+      "name": "debug-system",
+      "inherits": "base-debug",
+      "displayName": "Debug (system LLVM/Clang)",
+      "description": "Debug build that consumes the system-installed LLVM/Clang toolchain instead of vcpkg",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": null,
+        "LLVM_DIR": "/usr/local/lib/cmake/llvm",
+        "Clang_DIR": "/usr/local/lib/cmake/clang"
+      }
+    },
+    {
       "name": "release",
       "inherits": "base-release",
       "displayName": "Release",
@@ -297,6 +308,13 @@
       "jobs": 0
     },
     {
+      "name": "debug-system",
+      "configurePreset": "debug-system",
+      "displayName": "Debug Build (system LLVM/Clang)",
+      "description": "Build with system-provided LLVM/Clang toolchain",
+      "jobs": 0
+    },
+    {
       "name": "release",
       "configurePreset": "release",
       "displayName": "Release Build",
@@ -417,6 +435,13 @@
       "configurePreset": "debug",
       "displayName": "Debug Tests",
       "description": "Run all tests in debug mode"
+    },
+    {
+      "name": "debug-system",
+      "inherits": "test-base",
+      "configurePreset": "debug-system",
+      "displayName": "Debug Tests (system LLVM/Clang)",
+      "description": "Run all tests in debug mode using the system LLVM/Clang toolchain"
     },
     {
       "name": "release",
@@ -562,6 +587,25 @@
         {
           "type": "test",
           "name": "debug"
+        }
+      ]
+    },
+    {
+      "name": "debug-system",
+      "displayName": "Debug Workflow (system LLVM/Clang)",
+      "description": "Configure, build, and test using the system-installed LLVM/Clang toolchain",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "debug-system"
+        },
+        {
+          "type": "build",
+          "name": "debug-system"
+        },
+        {
+          "type": "test",
+          "name": "debug-system"
         }
       ]
     },

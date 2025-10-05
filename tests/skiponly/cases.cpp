@@ -1,13 +1,13 @@
 #include "gentest/runner.h"
 
-namespace skiponly {
+namespace [[using gentest: suite("skiponly")]] skiponly {
 
-[[using gentest: test("skiponly/alpha"), skip("not ready")]]
+[[using gentest: test("alpha"), skip("not ready")]]
 void alpha() {
     // skipped
 }
 
-[[using gentest: test("skiponly/beta"), skip("flaky")]]
+[[using gentest: test("beta"), skip("flaky")]]
 void beta() {
     // skipped
 }

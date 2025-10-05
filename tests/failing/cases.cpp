@@ -1,9 +1,9 @@
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
-namespace failing {
+namespace [[using gentest: suite("failing")]] failing {
 
-[[using gentest: test("failing/single")]]
+[[using gentest: test("single")]]
 void will_fail() {
     using namespace gentest::asserts;
     EXPECT_TRUE(false, "non-fatal 1");
