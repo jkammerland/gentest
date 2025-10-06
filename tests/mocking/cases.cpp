@@ -164,4 +164,19 @@ void matchers_not() {
     EXPECT_EQ(sum, 3);
 }
 
+[[using gentest: test("mocking/matchers/ge_anyof")]]
+void matchers_ge_anyof() {
+    using namespace gentest::match;
+    gentest::mock<Ticker> mock_tick;
+    int                   count = 0;
+    gentest::expect(mock_tick, &Ticker::tick)
+        .times(2)
+        .where_args(Ge(5))
+        .invokes([&](int) { ++count; });
+
+    mock_tick.tick(5);
+    mock_tick.tick(7);
+    EXPECT_EQ(count, 2);
+}
+
 } // namespace mocking

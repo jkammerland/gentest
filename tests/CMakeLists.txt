@@ -186,14 +186,22 @@ add_test(NAME templates_list_tests_lines
 add_test(NAME mocking_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DPASS=12 -DFAIL=0 -DSKIP=0
+        -DPASS=13 -DFAIL=0 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME mocking_list_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DLIST=ON -DCASES=12
+        -DLIST=ON -DCASES=13
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+# Verify descriptive predicate mismatch content
+add_test(NAME mocking_predicate_mismatch_message
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_failing_tests>
+        -DARGS=--run-test=failing/mocking/predicate_mismatch
+        -DEXPECT_SUBSTRING=expected == 3
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
 
 # CLI checks for VSCode integration
 add_test(NAME unit_help

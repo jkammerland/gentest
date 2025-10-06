@@ -96,6 +96,28 @@ static std::string to_string_fallback(const T &v) {
     }
 }
 
+template <typename T> struct ArgPredicate {
+    std::function<bool(const T &)>        test;
+    std::function<std::string(const T &)> describe; // optional; may be empty
+};
+
+template <typename T, typename P>
+concept HasMakeFor = requires(const P &p) {
+    { p.template make<T>() } -> std::same_as<ArgPredicate<T>>;
+};
+
+template <typename T, typename P>
+ArgPredicate<T> to_arg_predicate(P &&p) {
+    if constexpr (HasMakeFor<T, P>) {
+        return p.template make<T>();
+    } else {
+        ArgPredicate<T> out;
+        out.test     = std::function<bool(const T &)>{std::forward<P>(p)};
+        out.describe = [](const T &) { return std::string("predicate mismatch"); };
+        return out;
+    }
+}
+
 template <typename Tuple, typename... A>
 bool check_args_equal(const std::optional<Tuple> &expected, std::string_view method_name, const A &...actual) {
     if (!expected)
@@ -131,11 +153,12 @@ bool check_args_by_predicates(const std::optional<TuplePred> &preds, std::string
     bool       ok           = true;
     [&]<std::size_t... I>(std::index_sequence<I...>) {
         ((ok = ok && ([&] {
-              const auto &p = std::get<I>(*preds);
-              const auto &a = std::get<I>(actual_tuple);
-              if (!p(a)) {
+              const auto &ap = std::get<I>(*preds);
+              const auto &a  = std::get<I>(actual_tuple);
+              if (!ap.test(a)) {
+                  const std::string msg = ap.describe ? ap.describe(a) : std::string("predicate mismatch");
                   ::gentest::detail::record_failure(
-                      fmt::format("argument[{}] predicate mismatch for {}", I, method_name));
+                      fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg));
                   return false;
               }
               return true;
@@ -161,7 +184,7 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
     bool                      allow_excess   = false;
     std::function<R(Args...)> action;
     std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
-    std::optional<std::tuple<std::function<bool(const std::decay_t<Args>&)>...>> arg_predicates;
+    std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
 
     bool is_satisfied() const { return observed_calls >= expected_calls; }
 
@@ -174,7 +197,8 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
 
     template <typename... P>
     void set_predicates(P &&...preds) {
-        arg_predicates = std::tuple<std::function<bool(const std::decay_t<Args>&)>...>(std::forward<P>(preds)...);
+        arg_predicates = std::tuple<ArgPredicate<std::decay_t<Args>>...>(
+            to_arg_predicate<std::decay_t<Args>>(std::forward<P>(preds))...);
     }
 
     bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
@@ -207,7 +231,7 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationBase 
     bool                         allow_excess   = false;
     std::function<void(Args...)> action;
     std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
-    std::optional<std::tuple<std::function<bool(const std::decay_t<Args>&)>...>> arg_predicates;
+    std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
 
     bool is_satisfied() const { return observed_calls >= expected_calls; }
 
@@ -220,7 +244,8 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationBase 
 
     template <typename... P>
     void set_predicates(P &&...preds) {
-        arg_predicates = std::tuple<std::function<bool(const std::decay_t<Args>&)>...>(std::forward<P>(preds)...);
+        arg_predicates = std::tuple<ArgPredicate<std::decay_t<Args>>...>(
+            to_arg_predicate<std::decay_t<Args>>(std::forward<P>(preds))...);
     }
 
     bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
@@ -485,33 +510,270 @@ template <class Mock, class MethodPtr> auto expect(Mock &instance, MethodPtr met
 // Use with ExpectationHandle::where_args(...) or ::where(...), e.g.:
 //   expect(mock, &T::fn).where(Eq(42), Any());
 namespace match {
-// Matches any value of the argument type
-inline auto Any() {
-    return [](const auto &) noexcept { return true; };
-}
+using ::gentest::detail::mocking::ArgPredicate;
 
-// Matches values equal to the provided reference value (by ==)
-template <typename V>
-inline auto Eq(V &&v) {
+struct AnyFactory {
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        ap.test = [](const T &) noexcept { return true; };
+        return ap;
+    }
+};
+inline auto Any() { return AnyFactory{}; }
+
+template <typename V> struct EqFactory {
     using Value = std::decay_t<V>;
-    return [captured = Value(std::forward<V>(v))](const auto &a) { return a == captured; };
-}
+    Value expected;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const Value     exp = expected;
+        ap.test             = [exp](const T &a) { return a == exp; };
+        ap.describe         = [exp](const T &a) {
+            return fmt::format("expected == {}, got {}", ::gentest::detail::mocking::to_string_fallback(exp),
+                               ::gentest::detail::mocking::to_string_fallback(a));
+        };
+        return ap;
+    }
+};
+template <typename V> inline auto Eq(V &&v) { return EqFactory<V>{std::forward<V>(v)}; }
 
-// Matches values within [lo, hi] using <= comparisons
-template <typename A, typename B>
-inline auto InRange(A &&lo, B &&hi) {
+template <typename A, typename B> struct InRangeFactory {
     using Lo = std::decay_t<A>;
     using Hi = std::decay_t<B>;
-    return [l = Lo(std::forward<A>(lo)), h = Hi(std::forward<B>(hi))](const auto &a) {
-        return (a >= l) && (a <= h);
-    };
-}
+    Lo l;
+    Hi h;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const Lo        lo = l;
+        const Hi        hi = h;
+        ap.test             = [lo, hi](const T &a) { return (a >= lo) && (a <= hi); };
+        ap.describe         = [lo, hi](const T &a) {
+            return fmt::format("expected in [{}, {}], got {}", ::gentest::detail::mocking::to_string_fallback(lo),
+                               ::gentest::detail::mocking::to_string_fallback(hi),
+                               ::gentest::detail::mocking::to_string_fallback(a));
+        };
+        return ap;
+    }
+};
+template <typename A, typename B> inline auto InRange(A &&lo, B &&hi) { return InRangeFactory<A, B>{std::forward<A>(lo), std::forward<B>(hi)}; }
 
-// Negates another matcher/predicate
-template <typename P>
-inline auto Not(P &&predicate) {
-    return [p = std::forward<P>(predicate)](const auto &a) { return !p(a); };
-}
+template <typename P> struct NotFactory {
+    P inner;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ip = inner.template make<T>();
+        ArgPredicate<T> ap;
+        ap.test     = [ip](const T &a) { return !ip.test(a); };
+        ap.describe = [ip](const T &a) {
+            std::string inner_desc = ip.describe ? ip.describe(a) : std::string("predicate matched");
+            return std::string("not(") + inner_desc + ")";
+        };
+        return ap;
+    }
+};
+template <typename P> inline auto Not(P &&p) { return NotFactory<std::decay_t<P>>{std::forward<P>(p)}; }
+
+template <typename V> struct GeFactory {
+    using Value = std::decay_t<V>;
+    Value bound;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const Value     b = bound;
+        ap.test            = [b](const T &a) { return a >= b; };
+        ap.describe        = [b](const T &a) {
+            return fmt::format("expected >= {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
+                               ::gentest::detail::mocking::to_string_fallback(a));
+        };
+        return ap;
+    }
+};
+template <typename V> inline auto Ge(V &&v) { return GeFactory<V>{std::forward<V>(v)}; }
+
+template <typename V> struct LeFactory {
+    using Value = std::decay_t<V>;
+    Value bound;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const Value     b = bound;
+        ap.test            = [b](const T &a) { return a <= b; };
+        ap.describe        = [b](const T &a) {
+            return fmt::format("expected <= {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
+                               ::gentest::detail::mocking::to_string_fallback(a));
+        };
+        return ap;
+    }
+};
+template <typename V> inline auto Le(V &&v) { return LeFactory<V>{std::forward<V>(v)}; }
+
+template <typename V> struct GtFactory {
+    using Value = std::decay_t<V>;
+    Value bound;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const Value     b = bound;
+        ap.test            = [b](const T &a) { return a > b; };
+        ap.describe        = [b](const T &a) {
+            return fmt::format("expected > {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
+                               ::gentest::detail::mocking::to_string_fallback(a));
+        };
+        return ap;
+    }
+};
+template <typename V> inline auto Gt(V &&v) { return GtFactory<V>{std::forward<V>(v)}; }
+
+template <typename V> struct LtFactory {
+    using Value = std::decay_t<V>;
+    Value bound;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const Value     b = bound;
+        ap.test            = [b](const T &a) { return a < b; };
+        ap.describe        = [b](const T &a) {
+            return fmt::format("expected < {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
+                               ::gentest::detail::mocking::to_string_fallback(a));
+        };
+        return ap;
+    }
+};
+template <typename V> inline auto Lt(V &&v) { return LtFactory<V>{std::forward<V>(v)}; }
+
+template <typename V, typename E> struct NearFactory {
+    using Value = std::decay_t<V>;
+    using Eps   = std::decay_t<E>;
+    Value expected;
+    Eps   eps;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const Value     exp = expected;
+        const Eps       e   = eps;
+        ap.test             = [exp, e](const T &a) {
+            using std::abs;
+            return abs(static_cast<long double>(a) - static_cast<long double>(exp)) <= static_cast<long double>(e);
+        };
+        ap.describe = [exp, e](const T &a) {
+            return fmt::format("expected near {} ± {}, got {}", ::gentest::detail::mocking::to_string_fallback(exp),
+                               ::gentest::detail::mocking::to_string_fallback(e),
+                               ::gentest::detail::mocking::to_string_fallback(a));
+        };
+        return ap;
+    }
+};
+template <typename V, typename E> inline auto Near(V &&v, E &&eps) { return NearFactory<V, E>{std::forward<V>(v), std::forward<E>(eps)}; }
+
+struct StrContainsFactory {
+    std::string needle;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const std::string nd = needle;
+        ap.test               = [nd](const T &a) {
+            std::string_view s(a);
+            return s.find(nd) != std::string_view::npos;
+        };
+        ap.describe = [nd](const T &a) {
+            std::string_view s(a);
+            return fmt::format("expected substring '{}', got '{}'", nd, s);
+        };
+        return ap;
+    }
+};
+inline auto StrContains(std::string needle) { return StrContainsFactory{std::move(needle)}; }
+
+struct StartsWithFactory {
+    std::string prefix;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const std::string px = prefix;
+        ap.test               = [px](const T &a) {
+            std::string_view s(a);
+            return s.rfind(px, 0) == 0;
+        };
+        ap.describe = [px](const T &a) {
+            std::string_view s(a);
+            return fmt::format("expected prefix '{}', got '{}'", px, s);
+        };
+        return ap;
+    }
+};
+inline auto StartsWith(std::string prefix) { return StartsWithFactory{std::move(prefix)}; }
+
+struct EndsWithFactory {
+    std::string suffix;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const std::string sx = suffix;
+        ap.test               = [sx](const T &a) {
+            std::string_view s(a);
+            return s.size() >= sx.size() && s.substr(s.size() - sx.size()) == sx;
+        };
+        ap.describe = [sx](const T &a) {
+            std::string_view s(a);
+            return fmt::format("expected suffix '{}', got '{}'", sx, s);
+        };
+        return ap;
+    }
+};
+inline auto EndsWith(std::string suffix) { return EndsWithFactory{std::move(suffix)}; }
+
+template <typename... M> struct AnyOfFactory {
+    std::tuple<M...> subs;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const auto      subs_local = subs;
+        ap.test                    = [subs_local](const T &a) {
+            bool ok = false;
+            std::apply([&](auto const &...m) { ((ok = ok || m.template make<T>().test(a)), ...); }, subs_local);
+            return ok;
+        };
+        ap.describe = [subs_local](const T &a) {
+            std::string msg = "expected any of: ";
+            bool        first = true;
+            std::apply(
+                [&](auto const &...m) {
+                    (([&] {
+                         auto inner = m.template make<T>();
+                         if (!first) msg += "; ";
+                         first = false;
+                         if (inner.describe) msg += inner.describe(a); else msg += "predicate";
+                     }()),
+                     ...);
+                },
+                subs_local);
+            return msg;
+        };
+        return ap;
+    }
+};
+template <typename... M> inline auto AnyOf(M &&...m) { return AnyOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)}; }
+
+template <typename... M> struct AllOfFactory {
+    std::tuple<M...> subs;
+    template <typename T> ArgPredicate<T> make() const {
+        ArgPredicate<T> ap;
+        const auto      subs_local = subs;
+        ap.test                    = [subs_local](const T &a) {
+            bool ok = true;
+            std::apply([&](auto const &...m) { ((ok = ok && m.template make<T>().test(a)), ...); }, subs_local);
+            return ok;
+        };
+        ap.describe = [subs_local](const T &a) {
+            std::string msg = "expected all of: ";
+            bool        first = true;
+            std::apply(
+                [&](auto const &...m) {
+                    (([&] {
+                         auto inner = m.template make<T>();
+                         if (!first) msg += "; ";
+                         first = false;
+                         if (inner.describe) msg += inner.describe(a); else msg += "predicate";
+                     }()),
+                     ...);
+                },
+                subs_local);
+            return msg;
+        };
+        return ap;
+    }
+};
+template <typename... M> inline auto AllOf(M &&...m) { return AllOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)}; }
 } // namespace match
 
 #ifdef GENTEST_MOCK_REGISTRY_PATH
