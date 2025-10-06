@@ -109,6 +109,19 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     }
     replace_all(output, "{{INCLUDE_SOURCES}}", includes);
 
+    // Include generated mock implementation header after sources.
+    std::string mock_include;
+    if (!options.mock_impl_path.empty()) {
+        namespace fs = std::filesystem;
+        const fs::path out_dir = options.output_path.has_parent_path() ? options.output_path.parent_path() : fs::current_path();
+        std::error_code ec;
+        fs::path rel = fs::proximate(options.mock_impl_path, out_dir, ec);
+        if (ec)
+            rel = options.mock_impl_path;
+        mock_include = fmt::format("#include \"{}\"\n", rel.generic_string());
+    }
+    replace_all(output, "{{INCLUDE_MOCK_IMPL}}", mock_include);
+
     return output;
 }
 

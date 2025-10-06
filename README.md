@@ -216,8 +216,10 @@ void mock_clock_basic() {
 - Missing calls or unexpected invocations are surfaced through the active test context (identical to other assertions).
 - Polymorphic targets produce `mock<T> : T` overrides; non-virtual classes receive standalone mocks that mirror the
   public surface so they remain drop-in replacements for templated injection and CRTP patterns.
-- The generator emits `mock_registry.hpp` and `mock_impl.cpp` alongside each suite’s `test_impl.cpp`; the build defines
-  `GENTEST_MOCK_REGISTRY_PATH` so `gentest/mock.h` automatically includes the registry when compiling your tests.
+- The generator emits `mock_registry.hpp` and an inline `mock_impl.hpp` alongside each suite’s `test_impl.cpp`. The
+  build defines `GENTEST_MOCK_REGISTRY_PATH` so `gentest/mock.h` automatically includes the registry when compiling your
+  tests; the generated `test_impl.cpp` includes `mock_impl.hpp` after including your test sources so original types are
+  complete. No extra translation unit is used for mocks.
 
 ## Templates
 
@@ -227,6 +229,7 @@ placeholder substitutions. This keeps the output format easy to reason about and
 - Main file: `tools/templates/test_impl.cpp.tpl`
   - Placeholders:
     - `{{INCLUDE_SOURCES}}`: includes of the suite’s `cases.cpp` files.
+    - `{{INCLUDE_MOCK_IMPL}}`: include of the per-target inline mock implementation header.
     - `{{FORWARD_DECLS}}`: optional forward declarations for free functions (member tests don’t need these).
     - `{{TRAIT_DECLS}}`: constexpr arrays for tags and requirement IDs.
     - `{{WRAPPER_IMPLS}}`: per-test wrappers with a uniform `void(void*)` signature.

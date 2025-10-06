@@ -26,7 +26,9 @@ function(gentest_attach_codegen target)
     endif()
 
     set(_gentest_mock_registry "${_gentest_output_dir}/mock_registry.hpp")
-    set(_gentest_mock_impl "${_gentest_output_dir}/mock_impl.cpp")
+    # Generate inline mock implementations as a header; it will be included
+    # by the generated test implementation after including sources.
+    set(_gentest_mock_impl "${_gentest_output_dir}/mock_impl.hpp")
 
     set(_command $<TARGET_FILE:gentest_codegen>
         --output ${GENTEST_OUTPUT}
@@ -52,7 +54,9 @@ function(gentest_attach_codegen target)
         CODEGEN
     )
 
-    target_sources(${target} PRIVATE ${GENTEST_OUTPUT} ${_gentest_mock_impl})
+    # Only compile the generated test implementation; the mock impl header
+    # is included by it and must not be compiled as a separate TU.
+    target_sources(${target} PRIVATE ${GENTEST_OUTPUT})
 
     get_filename_component(_gentest_mock_dir "${_gentest_mock_registry}" DIRECTORY)
     target_include_directories(${target} PRIVATE ${_gentest_mock_dir})
