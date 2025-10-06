@@ -309,27 +309,27 @@ can be split across multiple `[[...]]` blocks on the same function.
 - Multiple parameter axes (Cartesian product across value lists):
   ```c++
   [[using gentest: test("templates/pairs")]]
-  [[using gentest: parameters(int, 1, 2)]]
-  [[using gentest: parameters(int, 5, 6)]]
+  [[using gentest: parameters(a, 1, 2)]]
+  [[using gentest: parameters(b, 5, 6)]]
   void pairs(int a, int b) { /* 4 tests: (1,5), (1,6), (2,5), (2,6) */ }
   ```
 
 - String-like types are auto-quoted in generated calls; both quoted and unquoted forms are accepted in attributes:
   ```c++
-  [[using gentest: test("templates/strs"), parameters(std::string, "a", b)]]
+  [[using gentest: test("templates/strs"), parameters(s, "a", b)]]
   void strs(std::string s) { /* calls: ("a"), ("b") */ }
   ```
 
 - Mixed axes and templates:
   ```c++
   template <typename T>
-  [[using gentest: test("templates/bar"), template(T, int, long), parameters(std::string, x, y)]]
+  [[using gentest: test("templates/bar"), template(T, int, long), parameters(s, x, y)]]
   void bar(std::string s) { /* 4 tests: bar<int>("x"), bar<int>("y"), bar<long>("x"), bar<long>("y") */ }
   ```
 
 - parameters_pack: bundle multiple arguments per row to avoid Cartesian explosion:
   ```c++
-  [[using gentest: test("templates/pack"), parameters_pack((int, string), (42, a), (7, "b"))]]
+  [[using gentest: test("templates/pack"), parameters_pack((a, b), (42, a), (7, "b"))]]
   void pack(int a, std::string b) { /* 2 tests: (42, "a"), (7, "b") */ }
   ```
 
@@ -353,10 +353,10 @@ template <int N, typename T>
 void interleaved() { /* 4 instances: N in {1,2} × T in {int,long} */ }
 
 // Mixed with runtime value parameters
-template <typename T, std::size_t N>
-[[using gentest: test("templates/mix/type_nttp_value"), template(T, int), template(N, 16), parameters(int, 3)]]
-void mix_type_nttp_value(int v) { /* 1 instance: <int,16>(3) */ }
-```
+  template <typename T, std::size_t N>
+  [[using gentest: test("templates/mix/type_nttp_value"), template(T, int), template(N, 16), parameters(v, 3)]]
+  void mix_type_nttp_value(int v) { /* 1 instance: <int,16>(3) */ }
+  ```
 
 Notes
 - Values given for value template parameters are used verbatim; the C++ compiler ensures they match the declared
@@ -372,5 +372,35 @@ Additional Notes
   (wstring, u8string, u16string, u32string and their corresponding char* forms). Values are quoted with the appropriate prefix.
 - Char-like types (char, wchar_t, char8_t, char16_t, char32_t) are wrapped as character literals when a single character; otherwise
   the token is used verbatim (or you can provide explicit literals).
+
+### Named Parameters
+
+`parameters(name, v1, v2, ...)` takes the declared function parameter name and a list of expressions. The type is inferred from
+the function signature, so you don’t repeat it. Values are parsed as full expressions; commas inside braces/parentheses are handled.
+
+```c++
+[[using gentest: test("params")]]
+[[using gentest: parameters(i, 0, 10, 100)]]
+void params_test(int i);
+
+// Struct expressions are supported directly
+[[using gentest: test("structs")]]
+[[using gentest: parameters(p, Point{1,2}, Point{3,4})]]
+void takes_point(Point p);
+```
+
+For multiple parameters per row, use `parameters_pack((n1, n2, ...), (v1, v2, ...), ...)` with names instead of types:
+
+```c++
+[[using gentest: test("pack")]]
+[[using gentest: parameters_pack((a, b), (42, s1), (7, "b"))]]
+void pack(int a, std::string b);
+```
+
+Rules and guarantees
+- Names must match declared function parameters (unknown/duplicate names are hard errors).
+- All parameters of the function must be supplied via `parameters(...)` and/or `parameters_pack(...)` when provided;
+  otherwise codegen reports a clear error.
+- Values for string-like parameters are auto-quoted based on the parameter type; user-defined types are passed as-is.
 
 See [`AGENTS.md`](AGENTS.md) for contribution guidelines and additional workflow conventions.
