@@ -137,11 +137,19 @@ add_test(NAME integration_list_counts
 add_test(NAME failing_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_failing_tests>
-        -DPASS=0 -DFAIL=1 -DSKIP=0
+        -DPASS=0 -DFAIL=2 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
+
+# Verify argument-mismatch message content for mock expectations
+add_test(NAME failing_mock_args_mismatch_message
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_failing_tests>
+        -DARGS=--run-test=failing/mock_args/mismatch
+        -DEXPECT_SUBSTRING=argument[0] mismatch for ::mocking::Calculator::compute
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
 
 add_test(NAME skiponly_counts
     COMMAND ${CMAKE_COMMAND}
@@ -183,13 +191,13 @@ add_test(NAME templates_list_tests_lines
 add_test(NAME mocking_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DPASS=4 -DFAIL=0 -DSKIP=0
+        -DPASS=8 -DFAIL=0 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME mocking_list_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DLIST=ON -DCASES=4
+        -DLIST=ON -DCASES=8
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 # CLI checks for VSCode integration

@@ -233,3 +233,94 @@ Devlog 2025-10-03 (WrapperSpec + Validation Toggle)
   - Tests and status
       - Rebuilt and ran ctest (debug preset): all tests still pass; no count changes.
       - Code is easier to read and extend (single source of truth for wrappers; validation can be toggled during debugging).
+
+Devlog 2025-10-06 (Mocks: Parameter Matching Plan)
+
+  Context and recent cleanup
+  - Simplified lifecycle: ExpectationHandle no longer verifies in its destructor; verification runs from generated `mock<T>::~mock()`
+    via `InstanceState::verify_all()`. `InstanceState` destructor is defaulted to avoid double-verification.
+  - Kept a single registry and dispatch path keyed by `MethodIdentity` to preserve overload/ref-qualifier/noexcept distinctions.
+  - Safer default for reference returns without an action: terminate instead of UB; value returns still default to `R{}`.
+
+  Goals (Parameter Matching)
+  - Allow users to assert that specific argument values were passed to mocked methods, in addition to call counts.
+  - Keep semantics simple and predictable; preserve existing FIFO expectation ordering.
+  - Provide a minimal API now; leave room to extend with predicates/matchers later.
+
+  Proposed API (Phase 1)
+  - `ExpectationHandle::with(Args... expected)`
+    - Captures a tuple of expected values by value (decayed). Applies to that expectation for all consumed calls.
+    - Works with both value- and void-returning methods. Compatible with `times`, `returns`, `invokes`, and `allow_more`.
+
+  Semantics (Phase 1)
+  - Dispatch always considers the front expectation (unchanged FIFO behavior).
+  - If `.with(...)` was set, compare actual args against the stored expected values using `==` per position.
+    - On mismatch: record a failure (argument mismatch) in the active test context; still count the call against that expectation.
+    - When `observed_calls == expected_calls` and `!allow_more`, pop the expectation (unchanged).
+  - Rationale: avoids reordering or searching the queue; behavior remains ordered and deterministic.
+
+  Error messages
+  - Include method name and argument index; for printable types, show `expected` and `actual`. For non-streamable types, show type names only.
+  - Example: `argument[1] mismatch for ::mocking::Calculator::compute: expected 30, got 12`.
+
+  Implementation sketch
+  - Runtime changes (header-only):
+    - Extend `detail::mocking::Expectation<R(Args...)>` and `Expectation<void(Args...)>` with an optional matcher:
+      - Store either `std::tuple<std::decay_t<Args>...>` for equality matching, or a `std::function<bool(const Args&...)>` if we add Phase 2.
+      - Add a small `check_args(method_name, args...)` that records a mismatch failure when present.
+    - `ExpectationHandle::with(Args&&...)` assigns the tuple on the underlying shared expectation and returns `*this`.
+    - In `InstanceState::dispatch`, after retrieving the front expectation and before invoking, call `expectation->check_args(...)` when configured.
+  - No generator changes required; registry and method identity stay the same.
+
+  Tests (Phase 1)
+  - Positive (mocking suite):
+    - `mocking/interface/returns_matches`: `expect(mock, &Calculator::compute).with(12,30).returns(42);` then `compute(12,30)` ⇒ pass.
+    - `mocking/concrete/invokes_matches`: `expect(mock, &Ticker::tick).times(3).with(1).invokes(...);` call `tick(1)` three times ⇒ pass.
+    - `mocking/crtp/bridge_matches`: `expect(mock, &DerivedRunner::handle).with(7).times(2);` call `handle(7)` twice ⇒ pass.
+  - Negative (failing suite):
+    - `mocking_args/mismatch`: mismatch in one or more positions ⇒ one recorded failure; place under `tests/failing` to keep suite counts stable.
+  - Note: Adding these will update test counts for the involved suites; adjust `ctest` count checks accordingly.
+
+  Future work (Phase 2+)
+  - `.where(predicate)` accepting `bool(const Args&...)` for custom checks.
+  - Simple matchers: `Eq(x)`, `Any()`, `InRange(a,b)`, etc., with `.with(Eq(...), Any(), ...)`.
+  - Optional unordered matching flag to search the queue for the first matching expectation (trade off simplicity for flexibility).
+
+  Risks and mitigations
+  - Argument printing for non-streamable types: fall back to type names to avoid compile errors.
+  - ABI/headers: remains header-only; no new source units. Keep changes minimal and documented.
+  - Backward compatibility: existing tests that don’t call `.with(...)` are unaffected.
+
+  Acceptance criteria
+  - New `.with(...)` compiles and behaves as documented across GCC/Clang/MSVC.
+  - New tests pass; mismatches produce a single, clear failure per call.
+  - No regressions in existing mocking, fixtures, unit, integration, and templates suites.
+
+Devlog 2025-10-06 (Mocks: Arg Matching Delivered + Template Members)
+
+  - Implemented Phase 1 argument matching
+      - Runtime now supports `ExpectationHandle::with(args...)` to match positional arguments via `==`.
+      - Mismatch reporting includes index, fully qualified method, and expected/actual values (with type-name fallback when not streamable).
+      - FIFO expectation semantics preserved: mismatches still consume the front expectation.
+
+  - Tests
+      - Positive: existing mocking cases extended with `..._returns_matches`, `..._invokes_matches`, and CRTP match examples.
+      - Negative: added failing case that asserts the mismatch message content for `Calculator::compute`.
+      - Updated mocking counts (now 8) to account for the new template-member test below.
+
+  - Non-virtual template member methods (initial support)
+      - Discovery records function templates and preserves parameter names; signatures for dependent types are printed as written.
+      - Codegen:
+          - Emits inline template member bodies in the generated registry header so templates are visible to call sites.
+          - Keeps non-template member methods as out-of-line definitions in the mock implementation TU.
+          - `MockAccess` gained a generic fallback that deduces the signature from the provided method pointer, enabling expectations for template specializations without enumerating all instantiations.
+      - Test added: `mocking/concrete/template_member_expect_int` for `Ticker::tadd<T>`.
+
+  - Deferred (documented; not implemented in this drop)
+      - NTTP template member methods: intentionally skipped pending a broader refactor of template handling in discovery/emission.
+        - Rationale: avoid duplicating logic before the planned AxisExpander/validation split and unified type/expr rendering.
+        - Plan: cover `template<int N>` and mixed cv-ref/noexcept variants after refactor; extend tests then.
+
+  - Toolchain preset (system LLVM 20+)
+      - Added a `sys-llvm20` CMake preset that uses `/usr/bin/clang-20` and enforces LLVM >= 20.
+      - Generators prefer `llvm-config-20 --cmakedir` when `GENTEST_REQUIRE_LLVM20=ON` to avoid accidentally picking older configs.

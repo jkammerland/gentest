@@ -89,6 +89,8 @@ struct MockMethodInfo {
     std::string              method_name;    // unqualified method identifier
     std::string              return_type;
     std::vector<MockParamInfo> parameters;
+    std::string              template_prefix; // e.g. "template <typename T, int N>"
+    std::vector<std::string> template_param_names; // e.g. {"T", "N"}
     bool                     is_const = false;
     bool                     is_volatile = false;
     bool                     is_static = false;

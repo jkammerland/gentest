@@ -10,6 +10,8 @@ struct Calculator {
 
 struct Ticker {
     void tick(int value) { (void)value; }
+    template <typename T>
+    void tadd(T value) { (void)value; }
 };
 
 template <typename Derived>

@@ -31,6 +31,9 @@ std::string qualifiers_for(const MockMethodInfo &method) {
     return q;
 }
 
+// Forward declarations
+std::string argument_list(const MockMethodInfo &method);
+
 std::string join_parameter_list(const std::vector<MockParamInfo> &params) {
     std::string out;
     for (std::size_t i = 0; i < params.size(); ++i) {
@@ -99,6 +102,71 @@ std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &met
     return ptr;
 }
 
+std::string split_namespace_and_type(const std::string &qualified, std::string &type_out) {
+    auto pos = qualified.rfind("::");
+    if (pos == std::string::npos) {
+        type_out = qualified;
+        return {};
+    }
+    type_out = qualified.substr(pos + 2);
+    return qualified.substr(0, pos);
+}
+
+std::string open_namespaces(const std::string &ns) {
+    std::string code;
+    if (ns.empty()) return code;
+    std::size_t start = 0;
+    while (true) {
+        auto pos = ns.find("::", start);
+        std::string part = pos == std::string::npos ? ns.substr(start) : ns.substr(start, pos - start);
+        if (!part.empty()) code += "namespace " + part + " {\n";
+        if (pos == std::string::npos) break;
+        start = pos + 2;
+    }
+    return code;
+}
+
+std::string close_namespaces(const std::string &ns) {
+    std::string code;
+    if (ns.empty()) return code;
+    std::size_t count = 1;
+    for (std::size_t pos = 0; pos != std::string::npos; ) {
+        pos = ns.find("::", pos == 0 ? 0 : pos + 2);
+        ++count;
+    }
+    // count is approximate; simpler: count number of components
+    count = 0;
+    for (std::size_t i = 0, j; i < ns.size(); i = j + 2) {
+        j = ns.find("::", i);
+        if (j == std::string::npos) { ++count; break; }
+        ++count;
+    }
+    for (std::size_t i = 0; i < count; ++i) code += "}\n";
+    return code;
+}
+
+std::string forward_original_declaration(const MockClassInfo &cls) {
+    std::string type_name;
+    const std::string ns = split_namespace_and_type(cls.qualified_name, type_name);
+    std::string out;
+    out += open_namespaces(ns);
+    out += "struct " + type_name + " {\n";
+    if (cls.has_virtual_destructor) {
+        out += "    virtual ~" + type_name + "() {}\n";
+    }
+    for (const auto &m : cls.methods) {
+        if (!m.template_prefix.empty()) {
+            out += "    " + m.template_prefix + "\n";
+        }
+        std::string virt = m.is_virtual ? std::string("virtual ") : std::string();
+        out += "    " + virt + ensure_global_qualifiers(m.return_type) + " " + m.method_name + "(" + join_parameter_list(m.parameters) + ")" + qualifiers_for(m) + ";\n";
+    }
+    out += "};\n";
+    out += close_namespaces(ns);
+    out += "\n";
+    return out;
+}
+
 std::string argument_expr(const MockParamInfo &param) {
     if (param.type.find("&&") != std::string::npos) {
         return fmt::format("std::move({})", param.name);
@@ -107,7 +175,12 @@ std::string argument_expr(const MockParamInfo &param) {
 }
 
 std::string build_method_declaration(const MockClassInfo &cls, const MockMethodInfo &method) {
-    std::string decl = method.return_type;
+    std::string decl;
+    if (!method.template_prefix.empty()) {
+        decl += method.template_prefix;
+        decl += '\n';
+    }
+    decl += method.return_type;
     decl += ' ';
     decl += method.method_name;
     decl += '(';
@@ -117,7 +190,31 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
     if (cls.derive_for_virtual && method.is_virtual) {
         decl += " override";
     }
-    decl += ';';
+    if (!method.template_prefix.empty()) {
+        // Inline definition for template methods (must be visible to callers)
+        const std::string fq_type = fmt::format("::{}", cls.qualified_name);
+        const std::string args    = argument_list(method);
+        const std::string tpl_use = [&]() {
+            if (method.template_param_names.empty()) return std::string{};
+            std::string out = "<";
+            for (std::size_t i = 0; i < method.template_param_names.size(); ++i) {
+                if (i != 0) out += ", ";
+                out += method.template_param_names[i];
+            }
+            out += ">";
+            return out;
+        }();
+        decl += " {\n";
+        decl += fmt::format("        auto token = this->__gentest_state_.identify(&{}::{}{});\n", fq_type, method.method_name, tpl_use);
+        const bool returns_value = method.return_type != "void";
+        const std::string fq_method = fmt::format("::{}", method.qualified_name);
+        decl += fmt::format("        {}this->__gentest_state_.template dispatch<{}>(token, \"{}\"{});\n",
+                            returns_value ? "return " : "", ensure_global_qualifiers(method.return_type), fq_method,
+                            args.empty() ? std::string{} : ", " + args);
+        decl += "    }";
+    } else {
+        decl += ';';
+    }
     return decl;
 }
 
@@ -176,6 +273,9 @@ std::string build_mock_access(const MockClassInfo &cls) {
     body += "        using ::gentest::detail::mocking::MethodTraits;\n";
     bool first_branch = true;
     for (const auto &method : cls.methods) {
+        if (!method.template_prefix.empty()) {
+            continue; // rely on generic fallback for template member functions
+        }
         const std::string pointer_type = pointer_type_for(cls, method);
         const std::string signature    = signature_from(method);
         const std::string push_args    = [&]() {
@@ -198,9 +298,10 @@ std::string build_mock_access(const MockClassInfo &cls) {
         body += "            }\n";
         body += "        }\n";
     }
-    body += "        ::gentest::detail::record_failure(\"gentest::expect received unsupported method pointer for mock<" + cls.qualified_name + ">\");\n";
     body += "        using Signature = typename MethodTraits<MethodPtr>::Signature;\n";
-    body += "        return ExpectationHandle<Signature>{};\n";
+    body += "        auto token = instance.__gentest_state_.identify(method);\n";
+    body += "        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, token, \"(mock method)\");\n";
+    body += "        return ExpectationHandle<Signature>{expectation, \"(mock method)\"};\n";
     body += "    }\n";
     body += "};\n\n";
     return body;
@@ -209,6 +310,10 @@ std::string build_mock_access(const MockClassInfo &cls) {
 std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &method) {
     std::string def;
     const std::string fq_type = fmt::format("::{}", cls.qualified_name);
+    if (!method.template_prefix.empty()) {
+        def += method.template_prefix;
+        def += '\n';
+    }
     def += ensure_global_qualifiers(method.return_type);
     def += " gentest::mock<";
     def += fq_type;
@@ -219,7 +324,17 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
     def += ')';
     def += qualifiers_for(method);
     def += " {\n";
-    def += fmt::format("    auto token = this->__gentest_state_.identify(&{}::{});\n", fq_type, method.method_name);
+    const std::string tpl_usage = [&]() -> std::string {
+        if (method.template_param_names.empty()) return std::string{};
+        std::string out = "<";
+        for (std::size_t i = 0; i < method.template_param_names.size(); ++i) {
+            if (i != 0) out += ", ";
+            out += method.template_param_names[i];
+        }
+        out += ">";
+        return out;
+    }();
+    def += fmt::format("    auto token = this->__gentest_state_.identify(&{}::{}{});\n", fq_type, method.method_name, tpl_usage);
     const std::string return_type   = ensure_global_qualifiers(method.return_type);
     const std::string args          = argument_list(method);
     const bool        returns_value = method.return_type != "void";
@@ -252,6 +367,9 @@ std::string generate_implementation(const CollectorOptions &options, const std::
     impl += "#include <utility>\n\n";
 
     const fs::path base_dir = options.mock_impl_path.has_parent_path() ? options.mock_impl_path.parent_path() : fs::current_path();
+    // Include test sources so original types are visible for derived mocks and
+    // member pointer expressions. Tests should guard their case definitions
+    // under `#ifndef GENTEST_BUILDING_MOCKS` to avoid duplicate definitions.
     impl += "#define GENTEST_BUILDING_MOCKS\n";
     impl += include_sources_block(options, base_dir);
     impl += "#undef GENTEST_BUILDING_MOCKS\n\n";
@@ -263,10 +381,11 @@ std::string generate_implementation(const CollectorOptions &options, const std::
     for (const auto &cls : mocks) {
         impl += fmt::format("mock<{0}>::mock() = default;\n", cls.qualified_name);
         impl += fmt::format("mock<{0}>::~mock() {{ this->__gentest_state_.verify_all(); }}\n\n", cls.qualified_name);
-        for (const auto &method : cls.methods) {
-            impl += method_definition(cls, method);
-            impl += '\n';
-        }
+    for (const auto &method : cls.methods) {
+        if (!method.template_prefix.empty()) continue; // defined inline in header
+        impl += method_definition(cls, method);
+        impl += '\n';
+    }
         impl += '\n';
     }
 

@@ -11,8 +11,12 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <ostream>
+#include <sstream>
+#include <tuple>
 #include <string>
 #include <string_view>
+#include <typeinfo>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -76,28 +80,84 @@ struct ExpectationBase {
 
 template <typename Signature> struct Expectation;
 
+template <typename T>
+concept Ostreamable = requires(std::ostream &os, const T &v) {
+    os << v;
+};
+
+template <typename T>
+static std::string to_string_fallback(const T &v) {
+    if constexpr (Ostreamable<T>) {
+        std::ostringstream oss;
+        oss << v;
+        return oss.str();
+    } else {
+        return std::string(typeid(T).name());
+    }
+}
+
+template <typename Tuple, typename... A>
+bool check_args_equal(const std::optional<Tuple> &expected, std::string_view method_name, const A &...actual) {
+    if (!expected)
+        return true;
+    const auto actual_tuple = std::tuple<std::decay_t<A>...>(actual...);
+    const bool matched      = [&]<std::size_t... I>(std::index_sequence<I...>) {
+        return ((std::get<I>(*expected) == std::get<I>(actual_tuple)) && ...);
+    }(std::make_index_sequence<sizeof...(A)>{});
+    if (!matched) {
+        // Report first mismatch with indices for clarity
+        bool reported = false;
+        [&]<std::size_t... I>(std::index_sequence<I...>) {
+            (([&] {
+                 if (reported) return;
+                 if (!(std::get<I>(*expected) == std::get<I>(actual_tuple))) {
+                     ::gentest::detail::record_failure(fmt::format(
+                         "argument[{}] mismatch for {}: expected {}, got {}", I, method_name, to_string_fallback(std::get<I>(*expected)),
+                         to_string_fallback(std::get<I>(actual_tuple))));
+                     reported = true;
+                 }
+             }()),
+             ...);
+        }(std::make_index_sequence<sizeof...(A)>{});
+    }
+    return matched;
+}
+
+inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std::string_view method_name, bool &already_verified) {
+    if (already_verified)
+        return;
+    already_verified = true;
+    if (observed < expected) {
+        ::gentest::detail::record_failure(
+            fmt::format("expected {} call(s) to {} but observed {}", expected, method_name, observed));
+    }
+}
+
 template <typename R, typename... Args> struct Expectation<R(Args...)> : ExpectationBase {
     std::size_t               expected_calls = 1;
     std::size_t               observed_calls = 0;
     bool                      allow_excess   = false;
     std::function<R(Args...)> action;
+    std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
 
     bool is_satisfied() const { return observed_calls >= expected_calls; }
 
-    void verify(std::string_view method_name) override {
-        if (this->already_verified)
-            return;
-        this->already_verified = true;
-        if (observed_calls < expected_calls) {
-            ::gentest::detail::record_failure(
-                fmt::format("expected {} call(s) to {} but observed {}", expected_calls, method_name, observed_calls));
-        }
+    void verify(std::string_view method_name) override { verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified); }
+
+    template <typename... X>
+    void set_expected(X &&...values) {
+        expected_args = std::tuple<std::decay_t<Args>...>(std::forward<X>(values)...);
+    }
+
+    bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
+        return check_args_equal(expected_args, method_name, actual...);
     }
 
     R invoke(std::string_view method_name, Args... args) {
         if (!allow_excess && observed_calls >= expected_calls) {
             ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
         }
+        (void)check_args(method_name, std::forward<Args>(args)...);
         ++observed_calls;
         if (action) {
             return action(args...);
@@ -117,23 +177,26 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationBase 
     std::size_t                  observed_calls = 0;
     bool                         allow_excess   = false;
     std::function<void(Args...)> action;
+    std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
 
     bool is_satisfied() const { return observed_calls >= expected_calls; }
 
-    void verify(std::string_view method_name) override {
-        if (this->already_verified)
-            return;
-        this->already_verified = true;
-        if (observed_calls < expected_calls) {
-            ::gentest::detail::record_failure(
-                fmt::format("expected {} call(s) to {} but observed {}", expected_calls, method_name, observed_calls));
-        }
+    void verify(std::string_view method_name) override { verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified); }
+
+    template <typename... X>
+    void set_expected(X &&...values) {
+        expected_args = std::tuple<std::decay_t<Args>...>(std::forward<X>(values)...);
+    }
+
+    bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
+        return check_args_equal(expected_args, method_name, actual...);
     }
 
     void invoke(std::string_view method_name, Args... args) {
         if (!allow_excess && observed_calls >= expected_calls) {
             ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
         }
+        (void)check_args(method_name, std::forward<Args>(args)...);
         ++observed_calls;
         if (action) {
             action(args...);
@@ -240,6 +303,14 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
         return *this;
     }
 
+    template <typename... X>
+    ExpectationHandle &with(X &&... expected) {
+        if (expectation_) {
+            expectation_->set_expected(std::forward<X>(expected)...);
+        }
+        return *this;
+    }
+
     template <typename Value> ExpectationHandle &returns(Value &&value) {
         if constexpr (std::is_void_v<R>) {
             static_assert(!std::is_void_v<R>, "returns() is not available for void-returning methods");
@@ -323,6 +394,16 @@ GENTEST_DETAIL_MOCK_METHOD_TRAITS(&&)
 
 #undef GENTEST_DETAIL_MOCK_METHOD_TRAITS
 
+} // namespace detail::mocking
+
+namespace detail::mocking {
+// Helper to push expectations from a function signature type R(Args...).
+template <typename Sig> struct ExpectationPusher;
+template <typename R, typename... Args> struct ExpectationPusher<R(Args...)> {
+    static std::shared_ptr<Expectation<R(Args...)>> push(InstanceState &st, const MethodIdentity &id, std::string name) {
+        return st.template push_expectation<R, Args...>(id, std::move(name));
+    }
+};
 } // namespace detail::mocking
 
 namespace detail {
