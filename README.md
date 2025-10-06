@@ -394,14 +394,49 @@ For multiple parameters per row, use `parameters_pack((n1, n2, ...), (v1, v2, ..
 ```c++
 [[using gentest: test("pack")]]
 [[using gentest: parameters_pack((a, b), (42, s1), (7, "b"))]]
-void pack(int a, std::string b);
-```
+  void pack(int a, std::string b);
+  ```
 
 Rules and guarantees
 - Names must match declared function parameters (unknown/duplicate names are hard errors).
 - All parameters of the function must be supplied via `parameters(...)` and/or `parameters_pack(...)` when provided;
   otherwise codegen reports a clear error.
 - Values for string-like parameters are auto-quoted based on the parameter type; user-defined types are passed as-is.
+
+Multi-block attributes
+- Attributes compose across multiple `[[...]]` blocks on the same declaration. Splitting parameters/packs/templates is allowed:
+
+```c++
+[[using gentest: test("multi_blocks/params_split")]]
+[[using gentest: parameters(a, 1, 2)]]
+[[using gentest: parameters(b, 10)]]
+void multi_params_split(int a, int b);
+
+[[using gentest: test("multi_blocks/pack_split")]]
+[[using gentest: parameters_pack((a, b), (1, 2), (3, 4))]]
+[[using gentest: parameters_pack((c), (5))]]
+void multi_pack_split(int a, int b, int c);
+
+template <typename T, int N>
+[[using gentest: test("multi_blocks/mixed_split")]]
+[[using gentest: template(T, int)]]
+[[using gentest: template(N, 7)]]
+[[using gentest: parameters(s, Hello, "World")]]
+void multi_mixed_split(std::string s);
+```
+
+Struct parameters (defined in the test TU)
+- You can pass user-defined types directly using named parameters. Types declared in the test source are visible to the generated TU:
+
+```c++
+struct LocalPoint { int x; int y; };
+
+[[using gentest: test("local_struct/axis"), parameters(p, LocalPoint{1,2}, LocalPoint{3,4})]]
+void local_struct_axis(LocalPoint p);
+
+[[using gentest: test("local_struct/pack"), parameters_pack((p, q), (LocalPoint{1,2}, LocalPoint{3,4}), (LocalPoint{5,6}, LocalPoint{7,8}))]]
+void local_struct_pack(LocalPoint p, LocalPoint q);
+```
 
 ### Naming & CLI
 
