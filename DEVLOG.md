@@ -48,6 +48,30 @@ Devlog 2025-10-02 (Refactor + Robust Tests)
 
   If you want, I can add the skip(reason) unit assertions and a tiny .clang-tidy example next.
 
+Devlog 2025-10-04 (Mock Generation)
+
+  - Goals
+      - Generate concrete mocks for interfaces and concrete types without hand-written glue.
+      - Reuse clang discovery to find `gentest::mock<T>` instantiations directly in test sources.
+      - Offer a fluent expectation API that integrates with the existing test context and failure reporting.
+  - Key changes
+      - Added `include/gentest/mock.h` with runtime helpers, expectation storage, and the public `gentest::expect` API.
+      - Extended discovery to track `gentest::mock<T>` uses and gather method metadata (return types, qualifiers, overrides).
+      - Generator now emits `mock_registry.hpp` (specializations + MockAccess glue) and `mock_impl.cpp` (method bodies,
+        expectation dispatch) alongside each suite’s `test_impl.cpp`.
+      - `gentest_attach_codegen()` wires the extra outputs automatically, defines `GENTEST_MOCK_REGISTRY_PATH`, and links the
+        mock TU into the test target.
+      - Introduced `tests/mocking` suite covering polymorphic overrides, non-virtual injection, and CRTP-style classes.
+  - Status
+      - Expectations support `times`, `returns`, `invokes`, and `allow_more`; missing/extra calls raise failures in the active
+        test context.
+      - Interfaces with virtual destructors override the destructor in the generated mock; non-virtual classes stay standalone.
+      - Stub registry/impl files are still emitted when no mocks are present so includes remain stable.
+  - Next ideas
+      - Capture constructor metadata so mocks can forward to custom base constructors when a default isn’t available.
+      - Support static functions and free-function mocking helpers.
+      - Extend lint-only suite with additional mock diagnostics (final classes, private destructors, etc.).
+
 Devlog 2025-10-03 (CLI + Templates + Phase 1 Plan)
 
   - CLI for VSCode

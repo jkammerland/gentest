@@ -147,6 +147,43 @@ void free_with_params(fx::A& a, int v) {
 }
 ```
 
+## Mocks
+
+`gentest::mock<T>` synthesizes strongly-typed mocks directly from your test source. Include `gentest/mock.h`, instantiate
+the mock, and configure expectations via `gentest::expect(mock, &T::method)`:
+
+```c++
+#include "gentest/mock.h"
+
+struct Clock {
+    virtual ~Clock() = default;
+    virtual int  now() const = 0;
+    virtual void reset(int value) = 0;
+};
+
+[[using gentest: test("mock/clock/basic")]]
+void mock_clock_basic() {
+    gentest::mock<Clock> clock;
+
+    gentest::expect(clock, &Clock::now).times(1).returns(1234);
+    gentest::expect(clock, &Clock::reset).times(2).invokes([](int value) {
+        EXPECT_EQ(value % 5, 0);
+    });
+
+    Clock *iface = &clock;
+    EXPECT_EQ(iface->now(), 1234);
+    iface->reset(10);
+    iface->reset(15);
+}
+```
+
+- Expectations support `.times(n)`, `.returns(value)` (non-void), `.invokes(callable)`, and `.allow_more()`.
+- Missing calls or unexpected invocations are surfaced through the active test context (identical to other assertions).
+- Polymorphic targets produce `mock<T> : T` overrides; non-virtual classes receive standalone mocks that mirror the
+  public surface so they remain drop-in replacements for templated injection and CRTP patterns.
+- The generator emits `mock_registry.hpp` and `mock_impl.cpp` alongside each suite’s `test_impl.cpp`; the build defines
+  `GENTEST_MOCK_REGISTRY_PATH` so `gentest/mock.h` automatically includes the registry when compiling your tests.
+
 ## Templates
 
 Generated files are produced strictly from templates — no emission logic is inlined in the generator beyond simple

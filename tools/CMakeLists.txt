@@ -11,8 +11,10 @@ add_executable(gentest_codegen
     src/parse_core.cpp
     src/parse.cpp
     src/discovery.cpp
+    src/mock_discovery.cpp
     src/validate.cpp
     src/emit.cpp
+    src/render_mocks.cpp
     src/type_kind.cpp
     src/render.cpp
     src/tooling_support.cpp)

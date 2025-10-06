@@ -4,7 +4,8 @@ set(_gentest_test_suites
     failing
     skiponly
     fixtures
-    templates)
+    templates
+    mocking)
 
 foreach(suite IN LISTS _gentest_test_suites)
     set(target_name "${PROJECT_NAME}_${suite}_tests")
@@ -178,6 +179,18 @@ add_test(NAME templates_list_tests_lines
         -DLINES=71
         -DARGS=--list-tests
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)
+
+add_test(NAME mocking_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_mocking_tests>
+        -DPASS=4 -DFAIL=0 -DSKIP=0
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME mocking_list_counts
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_mocking_tests>
+        -DLIST=ON -DCASES=4
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 # CLI checks for VSCode integration
 add_test(NAME unit_help

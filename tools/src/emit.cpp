@@ -3,6 +3,7 @@
 #include "emit.hpp"
 
 #include "render.hpp"
+#include "render_mocks.hpp"
 #include "templates.hpp"
 
 #include <filesystem>
@@ -59,7 +60,8 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     std::vector<std::string> tag_array_names         = std::move(traits.tag_names);
     std::vector<std::string> requirement_array_names = std::move(traits.req_names);
 
-    std::string wrapper_impls = render::render_wrappers(cases, tpl_wrapper_free, tpl_wrapper_free_fix, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
+    std::string wrapper_impls =
+        render::render_wrappers(cases, tpl_wrapper_free, tpl_wrapper_free_fix, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
 
     std::string case_entries;
     if (cases.empty()) {
@@ -105,7 +107,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     return output;
 }
 
-int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases) {
+int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<MockClassInfo> &mocks) {
     namespace fs      = std::filesystem;
     fs::path out_path = opts.output_path;
     if (out_path.has_parent_path()) {
@@ -132,7 +134,72 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases) {
     }
     file << *content;
     file.close();
-    return file ? 0 : 1;
+    if (!file) {
+        return 1;
+    }
+
+    const bool have_mock_paths = !opts.mock_registry_path.empty() && !opts.mock_impl_path.empty();
+    if (!mocks.empty() || have_mock_paths) {
+        if (!have_mock_paths) {
+            llvm::errs() << "gentest_codegen: mock outputs requested but --mock-registry/--mock-impl paths were not provided\n";
+            return 1;
+        }
+        auto                rendered = render::render_mocks(opts, mocks);
+        render::MockOutputs outputs;
+        if (rendered) {
+            outputs = std::move(*rendered);
+        } else {
+            outputs.registry_header     = "#pragma once\n\n// gentest_codegen: no mocks discovered.\n";
+            outputs.implementation_unit = "// gentest_codegen: no mocks discovered.\n";
+        }
+
+        namespace fs = std::filesystem;
+
+        auto ensure_parent = [](const fs::path &path) {
+            if (path.has_parent_path()) {
+                std::error_code ec;
+                fs::create_directories(path.parent_path(), ec);
+                if (ec) {
+                    llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", path.parent_path().string(),
+                                                ec.message());
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        if (!ensure_parent(opts.mock_registry_path) || !ensure_parent(opts.mock_impl_path)) {
+            return 1;
+        }
+
+        {
+            std::ofstream registry_file(opts.mock_registry_path, std::ios::binary);
+            if (!registry_file) {
+                llvm::errs() << fmt::format("gentest_codegen: failed to open output file '{}'\n", opts.mock_registry_path.string());
+                return 1;
+            }
+            registry_file << outputs.registry_header;
+            registry_file.close();
+            if (!registry_file) {
+                return 1;
+            }
+        }
+
+        {
+            std::ofstream impl_file(opts.mock_impl_path, std::ios::binary);
+            if (!impl_file) {
+                llvm::errs() << fmt::format("gentest_codegen: failed to open output file '{}'\n", opts.mock_impl_path.string());
+                return 1;
+            }
+            impl_file << outputs.implementation_unit;
+            impl_file.close();
+            if (!impl_file) {
+                return 1;
+            }
+        }
+    }
+
+    return 0;
 }
 
 } // namespace gentest::codegen

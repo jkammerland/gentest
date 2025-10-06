@@ -20,16 +20,30 @@ function(gentest_attach_codegen target)
         message(FATAL_ERROR "gentest_codegen executable target is not available")
     endif()
 
-    set(_command $<TARGET_FILE:gentest_codegen> --output ${GENTEST_OUTPUT} --entry ${GENTEST_ENTRY}
-                 --compdb ${CMAKE_BINARY_DIR} ${GENTEST_SOURCES})
+    get_filename_component(_gentest_output_dir "${GENTEST_OUTPUT}" DIRECTORY)
+    if(_gentest_output_dir STREQUAL "")
+        set(_gentest_output_dir "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
 
+    set(_gentest_mock_registry "${_gentest_output_dir}/mock_registry.hpp")
+    set(_gentest_mock_impl "${_gentest_output_dir}/mock_impl.cpp")
+
+    set(_command $<TARGET_FILE:gentest_codegen>
+        --output ${GENTEST_OUTPUT}
+        --entry ${GENTEST_ENTRY}
+        --mock-registry ${_gentest_mock_registry}
+        --mock-impl ${_gentest_mock_impl}
+        --compdb ${CMAKE_BINARY_DIR}
+        ${GENTEST_SOURCES})
+
+    list(APPEND _command --)
+    list(APPEND _command -DGENTEST_CODEGEN=1)
     if(GENTEST_CLANG_ARGS)
-        list(APPEND _command --)
         list(APPEND _command ${GENTEST_CLANG_ARGS})
     endif()
 
     add_custom_command(
-        OUTPUT ${GENTEST_OUTPUT}
+        OUTPUT ${GENTEST_OUTPUT} ${_gentest_mock_registry} ${_gentest_mock_impl}
         COMMAND ${_command}
         COMMAND_EXPAND_LISTS
         DEPENDS gentest_codegen ${GENTEST_SOURCES} ${GENTEST_DEPENDS}
@@ -38,6 +52,12 @@ function(gentest_attach_codegen target)
         CODEGEN
     )
 
-    target_sources(${target} PRIVATE ${GENTEST_OUTPUT})
+    target_sources(${target} PRIVATE ${GENTEST_OUTPUT} ${_gentest_mock_impl})
+
+    get_filename_component(_gentest_mock_dir "${_gentest_mock_registry}" DIRECTORY)
+    target_include_directories(${target} PRIVATE ${_gentest_mock_dir})
+
+    get_filename_component(_gentest_mock_header_name "${_gentest_mock_registry}" NAME)
+    target_compile_definitions(${target} PRIVATE GENTEST_MOCK_REGISTRY_PATH=${_gentest_mock_header_name})
     add_dependencies(${target} gentest_codegen)
 endfunction()
