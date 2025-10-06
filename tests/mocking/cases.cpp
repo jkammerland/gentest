@@ -71,6 +71,19 @@ void concrete_invokes_matches() {
     EXPECT_EQ(observed, 3);
 }
 
+[[using gentest: test("mocking/concrete/predicate_match")]]
+void concrete_predicate_match() {
+    gentest::mock<Ticker> mock_tick;
+    int                   sum = 0;
+    // Accept only even values
+    gentest::expect(mock_tick, &Ticker::tick).times(2).where_args([](int v){ return v % 2 == 0; }).invokes([&](int v) { sum += v; });
+
+    mock_tick.tick(2);
+    mock_tick.tick(4);
+
+    EXPECT_EQ(sum, 6);
+}
+
 [[using gentest: test("mocking/concrete/template_member_expect_int")]]
 void concrete_template_member_expect_int() {
     gentest::mock<Ticker> mock_tick;
