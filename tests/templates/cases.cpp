@@ -178,6 +178,24 @@ void nttp_bool() {
     }
 }
 
+// Mixed type + NTTP + value axes (unified template syntax)
+template <typename T, std::size_t N>
+[[using gentest: test("mix/type_nttp_value"), template(T, int), template(N, 16), parameters(int, 3)]]
+void mix_type_nttp_value(int v) {
+    if constexpr (!std::is_same_v<T, int>) {
+        gentest::expect(false, "T must be int");
+    } else {
+        gentest::expect(N == 16 && v == 3, "N==16 and v==3");
+    }
+}
+
+// NTTP-only mix with different kinds
+template <std::size_t N, bool B>
+[[using gentest: test("mix/nttp_bool_mix"), template(N, 4), template(B, true)]]
+void mix_nttp_bool_mix() {
+    gentest::expect(N == 4 && B == true, "N==4 and B==true");
+}
+
 // string_view axis with mixed quoted/unquoted
 [[using gentest: test("sv_params"), parameters(std::string_view, hello, "world")]]
 void sv_params(std::string_view sv) {

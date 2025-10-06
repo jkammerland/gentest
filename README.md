@@ -333,26 +333,41 @@ can be split across multiple `[[...]]` blocks on the same function.
   void pack(int a, std::string b) { /* 2 tests: (42, "a"), (7, "b") */ }
   ```
 
-### NTTP (Non-Type Template Parameters)
+### Template Parameters (Types and Non-Types)
 
-`template()` also supports non-type template parameters via the `NTTP:` prefix. NTTP values are concatenated after type
-arguments inside `<...>` in the order attributes appear and can be split across multiple `[[...]]` blocks.
+`template(NAME, ...)` applies to both type and non-type template parameters. The generator uses the function’s template
+declaration to resolve `NAME` to its kind (type or NTTP) and expands the Cartesian product across all template sets in
+declaration order.
+
+Examples:
 
 ```c++
+// Type + NTTP
 template <typename T, int N>
-[[using gentest: test("templates/nttp"), template(T, int), template(NTTP: N, 1, 2)]]
-void nttp() {
-    // Example: instantiates nttp<int,1>() and nttp<int,2>()
-}
+[[using gentest: test("templates/nttp"), template(T, int), template(N, 1, 2)]]
+void nttp() { /* instantiates: <int,1>, <int,2> */ }
+
+// Interleaved order
+template <int N, typename T>
+[[using gentest: test("templates/interleaved"), template(N, 1, 2), template(T, int, long)]]
+void interleaved() { /* 4 instances: N in {1,2} × T in {int,long} */ }
+
+// Mixed with value parameters
+template <typename T, std::size_t N>
+[[using gentest: test("templates/mix/type_nttp_value"), template(T, int), template(N, 16), parameters(int, 3)]]
+void mix_type_nttp_value(int v) { /* 1 instance: <int,16>(3) */ }
 ```
 
-You can mix type sets and NTTP sets across blocks; the generator forms the Cartesian product across all sets in
-declaration order and uses that to materialize test wrappers and display names.
+Notes
+- Values given for non-type parameters are used verbatim; C++ compile-time checking ensures they are valid for the
+  declared NTTP type (e.g., `bool`, `int`, `std::size_t`).
+- You can mix and split `template(...)` attributes across multiple `[[...]]` blocks; order is determined by the template
+  parameter list as declared in the function signature.
 
 <!-- Guardrails intentionally not enforced. If you want a large matrix,
      the generator will emit all instances as requested by attributes. -->
 
-Notes
+Additional Notes
 - Supported string-like types include: string/std::string, string_view/std::string_view, char*/const char*, and wide/UTF variants
   (wstring, u8string, u16string, u32string and their corresponding char* forms). Values are quoted with the appropriate prefix.
 - Char-like types (char, wchar_t, char8_t, char16_t, char32_t) are wrapped as character literals when a single character; otherwise
