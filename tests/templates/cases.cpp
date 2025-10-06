@@ -327,3 +327,35 @@ void local_struct_pack(LocalPoint p, LocalPoint q) {
     const bool row2 = (p.x == 5 && p.y == 6 && q.x == 7 && q.y == 8);
     gentest::expect(row1 || row2, "LocalPoint pack rows");
 }
+
+// Multiple [[...]] blocks: parameters split across blocks
+[[using gentest: test("multi_blocks/params_split")]]
+[[using gentest: parameters(a, 1, 2)]]
+[[using gentest: parameters(b, 10)]]
+void multi_params_split(int a, int b) {
+    gentest::expect((a == 1 || a == 2) && b == 10, "split params across blocks");
+}
+
+// Multiple [[...]] blocks: two packs split across blocks
+[[using gentest: test("multi_blocks/pack_split")]]
+[[using gentest: parameters_pack((a, b), (1, 2), (3, 4))]]
+[[using gentest: parameters_pack((c), (5))]]
+void multi_pack_split(int a, int b, int c) {
+    const bool row1 = (a == 1 && b == 2 && c == 5);
+    const bool row2 = (a == 3 && b == 4 && c == 5);
+    gentest::expect(row1 || row2, "split packs across blocks");
+}
+
+// Multiple [[...]] blocks: mix of templates and parameters split
+template <typename T, int N>
+[[using gentest: test("multi_blocks/mixed_split")]]
+[[using gentest: template(T, int)]]
+[[using gentest: template(N, 7)]]
+[[using gentest: parameters(s, Hello, "World")]]
+void multi_mixed_split(std::string s) {
+    if constexpr (!std::is_same_v<T, int> || N != 7) {
+        gentest::expect(false, "template checks");
+    } else {
+        gentest::expect(s == "Hello" || s == "World", "string axis");
+    }
+}

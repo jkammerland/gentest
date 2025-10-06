@@ -288,10 +288,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
         }
     }
 
-    if (!summary.case_name.has_value()) {
-        summary.had_error = true;
-        report("expected [[using gentest : test(\"...\")]] attribute on this test function");
-    }
+    // 'test("...")' is optional: if absent, we fall back to the C++ function name.
 
     return summary;
 }

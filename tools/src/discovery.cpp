@@ -114,12 +114,33 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                     it              = suite_cache_.emplace(ns, std::move(summary_ns)).first;
                 }
                 if (it->second.suite_name.has_value()) {
-                    return it->second.suite_name;
+                    return it->second.suite_name; // explicit override
                 }
             }
             current = current->getParent();
         }
         return std::nullopt;
+    };
+
+    auto derive_namespace_path = [&](const DeclContext *ctx) -> std::string {
+        std::vector<std::string> parts;
+        const DeclContext       *current = ctx;
+        while (current != nullptr) {
+            if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
+                if (!ns->isAnonymousNamespace()) {
+                    parts.push_back(ns->getNameAsString());
+                }
+            }
+            current = current->getParent();
+        }
+        if (parts.empty()) return std::string{};
+        std::reverse(parts.begin(), parts.end());
+        std::string out;
+        for (std::size_t i = 0; i < parts.size(); ++i) {
+            if (i) out.push_back('/');
+            out += parts[i];
+        }
+        return out;
     };
 
     // 'fixtures(...)' applies only to free functions; reject on member functions.
@@ -220,21 +241,33 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (auto p = qualified.rfind("::"); p != std::string::npos)
         enclosing_scope = qualified.substr(0, p);
 
-    const auto  suite_name     = find_suite(func->getDeclContext());
-    std::string base_case_name = *summary.case_name;
-    if (suite_name.has_value()) {
-        const std::string &suite = *suite_name;
-        if (base_case_name.rfind(suite + '/', 0) != 0) {
-            base_case_name = suite + "/" + base_case_name;
+    const auto  suite_override = find_suite(func->getDeclContext());
+    std::string suite_path     = suite_override.value_or(derive_namespace_path(func->getDeclContext()));
+    std::string base_case_name = summary.case_name.value_or(func->getNameAsString());
+    std::string final_base     = suite_path.empty() ? base_case_name : (suite_path + "/" + base_case_name);
+    // Enforce uniqueness of final base names across this binary
+    {
+        const SourceLocation  sloc    = sm->getSpellingLoc(func->getBeginLoc());
+        const llvm::StringRef file    = sm->getFilename(sloc);
+        const unsigned        lnum    = sm->getSpellingLineNumber(sloc);
+        const std::string     here    = fmt::format("{}:{}", file.str(), lnum);
+        auto                  it_base = unique_base_locations_.find(final_base);
+        if (it_base == unique_base_locations_.end()) {
+            unique_base_locations_.emplace(final_base, here);
+        } else {
+            had_error_ = true;
+            llvm::errs() << fmt::format("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", final_base, here,
+                                        it_base->second);
+            return; // do not emit duplicates
         }
     }
 
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &call_args) {
         TestCaseInfo info{};
         info.qualified_name = make_qualified(tpl_ordered);
-        info.display_name   = make_display(base_case_name, tpl_ordered, call_args);
+        info.display_name   = make_display(final_base, tpl_ordered, call_args);
         info.filename       = filename.str();
-        info.suite_name     = suite_name.value_or(std::string{});
+        info.suite_name     = suite_path;
         info.line           = lnum;
         info.tags           = summary.tags;
         info.requirements   = summary.requirements;
@@ -263,9 +296,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                     report(m);
                 });
                 info.fixture_qualified_name = record->getQualifiedNameAsString();
-                if (fixture_summary.lifetime == FixtureLifetime::MemberSuite && !suite_name.has_value()) {
+                if (fixture_summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
                     had_error_            = true;
-                    report("'fixture(suite)' requires an enclosing namespace annotated with [[using gentest : suite(\"<suite>\")]]");
+                    report("'fixture(suite)' requires an enclosing named namespace to derive a suite path");
                     info.fixture_lifetime = FixtureLifetime::MemberEphemeral;
                 } else {
                     info.fixture_lifetime = fixture_summary.lifetime;

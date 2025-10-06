@@ -403,4 +403,34 @@ Rules and guarantees
   otherwise codegen reports a clear error.
 - Values for string-like parameters are auto-quoted based on the parameter type; user-defined types are passed as-is.
 
+### Naming & CLI
+
+Every test has a final, user-facing name used by the CLI for listing and selection.
+
+- Base name (test): optional
+  - If `test("name")` is present, it is the base name.
+  - If omitted, the base name falls back to the C++ function name.
+
+- Suite path (namespace): derived or overridden
+  - By default, gentest derives the suite path from the function’s fully qualified C++ namespace, joining components with `/`.
+    Anonymous namespaces are ignored. Examples:
+      - `namespace n1::n2 { void f(); }` → suite path `n1/n2`
+      - Global namespace → no suite prefix
+  - To override the default, annotate an enclosing namespace with `[[using gentest: suite("alpha/beta")]]`. The nearest override wins; its string
+    is used verbatim as the suite path for all tests contained within.
+
+- Final name and instances
+  - Final name = `suite_path + "/" + base_name` (or just `base_name` if no suite).
+  - Template instances append `"<...>"`; value parameter instances append `"(...)"`.
+
+- Uniqueness
+  - gentest enforces that `suite_path/base_name` (before decorations) is unique across the entire test binary, even when multiple
+    source files/TUs contribute tests to the same namespace. Duplicate names produce a clear generator error with both file:line
+    locations; disambiguate by passing `test("...")` or renaming the function.
+
+- CLI examples
+  - List exact names: `--list-tests`
+  - Run exact: `--run-test=n1/n2/my_case<int>(42)`
+  - Filter: `--filter=n1/*/my_case*`
+
 See [`AGENTS.md`](AGENTS.md) for contribution guidelines and additional workflow conventions.
