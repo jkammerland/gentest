@@ -63,11 +63,8 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
 
     std::string wrapper_impls =
         render::render_wrappers(cases, tpl_wrapper_free, tpl_wrapper_free_fix, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
-<<<<<<< HEAD
-=======
 
     auto gr = render::render_groups(cases, tpl_group_ephemeral, tpl_group_suite, tpl_group_global);
->>>>>>> suites
 
     std::string case_entries;
     if (cases.empty()) {
