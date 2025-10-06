@@ -166,13 +166,13 @@ add_test(NAME skiponly_list_counts
 add_test(NAME fixtures_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
-        -DPASS=5 -DFAIL=0 -DSKIP=0
+        -DPASS=7 -DFAIL=0 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME fixtures_list_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
-        -DLIST=ON -DCASES=5
+        -DLIST=ON -DCASES=7
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME templates_counts
@@ -246,6 +246,6 @@ add_test(NAME filter_single
 add_test(NAME fixtures_list_tests_lines
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
-        -DLINES=5
+        -DLINES=7
         -DARGS=--list-tests
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)

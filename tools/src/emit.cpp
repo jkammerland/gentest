@@ -46,8 +46,9 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
     const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
     const auto tpl_case_entry        = std::string(tpl::case_entry);
-    const auto tpl_group_stateless   = std::string(tpl::group_runner_stateless);
-    const auto tpl_group_stateful    = std::string(tpl::group_runner_stateful);
+    const auto tpl_group_ephemeral   = std::string(tpl::group_runner_ephemeral);
+    const auto tpl_group_suite       = std::string(tpl::group_runner_suite);
+    const auto tpl_group_global      = std::string(tpl::group_runner_global);
     const auto tpl_array_empty       = std::string(tpl::array_decl_empty);
     const auto tpl_array_nonempty    = std::string(tpl::array_decl_nonempty);
     const auto tpl_fwd_line          = std::string(tpl::forward_decl_line);
@@ -62,23 +63,30 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
 
     std::string wrapper_impls =
         render::render_wrappers(cases, tpl_wrapper_free, tpl_wrapper_free_fix, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
+<<<<<<< HEAD
+=======
+
+    auto gr = render::render_groups(cases, tpl_group_ephemeral, tpl_group_suite, tpl_group_global);
+>>>>>>> suites
 
     std::string case_entries;
     if (cases.empty()) {
         case_entries = "    // No test cases discovered during code generation.\n";
     } else {
-        case_entries = render::render_case_entries(cases, tag_array_names, requirement_array_names, tpl_case_entry);
+        case_entries =
+            render::render_case_entries(cases, tag_array_names, requirement_array_names, tpl_case_entry, gr.accessors);
     }
 
-    auto        gr            = render::render_groups(cases, tpl_group_stateless, tpl_group_stateful);
-    std::string group_runners = std::move(gr.runners);
-    std::string run_groups    = std::move(gr.run_calls);
+    std::string accessor_decls = std::move(gr.declarations);
+    std::string group_runners  = std::move(gr.runners);
+    std::string run_groups     = std::move(gr.run_calls);
 
     std::string output = template_content;
     replace_all(output, "{{FORWARD_DECLS}}", forward_decl_block);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(cases.size()));
     replace_all(output, "{{TRAIT_DECLS}}", trait_declarations);
     replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
+    replace_all(output, "{{ACCESSOR_DECLS}}", accessor_decls);
     replace_all(output, "{{CASE_INITS}}", case_entries);
     replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
     // Version for --help

@@ -18,7 +18,7 @@
 //   wrapper_ephemeral:{w}, {fixture}, {method}
 //   wrapper_stateful: {w}, {fixture}, {method}
 //   case_entry:       {name}, {wrapper}, {file}, {line}, {tags}, {reqs},
-//                     {skip_reason}, {should_skip}, {fixture}, {stateful}
+//                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite}
 //   group_runner_*:   {gid}, {fixture}, {count}, {idxs}
 //   array_decl_*:     {name}; or {count}, {name}, {body}
 //   forward_decl_*:   {name}; or {scope}, {lines}
@@ -46,6 +46,7 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 #include <span>
 #include <string_view>
 #include <vector>
+#include <memory>
 
 #include "gentest/runner.h"
 #include "gentest/fixture.h"
@@ -54,6 +55,7 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 {{INCLUDE_SOURCES}}
 
 {{FORWARD_DECLS}}
+{{ACCESSOR_DECLS}}
 namespace {
 
 {{TRAIT_DECLS}}
@@ -61,7 +63,7 @@ namespace {
 // Per-case invocation wrappers. All wrappers use a uniform signature
 //   void(void* ctx)
 // Free tests ignore ctx; ephemeral fixtures construct a new instance per call;
-// stateful fixtures expect ctx to point to the shared fixture instance.
+// shared fixtures expect ctx to point to the shared fixture instance.
 template <typename T>
 inline void gentest_maybe_setup(T& t) {
     if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) t.setUp();
@@ -73,6 +75,15 @@ inline void gentest_maybe_teardown(T& t) {
 }
 {{WRAPPER_IMPLS}}
 
+enum class FixtureLifetime {
+    None,
+    MemberEphemeral,
+    MemberSuite,
+    MemberGlobal,
+};
+
+using FixtureAccessor = void* (*)(std::string_view);
+
 struct Case {
     std::string_view                  name;
     void (*fn)(void*);
@@ -83,7 +94,9 @@ struct Case {
     std::string_view                  skip_reason;
     bool                              should_skip;
     std::string_view                  fixture;        // empty for free tests
-    bool                              fixture_stateful;
+    FixtureLifetime                   fixture_lifetime;
+    std::string_view                  suite;
+    FixtureAccessor                   acquire_fixture;
 };
 
 constexpr std::array<Case, {{CASE_COUNT}}> kCases = {
@@ -286,8 +299,12 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
             if (sel.empty()) { fmt::print("Executed 0 test(s).\n"); return 0; }
         }
         // Free tests
-        for (auto i : sel) { const auto& t = kCases[i]; if (!t.fixture.empty()) continue; execute_one(t, nullptr, counters); }
-        // Fixture tests: for now run selected ones as ephemeral in selection mode to avoid UB on unknown fixture types.
+        for (auto i : sel) {
+            const auto& t = kCases[i];
+            if (!t.fixture.empty()) continue;
+            execute_one(t, nullptr, counters);
+        }
+        // Fixture tests honour lifetime semantics during selection as well.
         const bool         shuffle = wants_shuffle(args);
         const std::uint64_t seed    = parse_seed(args);
         // Group by fixture name
@@ -296,7 +313,24 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         for (std::size_t gid = 0; gid < groups.size(); ++gid) {
             auto order = groups[gid].second;
             if (shuffle && order.size() > 1) { std::mt19937_64 rng(seed ? (seed + gid) : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(order.begin(), order.end(), rng); }
-            for (auto i : order) execute_one(kCases[i], nullptr, counters);
+            for (auto i : order) {
+                const auto& test = kCases[i];
+                void* ctx = nullptr;
+                switch (test.fixture_lifetime) {
+                case FixtureLifetime::MemberSuite:
+                case FixtureLifetime::MemberGlobal:
+                    if (test.acquire_fixture) {
+                        ctx = test.acquire_fixture(test.suite);
+                    }
+                    break;
+                case FixtureLifetime::MemberEphemeral:
+                case FixtureLifetime::None:
+                default:
+                    ctx = nullptr;
+                    break;
+                }
+                execute_one(test, ctx, counters);
+            }
         }
         if (counters.failures == 0) fmt::print("Executed {} test(s).\n", counters.executed);
         else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
@@ -366,12 +400,15 @@ inline constexpr std::string_view case_entry = R"FMT(    Case{{
         {skip_reason},
         {should_skip},
         {fixture},
-        {stateful}
+        {lifetime},
+        {suite},
+        {acquire}
     }},
 
 )FMT";
 
-inline constexpr std::string_view group_runner_stateless = R"FMT(static void gentest_run_group_{gid}(bool shuffle_, std::uint64_t seed_, Counters& counters_) {{
+inline constexpr std::string_view group_runner_ephemeral =
+    R"FMT(static void gentest_run_group_{gid}(bool shuffle_, std::uint64_t seed_, Counters& counters_) {{
     using Fixture = {fixture};
     const std::array<std::size_t, {count}> idxs_ = {{ {idxs} }};
     std::vector<std::size_t> order_(idxs_.begin(), idxs_.end());
@@ -381,13 +418,41 @@ inline constexpr std::string_view group_runner_stateless = R"FMT(static void gen
 
 )FMT";
 
-inline constexpr std::string_view group_runner_stateful = R"FMT(static void gentest_run_group_{gid}(bool shuffle_, std::uint64_t seed_, Counters& counters_) {{
+inline constexpr std::string_view group_runner_suite = R"FMT(static void* gentest_access_fixture_{gid}(std::string_view suite_) {{
+    using Fixture = {fixture};
+    struct Entry {{ std::string_view key; std::unique_ptr<Fixture> instance; }};
+    static std::vector<Entry> fixtures_;
+    for (auto& entry : fixtures_) {{ if (entry.key == suite_) return entry.instance.get(); }}
+    fixtures_.push_back(Entry{{suite_, std::make_unique<Fixture>()}});
+    return fixtures_.back().instance.get();
+}}
+
+static void gentest_run_group_{gid}(bool shuffle_, std::uint64_t seed_, Counters& counters_) {{
     using Fixture = {fixture};
     const std::array<std::size_t, {count}> idxs_ = {{ {idxs} }};
     std::vector<std::size_t> order_(idxs_.begin(), idxs_.end());
     if (shuffle_ && order_.size() > 1) {{ std::mt19937_64 rng_(seed_ ? (seed_ + {gid}) : std::mt19937_64::result_type(std::random_device{{}}())); std::shuffle(order_.begin(), order_.end(), rng_); }}
-    Fixture fx_;
-    for (auto i_ : order_) {{ execute_one(kCases[i_], &fx_, counters_); }}
+    for (auto i_ : order_) {{
+        auto* fx_ = static_cast<Fixture*>(gentest_access_fixture_{gid}(kCases[i_].suite));
+        execute_one(kCases[i_], fx_, counters_);
+    }}
+}}
+
+)FMT";
+
+inline constexpr std::string_view group_runner_global = R"FMT(static void* gentest_access_fixture_{gid}(std::string_view) {{
+    using Fixture = {fixture};
+    static Fixture fx_;
+    return &fx_;
+}}
+
+static void gentest_run_group_{gid}(bool shuffle_, std::uint64_t seed_, Counters& counters_) {{
+    using Fixture = {fixture};
+    const std::array<std::size_t, {count}> idxs_ = {{ {idxs} }};
+    std::vector<std::size_t> order_(idxs_.begin(), idxs_.end());
+    if (shuffle_ && order_.size() > 1) {{ std::mt19937_64 rng_(seed_ ? (seed_ + {gid}) : std::mt19937_64::result_type(std::random_device{{}}())); std::shuffle(order_.begin(), order_.end(), rng_); }}
+    auto* fx_ = static_cast<Fixture*>(gentest_access_fixture_{gid}(std::string_view{{}}));
+    for (auto i_ : order_) {{ execute_one(kCases[i_], fx_, counters_); }}
 }}
 
 )FMT";

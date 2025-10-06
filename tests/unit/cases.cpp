@@ -6,9 +6,9 @@ using namespace gentest::asserts;
 #include <numeric>
 #include <string>
 
-namespace unit {
+namespace [[using gentest: suite("unit")]] unit {
 
-[[using gentest: test("unit/arithmetic/sum"), category("math"), fast]]
+[[using gentest: test("arithmetic/sum"), category("math"), fast]]
 void sum_is_computed() {
     std::array values{1, 2, 3, 4};
     const auto result = std::accumulate(values.begin(), values.end(), 0);
@@ -20,7 +20,7 @@ void sum_is_computed() {
     EXPECT_EQ(average, 2.5, "arithmetic mean");
 }
 
-[[using gentest: test("unit/strings/concatenate"), req("#42"), slow]]
+[[using gentest: test("strings/concatenate"), req("#42"), slow]]
 void concatenate_strings() {
     std::string greeting = "hello";
     EXPECT_EQ(greeting.size(), std::size_t{5}, "initial size");
@@ -31,7 +31,7 @@ void concatenate_strings() {
     EXPECT_TRUE(greeting == "hello world");
 }
 
-[[using gentest: test("unit/conditions/negate"), linux]]
+[[using gentest: test("conditions/negate"), linux]]
 void negate_condition() {
     bool flag = false;
     ASSERT_EQ(flag, false, "starts false");

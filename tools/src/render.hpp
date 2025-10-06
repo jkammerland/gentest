@@ -4,6 +4,7 @@
 #include "model.hpp"
 
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -30,21 +31,24 @@ TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const st
                                 const std::string &tpl_array_nonempty);
 
 // Render per-test invocation wrappers for free/member tests.
-std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free,
-                            const std::string &tpl_free_fixtures, const std::string &tpl_ephemeral,
-                            const std::string &tpl_stateful);
+std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free, const std::string &tpl_free_fixtures,
+                            const std::string &tpl_ephemeral, const std::string &tpl_stateful);
 
 // Render kCases initializer entries from discovered tests and trait arrays.
 std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const std::vector<std::string> &tag_names,
-                                const std::vector<std::string> &req_names, const std::string &tpl_case_entry);
+                                const std::vector<std::string> &req_names, const std::string &tpl_case_entry,
+                                const std::map<std::string, std::string> &fixture_accessors);
 
 struct GroupRender {
-    std::string runners;
-    std::string run_calls;
+    std::string                        declarations;
+    std::string                        runners;
+    std::string                        run_calls;
+    std::map<std::string, std::string> accessors;
 };
 
 // Render per-fixture group runner functions and the corresponding run calls.
-GroupRender render_groups(const std::vector<TestCaseInfo> &cases, const std::string &tpl_stateless, const std::string &tpl_stateful);
+GroupRender render_groups(const std::vector<TestCaseInfo> &cases, const std::string &tpl_ephemeral, const std::string &tpl_suite,
+                          const std::string &tpl_global);
 
 // Utility for escaping string literals in generated C++.
 std::string escape_string(std::string_view value);

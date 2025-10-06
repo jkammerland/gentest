@@ -16,10 +16,24 @@ discovered function through a single `gentest::run_all_tests` entry-point.
  - The generated runtime uses `fmt::print` for output; CMake links `fmt::fmt` to test targets automatically.
 
 ## Local workflow
+System toolchain (LLVM/Clang 20+ installed via your package manager):
+```bash
+cmake --preset=debug-system
+cmake --build --preset=debug-system
+ctest --preset=debug-system --output-on-failure
+```
+
+Legacy vcpkg-based toolchain (downloads and builds its own LLVM):
 ```bash
 cmake --preset=debug
 cmake --build --preset=debug
 ctest --preset=debug --output-on-failure
+```
+
+If LLVM/Clang is installed somewhere other than `/usr/local/lib/cmake/{llvm,clang}`, set
+`LLVM_DIR` and `Clang_DIR` before configuring, for example:
+```bash
+cmake --preset=debug-system -DLLVM_DIR="$(llvm-config --cmakedir)" -DClang_DIR=/opt/llvm/lib/cmake/clang
 ```
 
 `gentest_codegen` relies on clang libraries and the active build’s `compile_commands.json`. vcpkg users can install the
@@ -28,12 +42,17 @@ ctest --preset=debug --output-on-failure
 
 ## Authoring new test suites
 1. Create a test source (e.g. `tests/widgets/cases.cpp`) and tag functions with
-   namespaced attributes understood by the generator:
+   namespaced attributes understood by the generator. You can attach a suite name to
+   a namespace once and write case names relative to it:
    ```c++
-   [[using gentest : test("widgets/basic/health"), slow, linux, req("BUG-42")]]
+   namespace [[using gentest : suite("widgets")]] widgets {
+
+   [[using gentest : test("basic/health"), slow, linux, req("BUG-42")]]
    void widget_smoke() {
        gentest::expect_eq(create_widget().status(), widget_status::healthy);
    }
+
+   } // namespace widgets
    ```
    The interface target `${PROJECT_NAME}` exports the right warning suppressions to
    consumers (e.g. `-Wno-unknown-attributes` on Clang/GCC, `/wd5030` on MSVC), so no
@@ -77,11 +96,13 @@ gentest : ...]]` attribute list.
 
 ## Fixtures (member-function tests)
 
-Member functions can be tagged as tests and run via an auto-generated fixture harness. Two modes are supported:
+Member functions can be tagged as tests and run via an auto-generated fixture harness. Three lifetimes are supported:
 
-- Stateless (default): each member test gets a fresh instance of the enclosing type.
-- Stateful: mark the class/struct with `[[using gentest: stateful_fixture]]` to reuse a single instance for all its
-  member tests.
+- Ephemeral (default): each member test gets a fresh instance of the enclosing type.
+- Suite lifetime: mark the class/struct with `[[using gentest: fixture(suite)]]` to reuse a single instance for all
+  tests discovered in the same suite.
+- Global lifetime: mark the class/struct with `[[using gentest: fixture(global)]]` to share a single instance across
+  the full test run.
 
 Optional setup/teardown hooks are available by inheriting from the provided interfaces in `gentest/fixture.h`:
 
@@ -97,7 +118,18 @@ struct MyFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void b();
 };
 
-struct [[using gentest: stateful_fixture]] StatefulFixture { /* ... */ };
+struct [[using gentest: fixture(suite)]] SharedFixture { /* ... */ };
+```
+
+Global fixtures behave like GoogleTest environments—construct once, reuse everywhere, and destroy at program exit:
+
+```c++
+struct [[using gentest: fixture(global)]] GlobalEnv {
+    [[using gentest: test("env/prepare")]]
+    void prepare();
+    [[using gentest: test("env/observe")]]
+    void observe();
+};
 ```
 
 Execution order: free (non-member) tests run first. Member tests are grouped per-fixture and run together. You can

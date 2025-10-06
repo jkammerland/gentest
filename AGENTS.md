@@ -4,7 +4,11 @@
 `include/gentest/` exposes the public headers (`runner.h`, `attributes.h`) that other targets consume. The `src/` tree builds the sample `gentest` executable and publishes those headers through an interface library. Code generation lives in `tools/gentest_codegen`, our clang-tooling binary that scans annotated cases and emits `test_impl.cpp` sources. The helper macro wiring sits in `cmake/GentestCodegen.cmake`, and each suite under `tests/` combines handwritten `cases.cpp`, generated `test_impl.cpp`, and `support/test_entry.cpp`.
 
 ## Build, Test, and Development Commands
-Configure a local build with `cmake --preset=debug`, then compile via `cmake --build --preset=debug`. Run the full test suite using `ctest --preset=debug --output-on-failure`. To refresh generated code for a suite, rebuild its target (e.g. `cmake --build --preset=debug --target gentest_unit_tests`). Sanitizer workflows are available through `cmake --workflow --preset=alusan` and reuse the same codegen pipeline.
+- Preferred workflow (system LLVM/Clang 20+): `cmake --preset=debug-system`, `cmake --build --preset=debug-system`, then `ctest --preset=debug-system --output-on-failure`.
+- Legacy vcpkg workflow (downloads its own LLVM toolchain): `cmake --preset=debug`, `cmake --build --preset=debug`, then `ctest --preset=debug --output-on-failure`.
+- Regenerate codegen artefacts by rebuilding the relevant test target (`cmake --build --preset=debug --target gentest_unit_tests`).
+- Sanitizer runs are exposed via presets (`cmake --workflow --preset=alusan`) and reuse the same code-generation path.
+- Keep `compile_commands.json` enabled (`CMAKE_EXPORT_COMPILE_COMMANDS`) so `gentest_codegen` can reuse the active compilation database.
 
 ## Coding Style & Naming Conventions
 Follow the repo `.clang-format` (LLVM-derived, 4-space indent, 140-column limit) before committing. `.clang-tidy` checks `src`, `include`, and `tests`; run `ninja clang-tidy` from the build tree or invoke `clang-tidy` manually with the exported compilation database. Use lowercase snake_case for filenames, PascalCase for types, and camelCase for functions. Keep public symbols within the `gentest` namespace to avoid ABI mismatches.
