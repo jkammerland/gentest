@@ -87,35 +87,15 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             const std::string &raw_param = attr.arguments.front();
             std::string        param     = trim_copy(raw_param);
-            bool               is_nttp   = false;
-            {
-                std::string norm = trim_copy(raw_param);
-                // detect NTTP: prefix
-                auto pos = norm.find(':');
-                if (pos != std::string::npos) {
-                    std::string tag = trim_copy(norm.substr(0, pos));
-                    std::transform(tag.begin(), tag.end(), tag.begin(), [](unsigned char c) { return std::tolower(c); });
-                    if (tag == "nttp") {
-                        is_nttp = true;
-                        param   = trim_copy(norm.substr(pos + 1));
-                    }
-                }
-            }
             if (param.empty()) {
                 summary.had_error = true;
                 report("'template' parameter name must be non-empty");
                 continue;
             }
             bool dup = false;
-            if (!is_nttp) {
-                for (auto &p : summary.template_sets)
-                    if (p.first == param)
-                        dup = true;
-            } else {
-                for (auto &p : summary.template_nttp_sets)
-                    if (p.first == param)
-                        dup = true;
-            }
+            for (auto &p : summary.template_sets)
+                if (p.first == param)
+                    dup = true;
             if (dup) {
                 summary.had_error = true;
                 report("duplicate 'template' attribute for the same parameter");
@@ -127,10 +107,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'template' requires at least one type");
                 continue;
             }
-            if (is_nttp)
-                summary.template_nttp_sets.emplace_back(param, std::move(types));
-            else
-                summary.template_sets.emplace_back(param, std::move(types));
+            summary.template_sets.emplace_back(param, std::move(types));
         } else if (lowered == "parameters") {
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;

@@ -97,7 +97,7 @@ void typed_values(int v) {
 
 // NTTP (non-type template parameter) validation
 template <typename T, int N>
-[[using gentest: test("nttp"), template(T, int), template(NTTP : N, 1, 2)]]
+[[using gentest: test("nttp"), template(T, int), template(N, 1, 2)]]
 void nttp() {
     if constexpr (!std::is_same_v<T, int>) {
         gentest::expect(false, "T must be int for this test");
@@ -108,7 +108,7 @@ void nttp() {
 
 // Interleaved template parameters (NTTP then type); validate both
 template <int N, typename T>
-[[using gentest: test("interleaved"), template(NTTP : N, 1, 2), template(T, int, long)]]
+[[using gentest: test("interleaved"), template(N, 1, 2), template(T, int, long)]]
 void interleaved() {
     if constexpr (!std::is_integral_v<T>) {
         gentest::expect(false, "T must be integral");
@@ -134,14 +134,14 @@ void triad() {
 
 // Two NTTPs only; ensure cross product expands correctly and values are visible
 template <int A, int B>
-[[using gentest: test("nttp_pair"), template(NTTP : A, 1, 2), template(NTTP : B, 5)]]
+[[using gentest: test("nttp_pair"), template(A, 1, 2), template(B, 5)]]
 void nttp_pair() {
     gentest::expect((A == 1 || A == 2) && B == 5, "NTTP pair values");
 }
 
 // Interleaved with three params: type, NTTP, NTTP
 template <typename A, int N, int M>
-[[using gentest: test("interleaved2"), template(A, long), template(NTTP : M, 3, 4), template(NTTP : N, 1)]]
+[[using gentest: test("interleaved2"), template(A, long), template(M, 3, 4), template(N, 1)]]
 void interleaved2() {
     if constexpr (!std::is_same_v<A, long>) {
         gentest::expect(false, "A must be long");
@@ -152,7 +152,7 @@ void interleaved2() {
 
 // Triad with interleaving: NTTP, type, type
 template <int N, typename T, typename U>
-[[using gentest: test("triad_interleaved"), template(T, int, long), template(NTTP : N, 7, 8), template(U, double)]]
+[[using gentest: test("triad_interleaved"), template(T, int, long), template(N, 7, 8), template(U, double)]]
 void triad_interleaved() {
     if constexpr (!std::is_integral_v<T> || !std::is_floating_point_v<U>) {
         gentest::expect(false, "type checks");
@@ -169,7 +169,7 @@ void bool_params(bool b) {
 
 // Boolean NTTP
 template <bool B>
-[[using gentest: test("nttp_bool"), template(NTTP : B, true, false)]]
+[[using gentest: test("nttp_bool"), template(B, true, false)]]
 void nttp_bool() {
     if constexpr (B) {
         gentest::expect(true, "B==true path");

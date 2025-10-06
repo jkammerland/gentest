@@ -145,7 +145,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
     // Validate template attribute usage and collect declaration order (optional under flag).
     std::vector<disc::TParam> fn_params_order;
-    if (!summary.template_sets.empty() || !summary.template_nttp_sets.empty()) {
+    if (!summary.template_sets.empty()) {
         if (!disc::collect_template_params(*func, fn_params_order)) {
 #ifndef GENTEST_DISABLE_TEMPLATE_VALIDATION
             had_error_ = true;
@@ -157,7 +157,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
 #ifndef GENTEST_DISABLE_TEMPLATE_VALIDATION
         if (!fn_params_order.empty()) {
-            if (!disc::validate_template_attributes(summary.template_sets, summary.template_nttp_sets, fn_params_order,
+            if (!disc::validate_template_attributes(summary.template_sets, fn_params_order,
                                                     [&](const std::string &m) {
                                                         had_error_ = true;
                                                         report(m);
@@ -170,14 +170,14 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
     // Build combined template argument combinations
     std::vector<std::vector<std::string>> combined_tpl_combos;
-    if (!summary.template_sets.empty() || !summary.template_nttp_sets.empty()) {
+    if (!summary.template_sets.empty()) {
 #ifndef GENTEST_DISABLE_TEMPLATE_VALIDATION
         if (!fn_params_order.empty()) {
-            combined_tpl_combos = disc::build_template_arg_combos(summary.template_sets, summary.template_nttp_sets, fn_params_order);
+            combined_tpl_combos = disc::build_template_arg_combos(summary.template_sets, fn_params_order);
         } else
 #endif
         {
-            combined_tpl_combos = disc::build_template_arg_combos_attr_order(summary.template_sets, summary.template_nttp_sets);
+            combined_tpl_combos = disc::build_template_arg_combos_attr_order(summary.template_sets);
         }
     }
     if (combined_tpl_combos.empty())
