@@ -234,6 +234,33 @@ Devlog 2025-10-03 (WrapperSpec + Validation Toggle)
       - Rebuilt and ran ctest (debug preset): all tests still pass; no count changes.
       - Code is easier to read and extend (single source of truth for wrappers; validation can be toggled during debugging).
 
+Devlog 2025-10-06 (Branch Merge: maintainance → mocking-support → more-expects → suites)
+
+  - Scope
+      - Merged the following branches into `master` in order: `maintainance`, `mocking-support`, `more-expects`, `suites`.
+      - Saved backtrack tag: `pre-suites-merge` on `master` prior to merging `suites`.
+
+  - Key conflict resolutions
+      - `tools/src/discovery.cpp` (mocking-support merge): favored AxisExpander-style helpers for value/pack combos introduced earlier, preserving behavior while simplifying loops.
+      - `AGENTS.md` (suites merge): kept system LLVM/Clang 20+ preset bullets and preserved existing regeneration/sanitizer guidance.
+      - `tests/failing/cases.cpp` (suites merge): adopted suite-namespace form and removed the mocking-specific mismatch test from the root failing suite (it now belongs under mocking-support).
+      - `tools/src/discovery.hpp|parse.cpp|emit.cpp` (suites merge): adopted suite-aware parsing and grouping (ephemeral/suite/global) and integrated accessors/runners wiring expected by `suites`.
+
+  - Result
+      - All tests pass on `master` after full merge: 35/35 with suite-aware grouping enabled.
+      - Root failing expectations adjusted to 1 failure (mismatch test moved to mocking-support suite). The dedicated death test for the mismatch in root was removed accordingly.
+
+  - Mocking-support history cleanup
+      - Reworded three “Amend me” commits with descriptive messages:
+          - Add argument matching (`.with(...)`), initial template-member support, `sys-llvm20` preset, and tests/docs.
+          - Discovery AxisExpander helpers for value/pack combos; simplify `discovery.cpp`.
+          - Add `where_args(...)` per-argument predicate matchers and tests.
+      - No content changes, only commit message hygiene for clearer history.
+
+  - Next
+      - Consider adding ergonomic matchers (e.g., `Any()`, `Eq(x)`, `InRange(a,b)`) atop `where_args(...)` for convenience.
+      - Continue small refactors in `render.cpp` to reduce inline assembly and keep templates localized.
+
 Devlog 2025-10-06 (Mocks: Parameter Matching Plan)
 
   Context and recent cleanup
