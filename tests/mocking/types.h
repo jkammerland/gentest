@@ -14,6 +14,20 @@ struct Ticker {
     void tadd(T value) { (void)value; }
 };
 
+struct MoveOnly {
+    int value{0};
+    explicit MoveOnly(int v) : value(v) {}
+    MoveOnly(MoveOnly&&)            = default;
+    MoveOnly& operator=(MoveOnly&&) = default;
+    MoveOnly(const MoveOnly&)       = delete;
+    MoveOnly& operator=(const MoveOnly&) = delete;
+    friend bool operator==(const MoveOnly& a, const MoveOnly& b) { return a.value == b.value; }
+};
+
+struct MOConsumer {
+    void accept(MoveOnly) {}
+};
+
 template <typename Derived>
 struct Runner {
     void run(int value) { static_cast<Derived *>(this)->handle(value); }

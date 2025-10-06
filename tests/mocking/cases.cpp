@@ -177,6 +177,19 @@ void matchers_where_call() {
     EXPECT_EQ(result, 42);
 }
 
+[[using gentest: test("mocking/move_only/with_eq")]]
+void move_only_with_eq() {
+    gentest::mock<MOConsumer> mock_mo;
+    int                       hits = 0;
+    gentest::expect(mock_mo, &MOConsumer::accept)
+        .times(1)
+        .with(MoveOnly{7})
+        .invokes([&](const MoveOnly&) { ++hits; });
+
+    mock_mo.accept(MoveOnly{7});
+    EXPECT_EQ(hits, 1);
+}
+
 [[using gentest: test("mocking/matchers/ge_anyof")]]
 void matchers_ge_anyof() {
     using namespace gentest::match;

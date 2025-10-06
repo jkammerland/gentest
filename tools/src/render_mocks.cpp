@@ -168,7 +168,11 @@ std::string forward_original_declaration(const MockClassInfo &cls) {
 }
 
 std::string argument_expr(const MockParamInfo &param) {
+    // If the parameter is an rvalue reference or passed by value, forward as std::move
     if (param.type.find("&&") != std::string::npos) {
+        return fmt::format("std::move({})", param.name);
+    }
+    if (param.type.find('&') == std::string::npos) {
         return fmt::format("std::move({})", param.name);
     }
     return param.name;

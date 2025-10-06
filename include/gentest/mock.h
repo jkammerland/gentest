@@ -122,7 +122,7 @@ template <typename Tuple, typename... A>
 bool check_args_equal(const std::optional<Tuple> &expected, std::string_view method_name, const A &...actual) {
     if (!expected)
         return true;
-    const auto actual_tuple = std::tuple<std::decay_t<A>...>(actual...);
+    const auto actual_tuple = std::forward_as_tuple(actual...);
     const bool matched      = [&]<std::size_t... I>(std::index_sequence<I...>) {
         return ((std::get<I>(*expected) == std::get<I>(actual_tuple)) && ...);
     }(std::make_index_sequence<sizeof...(A)>{});
@@ -149,7 +149,7 @@ template <typename TuplePred, typename... A>
 bool check_args_by_predicates(const std::optional<TuplePred> &preds, std::string_view method_name, const A &...actual) {
     if (!preds)
         return true;
-    const auto actual_tuple = std::tuple<std::decay_t<A>...>(actual...);
+    const auto actual_tuple = std::forward_as_tuple(actual...);
     bool       ok           = true;
     [&]<std::size_t... I>(std::index_sequence<I...>) {
         ((ok = ok && ([&] {
@@ -182,7 +182,7 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
     std::size_t               expected_calls = 1;
     std::size_t               observed_calls = 0;
     bool                      allow_excess   = false;
-    std::function<R(Args...)> action;
+    std::function<R(const std::decay_t<Args>&...)> action;
     std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
     std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
     std::function<bool(const std::decay_t<Args>&...)>                 call_predicate;
@@ -238,7 +238,7 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationBase 
     std::size_t                  expected_calls = 1;
     std::size_t                  observed_calls = 0;
     bool                         allow_excess   = false;
-    std::function<void(Args...)> action;
+    std::function<void(const std::decay_t<Args>&...)> action;
     std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
     std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
     std::function<bool(const std::decay_t<Args>&...)>               call_predicate;
@@ -327,9 +327,9 @@ class InstanceState {
         using ExpectationT = Expectation<R(std::decay_t<Args>...)>;
         auto expectation     = std::static_pointer_cast<ExpectationT>(it->second.queue.front());
         if constexpr (std::is_void_v<R>) {
-            expectation->invoke(method_name, args...);
+            expectation->invoke(method_name, std::forward<Args>(args)...);
         } else {
-            auto result = expectation->invoke(method_name, args...);
+            auto result = expectation->invoke(method_name, std::forward<Args>(args)...);
             if (expectation->is_satisfied() && !expectation->allow_excess) {
                 it->second.queue.pop_front();
             }
@@ -376,7 +376,10 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
 
     template <typename Callable> ExpectationHandle &invokes(Callable &&callable) {
         if (expectation_) {
-            expectation_->action = std::function<R(Args...)>(std::forward<Callable>(callable));
+            using DArgs = std::tuple<std::decay_t<Args>...>;
+            (void)sizeof(DArgs);
+            auto wrapper = [fn = std::forward<Callable>(callable)](const std::decay_t<Args> &...a) -> R { return fn(a...); };
+            expectation_->action = std::move(wrapper);
         }
         return *this;
     }
@@ -418,13 +421,13 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
         } else {
             if (expectation_) {
                 if constexpr (std::is_reference_v<R>) {
-                    expectation_->action = [&value](Args... args) -> R {
-                        (void)sizeof...(args);
+                    expectation_->action = [&value](const std::decay_t<Args> &... a) -> R {
+                        (void)sizeof...(a);
                         return value;
                     };
                 } else {
-                    expectation_->action = [captured = std::forward<Value>(value)](Args... args) -> R {
-                        (void)sizeof...(args);
+                    expectation_->action = [captured = std::forward<Value>(value)](const std::decay_t<Args> &... a) -> R {
+                        (void)sizeof...(a);
                         return captured;
                     };
                 }
