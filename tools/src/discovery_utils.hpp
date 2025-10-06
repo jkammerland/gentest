@@ -10,6 +10,7 @@
 #include <clang/AST/Decl.h>
 
 #include "axis_expander.hpp"
+#include "validate.hpp"
 
 namespace gentest::codegen::disc {
 
@@ -104,3 +105,41 @@ inline std::vector<std::vector<std::string>> build_template_arg_combos_attr_orde
 
 } // namespace gentest::codegen::disc
 
+namespace gentest::codegen::disc {
+
+// Build Cartesian product for value parameter axes and collect their type names in order.
+inline std::vector<std::vector<std::string>> build_value_arg_combos(
+    const std::vector<AttributeSummary::ParamSet>& param_sets,
+    std::vector<std::string>&                      out_type_names) {
+    out_type_names.clear();
+    out_type_names.reserve(param_sets.size());
+    std::vector<std::vector<std::string>> axes; axes.reserve(param_sets.size());
+    for (const auto& ps : param_sets) { axes.push_back(ps.values); out_type_names.push_back(ps.type_name); }
+    return gentest::codegen::util::cartesian(axes);
+}
+
+// Pack combos are not a pure Cartesian product: each row contributes a tuple of
+// (value arguments, type names). This helper flattens them into a list of
+// combinations that can be concatenated with scalar value combos.
+struct PackCombo { std::vector<std::string> args; std::vector<std::string> types; };
+
+inline std::vector<PackCombo> build_pack_arg_combos(const std::vector<AttributeSummary::ParamPack>& packs) {
+    std::vector<PackCombo> combos{{}}; // start with empty (args, types)
+    for (const auto& pp : packs) {
+        std::vector<PackCombo> next;
+        next.reserve(combos.size() * pp.rows.size());
+        for (const auto& partial : combos) {
+            for (const auto& row : pp.rows) {
+                PackCombo pc = partial;
+                pc.args.insert(pc.args.end(), row.begin(), row.end());
+                pc.types.insert(pc.types.end(), pp.types.begin(), pp.types.end());
+                next.push_back(std::move(pc));
+            }
+        }
+        combos = std::move(next);
+    }
+    if (combos.empty()) combos.push_back({{}, {}});
+    return combos;
+}
+
+} // namespace gentest::codegen::disc
