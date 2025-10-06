@@ -51,3 +51,8 @@ docs/latex/
 *.tmp
 *.temp
 *.log
+
+# Ignore local worktree directories
+mocking-support/
+more-expects/
+suites/
