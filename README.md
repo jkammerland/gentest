@@ -335,14 +335,14 @@ can be split across multiple `[[...]]` blocks on the same function.
 
 ### Template Parameters (Types and Non-Types)
 
-`template(NAME, ...)` applies to both type and non-type template parameters. The generator uses the function’s template
-declaration to resolve `NAME` to its kind (type or NTTP) and expands the Cartesian product across all template sets in
+`template(NAME, ...)` applies to both type and value template parameters. The generator uses the function’s template
+declaration to resolve `NAME` to its kind and expands the Cartesian product across all template sets in
 declaration order.
 
 Examples:
 
 ```c++
-// Type + NTTP
+// Type + value parameter
 template <typename T, int N>
 [[using gentest: test("templates/nttp"), template(T, int), template(N, 1, 2)]]
 void nttp() { /* instantiates: <int,1>, <int,2> */ }
@@ -352,15 +352,15 @@ template <int N, typename T>
 [[using gentest: test("templates/interleaved"), template(N, 1, 2), template(T, int, long)]]
 void interleaved() { /* 4 instances: N in {1,2} × T in {int,long} */ }
 
-// Mixed with value parameters
+// Mixed with runtime value parameters
 template <typename T, std::size_t N>
 [[using gentest: test("templates/mix/type_nttp_value"), template(T, int), template(N, 16), parameters(int, 3)]]
 void mix_type_nttp_value(int v) { /* 1 instance: <int,16>(3) */ }
 ```
 
 Notes
-- Values given for non-type parameters are used verbatim; C++ compile-time checking ensures they are valid for the
-  declared NTTP type (e.g., `bool`, `int`, `std::size_t`).
+- Values given for value template parameters are used verbatim; the C++ compiler ensures they match the declared
+  parameter type (e.g., `bool`, `int`, `std::size_t`).
 - You can mix and split `template(...)` attributes across multiple `[[...]]` blocks; order is determined by the template
   parameter list as declared in the function signature.
 

@@ -95,9 +95,9 @@ Devlog 2025-10-03 (CLI + Templates + Phase 1 Plan)
       - `std::string quote_for_type(TypeKind, std::string_view)` returns correctly quoted literal or verbatim
       - Status: planned (will wire into discovery literal emission)
 
-  - NTTP in `template()`
-      - Syntax: `template(NTTP: N, 1, 2, 3)` parsed into a new `template_nttp_sets` (order preserved)
-      - Expansion: concatenate type tokens then NTTP tokens within `<...>` in the order of attributes
+  - Value template parameters in `template()`
+      - Syntax: `template(N, 1, 2, 3)` where `N` is a value template parameter; collected alongside type sets
+      - Expansion: concatenate type/value tokens within `<...>` in declaration order
       - Status: planned; tests to add minimal `template<typename T, int N>` example (2 cases)
 
   - Guardrails for expansion explosion
@@ -115,13 +115,13 @@ Devlog 2025-10-03 (Template/Parameter Validations)
           - `templates/strs`, `templates/bar`, `templates/pack`, `templates/raw`, `templates/chars`, `templates/wstrs`: added precise value checks.
       - New cases:
           - `templates/typed_values`: combines `template(T, int, long)` with `parameters(int, 2, 4)` and uses `if constexpr` to validate per-type.
-          - `templates/nttp`: exercises NTTP via `template(NTTP: N, 1, 2)` with `template(T, int)` and validates `N`.
+          - `templates/nttp`: exercises value template parameter via `template(N, 1, 2)` with `template(T, int)` and validates `N`.
       - Counts updated:
           - Templates suite now has 29 cases; `tests/CMakeLists.txt` adjusted for counts and list-lines.
   - Notes
       - Build in this environment required `CCACHE_DISABLE=1` due to restricted tmp permissions; all tests pass under the debug preset.
   - Next
-      - Add explicit NTTP example to README (done). Guardrails intentionally not implemented.
+      - Add explicit value template parameter example to README (done). Guardrails intentionally not implemented.
 
 Devlog 2025-10-03 (Guardrails removed)
 
@@ -155,12 +155,12 @@ Devlog 2025-10-03 (Review + Refactor Plan)
   Scope of review
   - Compared current HEAD against two commits back (3db383e – free-function fixtures). Since then we:
     - Implemented template param validation and later relaxed it to support interleaving.
-    - Added many positive/negative tests for templates, NTTPs, boolean and string-like parameter axes.
+    - Added many positive/negative tests for templates (types + value params), boolean and string-like parameter axes.
     - Fixed string-pointer literal handling (const char*/wchar_t*/char8_t*/char16_t*/char32_t*), and extended detection for *_string_view types.
     - Removed expansion guardrails by design.
 
   Current state (progress)
-  - Templates and parameters: robust expansion across types + NTTP + value axes, including interleaved declaration orders.
+  - Templates and parameters: robust expansion across types + value template params + runtime axes, including interleaved declaration orders.
   - Fixtures: free-function fixtures (ephemeral) with optional setup/teardown; member fixtures unchanged and still supported.
   - CLI and emission: single TU generation with fmt-based templates; output format stable; tests assert counts via runners.
   - Validation: early, precise diagnostics for attribute misuse (unknown names, missing coverage, duplicates/conflicts).
@@ -202,7 +202,7 @@ Devlog 2025-10-03 (Review + Refactor Plan)
       - Suggestion: consolidate normalization and add explicit tests for char8_t* and std::u8string_view (we have u8string but not the view in tests yet).
 
   Testing gaps worth filling
-  - Positive: interleaved triads mixing two NTTPs and a type with uneven value counts (already partially covered; add u8string_view and char8_t* axes).
+  - Positive: interleaved triads mixing two value template params and a type with uneven value counts (already partially covered; add u8string_view and char8_t* axes).
   - Negative (lint-only): duplicate fixtures(...) tokens across multiple blocks; fixtures on member tests (already errors but add explicit smoke test).
   - Mixed axes: large but controlled matrices that mix multiple string encodings with booleans to keep quoting consistent.
 
@@ -370,7 +370,7 @@ Devlog 2025-10-06 (Mocks: Arg Matching Delivered + Template Members)
       - Test added: `mocking/concrete/template_member_expect_int` for `Ticker::tadd<T>`.
 
   - Deferred (documented; not implemented in this drop)
-      - NTTP template member methods: intentionally skipped pending a broader refactor of template handling in discovery/emission.
+      - Value template member methods: intentionally skipped pending a broader refactor of template handling in discovery/emission.
         - Rationale: avoid duplicating logic before the planned AxisExpander/validation split and unified type/expr rendering.
         - Plan: cover `template<int N>` and mixed cv-ref/noexcept variants after refactor; extend tests then.
 

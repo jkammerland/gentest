@@ -173,13 +173,13 @@ add_test(NAME fixtures_list_counts
 add_test(NAME templates_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_templates_tests>
-        -DPASS=73 -DFAIL=0 -DSKIP=0
+        -DPASS=77 -DFAIL=0 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME templates_list_tests_lines
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_templates_tests>
-        -DLINES=73
+        -DLINES=77
         -DARGS=--list-tests
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)
 

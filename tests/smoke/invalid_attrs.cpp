@@ -20,7 +20,7 @@ void triad_missing() {}
 
 // 4) Interleaved order; missing one attribute
 template <typename A, int N, typename B>
-[[using gentest: test("smoke/invalid/interleaved-missing"), template(A, int), template(NTTP: N, 1)]]
+[[using gentest: test("smoke/invalid/interleaved-missing"), template(A, int), template(N, 1)]]
 void interleaved_missing() {}
 
 // 5) Extra unknown parameter alongside correct ones
