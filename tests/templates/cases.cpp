@@ -309,3 +309,14 @@ template <Color C>
 void enum_value() {
     gentest::expect(C == Color::Red || C == Color::Blue, "C in {Red,Blue}");
 }
+
+// Local struct defined in the test source (cases.cpp), used as a parameter via named parameters
+struct LocalPoint {
+    int x;
+    int y;
+};
+
+[[using gentest: test("local_struct/axis"), parameters(p, LocalPoint{1,2}, LocalPoint{3,4})]]
+void local_struct_axis(LocalPoint p) {
+    gentest::expect((p.x == 1 && p.y == 2) || (p.x == 3 && p.y == 4), "LocalPoint matches");
+}
