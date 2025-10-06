@@ -186,6 +186,16 @@ void size_value() {
     gentest::expect(N == 16 || N == 32, "N in {16,32}");
 }
 
+// Scoped enum in nested namespaces; value template parameter should accept fully qualified tokens
+namespace ns_outer { namespace ns_inner { enum class Shade { Dark, Light }; } }
+
+template <ns_outer::ns_inner::Shade S>
+[[using gentest: test("enum_value_scoped"), template(S, templates::ns_outer::ns_inner::Shade::Dark, templates::ns_outer::ns_inner::Shade::Light)]]
+void enum_value_scoped() {
+    using ns_outer::ns_inner::Shade;
+    gentest::expect(S == Shade::Dark || S == Shade::Light, "S in {Dark,Light}");
+}
+
 // Mixed type + value template + runtime axes (unified template syntax)
 template <typename T, std::size_t N>
 [[using gentest: test("mix/type_nttp_value"), template(T, int), template(N, 16), parameters(int, 3)]]

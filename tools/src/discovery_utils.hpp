@@ -15,7 +15,7 @@
 namespace gentest::codegen::disc {
 
 struct TParam {
-    enum class Kind { Type, NTTP };
+    enum class Kind { Type, Value };
     Kind        kind;
     std::string name;
 };
@@ -33,7 +33,7 @@ inline bool collect_template_params(const clang::FunctionDecl& func, std::vector
         if (llvm::isa<clang::TemplateTypeParmDecl>(p)) {
             out.push_back({TParam::Kind::Type, p->getNameAsString()});
         } else if (llvm::isa<clang::NonTypeTemplateParmDecl>(p)) {
-            out.push_back({TParam::Kind::NTTP, p->getNameAsString()});
+            out.push_back({TParam::Kind::Value, p->getNameAsString()});
         } else {
             return false; // template-template not supported
         }
@@ -79,7 +79,7 @@ inline std::vector<std::vector<std::string>> build_template_arg_combos(
     return gentest::codegen::util::cartesian(axes);
 }
 
-// Fallback: build combinations by attribute order (types first, then NTTPs).
+// Fallback: build combinations by attribute order.
 inline std::vector<std::vector<std::string>> build_template_arg_combos_attr_order(
     const std::vector<std::pair<std::string, std::vector<std::string>>>& template_sets)
 {
