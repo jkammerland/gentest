@@ -6,8 +6,6 @@
 
 using namespace gentest::asserts;
 
-#ifndef GENTEST_BUILDING_MOCKS
-
 #include "gentest/mock.h"
 
 namespace mocking {
@@ -122,6 +120,48 @@ void crtp_bridge_matches() {
     EXPECT_EQ(count, 2);
 }
 
-} // namespace mocking
+[[using gentest: test("mocking/matchers/eq_any")]]
+void matchers_eq_any() {
+    using namespace gentest::match;
+    gentest::mock<Calculator> mock_calc;
+    gentest::expect(mock_calc, &Calculator::compute)
+        .times(1)
+        .where(Eq(12), Any())
+        .returns(300);
 
-#endif // !GENTEST_BUILDING_MOCKS
+    Calculator *iface  = &mock_calc;
+    const int   result = iface->compute(12, 999);
+    EXPECT_EQ(result, 300);
+}
+
+[[using gentest: test("mocking/matchers/in_range")]]
+void matchers_in_range() {
+    using namespace gentest::match;
+    gentest::mock<Ticker> mock_tick;
+    int                   count = 0;
+    gentest::expect(mock_tick, &Ticker::tick)
+        .times(2)
+        .where_args(InRange(5, 10))
+        .invokes([&](int) { ++count; });
+
+    mock_tick.tick(5);
+    mock_tick.tick(10);
+    EXPECT_EQ(count, 2);
+}
+
+[[using gentest: test("mocking/matchers/not")]]
+void matchers_not() {
+    using namespace gentest::match;
+    gentest::mock<Ticker> mock_tick;
+    int                   sum = 0;
+    gentest::expect(mock_tick, &Ticker::tick)
+        .times(2)
+        .where_args(Not(Eq(0)))
+        .invokes([&](int v) { sum += v; });
+
+    mock_tick.tick(1);
+    mock_tick.tick(2);
+    EXPECT_EQ(sum, 3);
+}
+
+} // namespace mocking

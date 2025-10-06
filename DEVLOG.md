@@ -57,8 +57,9 @@ Devlog 2025-10-04 (Mock Generation)
   - Key changes
       - Added `include/gentest/mock.h` with runtime helpers, expectation storage, and the public `gentest::expect` API.
       - Extended discovery to track `gentest::mock<T>` uses and gather method metadata (return types, qualifiers, overrides).
-      - Generator now emits `mock_registry.hpp` (specializations + MockAccess glue) and `mock_impl.cpp` (method bodies,
-        expectation dispatch) alongside each suite’s `test_impl.cpp`.
+      - Generator now emits `mock_registry.hpp` (specializations + MockAccess glue) and `mock_impl.hpp` (inline method
+        bodies, expectation dispatch) alongside each suite’s `test_impl.cpp`. The test TU includes `mock_impl.hpp` after
+        including the test sources.
       - `gentest_attach_codegen()` wires the extra outputs automatically, defines `GENTEST_MOCK_REGISTRY_PATH`, and links the
         mock TU into the test target.
       - Introduced `tests/mocking` suite covering polymorphic overrides, non-virtual injection, and CRTP-style classes.
@@ -216,8 +217,33 @@ Devlog 2025-10-03 (Review + Refactor Plan)
   - Refactors touch code-gen plumbing. Keep PRs mechanical and gated by existing tests; expand template/fixture E2E tests first so behavior remains pinned.
   - Ensure no reliance on formatting in tests; continue using count/list checks.
 
-  Status
+Status
   - All suites green (unit/integration/failing/skiponly/fixtures/templates). Interleaved templates + additional string/boolean axes covered. Lint-only negative tests surface clear diagnostics.
+
+Devlog 2025-10-06 (Matcher Helpers)
+
+  - Goals
+      - Add ergonomic argument matchers for mocks atop existing where_args.
+      - Provide a concise alias and expand mocking tests, including a negative predicate check.
+  - Key changes
+      - New helpers in header-only API (include/gentest/mock.h):
+          - gentest::match::Any() – accepts any value.
+          - gentest::match::Eq(x) – equality match via operator==.
+          - gentest::match::InRange(lo, hi) – inclusive range match via <=.
+          - gentest::match::Not(p) – negates another matcher/predicate.
+      - Added ExpectationHandle::where(...) as a convenience alias for where_args(...).
+      - Tests (tests/mocking/cases.cpp): added three positive cases exercising Eq/Any, InRange, and Not.
+      - Tests (tests/failing/cases.cpp): added a dedicated predicate_mismatch negative to validate failure reporting.
+      - Updated test count checks for mocking (9 → 12) and failing (1 → 2).
+  - Notes
+      - Matchers are implemented as small generic lambdas; they integrate seamlessly with the existing std::function capture in set_predicates.
+      - Mocks are now included as an inline header per test target; no separate mock TU is compiled. GENTEST_BUILDING_MOCKS
+        guards are no longer necessary in test sources.
+  - Status
+      - All presets green locally (debug). Counts reflect the new cases.
+      - Next: consider convenience wrappers (AnyOf/AllOf) and a whole-call predicate, if desired.
+      - Changed mock emission to inline header (`mock_impl.hpp`) included by the generated test TU; removed the need for
+        GENTEST_BUILDING_MOCKS guards in tests.
 
 Devlog 2025-10-03 (WrapperSpec + Validation Toggle)
 

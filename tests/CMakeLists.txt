@@ -137,7 +137,7 @@ add_test(NAME integration_list_counts
 add_test(NAME failing_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_failing_tests>
-        -DPASS=0 -DFAIL=1 -DSKIP=0
+        -DPASS=0 -DFAIL=2 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 # The raw failing suite run is expected to fail
@@ -186,13 +186,13 @@ add_test(NAME templates_list_tests_lines
 add_test(NAME mocking_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DPASS=9 -DFAIL=0 -DSKIP=0
+        -DPASS=12 -DFAIL=0 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME mocking_list_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DLIST=ON -DCASES=9
+        -DLIST=ON -DCASES=12
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 # CLI checks for VSCode integration

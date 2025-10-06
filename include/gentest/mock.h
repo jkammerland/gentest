@@ -356,6 +356,12 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
         return *this;
     }
 
+    // Convenience alias to mirror common matcher API naming
+    template <typename... P>
+    ExpectationHandle &where(P &&... predicates) {
+        return where_args(std::forward<P>(predicates)...);
+    }
+
     template <typename Value> ExpectationHandle &returns(Value &&value) {
         if constexpr (std::is_void_v<R>) {
             static_assert(!std::is_void_v<R>, "returns() is not available for void-returning methods");
@@ -474,6 +480,39 @@ template <class Mock> struct MockAccess {
 template <class Mock, class MethodPtr> auto expect(Mock &instance, MethodPtr method) {
     return detail::MockAccess<std::remove_cvref_t<Mock>>::expect(instance, method);
 }
+
+// Lightweight matcher helpers for predicate-based argument matching.
+// Use with ExpectationHandle::where_args(...) or ::where(...), e.g.:
+//   expect(mock, &T::fn).where(Eq(42), Any());
+namespace match {
+// Matches any value of the argument type
+inline auto Any() {
+    return [](const auto &) noexcept { return true; };
+}
+
+// Matches values equal to the provided reference value (by ==)
+template <typename V>
+inline auto Eq(V &&v) {
+    using Value = std::decay_t<V>;
+    return [captured = Value(std::forward<V>(v))](const auto &a) { return a == captured; };
+}
+
+// Matches values within [lo, hi] using <= comparisons
+template <typename A, typename B>
+inline auto InRange(A &&lo, B &&hi) {
+    using Lo = std::decay_t<A>;
+    using Hi = std::decay_t<B>;
+    return [l = Lo(std::forward<A>(lo)), h = Hi(std::forward<B>(hi))](const auto &a) {
+        return (a >= l) && (a <= h);
+    };
+}
+
+// Negates another matcher/predicate
+template <typename P>
+inline auto Not(P &&predicate) {
+    return [p = std::forward<P>(predicate)](const auto &a) { return !p(a); };
+}
+} // namespace match
 
 #ifdef GENTEST_MOCK_REGISTRY_PATH
 #define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x
