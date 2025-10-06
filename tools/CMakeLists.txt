@@ -2,8 +2,31 @@
 # vcpkg toolchains. Our tool does not depend on LibEdit.
 set(CMAKE_DISABLE_FIND_PACKAGE_LibEdit ON)
 
+option(GENTEST_REQUIRE_LLVM20 "Require LLVM 20+" OFF)
+if(GENTEST_REQUIRE_LLVM20)
+    execute_process(COMMAND llvm-config-20 --cmakedir
+        OUTPUT_VARIABLE _llvm20_cmakedir OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if(_llvm20_cmakedir AND EXISTS "${_llvm20_cmakedir}/LLVMConfig.cmake")
+        list(PREPEND CMAKE_PREFIX_PATH "${_llvm20_cmakedir}")
+    endif()
+endif()
+
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
+
+if(GENTEST_REQUIRE_LLVM20)
+    if(DEFINED LLVM_VERSION)
+        set(_llvm_ver "${LLVM_VERSION}")
+    elseif(DEFINED LLVM_PACKAGE_VERSION)
+        set(_llvm_ver "${LLVM_PACKAGE_VERSION}")
+    else()
+        set(_llvm_ver "0.0.0")
+    endif()
+    if(_llvm_ver VERSION_LESS "20.0.0")
+        message(FATAL_ERROR "System LLVM too old: ${_llvm_ver}. Please install LLVM/Clang 20+ and re-run with --preset=sys-llvm20")
+    endif()
+endif()
 find_package(fmt CONFIG REQUIRED)
 
 add_executable(gentest_codegen
@@ -11,8 +34,10 @@ add_executable(gentest_codegen
     src/parse_core.cpp
     src/parse.cpp
     src/discovery.cpp
+    src/mock_discovery.cpp
     src/validate.cpp
     src/emit.cpp
+    src/render_mocks.cpp
     src/type_kind.cpp
     src/render.cpp
     src/tooling_support.cpp)

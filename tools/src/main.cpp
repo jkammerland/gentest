@@ -1,24 +1,25 @@
+#include "discovery.hpp"
+#include "emit.hpp"
+#include "mock_discovery.hpp"
+#include "model.hpp"
+#include "tooling_support.hpp"
+
 #include <algorithm>
+#include <clang/ASTMatchers/ASTMatchFinder.h>
+#include <clang/Basic/Diagnostic.h>
+#include <clang/Tooling/ArgumentsAdjusters.h>
+#include <clang/Tooling/CompilationDatabase.h>
+#include <clang/Tooling/JSONCompilationDatabase.h>
+#include <clang/Tooling/Tooling.h>
 #include <filesystem>
+#include <fmt/core.h>
+#include <llvm/Support/CommandLine.h>
+#include <llvm/Support/raw_ostream.h>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#include <clang/ASTMatchers/ASTMatchFinder.h>
-#include <clang/Tooling/ArgumentsAdjusters.h>
-#include <clang/Tooling/CompilationDatabase.h>
-#include <clang/Tooling/JSONCompilationDatabase.h>
-#include <clang/Tooling/Tooling.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/raw_ostream.h>
-#include <fmt/core.h>
-
-#include "discovery.hpp"
-#include "emit.hpp"
-#include "model.hpp"
-#include "tooling_support.hpp"
 
 using namespace clang;
 using namespace clang::tooling;
@@ -26,6 +27,8 @@ using namespace clang::ast_matchers;
 using gentest::codegen::CollectorOptions;
 using gentest::codegen::TestCaseCollector;
 using gentest::codegen::TestCaseInfo;
+using gentest::codegen::MockUsageCollector;
+using gentest::codegen::register_mock_matchers;
 
 #ifndef GENTEST_TEMPLATE_DIR
 #define GENTEST_TEMPLATE_DIR ""
@@ -36,8 +39,8 @@ namespace {
 
 CollectorOptions parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory    category{"gentest codegen"};
-    static llvm::cl::opt<std::string>  output_option{"output", llvm::cl::desc("Path to the output source file"),
-                                                    llvm::cl::init("") , llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  output_option{"output", llvm::cl::desc("Path to the output source file"), llvm::cl::init(""),
+                                                    llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
@@ -47,8 +50,12 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> clang_option{llvm::cl::ConsumeAfter, llvm::cl::desc("-- <clang arguments>")};
     static llvm::cl::opt<std::string>  template_option{"template", llvm::cl::desc("Path to the template file used for code generation"),
                                                       llvm::cl::init(""), llvm::cl::cat(category)};
-    static llvm::cl::opt<bool>         check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"),
-                                                   llvm::cl::init(false), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_registry_option{"mock-registry", llvm::cl::desc("Path to the generated mock registry header"),
+                                                           llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
+                                                       llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<bool> check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"), llvm::cl::init(false),
+                                            llvm::cl::cat(category)};
 
     llvm::cl::HideUnrelatedOptions(category);
     llvm::cl::ParseCommandLineOptions(argc, argv, "gentest clang code generator\n");
@@ -58,7 +65,13 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     opts.output_path = std::filesystem::path{output_option.getValue()};
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.clang_args.assign(clang_option.begin(), clang_option.end());
-    opts.check_only  = check_option.getValue();
+    opts.check_only = check_option.getValue();
+    if (!mock_registry_option.getValue().empty()) {
+        opts.mock_registry_path = std::filesystem::path{mock_registry_option.getValue()};
+    }
+    if (!mock_impl_option.getValue().empty()) {
+        opts.mock_impl_path = std::filesystem::path{mock_impl_option.getValue()};
+    }
     if (!opts.clang_args.empty() && opts.clang_args.front() == "--") {
         opts.clang_args.erase(opts.clang_args.begin());
     }
@@ -95,6 +108,7 @@ int main(int argc, const char **argv) {
     }
 
     clang::tooling::ClangTool tool{*database, options.sources};
+    tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
 
     const auto extra_args           = options.clang_args;
     const auto default_include_dirs = gentest::codegen::detect_platform_include_dirs();
@@ -107,7 +121,8 @@ int main(int argc, const char **argv) {
                     adjusted.emplace_back(command_line.front());
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                     for (const auto &dir : default_include_dirs) {
-                        if (gentest::codegen::contains_isystem_entry(command_line, dir) || gentest::codegen::contains_isystem_entry(adjusted, dir)) {
+                        if (gentest::codegen::contains_isystem_entry(command_line, dir) ||
+                            gentest::codegen::contains_isystem_entry(adjusted, dir)) {
                             continue;
                         }
                         adjusted.emplace_back("-isystem");
@@ -129,7 +144,8 @@ int main(int argc, const char **argv) {
 #endif
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                     for (const auto &dir : default_include_dirs) {
-                        if (gentest::codegen::contains_isystem_entry(command_line, dir) || gentest::codegen::contains_isystem_entry(adjusted, dir)) {
+                        if (gentest::codegen::contains_isystem_entry(command_line, dir) ||
+                            gentest::codegen::contains_isystem_entry(adjusted, dir)) {
                             continue;
                         }
                         adjusted.emplace_back("-isystem");
@@ -149,7 +165,8 @@ int main(int argc, const char **argv) {
 #endif
                 adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                 for (const auto &dir : default_include_dirs) {
-                    if (gentest::codegen::contains_isystem_entry(command_line, dir) || gentest::codegen::contains_isystem_entry(adjusted, dir)) {
+                    if (gentest::codegen::contains_isystem_entry(command_line, dir) ||
+                        gentest::codegen::contains_isystem_entry(adjusted, dir)) {
                         continue;
                     }
                     adjusted.emplace_back("-isystem");
@@ -171,17 +188,20 @@ int main(int argc, const char **argv) {
 
     tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
 
-    std::vector<TestCaseInfo> cases;
-    TestCaseCollector         collector{cases};
+    std::vector<TestCaseInfo>                    cases;
+    TestCaseCollector                            collector{cases};
+    std::vector<gentest::codegen::MockClassInfo> mocks;
+    MockUsageCollector                           mock_collector{mocks};
 
     MatchFinder finder;
     finder.addMatcher(functionDecl(isDefinition()).bind("gentest.func"), &collector);
+    register_mock_matchers(finder, mock_collector);
 
     const int status = tool.run(newFrontendActionFactory(&finder).get());
     if (status != 0) {
         return status;
     }
-    if (collector.has_errors()) {
+    if (collector.has_errors() || mock_collector.has_errors()) {
         return 1;
     }
 
@@ -196,5 +216,5 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
-    return gentest::codegen::emit(options, cases);
+    return gentest::codegen::emit(options, cases, mocks);
 }
