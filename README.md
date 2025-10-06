@@ -221,6 +221,48 @@ void mock_clock_basic() {
   tests; the generated `test_impl.cpp` includes `mock_impl.hpp` after including your test sources so original types are
   complete. No extra translation unit is used for mocks.
 
+### Matchers
+
+In addition to positional equality via `.with(...)`, you can use per-argument matchers with `.where_args(...)` or the
+alias `.where(...)`. Matchers are lightweight objects that validate an argument and can describe mismatches clearly.
+
+- Basic
+  - `Any()` – accepts any value
+  - `Eq(x)` – `== x`
+  - `InRange(lo, hi)` – inclusive range `[lo, hi]`
+  - `Not(m)` – negates another matcher
+- Comparators
+  - `Ge(x)`, `Le(x)`, `Gt(x)`, `Lt(x)`
+  - `Near(x, eps)` – floating point near comparison
+- Strings (argument convertible to `std::string_view`)
+  - `StrContains("needle")`, `StartsWith("pre")`, `EndsWith("suf")`
+- Composition
+  - `AnyOf(m1, m2, ...)`, `AllOf(m1, m2, ...)`
+- Whole-call predicate
+  - `where_call([](const Args&...) { ... })` for cross-argument checks
+
+Examples:
+
+```c++
+using namespace gentest::match;
+gentest::mock<Calculator> mock_calc;
+gentest::expect(mock_calc, &Calculator::compute)
+    .times(1)
+    .where(Eq(12), Any())
+    .returns(300);
+
+gentest::mock<Ticker> mock_tick;
+gentest::expect(mock_tick, &Ticker::tick)
+    .times(2)
+    .where_args(InRange(5, 10))
+    .invokes([&](int) { /* ... */ });
+
+// Whole-call
+gentest::expect(mock_calc, &Calculator::compute)
+    .where_call([](int lhs, int rhs) { return (lhs + rhs) % 2 == 0; })
+    .returns(42);
+```
+
 ## Templates
 
 Generated files are produced strictly from templates — no emission logic is inlined in the generator beyond simple

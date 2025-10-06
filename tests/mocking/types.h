@@ -28,6 +28,14 @@ struct MOConsumer {
     void accept(MoveOnly) {}
 };
 
+struct Stringer {
+    void put(std::string s) { (void)s; }
+};
+
+struct Floater {
+    void feed(double v) { (void)v; }
+};
+
 template <typename Derived>
 struct Runner {
     void run(int value) { static_cast<Derived *>(this)->handle(value); }

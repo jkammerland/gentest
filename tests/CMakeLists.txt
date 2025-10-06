@@ -186,13 +186,13 @@ add_test(NAME templates_list_tests_lines
 add_test(NAME mocking_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DPASS=15 -DFAIL=0 -DSKIP=0
+        -DPASS=18 -DFAIL=0 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME mocking_list_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DLIST=ON -DCASES=15
+        -DLIST=ON -DCASES=18
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 # Verify descriptive predicate mismatch content

@@ -190,6 +190,50 @@ void move_only_with_eq() {
     EXPECT_EQ(hits, 1);
 }
 
+[[using gentest: test("mocking/matchers/str_contains")]]
+void matchers_str_contains() {
+    using namespace gentest::match;
+    gentest::mock<Stringer> mock_str;
+    int                     hits = 0;
+    gentest::expect(mock_str, &Stringer::put)
+        .times(2)
+        .where_args(StrContains("abc"))
+        .invokes([&](const std::string &) { ++hits; });
+
+    mock_str.put("xxabcxx");
+    mock_str.put("abc");
+    EXPECT_EQ(hits, 2);
+}
+
+[[using gentest: test("mocking/matchers/starts_ends")]]
+void matchers_starts_ends() {
+    using namespace gentest::match;
+    gentest::mock<Stringer> mock_str;
+    int                     hits = 0;
+    gentest::expect(mock_str, &Stringer::put)
+        .times(1)
+        .where_args(AllOf(StartsWith("hello"), EndsWith("!")))
+        .invokes([&](const std::string &) { ++hits; });
+
+    mock_str.put("hello world!");
+    EXPECT_EQ(hits, 1);
+}
+
+[[using gentest: test("mocking/matchers/near")]]
+void matchers_near() {
+    using namespace gentest::match;
+    gentest::mock<Floater> mock_fl;
+    int                    hits = 0;
+    gentest::expect(mock_fl, &Floater::feed)
+        .times(2)
+        .where_args(Near(3.14, 0.01))
+        .invokes([&](double) { ++hits; });
+
+    mock_fl.feed(3.14);
+    mock_fl.feed(3.149);
+    EXPECT_EQ(hits, 2);
+}
+
 [[using gentest: test("mocking/matchers/ge_anyof")]]
 void matchers_ge_anyof() {
     using namespace gentest::match;
