@@ -24,19 +24,19 @@ void hello() {
 
 // Parameterized test
 
-[[using gentest: test("params"), parameters(int, 0, 10, 100)]]
+[[using gentest: test("params"), parameters(i, 0, 10, 100)]]
 void params_test(int i) {
     gentest::expect(i == 0 || i == 10 || i == 100, "value in set {0,10,100}");
 }
 
 // Multi-argument parameterization across separate blocks
 
-[[using gentest: test("pairs")]] [[using gentest: parameters(int, 1, 2)]] [[using gentest: parameters(int, 5, 6)]]
+[[using gentest: test("pairs")]] [[using gentest: parameters(a, 1, 2)]] [[using gentest: parameters(b, 5, 6)]]
 void pairs(int a, int b) {
     gentest::expect((a == 1 || a == 2) && (b == 5 || b == 6), "cartesian pairs valid");
 }
 
-[[using gentest: test("strs"), parameters(std::string, "a", b)]]
+[[using gentest: test("strs"), parameters(s, "a", b)]]
 void strs(std::string s) {
     gentest::expect(s == "a" || s == "b", "strings axis values");
 }
@@ -44,7 +44,7 @@ void strs(std::string s) {
 // Mixed axes and templates
 
 template <typename T>
-[[using gentest: test("bar"), template(T, int, long), parameters(std::string, x, y)]]
+[[using gentest: test("bar"), template(T, int, long), parameters(s, x, y)]]
 void bar(std::string s) {
     if constexpr (!std::is_integral_v<T>) {
         gentest::expect(false, "T must be integral");
@@ -55,7 +55,7 @@ void bar(std::string s) {
 
 // parameters_pack: bundle multiple args per row
 
-[[using gentest: test("pack"), parameters_pack((int, string), (42, a), (7, "b"))]]
+[[using gentest: test("pack"), parameters_pack((a, b), (42, a), (7, "b"))]]
 void pack(int a, std::string b) {
     const bool row1 = (a == 42 && b == "a");
     const bool row2 = (a == 7 && b == "b");
@@ -64,28 +64,28 @@ void pack(int a, std::string b) {
 
 // Raw axis: verbatim expressions
 
-[[using gentest: test("raw"), parameters(raw, std::chrono::milliseconds{10})]]
+[[using gentest: test("raw"), parameters(v, std::chrono::milliseconds{10})]]
 void raw_msec(std::chrono::milliseconds v) {
     gentest::expect_eq(v.count(), 10LL, "raw milliseconds value");
 }
 
 // Char-like literals
 
-[[using gentest: test("chars"), parameters(char, a, 'z')]]
+[[using gentest: test("chars"), parameters(c, a, 'z')]]
 void chars(char c) {
     gentest::expect(c == 'a' || c == 'z', "char axis values");
 }
 
 // Wide/UTF strings
 
-[[using gentest: test("wstrs"), parameters(std::wstring, Alpha)]]
+[[using gentest: test("wstrs"), parameters(s, Alpha)]]
 void wstrs(std::wstring s) {
     gentest::expect(s == L"Alpha", "wide string literal value");
 }
 
 // Typed + parameter validation using if constexpr over T
 template <typename T>
-[[using gentest: test("typed_values"), template(T, int, long), parameters(int, 2, 4)]]
+[[using gentest: test("typed_values"), template(T, int, long), parameters(v, 2, 4)]]
 void typed_values(int v) {
     if constexpr (std::is_same_v<T, int>) {
         gentest::expect(v == 2 || v == 4, "int axis values");
@@ -163,7 +163,7 @@ void triad_interleaved() {
 }
 
 // Boolean parameter axis
-[[using gentest: test("bool_params"), parameters(bool, true, false)]]
+[[using gentest: test("bool_params"), parameters(b, true, false)]]
 void bool_params(bool b) {
     gentest::expect(b == true || b == false, "bool axis values");
 }
@@ -198,7 +198,7 @@ void enum_value_scoped() {
 
 // Mixed type + value template + runtime axes (unified template syntax)
 template <typename T, std::size_t N>
-[[using gentest: test("mix/type_nttp_value"), template(T, int), template(N, 16), parameters(int, 3)]]
+[[using gentest: test("mix/type_nttp_value"), template(T, int), template(N, 16), parameters(v, 3)]]
 void mix_type_nttp_value(int v) {
     if constexpr (!std::is_same_v<T, int>) {
         gentest::expect(false, "T must be int");
@@ -228,71 +228,71 @@ void mix_2x1x2() {
 }
 
 // string_view axis with mixed quoted/unquoted
-[[using gentest: test("sv_params"), parameters(std::string_view, hello, "world")]]
+[[using gentest: test("sv_params"), parameters(sv, hello, "world")]]
 void sv_params(std::string_view sv) {
     gentest::expect(sv == "hello" || sv == "world", "string_view values");
 }
 
 // const char* axis with mixed quoted/unquoted
-[[using gentest: test("cstr_params"), parameters(const char *, qux, "baz")]]
+[[using gentest: test("cstr_params"), parameters(s, qux, "baz")]]
 void cstr_params(const char *s) {
     std::string str{s};
     gentest::expect(str == "qux" || str == "baz", "cstr values");
 }
 
 // u8string axis ensures correct UTF-8 literal prefixing
-[[using gentest: test("u8strs"), parameters(std::u8string, alpha, beta)]]
+[[using gentest: test("u8strs"), parameters(s, alpha, beta)]]
 void u8strs(std::u8string s) {
     gentest::expect(s == u8"alpha" || s == u8"beta", "u8string values");
 }
 
 // wchar_t* axis with mixed quoted/unquoted
-[[using gentest: test("wcstr_params"), parameters(const wchar_t *, Wide, L"X")]]
+[[using gentest: test("wcstr_params"), parameters(s, Wide, L"X")]]
 void wcstr_params(const wchar_t *s) {
     std::wstring ws{s};
     gentest::expect(ws == L"Wide" || ws == L"X", "wchar_t* values");
 }
 
 // char16_t* axis
-[[using gentest: test("u16cstr_params"), parameters(const char16_t *, hello, u"w")]]
+[[using gentest: test("u16cstr_params"), parameters(s, hello, u"w")]]
 void u16cstr_params(const char16_t *s) {
     std::u16string us{s};
     gentest::expect(us == u"hello" || us == u"w", "char16_t* values");
 }
 
 // char32_t* axis
-[[using gentest: test("u32cstr_params"), parameters(const char32_t *, Cat, U"Dog")]]
+[[using gentest: test("u32cstr_params"), parameters(s, Cat, U"Dog")]]
 void u32cstr_params(const char32_t *s) {
     std::u32string us{s};
     gentest::expect(us == U"Cat" || us == U"Dog", "char32_t* values");
 }
 
 // wstring_view axis
-[[using gentest: test("wsv_params"), parameters(std::wstring_view, Alpha, L"Beta")]]
+[[using gentest: test("wsv_params"), parameters(sv, Alpha, L"Beta")]]
 void wsv_params(std::wstring_view sv) {
     gentest::expect(sv == L"Alpha" || sv == L"Beta", "wstring_view values");
 }
 
 // u16string axis (non-view)
-[[using gentest: test("u16strs"), parameters(std::u16string, alpha, u"beta")]]
+[[using gentest: test("u16strs"), parameters(s, alpha, u"beta")]]
 void u16strs(std::u16string s) {
     gentest::expect(s == u"alpha" || s == u"beta", "u16string values");
 }
 
 // u32string_view axis
-[[using gentest: test("u32sv_params"), parameters(std::u32string_view, One, U"Two")]]
+[[using gentest: test("u32sv_params"), parameters(sv, One, U"Two")]]
 void u32sv_params(std::u32string_view sv) {
     gentest::expect(sv == U"One" || sv == U"Two", "u32string_view values");
 }
 
 // Combined boolean + string axis
-[[using gentest: test("bool_and_str"), parameters(bool, true, false), parameters(std::string, Hello, "World")]]
+[[using gentest: test("bool_and_str"), parameters(b, true, false), parameters(s, Hello, "World")]]
 void bool_and_str(bool b, std::string s) {
     gentest::expect((b == true || b == false) && (s == "Hello" || s == "World"), "bool+string values");
 }
 
 // parameters_pack with cstr + bool
-[[using gentest: test("pack_cstr_bool"), parameters_pack((const char *, bool), (Alpha, true), ("Beta", false))]]
+[[using gentest: test("pack_cstr_bool"), parameters_pack((s, b), (Alpha, true), ("Beta", false))]]
 void pack_cstr_bool(const char *s, bool b) {
     std::string str{s};
     const bool  row1 = (str == "Alpha" && b == true);

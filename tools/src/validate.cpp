@@ -111,18 +111,18 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
         } else if (lowered == "parameters") {
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;
-                report("'parameters' requires a type and at least one value");
+                report("'parameters' requires a parameter name and at least one value");
                 continue;
             }
             AttributeSummary::ParamSet set;
-            set.type_name = attr.arguments.front();
+            set.param_name = attr.arguments.front();
             for (std::size_t i = 1; i < attr.arguments.size(); ++i)
                 set.values.push_back(attr.arguments[i]);
             summary.parameter_sets.push_back(std::move(set));
         } else if (lowered == "parameters_pack") {
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;
-                report("'parameters_pack' requires a type tuple and at least one value tuple");
+                report("'parameters_pack' requires a parameter name tuple and at least one value tuple");
                 continue;
             }
             auto parse_tuple = [&](const std::string &text, std::vector<std::string> &out) {
@@ -187,18 +187,18 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 }
             };
             AttributeSummary::ParamPack pack;
-            // First argument: types tuple
-            parse_tuple(attr.arguments.front(), pack.types);
-            if (pack.types.empty()) {
+            // First argument: parameter names tuple
+            parse_tuple(attr.arguments.front(), pack.names);
+            if (pack.names.empty()) {
                 summary.had_error = true;
-                report("'parameters_pack' first tuple must list at least one type");
+                report("'parameters_pack' first tuple must list at least one parameter name");
                 continue;
             }
             // Remaining arguments: value tuples matching arity
             for (std::size_t i = 1; i < attr.arguments.size(); ++i) {
                 std::vector<std::string> row;
                 parse_tuple(attr.arguments[i], row);
-                if (row.size() != pack.types.size()) {
+                if (row.size() != pack.names.size()) {
                     summary.had_error = true;
                     report("'parameters_pack' value tuple arity mismatch");
                     continue;

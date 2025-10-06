@@ -96,11 +96,11 @@ namespace gentest::codegen::disc {
 // Build Cartesian product for value parameter axes and collect their type names in order.
 inline std::vector<std::vector<std::string>> build_value_arg_combos(
     const std::vector<AttributeSummary::ParamSet>& param_sets,
-    std::vector<std::string>&                      out_type_names) {
-    out_type_names.clear();
-    out_type_names.reserve(param_sets.size());
+    std::vector<std::string>&                      out_param_names) {
+    out_param_names.clear();
+    out_param_names.reserve(param_sets.size());
     std::vector<std::vector<std::string>> axes; axes.reserve(param_sets.size());
-    for (const auto& ps : param_sets) { axes.push_back(ps.values); out_type_names.push_back(ps.type_name); }
+    for (const auto& ps : param_sets) { axes.push_back(ps.values); out_param_names.push_back(ps.param_name); }
     return gentest::codegen::util::cartesian(axes);
 }
 
@@ -118,7 +118,7 @@ inline std::vector<PackCombo> build_pack_arg_combos(const std::vector<AttributeS
             for (const auto& row : pp.rows) {
                 PackCombo pc = partial;
                 pc.args.insert(pc.args.end(), row.begin(), row.end());
-                pc.types.insert(pc.types.end(), pp.types.begin(), pp.types.end());
+                pc.types.insert(pc.types.end(), pp.names.begin(), pp.names.end());
                 next.push_back(std::move(pc));
             }
         }

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <clang/AST/Decl.h>
+#include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
 #include <fmt/core.h>
 #include <llvm/Support/raw_ostream.h>
@@ -277,49 +278,123 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     };
 
     if (!summary.parameter_sets.empty() || !summary.param_packs.empty()) {
-        // Build Cartesian product of parameter values across axes
-        std::vector<std::vector<std::string>> axes_vals;
-        axes_vals.reserve(summary.parameter_sets.size());
-        for (const auto &ps : summary.parameter_sets)
-            axes_vals.push_back(ps.values);
-        std::vector<std::vector<std::string>> val_combos = gentest::codegen::util::cartesian(axes_vals);
-        // Track scalar types in order
-        std::vector<std::string> scalar_types;
-        for (const auto &ps : summary.parameter_sets)
-            scalar_types.push_back(ps.type_name);
-        // Build pack combos: each element carries concatenated args and types
-        using ArgTypes = std::pair<std::vector<std::string>, std::vector<std::string>>;
-        std::vector<ArgTypes> pack_combos{{}}; // start with empty (args, types)
+        // Build maps of parameter name -> type spelling, and order of parameters
+        std::vector<std::string>              param_order;
+        std::map<std::string, std::string>    param_types;
+        {
+            auto policy = PrintingPolicy(result.Context->getLangOpts());
+            policy.adjustForCPlusPlus();
+            policy.SuppressScope          = false;
+            policy.FullyQualifiedName     = true;
+            policy.SuppressUnwrittenScope = false;
+            for (const ParmVarDecl *p : func->parameters()) {
+                std::string name = p->getNameAsString();
+                if (name.empty()) {
+                    had_error_ = true;
+                    report("function parameter is unnamed; named parameters are required for 'parameters(...)'");
+                    return;
+                }
+                std::string ty;
+                llvm::raw_string_ostream os(ty);
+                p->getType().print(os, policy);
+                os.flush();
+                param_order.push_back(name);
+                param_types.emplace(name, std::move(ty));
+            }
+        }
+        // Validate: all named axes refer to known parameters; no overlaps
+        std::set<std::string> seen_param_names;
+        for (const auto &ps : summary.parameter_sets) {
+            if (!param_types.contains(ps.param_name)) {
+                had_error_ = true;
+                report(fmt::format("unknown parameter name '{}' in parameters(...)", ps.param_name));
+                return;
+            }
+            if (!seen_param_names.insert(ps.param_name).second) {
+                had_error_ = true;
+                report(fmt::format("duplicate parameter axis for '{}'", ps.param_name));
+                return;
+            }
+        }
         for (const auto &pp : summary.param_packs) {
-            std::vector<ArgTypes> next;
-            for (const auto &partial : pack_combos) {
-                for (const auto &row : pp.rows) {
-                    ArgTypes nt = partial;
-                    nt.first.insert(nt.first.end(), row.begin(), row.end());
-                    nt.second.insert(nt.second.end(), pp.types.begin(), pp.types.end());
-                    next.push_back(std::move(nt));
+            for (const auto &nm : pp.names) {
+                if (!param_types.contains(nm)) {
+                    had_error_ = true;
+                    report(fmt::format("unknown parameter name '{}' in parameters_pack(...)", nm));
+                    return;
+                }
+                if (!seen_param_names.insert(nm).second) {
+                    had_error_ = true;
+                    report(fmt::format("parameter '{}' supplied by multiple parameter sets/packs", nm));
+                    return;
                 }
             }
-            pack_combos = std::move(next);
         }
-        if (pack_combos.empty())
-            pack_combos.push_back({{}, {}});
-        // No expansion guardrails: generate all combinations as requested by attributes.
+        // Cartesian product of scalar parameter axes across names
+        std::vector<std::vector<std::pair<std::string, std::string>>> scalar_axes; // vector of (name,value) arrays
+        for (const auto &ps : summary.parameter_sets) {
+            std::vector<std::pair<std::string, std::string>> axis;
+            axis.reserve(ps.values.size());
+            for (const auto &v : ps.values)
+                axis.emplace_back(ps.param_name, v);
+            scalar_axes.push_back(std::move(axis));
+        }
+        std::vector<std::vector<std::pair<std::string, std::string>>> scalar_combos;
+        if (scalar_axes.empty()) {
+            scalar_combos.push_back({});
+        } else {
+            // Build cartesian product of name-value pairs
+            std::vector<std::size_t> idx(scalar_axes.size(), 0);
+            auto total = [&] {
+                std::size_t t = 1;
+                for (auto &ax : scalar_axes) t *= ax.size();
+                return t;
+            }();
+            scalar_combos.reserve(total);
+            std::vector<std::pair<std::string, std::string>> cur;
+            std::function<void(std::size_t)> dfs = [&](std::size_t i) {
+                if (i == scalar_axes.size()) { scalar_combos.push_back(cur); return; }
+                for (const auto &nv : scalar_axes[i]) { cur.push_back(nv); dfs(i + 1); cur.pop_back(); }
+            };
+            dfs(0);
+        }
+        // Combine pack rows across multiple packs into maps name->value
+        using NameMap = std::map<std::string, std::string>;
+        std::vector<NameMap> pack_maps{{}};
+        for (const auto &pp : summary.param_packs) {
+            std::vector<NameMap> next;
+            for (const auto &partial : pack_maps) {
+                for (const auto &row : pp.rows) {
+                    NameMap nm = partial;
+                    for (std::size_t i = 0; i < pp.names.size(); ++i)
+                        nm[pp.names[i]] = row[i];
+                    next.push_back(std::move(nm));
+                }
+            }
+            pack_maps = std::move(next);
+        }
+        if (pack_maps.empty()) pack_maps.push_back(NameMap{});
 
         for (const auto &tpl_combo : combined_tpl_combos) {
-            for (const auto &pack : pack_combos) {
-                for (const auto &vals : val_combos) {
-                    std::string              call;
-                    std::vector<std::string> types_concat = pack.second; // pack types
-                    types_concat.insert(types_concat.end(), scalar_types.begin(), scalar_types.end());
-                    std::vector<std::string> args_concat = pack.first; // pack args
-                    args_concat.insert(args_concat.end(), vals.begin(), vals.end());
-                    for (std::size_t i = 0; i < args_concat.size(); ++i) {
-                        if (i)
-                            call += ", ";
-                        const auto &ty   = types_concat[i];
-                        auto        kind = classify_type(ty);
-                        call += quote_for_type(kind, args_concat[i], ty);
+            for (const auto &pm : pack_maps) {
+                for (const auto &sc : scalar_combos) {
+                    // Build combined map name->value
+                    NameMap combined = pm;
+                    for (const auto &nv : sc) combined[nv.first] = nv.second;
+                    // Build call by function parameter order; require all named
+                    std::string call;
+                    for (std::size_t i = 0; i < param_order.size(); ++i) {
+                        if (i) call += ", ";
+                        const auto &pname = param_order[i];
+                        auto        it    = combined.find(pname);
+                        if (it == combined.end()) {
+                            had_error_ = true;
+                            report(fmt::format("missing value for function parameter '{}' in parameters(...) or parameters_pack(...)", pname));
+                            return;
+                        }
+                        const std::string &ty   = param_types[pname];
+                        auto               kind = classify_type(ty);
+                        call += quote_for_type(kind, it->second, ty);
                     }
                     add_case(tpl_combo, call);
                 }
