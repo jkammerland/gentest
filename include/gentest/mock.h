@@ -185,6 +185,7 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
     std::function<R(Args...)> action;
     std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
     std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
+    std::function<bool(const std::decay_t<Args>&...)>                 call_predicate;
 
     bool is_satisfied() const { return observed_calls >= expected_calls; }
 
@@ -202,6 +203,14 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
     }
 
     bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
+        if (call_predicate) {
+            if (!call_predicate(actual...)) {
+                ::gentest::detail::record_failure(fmt::format("call predicate mismatch for {}", method_name));
+                // Fall through to allow recording per-arg mismatches as well if present
+                return false;
+            }
+            return true;
+        }
         if (arg_predicates) return check_args_by_predicates(arg_predicates, method_name, actual...);
         return check_args_equal(expected_args, method_name, actual...);
     }
@@ -232,6 +241,7 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationBase 
     std::function<void(Args...)> action;
     std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
     std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
+    std::function<bool(const std::decay_t<Args>&...)>               call_predicate;
 
     bool is_satisfied() const { return observed_calls >= expected_calls; }
 
@@ -249,6 +259,13 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationBase 
     }
 
     bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
+        if (call_predicate) {
+            if (!call_predicate(actual...)) {
+                ::gentest::detail::record_failure(fmt::format("call predicate mismatch for {}", method_name));
+                return false;
+            }
+            return true;
+        }
         if (arg_predicates) return check_args_by_predicates(arg_predicates, method_name, actual...);
         return check_args_equal(expected_args, method_name, actual...);
     }
@@ -385,6 +402,14 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     template <typename... P>
     ExpectationHandle &where(P &&... predicates) {
         return where_args(std::forward<P>(predicates)...);
+    }
+
+    template <typename Callable>
+    ExpectationHandle &where_call(Callable &&call_pred) {
+        if (expectation_) {
+            expectation_->call_predicate = std::function<bool(const std::decay_t<Args>&...)>(std::forward<Callable>(call_pred));
+        }
+        return *this;
     }
 
     template <typename Value> ExpectationHandle &returns(Value &&value) {

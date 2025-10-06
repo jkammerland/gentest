@@ -164,6 +164,19 @@ void matchers_not() {
     EXPECT_EQ(sum, 3);
 }
 
+[[using gentest: test("mocking/matchers/where_call")]]
+void matchers_where_call() {
+    gentest::mock<Calculator> mock_calc;
+    gentest::expect(mock_calc, &Calculator::compute)
+        .times(1)
+        .where_call([](int lhs, int rhs) { return ((lhs + rhs) % 2) == 0; })
+        .returns(42);
+
+    Calculator *iface  = &mock_calc;
+    const int   result = iface->compute(1, 3); // even sum
+    EXPECT_EQ(result, 42);
+}
+
 [[using gentest: test("mocking/matchers/ge_anyof")]]
 void matchers_ge_anyof() {
     using namespace gentest::match;
