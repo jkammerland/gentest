@@ -184,38 +184,16 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     };
 
     if (!summary.parameter_sets.empty() || !summary.param_packs.empty()) {
-        // Build Cartesian product of parameter values across axes
-        std::vector<std::vector<std::string>> axes_vals; axes_vals.reserve(summary.parameter_sets.size());
-        for (const auto& ps : summary.parameter_sets) axes_vals.push_back(ps.values);
-        std::vector<std::vector<std::string>> val_combos = gentest::codegen::util::cartesian(axes_vals);
-        // Track scalar types in order
         std::vector<std::string> scalar_types;
-        for (const auto &ps : summary.parameter_sets) scalar_types.push_back(ps.type_name);
-        // Build pack combos: each element carries concatenated args and types
-        using ArgTypes = std::pair<std::vector<std::string>, std::vector<std::string>>;
-        std::vector<ArgTypes> pack_combos{{}}; // start with empty (args, types)
-        for (const auto &pp : summary.param_packs) {
-            std::vector<ArgTypes> next;
-            for (const auto &partial : pack_combos) {
-                for (const auto &row : pp.rows) {
-                    ArgTypes nt = partial;
-                    nt.first.insert(nt.first.end(), row.begin(), row.end());
-                    nt.second.insert(nt.second.end(), pp.types.begin(), pp.types.end());
-                    next.push_back(std::move(nt));
-                }
-            }
-            pack_combos = std::move(next);
-        }
-        if (pack_combos.empty()) pack_combos.push_back({{}, {}});
-        // No expansion guardrails: generate all combinations as requested by attributes.
-
+        const auto val_combos  = disc::build_value_arg_combos(summary.parameter_sets, scalar_types);
+        const auto pack_combos = disc::build_pack_arg_combos(summary.param_packs);
         for (const auto &tpl_combo : combined_tpl_combos) {
             for (const auto &pack : pack_combos) {
                 for (const auto &vals : val_combos) {
                     std::string call;
-                    std::vector<std::string> types_concat = pack.second; // pack types
+                    std::vector<std::string> types_concat = pack.types;
                     types_concat.insert(types_concat.end(), scalar_types.begin(), scalar_types.end());
-                    std::vector<std::string> args_concat = pack.first; // pack args
+                    std::vector<std::string> args_concat = pack.args;
                     args_concat.insert(args_concat.end(), vals.begin(), vals.end());
                     for (std::size_t i = 0; i < args_concat.size(); ++i) {
                         if (i) call += ", ";
