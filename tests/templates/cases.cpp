@@ -1,6 +1,7 @@
 #include "gentest/runner.h"
 
 #include <chrono>
+#include <cstddef>
 #include <string_view>
 #include <type_traits>
 
@@ -178,6 +179,13 @@ void nttp_bool() {
     }
 }
 
+// size_t value template parameter
+template <std::size_t N>
+[[using gentest: test("size_value"), template(N, 16, 32)]]
+void size_value() {
+    gentest::expect(N == 16 || N == 32, "N in {16,32}");
+}
+
 // Mixed type + value template + runtime axes (unified template syntax)
 template <typename T, std::size_t N>
 [[using gentest: test("mix/type_nttp_value"), template(T, int), template(N, 16), parameters(int, 3)]]
@@ -283,3 +291,11 @@ void pack_cstr_bool(const char *s, bool b) {
 }
 
 } // namespace templates
+// Enum value template parameter
+enum class Color { Red, Green, Blue };
+
+template <Color C>
+[[using gentest: test("enum_value"), template(C, Color::Red, Color::Blue)]]
+void enum_value() {
+    gentest::expect(C == Color::Red || C == Color::Blue, "C in {Red,Blue}");
+}
