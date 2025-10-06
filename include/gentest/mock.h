@@ -123,6 +123,28 @@ bool check_args_equal(const std::optional<Tuple> &expected, std::string_view met
     return matched;
 }
 
+template <typename TuplePred, typename... A>
+bool check_args_by_predicates(const std::optional<TuplePred> &preds, std::string_view method_name, const A &...actual) {
+    if (!preds)
+        return true;
+    const auto actual_tuple = std::tuple<std::decay_t<A>...>(actual...);
+    bool       ok           = true;
+    [&]<std::size_t... I>(std::index_sequence<I...>) {
+        ((ok = ok && ([&] {
+              const auto &p = std::get<I>(*preds);
+              const auto &a = std::get<I>(actual_tuple);
+              if (!p(a)) {
+                  ::gentest::detail::record_failure(
+                      fmt::format("argument[{}] predicate mismatch for {}", I, method_name));
+                  return false;
+              }
+              return true;
+          }())),
+         ...);
+    }(std::make_index_sequence<sizeof...(A)>{});
+    return ok;
+}
+
 inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std::string_view method_name, bool &already_verified) {
     if (already_verified)
         return;
@@ -139,6 +161,7 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
     bool                      allow_excess   = false;
     std::function<R(Args...)> action;
     std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
+    std::optional<std::tuple<std::function<bool(const std::decay_t<Args>&)>...>> arg_predicates;
 
     bool is_satisfied() const { return observed_calls >= expected_calls; }
 
@@ -149,7 +172,13 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
         expected_args = std::tuple<std::decay_t<Args>...>(std::forward<X>(values)...);
     }
 
+    template <typename... P>
+    void set_predicates(P &&...preds) {
+        arg_predicates = std::tuple<std::function<bool(const std::decay_t<Args>&)>...>(std::forward<P>(preds)...);
+    }
+
     bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
+        if (arg_predicates) return check_args_by_predicates(arg_predicates, method_name, actual...);
         return check_args_equal(expected_args, method_name, actual...);
     }
 
@@ -178,6 +207,7 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationBase 
     bool                         allow_excess   = false;
     std::function<void(Args...)> action;
     std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
+    std::optional<std::tuple<std::function<bool(const std::decay_t<Args>&)>...>> arg_predicates;
 
     bool is_satisfied() const { return observed_calls >= expected_calls; }
 
@@ -188,7 +218,13 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationBase 
         expected_args = std::tuple<std::decay_t<Args>...>(std::forward<X>(values)...);
     }
 
+    template <typename... P>
+    void set_predicates(P &&...preds) {
+        arg_predicates = std::tuple<std::function<bool(const std::decay_t<Args>&)>...>(std::forward<P>(preds)...);
+    }
+
     bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
+        if (arg_predicates) return check_args_by_predicates(arg_predicates, method_name, actual...);
         return check_args_equal(expected_args, method_name, actual...);
     }
 
@@ -307,6 +343,15 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     ExpectationHandle &with(X &&... expected) {
         if (expectation_) {
             expectation_->set_expected(std::forward<X>(expected)...);
+        }
+        return *this;
+    }
+
+    template <typename... P>
+    ExpectationHandle &where_args(P &&... predicates) {
+        static_assert(sizeof...(P) == sizeof...(Args), "where_args arity must match mocked method");
+        if (expectation_) {
+            expectation_->set_predicates(std::forward<P>(predicates)...);
         }
         return *this;
     }
