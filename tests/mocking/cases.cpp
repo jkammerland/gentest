@@ -1,6 +1,7 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 #include "types.h"
+#include "helper.hpp" // use mock<T> in non-annotated helper code
 
 #include <vector>
 

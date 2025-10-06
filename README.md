@@ -221,6 +221,17 @@ void mock_clock_basic() {
   tests; the generated `test_impl.cpp` includes `mock_impl.hpp` after including your test sources so original types are
   complete. No extra translation unit is used for mocks.
 
+Using mocks in helpers/outside tests
+- You can freely use `gentest::mock<T>` in helper headers or other files that are part of the same test target, even
+  outside `[[using gentest: test]]` functions. The CMake helper defines:
+  - `GENTEST_MOCK_REGISTRY_PATH` so including `gentest/mock.h` brings in the generated registry specializations.
+  - `GENTEST_MOCK_IMPL_PATH` so inline method definitions are visible to any TU in the target.
+- Discovery still requires that at least one scanned source (or a header included from it) contains `gentest::mock<T>`
+  instantiations or references, so the generator knows which mocks to produce. Add such uses to your `SOURCES` passed to
+  `gentest_attach_codegen()` or include a header that references `mock<T>`.
+- Avoid calling `gentest::expect(...)` outside an active test context; configure expectations inside test bodies or
+  fixture setup hooks. Using the mock type itself (constructing, taking member pointers) is fine in helper code.
+
 ### Matchers
 
 In addition to positional equality via `.with(...)`, you can use per-argument matchers with `.where_args(...)` or the

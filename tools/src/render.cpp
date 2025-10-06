@@ -34,35 +34,12 @@ std::string escape_string(std::string_view value) {
     return escaped;
 }
 
-std::string render_forward_decls(const std::vector<TestCaseInfo> &cases, const std::string &tpl_line, const std::string &tpl_ns) {
-    std::map<std::string, std::set<std::string>> forward_decls;
-    for (const auto &test : cases) {
-        if (!test.fixture_qualified_name.empty())
-            continue;
-        // Skip templated instantiations in forward decls (not valid syntax)
-        if (test.qualified_name.find('<') != std::string::npos)
-            continue;
-        std::string scope;
-        std::string basename = test.qualified_name;
-        if (auto pos = basename.rfind("::"); pos != std::string::npos) {
-            scope    = basename.substr(0, pos);
-            basename = basename.substr(pos + 2);
-        }
-        forward_decls[scope].insert(basename);
-    }
-
-    std::string block;
-    for (const auto &[scope, functions] : forward_decls) {
-        std::string lines;
-        for (const auto &name : functions)
-            lines += fmt::format(fmt::runtime(tpl_line), fmt::arg("name", name));
-        if (scope.empty()) {
-            block += lines;
-        } else {
-            block += fmt::format(fmt::runtime(tpl_ns), fmt::arg("scope", scope), fmt::arg("lines", lines));
-        }
-    }
-    return block;
+std::string render_forward_decls(const std::vector<TestCaseInfo> & /*cases*/, const std::string & /*tpl_line*/, const std::string & /*tpl_ns*/) {
+    // Forward declarations for test functions are not emitted.
+    // The generated TU includes the test sources before wrappers, so declarations
+    // are available, and emitting prototypes with a fixed return type (e.g., void)
+    // would incorrectly reject non-void test functions.
+    return {};
 }
 
 static std::string format_sv_array(const std::string &name, const std::vector<std::string> &values, const std::string &tpl_empty,
@@ -113,6 +90,7 @@ struct WrapperSpec {
     std::string              method;       // member method name (unqualified)
     std::vector<std::string> fixtures;     // for FreeWithFixtures
     std::string              value_args;   // comma-separated value args (may be empty)
+    bool                     returns_value = false; // whether to capture result
 };
 std::string build_fixture_decls(const std::vector<std::string> &types) {
     std::string decls;
@@ -158,12 +136,27 @@ std::string format_call_args(const std::string &value_args) {
     return value_args.empty() ? std::string("()") : fmt::format("({})", value_args);
 }
 
+static std::string make_invoke_for_free(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
+    if (spec.returns_value) {
+        return fmt::format("[[maybe_unused]] const auto _ = {}{};", fn, args);
+    }
+    return fmt::format("static_cast<void>({}{});", fn, args);
+}
+
+static std::string make_invoke_for_member(const WrapperSpec &spec, const std::string &call_expr) {
+    if (spec.returns_value) {
+        return fmt::format("[[maybe_unused]] const auto _ = {};", call_expr);
+    }
+    return fmt::format("static_cast<void>({});", call_expr);
+}
+
 std::string render_wrapper(const WrapperSpec &spec, const std::string &tpl_free, const std::string &tpl_free_fixtures,
                            const std::string &tpl_ephemeral, const std::string &tpl_stateful) {
     switch (spec.kind) {
     case WrapperKind::Free: {
         const auto call = format_call_args(spec.value_args);
-        return fmt::format(fmt::runtime(tpl_free), fmt::arg("w", spec.wrapper_name), fmt::arg("fn", spec.callee), fmt::arg("args", call));
+        const auto invoke = make_invoke_for_free(spec, spec.callee, call);
+        return fmt::format(fmt::runtime(tpl_free), fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
     }
     case WrapperKind::FreeWithFixtures: {
         const std::string decls    = build_fixture_decls(spec.fixtures);
@@ -173,18 +166,23 @@ std::string render_wrapper(const WrapperSpec &spec, const std::string &tpl_free,
         if (!spec.value_args.empty())
             combined += combined.empty() ? spec.value_args : ", " + spec.value_args;
         const std::string call = fmt::format("({})", combined);
-        return fmt::format(fmt::runtime(tpl_free_fixtures), fmt::arg("w", spec.wrapper_name), fmt::arg("fn", spec.callee),
-                           fmt::arg("decls", decls), fmt::arg("setup", setup), fmt::arg("teardown", teardown), fmt::arg("call", call));
+        const auto invoke = make_invoke_for_free(spec, spec.callee, call);
+        return fmt::format(fmt::runtime(tpl_free_fixtures), fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
+                           fmt::arg("setup", setup), fmt::arg("teardown", teardown), fmt::arg("invoke", invoke));
     }
     case WrapperKind::MemberEphemeral: {
         const auto call = format_call_args(spec.value_args);
+        const auto call_expr = fmt::format("fx_.{}{}", spec.method, call);
+        const auto invoke    = make_invoke_for_member(spec, call_expr);
         return fmt::format(fmt::runtime(tpl_ephemeral), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
-                           fmt::arg("method", spec.method), fmt::arg("args", call));
+                           fmt::arg("invoke", invoke));
     }
     case WrapperKind::MemberShared: {
         const auto call = format_call_args(spec.value_args);
+        const auto call_expr = fmt::format("fx_->{}{}", spec.method, call);
+        const auto invoke    = make_invoke_for_member(spec, call_expr);
         return fmt::format(fmt::runtime(tpl_stateful), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
-                           fmt::arg("method", spec.method), fmt::arg("args", call));
+                           fmt::arg("invoke", invoke));
     }
     }
     return {};
@@ -214,6 +212,7 @@ WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
         spec.callee = test.fixture_qualified_name;
         spec.method = extract_method_name(test.qualified_name);
     }
+    spec.returns_value = test.returns_value;
     return spec;
 }
 } // namespace
