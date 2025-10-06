@@ -178,18 +178,19 @@ inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std
     }
 }
 
-template <typename R, typename... Args> struct Expectation<R(Args...)> : ExpectationBase {
-    std::size_t               expected_calls = 1;
-    std::size_t               observed_calls = 0;
-    bool                      allow_excess   = false;
-    std::function<R(const std::decay_t<Args>&...)> action;
-    std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
-    std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
-    std::function<bool(const std::decay_t<Args>&...)>                 call_predicate;
+template <typename... Args> struct ExpectationCommon : ExpectationBase {
+    std::size_t                                                     expected_calls = 1;
+    std::size_t                                                     observed_calls = 0;
+    bool                                                            allow_excess   = false;
+    std::optional<std::tuple<std::decay_t<Args>...>>                expected_args;
+    std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>>  arg_predicates;
+    std::function<bool(const std::decay_t<Args>&...)>               call_predicate;
 
     bool is_satisfied() const { return observed_calls >= expected_calls; }
 
-    void verify(std::string_view method_name) override { verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified); }
+    void verify(std::string_view method_name) override {
+        verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified);
+    }
 
     template <typename... X>
     void set_expected(X &&...values) {
@@ -206,7 +207,6 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
         if (call_predicate) {
             if (!call_predicate(actual...)) {
                 ::gentest::detail::record_failure(fmt::format("call predicate mismatch for {}", method_name));
-                // Fall through to allow recording per-arg mismatches as well if present
                 return false;
             }
             return true;
@@ -214,13 +214,17 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
         if (arg_predicates) return check_args_by_predicates(arg_predicates, method_name, actual...);
         return check_args_equal(expected_args, method_name, actual...);
     }
+};
+
+template <typename R, typename... Args> struct Expectation<R(Args...)> : ExpectationCommon<Args...> {
+    std::function<R(const std::decay_t<Args>&...)> action;
 
     R invoke(std::string_view method_name, Args... args) {
-        if (!allow_excess && observed_calls >= expected_calls) {
+        if (!this->allow_excess && this->observed_calls >= this->expected_calls) {
             ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
         }
-        (void)check_args(method_name, std::forward<Args>(args)...);
-        ++observed_calls;
+        (void)this->check_args(method_name, std::forward<Args>(args)...);
+        ++this->observed_calls;
         if (action) {
             return action(args...);
         }
@@ -234,48 +238,15 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
     }
 };
 
-template <typename... Args> struct Expectation<void(Args...)> : ExpectationBase {
-    std::size_t                  expected_calls = 1;
-    std::size_t                  observed_calls = 0;
-    bool                         allow_excess   = false;
+template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommon<Args...> {
     std::function<void(const std::decay_t<Args>&...)> action;
-    std::optional<std::tuple<std::decay_t<Args>...>> expected_args;
-    std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
-    std::function<bool(const std::decay_t<Args>&...)>               call_predicate;
-
-    bool is_satisfied() const { return observed_calls >= expected_calls; }
-
-    void verify(std::string_view method_name) override { verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified); }
-
-    template <typename... X>
-    void set_expected(X &&...values) {
-        expected_args = std::tuple<std::decay_t<Args>...>(std::forward<X>(values)...);
-    }
-
-    template <typename... P>
-    void set_predicates(P &&...preds) {
-        arg_predicates = std::tuple<ArgPredicate<std::decay_t<Args>>...>(
-            to_arg_predicate<std::decay_t<Args>>(std::forward<P>(preds))...);
-    }
-
-    bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
-        if (call_predicate) {
-            if (!call_predicate(actual...)) {
-                ::gentest::detail::record_failure(fmt::format("call predicate mismatch for {}", method_name));
-                return false;
-            }
-            return true;
-        }
-        if (arg_predicates) return check_args_by_predicates(arg_predicates, method_name, actual...);
-        return check_args_equal(expected_args, method_name, actual...);
-    }
 
     void invoke(std::string_view method_name, Args... args) {
-        if (!allow_excess && observed_calls >= expected_calls) {
+        if (!this->allow_excess && this->observed_calls >= this->expected_calls) {
             ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
         }
-        (void)check_args(method_name, std::forward<Args>(args)...);
-        ++observed_calls;
+        (void)this->check_args(method_name, std::forward<Args>(args)...);
+        ++this->observed_calls;
         if (action) {
             action(args...);
         }
