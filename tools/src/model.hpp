@@ -66,6 +66,8 @@ struct TestCaseInfo {
     std::string filename;
     std::string suite_name;
     unsigned    line = 0;
+    // True when the test function/method returns a non-void value.
+    bool        returns_value = false;
     // Tags and metadata
     std::vector<std::string> tags;
     std::vector<std::string> requirements;

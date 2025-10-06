@@ -132,6 +132,27 @@ Devlog 2025-10-03 (Guardrails removed)
   - Tests
       - No changes required; existing suites pass unchanged.
 
+Devlog 2025-10-06 (Return Values in Tests)
+
+  - Feature
+      - Support non-void return values from test functions across free, free-with-fixtures, and member wrappers.
+      - Generator now detects the test return type via Clang and emits either:
+          - `[[maybe_unused]] const auto _ = <call>;` for non-void returns, or
+          - `static_cast<void>(<call>);` for void returns.
+        This avoids unused-result warnings while keeping behavior unchanged.
+  - Emission
+      - Added `returns_value` to `TestCaseInfo` (tools/src/model.hpp) and populate it in discovery (tools/src/discovery.cpp).
+      - Updated wrapper templates in `tools/src/templates.hpp` to accept an `{invoke}` snippet.
+      - Updated `render.cpp` to format `{invoke}` per-case (capture vs. void-cast) for all wrapper kinds.
+      - Disabled forward declaration emission in `render_forward_decls` to avoid mismatches with non-void tests; sources
+        are included before wrappers so prototypes are unnecessary.
+  - Mocks usability
+      - Generated inline mock implementations are now included via `GENTEST_MOCK_IMPL_PATH` from `gentest/mock.h`, so any
+        TU in the test target can use `gentest::mock<T>` (even outside annotated `[[using gentest: test]]` functions).
+        The registry header still provides class/MockAccess specializations via `GENTEST_MOCK_REGISTRY_PATH`.
+  - Status
+      - Behavior unchanged; only suppresses warnings and unblocks non-void tests. Existing suites compile and run as before.
+
 Devlog 2025-10-03 (Free-function Fixtures)
 
   - Feature

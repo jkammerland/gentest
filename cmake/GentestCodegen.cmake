@@ -62,6 +62,10 @@ function(gentest_attach_codegen target)
     target_include_directories(${target} PRIVATE ${_gentest_mock_dir})
 
     get_filename_component(_gentest_mock_header_name "${_gentest_mock_registry}" NAME)
-    target_compile_definitions(${target} PRIVATE GENTEST_MOCK_REGISTRY_PATH=${_gentest_mock_header_name})
+    get_filename_component(_gentest_mock_impl_name "${_gentest_mock_impl}" NAME)
+    target_compile_definitions(${target} PRIVATE
+        GENTEST_MOCK_REGISTRY_PATH=${_gentest_mock_header_name}
+        GENTEST_MOCK_IMPL_PATH=${_gentest_mock_impl_name}
+    )
     add_dependencies(${target} gentest_codegen)
 endfunction()

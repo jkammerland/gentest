@@ -275,6 +275,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.skip_reason    = summary.skip_reason;
         info.template_args  = tpl_ordered;
         info.call_arguments = call_args;
+        info.returns_value  = !func->getReturnType()->isVoidType();
         // Qualify fixture type names if unqualified, using the function's enclosing scope
         if (!summary.fixtures_types.empty()) {
             for (const auto &ty : summary.fixtures_types) {
@@ -550,6 +551,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
     info.requirements   = std::move(summary.requirements);
     info.should_skip    = summary.should_skip;
     info.skip_reason    = std::move(summary.skip_reason);
+    info.returns_value  = !func.getReturnType()->isVoidType();
 
     // If this is a method, collect fixture attributes from the parent class/struct.
     if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {

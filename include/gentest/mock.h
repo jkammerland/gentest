@@ -783,8 +783,28 @@ template <typename... M> inline auto AllOf(M &&...m) { return AllOfFactory<std::
 #include GENTEST_MOCK_REGISTRY_HEADER
 #endif
 #undef GENTEST_MOCK_REGISTRY_HEADER
-#undef GENTEST_DETAIL_MOCK_STRINGIFY
-#undef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
 #endif
 
 } // namespace gentest
+
+// Include generated mock inline implementations at global scope, so fully
+// qualified definitions like `inline auto gentest::mock<T>::method(...)` are
+// declared in the correct namespace context.
+#ifdef GENTEST_MOCK_IMPL_PATH
+#ifndef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
+#define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x
+#define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)
+#endif
+#define GENTEST_MOCK_IMPL_HEADER GENTEST_DETAIL_MOCK_STRINGIFY(GENTEST_MOCK_IMPL_PATH)
+#if __has_include(GENTEST_MOCK_IMPL_HEADER)
+#include GENTEST_MOCK_IMPL_HEADER
+#endif
+#undef GENTEST_MOCK_IMPL_HEADER
+#endif
+
+#if defined(GENTEST_DETAIL_MOCK_STRINGIFY)
+#undef GENTEST_DETAIL_MOCK_STRINGIFY
+#endif
+#if defined(GENTEST_DETAIL_MOCK_STRINGIFY_IMPL)
+#undef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
+#endif
