@@ -177,7 +177,10 @@ void mock_clock_basic() {
 }
 ```
 
-- Expectations support `.times(n)`, `.returns(value)` (non-void), `.invokes(callable)`, and `.allow_more()`.
+- Expectations support `.times(n)`, `.returns(value)` (non-void), `.invokes(callable)`, `.with(args...)`, and `.allow_more()`.
+- `.with(args...)` enables simple positional argument matching via `==` for each parameter. On mismatch, a failure is
+  recorded in the active test context with a detailed message (argument index, method name, expected vs. actual). Calls
+  still count against the current expectation in FIFO order.
 - Missing calls or unexpected invocations are surfaced through the active test context (identical to other assertions).
 - Polymorphic targets produce `mock<T> : T` overrides; non-virtual classes receive standalone mocks that mirror the
   public surface so they remain drop-in replacements for templated injection and CRTP patterns.

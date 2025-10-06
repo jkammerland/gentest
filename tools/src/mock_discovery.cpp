@@ -36,6 +36,19 @@ namespace {
     return result;
 }
 
+[[nodiscard]] std::string print_type_as_written(const QualType &qt, const ASTContext &ctx) {
+    auto policy = PrintingPolicy(ctx.getLangOpts());
+    policy.adjustForCPlusPlus();
+    policy.SuppressScope          = false;
+    policy.FullyQualifiedName     = true;
+    policy.SuppressUnwrittenScope = false;
+    std::string result;
+    llvm::raw_string_ostream os(result);
+    qt.print(os, policy);
+    os.flush();
+    return result;
+}
+
 [[nodiscard]] std::string ref_qualifier_string(RefQualifierKind kind) {
     switch (kind) {
     case RQ_LValue: return "&";
@@ -171,24 +184,26 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
 
     const ASTContext &ctx = *result.Context;
 
-    for (const auto *method : record->methods()) {
+    auto capture_method = [&](const CXXMethodDecl* method) {
         if (llvm::isa<CXXConstructorDecl>(method) || llvm::isa<CXXDestructorDecl>(method)) {
-            continue;
+            return;
         }
         if (method->isCopyAssignmentOperator() || method->isMoveAssignmentOperator()) {
-            continue;
+            return;
         }
         if (method->isDeleted())
-            continue;
+            return;
         if (method->isStatic())
-            continue; // static members currently unsupported
+            return; // static members currently unsupported
         if (!is_supported_access(method->getAccess())) {
-            continue;
+            return;
         }
         MockMethodInfo method_info;
         method_info.qualified_name  = method->getQualifiedNameAsString();
         method_info.method_name     = method->getNameAsString();
-        method_info.return_type     = print_type(method->getReturnType(), ctx);
+        const bool is_template      = method->getDescribedFunctionTemplate() != nullptr;
+        method_info.return_type     = is_template ? print_type_as_written(method->getReturnType(), ctx)
+                                                  : print_type(method->getReturnType(), ctx);
         method_info.is_const        = method->isConst();
         method_info.is_volatile     = method->isVolatile();
         method_info.is_static       = method->isStatic();
@@ -197,10 +212,43 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         method_info.is_noexcept     = is_noexcept(*method);
         method_info.ref_qualifier   = ref_qualifier_string(method->getRefQualifier());
 
+        if (const auto *ft = method->getDescribedFunctionTemplate()) {
+            std::string tpl;
+            tpl += "template <";
+            bool first = true;
+            for (const auto *param : *ft->getTemplateParameters()) {
+                if (!first) tpl += ", ";
+                first = false;
+                if (const auto *ttp = llvm::dyn_cast<TemplateTypeParmDecl>(param)) {
+                    tpl += (ttp->isParameterPack() ? "typename... " : "typename ");
+                    const std::string name = ttp->getNameAsString();
+                    tpl += name;
+                    method_info.template_param_names.push_back(name);
+                } else if (const auto *nttp = llvm::dyn_cast<NonTypeTemplateParmDecl>(param)) {
+                    tpl += print_type(nttp->getType(), ctx);
+                    if (nttp->isParameterPack()) tpl += "...";
+                    tpl += ' ';
+                    const std::string name = nttp->getNameAsString();
+                    tpl += name;
+                    method_info.template_param_names.push_back(name);
+                } else if (const auto *tttp = llvm::dyn_cast<TemplateTemplateParmDecl>(param)) {
+                    tpl += "template <class...> class ";
+                    const std::string name = tttp->getNameAsString();
+                    tpl += name;
+                    method_info.template_param_names.push_back(name);
+                } else {
+                    tpl += "typename __unk"; // fallback
+                }
+            }
+            tpl += ">";
+            method_info.template_prefix = std::move(tpl);
+        }
+
         unsigned arg_index = 0;
         for (const auto *param : method->parameters()) {
             MockParamInfo param_info;
-            param_info.type = print_type(param->getType(), ctx);
+            param_info.type = is_template ? print_type_as_written(param->getType(), ctx)
+                                         : print_type(param->getType(), ctx);
             if (!param->getNameAsString().empty()) {
                 param_info.name = param->getNameAsString();
             } else {
@@ -211,6 +259,19 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         }
 
         info.methods.push_back(std::move(method_info));
+    };
+
+    for (const auto *method : record->methods()) {
+        capture_method(method);
+    }
+
+    // Also capture function template declarations (non-virtual in practice).
+    for (const auto *decl : record->decls()) {
+        if (const auto *ft = llvm::dyn_cast<FunctionTemplateDecl>(decl)) {
+            if (const auto *templated = llvm::dyn_cast<CXXMethodDecl>(ft->getTemplatedDecl())) {
+                capture_method(templated);
+            }
+        }
     }
 
     // Stable order for deterministic output.
