@@ -20,6 +20,20 @@ void sum_is_computed() {
     EXPECT_EQ(average, 2.5, "arithmetic mean");
 }
 
+[[using gentest: test("approx/absolute")]]
+void approx_absolute() {
+    using gentest::approx::Approx;
+    EXPECT_EQ(3.1415, Approx(3.14).abs(0.01));
+    EXPECT_EQ(Approx(10.0).abs(0.5), 10.3);
+}
+
+[[using gentest: test("approx/relative")]]
+void approx_relative() {
+    using gentest::approx::Approx;
+    EXPECT_EQ(101.0, Approx(100.0).rel(2.0));   // 1% diff within 2%
+    EXPECT_EQ(Approx(200.0).rel(1.0), 198.5);  // 0.75% diff within 1%
+}
+
 [[using gentest: test("strings/concatenate"), req("#42"), slow]]
 void concatenate_strings() {
     std::string greeting = "hello";

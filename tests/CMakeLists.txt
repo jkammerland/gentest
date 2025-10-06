@@ -113,13 +113,13 @@ set_tests_properties(gentest_codegen_check_invalid PROPERTIES WILL_FAIL TRUE)
 add_test(NAME unit_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_unit_tests>
-        -DPASS=3 -DFAIL=0 -DSKIP=0
+        -DPASS=5 -DFAIL=0 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME unit_list_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_unit_tests>
-        -DLIST=ON -DCASES=3
+        -DLIST=ON -DCASES=5
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME integration_counts
@@ -214,7 +214,7 @@ add_test(NAME unit_help
 add_test(NAME unit_list_tests_lines
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_unit_tests>
-        -DLINES=3
+        -DLINES=5
         -DARGS=--list-tests
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)
 

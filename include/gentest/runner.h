@@ -88,6 +88,54 @@ struct Adopt {
 };
 } // namespace ctx
 
+// Approximate equality helper usable with EXPECT_EQ/ASSERT_EQ via operator==.
+// Example: EXPECT_EQ(3.1415, gentest::approx::Approx(3.14).abs(0.01));
+//          EXPECT_EQ(gentest::approx::Approx(100).rel(2.0), 101.0);
+namespace approx {
+struct Approx {
+    long double target;
+    long double abs_epsilon{0.0L};
+    long double rel_percent{0.0L}; // unit percent; 1.0 means 1%
+
+    explicit Approx(long double v) : target(v) {}
+
+    Approx &abs(long double e) {
+        abs_epsilon = e < 0 ? -e : e;
+        return *this;
+    }
+    Approx &rel(long double percent) {
+        rel_percent = percent < 0 ? -percent : percent;
+        return *this;
+    }
+
+    template <typename T>
+    bool matches(const T &value) const {
+        const long double a = static_cast<long double>(value);
+        const long double diff = a > target ? (a - target) : (target - a);
+        if (abs_epsilon > 0 && diff <= abs_epsilon) return true;
+        if (rel_percent > 0) {
+            const long double scale = (a > target ? a : target);
+            const long double tol   = scale * (rel_percent / 100.0L);
+            if (diff <= tol) return true;
+        }
+        return false;
+    }
+};
+
+template <typename T>
+inline bool operator==(const T &lhs, const Approx &rhs) {
+    return rhs.matches(lhs);
+}
+template <typename T>
+inline bool operator==(const Approx &lhs, const T &rhs) {
+    return lhs.matches(rhs);
+}
+template <typename T>
+inline bool operator!=(const T &lhs, const Approx &rhs) { return !(lhs == rhs); }
+template <typename T>
+inline bool operator!=(const Approx &lhs, const T &rhs) { return !(lhs == rhs); }
+} // namespace approx
+
 // Assert that `condition` is true, otherwise throws gentest::failure with `message`.
 inline void expect(bool condition, std::string_view message = {}, const std::source_location& loc = std::source_location::current()) {
     if (!condition) {
