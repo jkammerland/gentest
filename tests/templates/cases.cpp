@@ -320,3 +320,10 @@ struct LocalPoint {
 void local_struct_axis(LocalPoint p) {
     gentest::expect((p.x == 1 && p.y == 2) || (p.x == 3 && p.y == 4), "LocalPoint matches");
 }
+
+[[using gentest: test("local_struct/pack"), parameters_pack((p, q), (LocalPoint{1,2}, LocalPoint{3,4}), (LocalPoint{5,6}, LocalPoint{7,8}))]]
+void local_struct_pack(LocalPoint p, LocalPoint q) {
+    const bool row1 = (p.x == 1 && p.y == 2 && q.x == 3 && q.y == 4);
+    const bool row2 = (p.x == 5 && p.y == 6 && q.x == 7 && q.y == 8);
+    gentest::expect(row1 || row2, "LocalPoint pack rows");
+}
