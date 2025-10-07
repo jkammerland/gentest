@@ -417,7 +417,7 @@ inline void write_allure(const char* dir_path) {
         const auto start_ms = now_ms - duration_ms;
         const auto stop_ms = now_ms;
         const std::string base = "result-" + std::to_string(idx++);
-        const std::string filename = (fs::path(dir_path) / (base + ".json")).string();
+        const std::string filename = (fs::path(dir_path) / (base + "-result.json")).string();
         std::ofstream f(filename, std::ios::binary);
         if (!f) continue;
         const char* status = it.skipped ? "skipped" : (it.failures.empty() ? "passed" : "failed");
@@ -429,7 +429,9 @@ inline void write_allure(const char* dir_path) {
         f << "  \"fullName\": \"" << json_escape(it.suite + "/" + it.name) << "\",\n";
         f << "  \"status\": \"" << status << "\",\n";
         f << "  \"stage\": \"finished\",\n";
-        f << "  \"time\": { \"start\": " << start_ms << ", \"stop\": " << stop_ms << ", \"duration\": " << duration_ms << " },\n";
+        // Allure 2 uses top-level start/stop; time object is optional and ignored by readers.
+        f << "  \"start\": " << start_ms << ",\n";
+        f << "  \"stop\": " << stop_ms << ",\n";
         f << "  \"labels\": [ { \"name\": \"suite\", \"value\": \"" << json_escape(it.suite) << "\" } ]";
         bool wrote_details = false;
         if (!it.failures.empty()) {
@@ -441,7 +443,7 @@ inline void write_allure(const char* dir_path) {
         }
         // Attach logs as an attachment when failing and logs exist
         if (!it.failures.empty() && !it.logs.empty()) {
-            const std::string logs_name = base + "-logs.txt";
+            const std::string logs_name = base + "-attachment.txt";
             const std::string logs_path = (fs::path(dir_path) / logs_name).string();
             std::ofstream lf(logs_path, std::ios::binary);
             if (lf) { for (const auto& line : it.logs) { lf << line << "\n"; } }
