@@ -7,6 +7,11 @@ set(_gentest_test_suites
     templates
     mocking)
 
+# Optionally include libassert integration suite
+if(GENTEST_WITH_LIBASSERT)
+    list(APPEND _gentest_test_suites libassert)
+endif()
+
 foreach(suite IN LISTS _gentest_test_suites)
     set(target_name "${PROJECT_NAME}_${suite}_tests")
 
@@ -194,6 +199,86 @@ add_test(NAME mocking_list_counts
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
         -DLIST=ON -DCASES=18
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+# libassert integration counts (optional)
+if(GENTEST_WITH_LIBASSERT)
+    # Link libassert into the generated test target (support either upstream target name)
+    if(TARGET libassert-lib)
+        target_link_libraries(${PROJECT_NAME}_libassert_tests PRIVATE libassert-lib)
+    elseif(TARGET libassert::assert)
+        target_link_libraries(${PROJECT_NAME}_libassert_tests PRIVATE libassert::assert)
+    else()
+        message(FATAL_ERROR "libassert not found: enable FetchContent or provide a libassert package")
+    endif()
+
+    add_test(NAME libassert_counts
+        COMMAND ${CMAKE_COMMAND}
+            -DPROG=$<TARGET_FILE:${PROJECT_NAME}_libassert_tests>
+            -DPASS=3 -DFAIL=2 -DSKIP=0
+            -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+    # The raw suite run is expected to fail due to failing tests
+    set_tests_properties(libassert PROPERTIES WILL_FAIL TRUE)
+endif()
+
+# Optional: no-exceptions death test for libassert integration
+if(GENTEST_WITH_LIBASSERT AND GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS)
+    set(target_name_noexc "${PROJECT_NAME}_libassert_noexc_tests")
+
+    add_executable(${target_name_noexc}
+        support/test_entry.cpp)
+
+    target_link_libraries(${target_name_noexc}
+        PRIVATE
+            ${PROJECT_NAME}
+            fmt::fmt)
+
+    target_compile_features(${target_name_noexc} PRIVATE cxx_std_23)
+    target_include_directories(${target_name_noexc}
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR})
+
+    # Disable exceptions for this target (Clang/GNU/AppleClang); MSVC uses different flags
+    target_compile_options(${target_name_noexc}
+        PRIVATE
+            $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:AppleClang>>:-fno-exceptions>
+            $<$<CXX_COMPILER_ID:MSVC>:/EHs-c->)
+
+    # Disable library throws where supported (fmt/MSVC STL); clang-cl uses Clang ID but MSVC STL
+    target_compile_definitions(${target_name_noexc}
+        PRIVATE
+            FMT_EXCEPTIONS=0
+            _HAS_EXCEPTIONS=0)
+
+    gentest_attach_codegen(${target_name_noexc}
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/libassert_noexc/test_impl.cpp
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/libassert/cases.cpp
+        CLANG_ARGS
+            -std=c++23
+            -Wno-unknown-attributes
+            -Wno-attributes
+            -I${PROJECT_SOURCE_DIR}/include
+            -I${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    # Link libassert into this target
+    if(TARGET libassert-lib)
+        target_link_libraries(${target_name_noexc} PRIVATE libassert-lib)
+    elseif(TARGET libassert::assert)
+        target_link_libraries(${target_name_noexc} PRIVATE libassert::assert)
+    else()
+        message(FATAL_ERROR "libassert not found for no-exceptions test")
+    endif()
+
+    # Death test: fatal assertion must terminate and print the adapter's message
+    add_test(NAME libassert_noexc_assert_fail_death
+        COMMAND ${CMAKE_COMMAND}
+            -DPROG=$<TARGET_FILE:${target_name_noexc}>
+            -DARGS=--run-test=libassert/assert_fail_simple
+            -DEXPECT_SUBSTRING=gentest: exceptions are disabled; terminating after fatal assertion
+            -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+endif()
 
 # Verify descriptive predicate mismatch content
 add_test(NAME mocking_predicate_mismatch_message

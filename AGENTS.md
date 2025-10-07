@@ -1,23 +1,40 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`include/gentest/` exposes the public headers (`runner.h`, `attributes.h`) that other targets consume. The `src/` tree builds the sample `gentest` executable and publishes those headers through an interface library. Code generation lives in `tools/gentest_codegen`, our clang-tooling binary that scans annotated cases and emits `test_impl.cpp` sources. The helper macro wiring sits in `cmake/GentestCodegen.cmake`, and each suite under `tests/` combines handwritten `cases.cpp`, generated `test_impl.cpp`, and `support/test_entry.cpp`.
+- Public headers live in `include/gentest/` (`runner.h`, `attributes.h`) and are exposed via an interface library.
+- The sample executable builds from `src/`. Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits `test_impl.cpp`.
+- Helper macro wiring is in `cmake/GentestCodegen.cmake`.
+- Each suite under `tests/<suite>/` combines handwritten `cases.cpp`, generated `test_impl.cpp`, and `support/test_entry.cpp`.
 
 ## Build, Test, and Development Commands
-- Preferred workflow (system LLVM/Clang 20+): `cmake --preset=debug-system`, `cmake --build --preset=debug-system`, then `ctest --preset=debug-system --output-on-failure`.
-- Legacy vcpkg workflow (downloads its own LLVM toolchain): `cmake --preset=debug`, `cmake --build --preset=debug`, then `ctest --preset=debug --output-on-failure`.
-- Regenerate codegen artefacts by rebuilding the relevant test target (`cmake --build --preset=debug --target gentest_unit_tests`).
-- Sanitizer runs are exposed via presets (`cmake --workflow --preset=alusan`) and reuse the same code-generation path.
-- Keep `compile_commands.json` enabled (`CMAKE_EXPORT_COMPILE_COMMANDS`) so `gentest_codegen` can reuse the active compilation database.
+- Preferred (system LLVM/Clang 20+):
+  - `cmake --preset=debug-system`
+  - `cmake --build --preset=debug-system`
+  - `ctest --preset=debug-system --output-on-failure`
+- Legacy vcpkg workflow:
+  - `cmake --preset=debug`
+  - `cmake --build --preset=debug`
+  - `ctest --preset=debug --output-on-failure`
+- Regenerate codegen: rebuild the relevant test target, e.g. `cmake --build --preset=debug --target gentest_unit_tests`.
+- Sanitizers: `cmake --workflow --preset=alusan`.
+- List tests: run the generated executable (e.g., `gentest_unit_tests --list`).
 
 ## Coding Style & Naming Conventions
-Follow the repo `.clang-format` (LLVM-derived, 4-space indent, 140-column limit) before committing. `.clang-tidy` checks `src`, `include`, and `tests`; run `ninja clang-tidy` from the build tree or invoke `clang-tidy` manually with the exported compilation database. Use lowercase snake_case for filenames, PascalCase for types, and camelCase for functions. Keep public symbols within the `gentest` namespace to avoid ABI mismatches.
+- Follow `.clang-format` (LLVM-derived): 4-space indent, 140-column limit.
+- Run `.clang-tidy` on `src`, `include`, `tests` via `ninja clang-tidy` in the build tree.
+- Filenames: lowercase `snake_case`; types: `PascalCase`; functions: `camelCase`.
+- Keep public symbols in the `gentest` namespace.
 
 ## Testing Guidelines
-Author suite cases in `tests/<suite>/cases.cpp` and annotate functions with `[[using gentest : test("suite/name"), ...]]` so the generator can discover them. Extend `tests/CMakeLists.txt` with `gentest_attach_codegen(TARGET ...)` to add generated sources automatically. Executables accept `--list` to enumerate cases and return non-zero on any `gentest::failure`; always run `ctest` locally prior to submitting changes.
+- Author cases in `tests/<suite>/cases.cpp` and annotate with `[[using gentest : test("suite/name"), ...]]` so the generator discovers them.
+- Attach codegen in `tests/CMakeLists.txt` with `gentest_attach_codegen(TARGET <target>)`.
+- Executables return non‑zero on any `gentest::failure`; always run `ctest` before pushing.
 
 ## Commit & Pull Request Guidelines
-Write short, imperative commit subjects (example: `Implement clang codegen attach helper`) and add body context when the change needs justification. Reference related issues or downstream consumers using trailers such as `Refs: #123`. Pull requests should outline scope, mention the build presets exercised (unit/integration and sanitizers when relevant), and include snippets of failing output when documenting regressions or flaky behavior.
+- Commits: short, imperative subject (e.g., “Implement clang codegen attach helper”); add context in the body when needed; use trailers like `Refs: #123`.
+- PRs: describe scope, list exercised build presets (unit/integration and sanitizers), and include failing output snippets for regressions or flaky behavior.
 
 ## Tooling & Configuration Tips
-Ensure `CMAKE_EXPORT_COMPILE_COMMANDS` remains enabled so `gentest_codegen` and tooling share an up-to-date compilation database. Keep your local environment aligned with `vcpkg.json` by letting CMake handle dependency bootstrapping, and pin any new packages in that manifest when required.
+- Keep `CMAKE_EXPORT_COMPILE_COMMANDS=ON` so `gentest_codegen` reuses the active compilation database.
+- Let CMake manage dependencies via `vcpkg.json`; pin any new packages there.
+

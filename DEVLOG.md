@@ -398,3 +398,28 @@ Devlog 2025-10-06 (Mocks: Arg Matching Delivered + Template Members)
   - Toolchain preset (system LLVM 20+)
       - Added a `sys-llvm20` CMake preset that uses `/usr/bin/clang-20` and enforces LLVM >= 20.
       - Generators prefer `llvm-config-20 --cmakedir` when `GENTEST_REQUIRE_LLVM20=ON` to avoid accidentally picking older configs.
+
+Devlog 2025-10-07 (Libassert Integration + No-Exceptions Semantics)
+
+  - Goals
+      - Integrate libassert with gentest while retaining our runner and output.
+      - Define framework-wide behavior when exceptions are disabled (terminate on fatal, log clearly).
+      - Provide presets and a death test to guard the behavior in CI.
+  - Key changes
+      - Adapter: `include/gentest/assert_libassert.h`
+          - Installs a libassert failure handler that records into gentest’s active test context.
+          - Adds `EXPECT/EXPECT_EQ/EXPECT_NE` via a thread-local non-fatal guard; `ASSERT_EQ/ASSERT_NE` helpers.
+          - Fatal: throw `gentest::assertion` when exceptions are enabled; otherwise delegate to gentest’s terminate helper.
+      - Core: `include/gentest/runner.h`
+          - Detects `GENTEST_EXCEPTIONS_ENABLED`; introduces `terminate_no_exceptions_fatal(origin)`.
+          - `require/require_eq/require_ne` log and `std::terminate()` with a clear message when exceptions are disabled.
+      - Tests & CMake
+          - Optional suite `tests/libassert/cases.cpp` (+ counts) under `GENTEST_WITH_LIBASSERT`.
+          - No-exceptions target via `GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS`; uses `-fno-exceptions` or `/EHs-c-`, defines `_HAS_EXCEPTIONS=0` and `FMT_EXCEPTIONS=0`.
+          - Death test asserts non-zero exit and the generic gentest message.
+      - Presets
+          - Added `libassert-noexc` configure/build/test/workflow presets.
+  - Status
+      - Existing suites unchanged; libassert suite and no-exc death test pass locally.
+  - Next
+      - Optionally pin libassert to a release tag; add throw-match adapters for exceptions-on builds; document vcpkg path.

@@ -85,6 +85,25 @@ inline std::string loc_to_string(const std::source_location& loc) {
     out.push_back(')');
     return out;
 }
+
+// Exception support detection
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#  define GENTEST_EXCEPTIONS_ENABLED 1
+#else
+#  define GENTEST_EXCEPTIONS_ENABLED 0
+#endif
+
+inline [[noreturn]] void terminate_no_exceptions_fatal(std::string_view origin) {
+    std::fputs("gentest: exceptions are disabled; terminating after fatal assertion", stderr);
+    if (!origin.empty()) {
+        std::fputs(" (origin: ", stderr);
+        std::fwrite(origin.data(), 1, origin.size(), stderr);
+        std::fputs(")", stderr);
+    }
+    std::fputs(".\n", stderr);
+    std::fflush(stderr);
+    std::terminate();
+}
 } // namespace detail
 
 // Public context adoption API for multi-threaded/coroutine tests.
@@ -206,7 +225,11 @@ inline void require(bool condition, std::string_view message = {}, const std::so
         text.append("ASSERT_TRUE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(text);
+        #if GENTEST_EXCEPTIONS_ENABLED
         throw assertion("ASSERT_TRUE");
+        #else
+        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require");
+        #endif
     }
 }
 
@@ -218,7 +241,11 @@ inline void require_eq(auto &&lhs, auto &&rhs, std::string_view message = {}, co
         text.append("ASSERT_EQ failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(text);
+        #if GENTEST_EXCEPTIONS_ENABLED
         throw assertion("ASSERT_EQ");
+        #else
+        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_eq");
+        #endif
     }
 }
 
@@ -230,7 +257,11 @@ inline void require_ne(auto &&lhs, auto &&rhs, std::string_view message = {}, co
         text.append("ASSERT_NE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(text);
+        #if GENTEST_EXCEPTIONS_ENABLED
         throw assertion("ASSERT_NE");
+        #else
+        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_ne");
+        #endif
     }
 }
 
