@@ -137,7 +137,7 @@ add_test(NAME integration_list_counts
 add_test(NAME failing_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_failing_tests>
-        -DPASS=0 -DFAIL=2 -DSKIP=0
+        -DPASS=0 -DFAIL=3 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 # The raw failing suite run is expected to fail
@@ -277,4 +277,30 @@ add_test(NAME allure_smoke_single
         -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/result-0.json
         -DEXPECT_SUBSTRING=status\":\ \"passed
         -DARGS=--run-test=unit/arithmetic/sum\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+# Allure logs attachment: failing test with log_on_fail(true) should create a logs attachment
+add_test(NAME allure_logs_attachment
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_failing_tests>
+        -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0.json
+        -DEXPECT_SUBSTRING=\"attachments\":\ \[\ {\ \"name\"\:\ \"logs\"\,
+        -DARGS=--run-test=failing/logging/attachment\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs
+        -P ${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake)
+
+add_test(NAME allure_logs_attachment_file
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_failing_tests>
+        -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-logs.txt
+        -DEXPECT_SUBSTRING=hello from log
+        -DARGS=--run-test=failing/logging/attachment\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs
+        -P ${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake)
+
+# Capture JUnit artifact example: unit suite emits JUnit; this smoke ensures the file is generated in build tree
+add_test(NAME junit_artifact_example
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_integration_tests>
+        -DFILE=${CMAKE_CURRENT_BINARY_DIR}/junit_integration.xml
+        -DEXPECT_SUBSTRING=<testsuite
+        -DARGS=--junit=${CMAKE_CURRENT_BINARY_DIR}/junit_integration.xml
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)

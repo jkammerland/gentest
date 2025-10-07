@@ -233,7 +233,12 @@ namespace {
 struct Counters { std::size_t executed = 0; int failures = 0; };
 
 // Result and reporting support (enabled via --junit=<file>)
-struct RunResult { bool skipped{false}; double time_s{0.0}; std::vector<std::string> failures; };
+struct RunResult {
+    bool                     skipped{false};
+    double                   time_s{0.0};
+    std::vector<std::string> failures;
+    std::vector<std::string> logs;
+};
 struct ReportItem {
     std::string              suite;
     std::string              name;
@@ -241,6 +246,7 @@ struct ReportItem {
     bool                     skipped{false};
     std::string              skip_reason;
     std::vector<std::string> failures;
+    std::vector<std::string> logs;
 };
 static bool                    g_record_results = false;
 static std::vector<ReportItem> g_report_items;
@@ -301,6 +307,7 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
     const auto end_tp = std::chrono::steady_clock::now();
     rr.time_s = std::chrono::duration<double>(end_tp - start_tp).count();
     rr.failures = ctxinfo->failures;
+    rr.logs = ctxinfo->logs;
 
     if (!ctxinfo->failures.empty()) {
         ++c.failures;
@@ -338,6 +345,7 @@ inline void execute_and_record(const Case& test, void* ctx, Counters& c) {
     item.skipped     = rr.skipped;
     item.skip_reason = std::string(test.skip_reason);
     item.failures    = std::move(rr.failures);
+    item.logs        = std::move(rr.logs);
     g_report_items.push_back(std::move(item));
 }
 
@@ -408,7 +416,8 @@ inline void write_allure(const char* dir_path) {
         const auto duration_ms = static_cast<long long>(it.time_s * 1000.0);
         const auto start_ms = now_ms - duration_ms;
         const auto stop_ms = now_ms;
-        const std::string filename = (fs::path(dir_path) / ("result-" + std::to_string(idx++) + ".json")).string();
+        const std::string base = "result-" + std::to_string(idx++);
+        const std::string filename = (fs::path(dir_path) / (base + ".json")).string();
         std::ofstream f(filename, std::ios::binary);
         if (!f) continue;
         const char* status = it.skipped ? "skipped" : (it.failures.empty() ? "passed" : "failed");
@@ -422,11 +431,22 @@ inline void write_allure(const char* dir_path) {
         f << "  \"stage\": \"finished\",\n";
         f << "  \"time\": { \"start\": " << start_ms << ", \"stop\": " << stop_ms << ", \"duration\": " << duration_ms << " },\n";
         f << "  \"labels\": [ { \"name\": \"suite\", \"value\": \"" << json_escape(it.suite) << "\" } ]";
+        bool wrote_details = false;
         if (!it.failures.empty()) {
             f << ",\n  \"statusDetails\": { \"message\": \"" << json_escape(first_msg) << "\", \"trace\": \"";
             std::string all;
             for (const auto& m : it.failures) { all.append(m); all.push_back('\n'); }
-            f << json_escape(all) << "\" }\n";
+            f << json_escape(all) << "\" }";
+            wrote_details = true;
+        }
+        // Attach logs as an attachment when failing and logs exist
+        if (!it.failures.empty() && !it.logs.empty()) {
+            const std::string logs_name = base + "-logs.txt";
+            const std::string logs_path = (fs::path(dir_path) / logs_name).string();
+            std::ofstream lf(logs_path, std::ios::binary);
+            if (lf) { for (const auto& line : it.logs) { lf << line << "\n"; } }
+            f << (wrote_details ? ",\n" : ",\n")
+              << "  \"attachments\": [ { \"name\": \"logs\", \"source\": \"" << json_escape(logs_name) << "\", \"type\": \"text/plain\" } ]\n";
         } else {
             f << "\n";
         }

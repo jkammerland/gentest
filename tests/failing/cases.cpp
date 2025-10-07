@@ -27,4 +27,13 @@ void predicate_mismatch() {
     mock_obj.call(4);
 }
 
+[[using gentest: test("logging/attachment")]]
+void logging_attachment() {
+    gentest::log_on_fail(true);
+    gentest::log("hello from log");
+    gentest::log("world from log");
+    using namespace gentest::asserts;
+    EXPECT_TRUE(false, "trigger failure to capture logs");
+}
+
 } // namespace failing
