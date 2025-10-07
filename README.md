@@ -306,6 +306,43 @@ The generated runner can produce machine-readable reports and CI annotations in 
 
 Color output can be disabled with `--no-color`, or via the `NO_COLOR` / `GENTEST_NO_COLOR` environment variables.
 
+### CI Artifacts (GitHub Actions)
+
+Use upload-artifact to collect JUnit and Allure results:
+
+```yaml
+name: tests
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake --preset=debug
+      - name: Build
+        run: cmake --build --preset=debug -j
+      - name: Run tests (JUnit + Allure)
+        run: |
+          mkdir -p build/debug/tests/artifacts
+          ctest --preset=debug --output-on-failure || true
+          # Example: run unit with JUnit and Allure artifacts
+          build/debug/tests/gentest_unit_tests \
+            --junit build/debug/tests/artifacts/junit-unit.xml \
+            --allure-dir build/debug/tests/artifacts/allure-unit \
+            --github-annotations || true
+      - name: Upload JUnit
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-xml
+          path: build/debug/tests/artifacts/*.xml
+      - name: Upload Allure
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: build/debug/tests/artifacts/allure-unit
+```
+
 ## Templates
 
 Generated files are produced strictly from templates — no emission logic is inlined in the generator beyond simple

@@ -397,6 +397,30 @@ inline void write_allure(const char* dir_path) {
     // Approximate start/stop from duration around now
     const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     std::size_t idx = 0;
+    auto uuid_v4 = []() {
+        std::array<unsigned char, 16> b{};
+        std::random_device rd;
+        for (auto &x : b) x = static_cast<unsigned char>(rd());
+        // Set version (4) and variant (10xxxxxx)
+        b[6] = static_cast<unsigned char>((b[6] & 0x0F) | 0x40);
+        b[8] = static_cast<unsigned char>((b[8] & 0x3F) | 0x80);
+        auto nib = [](unsigned char v) -> char {
+            static const char* kHex = "0123456789abcdef";
+            return kHex[v & 0x0F];
+        };
+        std::string s;
+        s.resize(36);
+        int pos = 0;
+        auto emit_byte = [&](unsigned char v) {
+            s[pos++] = nib((v >> 4) & 0x0F);
+            s[pos++] = nib(v & 0x0F);
+        };
+        for (int i = 0; i < 16; ++i) {
+            if (i == 4 || i == 6 || i == 8 || i == 10) s[pos++] = '-';
+            emit_byte(b[i]);
+        }
+        return s;
+    };
     auto json_escape = [](std::string_view s) {
         std::string out;
         out.reserve(s.size());
@@ -424,7 +448,8 @@ inline void write_allure(const char* dir_path) {
         std::string first_msg = it.failures.empty() ? std::string() : it.failures.front();
         // Minimal Allure 2 result JSON
         f << "{\n";
-        f << "  \"uuid\": \"" << json_escape(it.suite + "/" + it.name) << "\",\n";
+        const std::string uuid = uuid_v4();
+        f << "  \"uuid\": \"" << json_escape(uuid) << "\",\n";
         f << "  \"name\": \"" << json_escape(it.name) << "\",\n";
         f << "  \"fullName\": \"" << json_escape(it.suite + "/" + it.name) << "\",\n";
         f << "  \"status\": \"" << status << "\",\n";
