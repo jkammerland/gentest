@@ -1,6 +1,6 @@
 package(default_visibility = ["//visibility:public"])
 
-load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//build_defs:gentest.bzl", "gentest_suite")
 
 cc_binary(
     name = "gentest_codegen",
@@ -16,10 +16,11 @@ cc_binary(
         "tools/src/type_kind.cpp",
         "tools/src/render.cpp",
         "tools/src/tooling_support.cpp",
-    ],
+    ] + glob(["tools/src/*.hpp"]),
     copts = [
         "-std=c++23",
         "-Iinclude",
+        "-Itools/src",
         "-DFMT_HEADER_ONLY",
         "-Wno-unknown-attributes",
         "-Wno-attributes",
@@ -32,48 +33,8 @@ cc_binary(
     ],
 )
 
-def gentest_suite(name, suite):
-    gen_name = "gen_{}_code".format(suite)
-    outs = [
-        "{}__cases_test_impl.cpp".format(suite),
-        "{}__cases_mock_registry.hpp".format(suite),
-        "{}__cases_mock_impl.hpp".format(suite),
-    ]
-    native.genrule(
-        name = gen_name,
-        srcs = ["tests/{}/cases.cpp".format(suite)],
-        tools = [":gentest_codegen"],
-        outs = outs,
-        cmd = (
-            "$(location :gentest_codegen) "
-            + "--output $(location {0}) --entry gentest::run_all_tests "
-            + "--mock-registry $(location {1}) --mock-impl $(location {2}) "
-            + "$(location tests/{3}/cases.cpp) -- -std=c++23 -Iinclude -Itests"
-        ).format(outs[0], outs[1], outs[2], suite),
-    )
-
-    cc_test(
-        name = name,
-        srcs = [
-            "tests/support/test_entry.cpp",
-            ":{}".format(gen_name),
-        ],
-        copts = [
-            "-std=c++23",
-            "-Iinclude",
-            "-Itests",
-            "-DFMT_HEADER_ONLY",
-            "-DGENTEST_MOCK_REGISTRY_PATH=cases_mock_registry.hpp",
-            "-DGENTEST_MOCK_IMPL_PATH=cases_mock_impl.hpp",
-            "-Wno-unknown-attributes",
-            "-Wno-attributes",
-        ],
-    )
-
 gentest_suite(name = "gentest_unit_tests", suite = "unit")
 gentest_suite(name = "gentest_integration_tests", suite = "integration")
 gentest_suite(name = "gentest_skiponly_tests", suite = "skiponly")
 gentest_suite(name = "gentest_fixtures_tests", suite = "fixtures")
 gentest_suite(name = "gentest_templates_tests", suite = "templates")
-gentest_suite(name = "gentest_mocking_tests", suite = "mocking")
-
