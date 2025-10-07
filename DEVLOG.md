@@ -255,6 +255,27 @@ Devlog 2025-10-07 (Reporting Outputs)
       - No behavior change without flags; color output and console formatting remain.
       - Help text documents new flags; README gains a Reporting section with examples.
 
+Devlog 2025-10-07 (Allure Attachments + CI Artifacts)
+
+  - Goal
+      - Enrich Allure output with useful attachments and add CI-friendly checks for artifacts without affecting console UX.
+  - Changes
+      - Allure logs attachment: when a test fails and has per-test logs (via `gentest::log_on_fail(true)` / `gentest::log(...)`), the runner writes a text attachment and references it from the result JSON.
+      - GitHub annotations retained from prior work; combined with logs this yields actionable CI output and post-fail artifacts.
+      - JUnit unchanged; documented a pattern for creating a JUnit file per-suite.
+  - Tests
+      - Added `failing/logging/attachment` case that enables `log_on_fail` and logs two lines.
+      - `allure_logs_attachment`: verifies Allure JSON references a logs attachment.
+      - `allure_logs_attachment_file`: verifies the logs file content.
+      - `junit_artifact_example`: smoke-checks JUnit file creation for the integration suite.
+      - Updated `failing_counts` from 2 → 3 to include the new failing case.
+  - CMake helpers
+      - `cmake/RunAndCheckFile.cmake`: runs a program, does not assert on exit code, and then checks an artifact file for a substring (useful when generating artifacts on failure).
+      - `cmake/CheckFileContains.cmake`: retained for zero-exit flows.
+  - Status
+      - All tests passing with new smoke checks via the debug preset.
+      - No behavior change without the new flags; reporting remains opt-in.
+
 Status
   - All suites green (unit/integration/failing/skiponly/fixtures/templates). Interleaved templates + additional string/boolean axes covered. Lint-only negative tests surface clear diagnostics.
 
