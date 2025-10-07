@@ -56,6 +56,11 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 #ifdef GENTEST_USE_BOOST_JSON
 #  include <boost/json.hpp>
 #endif
+#ifdef GENTEST_USE_BOOST_UUID
+#  include <boost/uuid/uuid.hpp>
+#  include <boost/uuid/uuid_generators.hpp>
+#  include <boost/uuid/uuid_io.hpp>
+#endif
 
 #include "gentest/runner.h"
 #include "gentest/fixture.h"
@@ -409,6 +414,10 @@ inline void write_allure(const char* dir_path) {
     const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     std::size_t idx = 0;
     auto uuid_v4 = []() {
+#ifdef GENTEST_USE_BOOST_UUID
+        const auto id = boost::uuids::random_generator()();
+        return boost::uuids::to_string(id);
+#else
         std::array<unsigned char, 16> b{};
         std::random_device rd;
         for (auto &x : b) x = static_cast<unsigned char>(rd());
@@ -431,6 +440,7 @@ inline void write_allure(const char* dir_path) {
             emit_byte(b[i]);
         }
         return s;
+#endif
     };
     auto json_escape = [](std::string_view s) {
         std::string out;

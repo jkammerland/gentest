@@ -67,5 +67,11 @@ function(gentest_attach_codegen target)
         GENTEST_MOCK_REGISTRY_PATH=${_gentest_mock_header_name}
         GENTEST_MOCK_IMPL_PATH=${_gentest_mock_impl_name}
     )
+    if(GENTEST_USE_BOOST_JSON)
+        target_compile_definitions(${target} PRIVATE GENTEST_USE_BOOST_JSON)
+    endif()
+    if(GENTEST_USE_BOOST_UUID)
+        target_compile_definitions(${target} PRIVATE GENTEST_USE_BOOST_UUID)
+    endif()
     add_dependencies(${target} gentest_codegen)
 endfunction()
