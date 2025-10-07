@@ -8,7 +8,7 @@ using namespace gentest::asserts;
 
 namespace [[using gentest: suite("unit")]] unit {
 
-[[using gentest: test("arithmetic/sum"), category("math"), fast]]
+[[using gentest: test("arithmetic/sum"), group("math"), fast]]
 void sum_is_computed() {
     std::array values{1, 2, 3, 4};
     const auto result = std::accumulate(values.begin(), values.end(), 0);

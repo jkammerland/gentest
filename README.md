@@ -85,7 +85,7 @@ An optional clang-tidy plugin is provided to surface the same diagnostics in edi
 - Behavior:
   - Unknown `gentest::` attributes (including wrong arity/types) are hard errors.
   - Attributes in other namespaces are warned as “ignored (unsupported attribute namespace)”.
-  - Duplicate/conflicting flags (e.g., `linux` vs `windows`) and duplicate `test`, `owner`, `category` are errors.
+  - Duplicate/conflicting flags (e.g., `linux` vs `windows`) and duplicate `test`, `owner`, `group` are errors.
 
 This shares rules with the generator, so IDE diagnostics match codegen behavior.
 

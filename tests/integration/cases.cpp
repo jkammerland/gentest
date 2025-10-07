@@ -48,7 +48,7 @@ void fibonacci_sequence() {
 
 namespace registry {
 
-[[using gentest: test("registry/map"), category("containers")]]
+[[using gentest: test("registry/map"), group("containers")]]
 void map_behaviour() {
     std::map<std::string, int> index{{"alpha", 1}, {"beta", 2}};
     index.emplace("gamma", 3);
