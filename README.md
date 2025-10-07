@@ -274,6 +274,38 @@ gentest::expect(mock_calc, &Calculator::compute)
     .returns(42);
 ```
 
+## Reporting
+
+The generated runner can produce machine-readable reports and CI annotations in addition to the standard console output.
+
+- JUnit XML
+  - Write a minimal, CI-friendly JUnit report with `--junit=<file>`.
+  - Grouped by suite; each test includes its status and time in seconds; failure messages are wrapped in CDATA.
+  - Example:
+    ```bash
+    ./build/debug/tests/gentest_unit_tests --junit ./build/junit-unit.xml
+    ```
+
+- GitHub Annotations
+  - Emit `::error file=...,line=...,title=...::message` lines on failures for GitHub Actions log surfaces.
+  - Enable via `--github-annotations` or by setting `GITHUB_ACTIONS=1` in the environment.
+  - Example output snippet:
+    ```
+    ::error file=tests/unit/cases.cpp,line=42,title=unit/arithmetic/sum::EXPECT_EQ failed at ...
+    ```
+
+- Allure Results
+  - Generate Allure 2 result JSON files with `--allure-dir=<dir>` (directory created if missing).
+  - Each test produces a `result-*.json` with status (passed/failed/skipped), duration, and a suite label; failures include message + trace content.
+  - Example:
+    ```bash
+    ./build/debug/tests/gentest_unit_tests --allure-dir ./build/allure-results
+    # then in CI:
+    allure generate ./build/allure-results -o ./build/allure-report
+    ```
+
+Color output can be disabled with `--no-color`, or via the `NO_COLOR` / `GENTEST_NO_COLOR` environment variables.
+
 ## Templates
 
 Generated files are produced strictly from templates — no emission logic is inlined in the generator beyond simple

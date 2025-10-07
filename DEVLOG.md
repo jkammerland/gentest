@@ -238,6 +238,23 @@ Devlog 2025-10-03 (Review + Refactor Plan)
   - Refactors touch code-gen plumbing. Keep PRs mechanical and gated by existing tests; expand template/fixture E2E tests first so behavior remains pinned.
   - Ensure no reliance on formatting in tests; continue using count/list checks.
 
+Devlog 2025-10-07 (Reporting Outputs)
+
+  - Goals
+      - Provide standard test reporting formats for CI consumption without altering existing console UX.
+      - Keep the feature opt-in via CLI flags, with minimal runtime overhead when not enabled.
+  - Key changes
+      - JUnit XML: `--junit=<file>` writes a minimal JUnit report grouped by suite with per-test timing and CDATA failures.
+      - GitHub Annotations: `--github-annotations` (or `GITHUB_ACTIONS=1`) emits `::error file=...,line=...,title=...::...` for each failure.
+      - Allure results: `--allure-dir=<dir>` writes Allure 2 JSON results (status, timing, suite label, failure details) into the directory; created if missing.
+  - Tests
+      - Added `junit_smoke_unit` to verify the generated XML contains the expected suite element.
+      - Added `github_annotations_smoke` to assert `::error` lines appear for a known failing test.
+      - Added `allure_smoke_single` to verify a selected test produces a `passed` result JSON.
+  - Notes
+      - No behavior change without flags; color output and console formatting remain.
+      - Help text documents new flags; README gains a Reporting section with examples.
+
 Status
   - All suites green (unit/integration/failing/skiponly/fixtures/templates). Interleaved templates + additional string/boolean axes covered. Lint-only negative tests surface clear diagnostics.
 
