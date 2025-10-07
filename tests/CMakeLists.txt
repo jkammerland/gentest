@@ -252,3 +252,12 @@ add_test(NAME fixtures_list_tests_lines
         -DLINES=7
         -DARGS=--list-tests
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)
+
+# JUnit XML smoke test: generate and validate basic content
+add_test(NAME junit_smoke_unit
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DFILE=${CMAKE_CURRENT_BINARY_DIR}/junit_unit.xml
+        -DEXPECT_SUBSTRING=<testsuite name=\"unit\"
+        -DARGS=--junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit.xml
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)

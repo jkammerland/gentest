@@ -49,6 +49,9 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 #include <string_view>
 #include <vector>
 #include <memory>
+#include <chrono>
+#include <fstream>
+#include <map>
 
 #include "gentest/runner.h"
 #include "gentest/fixture.h"
@@ -204,8 +207,39 @@ bool use_color(std::span<const char*> args) { return !wants_no_color(args) && !e
 namespace {
 struct Counters { std::size_t executed = 0; int failures = 0; };
 
-void execute_one(const Case& test, void* ctx, Counters& c) {
+// Result and reporting support (enabled via --junit=<file>)
+struct RunResult { bool skipped{false}; double time_s{0.0}; std::vector<std::string> failures; };
+struct ReportItem {
+    std::string              suite;
+    std::string              name;
+    double                   time_s{0.0};
+    bool                     skipped{false};
+    std::string              skip_reason;
+    std::vector<std::string> failures;
+};
+static bool                    g_record_results = false;
+static std::vector<ReportItem> g_report_items;
+
+static inline std::string xml_escape(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char ch : s) {
+        switch (ch) {
+        case '&': out += "&amp;"; break;
+        case '"': out += "&quot;"; break;
+        case '\'': out += "&apos;"; break;
+        case '<': out += "&lt;"; break;
+        case '>': out += "&gt;"; break;
+        default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
+
+RunResult execute_one(const Case& test, void* ctx, Counters& c) {
+    RunResult rr;
     if (test.should_skip) {
+        rr.skipped = true;
         if (!test.skip_reason.empty()) {
             if (g_color_output) fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ] {} :: {}\n", test.name, test.skip_reason);
             else fmt::print("[ SKIP ] {} :: {}\n", test.name, test.skip_reason);
@@ -213,7 +247,7 @@ void execute_one(const Case& test, void* ctx, Counters& c) {
             if (g_color_output) fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ] {}\n", test.name);
             else fmt::print("[ SKIP ] {}\n", test.name);
         }
-        return;
+        return rr;
     }
     ++c.executed;
     auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
@@ -221,6 +255,7 @@ void execute_one(const Case& test, void* ctx, Counters& c) {
     ctxinfo->active = true;
     gentest::detail::set_current_test(ctxinfo);
     bool threw = false;
+    const auto start_tp = std::chrono::steady_clock::now();
     try {
         test.fn(ctx);
     } catch (const gentest::failure& err) {
@@ -238,6 +273,9 @@ void execute_one(const Case& test, void* ctx, Counters& c) {
     }
     ctxinfo->active = false;
     gentest::detail::set_current_test(nullptr);
+    const auto end_tp = std::chrono::steady_clock::now();
+    rr.time_s = std::chrono::duration<double>(end_tp - start_tp).count();
+    rr.failures = ctxinfo->failures;
 
     if (!ctxinfo->failures.empty()) {
         ++c.failures;
@@ -255,6 +293,60 @@ void execute_one(const Case& test, void* ctx, Counters& c) {
         if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ] {}\n", test.name);
         else fmt::print(stderr, "[ FAIL ] {}\n", test.name);
     }
+    return rr;
+}
+
+inline void execute_and_record(const Case& test, void* ctx, Counters& c) {
+    RunResult rr = execute_one(test, ctx, c);
+    if (!g_record_results) return;
+    ReportItem item;
+    item.suite       = std::string(test.suite);
+    item.name        = std::string(test.name);
+    item.time_s      = rr.time_s;
+    item.skipped     = rr.skipped;
+    item.skip_reason = std::string(test.skip_reason);
+    item.failures    = std::move(rr.failures);
+    g_report_items.push_back(std::move(item));
+}
+
+inline void write_junit(const char* path) {
+    if (!path) return;
+    std::size_t total_tests = g_report_items.size();
+    std::size_t total_fail = 0;
+    std::size_t total_skip = 0;
+    double total_time = 0.0;
+    for (const auto& it : g_report_items) {
+        total_fail += it.failures.empty() ? 0 : 1;
+        total_skip += it.skipped ? 1 : 0;
+        total_time += it.time_s;
+    }
+    std::ofstream f(path, std::ios::binary);
+    if (!f) return;
+    f << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    f << "<testsuites tests=\"" << total_tests << "\" failures=\"" << total_fail << "\" skipped=\"" << total_skip << "\" time=\"" << total_time << "\">\n";
+    // group by suite
+    std::map<std::string, std::vector<const ReportItem*>> by_suite;
+    for (const auto& it : g_report_items) by_suite[it.suite].push_back(&it);
+    for (const auto& [suite, vec] : by_suite) {
+        std::size_t failures = 0, skipped = 0; double time = 0.0;
+        for (auto* p : vec) { failures += p->failures.empty() ? 0 : 1; skipped += p->skipped ? 1 : 0; time += p->time_s; }
+        f << "  <testsuite name=\"" << xml_escape(suite) << "\" tests=\"" << vec.size() << "\" failures=\"" << failures << "\" skipped=\"" << skipped << "\" time=\"" << time << "\">\n";
+        for (auto* p : vec) {
+            f << "    <testcase classname=\"" << xml_escape(suite) << "\" name=\"" << xml_escape(p->name) << "\" time=\"" << p->time_s << "\">\n";
+            if (p->skipped) {
+                if (!p->skip_reason.empty()) f << "      <skipped message=\"" << xml_escape(p->skip_reason) << "\"/>\n";
+                else f << "      <skipped/>\n";
+            } else if (!p->failures.empty()) {
+                const std::string& first = p->failures.front();
+                f << "      <failure message=\"" << xml_escape(first) << "\">\n<![CDATA[\n";
+                for (const auto& msg : p->failures) f << msg << "\n";
+                f << "]]></failure>\n";
+            }
+            f << "    </testcase>\n";
+        }
+        f << "  </testsuite>\n";
+    }
+    f << "</testsuites>\n";
 }
 } // namespace
 
@@ -273,6 +365,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         fmt::print("  --run-test=<name>     Run a single test by exact name\n");
         fmt::print("  --filter=<pattern>    Run tests matching wildcard pattern (*, ?)\n");
         fmt::print("  --no-color            Disable colorized output (or set NO_COLOR/GENTEST_NO_COLOR)\n");
+        fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
         fmt::print("  --shuffle-fixtures    Shuffle order within each fixture group\n");
         fmt::print("  --seed N              RNG seed used with --shuffle-fixtures\n");
         return 0;
@@ -311,6 +404,8 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         return 0;
     }
     Counters counters;
+    const char* junit_path = get_arg_value(args, "--junit=");
+    g_record_results = junit_path != nullptr;
 
     // Selection support: --run-test / --filter
     const char* run_exact = get_arg_value(args, "--run-test=");
@@ -328,7 +423,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         for (auto i : sel) {
             const auto& t = kCases[i];
             if (!t.fixture.empty()) continue;
-            execute_one(t, nullptr, counters);
+            execute_and_record(t, nullptr, counters);
         }
         // Fixture tests honour lifetime semantics during selection as well.
         const bool         shuffle = wants_shuffle(args);
@@ -355,7 +450,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
                     ctx = nullptr;
                     break;
                 }
-                execute_one(test, ctx, counters);
+                execute_and_record(test, ctx, counters);
             }
         }
         if (counters.failures == 0) {
@@ -365,11 +460,12 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
             if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
             else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
         }
+        if (g_record_results) write_junit(junit_path);
         return counters.failures == 0 ? 0 : 1;
     }
 
     // Default path: run all tests with built-in grouping
-    for (const auto& t : kCases) { if (!t.fixture.empty()) continue; execute_one(t, nullptr, counters); }
+    for (const auto& t : kCases) { if (!t.fixture.empty()) continue; execute_and_record(t, nullptr, counters); }
     const bool         shuffle = wants_shuffle(args);
     const std::uint64_t seed    = parse_seed(args);
     {{RUN_GROUPS}}
@@ -380,6 +476,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
         else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
     }
+    if (g_record_results) write_junit(junit_path);
     return counters.failures == 0 ? 0 : 1;
 }
 
@@ -449,7 +546,7 @@ inline constexpr std::string_view group_runner_ephemeral =
     const std::array<std::size_t, {count}> idxs_ = {{ {idxs} }};
     std::vector<std::size_t> order_(idxs_.begin(), idxs_.end());
     if (shuffle_ && order_.size() > 1) {{ std::mt19937_64 rng_(seed_ ? (seed_ + {gid}) : std::mt19937_64::result_type(std::random_device{{}}())); std::shuffle(order_.begin(), order_.end(), rng_); }}
-    for (auto i_ : order_) {{ execute_one(kCases[i_], nullptr, counters_); }}
+    for (auto i_ : order_) {{ execute_and_record(kCases[i_], nullptr, counters_); }}
 }}
 
 )FMT";
@@ -470,7 +567,7 @@ static void gentest_run_group_{gid}(bool shuffle_, std::uint64_t seed_, Counters
     if (shuffle_ && order_.size() > 1) {{ std::mt19937_64 rng_(seed_ ? (seed_ + {gid}) : std::mt19937_64::result_type(std::random_device{{}}())); std::shuffle(order_.begin(), order_.end(), rng_); }}
     for (auto i_ : order_) {{
         auto* fx_ = static_cast<Fixture*>(gentest_access_fixture_{gid}(kCases[i_].suite));
-        execute_one(kCases[i_], fx_, counters_);
+        execute_and_record(kCases[i_], fx_, counters_);
     }}
 }}
 
@@ -488,7 +585,7 @@ static void gentest_run_group_{gid}(bool shuffle_, std::uint64_t seed_, Counters
     std::vector<std::size_t> order_(idxs_.begin(), idxs_.end());
     if (shuffle_ && order_.size() > 1) {{ std::mt19937_64 rng_(seed_ ? (seed_ + {gid}) : std::mt19937_64::result_type(std::random_device{{}}())); std::shuffle(order_.begin(), order_.end(), rng_); }}
     auto* fx_ = static_cast<Fixture*>(gentest_access_fixture_{gid}(std::string_view{{}}));
-    for (auto i_ : order_) {{ execute_one(kCases[i_], fx_, counters_); }}
+    for (auto i_ : order_) {{ execute_and_record(kCases[i_], fx_, counters_); }}
 }}
 
 )FMT";
