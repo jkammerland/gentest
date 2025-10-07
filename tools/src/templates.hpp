@@ -362,17 +362,18 @@ inline void write_junit(const char* path) {
     }
     std::ofstream f(path, std::ios::binary);
     if (!f) return;
+    auto fmtd = [](double v){ std::ostringstream os; os.setf(std::ios::fixed); os.precision(6); os << v; return os.str(); };
     f << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    f << "<testsuites tests=\"" << total_tests << "\" failures=\"" << total_fail << "\" skipped=\"" << total_skip << "\" time=\"" << total_time << "\">\n";
+    f << "<testsuites tests=\"" << total_tests << "\" failures=\"" << total_fail << "\" skipped=\"" << total_skip << "\" time=\"" << fmtd(total_time) << "\">\n";
     // group by suite
     std::map<std::string, std::vector<const ReportItem*>> by_suite;
     for (const auto& it : g_report_items) by_suite[it.suite].push_back(&it);
     for (const auto& [suite, vec] : by_suite) {
         std::size_t failures = 0, skipped = 0; double time = 0.0;
         for (auto* p : vec) { failures += p->failures.empty() ? 0 : 1; skipped += p->skipped ? 1 : 0; time += p->time_s; }
-        f << "  <testsuite name=\"" << xml_escape(suite) << "\" tests=\"" << vec.size() << "\" failures=\"" << failures << "\" skipped=\"" << skipped << "\" time=\"" << time << "\">\n";
+        f << "  <testsuite name=\"" << xml_escape(suite) << "\" tests=\"" << vec.size() << "\" failures=\"" << failures << "\" skipped=\"" << skipped << "\" time=\"" << fmtd(time) << "\">\n";
         for (auto* p : vec) {
-            f << "    <testcase classname=\"" << xml_escape(suite) << "\" name=\"" << xml_escape(p->name) << "\" time=\"" << p->time_s << "\">\n";
+            f << "    <testcase classname=\"" << xml_escape(suite) << "\" name=\"" << xml_escape(p->name) << "\" time=\"" << fmtd(p->time_s) << "\">\n";
             if (p->skipped) {
                 if (!p->skip_reason.empty()) f << "      <skipped message=\"" << xml_escape(p->skip_reason) << "\"/>\n";
                 else f << "      <skipped/>\n";
@@ -488,6 +489,7 @@ inline void write_allure(const char* dir_path) {
 
 auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     g_color_output = use_color(args);
+    g_report_items.clear();
     g_github_annotations = wants_github_annotations(args) || env_github_actions();
     if (wants_help(args)) {
         fmt::print("gentest v{{VERSION}}\n");
