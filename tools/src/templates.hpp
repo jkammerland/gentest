@@ -40,6 +40,8 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 #include <exception>
 #include <string>
 #include <fmt/core.h>
+#include <fmt/color.h>
+#include <cstdlib>
 #include <random>
 #include <algorithm>
 #include <type_traits>
@@ -183,6 +185,20 @@ std::string join_span(std::span<const std::string_view> items, char sep) {
     }
     return out;
 }
+// Color handling
+bool g_color_output = true;
+bool wants_no_color(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--no-color") return true;
+    return false;
+}
+bool env_no_color() {
+    const char* a = std::getenv("NO_COLOR");
+    if (a && *a) return true;
+    a = std::getenv("GENTEST_NO_COLOR");
+    if (a && *a) return true;
+    return false;
+}
+bool use_color(std::span<const char*> args) { return !wants_no_color(args) && !env_no_color(); }
 } // namespace
 
 namespace {
@@ -191,9 +207,11 @@ struct Counters { std::size_t executed = 0; int failures = 0; };
 void execute_one(const Case& test, void* ctx, Counters& c) {
     if (test.should_skip) {
         if (!test.skip_reason.empty()) {
-            fmt::print("[ SKIP ] {} :: {}\n", test.name, test.skip_reason);
+            if (g_color_output) fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ] {} :: {}\n", test.name, test.skip_reason);
+            else fmt::print("[ SKIP ] {} :: {}\n", test.name, test.skip_reason);
         } else {
-            fmt::print("[ SKIP ] {}\n", test.name);
+            if (g_color_output) fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ] {}\n", test.name);
+            else fmt::print("[ SKIP ] {}\n", test.name);
         }
         return;
     }
@@ -223,16 +241,19 @@ void execute_one(const Case& test, void* ctx, Counters& c) {
 
     if (!ctxinfo->failures.empty()) {
         ++c.failures;
-        fmt::print(stderr, "[ FAIL ] {} :: {} issue(s)\n", test.name, ctxinfo->failures.size());
+        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ] {} :: {} issue(s)\n", test.name, ctxinfo->failures.size());
+        else fmt::print(stderr, "[ FAIL ] {} :: {} issue(s)\n", test.name, ctxinfo->failures.size());
         for (const auto& m : ctxinfo->failures) {
             fmt::print(stderr, "    - {}\n", m);
         }
     } else if (!threw) {
-        fmt::print("[ PASS ] {}\n", test.name);
+        if (g_color_output) fmt::print(fmt::fg(fmt::color::green), "[ PASS ] {}\n", test.name);
+        else fmt::print("[ PASS ] {}\n", test.name);
     } else {
         // threw but no messages recorded: still a failure
         ++c.failures;
-        fmt::print(stderr, "[ FAIL ] {}\n", test.name);
+        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ] {}\n", test.name);
+        else fmt::print(stderr, "[ FAIL ] {}\n", test.name);
     }
 }
 } // namespace
@@ -242,6 +263,7 @@ void execute_one(const Case& test, void* ctx, Counters& c) {
 {{GROUP_RUNNERS}}
 
 auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
+    g_color_output = use_color(args);
     if (wants_help(args)) {
         fmt::print("gentest v{{VERSION}}\n");
         fmt::print("Usage: [options]\n");
@@ -250,6 +272,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         fmt::print("  --list                List tests with metadata\n");
         fmt::print("  --run-test=<name>     Run a single test by exact name\n");
         fmt::print("  --filter=<pattern>    Run tests matching wildcard pattern (*, ?)\n");
+        fmt::print("  --no-color            Disable colorized output (or set NO_COLOR/GENTEST_NO_COLOR)\n");
         fmt::print("  --shuffle-fixtures    Shuffle order within each fixture group\n");
         fmt::print("  --seed N              RNG seed used with --shuffle-fixtures\n");
         return 0;
@@ -335,8 +358,13 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
                 execute_one(test, ctx, counters);
             }
         }
-        if (counters.failures == 0) fmt::print("Executed {} test(s).\n", counters.executed);
-        else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+        if (counters.failures == 0) {
+            if (g_color_output) fmt::print(fmt::fg(fmt::color::green), "Executed {} test(s).\n", counters.executed);
+            else fmt::print("Executed {} test(s).\n", counters.executed);
+        } else {
+            if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+            else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+        }
         return counters.failures == 0 ? 0 : 1;
     }
 
@@ -345,8 +373,13 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     const bool         shuffle = wants_shuffle(args);
     const std::uint64_t seed    = parse_seed(args);
     {{RUN_GROUPS}}
-    if (counters.failures == 0) fmt::print("Executed {} test(s).\n", counters.executed);
-    else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+    if (counters.failures == 0) {
+        if (g_color_output) fmt::print(fmt::fg(fmt::color::green), "Executed {} test(s).\n", counters.executed);
+        else fmt::print("Executed {} test(s).\n", counters.executed);
+    } else {
+        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+        else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+    }
     return counters.failures == 0 ? 0 : 1;
 }
 

@@ -48,8 +48,10 @@ namespace detail {
 struct TestContextInfo {
     std::string              display_name;
     std::vector<std::string> failures;
+    std::vector<std::string> logs;
     std::mutex               mtx;
     std::atomic<bool>        active{false};
+    bool                     dump_logs_on_failure{false};
 };
 
 inline thread_local std::shared_ptr<TestContextInfo> g_current_test{};
@@ -64,6 +66,14 @@ inline void record_failure(std::string msg) {
         std::abort();
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
+    if (ctx->dump_logs_on_failure && !ctx->logs.empty()) {
+        msg.append("\n[ logs ]\n");
+        for (const auto &line : ctx->logs) {
+            msg.append("    - ");
+            msg.append(line);
+            msg.push_back('\n');
+        }
+    }
     ctx->failures.push_back(std::move(msg));
 }
 inline std::string loc_to_string(const std::source_location& loc) {
@@ -87,6 +97,25 @@ struct Adopt {
     ~Adopt() { detail::g_current_test = prev; }
 };
 } // namespace ctx
+
+// Lightweight per-test logging; appended to failure messages when enabled.
+inline void log(std::string_view message) {
+    auto ctx = detail::g_current_test;
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) return;
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    ctx->logs.emplace_back(message);
+}
+inline void log_on_fail(bool enable = true) {
+    auto ctx = detail::g_current_test;
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) return;
+    ctx->dump_logs_on_failure = enable;
+}
+inline void clear_logs() {
+    auto ctx = detail::g_current_test;
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) return;
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    ctx->logs.clear();
+}
 
 // Approximate equality helper usable with EXPECT_EQ/ASSERT_EQ via operator==.
 // Example: EXPECT_EQ(3.1415, gentest::approx::Approx(3.14).abs(0.01));
