@@ -57,6 +57,17 @@
       }
     },
     {
+      "name": "libassert-noexc",
+      "inherits": "debug",
+      "displayName": "Libassert (no-exceptions target enabled)",
+      "description": "Enable libassert integration and build a dedicated no-exceptions death-test target",
+      "cacheVariables": {
+        "GENTEST_WITH_LIBASSERT": "ON",
+        "GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS": "ON",
+        "GENTEST_LIBASSERT_FIND_PACKAGE": "OFF"
+      }
+    },
+    {
       "name": "base",
       "hidden": true,
       "generator": "Ninja",
@@ -322,6 +333,13 @@
       "jobs": 0
     },
     {
+      "name": "libassert-noexc",
+      "configurePreset": "libassert-noexc",
+      "displayName": "Build (Libassert no-exceptions)",
+      "description": "Build with libassert integration and the no-exceptions death-test target",
+      "jobs": 0
+    },
+    {
       "name": "debug-system",
       "configurePreset": "debug-system",
       "displayName": "Debug Build (system LLVM/Clang)",
@@ -442,6 +460,13 @@
         "outputOnFailure": true,
         "verbosity": "default"
       }
+    },
+    {
+      "name": "libassert-noexc",
+      "inherits": "test-base",
+      "configurePreset": "libassert-noexc",
+      "displayName": "Tests (Libassert no-exceptions)",
+      "description": "Run all tests including the libassert no-exceptions death test"
     },
     {
       "name": "debug",
@@ -602,6 +627,16 @@
           "type": "test",
           "name": "debug"
         }
+      ]
+    },
+    {
+      "name": "libassert-noexc",
+      "displayName": "Libassert No-Exceptions Workflow",
+      "description": "Configure → build → test with libassert and no-exceptions death test enabled",
+      "steps": [
+        { "type": "configure", "name": "libassert-noexc" },
+        { "type": "build",     "name": "libassert-noexc" },
+        { "type": "test",      "name": "libassert-noexc" }
       ]
     },
     {

@@ -25,6 +25,25 @@ if(${PROJECT_NAME}_BUILD_TESTING)
     include(CTest)
     enable_testing()
     find_package(fmt CONFIG REQUIRED)
+
+    # Optional: libassert integration tests
+    option(GENTEST_WITH_LIBASSERT "Enable libassert integration tests" OFF)
+    option(GENTEST_LIBASSERT_FIND_PACKAGE "Use find_package(libassert) instead of FetchContent" OFF)
+    option(GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS "Add a -fno-exceptions death test for libassert integration" OFF)
+    if(GENTEST_WITH_LIBASSERT)
+        if(GENTEST_LIBASSERT_FIND_PACKAGE)
+            find_package(libassert CONFIG REQUIRED)
+        else()
+            include(FetchContent)
+            FetchContent_Declare(
+                libassert
+                GIT_REPOSITORY https://github.com/jeremy-rifkin/libassert.git
+                GIT_TAG main
+            )
+            FetchContent_MakeAvailable(libassert)
+        endif()
+    endif()
+
     add_subdirectory(tools/core_tests)
     add_subdirectory(tests)
 endif()
