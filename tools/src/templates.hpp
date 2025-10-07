@@ -202,6 +202,30 @@ bool env_no_color() {
     return false;
 }
 bool use_color(std::span<const char*> args) { return !wants_no_color(args) && !env_no_color(); }
+// GitHub annotations
+bool g_github_annotations = false;
+bool wants_github_annotations(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--github-annotations") return true;
+    return false;
+}
+bool env_github_actions() {
+    const char* a = std::getenv("GITHUB_ACTIONS");
+    if (a && *a) return true;
+    return false;
+}
+static inline std::string gha_escape(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char ch : s) {
+        switch (ch) {
+        case '%': out += "%25"; break;
+        case '\r': out += "%0D"; break;
+        case '\n': out += "%0A"; break;
+        default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
 } // namespace
 
 namespace {
@@ -283,6 +307,13 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
         else fmt::print(stderr, "[ FAIL ] {} :: {} issue(s)\n", test.name, ctxinfo->failures.size());
         for (const auto& m : ctxinfo->failures) {
             fmt::print(stderr, "    - {}\n", m);
+            if (g_github_annotations) {
+                fmt::print("::error file={},line={},title={}::{}\n",
+                           test.file,
+                           test.line,
+                           gha_escape(std::string(test.name)),
+                           gha_escape(m));
+            }
         }
     } else if (!threw) {
         if (g_color_output) fmt::print(fmt::fg(fmt::color::green), "[ PASS ] {}\n", test.name);
@@ -356,6 +387,7 @@ inline void write_junit(const char* path) {
 
 auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     g_color_output = use_color(args);
+    g_github_annotations = wants_github_annotations(args) || env_github_actions();
     if (wants_help(args)) {
         fmt::print("gentest v{{VERSION}}\n");
         fmt::print("Usage: [options]\n");
@@ -365,6 +397,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         fmt::print("  --run-test=<name>     Run a single test by exact name\n");
         fmt::print("  --filter=<pattern>    Run tests matching wildcard pattern (*, ?)\n");
         fmt::print("  --no-color            Disable colorized output (or set NO_COLOR/GENTEST_NO_COLOR)\n");
+        fmt::print("  --github-annotations  Emit GitHub Actions annotations (::error ...) on failures\n");
         fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
         fmt::print("  --shuffle-fixtures    Shuffle order within each fixture group\n");
         fmt::print("  --seed N              RNG seed used with --shuffle-fixtures\n");

@@ -203,6 +203,14 @@ add_test(NAME mocking_predicate_mismatch_message
         -DEXPECT_SUBSTRING=expected == 3
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
 
+# GitHub annotations smoke: ensure ::error lines present when enabled
+add_test(NAME github_annotations_smoke
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_failing_tests>
+        -DARGS=--run-test=failing/mocking/predicate_mismatch\ --github-annotations
+        -DEXPECT_SUBSTRING=::error\ file=
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
 # CLI checks for VSCode integration
 add_test(NAME unit_help
     COMMAND ${CMAKE_COMMAND}
