@@ -1,9 +1,9 @@
 def gentest_suite(name, suite):
     gen_name = "gen_{}_code".format(suite)
     outs = [
-        "{}__cases_test_impl.cpp".format(suite),
-        "{}__cases_mock_registry.hpp".format(suite),
-        "{}__cases_mock_impl.hpp".format(suite),
+        "generated/{}/cases_test_impl.cpp".format(suite),
+        "generated/{}/cases_mock_registry.hpp".format(suite),
+        "generated/{}/cases_mock_impl.hpp".format(suite),
     ]
     native.genrule(
         name = gen_name,
@@ -30,10 +30,11 @@ def gentest_suite(name, suite):
             "-Itests",
             "-DFMT_HEADER_ONLY",
             "-include",
-            "cases_mock_registry.hpp",
-            "-DGENTEST_MOCK_REGISTRY_PATH=cases_mock_registry.hpp",
-            "-DGENTEST_MOCK_IMPL_PATH=cases_mock_impl.hpp",
+            "generated/{}/cases_mock_registry.hpp".format(suite),
+            "-DGENTEST_MOCK_REGISTRY_PATH=generated/{}/cases_mock_registry.hpp".format(suite),
+            "-DGENTEST_MOCK_IMPL_PATH=generated/{}/cases_mock_impl.hpp".format(suite),
             "-Wno-unknown-attributes",
             "-Wno-attributes",
         ],
+        includes = ["generated/{}".format(suite)],
     )
