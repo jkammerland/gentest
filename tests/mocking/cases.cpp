@@ -250,4 +250,13 @@ void matchers_ge_anyof() {
     EXPECT_EQ(count, 2);
 }
 
+[[using gentest: test("mocking/nice/unexpected_ok")]]
+void nice_unexpected_ok() {
+    gentest::mock<Ticker> mock_tick;
+    gentest::make_nice(mock_tick, true);
+    // No expectations set; unexpected call should be tolerated in nice mode
+    mock_tick.tick(123);
+    EXPECT_TRUE(true);
+}
+
 } // namespace mocking

@@ -186,13 +186,13 @@ add_test(NAME templates_list_tests_lines
 add_test(NAME mocking_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DPASS=18 -DFAIL=0 -DSKIP=0
+        -DPASS=19 -DFAIL=0 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME mocking_list_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_mocking_tests>
-        -DLIST=ON -DCASES=18
+        -DLIST=ON -DCASES=19
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 # Verify descriptive predicate mismatch content
@@ -269,6 +269,35 @@ add_test(NAME junit_smoke_unit
         -DEXPECT_SUBSTRING=<testsuite name=\"unit\"
         -DARGS=--junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit.xml
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+add_test(NAME junit_properties_unit
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DFILE=${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml
+        -DEXPECT_SUBSTRING=<property name=\"requirement\" value=\"#42\"
+        -DARGS=--junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+add_test(NAME repeat_unit_twice
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DPASS=10 -DFAIL=0 -DSKIP=0
+        -DARGS=--repeat=2
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME failing_fail_fast
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_failing_tests>
+        -DPASS=0 -DFAIL=1 -DSKIP=0
+        -DARGS=--fail-fast
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
+
+add_test(NAME shuffle_seed_print
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
+        -DEXPECT_SUBSTRING=Shuffle seed: 42
+        -DARGS=--run-test=fixtures/free/basic\ --shuffle-fixtures\ --seed\ 42
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
 
 # Allure results smoke: single test writes a result file with passed status
 add_test(NAME allure_smoke_single
