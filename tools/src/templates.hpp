@@ -53,6 +53,9 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 #include <fstream>
 #include <map>
 #include <filesystem>
+#ifdef GENTEST_USE_BOOST_JSON
+#  include <boost/json.hpp>
+#endif
 
 #include "gentest/runner.h"
 #include "gentest/fixture.h"
@@ -450,6 +453,37 @@ inline void write_allure(const char* dir_path) {
         const auto stop_ms = now_ms;
         const std::string base = "result-" + std::to_string(idx++);
         const std::string filename = (fs::path(dir_path) / (base + "-result.json")).string();
+#ifdef GENTEST_USE_BOOST_JSON
+        const char* status = it.skipped ? "skipped" : (it.failures.empty() ? "passed" : "failed");
+        boost::json::object root;
+        root["uuid"] = uuid_v4();
+        root["name"] = it.name;
+        root["fullName"] = it.suite + "/" + it.name;
+        root["status"] = status;
+        root["stage"] = "finished";
+        root["start"] = static_cast<std::int64_t>(start_ms);
+        root["stop"]  = static_cast<std::int64_t>(stop_ms);
+        boost::json::array labels;
+        labels.emplace_back(boost::json::object{{"name","suite"},{"value",it.suite}});
+        root["labels"] = std::move(labels);
+        if (!it.failures.empty()) {
+            std::string all;
+            for (const auto& m : it.failures) { all.append(m); all.push_back('\n'); }
+            root["statusDetails"] = boost::json::object{{"message", it.failures.front()},{"trace", all}};
+        }
+        if (!it.failures.empty() && !it.logs.empty()) {
+            const std::string logs_name = base + "-attachment.txt";
+            const std::string logs_path = (fs::path(dir_path) / logs_name).string();
+            std::ofstream lf(logs_path, std::ios::binary);
+            if (lf) { for (const auto& line : it.logs) { lf << line << "\n"; } }
+            boost::json::array attachments;
+            attachments.emplace_back(boost::json::object{{"name","logs"},{"source",logs_name},{"type","text/plain"}});
+            root["attachments"] = std::move(attachments);
+        }
+        std::ofstream f(filename, std::ios::binary);
+        if (!f) continue;
+        f << boost::json::serialize(root) << '\n';
+#else
         std::ofstream f(filename, std::ios::binary);
         if (!f) continue;
         const char* status = it.skipped ? "skipped" : (it.failures.empty() ? "passed" : "failed");
@@ -486,6 +520,7 @@ inline void write_allure(const char* dir_path) {
             f << "\n";
         }
         f << "}\n";
+#endif
     }
 }
 } // namespace
