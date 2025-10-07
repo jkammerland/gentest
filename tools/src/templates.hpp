@@ -313,12 +313,19 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
         ++c.failures;
         if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ] {} :: {} issue(s)\n", test.name, ctxinfo->failures.size());
         else fmt::print(stderr, "[ FAIL ] {} :: {} issue(s)\n", test.name, ctxinfo->failures.size());
-        for (const auto& m : ctxinfo->failures) {
+        for (std::size_t i = 0; i < ctxinfo->failures.size(); ++i) {
+            const auto& m = ctxinfo->failures[i];
             fmt::print(stderr, "    - {}\n", m);
             if (g_github_annotations) {
+                std::string_view file = test.file;
+                unsigned line = test.line;
+                if (i < ctxinfo->failure_locations.size()) {
+                    const auto& fl = ctxinfo->failure_locations[i];
+                    if (!fl.file.empty() && fl.line > 0) { file = fl.file; line = fl.line; }
+                }
                 fmt::print("::error file={},line={},title={}::{}\n",
-                           test.file,
-                           test.line,
+                           file,
+                           line,
                            gha_escape(std::string(test.name)),
                            gha_escape(m));
             }

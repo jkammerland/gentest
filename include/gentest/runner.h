@@ -48,6 +48,8 @@ namespace detail {
 struct TestContextInfo {
     std::string              display_name;
     std::vector<std::string> failures;
+    struct FailureLoc { std::string file; unsigned line = 0; };
+    std::vector<FailureLoc>  failure_locations;
     std::vector<std::string> logs;
     std::mutex               mtx;
     std::atomic<bool>        active{false};
@@ -75,6 +77,26 @@ inline void record_failure(std::string msg) {
         }
     }
     ctx->failures.push_back(std::move(msg));
+    ctx->failure_locations.push_back({std::string{}, 0});
+}
+inline void record_failure(std::string msg, const std::source_location& loc) {
+    auto ctx = g_current_test;
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+        std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
+                   "        Did you forget to adopt the test context in this thread/coroutine?\n", stderr);
+        std::abort();
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    if (ctx->dump_logs_on_failure && !ctx->logs.empty()) {
+        msg.append("\n[ logs ]\n");
+        for (const auto &line : ctx->logs) {
+            msg.append("    - ");
+            msg.append(line);
+            msg.push_back('\n');
+        }
+    }
+    ctx->failures.push_back(std::move(msg));
+    ctx->failure_locations.push_back({std::string(loc.file_name()), loc.line()});
 }
 inline std::string loc_to_string(const std::source_location& loc) {
     std::string out(loc.file_name());
@@ -172,7 +194,7 @@ inline void expect(bool condition, std::string_view message = {}, const std::sou
         if (!message.empty()) { text.append(message); text.append(" :: "); }
         text.append("EXPECT_TRUE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
-        ::gentest::detail::record_failure(std::move(text));
+        ::gentest::detail::record_failure(std::move(text), loc);
     }
 }
 
@@ -183,7 +205,7 @@ inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view message = {}, con
         if (!message.empty()) { text.append(message); text.append(" :: "); }
         text.append("EXPECT_EQ failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
-        ::gentest::detail::record_failure(std::move(text));
+        ::gentest::detail::record_failure(std::move(text), loc);
     }
 }
 
@@ -194,7 +216,7 @@ inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view message = {}, con
         if (!message.empty()) { text.append(message); text.append(" :: "); }
         text.append("EXPECT_NE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
-        ::gentest::detail::record_failure(std::move(text));
+        ::gentest::detail::record_failure(std::move(text), loc);
     }
 }
 
@@ -205,7 +227,7 @@ inline void require(bool condition, std::string_view message = {}, const std::so
         if (!message.empty()) { text.append(message); text.append(" :: "); }
         text.append("ASSERT_TRUE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
-        ::gentest::detail::record_failure(text);
+        ::gentest::detail::record_failure(text, loc);
         throw assertion("ASSERT_TRUE");
     }
 }
@@ -217,7 +239,7 @@ inline void require_eq(auto &&lhs, auto &&rhs, std::string_view message = {}, co
         if (!message.empty()) { text.append(message); text.append(" :: "); }
         text.append("ASSERT_EQ failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
-        ::gentest::detail::record_failure(text);
+        ::gentest::detail::record_failure(text, loc);
         throw assertion("ASSERT_EQ");
     }
 }
@@ -229,7 +251,7 @@ inline void require_ne(auto &&lhs, auto &&rhs, std::string_view message = {}, co
         if (!message.empty()) { text.append(message); text.append(" :: "); }
         text.append("ASSERT_NE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
-        ::gentest::detail::record_failure(text);
+        ::gentest::detail::record_failure(text, loc);
         throw assertion("ASSERT_NE");
     }
 }

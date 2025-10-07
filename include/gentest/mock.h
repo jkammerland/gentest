@@ -135,7 +135,7 @@ bool check_args_equal(const std::optional<Tuple> &expected, std::string_view met
                  if (!(std::get<I>(*expected) == std::get<I>(actual_tuple))) {
                      ::gentest::detail::record_failure(fmt::format(
                          "argument[{}] mismatch for {}: expected {}, got {}", I, method_name, to_string_fallback(std::get<I>(*expected)),
-                         to_string_fallback(std::get<I>(actual_tuple))));
+                        to_string_fallback(std::get<I>(actual_tuple))), std::source_location::current());
                      reported = true;
                  }
              }()),
@@ -158,7 +158,7 @@ bool check_args_by_predicates(const std::optional<TuplePred> &preds, std::string
               if (!ap.test(a)) {
                   const std::string msg = ap.describe ? ap.describe(a) : std::string("predicate mismatch");
                   ::gentest::detail::record_failure(
-                      fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg));
+                      fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg), std::source_location::current());
                   return false;
               }
               return true;
@@ -174,7 +174,7 @@ inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std
     already_verified = true;
     if (observed < expected) {
         ::gentest::detail::record_failure(
-            fmt::format("expected {} call(s) to {} but observed {}", expected, method_name, observed));
+            fmt::format("expected {} call(s) to {} but observed {}", expected, method_name, observed), std::source_location::current());
     }
 }
 
@@ -221,7 +221,7 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
 
     R invoke(std::string_view method_name, Args... args) {
         if (!this->allow_excess && this->observed_calls >= this->expected_calls) {
-            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
+            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name), std::source_location::current());
         }
         (void)this->check_args(method_name, std::forward<Args>(args)...);
         ++this->observed_calls;
@@ -243,7 +243,7 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommo
 
     void invoke(std::string_view method_name, Args... args) {
         if (!this->allow_excess && this->observed_calls >= this->expected_calls) {
-            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
+            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name), std::source_location::current());
         }
         (void)this->check_args(method_name, std::forward<Args>(args)...);
         ++this->observed_calls;
