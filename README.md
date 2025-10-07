@@ -343,6 +343,27 @@ jobs:
           path: build/debug/tests/artifacts/allure-unit
 ```
 
+### Optional Dependencies (Boost)
+
+Two optional CMake toggles can enhance the generated runner without introducing mandatory dependencies:
+
+- `GENTEST_USE_BOOST_JSON` (default OFF)
+  - Uses Boost.JSON to build Allure result objects instead of the minimal manual JSON writer.
+  - Header‑only in typical setups; no explicit link libraries are required.
+
+- `GENTEST_USE_BOOST_UUID` (default OFF)
+  - Uses Boost.UUID to generate RFC4122 v4 UUIDs for Allure results (otherwise a small built‑in generator is used).
+  - Also header‑only in typical setups.
+
+Enable them at configure time (applies to all generated test targets via `gentest_attach_codegen`):
+
+```bash
+cmake --preset=debug \
+  -DGENTEST_USE_BOOST_JSON=ON \
+  -DGENTEST_USE_BOOST_UUID=ON
+cmake --build --preset=debug
+```
+
 ## Templates
 
 Generated files are produced strictly from templates — no emission logic is inlined in the generator beyond simple
