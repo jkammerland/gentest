@@ -115,7 +115,7 @@ inline std::string loc_to_string(const std::source_location& loc) {
 #  define GENTEST_EXCEPTIONS_ENABLED 0
 #endif
 
-inline [[noreturn]] void terminate_no_exceptions_fatal(std::string_view origin) {
+[[noreturn]] inline void terminate_no_exceptions_fatal(std::string_view origin) {
     std::fputs("gentest: exceptions are disabled; terminating after fatal assertion", stderr);
     if (!origin.empty()) {
         std::fputs(" (origin: ", stderr);
