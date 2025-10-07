@@ -35,5 +35,18 @@ cc_binary(
 
 gentest_suite(name = "gentest_unit_tests", suite = "unit")
 gentest_suite(name = "gentest_integration_tests", suite = "integration")
-gentest_suite(name = "gentest_skiponly_tests", suite = "skiponly")
 gentest_suite(name = "gentest_fixtures_tests", suite = "fixtures")
+
+sh_test(
+    name = "codegen_check_valid",
+    srcs = ["scripts/bazel_codegen_check.sh"],
+    data = [":gentest_codegen", "tests/unit/cases.cpp"],
+    args = ["valid"],
+)
+
+sh_test(
+    name = "codegen_check_invalid",
+    srcs = ["scripts/bazel_codegen_check.sh"],
+    data = [":gentest_codegen", "tests/smoke/invalid_attrs.cpp"],
+    args = ["invalid"],
+)
