@@ -168,6 +168,7 @@ bool wants_list_tests(std::span<const char*> args) {
     return false;
 }
 
+
 const char* get_arg_value(std::span<const char*> args, std::string_view prefix) {
     for (const auto* arg : args) {
         if (!arg) continue;
@@ -175,6 +176,23 @@ const char* get_arg_value(std::span<const char*> args, std::string_view prefix) 
         if (s.rfind(prefix, 0) == 0) return arg + prefix.size();
     }
     return nullptr;
+}
+
+bool wants_fail_fast(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--fail-fast") return true;
+    return false;
+}
+
+std::size_t parse_repeat(std::span<const char*> args) {
+    const char* v = get_arg_value(args, "--repeat=");
+    if (!v) return 1;
+    std::size_t n = 0;
+    for (const char ch : std::string_view(v)) {
+        if (ch < '0' || ch > '9') { n = 0; break; }
+        n = n * 10 + static_cast<std::size_t>(ch - '0');
+        if (n > 1000000) { n = 1000000; break; }
+    }
+    return n == 0 ? 1 : n;
 }
 
 bool wildcard_match(std::string_view text, std::string_view pattern) {
@@ -255,6 +273,8 @@ struct ReportItem {
     std::string              skip_reason;
     std::vector<std::string> failures;
     std::vector<std::string> logs;
+    std::vector<std::string> tags;
+    std::vector<std::string> requirements;
 };
 static bool                    g_record_results = false;
 static std::vector<ReportItem> g_report_items;
@@ -361,6 +381,8 @@ inline void execute_and_record(const Case& test, void* ctx, Counters& c) {
     item.skip_reason = std::string(test.skip_reason);
     item.failures    = std::move(rr.failures);
     item.logs        = std::move(rr.logs);
+    for (auto sv : test.tags) item.tags.emplace_back(sv);
+    for (auto sv : test.requirements) item.requirements.emplace_back(sv);
     g_report_items.push_back(std::move(item));
 }
 
@@ -389,6 +411,13 @@ inline void write_junit(const char* path) {
         f << "  <testsuite name=\"" << xml_escape(suite) << "\" tests=\"" << vec.size() << "\" failures=\"" << failures << "\" skipped=\"" << skipped << "\" time=\"" << fmtd(time) << "\">\n";
         for (auto* p : vec) {
             f << "    <testcase classname=\"" << xml_escape(suite) << "\" name=\"" << xml_escape(p->name) << "\" time=\"" << fmtd(p->time_s) << "\">\n";
+            // Emit properties for tags/requirements if present
+            if (!p->tags.empty() || !p->requirements.empty()) {
+                f << "      <properties>\n";
+                for (const auto& t : p->tags) f << "        <property name=\"tag\" value=\"" << xml_escape(t) << "\"/>\n";
+                for (const auto& r : p->requirements) f << "        <property name=\"requirement\" value=\"" << xml_escape(r) << "\"/>\n";
+                f << "      </properties>\n";
+            }
             if (p->skipped) {
                 if (!p->skip_reason.empty()) f << "      <skipped message=\"" << xml_escape(p->skip_reason) << "\"/>\n";
                 else f << "      <skipped/>\n";
@@ -555,6 +584,8 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         fmt::print("  --github-annotations  Emit GitHub Actions annotations (::error ...) on failures\n");
         fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
         fmt::print("  --allure-dir=<dir>    Write Allure result JSON files into directory\n");
+        fmt::print("  --fail-fast           Stop after the first failing test\n");
+        fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
         fmt::print("  --shuffle-fixtures    Shuffle order within each fixture group\n");
         fmt::print("  --seed N              RNG seed used with --shuffle-fixtures\n");
         return 0;
@@ -609,40 +640,48 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
             for (std::size_t i = 0; i < kCases.size(); ++i) if (wildcard_match(kCases[i].name, filter_pat)) sel.push_back(i);
             if (sel.empty()) { fmt::print("Executed 0 test(s).\n"); return 0; }
         }
-        // Free tests
-        for (auto i : sel) {
-            const auto& t = kCases[i];
-            if (!t.fixture.empty()) continue;
-            execute_and_record(t, nullptr, counters);
-        }
-        // Fixture tests honour lifetime semantics during selection as well.
-        const bool         shuffle = wants_shuffle(args);
-        const std::uint64_t seed    = parse_seed(args);
-        // Group by fixture name
-        std::vector<std::pair<std::string_view, std::vector<std::size_t>>> groups;
-        for (auto i : sel) { const auto& t = kCases[i]; if (t.fixture.empty()) continue; auto it = std::find_if(groups.begin(), groups.end(), [&](auto& g){return g.first==t.fixture;}); if (it==groups.end()) groups.push_back({t.fixture,{i}}); else it->second.push_back(i); }
-        for (std::size_t gid = 0; gid < groups.size(); ++gid) {
-            auto order = groups[gid].second;
-            if (shuffle && order.size() > 1) { std::mt19937_64 rng(seed ? (seed + gid) : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(order.begin(), order.end(), rng); }
-            for (auto i : order) {
-                const auto& test = kCases[i];
-                void* ctx = nullptr;
-                switch (test.fixture_lifetime) {
-                case FixtureLifetime::MemberSuite:
-                case FixtureLifetime::MemberGlobal:
-                    if (test.acquire_fixture) {
-                        ctx = test.acquire_fixture(test.suite);
+        const bool        fail_fast = wants_fail_fast(args);
+        const std::size_t repeat_n  = parse_repeat(args);
+        for (std::size_t iter = 0; iter < repeat_n; ++iter) {
+            // Free tests
+            for (auto i : sel) {
+                const auto& t = kCases[i];
+                if (!t.fixture.empty()) continue;
+                execute_and_record(t, nullptr, counters);
+                if (fail_fast && counters.failures > 0) goto done_selection;
+            }
+            // Fixture tests honour lifetime semantics during selection as well.
+            const bool         shuffle = wants_shuffle(args);
+            const std::uint64_t seed    = parse_seed(args);
+            if (shuffle) fmt::print("Shuffle seed: {}\n", seed);
+            // Group by fixture name
+            std::vector<std::pair<std::string_view, std::vector<std::size_t>>> groups;
+            for (auto i : sel) { const auto& t = kCases[i]; if (t.fixture.empty()) continue; auto it = std::find_if(groups.begin(), groups.end(), [&](auto& g){return g.first==t.fixture;}); if (it==groups.end()) groups.push_back({t.fixture,{i}}); else it->second.push_back(i); }
+            for (std::size_t gid = 0; gid < groups.size(); ++gid) {
+                auto order = groups[gid].second;
+                if (shuffle && order.size() > 1) { std::mt19937_64 rng(seed ? (seed + gid) : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(order.begin(), order.end(), rng); }
+                for (auto i : order) {
+                    const auto& test = kCases[i];
+                    void* ctx = nullptr;
+                    switch (test.fixture_lifetime) {
+                    case FixtureLifetime::MemberSuite:
+                    case FixtureLifetime::MemberGlobal:
+                        if (test.acquire_fixture) {
+                            ctx = test.acquire_fixture(test.suite);
+                        }
+                        break;
+                    case FixtureLifetime::MemberEphemeral:
+                    case FixtureLifetime::None:
+                    default:
+                        ctx = nullptr;
+                        break;
                     }
-                    break;
-                case FixtureLifetime::MemberEphemeral:
-                case FixtureLifetime::None:
-                default:
-                    ctx = nullptr;
-                    break;
+                    execute_and_record(test, ctx, counters);
+                    if (fail_fast && counters.failures > 0) goto done_selection;
                 }
-                execute_and_record(test, ctx, counters);
             }
         }
+        done_selection:
         if (counters.failures == 0) {
             if (g_color_output) fmt::print(fmt::fg(fmt::color::green), "Executed {} test(s).\n", counters.executed);
             else fmt::print("Executed {} test(s).\n", counters.executed);
@@ -655,10 +694,19 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     }
 
     // Default path: run all tests with built-in grouping
-    for (const auto& t : kCases) { if (!t.fixture.empty()) continue; execute_and_record(t, nullptr, counters); }
-    const bool         shuffle = wants_shuffle(args);
-    const std::uint64_t seed    = parse_seed(args);
-    {{RUN_GROUPS}}
+    {
+        const bool        fail_fast = wants_fail_fast(args);
+        const std::size_t repeat_n  = parse_repeat(args);
+        for (std::size_t iter = 0; iter < repeat_n; ++iter) {
+            for (const auto& t : kCases) { if (!t.fixture.empty()) continue; execute_and_record(t, nullptr, counters); if (fail_fast && counters.failures > 0) goto done_all; }
+            const bool         shuffle = wants_shuffle(args);
+            const std::uint64_t seed    = parse_seed(args);
+            if (shuffle) fmt::print("Shuffle seed: {}\n", seed);
+            {{RUN_GROUPS}}
+            if (fail_fast && counters.failures > 0) goto done_all;
+        }
+    }
+    done_all:
     if (counters.failures == 0) {
         if (g_color_output) fmt::print(fmt::fg(fmt::color::green), "Executed {} test(s).\n", counters.executed);
         else fmt::print("Executed {} test(s).\n", counters.executed);

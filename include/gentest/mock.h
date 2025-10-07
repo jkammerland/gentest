@@ -261,6 +261,9 @@ class InstanceState {
 
     ~InstanceState() = default;
 
+    void set_nice(bool v) { nice_mode_ = v; }
+    bool nice() const { return nice_mode_; }
+
     void verify_all() {
         for (auto &[_, entry] : methods_) {
             for (auto &expectation : entry.queue) {
@@ -284,7 +287,9 @@ class InstanceState {
     template <typename R, typename... Args> R dispatch(const MethodIdentity &id, std::string_view method_name, Args &&...args) {
         auto it = methods_.find(id);
         if (it == methods_.end() || it->second.queue.empty()) {
-            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
+            if (!nice_mode_) {
+                ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
+            }
             if constexpr (!std::is_void_v<R>) {
                 if constexpr (std::is_reference_v<R>) {
                     std::terminate();
@@ -321,6 +326,7 @@ class InstanceState {
     };
 
     std::unordered_map<MethodIdentity, MethodEntry, MethodIdentityHash> methods_;
+    bool nice_mode_ = false;
 };
 
 template <typename Signature> class ExpectationHandle;
@@ -496,6 +502,7 @@ template <class Mock> struct MockAccess {
         };
         return Stub{};
     }
+    static void set_nice(Mock&, bool) {}
 #endif
 };
 
@@ -503,6 +510,15 @@ template <class Mock> struct MockAccess {
 
 template <class Mock, class MethodPtr> auto expect(Mock &instance, MethodPtr method) {
     return detail::MockAccess<std::remove_cvref_t<Mock>>::expect(instance, method);
+}
+
+template <class Mock>
+void make_nice(Mock &instance, bool v = true) {
+    detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, v);
+}
+template <class Mock>
+void make_strict(Mock &instance) {
+    detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, false);
 }
 
 // Lightweight matcher helpers for predicate-based argument matching.

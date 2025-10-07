@@ -307,6 +307,8 @@ std::string build_mock_access(const MockClassInfo &cls) {
     body += "        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, token, \"(mock method)\");\n";
     body += "        return ExpectationHandle<Signature>{expectation, \"(mock method)\"};\n";
     body += "    }\n";
+    body += "\n";
+    body += fmt::format("    static void set_nice(mock<{0}> &instance, bool v) {{ instance.__gentest_state_.set_nice(v); }}\n", fq_type);
     body += "};\n\n";
     return body;
 }
