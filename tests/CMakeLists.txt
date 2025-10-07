@@ -269,3 +269,12 @@ add_test(NAME junit_smoke_unit
         -DEXPECT_SUBSTRING=<testsuite name=\"unit\"
         -DARGS=--junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit.xml
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+# Allure results smoke: single test writes a result file with passed status
+add_test(NAME allure_smoke_single
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_unit_tests>
+        -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/result-0.json
+        -DEXPECT_SUBSTRING=status\":\ \"passed
+        -DARGS=--run-test=unit/arithmetic/sum\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)

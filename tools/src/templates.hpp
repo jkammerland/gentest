@@ -52,6 +52,7 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 #include <chrono>
 #include <fstream>
 #include <map>
+#include <filesystem>
 
 #include "gentest/runner.h"
 #include "gentest/fixture.h"
@@ -379,6 +380,59 @@ inline void write_junit(const char* path) {
     }
     f << "</testsuites>\n";
 }
+
+inline void write_allure(const char* dir_path) {
+    if (!dir_path) return;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(fs::path(dir_path), ec);
+    // Approximate start/stop from duration around now
+    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    std::size_t idx = 0;
+    auto json_escape = [](std::string_view s) {
+        std::string out;
+        out.reserve(s.size());
+        for (char ch : s) {
+            switch (ch) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out.push_back(ch); break;
+            }
+        }
+        return out;
+    };
+    for (const auto& it : g_report_items) {
+        const auto duration_ms = static_cast<long long>(it.time_s * 1000.0);
+        const auto start_ms = now_ms - duration_ms;
+        const auto stop_ms = now_ms;
+        const std::string filename = (fs::path(dir_path) / ("result-" + std::to_string(idx++) + ".json")).string();
+        std::ofstream f(filename, std::ios::binary);
+        if (!f) continue;
+        const char* status = it.skipped ? "skipped" : (it.failures.empty() ? "passed" : "failed");
+        std::string first_msg = it.failures.empty() ? std::string() : it.failures.front();
+        // Minimal Allure 2 result JSON
+        f << "{\n";
+        f << "  \"uuid\": \"" << json_escape(it.suite + "/" + it.name) << "\",\n";
+        f << "  \"name\": \"" << json_escape(it.name) << "\",\n";
+        f << "  \"fullName\": \"" << json_escape(it.suite + "/" + it.name) << "\",\n";
+        f << "  \"status\": \"" << status << "\",\n";
+        f << "  \"stage\": \"finished\",\n";
+        f << "  \"time\": { \"start\": " << start_ms << ", \"stop\": " << stop_ms << ", \"duration\": " << duration_ms << " },\n";
+        f << "  \"labels\": [ { \"name\": \"suite\", \"value\": \"" << json_escape(it.suite) << "\" } ]";
+        if (!it.failures.empty()) {
+            f << ",\n  \"statusDetails\": { \"message\": \"" << json_escape(first_msg) << "\", \"trace\": \"";
+            std::string all;
+            for (const auto& m : it.failures) { all.append(m); all.push_back('\n'); }
+            f << json_escape(all) << "\" }\n";
+        } else {
+            f << "\n";
+        }
+        f << "}\n";
+    }
+}
 } // namespace
 
 // Group runners for fixture-based tests.
@@ -399,6 +453,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         fmt::print("  --no-color            Disable colorized output (or set NO_COLOR/GENTEST_NO_COLOR)\n");
         fmt::print("  --github-annotations  Emit GitHub Actions annotations (::error ...) on failures\n");
         fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
+        fmt::print("  --allure-dir=<dir>    Write Allure result JSON files into directory\n");
         fmt::print("  --shuffle-fixtures    Shuffle order within each fixture group\n");
         fmt::print("  --seed N              RNG seed used with --shuffle-fixtures\n");
         return 0;
@@ -438,7 +493,8 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     }
     Counters counters;
     const char* junit_path = get_arg_value(args, "--junit=");
-    g_record_results = junit_path != nullptr;
+    const char* allure_dir = get_arg_value(args, "--allure-dir=");
+    g_record_results = (junit_path != nullptr) || (allure_dir != nullptr);
 
     // Selection support: --run-test / --filter
     const char* run_exact = get_arg_value(args, "--run-test=");
@@ -493,7 +549,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
             if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
             else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
         }
-        if (g_record_results) write_junit(junit_path);
+        if (g_record_results) { if (junit_path) write_junit(junit_path); if (allure_dir) write_allure(allure_dir); }
         return counters.failures == 0 ? 0 : 1;
     }
 
@@ -509,7 +565,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
         else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
     }
-    if (g_record_results) write_junit(junit_path);
+    if (g_record_results) { if (junit_path) write_junit(junit_path); if (allure_dir) write_allure(allure_dir); }
     return counters.failures == 0 ? 0 : 1;
 }
 
