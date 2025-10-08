@@ -299,12 +299,14 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
     RunResult rr;
     if (test.should_skip) {
         rr.skipped = true;
-        if (!test.skip_reason.empty()) {
-            if (g_color_output) fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ] {} :: {}\n", test.name, test.skip_reason);
-            else fmt::print("[ SKIP ] {} :: {}\n", test.name, test.skip_reason);
+        const long long dur_ms = 0LL;
+        if (g_color_output) {
+            fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
+            if (!test.skip_reason.empty()) fmt::print(" {} :: {} ({} ms)\n", test.name, test.skip_reason, dur_ms);
+            else fmt::print(" {} ({} ms)\n", test.name, dur_ms);
         } else {
-            if (g_color_output) fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ] {}\n", test.name);
-            else fmt::print("[ SKIP ] {}\n", test.name);
+            if (!test.skip_reason.empty()) fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, test.skip_reason, dur_ms);
+            else fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
         }
         return rr;
     }
@@ -339,8 +341,13 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
 
     if (!ctxinfo->failures.empty()) {
         ++c.failures;
-        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ] {} :: {} issue(s)\n", test.name, ctxinfo->failures.size());
-        else fmt::print(stderr, "[ FAIL ] {} :: {} issue(s)\n", test.name, ctxinfo->failures.size());
+        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        if (g_color_output) {
+            fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
+            fmt::print(stderr, " {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
+        } else {
+            fmt::print(stderr, "[ FAIL ] {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
+        }
         for (std::size_t i = 0; i < ctxinfo->failures.size(); ++i) {
             const auto& m = ctxinfo->failures[i];
             fmt::print(stderr, "    - {}\n", m);
@@ -359,13 +366,23 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
             }
         }
     } else if (!threw) {
-        if (g_color_output) fmt::print(fmt::fg(fmt::color::green), "[ PASS ] {}\n", test.name);
-        else fmt::print("[ PASS ] {}\n", test.name);
+        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        if (g_color_output) {
+            fmt::print(fmt::fg(fmt::color::green), "[ PASS ]");
+            fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+        } else {
+            fmt::print("[ PASS ] {} ({} ms)\n", test.name, dur_ms);
+        }
     } else {
         // threw but no messages recorded: still a failure
         ++c.failures;
-        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ] {}\n", test.name);
-        else fmt::print(stderr, "[ FAIL ] {}\n", test.name);
+        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        if (g_color_output) {
+            fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
+            fmt::print(stderr, " {} ({} ms)\n", test.name, dur_ms);
+        } else {
+            fmt::print(stderr, "[ FAIL ] {} ({} ms)\n", test.name, dur_ms);
+        }
     }
     return rr;
 }
