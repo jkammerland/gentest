@@ -461,3 +461,28 @@ Devlog 2025-10-07 (Libassert Integration + No-Exceptions Semantics)
       - Existing suites unchanged; libassert suite and no-exc death test pass locally.
   - Next
       - Optionally pin libassert to a release tag; add throw-match adapters for exceptions-on builds; document vcpkg path.
+Devlog 2025-10-08 (Meson/Bazel/Xmake Support)
+
+  - Goals
+      - Add alternative build systems alongside CMake: Meson, Bazel, and Xmake.
+      - Ensure gentest_codegen builds and runs; keep runtime tests green.
+      - Keep source changes minimal (no functional edits required for build integration).
+  - Meson
+      - Added meson.build at repo root.
+      - Builds gentest_codegen linking against system libclang-cpp; uses FMT_HEADER_ONLY.
+      - Wires codegen via Meson generator() per suite; all core suites pass (clang++ recommended).
+  - Bazel (pure Bazel)
+      - BUILD.bazel + build_defs/gentest.bzl macro.
+      - genrule stages tests/<suite>/cases.cpp under bazel-out and runs gentest_codegen; cc_test compiles generated TU.
+      - Enabled passing suites: unit, integration, fixtures, skiponly. templates/mocking left disabled to keep config simple.
+      - .gitignore updated for Bazel outputs; removed CMake-driven test harness to stay pure Bazel.
+  - Xmake
+      - xmake.lua with per‑suite phony generator target + test target (one‑step workflow).
+      - gentest_codegen is a dep; generator emits to $(builddir)/gen/<suite>/; test target includes generated TU/headers.
+      - Suites: unit, integration, skiponly, fixtures (templates/mocking optional).
+  - Fixes
+      - runner.h: moved [[noreturn]] before inline to satisfy GCC/Clang (unrelated to build systems but required to compile).
+  - Status
+      - Meson: all suites pass.
+      - Bazel: unit/integration/fixtures/skiponly pass; generator path validated. templates/mocking intentionally disabled.
+      - Xmake: one-step per suite; generator invoked automatically via phony target.

@@ -1,9 +1,11 @@
 def gentest_suite(name, suite):
     gen_name = "gen_{}_code".format(suite)
+    gendir = "gen/{}".format(suite)
     outs = [
-        "generated/{}/cases_test_impl.cpp".format(suite),
-        "generated/{}/cases_mock_registry.hpp".format(suite),
-        "generated/{}/cases_mock_impl.hpp".format(suite),
+        gendir + "/cases_test_impl.cpp",
+        gendir + "/cases_mock_registry.hpp",
+        gendir + "/cases_mock_impl.hpp",
+        gendir + "/cases.cpp",
     ]
     native.genrule(
         name = gen_name,
@@ -11,30 +13,40 @@ def gentest_suite(name, suite):
         tools = [":gentest_codegen"],
         outs = outs,
         cmd = (
-            "$(location :gentest_codegen) "
-            + "--output $(location {0}) --entry gentest::run_all_tests "
-            + "--mock-registry $(location {1}) --mock-impl $(location {2}) "
-            + "tests/{3}/cases.cpp -- -std=c++23 -Iinclude -Itests"
-        ).format(outs[0], outs[1], outs[2], suite),
+            "mkdir -p $(@D)/{gendir} && "
+            + "cp $(location tests/{suite}/cases.cpp) $(@D)/{gendir}/cases.cpp && "
+            + "$(location :gentest_codegen) "
+            + "--output $(@D)/{gendir}/cases_test_impl.cpp --entry gentest::run_all_tests "
+            + "--mock-registry $(@D)/{gendir}/cases_mock_registry.hpp --mock-impl $(@D)/{gendir}/cases_mock_impl.hpp "
+            + "$(@D)/{gendir}/cases.cpp -- -std=c++23 -Iinclude -Itests -include string"
+        ).format(gendir="{}".format(gendir), suite=suite),
+    )
+
+    native.cc_library(
+        name = "geninc_{}".format(suite),
+        hdrs = [
+            gendir + "/cases_mock_registry.hpp",
+            gendir + "/cases_mock_impl.hpp",
+            gendir + "/cases.cpp",
+        ],
+        includes = [gendir],
     )
 
     native.cc_test(
         name = name,
         srcs = [
             "tests/support/test_entry.cpp",
-            ":{}".format(gen_name),
+            gendir + "/cases_test_impl.cpp",
         ] + native.glob(["include/gentest/*.h"]),
         copts = [
             "-std=c++23",
             "-Iinclude",
             "-Itests",
             "-DFMT_HEADER_ONLY",
-            "-include",
-            "generated/{}/cases_mock_registry.hpp".format(suite),
-            "-DGENTEST_MOCK_REGISTRY_PATH=generated/{}/cases_mock_registry.hpp".format(suite),
-            "-DGENTEST_MOCK_IMPL_PATH=generated/{}/cases_mock_impl.hpp".format(suite),
+            "-DGENTEST_MOCK_REGISTRY_PATH=cases_mock_registry.hpp",
+            "-DGENTEST_MOCK_IMPL_PATH=cases_mock_impl.hpp",
             "-Wno-unknown-attributes",
             "-Wno-attributes",
         ],
-        includes = ["generated/{}".format(suite)],
+        deps = [":geninc_{}".format(suite)],
     )

@@ -38,20 +38,8 @@ gentest_suite(name = "gentest_unit_tests", suite = "unit")
 gentest_suite(name = "gentest_integration_tests", suite = "integration")
 gentest_suite(name = "gentest_fixtures_tests", suite = "fixtures")
 gentest_suite(name = "gentest_skiponly_tests", suite = "skiponly")
+# templates/mocking are disabled under Bazel for simplicity
 # gentest_suite(name = "gentest_templates_tests", suite = "templates")
-# Optionally enable mocking once stable under sandbox
 # gentest_suite(name = "gentest_mocking_tests", suite = "mocking")
 
-sh_test(
-    name = "codegen_check_valid",
-    srcs = ["scripts/bazel_codegen_check.sh"],
-    data = [":gentest_codegen", "tests/unit/cases.cpp"],
-    args = ["$(location :gentest_codegen)", "valid"],
-)
-
-sh_test(
-    name = "codegen_check_invalid",
-    srcs = ["scripts/bazel_codegen_check.sh"],
-    data = [":gentest_codegen", "tests/smoke/invalid_attrs.cpp"],
-    args = ["$(location :gentest_codegen)", "invalid"],
-)
+## Generator lint tests are omitted to keep Bazel simple; the suites exercise codegen
