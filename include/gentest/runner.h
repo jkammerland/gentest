@@ -55,7 +55,9 @@ struct TestContextInfo {
     };
     std::vector<FailureLoc>  failure_locations;
     std::vector<std::string> logs;
-    std::size_t              logs_emitted = 0; // number of log lines already attached to previous failures
+    // Chronological event stream for console/JUnit (kind: 'F' failure, 'L' log)
+    std::vector<std::string> event_lines;
+    std::vector<char>        event_kinds;
     std::mutex               mtx;
     std::atomic<bool>        active{false};
     bool                     dump_logs_on_failure{false};
@@ -74,15 +76,11 @@ inline void                             record_failure(std::string msg) {
         std::abort();
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    if (ctx->dump_logs_on_failure && ctx->logs_emitted < ctx->logs.size()) {
-        for (std::size_t i = ctx->logs_emitted; i < ctx->logs.size(); ++i) {
-            msg.append("\n");
-            msg.append(ctx->logs[i]);
-        }
-        ctx->logs_emitted = ctx->logs.size();
-    }
     ctx->failures.push_back(std::move(msg));
     ctx->failure_locations.push_back({std::string{}, 0});
+    // Record event (after pushing so that failures vector is up-to-date)
+    ctx->event_lines.push_back(ctx->failures.back());
+    ctx->event_kinds.push_back('F');
 }
 inline void record_failure(std::string msg, const std::source_location &loc) {
     auto ctx = g_current_test;
@@ -93,13 +91,6 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
         std::abort();
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    if (ctx->dump_logs_on_failure && ctx->logs_emitted < ctx->logs.size()) {
-        for (std::size_t i = ctx->logs_emitted; i < ctx->logs.size(); ++i) {
-            msg.append("\n");
-            msg.append(ctx->logs[i]);
-        }
-        ctx->logs_emitted = ctx->logs.size();
-    }
     ctx->failures.push_back(std::move(msg));
     // Normalize path to a stable, short form for diagnostics
     std::filesystem::path p(std::string(loc.file_name()));
@@ -112,6 +103,9 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
     };
     (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
     ctx->failure_locations.push_back({std::move(s), loc.line()});
+    // Record event (after pushing so that failures vector is up-to-date)
+    ctx->event_lines.push_back(ctx->failures.back());
+    ctx->event_kinds.push_back('F');
 }
 inline std::string loc_to_string(const std::source_location &loc) {
     std::filesystem::path p(std::string(loc.file_name()));
@@ -166,6 +160,10 @@ inline void log(std::string_view message) {
         return;
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->logs.emplace_back(message);
+    if (ctx->dump_logs_on_failure) {
+        ctx->event_lines.emplace_back(message);
+        ctx->event_kinds.push_back('L');
+    }
 }
 inline void log_on_fail(bool enable = true) {
     auto ctx = detail::g_current_test;
@@ -179,7 +177,18 @@ inline void clear_logs() {
         return;
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->logs.clear();
-    ctx->logs_emitted = 0;
+    // Remove any pending log events; keep failure events
+    if (!ctx->event_lines.empty()) {
+        std::vector<std::string> kept_lines;
+        std::vector<char>        kept_kinds;
+        kept_lines.reserve(ctx->event_lines.size());
+        kept_kinds.reserve(ctx->event_kinds.size());
+        for (std::size_t i = 0; i < ctx->event_lines.size(); ++i) {
+            if (ctx->event_kinds[i] == 'F') { kept_lines.push_back(std::move(ctx->event_lines[i])); kept_kinds.push_back('F'); }
+        }
+        ctx->event_lines.swap(kept_lines);
+        ctx->event_kinds.swap(kept_kinds);
+    }
 }
 
 // Approximate equality helper usable with EXPECT_EQ/ASSERT_EQ via operator==.

@@ -264,6 +264,7 @@ struct RunResult {
     double                   time_s{0.0};
     std::vector<std::string> failures;
     std::vector<std::string> logs;
+    std::vector<std::string> timeline;
 };
 struct ReportItem {
     std::string              suite;
@@ -273,6 +274,7 @@ struct ReportItem {
     std::string              skip_reason;
     std::vector<std::string> failures;
     std::vector<std::string> logs;
+    std::vector<std::string> timeline;
     std::vector<std::string> tags;
     std::vector<std::string> requirements;
 };
@@ -338,6 +340,7 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
     rr.time_s = std::chrono::duration<double>(end_tp - start_tp).count();
     rr.failures = ctxinfo->failures;
     rr.logs = ctxinfo->logs;
+    rr.timeline = ctxinfo->event_lines;
 
     if (!ctxinfo->failures.empty()) {
         ++c.failures;
@@ -348,21 +351,28 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
         } else {
             fmt::print(stderr, "[ FAIL ] {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
         }
-        for (std::size_t i = 0; i < ctxinfo->failures.size(); ++i) {
-            const auto& m = ctxinfo->failures[i];
-            fmt::print(stderr, "{}\n", m);
-            if (g_github_annotations) {
-                std::string_view file = test.file;
-                unsigned line = test.line;
-                if (i < ctxinfo->failure_locations.size()) {
-                    const auto& fl = ctxinfo->failure_locations[i];
-                    if (!fl.file.empty() && fl.line > 0) { file = fl.file; line = fl.line; }
+        std::size_t failure_printed = 0;
+        for (std::size_t i = 0; i < ctxinfo->event_lines.size(); ++i) {
+            const char kind = (i < ctxinfo->event_kinds.size() ? ctxinfo->event_kinds[i] : 'L');
+            const auto& ln = ctxinfo->event_lines[i];
+            if (kind == 'F') {
+                fmt::print(stderr, "{}\n", ln);
+                if (g_github_annotations) {
+                    std::string_view file = test.file;
+                    unsigned line_no = test.line;
+                    if (failure_printed < ctxinfo->failure_locations.size()) {
+                        const auto& fl = ctxinfo->failure_locations[failure_printed];
+                        if (!fl.file.empty() && fl.line > 0) { file = fl.file; line_no = fl.line; }
+                    }
+                    fmt::print("::error file={},line={},title={}::{}\n",
+                               file,
+                               line_no,
+                               gha_escape(std::string(test.name)),
+                               gha_escape(ln));
                 }
-                fmt::print("::error file={},line={},title={}::{}\n",
-                           file,
-                           line,
-                           gha_escape(std::string(test.name)),
-                           gha_escape(m));
+                ++failure_printed;
+            } else {
+                fmt::print(stderr, "{}\n", ln);
             }
         }
     } else if (!threw) {
@@ -398,6 +408,7 @@ inline void execute_and_record(const Case& test, void* ctx, Counters& c) {
     item.skip_reason = std::string(test.skip_reason);
     item.failures    = std::move(rr.failures);
     item.logs        = std::move(rr.logs);
+    item.timeline    = std::move(rr.timeline);
     for (auto sv : test.tags) item.tags.emplace_back(sv);
     for (auto sv : test.requirements) item.requirements.emplace_back(sv);
     g_report_items.push_back(std::move(item));
@@ -441,7 +452,8 @@ inline void write_junit(const char* path) {
             } else if (!p->failures.empty()) {
                 const std::string& first = p->failures.front();
                 f << "      <failure message=\"" << xml_escape(first) << "\">\n<![CDATA[\n";
-                for (const auto& msg : p->failures) f << msg << "\n";
+                if (!p->timeline.empty()) { for (const auto& ln : p->timeline) f << ln << "\n"; }
+                else { for (const auto& msg : p->failures) f << msg << "\n"; }
                 f << "]]></failure>\n";
             }
             f << "    </testcase>\n";
