@@ -107,6 +107,12 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
     ctx->event_lines.push_back(ctx->failures.back());
     ctx->event_kinds.push_back('F');
 }
+inline void append_label(std::string& out, std::string_view label) {
+    static constexpr std::size_t kWidth = 11; // longest of EXPECT_TRUE/ASSERT_TRUE
+    out.append(label);
+    if (label.size() < kWidth) out.append(kWidth - label.size(), ' ');
+    out.append(" failed at ");
+}
 inline std::string loc_to_string(const std::source_location &loc) {
     std::filesystem::path p(std::string(loc.file_name()));
     p = p.lexically_normal();
@@ -236,7 +242,7 @@ template <typename T> inline bool operator!=(const Approx &lhs, const T &rhs) { 
 inline void expect(bool condition, std::string_view /*message*/ = {}, const std::source_location &loc = std::source_location::current()) {
     if (!condition) {
         std::string text;
-        text.append("EXPECT_TRUE failed at ");
+        ::gentest::detail::append_label(text, "EXPECT_TRUE");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(std::move(text), loc);
     }
@@ -247,7 +253,7 @@ inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
                       const std::source_location &loc = std::source_location::current()) {
     if (!(lhs == rhs)) {
         std::string text;
-        text.append("EXPECT_EQ failed at ");
+        ::gentest::detail::append_label(text, "EXPECT_EQ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(std::move(text), loc);
     }
@@ -258,7 +264,7 @@ inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
                       const std::source_location &loc = std::source_location::current()) {
     if (!(lhs != rhs)) {
         std::string text;
-        text.append("EXPECT_NE failed at ");
+        ::gentest::detail::append_label(text, "EXPECT_NE");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(std::move(text), loc);
     }
@@ -268,7 +274,7 @@ inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
 inline void require(bool condition, std::string_view /*message*/ = {}, const std::source_location &loc = std::source_location::current()) {
     if (!condition) {
         std::string text;
-        text.append("ASSERT_TRUE failed at ");
+        ::gentest::detail::append_label(text, "ASSERT_TRUE");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(text, loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -284,7 +290,7 @@ inline void require_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {}
                        const std::source_location &loc = std::source_location::current()) {
     if (!(lhs == rhs)) {
         std::string text;
-        text.append("ASSERT_EQ failed at ");
+        ::gentest::detail::append_label(text, "ASSERT_EQ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(text, loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -300,7 +306,7 @@ inline void require_ne(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {}
                        const std::source_location &loc = std::source_location::current()) {
     if (!(lhs != rhs)) {
         std::string text;
-        text.append("ASSERT_NE failed at ");
+        ::gentest::detail::append_label(text, "ASSERT_NE");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(text, loc);
 #if GENTEST_EXCEPTIONS_ENABLED
