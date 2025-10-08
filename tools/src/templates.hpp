@@ -762,18 +762,18 @@ inline constexpr std::string_view wrapper_stateful = R"FMT(static void {w}(void*
 )FMT";
 
 inline constexpr std::string_view case_entry = R"FMT(    Case{{
-        "{name}",
-        &{wrapper},
-        "{file}",
-        {line},
-        std::span{{{tags}}},
-        std::span{{{reqs}}},
-        {skip_reason},
-        {should_skip},
-        {fixture},
-        {lifetime},
-        {suite},
-        {acquire}
+        .name = "{name}",
+        .fn = &{wrapper},
+        .file = "{file}",
+        .line = {line},
+        .tags = std::span{{{tags}}},
+        .requirements = std::span{{{reqs}}},
+        .skip_reason = {skip_reason},
+        .should_skip = {should_skip},
+        .fixture = {fixture},
+        .fixture_lifetime = {lifetime},
+        .suite = {suite},
+        .acquire_fixture = {acquire}
     }},
 
 )FMT";
@@ -794,7 +794,7 @@ inline constexpr std::string_view group_runner_suite = R"FMT(static void* gentes
     struct Entry {{ std::string_view key; std::unique_ptr<Fixture> instance; }};
     static std::vector<Entry> fixtures_;
     for (auto& entry : fixtures_) {{ if (entry.key == suite_) return entry.instance.get(); }}
-    fixtures_.push_back(Entry{{suite_, std::make_unique<Fixture>()}});
+    fixtures_.push_back(Entry{{ .key = suite_, .instance = std::make_unique<Fixture>() }});
     return fixtures_.back().instance.get();
 }}
 
