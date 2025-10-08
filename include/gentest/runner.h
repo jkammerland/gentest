@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <filesystem>
 
 namespace gentest {
 
@@ -101,16 +102,31 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
         }
     }
     ctx->failures.push_back(std::move(msg));
-    ctx->failure_locations.push_back({std::string(loc.file_name()), loc.line()});
+    // Normalize path to a stable, short form for diagnostics
+    std::filesystem::path p(std::string(loc.file_name()));
+    p = p.lexically_normal();
+    std::string s = p.generic_string();
+    auto keep_from = [&](std::string_view marker) -> bool {
+        const std::size_t pos = s.find(marker);
+        if (pos != std::string::npos) { s = s.substr(pos); return true; }
+        return false;
+    };
+    (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
+    ctx->failure_locations.push_back({std::move(s), loc.line()});
 }
 inline std::string loc_to_string(const std::source_location &loc) {
-    std::string out(loc.file_name());
-    out.push_back(':');
-    out.append(std::to_string(loc.line()));
-    out.append(" (in ");
-    out.append(loc.function_name());
-    out.push_back(')');
-    return out;
+    std::filesystem::path p(std::string(loc.file_name()));
+    p = p.lexically_normal();
+    std::string s = p.generic_string();
+    auto keep_from = [&](std::string_view marker) -> bool {
+        const std::size_t pos = s.find(marker);
+        if (pos != std::string::npos) { s = s.substr(pos); return true; }
+        return false;
+    };
+    (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
+    s.push_back(':');
+    s.append(std::to_string(loc.line()));
+    return s;
 }
 
 // Exception support detection
