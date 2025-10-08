@@ -375,6 +375,9 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
                 fmt::print(stderr, "{}\n", ln);
             }
         }
+        // Per-failing-test termination marker
+        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ ==== ]\n");
+        else fmt::print(stderr, "[ ==== ]\n");
     } else if (!threw) {
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (g_color_output) {
@@ -393,6 +396,8 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
         } else {
             fmt::print(stderr, "[ FAIL ] {} ({} ms)\n", test.name, dur_ms);
         }
+        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ ==== ]\n");
+        else fmt::print(stderr, "[ ==== ]\n");
     }
     return rr;
 }
@@ -715,8 +720,6 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
             fmt::print("Executed {} test(s).\n", counters.executed);
         } else {
             fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
-            if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ ==== ]\n");
-            else fmt::print(stderr, "[ ==== ]\n");
         }
         if (g_record_results) { if (junit_path) write_junit(junit_path); if (allure_dir) write_allure(allure_dir); }
         return counters.failures == 0 ? 0 : 1;
@@ -740,8 +743,6 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         fmt::print("Executed {} test(s).\n", counters.executed);
     } else {
         fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
-        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ ==== ]\n");
-        else fmt::print(stderr, "[ ==== ]\n");
     }
     if (g_record_results) { if (junit_path) write_junit(junit_path); if (allure_dir) write_allure(allure_dir); }
     return counters.failures == 0 ? 0 : 1;
