@@ -24,11 +24,12 @@ gentest_iface = declare_dependency(
 fmt_dep = dependency('fmt', required: true, method: 'pkg-config', version: '>=10')
 
 # Prefer monolithic libclang-cpp (covers clangTooling/AST/etc.)
-clang_cpp = cpp.find_library('clang-cpp', required: true)
+clang_cpp_link = ['-L/usr/local/lib', '-lclang-cpp']
 
 # Use llvm-config to get include dir and any system libs
 llvm_config = find_program('llvm-config', required: true)
 llvm_includedir = run_command(llvm_config, '--includedir').stdout().strip()
+llvm_libdir = run_command(llvm_config, '--libdir').stdout().strip()
 llvm_inc = include_directories(llvm_includedir)
 
 thread_dep = dependency('threads')
@@ -51,8 +52,9 @@ gentest_codegen = executable(
   ),
   include_directories: [inc_root, llvm_inc],
   dependencies: [fmt_dep, thread_dep],
-  link_with: [clang_cpp],
-  cpp_args: ['-DFMT_HEADER_ONLY', '"-DGENTEST_VERSION_STR=' + meson.project_version() + '"'],
+  link_args: clang_cpp_link,
+  cpp_args: ['-DFMT_HEADER_ONLY', '-DGENTEST_VERSION_STR="' + meson.project_version() + '"'],
+  build_rpath: llvm_libdir,
   install: false,
 )
 
@@ -93,22 +95,20 @@ gen = generator(
 foreach s : suites
   src = files(tests_dir / s / 'cases.cpp')
   outs = gen.process(src)
-  impl = outs[0]
-  reg  = '@0@_mock_registry.hpp'.format(s)
-  implhdr = '@0@_mock_impl.hpp'.format(s)
+  reg  = 'cases_mock_registry.hpp'
+  implhdr = 'cases_mock_impl.hpp'
 
   exe = executable(
     'gentest_@0@_tests'.format(s),
-    [ 'tests/support/test_entry.cpp', impl ],
-    include_directories: [inc_root, include_directories(tests_dir), include_directories(meson.current_build_dir())],
+    [ 'tests/support/test_entry.cpp', outs ],
+    include_directories: [inc_root, include_directories('tests'), include_directories('.')],
     dependencies: [fmt_dep, gentest_iface, thread_dep],
     cpp_args: [
       '-DFMT_HEADER_ONLY',
-      '-DGENTEST_MOCK_REGISTRY_PATH="' + reg + '"',
-      '-DGENTEST_MOCK_IMPL_PATH="' + implhdr + '"',
+      '-DGENTEST_MOCK_REGISTRY_PATH=' + reg,
+      '-DGENTEST_MOCK_IMPL_PATH=' + implhdr,
     ] + gentest_cargs,
     install: false,
   )
   test(s, exe)
 endforeach
-
