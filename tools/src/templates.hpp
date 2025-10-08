@@ -715,6 +715,8 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
             fmt::print("Executed {} test(s).\n", counters.executed);
         } else {
             fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+            if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ ==== ]\n");
+            else fmt::print(stderr, "[ ==== ]\n");
         }
         if (g_record_results) { if (junit_path) write_junit(junit_path); if (allure_dir) write_allure(allure_dir); }
         return counters.failures == 0 ? 0 : 1;
@@ -738,6 +740,8 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         fmt::print("Executed {} test(s).\n", counters.executed);
     } else {
         fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "[ ==== ]\n");
+        else fmt::print(stderr, "[ ==== ]\n");
     }
     if (g_record_results) { if (junit_path) write_junit(junit_path); if (allure_dir) write_allure(allure_dir); }
     return counters.failures == 0 ? 0 : 1;
