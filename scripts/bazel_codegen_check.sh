@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mode=${1:-valid}
-shift || true
+gen=${1:-}
+mode=${2:-valid}
+shift 2 || true
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 1
 
-gen=./bazel-bin/gentest_codegen
+if [[ -z "$gen" ]] || [[ ! -x "$gen" ]]; then
+  # Try runfiles path
+  if [[ -n "${TEST_SRCDIR:-}" ]] && [[ -x "${TEST_SRCDIR}/_main/gentest_codegen" ]]; then
+    gen="${TEST_SRCDIR}/_main/gentest_codegen"
+  fi
+fi
+
 if [[ ! -x "$gen" ]]; then
   echo "gentest_codegen not built; run: bazel build //:gentest_codegen" >&2
   exit 2
