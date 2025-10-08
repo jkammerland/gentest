@@ -350,7 +350,7 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
         }
         for (std::size_t i = 0; i < ctxinfo->failures.size(); ++i) {
             const auto& m = ctxinfo->failures[i];
-            fmt::print(stderr, "    - {}\n", m);
+            fmt::print(stderr, "{}\n", m);
             if (g_github_annotations) {
                 std::string_view file = test.file;
                 unsigned line = test.line;

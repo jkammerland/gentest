@@ -74,9 +74,8 @@ inline void                             record_failure(std::string msg) {
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     if (ctx->dump_logs_on_failure && !ctx->logs.empty()) {
-        msg.append("\n[ logs ]\n");
+        msg.append("\nlogs:\n");
         for (const auto &line : ctx->logs) {
-            msg.append("    - ");
             msg.append(line);
             msg.push_back('\n');
         }
@@ -94,9 +93,8 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     if (ctx->dump_logs_on_failure && !ctx->logs.empty()) {
-        msg.append("\n[ logs ]\n");
+        msg.append("\nlogs:\n");
         for (const auto &line : ctx->logs) {
-            msg.append("    - ");
             msg.append(line);
             msg.push_back('\n');
         }
@@ -224,13 +222,9 @@ template <typename T> inline bool operator!=(const Approx &lhs, const T &rhs) { 
 } // namespace approx
 
 // Assert that `condition` is true, otherwise throws gentest::failure with `message`.
-inline void expect(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
+inline void expect(bool condition, std::string_view /*message*/ = {}, const std::source_location &loc = std::source_location::current()) {
     if (!condition) {
         std::string text;
-        if (!message.empty()) {
-            text.append(message);
-            text.append(" :: ");
-        }
         text.append("EXPECT_TRUE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(std::move(text), loc);
@@ -238,14 +232,10 @@ inline void expect(bool condition, std::string_view message = {}, const std::sou
 }
 
 // Assert that `lhs == rhs` holds. Optional `message` is prefixed to the error text.
-inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
+inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
                       const std::source_location &loc = std::source_location::current()) {
     if (!(lhs == rhs)) {
         std::string text;
-        if (!message.empty()) {
-            text.append(message);
-            text.append(" :: ");
-        }
         text.append("EXPECT_EQ failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(std::move(text), loc);
@@ -253,14 +243,10 @@ inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
 }
 
 // Assert that `lhs != rhs` holds. Optional `message` is prefixed to the error text.
-inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
+inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
                       const std::source_location &loc = std::source_location::current()) {
     if (!(lhs != rhs)) {
         std::string text;
-        if (!message.empty()) {
-            text.append(message);
-            text.append(" :: ");
-        }
         text.append("EXPECT_NE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(std::move(text), loc);
@@ -268,13 +254,9 @@ inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
 }
 
 // Require that `condition` holds; throws gentest::assertion on failure.
-inline void require(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
+inline void require(bool condition, std::string_view /*message*/ = {}, const std::source_location &loc = std::source_location::current()) {
     if (!condition) {
         std::string text;
-        if (!message.empty()) {
-            text.append(message);
-            text.append(" :: ");
-        }
         text.append("ASSERT_TRUE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(text, loc);
@@ -287,14 +269,10 @@ inline void require(bool condition, std::string_view message = {}, const std::so
 }
 
 // Require equality; throws gentest::assertion on mismatch.
-inline void require_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
+inline void require_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
                        const std::source_location &loc = std::source_location::current()) {
     if (!(lhs == rhs)) {
         std::string text;
-        if (!message.empty()) {
-            text.append(message);
-            text.append(" :: ");
-        }
         text.append("ASSERT_EQ failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(text, loc);
@@ -307,14 +285,10 @@ inline void require_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
 }
 
 // Require inequality; throws gentest::assertion on mismatch.
-inline void require_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
+inline void require_ne(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
                        const std::source_location &loc = std::source_location::current()) {
     if (!(lhs != rhs)) {
         std::string text;
-        if (!message.empty()) {
-            text.append(message);
-            text.append(" :: ");
-        }
         text.append("ASSERT_NE failed at ");
         text.append(::gentest::detail::loc_to_string(loc));
         ::gentest::detail::record_failure(text, loc);
