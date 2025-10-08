@@ -700,11 +700,9 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         }
         done_selection:
         if (counters.failures == 0) {
-            if (g_color_output) fmt::print(fmt::fg(fmt::color::green), "Executed {} test(s).\n", counters.executed);
-            else fmt::print("Executed {} test(s).\n", counters.executed);
+            fmt::print("Executed {} test(s).\n", counters.executed);
         } else {
-            if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
-            else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+            fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
         }
         if (g_record_results) { if (junit_path) write_junit(junit_path); if (allure_dir) write_allure(allure_dir); }
         return counters.failures == 0 ? 0 : 1;
@@ -725,11 +723,9 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     }
     done_all:
     if (counters.failures == 0) {
-        if (g_color_output) fmt::print(fmt::fg(fmt::color::green), "Executed {} test(s).\n", counters.executed);
-        else fmt::print("Executed {} test(s).\n", counters.executed);
+        fmt::print("Executed {} test(s).\n", counters.executed);
     } else {
-        if (g_color_output) fmt::print(stderr, fmt::fg(fmt::color::red), "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
-        else fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
+        fmt::print(stderr, "Executed {} test(s) with {} failure(s).\n", counters.executed, counters.failures);
     }
     if (g_record_results) { if (junit_path) write_junit(junit_path); if (allure_dir) write_allure(allure_dir); }
     return counters.failures == 0 ? 0 : 1;
