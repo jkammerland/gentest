@@ -55,6 +55,7 @@ struct TestContextInfo {
     };
     std::vector<FailureLoc>  failure_locations;
     std::vector<std::string> logs;
+    std::size_t              logs_emitted = 0; // number of log lines already attached to previous failures
     std::mutex               mtx;
     std::atomic<bool>        active{false};
     bool                     dump_logs_on_failure{false};
@@ -73,12 +74,12 @@ inline void                             record_failure(std::string msg) {
         std::abort();
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    if (ctx->dump_logs_on_failure && !ctx->logs.empty()) {
-        msg.append("\nlogs:\n");
-        for (const auto &line : ctx->logs) {
-            msg.append(line);
-            msg.push_back('\n');
+    if (ctx->dump_logs_on_failure && ctx->logs_emitted < ctx->logs.size()) {
+        for (std::size_t i = ctx->logs_emitted; i < ctx->logs.size(); ++i) {
+            msg.append("\n");
+            msg.append(ctx->logs[i]);
         }
+        ctx->logs_emitted = ctx->logs.size();
     }
     ctx->failures.push_back(std::move(msg));
     ctx->failure_locations.push_back({std::string{}, 0});
@@ -92,12 +93,12 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
         std::abort();
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    if (ctx->dump_logs_on_failure && !ctx->logs.empty()) {
-        msg.append("\nlogs:\n");
-        for (const auto &line : ctx->logs) {
-            msg.append(line);
-            msg.push_back('\n');
+    if (ctx->dump_logs_on_failure && ctx->logs_emitted < ctx->logs.size()) {
+        for (std::size_t i = ctx->logs_emitted; i < ctx->logs.size(); ++i) {
+            msg.append("\n");
+            msg.append(ctx->logs[i]);
         }
+        ctx->logs_emitted = ctx->logs.size();
     }
     ctx->failures.push_back(std::move(msg));
     // Normalize path to a stable, short form for diagnostics
@@ -178,6 +179,7 @@ inline void clear_logs() {
         return;
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->logs.clear();
+    ctx->logs_emitted = 0;
 }
 
 // Approximate equality helper usable with EXPECT_EQ/ASSERT_EQ via operator==.
