@@ -214,7 +214,7 @@ if(GENTEST_WITH_LIBASSERT)
     add_test(NAME libassert_counts
         COMMAND ${CMAKE_COMMAND}
             -DPROG=$<TARGET_FILE:${PROJECT_NAME}_libassert_tests>
-            -DPASS=3 -DFAIL=2 -DSKIP=0
+            -DPASS=4 -DFAIL=3 -DSKIP=0
             -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
     # The raw suite run is expected to fail due to failing tests
