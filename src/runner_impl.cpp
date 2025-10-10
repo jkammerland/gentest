@@ -1,0 +1,523 @@
+#include "gentest/runner.h"
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cstdlib>
+#include <exception>
+#include <filesystem>
+#include <fmt/color.h>
+#include <fmt/core.h>
+#include <fstream>
+#include <map>
+#include <memory>
+#include <random>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#ifdef GENTEST_USE_BOOST_JSON
+#  include <boost/json.hpp>
+#endif
+
+namespace gentest {
+namespace {
+
+struct Counters { std::size_t executed = 0; int failures = 0; };
+
+bool g_color_output = true;
+bool g_github_annotations = false;
+
+struct RunResult {
+    double                    time_s = 0.0;
+    bool                      skipped = false;
+    std::vector<std::string>  failures;
+    std::vector<std::string>  logs;
+    std::vector<std::string>  timeline;
+};
+
+struct ReportItem {
+    std::string suite;
+    std::string name;
+    double      time_s = 0.0;
+    bool        skipped = false;
+    std::string skip_reason;
+    std::vector<std::string> failures;
+    std::vector<std::string> logs;
+    std::vector<std::string> timeline;
+    std::vector<std::string> tags;
+    std::vector<std::string> requirements;
+};
+
+static std::vector<ReportItem> g_report_items;
+static bool g_record_results = false;
+
+bool wants_list(std::span<const char*> args) {
+    for (const auto* arg : args) {
+        if (arg != nullptr && std::string_view(arg) == "--list") {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool wants_shuffle(std::span<const char*> args) {
+    for (const auto* arg : args) {
+        if (arg != nullptr && std::string_view(arg) == "--shuffle-fixtures") {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::uint64_t parse_seed(std::span<const char*> args) {
+    for (std::size_t i = 0; i + 1 < args.size(); ++i) {
+        if (args[i] != nullptr && std::string_view(args[i]) == "--seed") {
+            if (args[i + 1]) {
+                std::uint64_t v = 0;
+                for (const char ch : std::string_view(args[i + 1])) {
+                    if (ch < '0' || ch > '9') { v = 0; break; }
+                    v = v * 10 + static_cast<std::uint64_t>(ch - '0');
+                }
+                if (v != 0) return v;
+            }
+        }
+    }
+    return 0;
+}
+
+bool wants_help(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--help") return true;
+    return false;
+}
+
+bool wants_list_tests(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--list-tests") return true;
+    return false;
+}
+
+const char* get_arg_value(std::span<const char*> args, std::string_view prefix) {
+    for (const auto* arg : args) {
+        if (!arg) continue;
+        std::string_view s(arg);
+        if (s.rfind(prefix, 0) == 0) return arg + prefix.size();
+    }
+    return nullptr;
+}
+
+bool wants_fail_fast(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--fail-fast") return true;
+    return false;
+}
+
+std::size_t parse_repeat(std::span<const char*> args) {
+    const char* v = get_arg_value(args, "--repeat=");
+    if (!v) return 1;
+    std::size_t n = 0;
+    for (const char ch : std::string_view(v)) {
+        if (ch < '0' || ch > '9') { n = 0; break; }
+        n = n * 10 + static_cast<std::size_t>(ch - '0');
+        if (n > 1000000) { n = 1000000; break; }
+    }
+    return n == 0 ? 1 : n;
+}
+
+bool wildcard_match(std::string_view text, std::string_view pattern) {
+    std::size_t ti = 0, pi = 0, star = std::string_view::npos, mark = 0;
+    while (ti < text.size()) {
+        if (pi < pattern.size() && (pattern[pi] == '?' || pattern[pi] == text[ti])) { ++ti; ++pi; continue; }
+        if (pi < pattern.size() && pattern[pi] == '*') { star = pi++; mark = ti; continue; }
+        if (star != std::string_view::npos) { pi = star + 1; ti = ++mark; continue; }
+        return false;
+    }
+    while (pi < pattern.size() && pattern[pi] == '*') ++pi;
+    return pi == pattern.size();
+}
+
+std::string join_span(std::span<const std::string_view> items, char sep) {
+    std::string out;
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        if (i != 0) out.push_back(sep);
+        out.append(items[i]);
+    }
+    return out;
+}
+
+bool wants_no_color(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--no-color") return true;
+    return false;
+}
+bool env_no_color() {
+    const char* a = std::getenv("NO_COLOR");
+    if (a && *a) return true;
+    a = std::getenv("GENTEST_NO_COLOR");
+    if (a && *a) return true;
+    return false;
+}
+bool use_color(std::span<const char*> args) { return !wants_no_color(args) && !env_no_color(); }
+
+bool wants_github_annotations(std::span<const char*> args) {
+    for (const auto* arg : args) if (arg && std::string_view(arg) == "--github-annotations") return true;
+    return false;
+}
+bool env_github_actions() {
+    const char* a = std::getenv("GITHUB_ACTIONS");
+    if (a && *a) return true;
+    return false;
+}
+static inline std::string gha_escape(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char ch : s) {
+        switch (ch) {
+        case '%': out += "%25"; break;
+        case '\r': out += "%0D"; break;
+        case '\n': out += "%0A"; break;
+        default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
+
+RunResult execute_one(const Case& test, void* ctx, Counters& c) {
+    RunResult rr;
+    if (test.should_skip) {
+        rr.skipped = true;
+        const long long dur_ms = 0LL;
+        if (g_color_output) {
+            fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
+            if (!test.skip_reason.empty()) fmt::print(" {} :: {} ({} ms)\n", test.name, test.skip_reason, dur_ms);
+            else fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+        } else {
+            if (!test.skip_reason.empty()) fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, test.skip_reason, dur_ms);
+            else fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+        }
+        return rr;
+    }
+    ++c.executed;
+    auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
+    ctxinfo->display_name = std::string(test.name);
+    ctxinfo->active = true;
+    gentest::detail::set_current_test(ctxinfo);
+    bool threw = false;
+    const auto start_tp = std::chrono::steady_clock::now();
+    try {
+        test.fn(ctx);
+    } catch (const gentest::failure& err) {
+        threw = true;
+        ctxinfo->failures.push_back(std::string("FAIL() :: ") + err.what());
+    } catch (const gentest::assertion&) {
+        threw = true;
+    } catch (const std::exception& err) {
+        threw = true;
+        ctxinfo->failures.push_back(std::string("unexpected std::exception: ") + err.what());
+    } catch (...) {
+        threw = true;
+        ctxinfo->failures.push_back("unknown exception");
+    }
+    ctxinfo->active = false;
+    gentest::detail::set_current_test(nullptr);
+    const auto end_tp = std::chrono::steady_clock::now();
+    rr.time_s = std::chrono::duration<double>(end_tp - start_tp).count();
+    rr.failures = ctxinfo->failures;
+    rr.logs = ctxinfo->logs;
+    rr.timeline = ctxinfo->event_lines;
+
+    if (!ctxinfo->failures.empty()) {
+        ++c.failures;
+        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        if (g_color_output) {
+            fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
+            fmt::print(stderr, " {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
+        } else {
+            fmt::print(stderr, "[ FAIL ] {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
+        }
+        std::size_t failure_printed = 0;
+        for (std::size_t i = 0; i < ctxinfo->event_lines.size(); ++i) {
+            const char kind = (i < ctxinfo->event_kinds.size() ? ctxinfo->event_kinds[i] : 'L');
+            const auto& ln = ctxinfo->event_lines[i];
+            if (kind == 'F') {
+                fmt::print(stderr, "{}\n", ln);
+                if (g_github_annotations) {
+                    std::string_view file = test.file;
+                    unsigned line_no = test.line;
+                    if (failure_printed < ctxinfo->failure_locations.size()) {
+                        const auto& fl = ctxinfo->failure_locations[failure_printed];
+                        if (!fl.file.empty() && fl.line > 0) { file = fl.file; line_no = fl.line; }
+                    }
+                    fmt::print("::error file={},line={},title={}::{}\n",
+                               file, line_no, gha_escape(std::string(test.name)), gha_escape(ln));
+                }
+                ++failure_printed;
+            } else {
+                fmt::print(stderr, "{}\n", ln);
+            }
+        }
+        fmt::print(stderr, "\n");
+    } else if (!threw) {
+        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        if (g_color_output) {
+            fmt::print(fmt::fg(fmt::color::green), "[ PASS ]");
+            fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+        } else {
+            fmt::print("[ PASS ] {} ({} ms)\n", test.name, dur_ms);
+        }
+    } else {
+        ++c.failures;
+        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        if (g_color_output) {
+            fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
+            fmt::print(stderr, " {} ({} ms)\n", test.name, dur_ms);
+        } else {
+            fmt::print(stderr, "[ FAIL ] {} ({} ms)\n", test.name, dur_ms);
+        }
+        fmt::print(stderr, "\n");
+    }
+    return rr;
+}
+
+inline void execute_and_record(const Case& test, void* ctx, Counters& c) {
+    RunResult rr = execute_one(test, ctx, c);
+    if (!g_record_results) return;
+    ReportItem item;
+    item.suite       = std::string(test.suite);
+    item.name        = std::string(test.name);
+    item.time_s      = rr.time_s;
+    item.skipped     = rr.skipped;
+    item.skip_reason = std::string(test.skip_reason);
+    item.failures    = std::move(rr.failures);
+    item.logs        = std::move(rr.logs);
+    item.timeline    = std::move(rr.timeline);
+    for (auto sv : test.tags) item.tags.emplace_back(sv);
+    for (auto sv : test.requirements) item.requirements.emplace_back(sv);
+    g_report_items.push_back(std::move(item));
+}
+
+#ifdef GENTEST_USE_BOOST_JSON
+#endif
+
+static std::string escape_xml(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char ch : s) {
+        switch (ch) {
+        case '&': out += "&amp;"; break;
+        case '<': out += "&lt;"; break;
+        case '>': out += "&gt;"; break;
+        default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
+ 
+
+static void write_reports(const char* junit_path, const char* allure_dir) {
+    if (junit_path) {
+        std::ofstream out(junit_path, std::ios::binary);
+        if (out) {
+            std::size_t total_tests = g_report_items.size();
+            std::size_t total_fail  = 0;
+            std::size_t total_skip  = 0;
+            for (const auto& it : g_report_items) { if (it.skipped) ++total_skip; if (!it.failures.empty()) ++total_fail; }
+            out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+            out << "<testsuite name=\"gentest\" tests=\"" << total_tests << "\" failures=\"" << total_fail << "\" skipped=\"" << total_skip << "\">\n";
+            for (const auto& it : g_report_items) {
+                out << "  <testcase classname=\"" << escape_xml(it.suite) << "\" name=\"" << escape_xml(it.name) << "\" time=\"" << it.time_s << "\">\n";
+                if (!it.requirements.empty()) {
+                    out << "    <properties>\n";
+                    for (const auto& req : it.requirements) {
+                        out << "      <property name=\"requirement\" value=\"" << escape_xml(req) << "\"/>\n";
+                    }
+                    out << "    </properties>\n";
+                }
+                if (it.skipped) {
+                    out << "    <skipped";
+                    if (!it.skip_reason.empty()) out << " message=\"" << escape_xml(it.skip_reason) << "\"";
+                    out << "/>\n";
+                }
+                for (const auto& f : it.failures) {
+                    out << "    <failure><![CDATA[" << f << "]]></failure>\n";
+                }
+                out << "  </testcase>\n";
+            }
+            out << "</testsuite>\n";
+        }
+    }
+#ifdef GENTEST_USE_BOOST_JSON
+    if (allure_dir) {
+        std::filesystem::create_directories(allure_dir);
+        std::size_t idx = 0;
+        for (const auto& it : g_report_items) {
+            boost::json::object obj;
+            obj["name"] = it.name;
+            obj["status"] = it.failures.empty() ? (it.skipped ? "skipped" : "passed") : "failed";
+            obj["time"] = it.time_s;
+            boost::json::array labels;
+            labels.push_back({ {"name", "suite"}, {"value", it.suite} });
+            obj["labels"] = std::move(labels);
+            if (!it.failures.empty()) {
+                boost::json::object ex;
+                ex["message"] = it.failures.front();
+                obj["statusDetails"] = std::move(ex);
+            }
+            const std::string file = std::string(allure_dir) + "/result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json";
+            std::ofstream out(file, std::ios::binary);
+            if (out) out << boost::json::serialize(obj);
+            ++idx;
+        }
+    }
+#else
+    (void)allure_dir;
+#endif
+}
+
+} // namespace
+
+auto run_all_tests(std::span<const char*> args) -> int {
+    g_color_output = use_color(args);
+    g_report_items.clear();
+    g_github_annotations = wants_github_annotations(args) || env_github_actions();
+
+    const Case* cases = gentest::get_cases();
+    std::size_t case_count = gentest::get_case_count();
+    std::span<const Case> kCases{cases, case_count};
+
+    if (wants_help(args)) {
+        #ifdef GENTEST_VERSION_STR
+        fmt::print("gentest v{}\n", GENTEST_VERSION_STR);
+        #else
+        fmt::print("gentest v{}\n", "0.0.0");
+        #endif
+        fmt::print("Usage: [options]\n");
+        fmt::print("  --help                Show this help\n");
+        fmt::print("  --list-tests          List test names (one per line)\n");
+        fmt::print("  --list                List tests with metadata\n");
+        fmt::print("  --run-test=<name>     Run a single test by exact name\n");
+        fmt::print("  --filter=<pattern>    Run tests matching wildcard pattern (*, ?)\n");
+        fmt::print("  --no-color            Disable colorized output (or set NO_COLOR/GENTEST_NO_COLOR)\n");
+        fmt::print("  --github-annotations  Emit GitHub Actions annotations (::error ...) on failures\n");
+        fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
+        fmt::print("  --allure-dir=<dir>    Write Allure result JSON files into directory\n");
+        fmt::print("  --fail-fast           Stop after the first failing test\n");
+        fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
+        fmt::print("  --shuffle-fixtures    Shuffle order within each fixture group\n");
+        fmt::print("  --seed N              RNG seed used with --shuffle-fixtures\n");
+        return 0;
+    }
+    if (wants_list_tests(args)) {
+        for (const auto& t : kCases) fmt::print("{}\n", t.name);
+        return 0;
+    }
+    if (wants_list(args)) {
+        for (const auto& test : kCases) {
+            std::string sections;
+            if (!test.tags.empty() || !test.requirements.empty() || test.should_skip) {
+                sections.push_back(' ');
+                sections.push_back('[');
+                bool first = true;
+                if (!test.tags.empty()) {
+                    sections.append("tags=");
+                    sections.append(join_span(test.tags, ','));
+                    first = false;
+                }
+                if (!test.requirements.empty()) {
+                    if (!first) sections.push_back(';');
+                    sections.append("requires=");
+                    sections.append(join_span(test.requirements, ','));
+                    first = false;
+                }
+                if (test.should_skip) {
+                    if (!first) sections.push_back(';');
+                    sections.append("skip");
+                    if (!test.skip_reason.empty()) { sections.push_back('='); sections.append(test.skip_reason); }
+                }
+                sections.push_back(']');
+            }
+            fmt::print("{}{} ({}:{})\n", test.name, sections, test.file, test.line);
+        }
+        return 0;
+    }
+
+    Counters counters;
+    const char* junit_path = get_arg_value(args, "--junit=");
+    const char* allure_dir = get_arg_value(args, "--allure-dir=");
+    g_record_results = (junit_path != nullptr) || (allure_dir != nullptr);
+
+    const char* run_exact = get_arg_value(args, "--run-test=");
+    const char* filter_pat = get_arg_value(args, "--filter=");
+    if (run_exact || filter_pat) {
+        std::vector<std::size_t> sel;
+        if (run_exact) {
+            for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].name == run_exact) { sel.push_back(i); break; }
+            if (sel.empty()) { fmt::print(stderr, "Test not found: {}\n", run_exact); return 1; }
+        } else {
+            for (std::size_t i = 0; i < kCases.size(); ++i) if (wildcard_match(kCases[i].name, filter_pat)) sel.push_back(i);
+            if (sel.empty()) { fmt::print("Executed 0 test(s).\n"); return 0; }
+        }
+        const bool        fail_fast = wants_fail_fast(args);
+        const std::size_t repeat_n  = parse_repeat(args);
+        for (std::size_t iter = 0; iter < repeat_n; ++iter) {
+            for (auto i : sel) { const auto& t = kCases[i]; if (!t.fixture.empty()) continue; execute_and_record(t, nullptr, counters); if (fail_fast && counters.failures > 0) goto done_selection; }
+            const bool         shuffle = wants_shuffle(args);
+            const std::uint64_t seed    = parse_seed(args);
+            if (shuffle) fmt::print("Shuffle seed: {}\n", seed);
+            std::vector<std::pair<std::string_view, std::vector<std::size_t>>> groups;
+            for (auto i : sel) { const auto& t = kCases[i]; if (t.fixture.empty()) continue; auto it = std::find_if(groups.begin(), groups.end(), [&](auto& g){return g.first==t.fixture;}); if (it==groups.end()) groups.push_back({t.fixture,{i}}); else it->second.push_back(i); }
+            for (auto& g : groups) {
+                std::vector<std::size_t>& order = g.second;
+                if (shuffle && order.size() > 1) { std::mt19937_64 rng_(seed ? (seed + std::hash<std::string_view>{}(g.first)) : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(order.begin(), order.end(), rng_); }
+                for (auto i : order) {
+                    const auto& test = kCases[i];
+                    void* ctx = nullptr;
+                    if (test.fixture_lifetime == FixtureLifetime::MemberSuite || test.fixture_lifetime == FixtureLifetime::MemberGlobal) {
+                        ctx = test.acquire_fixture ? test.acquire_fixture(test.suite) : nullptr;
+                    }
+                    execute_and_record(test, ctx, counters);
+                }
+                if (fail_fast && counters.failures > 0) goto done_selection;
+            }
+        }
+    done_selection:
+        if (g_record_results) write_reports(junit_path, allure_dir);
+        fmt::print("Executed {} test(s).\n", counters.executed);
+        return counters.failures == 0 ? 0 : 1;
+    }
+
+    const bool         shuffle = wants_shuffle(args);
+    const std::uint64_t seed    = parse_seed(args);
+    if (shuffle) fmt::print("Shuffle seed: {}\n", seed);
+    const bool fail_fast = wants_fail_fast(args);
+    const std::size_t repeat_n = parse_repeat(args);
+    for (std::size_t iter = 0; iter < repeat_n; ++iter) {
+        for (const auto& t : kCases) { if (!t.fixture.empty()) continue; execute_and_record(t, nullptr, counters); if (fail_fast && counters.failures > 0) goto done_all; }
+        std::vector<std::pair<std::string_view, std::vector<std::size_t>>> groups;
+        for (std::size_t i = 0; i < kCases.size(); ++i) { const auto& t = kCases[i]; if (t.fixture.empty()) continue; auto it = std::find_if(groups.begin(), groups.end(), [&](auto& g){return g.first==t.fixture;}); if (it==groups.end()) groups.push_back({t.fixture,{i}}); else it->second.push_back(i); }
+        for (auto& g : groups) {
+            std::vector<std::size_t>& order = g.second;
+            if (shuffle && order.size() > 1) { std::mt19937_64 rng_(seed ? (seed + std::hash<std::string_view>{}(g.first)) : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(order.begin(), order.end(), rng_); }
+            for (auto i : order) {
+                const auto& test = kCases[i];
+                void* ctx = nullptr;
+                if (test.fixture_lifetime == FixtureLifetime::MemberSuite || test.fixture_lifetime == FixtureLifetime::MemberGlobal) {
+                    ctx = test.acquire_fixture ? test.acquire_fixture(test.suite) : nullptr;
+                }
+                execute_and_record(test, ctx, counters);
+            }
+        }
+    }
+done_all:
+    if (g_record_results) write_reports(junit_path, allure_dir);
+    fmt::print("Executed {} test(s).\n", counters.executed);
+    return counters.failures == 0 ? 0 : 1;
+}
+
+auto run_all_tests(int argc, char **argv) -> int {
+    std::vector<const char*> a;
+    a.reserve(static_cast<std::size_t>(argc));
+    for (int i = 0; i < argc; ++i) a.push_back(argv[i]);
+    return run_all_tests(std::span<const char*>{a.data(), a.size()});
+}
+
+} // namespace gentest

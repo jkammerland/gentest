@@ -370,4 +370,35 @@ auto run_all_tests(int argc, char **argv) -> int;
 // Unified test entry (span version). Consumed by generated code.
 auto run_all_tests(std::span<const char *> args) -> int;
 
+// Runtime-visible test case description used by the generated manifest.
+// The generator produces a constexpr array of Case entries and provides access
+// via gentest::get_cases()/gentest::get_case_count() defined in the generated TU.
+enum class FixtureLifetime {
+    None,
+    MemberEphemeral,
+    MemberSuite,
+    MemberGlobal,
+};
+
+using FixtureAccessor = void* (*)(std::string_view);
+
+struct Case {
+    std::string_view                  name;
+    void (*fn)(void*);
+    std::string_view                  file;
+    unsigned                          line;
+    std::span<const std::string_view> tags;
+    std::span<const std::string_view> requirements;
+    std::string_view                  skip_reason;
+    bool                              should_skip;
+    std::string_view                  fixture;        // empty for free tests
+    FixtureLifetime                   fixture_lifetime;
+    std::string_view                  suite;
+    FixtureAccessor                   acquire_fixture;
+};
+
+// Provided by the generated manifest TU
+const Case* get_cases();
+std::size_t get_case_count();
+
 } // namespace gentest

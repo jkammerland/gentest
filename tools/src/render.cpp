@@ -72,12 +72,12 @@ TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const st
 namespace {
 std::string fixture_lifetime_literal(FixtureLifetime lt) {
     switch (lt) {
-    case FixtureLifetime::None: return "FixtureLifetime::None";
-    case FixtureLifetime::MemberEphemeral: return "FixtureLifetime::MemberEphemeral";
-    case FixtureLifetime::MemberSuite: return "FixtureLifetime::MemberSuite";
-    case FixtureLifetime::MemberGlobal: return "FixtureLifetime::MemberGlobal";
+    case FixtureLifetime::None: return "gentest::FixtureLifetime::None";
+    case FixtureLifetime::MemberEphemeral: return "gentest::FixtureLifetime::MemberEphemeral";
+    case FixtureLifetime::MemberSuite: return "gentest::FixtureLifetime::MemberSuite";
+    case FixtureLifetime::MemberGlobal: return "gentest::FixtureLifetime::MemberGlobal";
     }
-    return "FixtureLifetime::None";
+    return "gentest::FixtureLifetime::None";
 }
 
 // Small helpers to simplify wrapper emission and avoid inline string assembly
