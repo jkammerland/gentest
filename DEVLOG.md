@@ -471,9 +471,9 @@ Devlog 2025-10-10 (Mocks: Include Order, Diagnostics, EXPECT_CALL)
   - Key changes
       - Generated TU include order: the generated test implementation now includes project sources first and then `gentest/mock.h`, ensuring the mock registry and inline method definitions are seen only after all original types are visible.
       - Generator diagnostics:
-          - Incomplete target: improved message explaining virtual vs. non-virtual requirements (virtual must be complete; non-virtual tolerates forward-decls but parameter/return types must be visible).
+          - Incomplete target: simplified and strict — all targets must be complete at specialization; message instructs to move the interface to a header and include it before the registry.
           - Polymorphic-in-CPP: new detection that errors when a virtual interface’s definition is in a `.cpp`, with a message to move it to a header included before the registry.
-      - Registry tolerance (non-virtual): emit forward declarations for referenced user types in their namespaces, so helper TUs that include `gentest/mock.h` early can still compile for non-virtual mocks.
+      - Simplification: dropped forward-declaration emission from the registry; having a single “complete type required” rule reduces surprises and complexity.
       - Convenience macro: added `EXPECT_CALL(mock, method)` (and `ASSERT_CALL`) that routes to `gentest::expect` using the original interface type via `__gentest_target`, fixing pointer identity and making call sites concise.
 
   - Tests
@@ -484,9 +484,8 @@ Devlog 2025-10-10 (Mocks: Include Order, Diagnostics, EXPECT_CALL)
       - All existing suites (unit, integration, fixtures, templates, mocking, failing) pass with the new include order and macros.
 
   - Impact
-      - Virtual mocks: require the interface header to be included before the registry; the generated TU guarantees this by design.
-      - Non-virtual mocks: incomplete `T` is fine for the specialization; forward-decls in the registry further reduce order sensitivity across TUs.
-      - Helper usage: `gentest/mock.h` remains usable from any TU in the test target; now safer by default.
+      - One rule for all: targets must be complete in headers included before `gentest/mock.h`.
+      - The generated TU guarantees correct order; other TUs should include project headers before `gentest/mock.h`.
       - No extra translation units introduced; inline impl remains header-only to stay ODR-safe.
 
   - Files

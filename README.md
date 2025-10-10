@@ -227,8 +227,13 @@ Using mocks in helpers/outside tests
   outside `[[using gentest: test]]` functions. The CMake helper defines:
   - `GENTEST_MOCK_REGISTRY_PATH` so including `gentest/mock.h` brings in the generated registry specializations.
   - `GENTEST_MOCK_IMPL_PATH` so inline method definitions are visible to any TU in the target.
-  - Additionally, the generated test TU itself includes `gentest/mock.h` after your sources, ensuring type completeness
-    for virtual (polymorphic) mocks that derive from their targets.
+  - Additionally, the generated test TU itself includes `gentest/mock.h` after your sources, ensuring type completeness.
+
+Requirements
+- Both virtual and non-virtual targets must be fully defined (complete) before the specialization is compiled.
+  - Keep interfaces/types to be mocked in headers and include them before `gentest/mock.h`.
+  - The generated test TU already guarantees correct order by including your sources first, then `gentest/mock.h`.
+  - Defining a polymorphic interface only in a `.cpp` will be rejected by the generator with a clear diagnostic.
 - Discovery still requires that at least one scanned source (or a header included from it) contains `gentest::mock<T>`
   instantiations or references, so the generator knows which mocks to produce. Add such uses to your `SOURCES` passed to
   `gentest_attach_codegen()` or include a header that references `mock<T>`.

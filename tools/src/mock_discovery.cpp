@@ -137,7 +137,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     if (record == nullptr) {
         had_error_ = true;
         report(*result.SourceManager, decl.getBeginLoc(),
-               "gentest::mock<T>: target type is incomplete here. For polymorphic types (with virtual functions), move the interface to a header and include it before the mock registry; for non-virtual types, a forward declaration is fine but all parameter/return types used in mocked method signatures must be visible when compiling the registry.");
+               "gentest::mock<T>: target type is incomplete here; move the interface to a header and include it before the generated mock registry.");
         return;
     }
 

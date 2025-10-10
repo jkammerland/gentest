@@ -5,8 +5,6 @@
 #include <cctype>
 #include <fmt/core.h>
 #include <sstream>
-#include <map>
-#include <set>
 #include <string>
 #include <utility>
 
@@ -414,54 +412,10 @@ std::optional<MockOutputs> render_mocks(const CollectorOptions &options, const s
     header += "#include <type_traits>\n\n";
     header += "// This header is included while inside namespace gentest\n\n";
 
-    // Emit forward declarations for referenced user types so registry can be
-    // included before user headers in helper TUs. Only declare in non-std
-    // namespaces (e.g., project namespaces like ::mocking::...).
-    {
-        // Group types by namespace path
-        std::map<std::string, std::set<std::string>> fwd;
-        auto add_qualified = [&](const std::string &qualified) {
-            std::string type_name;
-            const std::string ns = split_namespace_and_type(qualified, type_name);
-            if (ns.empty() || ns == "::std") return; // never declare in std
-            // Normalize leading '::'
-            std::string ns_no_global = ns.rfind("::", 0) == 0 ? ns.substr(2) : ns;
-            fwd[ns_no_global].insert(type_name);
-        };
-        for (const auto &cls : classes) {
-            add_qualified("::" + cls.qualified_name);
-            for (const auto &m : cls.methods) {
-                auto consider = [&](const std::string &ty) {
-                    if (ty.rfind("::", 0) == 0) {
-                        // Only forward-declare types under project/user namespaces; skip std and primitives
-                        if (ty.rfind("::std", 0) == 0) return;
-                        // Extract outermost qualified type token (strip template args if present)
-                        std::string base = ty;
-                        // Remove template args best-effort
-                        std::size_t angle = base.find('<');
-                        if (angle != std::string::npos) base = base.substr(0, angle);
-                        // Some qualifiers like const/volatile may appear; they are not expected in our spelling, but be safe
-                        while (!base.empty() && base[0] == ' ') base.erase(0, 1);
-                        add_qualified(base);
-                    }
-                };
-                consider(m.return_type);
-                for (const auto &p : m.parameters) consider(p.type);
-            }
-        }
-        if (!fwd.empty()) {
-            header += "} // namespace gentest\n\n";
-            for (const auto &[ns, types] : fwd) {
-                header += open_namespaces(ns);
-                for (const auto &t : types) {
-                    header += "struct " + t + ";\n";
-                }
-                header += close_namespaces(ns);
-                header += "\n";
-            }
-            header += "namespace gentest {\n\n";
-        }
-    }
+    // Note: We require all mocked types to be complete before this registry is
+    // included. The generated test TU ensures this by including project sources
+    // first, then gentest/mock.h. For other TUs, users must include their
+    // interfaces before including gentest/mock.h as well.
     for (const auto &cls : classes) {
         header += build_class_declaration(cls);
     }
