@@ -375,12 +375,12 @@ cmake --build --preset=debug
 ## Templates
 
 Generated files are produced strictly from templates — no emission logic is inlined in the generator beyond simple
-placeholder substitutions. This keeps the output format easy to reason about and maintain.
+placeholder substitutions. Templates are embedded in `tools/src/templates.hpp` and rendered by the emitter. This keeps
+the output format easy to reason about and maintain.
 
-- Main file: `tools/templates/test_impl.cpp.tpl`
+- Main file (embedded): test_impl
   - Placeholders:
     - `{{INCLUDE_SOURCES}}`: includes of the suite’s `cases.cpp` files.
-    - `{{INCLUDE_MOCK_IMPL}}`: include of the per-target inline mock implementation header.
     - `{{FORWARD_DECLS}}`: optional forward declarations for free functions (member tests don’t need these).
     - `{{TRAIT_DECLS}}`: constexpr arrays for tags and requirement IDs.
     - `{{WRAPPER_IMPLS}}`: per-test wrappers with a uniform `void(void*)` signature.
