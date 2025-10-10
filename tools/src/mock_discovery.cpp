@@ -152,6 +152,31 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         return;
     }
 
+    // Disallow anonymous-namespace and local (function-scope) types: these do not
+    // have stable, externally visible qualified names and cannot be safely mocked.
+    {
+        bool in_anonymous_ns = false;
+        const DeclContext *ctx = record->getDeclContext();
+        while (ctx != nullptr) {
+            if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(ctx)) {
+                if (ns->isAnonymousNamespace()) { in_anonymous_ns = true; break; }
+            }
+            ctx = ctx->getParent();
+        }
+        if (in_anonymous_ns) {
+            had_error_ = true;
+            report(*result.SourceManager, decl.getBeginLoc(),
+                   "gentest::mock<T>: cannot mock a type in an anonymous namespace; move it to a named namespace");
+            return;
+        }
+        if (record->isLocalClass()) {
+            had_error_ = true;
+            report(*result.SourceManager, decl.getBeginLoc(),
+                   "gentest::mock<T>: cannot mock a local class defined inside a function; move it to namespace scope");
+            return;
+        }
+    }
+
     if (record->hasAttr<FinalAttr>() || record->isEffectivelyFinal()) {
         had_error_ = true;
         report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock cannot mock a final class");

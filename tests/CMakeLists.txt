@@ -129,6 +129,20 @@ add_test(NAME gentest_codegen_mock_virtual_defined_in_cpp_msg
         -DEXPECT_SUBSTRING=polymorphic target appears defined in a source file
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
 
+add_test(NAME gentest_codegen_mock_anonymous_namespace_msg
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/anonymous_namespace_type.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECT_SUBSTRING=cannot mock a type in an anonymous namespace
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
+add_test(NAME gentest_codegen_mock_local_class_msg
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/local_class.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECT_SUBSTRING=cannot mock a local class
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
 # End-to-end behavioral checks with robust counting
 add_test(NAME unit_counts
     COMMAND ${CMAKE_COMMAND}
