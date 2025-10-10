@@ -1,8 +1,8 @@
 // Helper demonstrating that mocks are usable outside annotated tests.
 #pragma once
 
-#include "gentest/mock.h"
 #include "types.h"
+#include "gentest/mock.h"
 
 namespace mocking::helpers {
 
@@ -22,4 +22,3 @@ namespace mocking::helpers {
 [[maybe_unused]] static int _ = compile_only_usage();
 
 } // namespace mocking::helpers
-

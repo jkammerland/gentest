@@ -2,11 +2,5 @@
   "name": "gentest",
   "version": "0.2.0",
   "description": "Attribute-driven test discovery with clang tooling",
-  "dependencies": [
-    {
-      "name": "llvm",
-      "default-features": false,
-      "features": ["clang", "clang-tools-extra"]
-    }
-  ]
+  "dependencies": []
 }

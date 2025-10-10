@@ -1,9 +1,18 @@
 #include "gentest/assert_libassert.h"
+
+struct Simple {
+    int  v() const { return 0; }
+    void set(int) {}
+};
+
+// Bring in mock API (includes generated registry)
+#include "gentest/mock.h"
+
 #include <ostream>
 
 using namespace gentest;
 
-// Basic integration smoke tests for libassert handler.
+// No need to define Simple's methods; the mock provides overrides/stand-ins.
 
 [[using gentest: test("libassert/assert_pass_simple")]]
 void assert_pass_simple() {
@@ -40,15 +49,15 @@ void assert_eq() {
     ASSERT_EQ(2, 1);
 }
 
+struct S {
+    int                  x;
+    bool                 operator==(const S &rhs) const { return x == rhs.x; }
+    friend std::ostream &operator<<(std::ostream &os, const S &s) { return os << "S{x=" << s.x << '}'; }
+};
+
 [[using gentest: test("libassert/assert_ne")]]
 void assert_ne() {
-    struct S {
-        int  x;
-        bool operator==(const S &rhs) const { return x == rhs.x; }
-        friend std::ostream& operator<<(std::ostream& os, const S& s) {
-            return os << "S{x=" << s.x << '}';
-        }
-    };
+
     S s{1};
     ASSERT_NE(s, s);
 }
@@ -59,9 +68,28 @@ void assert_fail() {
     // Not reached; the handler throws gentest::assertion to abort the test.
 }
 
+[[using gentest: test("libassert/mock_expect_call_pass")]]
+void mock_expect_call_pass() {
+    gentest::mock<Simple> m;
+    EXPECT_CALL(m, v).times(1).returns(123);
+    EXPECT_EQ(m.v(), 123);
+}
+
+[[using gentest: test("libassert/mock_assert_call_pass")]]
+void mock_assert_call_pass() {
+    gentest::mock<Simple> m;
+    ASSERT_CALL(m, set).times(2);
+    m.set(1);
+    m.set(2);
+}
+
 // Additional EXPECT samples to exercise boolean path (non-fatal vs fatal separation)
 [[using gentest: test("libassert/expect_pass")]]
-void expect_pass() { EXPECT(1 + 1 == 2); }
+void expect_pass() {
+    EXPECT(1 + 1 == 2);
+}
 
 [[using gentest: test("libassert/expect_fail")]]
-void expect_fail() { EXPECT(false); }
+void expect_fail() {
+    EXPECT(false);
+}

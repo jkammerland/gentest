@@ -218,14 +218,17 @@ void mock_clock_basic() {
   public surface so they remain drop-in replacements for templated injection and CRTP patterns.
 - The generator emits `mock_registry.hpp` and an inline `mock_impl.hpp` alongside each suite’s `test_impl.cpp`. The
   build defines `GENTEST_MOCK_REGISTRY_PATH` so `gentest/mock.h` automatically includes the registry when compiling your
-  tests; the generated `test_impl.cpp` includes `mock_impl.hpp` after including your test sources so original types are
-  complete. No extra translation unit is used for mocks.
+  tests; the generated `test_impl.cpp` includes `gentest/mock.h` after including your test sources so the generated mock
+  registry and inline implementations are visible once all original types are in scope. No extra translation unit is used
+  for mocks.
 
 Using mocks in helpers/outside tests
 - You can freely use `gentest::mock<T>` in helper headers or other files that are part of the same test target, even
   outside `[[using gentest: test]]` functions. The CMake helper defines:
   - `GENTEST_MOCK_REGISTRY_PATH` so including `gentest/mock.h` brings in the generated registry specializations.
   - `GENTEST_MOCK_IMPL_PATH` so inline method definitions are visible to any TU in the target.
+  - Additionally, the generated test TU itself includes `gentest/mock.h` after your sources, ensuring type completeness
+    for virtual (polymorphic) mocks that derive from their targets.
 - Discovery still requires that at least one scanned source (or a header included from it) contains `gentest::mock<T>`
   instantiations or references, so the generator knows which mocks to produce. Add such uses to your `SOURCES` passed to
   `gentest_attach_codegen()` or include a header that references `mock<T>`.

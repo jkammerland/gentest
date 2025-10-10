@@ -1,7 +1,7 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
-#include "types.h"
 #include "helper.hpp" // use mock<T> in non-annotated helper code
+#include "types.h"
 
 #include <vector>
 
@@ -14,7 +14,7 @@ namespace mocking {
 [[using gentest: test("mocking/interface/returns")]]
 void interface_returns() {
     gentest::mock<Calculator> mock_calc;
-    gentest::expect(mock_calc, &Calculator::compute).times(1).returns(42);
+    EXPECT_CALL(mock_calc, compute).times(1).returns(42);
 
     Calculator *iface  = &mock_calc;
     const int   result = iface->compute(12, 30);
@@ -24,7 +24,7 @@ void interface_returns() {
 [[using gentest: test("mocking/interface/returns_matches")]]
 void interface_returns_matches() {
     gentest::mock<Calculator> mock_calc;
-    gentest::expect(mock_calc, &Calculator::compute).with(12, 30).returns(42);
+    EXPECT_CALL(mock_calc, compute).with(12, 30).returns(42);
 
     Calculator *iface  = &mock_calc;
     const int   result = iface->compute(12, 30);
@@ -35,7 +35,7 @@ void interface_returns_matches() {
 void interface_reset() {
     gentest::mock<Calculator> mock_calc;
     int                       resets = 0;
-    gentest::expect(mock_calc, &Calculator::reset).times(2).invokes([&]() { ++resets; });
+    EXPECT_CALL(mock_calc, reset).times(2).invokes([&]() { ++resets; });
 
     Calculator *iface = &mock_calc;
     iface->reset();
@@ -48,7 +48,7 @@ void interface_reset() {
 void concrete_invokes() {
     gentest::mock<Ticker> mock_tick;
     int                   observed = 0;
-    gentest::expect(mock_tick, &Ticker::tick).times(3).invokes([&](int v) { observed += v; });
+    EXPECT_CALL(mock_tick, tick).times(3).invokes([&](int v) { observed += v; });
 
     mock_tick.tick(1);
     mock_tick.tick(2);
@@ -61,7 +61,7 @@ void concrete_invokes() {
 void concrete_invokes_matches() {
     gentest::mock<Ticker> mock_tick;
     int                   observed = 0;
-    gentest::expect(mock_tick, &Ticker::tick).times(3).with(1).invokes([&](int v) { observed += v; });
+    EXPECT_CALL(mock_tick, tick).times(3).with(1).invokes([&](int v) { observed += v; });
 
     mock_tick.tick(1);
     mock_tick.tick(1);
@@ -75,7 +75,7 @@ void concrete_predicate_match() {
     gentest::mock<Ticker> mock_tick;
     int                   sum = 0;
     // Accept only even values
-    gentest::expect(mock_tick, &Ticker::tick).times(2).where_args([](int v){ return v % 2 == 0; }).invokes([&](int v) { sum += v; });
+    EXPECT_CALL(mock_tick, tick).times(2).where_args([](int v) { return v % 2 == 0; }).invokes([&](int v) { sum += v; });
 
     mock_tick.tick(2);
     mock_tick.tick(4);
@@ -87,7 +87,7 @@ void concrete_predicate_match() {
 void concrete_template_member_expect_int() {
     gentest::mock<Ticker> mock_tick;
     int                   sum = 0;
-    gentest::expect(mock_tick, &Ticker::template tadd<int>).times(2).with(5).invokes([&](int v) { sum += v; });
+    EXPECT_CALL(mock_tick, tadd<int>).times(2).with(5).invokes([&](int v) { sum += v; });
 
     mock_tick.tadd(5);
     mock_tick.tadd(5);
@@ -99,7 +99,7 @@ void concrete_template_member_expect_int() {
 void crtp_bridge() {
     gentest::mock<DerivedRunner> mock_runner;
     std::vector<int>             captured;
-    gentest::expect(mock_runner, &DerivedRunner::handle).times(2).invokes([&](int v) { captured.push_back(v); });
+    EXPECT_CALL(mock_runner, handle).times(2).invokes([&](int v) { captured.push_back(v); });
 
     mock_runner.handle(7);
     mock_runner.handle(11);
@@ -113,7 +113,7 @@ void crtp_bridge() {
 void crtp_bridge_matches() {
     gentest::mock<DerivedRunner> mock_runner;
     int                          count = 0;
-    gentest::expect(mock_runner, &DerivedRunner::handle).with(7).times(2).invokes([&](int) { ++count; });
+    EXPECT_CALL(mock_runner, handle).with(7).times(2).invokes([&](int) { ++count; });
 
     mock_runner.handle(7);
     mock_runner.handle(7);
@@ -125,10 +125,7 @@ void crtp_bridge_matches() {
 void matchers_eq_any() {
     using namespace gentest::match;
     gentest::mock<Calculator> mock_calc;
-    gentest::expect(mock_calc, &Calculator::compute)
-        .times(1)
-        .where(Eq(12), Any())
-        .returns(300);
+    EXPECT_CALL(mock_calc, compute).times(1).where(Eq(12), Any()).returns(300);
 
     Calculator *iface  = &mock_calc;
     const int   result = iface->compute(12, 999);
@@ -140,10 +137,7 @@ void matchers_in_range() {
     using namespace gentest::match;
     gentest::mock<Ticker> mock_tick;
     int                   count = 0;
-    gentest::expect(mock_tick, &Ticker::tick)
-        .times(2)
-        .where_args(InRange(5, 10))
-        .invokes([&](int) { ++count; });
+    EXPECT_CALL(mock_tick, tick).times(2).where_args(InRange(5, 10)).invokes([&](int) { ++count; });
 
     mock_tick.tick(5);
     mock_tick.tick(10);
@@ -155,10 +149,7 @@ void matchers_not() {
     using namespace gentest::match;
     gentest::mock<Ticker> mock_tick;
     int                   sum = 0;
-    gentest::expect(mock_tick, &Ticker::tick)
-        .times(2)
-        .where_args(Not(Eq(0)))
-        .invokes([&](int v) { sum += v; });
+    EXPECT_CALL(mock_tick, tick).times(2).where_args(Not(Eq(0))).invokes([&](int v) { sum += v; });
 
     mock_tick.tick(1);
     mock_tick.tick(2);
@@ -168,10 +159,7 @@ void matchers_not() {
 [[using gentest: test("mocking/matchers/where_call")]]
 void matchers_where_call() {
     gentest::mock<Calculator> mock_calc;
-    gentest::expect(mock_calc, &Calculator::compute)
-        .times(1)
-        .where_call([](int lhs, int rhs) { return ((lhs + rhs) % 2) == 0; })
-        .returns(42);
+    EXPECT_CALL(mock_calc, compute).times(1).where_call([](int lhs, int rhs) { return ((lhs + rhs) % 2) == 0; }).returns(42);
 
     Calculator *iface  = &mock_calc;
     const int   result = iface->compute(1, 3); // even sum
@@ -182,10 +170,7 @@ void matchers_where_call() {
 void move_only_with_eq() {
     gentest::mock<MOConsumer> mock_mo;
     int                       hits = 0;
-    gentest::expect(mock_mo, &MOConsumer::accept)
-        .times(1)
-        .with(MoveOnly{7})
-        .invokes([&](const MoveOnly&) { ++hits; });
+    EXPECT_CALL(mock_mo, accept).times(1).with(MoveOnly{7}).invokes([&](const MoveOnly &) { ++hits; });
 
     mock_mo.accept(MoveOnly{7});
     EXPECT_EQ(hits, 1);
@@ -196,10 +181,7 @@ void matchers_str_contains() {
     using namespace gentest::match;
     gentest::mock<Stringer> mock_str;
     int                     hits = 0;
-    gentest::expect(mock_str, &Stringer::put)
-        .times(2)
-        .where_args(StrContains("abc"))
-        .invokes([&](const std::string &) { ++hits; });
+    EXPECT_CALL(mock_str, put).times(2).where_args(StrContains("abc")).invokes([&](const std::string &) { ++hits; });
 
     mock_str.put("xxabcxx");
     mock_str.put("abc");
@@ -211,10 +193,9 @@ void matchers_starts_ends() {
     using namespace gentest::match;
     gentest::mock<Stringer> mock_str;
     int                     hits = 0;
-    gentest::expect(mock_str, &Stringer::put)
-        .times(1)
-        .where_args(AllOf(StartsWith("hello"), EndsWith("!")))
-        .invokes([&](const std::string &) { ++hits; });
+    EXPECT_CALL(mock_str, put).times(1).where_args(AllOf(StartsWith("hello"), EndsWith("!"))).invokes([&](const std::string &) {
+        ++hits;
+    });
 
     mock_str.put("hello world!");
     EXPECT_EQ(hits, 1);
@@ -225,10 +206,7 @@ void matchers_near() {
     using namespace gentest::match;
     gentest::mock<Floater> mock_fl;
     int                    hits = 0;
-    gentest::expect(mock_fl, &Floater::feed)
-        .times(2)
-        .where_args(Near(3.14, 0.01))
-        .invokes([&](double) { ++hits; });
+    EXPECT_CALL(mock_fl, feed).times(2).where_args(Near(3.14, 0.01)).invokes([&](double) { ++hits; });
 
     mock_fl.feed(3.14);
     mock_fl.feed(3.149);
@@ -240,10 +218,7 @@ void matchers_ge_anyof() {
     using namespace gentest::match;
     gentest::mock<Ticker> mock_tick;
     int                   count = 0;
-    gentest::expect(mock_tick, &Ticker::tick)
-        .times(2)
-        .where_args(Ge(5))
-        .invokes([&](int) { ++count; });
+    EXPECT_CALL(mock_tick, tick).times(2).where_args(Ge(5)).invokes([&](int) { ++count; });
 
     mock_tick.tick(5);
     mock_tick.tick(7);

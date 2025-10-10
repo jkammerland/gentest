@@ -136,7 +136,8 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     record = record->getDefinition();
     if (record == nullptr) {
         had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock target type is incomplete; include the full definition");
+        report(*result.SourceManager, decl.getBeginLoc(),
+               "gentest::mock<T>: target type is incomplete here. For polymorphic types (with virtual functions), move the interface to a header and include it before the mock registry; for non-virtual types, a forward declaration is fine but all parameter/return types used in mocked method signatures must be visible when compiling the registry.");
         return;
     }
 
@@ -183,6 +184,24 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     }
 
     const ASTContext &ctx = *result.Context;
+
+    // Polymorphic (virtual) types must have their interface visible from a header.
+    if (info.derive_for_virtual) {
+        const SourceLocation def_loc = record->getBeginLoc();
+        const SourceManager &sm      = *result.SourceManager;
+        const auto           file    = sm.getFilename(sm.getFileLoc(def_loc));
+        auto                  ends_with = [](llvm::StringRef s, llvm::StringRef suf) { return s.size() >= suf.size() && s.ends_with(suf); };
+        const bool           looks_like_source =
+            (!file.empty() && (ends_with(file, ".cc") || ends_with(file, ".cpp") || ends_with(file, ".cxx")));
+        const bool in_main = sm.isWrittenInMainFile(def_loc);
+        if (looks_like_source || in_main) {
+            had_error_ = true;
+            report(sm, def_loc,
+                   fmt::format("gentest::mock<{}>: polymorphic target appears defined in a source file ({}); move the interface to a header included before the generated mock registry",
+                               record->getQualifiedNameAsString(), file.str()));
+            return;
+        }
+    }
 
     auto capture_method = [&](const CXXMethodDecl* method) {
         if (llvm::isa<CXXConstructorDecl>(method) || llvm::isa<CXXDestructorDecl>(method)) {

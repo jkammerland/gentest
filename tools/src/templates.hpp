@@ -68,8 +68,9 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 // Include test sources so fixture types are visible for wrappers
 {{INCLUDE_SOURCES}}
 
-// Include generated mock implementations (requires sources/types to be visible)
-{{INCLUDE_MOCK_IMPL}}
+// After sources, include mock API to bring in the generated mock registry
+// and inline implementations once all original types are visible.
+#include "gentest/mock.h"
 
 {{FORWARD_DECLS}}
 {{ACCESSOR_DECLS}}

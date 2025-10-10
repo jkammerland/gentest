@@ -521,6 +521,14 @@ void make_strict(Mock &instance) {
     detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, false);
 }
 
+// Convenience macros to configure expectations with a terse syntax.
+// Usage: EXPECT_CALL(mock, method).times(2)...
+#ifndef GENTEST_NO_EXPECT_CALL_MACROS
+#define EXPECT_CALL(instance, method) \
+    ::gentest::expect((instance), &std::remove_reference_t<decltype(instance)>::__gentest_target::method)
+#define ASSERT_CALL(instance, method) EXPECT_CALL(instance, method)
+#endif
+
 // Lightweight matcher helpers for predicate-based argument matching.
 // Use with ExpectationHandle::where_args(...) or ::where(...), e.g.:
 //   expect(mock, &T::fn).where(Eq(42), Any());

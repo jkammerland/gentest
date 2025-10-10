@@ -386,9 +386,9 @@ Devlog 2025-10-06 (Mocks: Parameter Matching Plan)
 
   Tests (Phase 1)
   - Positive (mocking suite):
-    - `mocking/interface/returns_matches`: `expect(mock, &Calculator::compute).with(12,30).returns(42);` then `compute(12,30)` ⇒ pass.
-    - `mocking/concrete/invokes_matches`: `expect(mock, &Ticker::tick).times(3).with(1).invokes(...);` call `tick(1)` three times ⇒ pass.
-    - `mocking/crtp/bridge_matches`: `expect(mock, &DerivedRunner::handle).with(7).times(2);` call `handle(7)` twice ⇒ pass.
+    - `mocking/interface/returns_matches`: `EXPECT_CALL(mock, &Calculator::compute).with(12,30).returns(42);` then `compute(12,30)` ⇒ pass.
+    - `mocking/concrete/invokes_matches`: `EXPECT_CALL(mock, &Ticker::tick).times(3).with(1).invokes(...);` call `tick(1)` three times ⇒ pass.
+    - `mocking/crtp/bridge_matches`: `EXPECT_CALL(mock, &DerivedRunner::handle).with(7).times(2);` call `handle(7)` twice ⇒ pass.
   - Negative (failing suite):
     - `mocking_args/mismatch`: mismatch in one or more positions ⇒ one recorded failure; place under `tests/failing` to keep suite counts stable.
   - Note: Adding these will update test counts for the involved suites; adjust `ctest` count checks accordingly.
@@ -461,3 +461,41 @@ Devlog 2025-10-07 (Libassert Integration + No-Exceptions Semantics)
       - Existing suites unchanged; libassert suite and no-exc death test pass locally.
   - Next
       - Optionally pin libassert to a release tag; add throw-match adapters for exceptions-on builds; document vcpkg path.
+Devlog 2025-10-10 (Mocks: Include Order, Diagnostics, EXPECT_CALL)
+
+  - Goals
+      - Make mock<T> usage symmetric and frictionless for virtual and non-virtual types.
+      - Enforce robust include order in generated code so types are always visible where required.
+      - Surface precise, actionable generator diagnostics for common failure modes.
+
+  - Key changes
+      - Generated TU include order: the generated test implementation now includes project sources first and then `gentest/mock.h`, ensuring the mock registry and inline method definitions are seen only after all original types are visible.
+      - Generator diagnostics:
+          - Incomplete target: improved message explaining virtual vs. non-virtual requirements (virtual must be complete; non-virtual tolerates forward-decls but parameter/return types must be visible).
+          - Polymorphic-in-CPP: new detection that errors when a virtual interface’s definition is in a `.cpp`, with a message to move it to a header included before the registry.
+      - Registry tolerance (non-virtual): emit forward declarations for referenced user types in their namespaces, so helper TUs that include `gentest/mock.h` early can still compile for non-virtual mocks.
+      - Convenience macro: added `EXPECT_CALL(mock, method)` (and `ASSERT_CALL`) that routes to `gentest::expect` using the original interface type via `__gentest_target`, fixing pointer identity and making call sites concise.
+
+  - Tests
+      - Added generator negative checks under `tests/mock_errors`:
+          - `incomplete_virtual_ref.cpp`: forward-declared target only → expect “target type is incomplete …”.
+          - `virtual_defined_in_cpp.cpp`: polymorphic type defined in a `.cpp` → expect “polymorphic target appears defined in a source file …”.
+      - CTest now runs these via `CheckDeath.cmake` using `gentest_codegen --check`; both pass.
+      - All existing suites (unit, integration, fixtures, templates, mocking, failing) pass with the new include order and macros.
+
+  - Impact
+      - Virtual mocks: require the interface header to be included before the registry; the generated TU guarantees this by design.
+      - Non-virtual mocks: incomplete `T` is fine for the specialization; forward-decls in the registry further reduce order sensitivity across TUs.
+      - Helper usage: `gentest/mock.h` remains usable from any TU in the test target; now safer by default.
+      - No extra translation units introduced; inline impl remains header-only to stay ODR-safe.
+
+  - Files
+      - Template: tools/src/templates.hpp
+      - Discovery: tools/src/mock_discovery.cpp
+      - Registry emission: tools/src/render_mocks.cpp
+      - Runtime: include/gentest/mock.h (EXPECT_CALL)
+      - Tests: tests/mock_errors/*, tests/CMakeLists.txt
+
+  - Status
+      - 100% tests passed locally with debug-system preset (48/48), including new negative generator checks.
+      - This unblocks a clean, symmetric API surface for mocks with clear failure modes.

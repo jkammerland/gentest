@@ -114,6 +114,21 @@ add_test(NAME gentest_codegen_check_invalid
 
 set_tests_properties(gentest_codegen_check_invalid PROPERTIES WILL_FAIL TRUE)
 
+# Generator negative tests for mocks: robust diagnostics
+add_test(NAME gentest_codegen_mock_incomplete_virtual_msg
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/incomplete_virtual_ref.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECT_SUBSTRING=gentest::mock<T>: target type is incomplete
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
+add_test(NAME gentest_codegen_mock_virtual_defined_in_cpp_msg
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/virtual_defined_in_cpp.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECT_SUBSTRING=polymorphic target appears defined in a source file
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
 # End-to-end behavioral checks with robust counting
 add_test(NAME unit_counts
     COMMAND ${CMAKE_COMMAND}
