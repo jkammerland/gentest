@@ -193,9 +193,7 @@ void matchers_starts_ends() {
     using namespace gentest::match;
     gentest::mock<Stringer> mock_str;
     int                     hits = 0;
-    EXPECT_CALL(mock_str, put).times(1).where_args(AllOf(StartsWith("hello"), EndsWith("!"))).invokes([&](const std::string &) {
-        ++hits;
-    });
+    EXPECT_CALL(mock_str, put).times(1).where_args(AllOf(StartsWith("hello"), EndsWith("!"))).invokes([&](const std::string &) { ++hits; });
 
     mock_str.put("hello world!");
     EXPECT_EQ(hits, 1);

@@ -187,10 +187,15 @@ void size_value() {
 }
 
 // Scoped enum in nested namespaces; value template parameter should accept fully qualified tokens
-namespace ns_outer { namespace ns_inner { enum class Shade { Dark, Light }; } }
+namespace ns_outer {
+namespace ns_inner {
+enum class Shade { Dark, Light };
+}
+} // namespace ns_outer
 
 template <ns_outer::ns_inner::Shade S>
-[[using gentest: test("enum_value_scoped"), template(S, templates::ns_outer::ns_inner::Shade::Dark, templates::ns_outer::ns_inner::Shade::Light)]]
+[[using gentest: test("enum_value_scoped"),
+  template(S, templates::ns_outer::ns_inner::Shade::Dark, templates::ns_outer::ns_inner::Shade::Light)]]
 void enum_value_scoped() {
     using ns_outer::ns_inner::Shade;
     gentest::expect(S == Shade::Dark || S == Shade::Light, "S in {Dark,Light}");
@@ -316,12 +321,13 @@ struct LocalPoint {
     int y;
 };
 
-[[using gentest: test("local_struct/axis"), parameters(p, LocalPoint{1,2}, LocalPoint{3,4})]]
+[[using gentest: test("local_struct/axis"), parameters(p, LocalPoint{1, 2}, LocalPoint{3, 4})]]
 void local_struct_axis(LocalPoint p) {
     gentest::expect((p.x == 1 && p.y == 2) || (p.x == 3 && p.y == 4), "LocalPoint matches");
 }
 
-[[using gentest: test("local_struct/pack"), parameters_pack((p, q), (LocalPoint{1,2}, LocalPoint{3,4}), (LocalPoint{5,6}, LocalPoint{7,8}))]]
+[[using gentest: test("local_struct/pack"),
+  parameters_pack((p, q), (LocalPoint{1, 2}, LocalPoint{3, 4}), (LocalPoint{5, 6}, LocalPoint{7, 8}))]]
 void local_struct_pack(LocalPoint p, LocalPoint q) {
     const bool row1 = (p.x == 1 && p.y == 2 && q.x == 3 && q.y == 4);
     const bool row2 = (p.x == 5 && p.y == 6 && q.x == 7 && q.y == 8);
@@ -329,17 +335,14 @@ void local_struct_pack(LocalPoint p, LocalPoint q) {
 }
 
 // Multiple [[...]] blocks: parameters split across blocks
-[[using gentest: test("multi_blocks/params_split")]]
-[[using gentest: parameters(a, 1, 2)]]
-[[using gentest: parameters(b, 10)]]
+[[using gentest: test("multi_blocks/params_split")]] [[using gentest: parameters(a, 1, 2)]] [[using gentest: parameters(b, 10)]]
 void multi_params_split(int a, int b) {
     gentest::expect((a == 1 || a == 2) && b == 10, "split params across blocks");
 }
 
 // Multiple [[...]] blocks: two packs split across blocks
-[[using gentest: test("multi_blocks/pack_split")]]
-[[using gentest: parameters_pack((a, b), (1, 2), (3, 4))]]
-[[using gentest: parameters_pack((c), (5))]]
+[[using gentest: test("multi_blocks/pack_split")]] [[using gentest: parameters_pack((a, b), (1, 2),
+                                                                                    (3, 4))]] [[using gentest: parameters_pack((c), (5))]]
 void multi_pack_split(int a, int b, int c) {
     const bool row1 = (a == 1 && b == 2 && c == 5);
     const bool row2 = (a == 3 && b == 4 && c == 5);
@@ -348,11 +351,9 @@ void multi_pack_split(int a, int b, int c) {
 
 // Multiple [[...]] blocks: mix of templates and parameters split
 template <typename T, int N>
-[[using gentest: test("multi_blocks/mixed_split")]]
-[[using gentest: template(T, int)]]
-[[using gentest: template(N, 7)]]
-[[using gentest: parameters(s, Hello, "World")]]
-void multi_mixed_split(std::string s) {
+[[using gentest: test("multi_blocks/mixed_split")]] [[using gentest: template(T, int)]] [[using gentest: template(
+    N, 7)]] [[using gentest: parameters(s, Hello, "World")]]
+void multi_mixed_split(const std::string &s) {
     if constexpr (!std::is_same_v<T, int> || N != 7) {
         gentest::expect(false, "template checks");
     } else {

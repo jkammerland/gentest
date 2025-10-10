@@ -79,19 +79,21 @@ struct A : gentest::FixtureSetup, gentest::FixtureTearDown {
     }
 };
 
-struct B {
+template <typename T> struct B {
     const char *msg = "ok";
+    T           x   = T{};
 };
 class C {
   public:
     int v = 7;
 };
 
-[[using gentest: test("free/basic"), fixtures(A, B, C)]]
-constexpr void free_basic(A &a, B &b, C &c) {
+[[using gentest: test("free/basic"), fixtures(A, B<int>, C)]]
+constexpr void free_basic(A &a, B<int> &b, C &c) {
     // setUp must have run for A
     gentest::expect_eq(a.phase, 1, "A setUp ran");
     a.phase = 2; // allow tearDown to validate
+    gentest::expect(b.x == 0, "B default value");
     gentest::expect(std::string(b.msg) == "ok", "B default value");
     gentest::expect_eq(c.v, 7, "C default value");
 }
