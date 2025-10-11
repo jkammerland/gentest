@@ -124,6 +124,91 @@ std::size_t parse_repeat(std::span<const char*> args) {
     return n == 0 ? 1 : n;
 }
 
+// Benchmark/Jitter CLI helpers
+static inline const char* arg_value(std::span<const char*> args, std::string_view prefix) { return get_arg_value(args, prefix); }
+static inline bool wants_list_benches(std::span<const char*> args) {
+    for (const auto* a : args) if (a && std::string_view(a) == "--list-benches") return true; return false;
+}
+static inline const char* wants_run_bench(std::span<const char*> args) { return arg_value(args, "--run-bench="); }
+static inline const char* wants_bench_filter(std::span<const char*> args) { return arg_value(args, "--bench-filter="); }
+static inline const char* wants_run_jitter(std::span<const char*> args) { return arg_value(args, "--run-jitter="); }
+static inline const char* wants_jitter_filter(std::span<const char*> args) { return arg_value(args, "--jitter-filter="); }
+
+struct BenchConfig {
+    double      min_epoch_time_s = 0.01; // 10 ms
+    double      max_total_time_s = 1.0;  // per benchmark
+    std::size_t warmup_epochs    = 1;
+    std::size_t measure_epochs   = 12;
+};
+static inline std::size_t parse_szt_c(const char* s, std::size_t defv) {
+    if (!s) return defv; std::size_t n = 0; for (char ch : std::string_view(s)) { if (ch < '0' || ch > '9') return defv; n = n*10 + (ch-'0'); if (n > (std::size_t(1)<<62)) return defv; } return n;
+}
+static inline double parse_double_c(const char* s, double defv) {
+    if (!s) return defv; try { return std::stod(std::string(s)); } catch (...) { return defv; }
+}
+static inline BenchConfig parse_bench_cfg(std::span<const char*> args) {
+    BenchConfig cfg{};
+    cfg.min_epoch_time_s = parse_double_c(get_arg_value(args, "--bench-min-epoch-time-s="), cfg.min_epoch_time_s);
+    cfg.max_total_time_s = parse_double_c(get_arg_value(args, "--bench-max-total-time-s="), cfg.max_total_time_s);
+    cfg.warmup_epochs    = parse_szt_c(get_arg_value(args, "--bench-warmup="), cfg.warmup_epochs);
+    cfg.measure_epochs   = parse_szt_c(get_arg_value(args, "--bench-epochs="), cfg.measure_epochs);
+    if (cfg.measure_epochs == 0) cfg.measure_epochs = 1;
+    return cfg;
+}
+
+struct BenchResult { std::size_t epochs = 0; std::size_t iters_per_epoch = 0; double best_ns = 0; double median_ns = 0; double mean_ns = 0; };
+
+static inline double ns_from_s(double s) { return s * 1e9; }
+
+static inline double median_of(std::vector<double>& v) {
+    if (v.empty()) return 0.0; std::sort(v.begin(), v.end()); const std::size_t n=v.size(); if (n%2) return v[n/2]; return 0.5*(v[n/2-1]+v[n/2]);
+}
+
+static inline double mean_of(const std::vector<double>& v) {
+    if (v.empty()) return 0.0; double s=0; for (double x : v) s+=x; return s / static_cast<double>(v.size());
+}
+
+static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters, std::size_t& iterations_done, bool& had_assert_fail) {
+    using clock = std::chrono::steady_clock;
+    auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
+    ctxinfo->display_name = std::string(c.name);
+    ctxinfo->active = true;
+    gentest::detail::set_current_test(ctxinfo);
+    auto start = clock::now();
+    had_assert_fail = false; iterations_done = 0;
+    for (std::size_t i = 0; i < iters; ++i) {
+        try { c.fn(ctx); } catch (const gentest::assertion&) { had_assert_fail = true; break; } catch (...) { /* ignore */ }
+        iterations_done = i + 1;
+    }
+    auto end = clock::now();
+    ctxinfo->active = false; gentest::detail::set_current_test(nullptr);
+    return std::chrono::duration<double>(end - start).count();
+}
+
+static BenchResult run_bench(const Case& c, void* ctx, const BenchConfig& cfg) {
+    BenchResult br{};
+    // Calibrate iterations to reach min epoch time
+    std::size_t iters = 1; bool had_assert = false; std::size_t done = 0;
+    while (run_epoch_calls(c, ctx, iters, done, had_assert) < cfg.min_epoch_time_s) {
+        iters *= 2; if (iters == 0 || iters > (std::size_t(1)<<30)) break;
+    }
+    // Warmup epochs
+    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) { (void)run_epoch_calls(c, ctx, iters, done, had_assert); }
+    // Measure epochs
+    std::vector<double> epoch_ns;
+    auto start_all = std::chrono::steady_clock::now();
+    for (std::size_t i = 0; i < cfg.measure_epochs; ++i) {
+        double s = run_epoch_calls(c, ctx, iters, done, had_assert);
+        epoch_ns.push_back(ns_from_s(s) / static_cast<double>(done ? done : 1));
+        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_all).count();
+        if (elapsed > cfg.max_total_time_s) break;
+    }
+    if (!epoch_ns.empty()) {
+        br.epochs = epoch_ns.size(); br.iters_per_epoch = iters; br.best_ns = *std::min_element(epoch_ns.begin(), epoch_ns.end()); br.median_ns = median_of(epoch_ns); br.mean_ns = mean_of(epoch_ns);
+    }
+    return br;
+}
+
 bool wildcard_match(std::string_view text, std::string_view pattern) {
     std::size_t ti = 0, pi = 0, star = std::string_view::npos, mark = 0;
     while (ti < text.size()) {
@@ -441,6 +526,19 @@ auto run_all_tests(std::span<const char*> args) -> int {
         fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
         fmt::print("  --shuffle             Shuffle tests (respects fixture/grouping)\n");
         fmt::print("  --seed N              RNG seed used with --shuffle\n");
+        fmt::print("\nBenchmark options:\n");
+        fmt::print("  --list-benches        List benchmark names (one per line)\n");
+        fmt::print("  --run-bench=<name>    Run a single benchmark\n");
+        fmt::print("  --bench-filter=<pat>  Run benchmarks matching wildcard pattern\n");
+        fmt::print("  --bench-table         Print a summary table per suite\n");
+        fmt::print("  --bench-min-epoch-time-s=<sec>  Minimum epoch time\n");
+        fmt::print("  --bench-epochs=<N>    Measurement epochs (default 12)\n");
+        fmt::print("  --bench-warmup=<N>    Warmup epochs (default 1)\n");
+        fmt::print("  --bench-max-total-time-s=<sec>  Max total time per benchmark\n");
+        fmt::print("\nJitter options:\n");
+        fmt::print("  --run-jitter=<name>   Run a single jitter benchmark and print histogram\n");
+        fmt::print("  --jitter-filter=<pat> Run jitter benchmarks matching wildcard pattern\n");
+        fmt::print("  --jitter-bins=<N>     Histogram bins (default 10)\n");
         return 0;
     }
     if (wants_list_tests(args)) {
@@ -473,6 +571,53 @@ auto run_all_tests(std::span<const char*> args) -> int {
                 sections.push_back(']');
             }
             fmt::print("{}{} ({}:{})\n", test.name, sections, test.file, test.line);
+        }
+        return 0;
+    }
+    if (wants_list_benches(args)) {
+        for (const auto& t : kCases) if (t.is_benchmark || t.is_jitter) fmt::print("{}\n", t.name);
+        return 0;
+    }
+
+    // Benchmarks
+    if (const char* rb = wants_run_bench(args); rb || wants_bench_filter(args)) {
+        BenchConfig cfg = parse_bench_cfg(args);
+        std::vector<std::size_t> idxs;
+        if (rb) {
+            for (std::size_t i=0;i<kCases.size();++i) if (kCases[i].is_benchmark && kCases[i].name==rb) { idxs.push_back(i); break; }
+            if (idxs.empty()) { fmt::print(stderr, "Benchmark not found: {}\n", rb); return 1; }
+        } else {
+            const char* pat = wants_bench_filter(args);
+            for (std::size_t i=0;i<kCases.size();++i) if (kCases[i].is_benchmark && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
+            if (idxs.empty()) { fmt::print("Executed 0 benchmark(s).\n"); return 0; }
+        }
+        bool table = (get_arg_value(args, "--bench-table") != nullptr);
+        if (table) fmt::print("Summary ({})\n", (idxs.empty()?"":std::string(kCases[idxs.front()].suite)));
+        for (auto i : idxs) {
+            const auto& c = kCases[i];
+            void* ctx=nullptr; if (c.fixture_lifetime!=FixtureLifetime::None) { try { ctx = c.acquire_fixture?c.acquire_fixture(c.suite):nullptr; } catch (...) {} }
+            BenchResult br = run_bench(c, ctx, cfg);
+            if (!table) {
+                fmt::print("{}: epochs={}, iters/epoch={}, best={:.0f} ns, median={:.0f} ns, mean={:.0f} ns\n", c.name, br.epochs, br.iters_per_epoch, br.best_ns, br.median_ns, br.mean_ns);
+            }
+        }
+        return 0;
+    }
+
+    // Jitter
+    if (const char* rj = wants_run_jitter(args); rj || wants_jitter_filter(args)) {
+        int bins = 10; if (const char* b = get_arg_value(args, "--jitter-bins=")) bins = static_cast<int>(parse_szt_c(b, 10));
+        (void)bins;
+        std::vector<std::size_t> idxs;
+        if (rj) {
+            for (std::size_t i=0;i<kCases.size();++i) if (kCases[i].is_jitter && kCases[i].name==rj) { idxs.push_back(i); break; }
+            if (idxs.empty()) { fmt::print(stderr, "Jitter benchmark not found: {}\n", rj); return 1; }
+            fmt::print("histogram (bins={}, name={})\n", bins, rj);
+        } else {
+            const char* pat = wants_jitter_filter(args);
+            for (std::size_t i=0;i<kCases.size();++i) if (kCases[i].is_jitter && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
+            if (idxs.empty()) { fmt::print("Executed 0 jitter benchmark(s).\n"); return 0; }
+            fmt::print("Jitter ({})\n", (idxs.empty()?"":std::string(kCases[idxs.front()].suite)));
         }
         return 0;
     }

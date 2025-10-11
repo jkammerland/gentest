@@ -388,6 +388,9 @@ struct Case {
     void (*fn)(void*);
     std::string_view                  file;
     unsigned                          line;
+    bool                              is_benchmark{false};
+    bool                              is_jitter{false};
+    bool                              is_baseline{false};
     std::span<const std::string_view> tags;
     std::span<const std::string_view> requirements;
     std::string_view                  skip_reason;
