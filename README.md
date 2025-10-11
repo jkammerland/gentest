@@ -113,6 +113,10 @@ Gentest supports lightweight benchmarks discovered via attributes and executed b
 Notes:
 - Bench functions should avoid gentest assertions (they are invoked in tight loops).
 - Fixture lifetimes are respected; suite/global fixtures are reused, ephemeral fixtures are constructed per invocation.
+- Utility helpers:
+  - `#include "gentest/bench_util.h"`
+    - `gentest::doNotOptimizeAway(x)` prevents the compiler from optimizing away values.
+    - `gentest::clobberMemory()` acts as a compiler barrier for memory operations.
 
 ### Jitter Benchmarks
 
