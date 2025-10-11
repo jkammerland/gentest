@@ -34,6 +34,13 @@ struct AttributeSummary {
         std::vector<std::string> values;     // expression tokens
     };
     std::vector<ParamSet> parameter_sets;
+    // Parameter generators
+    struct RangeSpec { std::string name; std::string start; std::string step; std::string end; };
+    struct LinspaceSpec { std::string name; std::string start; std::string end; std::string count; };
+    struct GeomSpec { std::string name; std::string start; std::string factor; std::string count; };
+    std::vector<RangeSpec>    parameter_ranges;
+    std::vector<LinspaceSpec> parameter_linspaces;
+    std::vector<GeomSpec>     parameter_geoms;
     // Parameter packs: bundle multiple arguments per test row to avoid Cartesian products.
     struct ParamPack {
         std::vector<std::string>              names; // function parameter names, in order

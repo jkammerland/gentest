@@ -357,6 +357,9 @@ int handle_bench_cli(std::span<const char*> args) {
         if (sel.empty()) { fmt::print("Matched 0 benchmark(s).\n"); return 0; }
     }
     BenchConfig cfg = parse_bench_config(args);
+    const bool print_table = [] (std::span<const char*> a){ for (auto* p: a) if (p && std::string_view(p) == "--bench-table") return true; return false; }(args);
+    struct Row{ std::string name; std::size_t iters; std::size_t epochs; double best; double median; double mean; double ops_s; };
+    std::vector<Row> rows;
     // Group by fixture and lifetime similar to tests
     for (auto i : sel) {
         const auto& c = kCases[i];
@@ -376,12 +379,20 @@ int handle_bench_cli(std::span<const char*> args) {
             const double ops_per_s = result.mean_ns > 0.0 ? (1e9 / result.mean_ns) : 0.0;
             fmt::print("  epochs: {}  iters/epoch: {}\n", result.epochs, result.iters_per_epoch);
             fmt::print("  ns/op  best: {:.2f}  median: {:.2f}  mean: {:.2f}  ({:.2f} ops/s)\n", result.best_ns, result.median_ns, result.mean_ns, ops_per_s);
+            if (print_table) rows.push_back(Row{std::string(c.name), result.iters_per_epoch, result.epochs, result.best_ns, result.median_ns, result.mean_ns, ops_per_s});
         } catch (const std::exception& e) {
             fmt::print(stderr, "[ FAIL ] {} :: exception: {}\n", c.name, e.what());
             return 1;
         } catch (...) {
             fmt::print(stderr, "[ FAIL ] {} :: unknown exception\n", c.name);
             return 1;
+        }
+    }
+    if (print_table) {
+        fmt::print("\nSummary (benchmarks)\n");
+        fmt::print("{:>8}  {:<50}  {:>12}  {:>10}  {:>10}  {:>10}  {:>12}\n", "epochs", "name", "iters/epoch", "best(ns)", "median(ns)", "mean(ns)", "ops/s");
+        for (const auto& r : rows) {
+            fmt::print("{:>8}  {:<50}  {:>12}  {:>10.2f}  {:>10.2f}  {:>10.2f}  {:>12.2f}\n", r.epochs, r.name, r.iters, r.best, r.median, r.mean, r.ops_s);
         }
     }
     return 0;
