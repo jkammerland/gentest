@@ -566,3 +566,13 @@ Devlog 2025-10-11 (Ctor exceptions + CLI + linkage docs)
       - README: added Linkage section, clarified shuffling/suite semantics, and noted constructor-exception behavior.
       - README: added a Benchmarking section for `bench-compile`, `bench-compile-release`, and `bench-compare` targets,
         plus direct script usage.
+
+Devlog 2025-10-11 (Bench/Jitter runtime CLI port)
+
+  - Ported benchmark and jitter CLI from the ‘benchmarks’ branch into the compiled runtime (`src/runner_impl.cpp`).
+    - Case now carries `is_benchmark`, `is_jitter`, `is_baseline` flags; generator emits them via the template.
+    - CLI: `--list-benches`, `--run-bench`, `--bench-filter`, `--bench-table`, and tuning flags
+      (`--bench-min-epoch-time-s`, `--bench-epochs`, `--bench-warmup`, `--bench-max-total-time-s`).
+    - Jitter: `--run-jitter`, `--jitter-filter`, `--jitter-bins` (prints headers; detailed histograms are planned).
+  - Tests: restored benchmark/jitter smokes to use the new CLI. All suites pass.
+  - Docs: README updated to document bench/jitter usage and current output scope.

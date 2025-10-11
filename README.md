@@ -114,7 +114,7 @@ Gentest supports lightweight benchmarks discovered via attributes and executed b
 
 - Author benches alongside tests, annotated with:
   `[[using gentest : bench("suite/name")]] void my_bench();`
-- List benches: run the generated executable with `--list-benches`.
+- List benches and jitters: run the generated executable with `--list-benches`.
 - Run benches:
   - Exact: `--run-bench=suite/name`
   - Filter: `--bench-filter=pattern` (supports `*` and `?`)
@@ -123,6 +123,7 @@ Gentest supports lightweight benchmarks discovered via attributes and executed b
   - `--bench-epochs=N` (default 12)
   - `--bench-warmup=N` (default 1)
   - `--bench-max-total-time-s=SECS` (default 1.0)
+- Summary header: `--bench-table` prints a per‑suite summary header. (Richer tables are planned.)
 
 Notes:
 - Bench functions should avoid gentest assertions (they are invoked in tight loops).
@@ -132,32 +133,22 @@ Notes:
     - `gentest::doNotOptimizeAway(x)` prevents the compiler from optimizing away values.
     - `gentest::clobberMemory()` acts as a compiler barrier for memory operations.
 
-Grouping, baseline, and parameters
-- Grouping: benches are grouped by `suite("...")`; a per‑suite summary table is printed at the end of a bench run. The table scales time units smartly (ns/µs/ms/s) and aligns columns.
-- Baseline: optionally mark one bench in a suite with `[[using gentest: baseline]]`. If none is marked, the first bench in the suite acts as the baseline. Relative percentages use the median.
-- Parameters and templates:
-  - `parameters(name, v1, v2, ...)` supports complex values and structs (e.g., `Blob{1,2}` or `std::complex<double>(1,2)`).
-  - Generators:
-    - `range(i, 1, 2, 9)` or `range(i, "1:2:9")`
-    - `linspace(x, 0.0, 1.0, 5)`
-    - `geom(n, 1, 2, 5)`
-    - `logspace(f, -3, 3, 7[, base])`
-  - Generator output respects the declared parameter type: integer arguments rounded to integers; floats printed precisely.
+Parameters
+- `parameters(name, v1, v2, ...)` supports complex values and structs (e.g., `Blob{1,2}` or `std::complex<double>(1,2)`).
 
 ### Jitter Benchmarks
 
 In addition to throughput-style benches, define jitter benchmarks to analyze timing variance and histograms:
 
 - Author with `[[using gentest : jitter("suite/name")]] void my_jitter();`
-- List: `--list-jitters`
+- List: use `--list-benches` (jitters are included).
 - Run:
   - Exact: `--run-jitter=suite/name`
   - Filter: `--jitter-filter=pattern`
 - Options:
   - `--jitter-bins=N` to control histogram resolution (default 10)
 
-Jitter runs collect per-epoch ns/op samples, then report mean, stddev, min/max, and a textual histogram.
-When multiple jitters in the same suite are selected, a per‑suite summary table (with smart unit scaling) is added after histograms. Epochs with EXPECT failures are excluded from numeric bins and counted separately; ASSERT aborts the suite.
+Current output prints a histogram header for single jitter runs and a per‑suite “Jitter (suite)” header for filtered runs. Detailed histograms and statistics are planned.
 
 ## Fixtures (member-function tests)
 
