@@ -149,7 +149,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             for (std::size_t i = 1; i < attr.arguments.size(); ++i)
                 set.values.push_back(attr.arguments[i]);
             summary.parameter_sets.push_back(std::move(set));
-        } else if (lowered == "parameters_range" || lowered == "range") {
+        } else if (lowered == "range") {
             // Accept forms: (name, start, step, end) or (name, "start:step:end")
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;
@@ -180,7 +180,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             summary.parameter_ranges.push_back(std::move(spec));
-        } else if (lowered == "parameters_linspace" || lowered == "linspace") {
+        } else if (lowered == "linspace") {
             if (attr.arguments.size() != 4) {
                 summary.had_error = true;
                 report("'parameters_linspace' requires (name, start, end, count)");
@@ -188,14 +188,31 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             AttributeSummary::LinspaceSpec spec{attr.arguments[0], attr.arguments[1], attr.arguments[2], attr.arguments[3]};
             summary.parameter_linspaces.push_back(std::move(spec));
-        } else if (lowered == "parameters_geom" || lowered == "geomspace" || lowered == "geospace") {
+        } else if (lowered == "geom" || lowered == "geomspace" || lowered == "geospace") {
             if (attr.arguments.size() != 4) {
                 summary.had_error = true;
-                report("'parameters_geom' requires (name, start, factor, count)");
+                report("'geom' requires (name, start, factor, count)");
                 continue;
             }
             AttributeSummary::GeomSpec spec{attr.arguments[0], attr.arguments[1], attr.arguments[2], attr.arguments[3]};
             summary.parameter_geoms.push_back(std::move(spec));
+        } else if (lowered == "logspace") {
+            if (attr.arguments.size() != 4 && attr.arguments.size() != 5) {
+                summary.had_error = true;
+                report("'logspace' requires (name, startExp, endExp, count[, base])");
+                continue;
+            }
+            // Reuse GeomSpec storage by encoding base and exponents; expansion handled in discovery
+            // We'll store as: name, startExp, endExp, count, with base optionally appended to factor field when provided.
+            // Instead, add a dedicated struct in summary to avoid overloading.
+            // Defer to dedicated LogspaceSpec (see validate.hpp)
+            AttributeSummary::LogspaceSpec spec;
+            spec.name = attr.arguments[0];
+            spec.start_exp = attr.arguments[1];
+            spec.end_exp = attr.arguments[2];
+            spec.count = attr.arguments[3];
+            if (attr.arguments.size() == 5) spec.base = attr.arguments[4];
+            summary.parameter_logspaces.push_back(std::move(spec));
         } else if (lowered == "parameters_pack") {
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;

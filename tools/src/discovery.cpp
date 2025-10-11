@@ -10,6 +10,8 @@
 #include "validate.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <clang/AST/Decl.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
@@ -441,6 +443,30 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             } else if (is_float_type(ty)) {
                 double a = to_double(gs.start); double f = to_double(gs.factor); double v=a; for (long long i=0;i<n;++i){ axis.emplace_back(gs.name, fmt_double(v)); v *= f; }
             } else { had_error_ = true; report(fmt::format("parameters_geom not supported for parameter type '{}'", ty)); return; }
+            scalar_axes.push_back(std::move(axis));
+        }
+        for (const auto &ls : summary.parameter_logspaces) {
+            const std::string &ty = param_types[ls.name];
+            std::vector<std::pair<std::string, std::string>> axis;
+            long long n = to_int(ls.count); if (n < 1) n = 1;
+            double base = ls.base.empty() ? 10.0 : to_double(ls.base);
+            double aexp = to_double(ls.start_exp);
+            double bexp = to_double(ls.end_exp);
+            if (n == 1) {
+                double val = std::pow(base, aexp);
+                if (is_integer_type(ty)) axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
+                else if (is_float_type(ty)) axis.emplace_back(ls.name, fmt_double(val));
+                else { had_error_ = true; report(fmt::format("logspace not supported for parameter type '{}'", ty)); return; }
+            } else {
+                double step = (bexp - aexp) / static_cast<double>(n - 1);
+                for (long long i = 0; i < n; ++i) {
+                    double e = aexp + step * static_cast<double>(i);
+                    double val = std::pow(base, e);
+                    if (is_integer_type(ty)) axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
+                    else if (is_float_type(ty)) axis.emplace_back(ls.name, fmt_double(val));
+                    else { had_error_ = true; report(fmt::format("logspace not supported for parameter type '{}'", ty)); return; }
+                }
+            }
             scalar_axes.push_back(std::move(axis));
         }
         std::vector<std::vector<std::pair<std::string, std::string>>> scalar_combos;

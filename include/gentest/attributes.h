@@ -32,10 +32,11 @@
 //   [[using gentest : jitter("suite/name")]]
 //
 // Parameter generators (global convenience):
-//   [[using gentest : parameters_range(i, 1, 2, 9)]]      // 1,3,5,7,9 (integers)
+//   [[using gentest : range(i, 1, 2, 9)]]                 // 1,3,5,7,9 (integers)
 //   [[using gentest : range(i, "1:2:9")]]                 // Matlab-style triple in a string
-//   [[using gentest : parameters_linspace(x, 0.0, 1.0, 5)]] // 0.0, 0.25, 0.5, 0.75, 1.0
-//   [[using gentest : parameters_geom(n, 1, 2, 5)]]        // 1,2,4,8,16 (geom progression)
+//   [[using gentest : linspace(x, 0.0, 1.0, 5)]]           // 0.0, 0.25, 0.5, 0.75, 1.0
+//   [[using gentest : geom(n, 1, 2, 5)]]                   // 1,2,4,8,16 (geom progression)
+//   [[using gentest : logspace(f, -3, 3, 7)]]              // 1e-3 .. 1e+3 (base 10)
 
 // This header intentionally declares no symbols; it documents the attribute
 // format consumed by the generator and serves as a stable include for tests.

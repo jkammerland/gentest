@@ -300,17 +300,46 @@ BenchConfig parse_bench_config(std::span<const char*> args) {
 
 struct BenchResult { std::size_t epochs = 0; std::size_t iters_per_epoch = 0; double best_ns = 0; double median_ns = 0; double mean_ns = 0; };
 
-BenchResult run_benchmark_case(const Case& bench, void* ctx, const BenchConfig& cfg) {
+struct EpochResult { double time_s = 0.0; std::size_t iterations_done = 0; std::size_t expect_fails = 0; bool had_assert = false; };
+
+static inline EpochResult run_epoch_with_context(const Case& c, void* ctx, std::size_t iters) {
+    using clock = std::chrono::steady_clock;
+    EpochResult er{};
+    auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
+    ctxinfo->display_name = std::string(c.name);
+    ctxinfo->active = true;
+    gentest::detail::set_current_test(ctxinfo);
+    auto start = clock::now();
+    for (std::size_t i = 0; i < iters; ++i) {
+        try {
+            c.fn(ctx);
+        } catch (const gentest::assertion&) {
+            er.had_assert = true;
+            break;
+        } catch (const gentest::failure&) {
+            // Counted as failed EXPECT-like condition but continue
+        } catch (const std::exception&) {
+            // Treat as failure but continue
+        } catch (...) {
+            // Unknown: continue
+        }
+        er.iterations_done = i + 1;
+    }
+    auto end = clock::now();
+    ctxinfo->active = false;
+    gentest::detail::set_current_test(nullptr);
+    er.expect_fails = 0;
+    for (char k : ctxinfo->event_kinds) if (k == 'F') ++er.expect_fails;
+    er.time_s = std::chrono::duration<double>(end - start).count();
+    return er;
+}
+
+BenchResult run_benchmark_case(const Case& bench, void* ctx, const BenchConfig& cfg, bool& had_failures_out) {
     using clock = std::chrono::steady_clock;
     BenchResult br;
     // Calibrate iterations per epoch to meet min epoch time
     std::size_t iters = 1;
-    auto run_iters = [&](std::size_t n) {
-        auto start = clock::now();
-        for (std::size_t i = 0; i < n; ++i) bench.fn(ctx);
-        auto end = clock::now();
-        return std::chrono::duration<double>(end - start).count();
-    };
+    auto run_iters = [&](std::size_t n) { EpochResult er = run_epoch_with_context(bench, ctx, n); if (er.expect_fails > 0 || er.had_assert) had_failures_out = true; return er.time_s; };
     // Warmup calibration
     while (run_iters(iters) < cfg.min_epoch_time_s) {
         iters *= 2; if (iters == 0) { iters = 1; break; }
@@ -361,6 +390,7 @@ int handle_bench_cli(std::span<const char*> args) {
     struct Row{ std::string name; std::size_t iters; std::size_t epochs; double best; double median; double mean; double ops_s; };
     std::vector<Row> rows;
     // Group by fixture and lifetime similar to tests
+    bool had_failures = false;
     for (auto i : sel) {
         const auto& c = kCases[i];
         void* ctx = nullptr;
@@ -375,7 +405,9 @@ int handle_bench_cli(std::span<const char*> args) {
         }
         try {
             fmt::print("[ BENCH ] {}\n", c.name);
-            auto result = run_benchmark_case(c, ctx, cfg);
+            bool br_fail = false;
+            auto result = run_benchmark_case(c, ctx, cfg, br_fail);
+            had_failures = had_failures || br_fail;
             const double ops_per_s = result.mean_ns > 0.0 ? (1e9 / result.mean_ns) : 0.0;
             fmt::print("  epochs: {}  iters/epoch: {}\n", result.epochs, result.iters_per_epoch);
             fmt::print("  ns/op  best: {:.2f}  median: {:.2f}  mean: {:.2f}  ({:.2f} ops/s)\n", result.best_ns, result.median_ns, result.mean_ns, ops_per_s);
@@ -395,7 +427,14 @@ int handle_bench_cli(std::span<const char*> args) {
             fmt::print("{:>8}  {:<50}  {:>12}  {:>10.2f}  {:>10.2f}  {:>10.2f}  {:>12.2f}\n", r.epochs, r.name, r.iters, r.best, r.median, r.mean, r.ops_s);
         }
     }
-    return 0;
+    if (print_table) {
+        fmt::print("\nSummary (benchmarks)\n");
+        fmt::print("{:>8}  {:<50}  {:>12}  {:>10}  {:>10}  {:>10}  {:>12}\n", "epochs", "name", "iters/epoch", "best(ns)", "median(ns)", "mean(ns)", "ops/s");
+        for (const auto& r : rows) {
+            fmt::print("{:>8}  {:<50}  {:>12}  {:>10.2f}  {:>10.2f}  {:>10.2f}  {:>12.2f}\n", r.epochs, r.name, r.iters, r.best, r.median, r.mean, r.ops_s);
+        }
+    }
+    return had_failures ? 1 : 0;
 }
 } // namespace
 
@@ -444,15 +483,29 @@ int handle_jitter_cli(std::span<const char*> args) {
         const auto& c = kCases[i]; void* ctx=nullptr; switch (c.fixture_lifetime) { case FixtureLifetime::MemberSuite: case FixtureLifetime::MemberGlobal: if (c.acquire_fixture) ctx=c.acquire_fixture(c.suite); break; case FixtureLifetime::MemberEphemeral: case FixtureLifetime::None: default: ctx=nullptr; break; }
         try {
             fmt::print("[ JITTER ] {}\n", c.name);
-            // Build samples from measured epochs of calibrated iterations
-            using clock = std::chrono::steady_clock; auto run_iters = [&](std::size_t n){ auto s=clock::now(); for (std::size_t k=0;k<n;++k) c.fn(ctx); auto e=clock::now(); return std::chrono::duration<double>(e-s).count(); };
-            std::size_t iters=1; while (run_iters(iters) < cfg.min_epoch_time_s) { iters*=2; if (iters==0 || iters>(std::size_t(1)<<30)) break; }
+            auto run_iters = [&](std::size_t n){ return run_epoch_with_context(c, ctx, n); };
+            std::size_t iters=1; while (run_iters(iters).time_s < cfg.min_epoch_time_s) { iters*=2; if (iters==0 || iters>(std::size_t(1)<<30)) break; }
             for (std::size_t w=0; w<cfg.warmup_epochs; ++w) (void)run_iters(iters);
-            std::vector<double> ns_per_iter; ns_per_iter.reserve(cfg.measure_epochs); double total=0.0; for (std::size_t e=0;e<cfg.measure_epochs;++e){ double t=run_iters(iters); total+=t; ns_per_iter.push_back((t*1e9)/static_cast<double>(iters)); if (total >= cfg.max_total_time_s) break; }
+            std::vector<double> ns_per_iter; ns_per_iter.reserve(cfg.measure_epochs);
+            std::size_t failed_expect_epochs = 0; bool killed_by_assert = false; double total=0.0;
+            for (std::size_t e=0;e<cfg.measure_epochs;++e){
+                EpochResult er = run_iters(iters);
+                total += er.time_s;
+                if (er.had_assert) { killed_by_assert = true; break; }
+                if (er.expect_fails > 0 || er.iterations_done == 0) { ++failed_expect_epochs; if (total >= cfg.max_total_time_s) break; else continue; }
+                ns_per_iter.push_back((er.time_s*1e9)/static_cast<double>(iters));
+                if (total >= cfg.max_total_time_s) break;
+            }
             JitterStats js = compute_stats(ns_per_iter);
             fmt::print("  iterations/epoch: {}  epochs: {}\n", iters, ns_per_iter.size());
             fmt::print("  ns/op: mean {:.2f}, stddev {:.2f}, min {:.2f}, max {:.2f}\n", js.mean_ns, js.stddev_ns, js.min_ns, js.max_ns);
             print_histogram(ns_per_iter, bins);
+            if (failed_expect_epochs > 0) {
+                double total_epochs = static_cast<double>(ns_per_iter.size() + failed_expect_epochs);
+                double pct = total_epochs > 0.0 ? (100.0 * static_cast<double>(failed_expect_epochs) / total_epochs) : 0.0;
+                fmt::print("  FAILED (EXPECT): {:>6} ({:>5.1f}% )\n", failed_expect_epochs, pct);
+            }
+            if (killed_by_assert) { fmt::print(stderr, "  ABORTED: ASSERT encountered; jitter run terminated early.\n"); return 1; }
         } catch (const std::exception& e) { fmt::print(stderr, "[ FAIL ] {} :: exception: {}\n", c.name, e.what()); return 1; } catch (...) { fmt::print(stderr, "[ FAIL ] {} :: unknown exception\n", c.name); return 1; }
     }
     return 0;
