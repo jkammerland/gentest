@@ -32,7 +32,7 @@ Devlog 2025-10-02 (Refactor + Robust Tests)
       - INTERFACE warning flags propagate to consumers (Clang/GCC/MSVC).
       - New: Fixture support with member tests, including suite/global lifetimes and optional setup/teardown hooks.
         - Generator now detects class-level `[[using gentest: fixture(suite)]]` / `[[using gentest: fixture(global)]]`.
-        - Member tests are grouped per fixture; optional `--shuffle-fixtures` shuffles within a group only.
+        - Member tests are grouped per fixture; optional `--shuffle` shuffles within a group only.
         - Generated TU includes the test sources so fixture types are complete; tests no longer compile `cases.cpp` directly.
         - New header `include/gentest/fixture.h` exposes `gentest::FixtureSetup` and `gentest::FixtureTearDown` interfaces.
         - Added `tests/fixtures` suite with ephemeral and stateful examples; counts and `--list` checks added.
@@ -43,7 +43,7 @@ Devlog 2025-10-02 (Refactor + Robust Tests)
       - Add a couple of core tests for skip(reason) at the parser/validator layer.
       - Minimize logic in parse.cpp further if trim_copy can be moved into a small shared utility (not necessary, just polish).
       - Expand tidy plugin docs with a minimal .clang-tidy example configuration for easy editor adoption.
-      - Expose `--shuffle-fixtures` and `--seed` in README examples; consider environment fallback (e.g. `GENTEST_SHUFFLE`).
+      - Expose `--shuffle` and `--seed` in README examples; consider environment fallback (e.g. `GENTEST_SHUFFLE`).
       - Validate and document fixture attribute semantics further (errors for class-scope attributes other than `fixture(...)`).
 
   If you want, I can add the skip(reason) unit assertions and a tiny .clang-tidy example next.
@@ -76,7 +76,7 @@ Devlog 2025-10-04 (Mock Generation)
 Devlog 2025-10-03 (CLI + Templates + Phase 1 Plan)
 
   - CLI for VSCode
-      - Implemented --help, --list-tests, --run-test, --filter alongside existing --list/--shuffle-fixtures/--seed
+      - Implemented --help, --list-tests, --run-test, --filter alongside existing --list/--shuffle/--seed
       - Selection mode uses ephemeral fixtures; full run preserves stateful fixtures
   - Template and parameter expansion
       - template(P, ...) across multiple blocks; Cartesian product
@@ -498,3 +498,33 @@ Devlog 2025-10-10 (Mocks: Include Order, Diagnostics, EXPECT_CALL)
   - Status
       - 100% tests passed locally with debug-system preset (48/48), including new negative generator checks.
       - This unblocks a clean, symmetric API surface for mocks with clear failure modes.
+Devlog 2025-10-11 (Shuffle+Fixture policy checks)
+
+  - Shuffle: replaced `--shuffle-fixtures` with `--shuffle`; free and member-ephemeral tests shuffle within each suite; suite/global fixtures shuffle within their contiguous groups. No cross‑suite interleaving.
+  - Fixture policy (opt‑in strict checks):
+      - Added `GENTEST_STRICT_FIXTURE=1` to enforce that suite/global fixtures cannot declare member tests; assertions should live in `setUp()` / `tearDown()` for those fixtures.
+      - Generator diagnostics: clear messages for suite/global cases.
+      - Tests: `gentest_codegen_fixture_suite_member_illegal`, `gentest_codegen_fixture_global_member_illegal` (use new `cmake/CheckDeathEnv.cmake`).
+  - Notes:
+      - Strict check is env-gated to avoid breaking existing suites. Flip the env var in CI to adopt policy incrementally.
+
+Devlog 2025-10-11 (Ctor exceptions + CLI + linkage docs)
+
+  - Runtime: treat constructor exceptions as test failures
+      - Suite/global fixtures: acquisition wrapped in try/catch; exceptions no longer abort the run.
+        A synthetic failure is recorded with a clear message (std::exception or unknown).
+      - Ephemeral member tests and free-function fixtures: existing try/catch in the test body now also records
+        exception messages in the event stream so they appear under the [ FAIL ] header and in reports.
+      - Added focused tests in a new `ctor` suite covering all lifetimes (ephemeral member, free fixtures, suite, global).
+  - CLI and shuffling
+      - Removed `--shuffle-fixtures`; use `--shuffle` (suite-centric). Free + member‑ephemeral tests shuffle together per suite.
+        Suite/global fixtures remain contiguous and shuffle internally. No cross‑suite interleaving.
+  - Attributes
+      - Removed `group("...")` from the allowed attributes and updated examples. Prefer `suite("...")` for organization.
+  - Linkage option
+      - Added `-DGENTEST_RUNTIME_SHARED=ON` to build the runtime as a shared library. Default remains static; PIC is
+        enabled only for shared builds. Windows shared builds export symbols by default.
+  - Docs
+      - README: added Linkage section, clarified shuffling/suite semantics, and noted constructor-exception behavior.
+      - README: added a Benchmarking section for `bench-compile`, `bench-compile-release`, and `bench-compare` targets,
+        plus direct script usage.

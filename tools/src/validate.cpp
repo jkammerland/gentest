@@ -39,7 +39,6 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
 
     bool                       saw_test = false;
     std::set<std::string>      seen_flags;
-    std::optional<std::string> seen_group;
     std::optional<std::string> seen_owner;
 
     for (const auto &attr : parsed) {
@@ -258,20 +257,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                                    joined));
                 continue;
             }
-            if (lowered == "group") {
-                if (attr.arguments.size() != 1) {
-                    summary.had_error = true;
-                    report(fmt::format("'{}' requires exactly one string argument", lowered));
-                    continue;
-                }
-                if (seen_group.has_value()) {
-                    summary.had_error = true;
-                    report(fmt::format("duplicate '{}' attribute", lowered));
-                    continue;
-                }
-                seen_group = attr.arguments.front();
-                add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
-            } else if (lowered == "owner") {
+            if (lowered == "owner") {
                 if (attr.arguments.size() != 1) {
                     summary.had_error = true;
                     report(fmt::format("'{}' requires exactly one string argument", lowered));

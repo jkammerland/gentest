@@ -304,6 +304,19 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 } else {
                     info.fixture_lifetime = fixture_summary.lifetime;
                 }
+
+                // Optional strict mode: disallow member tests on suite/global fixtures
+                if (info.fixture_lifetime == FixtureLifetime::MemberSuite || info.fixture_lifetime == FixtureLifetime::MemberGlobal) {
+                    const char* strict = std::getenv("GENTEST_STRICT_FIXTURE");
+                    if (strict && *strict && std::string_view(strict) != "0") {
+                        had_error_ = true;
+                        if (info.fixture_lifetime == FixtureLifetime::MemberSuite) {
+                            report("suite fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
+                        } else {
+                            report("global fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
+                        }
+                    }
+                }
             }
         }
         std::string key = info.qualified_name + "#" + info.display_name + "@" + info.filename + ":" + std::to_string(info.line);
@@ -571,6 +584,19 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
                 info.fixture_lifetime = FixtureLifetime::MemberEphemeral;
             } else {
                 info.fixture_lifetime = fixture_summary.lifetime;
+            }
+
+            // Optional strict mode: disallow member tests on suite/global fixtures
+            if (info.fixture_lifetime == FixtureLifetime::MemberSuite || info.fixture_lifetime == FixtureLifetime::MemberGlobal) {
+                const char* strict = std::getenv("GENTEST_STRICT_FIXTURE");
+                if (strict && *strict && std::string_view(strict) != "0") {
+                    had_error_ = true;
+                    if (info.fixture_lifetime == FixtureLifetime::MemberSuite) {
+                        report("suite fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
+                    } else {
+                        report("global fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
+                    }
+                }
             }
         }
     }

@@ -65,9 +65,9 @@ bool wants_list(std::span<const char*> args) {
 
 bool wants_shuffle(std::span<const char*> args) {
     for (const auto* arg : args) {
-        if (arg != nullptr && std::string_view(arg) == "--shuffle-fixtures") {
-            return true;
-        }
+        if (!arg) continue;
+        const std::string_view s(arg);
+        if (s == "--shuffle") return true;
     }
     return false;
 }
@@ -208,14 +208,23 @@ RunResult execute_one(const Case& test, void* ctx, Counters& c) {
     } catch (const gentest::failure& err) {
         threw = true;
         ctxinfo->failures.push_back(std::string("FAIL() :: ") + err.what());
+        // Record event for console output as well
+        ctxinfo->event_lines.push_back(ctxinfo->failures.back());
+        ctxinfo->event_kinds.push_back('F');
     } catch (const gentest::assertion&) {
         threw = true;
     } catch (const std::exception& err) {
         threw = true;
         ctxinfo->failures.push_back(std::string("unexpected std::exception: ") + err.what());
+        // Record event for console output as well
+        ctxinfo->event_lines.push_back(ctxinfo->failures.back());
+        ctxinfo->event_kinds.push_back('F');
     } catch (...) {
         threw = true;
         ctxinfo->failures.push_back("unknown exception");
+        // Record event for console output as well
+        ctxinfo->event_lines.push_back(ctxinfo->failures.back());
+        ctxinfo->event_kinds.push_back('F');
     }
     ctxinfo->active = false;
     gentest::detail::set_current_test(nullptr);
@@ -375,6 +384,34 @@ static void write_reports(const char* junit_path, const char* allure_dir) {
 
 } // namespace
 
+static void print_fail_header(const Case& test, long long dur_ms) {
+    if (g_color_output) {
+        fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
+        fmt::print(stderr, " {} ({} ms)\n", test.name, dur_ms);
+    } else {
+        fmt::print(stderr, "[ FAIL ] {} ({} ms)\n", test.name, dur_ms);
+    }
+}
+
+static void record_synthetic_failure(const Case& test, std::string message, Counters& c) {
+    ++c.failures;
+    const long long dur_ms = 0LL;
+    print_fail_header(test, dur_ms);
+    fmt::print(stderr, "{}\n\n", message);
+    if (g_github_annotations) {
+        fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, test.name, message);
+    }
+    if (!g_record_results) return;
+    ReportItem item;
+    item.suite = std::string(test.suite);
+    item.name  = std::string(test.name);
+    item.time_s = 0.0;
+    item.failures.push_back(std::move(message));
+    for (auto sv : test.tags) item.tags.emplace_back(sv);
+    for (auto sv : test.requirements) item.requirements.emplace_back(sv);
+    g_report_items.push_back(std::move(item));
+}
+
 auto run_all_tests(std::span<const char*> args) -> int {
     g_color_output = use_color(args);
     g_report_items.clear();
@@ -402,8 +439,8 @@ auto run_all_tests(std::span<const char*> args) -> int {
         fmt::print("  --allure-dir=<dir>    Write Allure result JSON files into directory\n");
         fmt::print("  --fail-fast           Stop after the first failing test\n");
         fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
-        fmt::print("  --shuffle-fixtures    Shuffle order within each fixture group\n");
-        fmt::print("  --seed N              RNG seed used with --shuffle-fixtures\n");
+        fmt::print("  --shuffle             Shuffle tests (respects fixture/grouping)\n");
+        fmt::print("  --seed N              RNG seed used with --shuffle\n");
         return 0;
     }
     if (wants_list_tests(args)) {
@@ -459,24 +496,105 @@ auto run_all_tests(std::span<const char*> args) -> int {
         const bool        fail_fast = wants_fail_fast(args);
         const std::size_t repeat_n  = parse_repeat(args);
         for (std::size_t iter = 0; iter < repeat_n; ++iter) {
-            for (auto i : sel) { const auto& t = kCases[i]; if (!t.fixture.empty()) continue; execute_and_record(t, nullptr, counters); if (fail_fast && counters.failures > 0) goto done_selection; }
             const bool         shuffle = wants_shuffle(args);
             const std::uint64_t seed    = parse_seed(args);
             if (shuffle) fmt::print("Shuffle seed: {}\n", seed);
-            std::vector<std::pair<std::string_view, std::vector<std::size_t>>> groups;
-            for (auto i : sel) { const auto& t = kCases[i]; if (t.fixture.empty()) continue; auto it = std::find_if(groups.begin(), groups.end(), [&](auto& g){return g.first==t.fixture;}); if (it==groups.end()) groups.push_back({t.fixture,{i}}); else it->second.push_back(i); }
-            for (auto& g : groups) {
-                std::vector<std::size_t>& order = g.second;
-                if (shuffle && order.size() > 1) { std::mt19937_64 rng_(seed ? (seed + std::hash<std::string_view>{}(g.first)) : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(order.begin(), order.end(), rng_); }
-                for (auto i : order) {
-                    const auto& test = kCases[i];
-                    void* ctx = nullptr;
-                    if (test.fixture_lifetime == FixtureLifetime::MemberSuite || test.fixture_lifetime == FixtureLifetime::MemberGlobal) {
-                        ctx = test.acquire_fixture ? test.acquire_fixture(test.suite) : nullptr;
+
+            // Partition selected tests by suite
+            std::vector<std::string_view> suite_order;
+            suite_order.reserve(sel.size());
+            for (auto i : sel) {
+                const auto& t = kCases[i];
+                if (std::find(suite_order.begin(), suite_order.end(), t.suite) == suite_order.end())
+                    suite_order.push_back(t.suite);
+            }
+
+            for (auto suite_name : suite_order) {
+                // Collect within this suite
+                std::vector<std::size_t> free_like; // free + member-ephemeral
+                struct Group { std::string_view fixture; FixtureLifetime lt; std::vector<std::size_t> idxs; };
+                std::vector<Group> suite_groups;   // fixture(suite)
+                std::vector<Group> global_groups;  // fixture(global)
+
+                for (auto i : sel) {
+                    const auto& t = kCases[i];
+                    if (t.suite != suite_name) continue;
+                    if (t.fixture_lifetime == FixtureLifetime::None || t.fixture_lifetime == FixtureLifetime::MemberEphemeral) {
+                        free_like.push_back(i);
+                        continue;
                     }
-                    execute_and_record(test, ctx, counters);
+                    auto& groups = (t.fixture_lifetime == FixtureLifetime::MemberSuite) ? suite_groups : global_groups;
+                    auto it = std::find_if(groups.begin(), groups.end(), [&](const Group& g){ return g.fixture == t.fixture; });
+                    if (it == groups.end()) groups.push_back(Group{t.fixture, t.fixture_lifetime, {i}});
+                    else it->idxs.push_back(i);
                 }
-                if (fail_fast && counters.failures > 0) goto done_selection;
+
+                // Shuffle within-suite pools
+                if (shuffle && free_like.size() > 1) {
+                    std::uint64_t s = seed;
+                    if (s) s ^= (std::hash<std::string_view>{}(suite_name) << 1);
+                    std::mt19937_64 rng_(s ? s : std::mt19937_64::result_type(std::random_device{}()));
+                    std::shuffle(free_like.begin(), free_like.end(), rng_);
+                }
+                for (auto& g : suite_groups) {
+                    auto& order = g.idxs;
+                    if (shuffle && order.size() > 1) {
+                        std::uint64_t s = seed;
+                        if (s) { s ^= (std::hash<std::string_view>{}(suite_name) << 1); s += std::hash<std::string_view>{}(g.fixture); }
+                        std::mt19937_64 rng_(s ? s : std::mt19937_64::result_type(std::random_device{}()));
+                        std::shuffle(order.begin(), order.end(), rng_);
+                    }
+                }
+                for (auto& g : global_groups) {
+                    auto& order = g.idxs;
+                    if (shuffle && order.size() > 1) {
+                        std::uint64_t s = seed;
+                        if (s) { s ^= (std::hash<std::string_view>{}(suite_name) << 1); s += std::hash<std::string_view>{}(g.fixture); }
+                        std::mt19937_64 rng_(s ? s : std::mt19937_64::result_type(std::random_device{}()));
+                        std::shuffle(order.begin(), order.end(), rng_);
+                    }
+                }
+
+                // Execute: free-like first, then suite groups, then global groups
+                for (auto i : free_like) { const auto& t = kCases[i]; execute_and_record(t, nullptr, counters); if (fail_fast && counters.failures > 0) goto done_selection; }
+                for (auto& g : suite_groups) {
+                    for (auto i : g.idxs) {
+                        const auto& t = kCases[i];
+                        void* ctx = nullptr;
+                        try {
+                            ctx = t.acquire_fixture ? t.acquire_fixture(t.suite) : nullptr;
+                        } catch (const std::exception& e) {
+                            record_synthetic_failure(t, std::string("fixture construction threw std::exception: ") + e.what(), counters);
+                            if (fail_fast && counters.failures > 0) goto done_selection;
+                            continue;
+                        } catch (...) {
+                            record_synthetic_failure(t, "fixture construction threw unknown exception", counters);
+                            if (fail_fast && counters.failures > 0) goto done_selection;
+                            continue;
+                        }
+                        execute_and_record(t, ctx, counters);
+                        if (fail_fast && counters.failures > 0) goto done_selection;
+                    }
+                }
+                for (auto& g : global_groups) {
+                    for (auto i : g.idxs) {
+                        const auto& t = kCases[i];
+                        void* ctx = nullptr;
+                        try {
+                            ctx = t.acquire_fixture ? t.acquire_fixture(t.suite) : nullptr;
+                        } catch (const std::exception& e) {
+                            record_synthetic_failure(t, std::string("fixture construction threw std::exception: ") + e.what(), counters);
+                            if (fail_fast && counters.failures > 0) goto done_selection;
+                            continue;
+                        } catch (...) {
+                            record_synthetic_failure(t, "fixture construction threw unknown exception", counters);
+                            if (fail_fast && counters.failures > 0) goto done_selection;
+                            continue;
+                        }
+                        execute_and_record(t, ctx, counters);
+                        if (fail_fast && counters.failures > 0) goto done_selection;
+                    }
+                }
             }
         }
     done_selection:
@@ -491,19 +609,90 @@ auto run_all_tests(std::span<const char*> args) -> int {
     const bool fail_fast = wants_fail_fast(args);
     const std::size_t repeat_n = parse_repeat(args);
     for (std::size_t iter = 0; iter < repeat_n; ++iter) {
-        for (const auto& t : kCases) { if (!t.fixture.empty()) continue; execute_and_record(t, nullptr, counters); if (fail_fast && counters.failures > 0) goto done_all; }
-        std::vector<std::pair<std::string_view, std::vector<std::size_t>>> groups;
-        for (std::size_t i = 0; i < kCases.size(); ++i) { const auto& t = kCases[i]; if (t.fixture.empty()) continue; auto it = std::find_if(groups.begin(), groups.end(), [&](auto& g){return g.first==t.fixture;}); if (it==groups.end()) groups.push_back({t.fixture,{i}}); else it->second.push_back(i); }
-        for (auto& g : groups) {
-            std::vector<std::size_t>& order = g.second;
-            if (shuffle && order.size() > 1) { std::mt19937_64 rng_(seed ? (seed + std::hash<std::string_view>{}(g.first)) : std::mt19937_64::result_type(std::random_device{}())); std::shuffle(order.begin(), order.end(), rng_); }
-            for (auto i : order) {
-                const auto& test = kCases[i];
-                void* ctx = nullptr;
-                if (test.fixture_lifetime == FixtureLifetime::MemberSuite || test.fixture_lifetime == FixtureLifetime::MemberGlobal) {
-                    ctx = test.acquire_fixture ? test.acquire_fixture(test.suite) : nullptr;
+        // Partition by suite
+        std::vector<std::string_view> suite_order;
+        suite_order.reserve(kCases.size());
+        for (const auto& t : kCases) if (std::find(suite_order.begin(), suite_order.end(), t.suite) == suite_order.end()) suite_order.push_back(t.suite);
+
+        for (auto suite_name : suite_order) {
+            std::vector<std::size_t> free_like;
+            struct Group { std::string_view fixture; FixtureLifetime lt; std::vector<std::size_t> idxs; };
+            std::vector<Group> suite_groups;
+            std::vector<Group> global_groups;
+
+            for (std::size_t i = 0; i < kCases.size(); ++i) {
+                const auto& t = kCases[i];
+                if (t.suite != suite_name) continue;
+                if (t.fixture_lifetime == FixtureLifetime::None || t.fixture_lifetime == FixtureLifetime::MemberEphemeral) {
+                    free_like.push_back(i);
+                    continue;
                 }
-                execute_and_record(test, ctx, counters);
+                auto& groups = (t.fixture_lifetime == FixtureLifetime::MemberSuite) ? suite_groups : global_groups;
+                auto it = std::find_if(groups.begin(), groups.end(), [&](const Group& g){ return g.fixture == t.fixture; });
+                if (it == groups.end()) groups.push_back(Group{t.fixture, t.fixture_lifetime, {i}});
+                else it->idxs.push_back(i);
+            }
+
+            if (shuffle && free_like.size() > 1) {
+                std::uint64_t s = seed; if (s) s ^= (std::hash<std::string_view>{}(suite_name) << 1);
+                std::mt19937_64 rng_(s ? s : std::mt19937_64::result_type(std::random_device{}()));
+                std::shuffle(free_like.begin(), free_like.end(), rng_);
+            }
+            for (auto& g : suite_groups) {
+                auto& order = g.idxs;
+                if (shuffle && order.size() > 1) {
+                    std::uint64_t s = seed; if (s) { s ^= (std::hash<std::string_view>{}(suite_name) << 1); s += std::hash<std::string_view>{}(g.fixture); }
+                    std::mt19937_64 rng_(s ? s : std::mt19937_64::result_type(std::random_device{}()));
+                    std::shuffle(order.begin(), order.end(), rng_);
+                }
+            }
+            for (auto& g : global_groups) {
+                auto& order = g.idxs;
+                if (shuffle && order.size() > 1) {
+                    std::uint64_t s = seed; if (s) { s ^= (std::hash<std::string_view>{}(suite_name) << 1); s += std::hash<std::string_view>{}(g.fixture); }
+                    std::mt19937_64 rng_(s ? s : std::mt19937_64::result_type(std::random_device{}()));
+                    std::shuffle(order.begin(), order.end(), rng_);
+                }
+            }
+
+            for (auto i : free_like) { const auto& t = kCases[i]; execute_and_record(t, nullptr, counters); if (fail_fast && counters.failures > 0) goto done_all; }
+            for (auto& g : suite_groups) {
+                for (auto i : g.idxs) {
+                    const auto& t = kCases[i];
+                    void* ctx = nullptr;
+                    try {
+                        ctx = t.acquire_fixture ? t.acquire_fixture(t.suite) : nullptr;
+                    } catch (const std::exception& e) {
+                        record_synthetic_failure(t, std::string("fixture construction threw std::exception: ") + e.what(), counters);
+                        if (fail_fast && counters.failures > 0) goto done_all;
+                        continue;
+                    } catch (...) {
+                        record_synthetic_failure(t, "fixture construction threw unknown exception", counters);
+                        if (fail_fast && counters.failures > 0) goto done_all;
+                        continue;
+                    }
+                    execute_and_record(t, ctx, counters);
+                    if (fail_fast && counters.failures > 0) goto done_all;
+                }
+            }
+            for (auto& g : global_groups) {
+                for (auto i : g.idxs) {
+                    const auto& t = kCases[i];
+                    void* ctx = nullptr;
+                    try {
+                        ctx = t.acquire_fixture ? t.acquire_fixture(t.suite) : nullptr;
+                    } catch (const std::exception& e) {
+                        record_synthetic_failure(t, std::string("fixture construction threw std::exception: ") + e.what(), counters);
+                        if (fail_fast && counters.failures > 0) goto done_all;
+                        continue;
+                    } catch (...) {
+                        record_synthetic_failure(t, "fixture construction threw unknown exception", counters);
+                        if (fail_fast && counters.failures > 0) goto done_all;
+                        continue;
+                    }
+                    execute_and_record(t, ctx, counters);
+                    if (fail_fast && counters.failures > 0) goto done_all;
+                }
             }
         }
     }

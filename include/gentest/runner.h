@@ -25,7 +25,8 @@ namespace gentest {
 // standard command-line arguments (or their span variant) and supports at
 // least:
 //   --list                 List discovered cases and their metadata
-//   --shuffle-fixtures     Shuffle order within each fixture group only
+//   --shuffle             Shuffle tests (respects fixture/grouping). Order within
+//                        each group is shuffled; groups remain contiguous.
 //   --seed N               Seed used to initialize internal RNG for shuffling
 
 class failure : public std::runtime_error {

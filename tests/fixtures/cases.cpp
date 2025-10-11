@@ -3,6 +3,7 @@
 #include "gentest/runner.h"
 
 #include <vector>
+#include <stdexcept>
 
 namespace [[using gentest: suite("fixtures")]] fixtures {
 

@@ -40,6 +40,20 @@ cmake --preset=debug-system -DLLVM_DIR="$(llvm-config --cmakedir)" -DClang_DIR=/
 `llvm[clang,clang-tools-extra]` port plus `fmt` (pulled automatically for tests), and everyone else should ensure
 `clang++` is on `PATH` together with the host libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
 
+## Linkage (static vs shared)
+
+`gentest_runtime` links statically by default. To build it as a shared library instead, configure with
+`-DGENTEST_RUNTIME_SHARED=ON`. PIC is enabled only for the shared case.
+
+Examples:
+```bash
+# Default (static)
+cmake --preset=debug-system
+
+# Shared runtime
+cmake --preset=debug-system -DGENTEST_RUNTIME_SHARED=ON
+```
+
 ## Authoring new test suites
 1. Create a test source (e.g. `tests/widgets/cases.cpp`) and tag functions with
    namespaced attributes understood by the generator. You can attach a suite name to
@@ -132,9 +146,15 @@ struct [[using gentest: fixture(global)]] GlobalEnv {
 };
 ```
 
-Execution order: free (non-member) tests run first. Member tests are grouped per-fixture and run together. You can
-shuffle the order of tests within each fixture group without interleaving with other groups by passing
-`--shuffle-fixtures` (optionally `--seed N` for reproducibility).
+Execution and shuffling
+- Suite-centric: tests are partitioned by suite name (empty suite = global namespace). No cross‑suite interleaving.
+- Free tests and member tests without `fixture(...)` behave the same and shuffle together within their suite.
+- Suite/global fixtures form contiguous groups; order inside each group can be shuffled. Use `--shuffle` (optionally
+  `--seed N`) to enable shuffling.
+- Constructor exceptions: if a fixture’s constructor throws, the test fails with a clear message.
+  - Ephemeral/member and free‑function fixtures: failure recorded as `unexpected std::exception: <what>`.
+  - Suite/global fixtures: failure recorded as `fixture construction threw std::exception: <what>`.
+  - Destructors should not throw.
 
 ### Free-Function Fixtures
 
@@ -478,6 +498,24 @@ Notes
 
 Additional Notes
 - Supported string-like types include: string/std::string, string_view/std::string_view, char*/const char*, and wide/UTF variants
+
+## Benchmarking
+
+Measure compile times for the generator, code generation, and test builds.
+
+- CMake targets (run in a configured build dir):
+  - `bench-compile` (clean first)
+  - `bench-compile-no-clean` (incremental)
+  - `bench-compile-release` and `bench-compile-release-no-clean` (require a configured `release` preset)
+  - `bench-compare` (compares current build dir vs Release preset)
+
+- Direct scripts:
+  - `./scripts/bench_compile.py --build-dir <build> [--no-clean] --jobs 1`
+  - `./scripts/bench_compile.py --preset release --jobs 1`
+  - `./scripts/bench_compare.py --a-build-dir <build> --b-preset release --no-clean --jobs 1`
+
+Outputs are written to `<build>/compile_bench.json` and printed with three numbers:
+1) Generator compile time, 2) Codegen time (sum of gentest_codegen invocations), 3) Test build time.
   (wstring, u8string, u16string, u32string and their corresponding char* forms). Values are quoted with the appropriate prefix.
 - Char-like types (char, wchar_t, char8_t, char16_t, char32_t) are wrapped as character literals when a single character; otherwise
   the token is used verbatim (or you can provide explicit literals).

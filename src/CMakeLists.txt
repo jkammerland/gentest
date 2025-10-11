@@ -1,7 +1,23 @@
 add_library(${PROJECT_NAME} INTERFACE)
 
-add_library(gentest_runtime STATIC
+# Linkage selection: default STATIC, optional SHARED
+option(GENTEST_RUNTIME_SHARED "Build gentest_runtime as a shared library" OFF)
+set(_gentest_runtime_libtype STATIC)
+if(GENTEST_RUNTIME_SHARED)
+    set(_gentest_runtime_libtype SHARED)
+endif()
+
+add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp)
+
+if(GENTEST_RUNTIME_SHARED)
+    # Only set PIC for the shared case
+    set_target_properties(gentest_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    # Make Windows shared builds work without explicit __declspec(dllexport)
+    if(WIN32)
+        set_target_properties(gentest_runtime PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    endif()
+endif()
 
 target_include_directories(gentest_runtime
     PUBLIC ${PROJECT_SOURCE_DIR}/include)

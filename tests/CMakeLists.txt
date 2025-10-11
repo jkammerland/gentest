@@ -5,7 +5,8 @@ set(_gentest_test_suites
     skiponly
     fixtures
     templates
-    mocking)
+    mocking
+    ctor)
 
 # Optionally include libassert integration suite
 if(GENTEST_WITH_LIBASSERT)
@@ -142,6 +143,23 @@ add_test(NAME gentest_codegen_mock_local_class_msg
         -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/local_class.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
         -DEXPECT_SUBSTRING=cannot mock a local class
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
+# Generator negative tests for fixtures: disallow member tests on suite/global under strict mode
+add_test(NAME gentest_codegen_fixture_suite_member_illegal
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/suite_member_test.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECT_SUBSTRING=suite fixtures cannot declare member tests
+        -DENV_VARS=GENTEST_STRICT_FIXTURE=1
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeathEnv.cmake)
+
+add_test(NAME gentest_codegen_fixture_global_member_illegal
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/global_member_test.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECT_SUBSTRING=global fixtures cannot declare member tests
+        -DENV_VARS=GENTEST_STRICT_FIXTURE=1
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeathEnv.cmake)
 
 # End-to-end behavioral checks with robust counting
 add_test(NAME unit_counts
@@ -410,7 +428,7 @@ add_test(NAME shuffle_seed_print
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
         -DEXPECT_SUBSTRING=Shuffle seed: 42
-        -DARGS=--run-test=fixtures/free/basic\ --shuffle-fixtures\ --seed\ 42
+        -DARGS=--run-test=fixtures/free/basic\ --shuffle\ --seed\ 42
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
 
 # Allure results smoke: single test writes a result file with passed status
@@ -447,3 +465,34 @@ add_test(NAME junit_artifact_example
         -DEXPECT_SUBSTRING=<testsuite
         -DARGS=--junit=${CMAKE_CURRENT_BINARY_DIR}/junit_integration.xml
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+# Constructor exception handling across fixture lifetimes
+add_test(NAME fixture_ctor_ephemeral_member
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+        -DEXPECT_SUBSTRING=unexpected std::exception: ephemeral-ctor
+        -DARGS=--run-test=ctor/ephemeral_member
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
+add_test(NAME fixture_ctor_free_fixtures
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+        -DEXPECT_SUBSTRING=unexpected std::exception: free-fx-ctor
+        -DARGS=--run-test=ctor/free_fixtures
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
+add_test(NAME fixture_ctor_suite_shared
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+        -DEXPECT_SUBSTRING=fixture construction threw std::exception: suite-ctor
+        -DARGS=--run-test=ctor/suite
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+
+add_test(NAME fixture_ctor_global_shared
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+        -DEXPECT_SUBSTRING=fixture construction threw std::exception: global-ctor
+        -DARGS=--run-test=ctor/global
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+# The 'ctor' suite intentionally contains failing tests; mark its raw run as WILL_FAIL
+set_tests_properties(ctor PROPERTIES WILL_FAIL TRUE)

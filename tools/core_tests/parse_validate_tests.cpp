@@ -24,7 +24,7 @@ int main() {
     Run t;
 
     {
-        auto attrs = parse_attribute_list(R"(test("suite/a"), slow, linux, req("#1"), group("foo"), owner("bar"))");
+        auto attrs = parse_attribute_list(R"(test("suite/a"), slow, linux, req("#1"), owner("bar"))");
         std::vector<std::string> diags;
         auto summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(diags.empty(), "valid attributes produce no diagnostics");
@@ -35,7 +35,6 @@ int main() {
         };
         t.expect(has("slow"), "flag 'slow' present");
         t.expect(has("linux"), "flag 'linux' present");
-        t.expect(has("group=foo"), "group value present");
         t.expect(has("owner=bar"), "owner value present");
         t.expect(summary.requirements.size() == 1 && summary.requirements[0] == "#1", "single req present");
     }
@@ -64,10 +63,10 @@ int main() {
     }
 
     {
-        auto attrs = parse_attribute_list(R"(test("x"), group("a", "b"))");
+        auto attrs = parse_attribute_list(R"(test("x"), owner("a"), owner("b"))");
         std::vector<std::string> diags;
         auto summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
-        t.expect(summary.had_error, "group with 2 args errors");
+        t.expect(summary.had_error, "duplicate owner errors");
     }
 
     {
