@@ -127,14 +127,54 @@ def main():
         "jobs": args.jobs,
         "clean_first": not args.no_clean,
         "generator": {"target": "gentest_codegen", "elapsed_s": gen_time},
+        "generation": {"targets": [], "total_elapsed_s": 0.0},
         "targets": [],
         "total_elapsed_s": 0.0,
     }
 
+    # Stage 2: time code generation by executing the exact gentest_codegen commands from build.ninja
+    def parse_generation_commands(bdir: Path):
+        buildfile = (bdir / "build.ninja") if bdir else (Path("build")/args.preset/"build.ninja")
+        if not buildfile.exists():
+            return {}
+        text = buildfile.read_text()
+        # Map: target -> command string
+        mapping = {}
+        # Find blocks by DESC lines
+        for m in re.finditer(r"^\s*DESC\s*=\s*Generating\s+(.+?/tests/[^/]+/test_impl\\.cpp)\s+for\s+target\s+([\w_]+)\s*$", text, re.MULTILINE):
+            test_impl_path = m.group(1)
+            target_name = m.group(2)
+            # Walk backwards to find the preceding COMMAND line in this block
+            block_start = text.rfind("\n", 0, m.start())
+            block = text[text.rfind("\n\n", 0, m.start())+1:m.start()] if text.rfind("\n\n", 0, m.start()) != -1 else text[:m.start()]
+            cmd_match = re.search(r"^\s*COMMAND\s*=\s*(.+)$", block, re.MULTILINE)
+            if not cmd_match:
+                continue
+            command = cmd_match.group(1)
+            mapping[target_name] = {"impl": test_impl_path, "command": command}
+        return mapping
+
+    gen_cmds = parse_generation_commands(Path(args.build_dir) if args.build_dir else None)
+    gen_total = 0.0
+    for t in targets:
+        info = gen_cmds.get(t)
+        if not info:
+            continue
+        print(f"[bench] Generating sources for {t} ...")
+        start = time.perf_counter()
+        # Run the command in a shell to honor && and quoting
+        subprocess.run(info["command"], shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        elapsed = time.perf_counter() - start
+        print(f"[bench] gen[{t}]: {elapsed:.3f}s")
+        results["generation"]["targets"].append({"target": t, "elapsed_s": elapsed})
+        gen_total += elapsed
+    results["generation"]["total_elapsed_s"] = gen_total
+
+    # Stage 3: compile tests (no clean so we don't re-run generation)
     total = 0.0
     for t in targets:
         print(f"[bench] Building {t} ...")
-        elapsed, _ = cmake_build(build_dir, target=t, jobs=args.jobs, clean_first=not args.no_clean, config=args.config, preset=args.preset)
+        elapsed, _ = cmake_build(build_dir, target=t, jobs=args.jobs, clean_first=False if gen_cmds else (not args.no_clean), config=args.config, preset=args.preset)
         print(f"[bench] {t}: {elapsed:.3f}s")
         results["targets"].append({"target": t, "elapsed_s": elapsed})
         total += elapsed
@@ -154,7 +194,8 @@ def main():
         print(f"Config:    {args.config}")
     print(f"Jobs:      {args.jobs}")
     print(f"Clean:     {not args.no_clean}")
-    print(f"Generator: {gen_time:.3f}s")
+    print(f"Generator compile:       {gen_time:.3f}s")
+    print(f"Codegen (sum):           {gen_total:.3f}s")
     for entry in results["targets"]:
         print(f"{entry['target']:<32} {entry['elapsed_s']:.3f}s")
     print(f"Total (targets):         {total:.3f}s")
