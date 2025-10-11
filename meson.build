@@ -26,10 +26,11 @@ libgentest_runtime = static_library(
 # GENTEST_CODEGEN. Example:
 #   GENTEST_CODEGEN=build/debug-system/tools/gentest_codegen meson setup build/meson
 #   meson compile -C build/meson
-codegen = meson.get_env('GENTEST_CODEGEN')
-if codegen == ''
-  codegen = 'build/debug-system/tools/gentest_codegen'
+codegen_opt = get_option('codegen_path')
+if codegen_opt == ''
+  codegen_opt = 'build/debug-system/tools/gentest_codegen'
 endif
+codegen = codegen_opt
 
 gen_args = ['--compdb', meson.current_build_dir(), '--']
 clang_args = ['-std=c++23', '-I@SOURCE_ROOT@/include', '-I@SOURCE_ROOT@/tests']
@@ -37,7 +38,7 @@ clang_args = ['-std=c++23', '-I@SOURCE_ROOT@/include', '-I@SOURCE_ROOT@/tests']
 tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 
 foreach s : tests_suites
-  out_cpp = 'gen/@0@/test_impl.cpp'.format(s)
+  out_cpp = 'test_impl_@0@.cpp'.format(s)
   gen = custom_target(
     'gen_@0@'.format(s),
     output: out_cpp,
@@ -57,4 +58,3 @@ foreach s : tests_suites
 
   test('meson_@0@'.format(s), exe)
 endforeach
-

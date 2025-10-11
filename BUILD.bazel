@@ -1,9 +1,21 @@
 load('//build_defs:gentest.bzl', 'gentest_suite')
 
+# Build gentest_codegen via CMake inside Bazel
+genrule(
+    name = 'gentest_codegen_build',
+    srcs = [],
+    outs = ['gen_tools/gentest_codegen'],
+    cmd = "set -e; rm -rf $(@D)/b && mkdir -p $(@D)/b && " +
+          "cmake -S . -B $(@D)/b -DCMAKE_BUILD_TYPE=Release && " +
+          "cmake --build $(@D)/b --target gentest_codegen -j 1 && " +
+          "cp $(@D)/b/tools/gentest_codegen $@",
+    tags = ['no-sandbox', 'local'],
+)
+
 cc_library(
     name = 'gentest_runtime',
     srcs = ['src/runner_impl.cpp'],
-    hdrs = glob(['include/gentest/*.h', 'include/gentest/*.hpp', 'include/gentest/*.inl']),
+    hdrs = glob(['include/gentest/*.h'], allow_empty = False),
     copts = ['-std=c++23', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'],
     includes = ['include'],
     visibility = ['//visibility:public'],
@@ -13,4 +25,3 @@ gentest_suite('unit')
 gentest_suite('integration')
 gentest_suite('fixtures')
 gentest_suite('skiponly')
-
