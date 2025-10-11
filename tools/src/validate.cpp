@@ -38,6 +38,8 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     AttributeSummary summary;
 
     bool                       saw_test = false;
+    bool                       saw_bench = false;
+    bool                       saw_jitter = false;
     std::set<std::string>      seen_flags;
     std::optional<std::string> seen_group;
     std::optional<std::string> seen_owner;
@@ -60,6 +62,34 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             summary.case_name = attr.arguments.front();
+        } else if (lowered == "bench" || lowered == "benchmark") {
+            if (saw_bench) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'bench'");
+                continue;
+            }
+            saw_bench = true;
+            if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
+                summary.had_error = true;
+                report("'bench' requires exactly one non-empty string argument");
+                continue;
+            }
+            summary.case_name    = attr.arguments.front();
+            summary.is_benchmark = true;
+        } else if (lowered == "jitter") {
+            if (saw_jitter) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'jitter'");
+                continue;
+            }
+            saw_jitter = true;
+            if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
+                summary.had_error = true;
+                report("'jitter' requires exactly one non-empty string argument");
+                continue;
+            }
+            summary.case_name  = attr.arguments.front();
+            summary.is_jitter  = true;
         } else if (lowered == "req" || lowered == "requires") {
             if (attr.arguments.empty()) {
                 summary.had_error = true;

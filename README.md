@@ -94,6 +94,40 @@ non-zero exit status when any test throws `gentest::failure`. Pass `--list` to e
 their metadata: the generator includes tags, requirement IDs, and skip markers that originate from the `[[using
 gentest : ...]]` attribute list.
 
+## Benchmarks
+
+Gentest supports lightweight benchmarks discovered via attributes and executed by the generated runner.
+
+- Author benches alongside tests, annotated with:
+  `[[using gentest : bench("suite/name")]] void my_bench();`
+- List benches: run the generated executable with `--list-benches`.
+- Run benches:
+  - Exact: `--run-bench=suite/name`
+  - Filter: `--bench-filter=pattern` (supports `*` and `?`)
+- Tuning flags (optional):
+  - `--bench-min-epoch-time-s=SECS` (default 0.01)
+  - `--bench-epochs=N` (default 12)
+  - `--bench-warmup=N` (default 1)
+  - `--bench-max-total-time-s=SECS` (default 1.0)
+
+Notes:
+- Bench functions should avoid gentest assertions (they are invoked in tight loops).
+- Fixture lifetimes are respected; suite/global fixtures are reused, ephemeral fixtures are constructed per invocation.
+
+### Jitter Benchmarks
+
+In addition to throughput-style benches, define jitter benchmarks to analyze timing variance and histograms:
+
+- Author with `[[using gentest : jitter("suite/name")]] void my_jitter();`
+- List: `--list-jitters`
+- Run:
+  - Exact: `--run-jitter=suite/name`
+  - Filter: `--jitter-filter=pattern`
+- Options:
+  - `--jitter-bins=N` to control histogram resolution (default 10)
+
+Jitter runs collect per-epoch ns/op samples, then report mean, stddev, min/max, and a textual histogram.
+
 ## Fixtures (member-function tests)
 
 Member functions can be tagged as tests and run via an auto-generated fixture harness. Three lifetimes are supported:

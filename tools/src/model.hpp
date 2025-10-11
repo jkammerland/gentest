@@ -66,6 +66,10 @@ struct TestCaseInfo {
     std::string filename;
     std::string suite_name;
     unsigned    line = 0;
+    // Benchmarks: true if discovered via bench("...") attribute
+    bool        is_benchmark = false;
+    // Jitter benchmarks: true if discovered via jitter("...") attribute
+    bool        is_jitter = false;
     // True when the test function/method returns a non-void value.
     bool        returns_value = false;
     // Tags and metadata

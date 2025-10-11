@@ -5,7 +5,8 @@ set(_gentest_test_suites
     skiponly
     fixtures
     templates
-    mocking)
+    mocking
+    benchmarks)
 
 # Optionally include libassert integration suite
 if(GENTEST_WITH_LIBASSERT)

@@ -23,6 +23,8 @@ struct AttributeSummary {
     bool                       should_skip = false;
     std::string                skip_reason;
     bool                       had_error = false;
+    bool                       is_benchmark = false;
+    bool                       is_jitter = false;
     // Template matrix: list of (param, types...)
     std::vector<std::pair<std::string, std::vector<std::string>>> template_sets;
     std::vector<std::pair<std::string, std::vector<std::string>>> template_nttp_sets;

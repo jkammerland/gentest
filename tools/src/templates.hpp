@@ -53,6 +53,7 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 #include <fstream>
 #include <map>
 #include <filesystem>
+#include <cmath>
 #ifdef GENTEST_USE_BOOST_JSON
 #  include <boost/json.hpp>
 #endif
@@ -106,6 +107,8 @@ struct Case {
     void (*fn)(void*);
     std::string_view                  file;
     unsigned                          line;
+    bool                              is_benchmark;
+    bool                              is_jitter;
     std::span<const std::string_view> tags;
     std::span<const std::string_view> requirements;
     std::string_view                  skip_reason;
@@ -252,6 +255,196 @@ static inline std::string gha_escape(std::string_view s) {
         }
     }
     return out;
+}
+} // namespace
+
+namespace {
+// Benchmark CLI helpers
+const char* get_arg_value_sv(std::span<const char*> args, std::string_view prefix) {
+    for (const auto* arg : args) {
+        if (!arg) continue;
+        std::string_view s(arg);
+        if (s.rfind(prefix, 0) == 0) return arg + prefix.size();
+    }
+    return nullptr;
+}
+bool wants_list_benches(std::span<const char*> args) {
+    for (const auto* a : args) if (a && std::string_view(a) == "--list-benches") return true; return false;
+}
+const char* wants_run_bench(std::span<const char*> args) { return get_arg_value_sv(args, "--run-bench="); }
+const char* wants_bench_filter(std::span<const char*> args) { return get_arg_value_sv(args, "--bench-filter="); }
+
+// bench config
+static inline std::size_t parse_szt(const char* s, std::size_t defv) {
+    if (!s) return defv; std::size_t n = 0; for (char ch : std::string_view(s)) { if (ch < '0' || ch > '9') return defv; n = n*10 + (ch-'0'); if (n > (std::size_t(1)<<62)) return defv; } return n;
+}
+static inline double parse_double(const char* s, double defv) {
+    if (!s) return defv; try { return std::stod(std::string(s)); } catch (...) { return defv; }
+}
+struct BenchConfig {
+    // durations in seconds
+    double min_epoch_time_s = 0.01; // 10ms
+    double max_total_time_s = 1.0;  // per benchmark
+    std::size_t warmup_epochs = 1;
+    std::size_t measure_epochs = 12;
+};
+BenchConfig parse_bench_config(std::span<const char*> args) {
+    BenchConfig cfg;
+    cfg.min_epoch_time_s = parse_double(get_arg_value_sv(args, "--bench-min-epoch-time-s="), cfg.min_epoch_time_s);
+    cfg.max_total_time_s = parse_double(get_arg_value_sv(args, "--bench-max-total-time-s="), cfg.max_total_time_s);
+    cfg.warmup_epochs = parse_szt(get_arg_value_sv(args, "--bench-warmup="), cfg.warmup_epochs);
+    cfg.measure_epochs = parse_szt(get_arg_value_sv(args, "--bench-epochs="), cfg.measure_epochs);
+    if (cfg.measure_epochs == 0) cfg.measure_epochs = 1;
+    return cfg;
+}
+
+struct BenchResult { std::size_t epochs = 0; std::size_t iters_per_epoch = 0; double best_ns = 0; double median_ns = 0; double mean_ns = 0; };
+
+BenchResult run_benchmark_case(const Case& bench, void* ctx, const BenchConfig& cfg) {
+    using clock = std::chrono::steady_clock;
+    BenchResult br;
+    // Calibrate iterations per epoch to meet min epoch time
+    std::size_t iters = 1;
+    auto run_iters = [&](std::size_t n) {
+        auto start = clock::now();
+        for (std::size_t i = 0; i < n; ++i) bench.fn(ctx);
+        auto end = clock::now();
+        return std::chrono::duration<double>(end - start).count();
+    };
+    // Warmup calibration
+    while (run_iters(iters) < cfg.min_epoch_time_s) {
+        iters *= 2; if (iters == 0) { iters = 1; break; }
+        if (iters > (std::size_t(1) << 30)) break;
+    }
+    // Warmup epochs
+    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) (void)run_iters(iters);
+    std::vector<double> ns_per_iter;
+    ns_per_iter.reserve(cfg.measure_epochs);
+    double total_time_s = 0.0;
+    for (std::size_t e = 0; e < cfg.measure_epochs; ++e) {
+        double t = run_iters(iters);
+        total_time_s += t;
+        double ns_iter = (t * 1e9) / static_cast<double>(iters);
+        ns_per_iter.push_back(ns_iter);
+        if (total_time_s >= cfg.max_total_time_s) { br.epochs = e + 1; break; }
+    }
+    if (br.epochs == 0) br.epochs = ns_per_iter.size();
+    if (ns_per_iter.empty()) { br.iters_per_epoch = iters; br.best_ns = br.median_ns = br.mean_ns = 0.0; return br; }
+    std::vector<double> sorted = ns_per_iter; std::sort(sorted.begin(), sorted.end());
+    br.iters_per_epoch = iters;
+    br.best_ns = sorted.front();
+    br.median_ns = sorted[sorted.size()/2];
+    double sum = 0.0; for (double v : ns_per_iter) sum += v; br.mean_ns = sum / static_cast<double>(ns_per_iter.size());
+    return br;
+}
+
+int handle_bench_cli(std::span<const char*> args) {
+    if (wants_list_benches(args)) {
+        std::size_t count = 0;
+        for (const auto& c : kCases) if (c.is_benchmark) { fmt::print("{}:{} {}\n", c.file, c.line, c.name); ++count; }
+        fmt::print("Found {} benchmark case(s).\n", count);
+        return 0;
+    }
+    const char* run_exact = wants_run_bench(args);
+    const char* filter_pat = wants_bench_filter(args);
+    if (!run_exact && !filter_pat) return -1; // not a bench run request
+    std::vector<std::size_t> sel;
+    if (run_exact) {
+        for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_benchmark && std::string_view(kCases[i].name) == run_exact) { sel.push_back(i); break; }
+        if (sel.empty()) { fmt::print(stderr, "Benchmark not found: {}\n", run_exact); return 1; }
+    } else {
+        for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_benchmark && wildcard_match(kCases[i].name, filter_pat)) sel.push_back(i);
+        if (sel.empty()) { fmt::print("Matched 0 benchmark(s).\n"); return 0; }
+    }
+    BenchConfig cfg = parse_bench_config(args);
+    // Group by fixture and lifetime similar to tests
+    for (auto i : sel) {
+        const auto& c = kCases[i];
+        void* ctx = nullptr;
+        switch (c.fixture_lifetime) {
+        case FixtureLifetime::MemberSuite:
+        case FixtureLifetime::MemberGlobal:
+            if (c.acquire_fixture) ctx = c.acquire_fixture(c.suite);
+            break;
+        case FixtureLifetime::MemberEphemeral:
+        case FixtureLifetime::None:
+        default: ctx = nullptr; break;
+        }
+        try {
+            fmt::print("[ BENCH ] {}\n", c.name);
+            auto result = run_benchmark_case(c, ctx, cfg);
+            const double ops_per_s = result.mean_ns > 0.0 ? (1e9 / result.mean_ns) : 0.0;
+            fmt::print("  epochs: {}  iters/epoch: {}\n", result.epochs, result.iters_per_epoch);
+            fmt::print("  ns/op  best: {:.2f}  median: {:.2f}  mean: {:.2f}  ({:.2f} ops/s)\n", result.best_ns, result.median_ns, result.mean_ns, ops_per_s);
+        } catch (const std::exception& e) {
+            fmt::print(stderr, "[ FAIL ] {} :: exception: {}\n", c.name, e.what());
+            return 1;
+        } catch (...) {
+            fmt::print(stderr, "[ FAIL ] {} :: unknown exception\n", c.name);
+            return 1;
+        }
+    }
+    return 0;
+}
+} // namespace
+
+namespace {
+// Jitter benchmark CLI helpers
+bool wants_list_jitters(std::span<const char*> args) { for (const auto* a : args) if (a && std::string_view(a) == "--list-jitters") return true; return false; }
+const char* wants_run_jitter(std::span<const char*> args) { return get_arg_value_sv(args, "--run-jitter="); }
+const char* wants_jitter_filter(std::span<const char*> args) { return get_arg_value_sv(args, "--jitter-filter="); }
+std::size_t parse_bins(std::span<const char*> args) { return parse_szt(get_arg_value_sv(args, "--jitter-bins="), 10); }
+
+struct JitterStats { double mean_ns = 0.0; double variance_ns2 = 0.0; double stddev_ns = 0.0; double min_ns = 0.0; double max_ns = 0.0; };
+static inline JitterStats compute_stats(const std::vector<double>& v) {
+    JitterStats js{}; if (v.empty()) return js; double sum=0.0; js.min_ns=v[0]; js.max_ns=v[0]; for (double x : v){sum+=x; if(x<js.min_ns)js.min_ns=x; if(x>js.max_ns)js.max_ns=x;} js.mean_ns=sum/static_cast<double>(v.size()); double var=0.0; for (double x: v){double d=x-js.mean_ns; var+=d*d;} var/= static_cast<double>(v.size()); js.variance_ns2=var; js.stddev_ns=std::sqrt(var); return js; }
+
+static inline void print_histogram(const std::vector<double>& v, std::size_t bins) {
+    if (v.empty() || bins==0) return;
+    double minv=*std::min_element(v.begin(), v.end());
+    double maxv=*std::max_element(v.begin(), v.end());
+    fmt::print("  histogram (ns/op):\n");
+    fmt::print("  {:>22}  {:>8}  {:>8}  {}\n", "range", "count", "percent", "bar");
+    if (maxv<=minv) {
+        std::string barstr(40, '#');
+        fmt::print("  [{:.2f},{:.2f}] ns/op  {:>8}  {:>7.1f}%  {}\n", minv, maxv, v.size(), 100.0, barstr);
+        return;
+    }
+    double width=(maxv-minv)/static_cast<double>(bins);
+    std::vector<std::size_t> counts(bins, 0);
+    for (double x : v){ std::size_t idx = static_cast<std::size_t>((x-minv)/width); if (idx>=bins) idx=bins-1; counts[idx]++; }
+    std::size_t maxc=*std::max_element(counts.begin(), counts.end());
+    for (std::size_t i=0;i<bins;++i){
+        double lo=minv+width*static_cast<double>(i);
+        double hi=(i+1==bins)?maxv:(lo+width);
+        double pct = (v.empty()?0.0:(100.0*static_cast<double>(counts[i])/static_cast<double>(v.size())));
+        std::size_t bar = maxc? static_cast<std::size_t>(40.0*static_cast<double>(counts[i])/static_cast<double>(maxc)) : 0;
+        std::string barstr(bar, '#');
+        fmt::print("  [{:.2f},{:.2f}) ns/op  {:>8}  {:>7.1f}%  {}\n", lo, hi, counts[i], pct, barstr);
+    }
+}
+
+int handle_jitter_cli(std::span<const char*> args) {
+    if (wants_list_jitters(args)) { std::size_t count=0; for (const auto& c : kCases) if (c.is_jitter) { fmt::print("{}:{} {}\n", c.file, c.line, c.name); ++count; } fmt::print("Found {} jitter benchmark case(s).\n", count); return 0; }
+    const char* run_exact = wants_run_jitter(args); const char* filter_pat = wants_jitter_filter(args); if (!run_exact && !filter_pat) return -1;
+    std::vector<std::size_t> sel; if (run_exact) { for (std::size_t i=0;i<kCases.size();++i) if (kCases[i].is_jitter && std::string_view(kCases[i].name)==run_exact) { sel.push_back(i); break; } if (sel.empty()) { fmt::print(stderr, "Jitter benchmark not found: {}\n", run_exact); return 1; } } else { for (std::size_t i=0;i<kCases.size();++i) if (kCases[i].is_jitter && wildcard_match(kCases[i].name, filter_pat)) sel.push_back(i); if (sel.empty()) { fmt::print("Matched 0 jitter benchmark(s).\n"); return 0; } }
+    BenchConfig cfg = parse_bench_config(args); std::size_t bins = parse_bins(args);
+    for (auto i : sel) {
+        const auto& c = kCases[i]; void* ctx=nullptr; switch (c.fixture_lifetime) { case FixtureLifetime::MemberSuite: case FixtureLifetime::MemberGlobal: if (c.acquire_fixture) ctx=c.acquire_fixture(c.suite); break; case FixtureLifetime::MemberEphemeral: case FixtureLifetime::None: default: ctx=nullptr; break; }
+        try {
+            fmt::print("[ JITTER ] {}\n", c.name);
+            // Build samples from measured epochs of calibrated iterations
+            using clock = std::chrono::steady_clock; auto run_iters = [&](std::size_t n){ auto s=clock::now(); for (std::size_t k=0;k<n;++k) c.fn(ctx); auto e=clock::now(); return std::chrono::duration<double>(e-s).count(); };
+            std::size_t iters=1; while (run_iters(iters) < cfg.min_epoch_time_s) { iters*=2; if (iters==0 || iters>(std::size_t(1)<<30)) break; }
+            for (std::size_t w=0; w<cfg.warmup_epochs; ++w) (void)run_iters(iters);
+            std::vector<double> ns_per_iter; ns_per_iter.reserve(cfg.measure_epochs); double total=0.0; for (std::size_t e=0;e<cfg.measure_epochs;++e){ double t=run_iters(iters); total+=t; ns_per_iter.push_back((t*1e9)/static_cast<double>(iters)); if (total >= cfg.max_total_time_s) break; }
+            JitterStats js = compute_stats(ns_per_iter);
+            fmt::print("  iterations/epoch: {}  epochs: {}\n", iters, ns_per_iter.size());
+            fmt::print("  ns/op: mean {:.2f}, stddev {:.2f}, min {:.2f}, max {:.2f}\n", js.mean_ns, js.stddev_ns, js.min_ns, js.max_ns);
+            print_histogram(ns_per_iter, bins);
+        } catch (const std::exception& e) { fmt::print(stderr, "[ FAIL ] {} :: exception: {}\n", c.name, e.what()); return 1; } catch (...) { fmt::print(stderr, "[ FAIL ] {} :: unknown exception\n", c.name); return 1; }
+    }
+    return 0;
 }
 } // namespace
 
@@ -621,14 +814,29 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
         fmt::print("  --shuffle-fixtures    Shuffle order within each fixture group\n");
         fmt::print("  --seed N              RNG seed used with --shuffle-fixtures\n");
+        fmt::print("\n");
+        fmt::print("Benchmark options:\n");
+        fmt::print("  --list-benches        List benchmark names (one per line)\n");
+        fmt::print("  --run-bench=<name>    Run a single benchmark by exact name\n");
+        fmt::print("  --bench-filter=<pat>  Run benchmarks matching wildcard pattern (*, ?)\n");
+        fmt::print("  --bench-min-epoch-time-s=SECS   Minimum epoch duration (default 0.01)\n");
+        fmt::print("  --bench-epochs=N      Number of measured epochs (default 12)\n");
+        fmt::print("  --bench-warmup=N      Warmup epochs (default 1)\n");
+        fmt::print("  --bench-max-total-time-s=SECS   Max total time per bench (default 1.0)\n");
+        fmt::print("Jitter options:\n");
+        fmt::print("  --list-jitters        List jitter benchmark names (one per line)\n");
+        fmt::print("  --run-jitter=<name>   Run a single jitter benchmark by exact name\n");
+        fmt::print("  --jitter-filter=<pat> Run jitter benchmarks matching wildcard pattern (*, ?)\n");
+        fmt::print("  --jitter-bins=N       Histogram bins (default 10)\n");
         return 0;
     }
     if (wants_list_tests(args)) {
-        for (const auto& t : kCases) fmt::print("{}\n", t.name);
+        for (const auto& t : kCases) if (!t.is_benchmark) fmt::print("{}\n", t.name);
         return 0;
     }
     if (wants_list(args)) {
         for (const auto& test : kCases) {
+            if (test.is_benchmark) continue;
             std::string sections;
             if (!test.tags.empty() || !test.requirements.empty() || test.should_skip) {
                 sections.push_back(' ');
@@ -656,6 +864,16 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         }
         return 0;
     }
+    // Benchmark mode: handles --list-benches / --run-bench / --bench-filter
+    {
+        int bench_rc = handle_bench_cli(args);
+        if (bench_rc >= 0) return bench_rc;
+    }
+    // Jitter benchmark mode
+    {
+        int jit_rc = handle_jitter_cli(args);
+        if (jit_rc >= 0) return jit_rc;
+    }
     Counters counters;
     const char* junit_path = get_arg_value(args, "--junit=");
     const char* allure_dir = get_arg_value(args, "--allure-dir=");
@@ -667,10 +885,10 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
     if (run_exact || filter_pat) {
         std::vector<std::size_t> sel;
         if (run_exact) {
-            for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].name == run_exact) { sel.push_back(i); break; }
+            for (std::size_t i = 0; i < kCases.size(); ++i) if (!kCases[i].is_benchmark && kCases[i].name == run_exact) { sel.push_back(i); break; }
             if (sel.empty()) { fmt::print(stderr, "Test not found: {}\n", run_exact); return 1; }
         } else {
-            for (std::size_t i = 0; i < kCases.size(); ++i) if (wildcard_match(kCases[i].name, filter_pat)) sel.push_back(i);
+            for (std::size_t i = 0; i < kCases.size(); ++i) if (!kCases[i].is_benchmark && wildcard_match(kCases[i].name, filter_pat)) sel.push_back(i);
             if (sel.empty()) { fmt::print("Executed 0 test(s).\n"); return 0; }
         }
         const bool        fail_fast = wants_fail_fast(args);
@@ -729,7 +947,7 @@ auto {{ENTRY_FUNCTION}}(std::span<const char*> args) -> int {
         const bool        fail_fast = wants_fail_fast(args);
         const std::size_t repeat_n  = parse_repeat(args);
         for (std::size_t iter = 0; iter < repeat_n; ++iter) {
-            for (const auto& t : kCases) { if (!t.fixture.empty()) continue; execute_and_record(t, nullptr, counters); if (fail_fast && counters.failures > 0) goto done_all; }
+            for (const auto& t : kCases) { if (t.is_benchmark) continue; if (!t.fixture.empty()) continue; execute_and_record(t, nullptr, counters); if (fail_fast && counters.failures > 0) goto done_all; }
             const bool         shuffle = wants_shuffle(args);
             const std::uint64_t seed    = parse_seed(args);
             if (shuffle) fmt::print("Shuffle seed: {}\n", seed);
@@ -795,6 +1013,8 @@ inline constexpr std::string_view case_entry = R"FMT(    Case{{
         .fn = &{wrapper},
         .file = "{file}",
         .line = {line},
+        .is_benchmark = {is_bench},
+        .is_jitter = {is_jitter},
         .tags = std::span{{{tags}}},
         .requirements = std::span{{{reqs}}},
         .skip_reason = {skip_reason},

@@ -8,6 +8,12 @@
 //   [[using gentest : test("suite/case"), group("core"), req("BUG-123"), slow, linux]]
 //   void my_test();
 //
+// Benchmarks:
+//   [[using gentest : bench("suite/bench_name")]]
+//   void my_benchmark();
+//   - Run via --run-bench= or --bench-filter=, list via --list-benches.
+//   - Optional flags: --bench-min-epoch-time-s, --bench-epochs, --bench-warmup, --bench-max-total-time-s
+//
 // Fixture composition for free functions:
 //   [[using gentest : test("suite/free"), fixtures(A, B, C)]]
 //   void my_free_test(A& a, B& b, C& c);

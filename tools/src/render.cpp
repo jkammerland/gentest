@@ -246,7 +246,7 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
         out += fmt::format(
             fmt::runtime(tpl_case_entry), fmt::arg("name", escape_string(test.display_name)),
             fmt::arg("wrapper", std::string("kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
-            fmt::arg("line", test.line), fmt::arg("tags", tag_names[idx]), fmt::arg("reqs", req_names[idx]),
+            fmt::arg("line", test.line), fmt::arg("is_bench", test.is_benchmark ? "true" : "false"), fmt::arg("is_jitter", test.is_jitter ? "true" : "false"), fmt::arg("tags", tag_names[idx]), fmt::arg("reqs", req_names[idx]),
             fmt::arg("skip_reason",
                      !test.skip_reason.empty() ? "\"" + escape_string(test.skip_reason) + "\"" : std::string("std::string_view{}")),
             fmt::arg("should_skip", test.should_skip ? "true" : "false"),
@@ -266,6 +266,8 @@ GroupRender render_groups(const std::vector<TestCaseInfo> &cases, const std::str
         const auto &test = cases[idx];
         if (test.fixture_qualified_name.empty())
             continue;
+        if (test.is_benchmark)
+            continue; // do not include benchmark cases in default grouped test execution
         groups[test.fixture_qualified_name].push_back(idx);
     }
     GroupRender out;
