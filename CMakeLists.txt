@@ -79,6 +79,16 @@ if(${PROJECT_NAME}_BUILD_TESTING)
                 --no-clean
         USES_TERMINAL
         COMMENT "Benchmark compile times for Release preset without clean (incremental)")
+
+    # Compare benchmark between Debug (current build dir) and Release preset
+    add_custom_target(bench-compare
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/bench_compare.py
+                --a-build-dir ${CMAKE_BINARY_DIR}
+                --b-preset release
+                --jobs 1
+                --no-clean
+        USES_TERMINAL
+        COMMENT "Compare compile times: current build-dir (A) vs release preset (B)")
 endif()
 
 # Optional clang-tidy plugin (editor diagnostics) — default OFF
