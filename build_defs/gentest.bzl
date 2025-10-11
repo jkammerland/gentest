@@ -1,52 +1,23 @@
-def gentest_suite(name, suite):
-    gen_name = "gen_{}_code".format(suite)
-    gendir = "gen/{}".format(suite)
-    outs = [
-        gendir + "/cases_test_impl.cpp",
-        gendir + "/cases_mock_registry.hpp",
-        gendir + "/cases_mock_impl.hpp",
-        gendir + "/cases.cpp",
-    ]
+def gentest_suite(name):
+    gen_out = 'gen/{}/test_impl.cpp'.format(name)
     native.genrule(
-        name = gen_name,
-        srcs = ["tests/{}/cases.cpp".format(suite)],
-        tools = [":gentest_codegen"],
-        outs = outs,
+        name = 'gen_{}'.format(name),
+        srcs = ['tests/{}/cases.cpp'.format(name)],
+        outs = [gen_out],
+        tools = [],
         cmd = (
-            "mkdir -p $(@D)/{gendir} && "
-            + "cp $(location tests/{suite}/cases.cpp) $(@D)/{gendir}/cases.cpp && "
-            + "$(location :gentest_codegen) "
-            + "--output $(@D)/{gendir}/cases_test_impl.cpp --entry gentest::run_all_tests "
-            + "--mock-registry $(@D)/{gendir}/cases_mock_registry.hpp --mock-impl $(@D)/{gendir}/cases_mock_impl.hpp "
-            + "$(@D)/{gendir}/cases.cpp -- -std=c++23 -Iinclude -Itests -include string"
-        ).format(gendir="{}".format(gendir), suite=suite),
-    )
-
-    native.cc_library(
-        name = "geninc_{}".format(suite),
-        hdrs = [
-            gendir + "/cases_mock_registry.hpp",
-            gendir + "/cases_mock_impl.hpp",
-            gendir + "/cases.cpp",
-        ],
-        includes = [gendir],
+            'if [ -z "$$GENTEST_CODEGEN" ]; then '
+            'echo "Set GENTEST_CODEGEN to the gentest_codegen path (e.g., build/debug-system/tools/gentest_codegen)"; exit 1; fi; '
+            'mkdir -p $(@D) && '
+            '"$$GENTEST_CODEGEN" --output $@ --compdb . $(SRCS) -- -std=c++23 -Iinclude -Itests'
+        ),
+        tags = ['no-sandbox'],
     )
 
     native.cc_test(
-        name = name,
-        srcs = [
-            "tests/support/test_entry.cpp",
-            gendir + "/cases_test_impl.cpp",
-        ] + native.glob(["include/gentest/*.h"]),
-        copts = [
-            "-std=c++23",
-            "-Iinclude",
-            "-Itests",
-            "-DFMT_HEADER_ONLY",
-            "-DGENTEST_MOCK_REGISTRY_PATH=cases_mock_registry.hpp",
-            "-DGENTEST_MOCK_IMPL_PATH=cases_mock_impl.hpp",
-            "-Wno-unknown-attributes",
-            "-Wno-attributes",
-        ],
-        deps = [":geninc_{}".format(suite)],
+        name = 'gentest_{}_bazel'.format(name),
+        srcs = ['tests/support/test_entry.cpp', gen_out],
+        copts = ['-std=c++23', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'],
+        deps = [':gentest_runtime'],
     )
+
