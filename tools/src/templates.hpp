@@ -439,11 +439,19 @@ int handle_bench_cli(std::span<const char*> args) {
         std::map<std::string, std::map<std::string, std::vector<Row>>> by_suite;
         for (const auto& r : rows) by_suite[r.suite][r.row_key].push_back(r);
         for (auto& [suite, by_row] : by_suite) {
+            bool any_baseline = false;
+            for (const auto& [rk, vec] : by_row) {
+                for (const auto& r : vec) { if (r.is_baseline) { any_baseline = true; break; } }
+                if (any_baseline) break;
+            }
             // Choose unit per suite based on medians across all rows
             std::vector<double> medians_ns;
             for (const auto& [rk, vec] : by_row) for (const auto& r : vec) medians_ns.push_back(r.median);
             TimeScale ts = choose_ns_unit_from_samples(medians_ns);
             fmt::print("\nSummary ({}) — metric: median {}/op\n", suite, ts.suffix);
+            if (!any_baseline) {
+                fmt::print(stderr, "(gentest) warning: no baseline marked in suite '{}'; using first entry per row.\n", suite);
+            }
             for (auto& [rk, vec] : by_row) {
                 std::string row_hdr = rk.empty() ? std::string("(single)") : rk;
                 fmt::print("  row: {}\n", row_hdr);
