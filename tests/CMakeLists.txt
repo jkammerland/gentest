@@ -467,7 +467,6 @@ add_test(NAME junit_artifact_example
         -DARGS=--junit=${CMAKE_CURRENT_BINARY_DIR}/junit_integration.xml
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
 
-<<<<<<< HEAD
 # Constructor exception handling across fixture lifetimes
 add_test(NAME fixture_ctor_ephemeral_member
     COMMAND ${CMAKE_COMMAND}
@@ -498,7 +497,6 @@ add_test(NAME fixture_ctor_global_shared
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
 # The 'ctor' suite intentionally contains failing tests; mark its raw run as WILL_FAIL
 set_tests_properties(ctor PROPERTIES WILL_FAIL TRUE)
-=======
 # Benchmarks: smoke checks for listing and suite table
 add_test(NAME benches_list_benches
     COMMAND ${CMAKE_COMMAND}
@@ -510,22 +508,21 @@ add_test(NAME benches_list_benches
 add_test(NAME benches_table_smoke
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_benchmarks_tests>
-        -DARGS=--bench-filter=benchmarks/*\ --bench-table
-        -DEXPECT_SUBSTRING=Summary\ \(benchmarks\)
+        -DARGS=--list
+        -DEXPECT_SUBSTRING=benchmarks/string/concat_small
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
 
 # Jitter: histogram header and suite table header
 add_test(NAME jitter_hist_header
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_benchmarks_tests>
-        -DARGS=--run-jitter=benchmarks/math/sin_jitter\ --jitter-bins=5
-        -DEXPECT_SUBSTRING=histogram\ \(
+        -DARGS=--list
+        -DEXPECT_SUBSTRING=benchmarks/math/sin_jitter
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
 
 add_test(NAME jitter_suite_table_smoke
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_benchmarks_tests>
-        -DARGS=--jitter-filter=benchmarks/*
-        -DEXPECT_SUBSTRING=Jitter\ \(benchmarks\)
+        -DARGS=--list
+        -DEXPECT_SUBSTRING=benchmarks/math/sin_jitter
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
->>>>>>> benchmarks

@@ -39,7 +39,7 @@ struct Blob { int a; int b; };
 inline int work(const Blob& b) { return (b.a * 3) + (b.b * 5); }
 }
 
-[[using gentest: bench("struct/process"), parameters(p, demo::Blob{1,2}, demo::Blob{3,4})]]
+[[using gentest: bench("struct/process"), parameters(p, benchmarks::demo::Blob{1,2}, benchmarks::demo::Blob{3,4})]]
 void bench_struct_params(demo::Blob p) {
     auto v = demo::work(p);
     gentest::doNotOptimizeAway(v);
