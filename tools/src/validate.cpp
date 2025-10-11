@@ -38,6 +38,8 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     AttributeSummary summary;
 
     bool                       saw_test = false;
+    bool                       saw_bench = false;
+    bool                       saw_jitter = false;
     std::set<std::string>      seen_flags;
     std::optional<std::string> seen_owner;
 
@@ -59,6 +61,41 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             summary.case_name = attr.arguments.front();
+        } else if (lowered == "bench" || lowered == "benchmark") {
+            if (saw_bench) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'bench'");
+                continue;
+            }
+            saw_bench = true;
+            if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
+                summary.had_error = true;
+                report("'bench' requires exactly one non-empty string argument");
+                continue;
+            }
+            summary.case_name    = attr.arguments.front();
+            summary.is_benchmark = true;
+        } else if (lowered == "baseline") {
+            if (!attr.arguments.empty()) {
+                summary.had_error = true;
+                report("'baseline' does not take arguments");
+                continue;
+            }
+            summary.is_baseline = true;
+        } else if (lowered == "jitter") {
+            if (saw_jitter) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'jitter'");
+                continue;
+            }
+            saw_jitter = true;
+            if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
+                summary.had_error = true;
+                report("'jitter' requires exactly one non-empty string argument");
+                continue;
+            }
+            summary.case_name  = attr.arguments.front();
+            summary.is_jitter  = true;
         } else if (lowered == "req" || lowered == "requires") {
             if (attr.arguments.empty()) {
                 summary.had_error = true;
@@ -118,6 +155,70 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             for (std::size_t i = 1; i < attr.arguments.size(); ++i)
                 set.values.push_back(attr.arguments[i]);
             summary.parameter_sets.push_back(std::move(set));
+        } else if (lowered == "range") {
+            // Accept forms: (name, start, step, end) or (name, "start:step:end")
+            if (attr.arguments.size() < 2) {
+                summary.had_error = true;
+                report("'parameters_range' requires (name, start, step, end) or (name, \"start:step:end\")");
+                continue;
+            }
+            AttributeSummary::RangeSpec spec;
+            spec.name = attr.arguments.front();
+            if (attr.arguments.size() == 2) {
+                const std::string &expr = attr.arguments[1];
+                auto a = expr.find(':');
+                auto b = expr.rfind(':');
+                if (a == std::string::npos || b == std::string::npos || a == b) {
+                    summary.had_error = true;
+                    report("'parameters_range' second argument must be of the form start:step:end");
+                    continue;
+                }
+                spec.start = expr.substr(0, a);
+                spec.step  = expr.substr(a + 1, b - a - 1);
+                spec.end   = expr.substr(b + 1);
+            } else if (attr.arguments.size() == 4) {
+                spec.start = attr.arguments[1];
+                spec.step  = attr.arguments[2];
+                spec.end   = attr.arguments[3];
+            } else {
+                summary.had_error = true;
+                report("'parameters_range' requires exactly 2 or 4 arguments");
+                continue;
+            }
+            summary.parameter_ranges.push_back(std::move(spec));
+        } else if (lowered == "linspace") {
+            if (attr.arguments.size() != 4) {
+                summary.had_error = true;
+                report("'parameters_linspace' requires (name, start, end, count)");
+                continue;
+            }
+            AttributeSummary::LinspaceSpec spec{attr.arguments[0], attr.arguments[1], attr.arguments[2], attr.arguments[3]};
+            summary.parameter_linspaces.push_back(std::move(spec));
+        } else if (lowered == "geom" || lowered == "geomspace" || lowered == "geospace") {
+            if (attr.arguments.size() != 4) {
+                summary.had_error = true;
+                report("'geom' requires (name, start, factor, count)");
+                continue;
+            }
+            AttributeSummary::GeomSpec spec{attr.arguments[0], attr.arguments[1], attr.arguments[2], attr.arguments[3]};
+            summary.parameter_geoms.push_back(std::move(spec));
+        } else if (lowered == "logspace") {
+            if (attr.arguments.size() != 4 && attr.arguments.size() != 5) {
+                summary.had_error = true;
+                report("'logspace' requires (name, startExp, endExp, count[, base])");
+                continue;
+            }
+            // Reuse GeomSpec storage by encoding base and exponents; expansion handled in discovery
+            // We'll store as: name, startExp, endExp, count, with base optionally appended to factor field when provided.
+            // Instead, add a dedicated struct in summary to avoid overloading.
+            // Defer to dedicated LogspaceSpec (see validate.hpp)
+            AttributeSummary::LogspaceSpec spec;
+            spec.name = attr.arguments[0];
+            spec.start_exp = attr.arguments[1];
+            spec.end_exp = attr.arguments[2];
+            spec.count = attr.arguments[3];
+            if (attr.arguments.size() == 5) spec.base = attr.arguments[4];
+            summary.parameter_logspaces.push_back(std::move(spec));
         } else if (lowered == "parameters_pack") {
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;

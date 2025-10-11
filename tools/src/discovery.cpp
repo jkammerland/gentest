@@ -10,6 +10,8 @@
 #include "validate.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <clang/AST/Decl.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
@@ -273,6 +275,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.requirements   = summary.requirements;
         info.should_skip    = summary.should_skip;
         info.skip_reason    = summary.skip_reason;
+        info.is_benchmark   = summary.is_benchmark;
+        info.is_jitter      = summary.is_jitter;
+        info.is_baseline    = summary.is_baseline;
         info.template_args  = tpl_ordered;
         info.call_arguments = call_args;
         info.returns_value  = !func->getReturnType()->isVoidType();
@@ -363,6 +368,18 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 return;
             }
         }
+        for (const auto &rs : summary.parameter_ranges) {
+            if (!param_types.contains(rs.name)) { had_error_ = true; report(fmt::format("unknown parameter name '{}' in parameters_range(...)", rs.name)); return; }
+            if (!seen_param_names.insert(rs.name).second) { had_error_ = true; report(fmt::format("duplicate parameter axis for '{}'", rs.name)); return; }
+        }
+        for (const auto &ls : summary.parameter_linspaces) {
+            if (!param_types.contains(ls.name)) { had_error_ = true; report(fmt::format("unknown parameter name '{}' in parameters_linspace(...)", ls.name)); return; }
+            if (!seen_param_names.insert(ls.name).second) { had_error_ = true; report(fmt::format("duplicate parameter axis for '{}'", ls.name)); return; }
+        }
+        for (const auto &gs : summary.parameter_geoms) {
+            if (!param_types.contains(gs.name)) { had_error_ = true; report(fmt::format("unknown parameter name '{}' in parameters_geom(...)", gs.name)); return; }
+            if (!seen_param_names.insert(gs.name).second) { had_error_ = true; report(fmt::format("duplicate parameter axis for '{}'", gs.name)); return; }
+        }
         for (const auto &pp : summary.param_packs) {
             for (const auto &nm : pp.names) {
                 if (!param_types.contains(nm)) {
@@ -384,6 +401,86 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             axis.reserve(ps.values.size());
             for (const auto &v : ps.values)
                 axis.emplace_back(ps.param_name, v);
+            scalar_axes.push_back(std::move(axis));
+        }
+        // Range-based generators expanded using declared parameter type
+        auto normalize = [](std::string s){ s.erase(std::remove_if(s.begin(), s.end(), [](unsigned char c){return std::isspace(c)!=0;}), s.end()); std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){return static_cast<char>(std::tolower(c));}); return s; };
+        auto is_integer_type = [&](const std::string& ty){ auto t=normalize(ty); if (t.find("bool")!=std::string::npos) return true; if (t.find("char")!=std::string::npos && t.find("char_t")==std::string::npos) return true; if (t.find("short")!=std::string::npos) return true; if (t.find("int")!=std::string::npos) return true; if (t.find("longlong")!=std::string::npos || t=="longlong" || t=="unsignedlonglong") return true; if (t.find("long")!=std::string::npos && t.find("longlong")==std::string::npos) return true; if (t.find("size_t")!=std::string::npos) return true; if (t.find("ptrdiff_t")!=std::string::npos) return true; return false; };
+        auto is_float_type = [&](const std::string& ty){ auto t=normalize(ty); return t.find("float")!=std::string::npos || t.find("double")!=std::string::npos; };
+        auto to_int = [](const std::string& s){ try { long long v = std::stoll(s); return v; } catch (...) { try { double d=std::stod(s); return static_cast<long long>(std::llround(d)); } catch (...) { return 0LL; } } };
+        auto to_double = [](const std::string& s){ try { return std::stod(s); } catch (...) { try { long long v = std::stoll(s); return static_cast<double>(v); } catch (...) { return 0.0; } } };
+        auto fmt_int = [](long long v){ return std::to_string(v); };
+        auto fmt_double = [](double v){ char buf[64]; std::snprintf(buf, sizeof(buf), "%.17g", v); return std::string(buf); };
+        for (const auto &rs : summary.parameter_ranges) {
+            const std::string &ty = param_types[rs.name];
+            std::vector<std::pair<std::string, std::string>> axis;
+            if (is_integer_type(ty)) {
+                long long a = to_int(rs.start), st = to_int(rs.step), b = to_int(rs.end);
+                if (st == 0) st = 1;
+                if ((st > 0 && a > b) || (st < 0 && a < b)) {
+                    had_error_ = true; report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name)); return;
+                }
+                if (st > 0) { for (long long v = a; v <= b; v += st) axis.emplace_back(rs.name, fmt_int(v)); }
+                else { for (long long v = a; v >= b; v += st) axis.emplace_back(rs.name, fmt_int(v)); }
+            } else if (is_float_type(ty)) {
+                double a = to_double(rs.start), st = to_double(rs.step), b = to_double(rs.end);
+                if (st == 0.0) st = 1.0;
+                if ((st > 0.0 && a > b) || (st < 0.0 && a < b)) { had_error_ = true; report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name)); return; }
+                if (st > 0.0) { for (double v = a; v <= b + st*1e-12; v += st) axis.emplace_back(rs.name, fmt_double(v)); }
+                else { for (double v = a; v >= b - (-st)*1e-12; v += st) axis.emplace_back(rs.name, fmt_double(v)); }
+            } else {
+                had_error_ = true; report(fmt::format("parameters_range not supported for parameter type '{}'", ty)); return;
+            }
+            scalar_axes.push_back(std::move(axis));
+        }
+        for (const auto &ls : summary.parameter_linspaces) {
+            const std::string &ty = param_types[ls.name];
+            std::vector<std::pair<std::string, std::string>> axis;
+            long long n = to_int(ls.count); if (n < 1) n = 1;
+            if (is_integer_type(ty)) {
+                long long a = to_int(ls.start), b = to_int(ls.end);
+                if (n == 1) { axis.emplace_back(ls.name, fmt_int(a)); }
+                else { double step = static_cast<double>(b - a) / static_cast<double>(n - 1); for (long long i = 0; i < n; ++i) { double d = static_cast<double>(a) + step * static_cast<double>(i); axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(d)))); } }
+            } else if (is_float_type(ty)) {
+                double a = to_double(ls.start), b = to_double(ls.end);
+                if (n == 1) { axis.emplace_back(ls.name, fmt_double(a)); }
+                else { double step = (b - a) / static_cast<double>(n - 1); for (long long i = 0; i < n; ++i) { double d = a + step * static_cast<double>(i); axis.emplace_back(ls.name, fmt_double(d)); } }
+            } else { had_error_ = true; report(fmt::format("parameters_linspace not supported for parameter type '{}'", ty)); return; }
+            scalar_axes.push_back(std::move(axis));
+        }
+        for (const auto &gs : summary.parameter_geoms) {
+            const std::string &ty = param_types[gs.name];
+            std::vector<std::pair<std::string, std::string>> axis;
+            long long n = to_int(gs.count); if (n < 1) n = 1;
+            if (is_integer_type(ty)) {
+                long long a = to_int(gs.start); double f = to_double(gs.factor); double v = static_cast<double>(a); for (long long i=0;i<n;++i){ axis.emplace_back(gs.name, fmt_int(static_cast<long long>(std::llround(v)))); v *= f; }
+            } else if (is_float_type(ty)) {
+                double a = to_double(gs.start); double f = to_double(gs.factor); double v=a; for (long long i=0;i<n;++i){ axis.emplace_back(gs.name, fmt_double(v)); v *= f; }
+            } else { had_error_ = true; report(fmt::format("parameters_geom not supported for parameter type '{}'", ty)); return; }
+            scalar_axes.push_back(std::move(axis));
+        }
+        for (const auto &ls : summary.parameter_logspaces) {
+            const std::string &ty = param_types[ls.name];
+            std::vector<std::pair<std::string, std::string>> axis;
+            long long n = to_int(ls.count); if (n < 1) n = 1;
+            double base = ls.base.empty() ? 10.0 : to_double(ls.base);
+            double aexp = to_double(ls.start_exp);
+            double bexp = to_double(ls.end_exp);
+            if (n == 1) {
+                double val = std::pow(base, aexp);
+                if (is_integer_type(ty)) axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
+                else if (is_float_type(ty)) axis.emplace_back(ls.name, fmt_double(val));
+                else { had_error_ = true; report(fmt::format("logspace not supported for parameter type '{}'", ty)); return; }
+            } else {
+                double step = (bexp - aexp) / static_cast<double>(n - 1);
+                for (long long i = 0; i < n; ++i) {
+                    double e = aexp + step * static_cast<double>(i);
+                    double val = std::pow(base, e);
+                    if (is_integer_type(ty)) axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
+                    else if (is_float_type(ty)) axis.emplace_back(ls.name, fmt_double(val));
+                    else { had_error_ = true; report(fmt::format("logspace not supported for parameter type '{}'", ty)); return; }
+                }
+            }
             scalar_axes.push_back(std::move(axis));
         }
         std::vector<std::vector<std::pair<std::string, std::string>>> scalar_combos;
@@ -564,6 +661,9 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
     info.requirements   = std::move(summary.requirements);
     info.should_skip    = summary.should_skip;
     info.skip_reason    = std::move(summary.skip_reason);
+    info.is_benchmark   = summary.is_benchmark;
+    info.is_jitter      = summary.is_jitter;
+    info.is_baseline    = summary.is_baseline;
     info.returns_value  = !func.getReturnType()->isVoidType();
 
     // If this is a method, collect fixture attributes from the parent class/struct.

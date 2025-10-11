@@ -39,6 +39,14 @@ int main() {
         t.expect(summary.requirements.size() == 1 && summary.requirements[0] == "#1", "single req present");
     }
 
+    // Range/linspace/geom/logspace parse smoke
+    {
+        auto attrs = parse_attribute_list(R"(test("x"), range(i, 1, 2, 9), linspace(x, 0.0, 1.0, 5), geom(n, 1, 2, 4), logspace(f, -3, 3, 7))");
+        std::vector<std::string> diags;
+        auto summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "param generators parse without error");
+    }
+
     {
         auto attrs = parse_attribute_list(R"(test("x"), test("y"))");
         std::vector<std::string> diags;

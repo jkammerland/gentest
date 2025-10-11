@@ -23,6 +23,9 @@ struct AttributeSummary {
     bool                       should_skip = false;
     std::string                skip_reason;
     bool                       had_error = false;
+    bool                       is_benchmark = false;
+    bool                       is_jitter = false;
+    bool                       is_baseline = false;
     // Template matrix: list of (param, types...)
     std::vector<std::pair<std::string, std::vector<std::string>>> template_sets;
     std::vector<std::pair<std::string, std::vector<std::string>>> template_nttp_sets;
@@ -32,6 +35,15 @@ struct AttributeSummary {
         std::vector<std::string> values;     // expression tokens
     };
     std::vector<ParamSet> parameter_sets;
+    // Parameter generators
+    struct RangeSpec { std::string name; std::string start; std::string step; std::string end; };
+    struct LinspaceSpec { std::string name; std::string start; std::string end; std::string count; };
+    struct GeomSpec { std::string name; std::string start; std::string factor; std::string count; };
+    struct LogspaceSpec { std::string name; std::string start_exp; std::string end_exp; std::string count; std::string base; };
+    std::vector<RangeSpec>     parameter_ranges;
+    std::vector<LinspaceSpec>  parameter_linspaces;
+    std::vector<GeomSpec>      parameter_geoms;
+    std::vector<LogspaceSpec>  parameter_logspaces;
     // Parameter packs: bundle multiple arguments per test row to avoid Cartesian products.
     struct ParamPack {
         std::vector<std::string>              names; // function parameter names, in order

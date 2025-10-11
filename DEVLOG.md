@@ -1,3 +1,41 @@
+Devlog 2025-10-11 (Benchmarks • Jitter • Params • Formatting)
+
+  - Goals
+      - Add first-class microbenchmarks (throughput) and jitter analysis with minimal new concepts.
+      - Keep attribute-driven UX; no macros or variant naming.
+      - Support parameter generators (range/linspace/geom/logspace) and complex/struct values.
+      - Produce readable, aligned tables with smart unit scaling; keep per-bench lines as-is.
+  - Key changes
+      - Attributes
+          - `bench("suite/name")`, `jitter("suite/name")` for discovery.
+          - `baseline` (optional) marks a bench as the suite baseline; else the first bench in the suite is used.
+      - CLI
+          - Benches: `--list-benches`, `--run-bench=…`, `--bench-filter=…`, `--bench-table`, tuning flags (`--bench-min-epoch-time-s`, `--bench-epochs`, `--bench-warmup`, `--bench-max-total-time-s`).
+          - Jitters: `--list-jitters`, `--run-jitter=…`, `--jitter-filter=…`, `--jitter-bins`.
+      - Parameterization
+          - Keep `parameters(name, …)` for explicit values (including structs and `std::complex`).
+          - Add generators: `range`, `linspace`, `geom`, `logspace` (short names only; removed legacy `parameters_*`).
+          - Expansion respects declared parameter types (ints rounded; floats precise).
+      - Grouping & Baseline
+          - Benches grouped by `suite(...)`; per-suite summary tables appended after runs.
+          - Relative % computed against baseline using median(ns/op).
+      - Jitter semantics
+          - Per-run histogram + summary line (units scaled per run); suite table appended with mean/stddev/CV/min/max and EXPECT-failed.
+          - ASSERT aborts the jitter suite (non-zero). Epochs with EXPECT failures excluded from numeric bins and counted separately; overall non-zero.
+      - Formatting & Units
+          - Suite tables (bench/jitter) scale time to ns/µs/ms/s consistently per table.
+          - Aligned via fmt dynamic widths; headers include units.
+          - Per-bench detail lines remain in ns/op for now (simplicity).
+      - Utilities
+          - New `gentest/bench_util.h`: `doNotOptimizeAway` and `clobberMemory` (GCC/Clang/MSVC) for robust microbenches.
+      - Tests & Samples
+          - `tests/benchmarks`: added struct + complex parameter benches; jitter example.
+          - ctest: list benches, bench suite table smoke, jitter histogram header, jitter suite table smoke.
+  - Follow-ups (deferred)
+      - Optional baseline warning when none marked (using first bench).
+      - Logging performance enhancements (buffered I/O, memory_buffer batching, --quiet) — scoped for later PR.
+      - Runtime refactor: move runner/CLI logic into a reuseable runtime module to shrink generated TU.
+
 Devlog 2025-10-02 (Refactor + Robust Tests)
 
   - Goals
