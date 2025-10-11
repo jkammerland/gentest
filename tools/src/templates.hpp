@@ -439,7 +439,11 @@ int handle_bench_cli(std::span<const char*> args) {
         std::map<std::string, std::map<std::string, std::vector<Row>>> by_suite;
         for (const auto& r : rows) by_suite[r.suite][r.row_key].push_back(r);
         for (auto& [suite, by_row] : by_suite) {
-            fmt::print("\nSummary ({} ) — metric: median ns/op\n", suite);
+            // Choose unit per suite based on medians across all rows
+            std::vector<double> medians_ns;
+            for (const auto& [rk, vec] : by_row) for (const auto& r : vec) medians_ns.push_back(r.median);
+            TimeScale ts = choose_ns_unit_from_samples(medians_ns);
+            fmt::print("\nSummary ({}) — metric: median {}/op\n", suite, ts.suffix);
             for (auto& [rk, vec] : by_row) {
                 std::string row_hdr = rk.empty() ? std::string("(single)") : rk;
                 fmt::print("  row: {}\n", row_hdr);
@@ -447,12 +451,32 @@ int handle_bench_cli(std::span<const char*> args) {
                 const Row* baseline = nullptr;
                 for (const auto& r : vec) if (r.is_baseline) { baseline = &r; break; }
                 if (!baseline && !vec.empty()) baseline = &vec.front();
-                fmt::print("    {:>6}  {:<50}  {:>12}  {:>10}  {:>10}  {:>10}  {:>12}  {:>7}\n",
-                           "epochs", "name", "iters/epoch", "best(ns)", "median(ns)", "mean(ns)", "ops/s", "rel%" );
+                // Prepare dynamic column widths
+                struct BCell { std::string epochs, name, iters, best, median, mean, ops, rel; };
+                std::vector<BCell> cells;
+                std::size_t w_epochs=6, w_name=4, w_iters=11, w_best=10, w_median=10, w_mean=10, w_ops=12, w_rel=6;
+                auto upd=[&](std::size_t& w, const std::string& s){ if (s.size()>w) w=s.size(); };
                 for (const auto& r : vec) {
+                    BCell c;
+                    c.epochs = fmt::format("{}", r.epochs);
+                    c.name   = r.name;
+                    c.iters  = fmt::format("{}", r.iters);
+                    c.best   = fmt::format("{:.2f}", r.best/ts.factor);
+                    c.median = fmt::format("{:.2f}", r.median/ts.factor);
+                    c.mean   = fmt::format("{:.2f}", r.mean/ts.factor);
+                    c.ops    = fmt::format("{:.2f}", r.ops_s);
                     double rel = baseline && baseline->median > 0.0 ? ((r.median - baseline->median) / baseline->median) * 100.0 : 0.0;
-                    fmt::print("    {:>6}  {:<50}  {:>12}  {:>10.2f}  {:>10.2f}  {:>10.2f}  {:>12.2f}  {:>+6.1f}%\n",
-                               r.epochs, r.name, r.iters, r.best, r.median, r.mean, r.ops_s, rel);
+                    c.rel    = fmt::format("{:+.1f}%", rel);
+                    upd(w_epochs,c.epochs); upd(w_name,c.name); upd(w_iters,c.iters); upd(w_best,c.best); upd(w_median,c.median); upd(w_mean,c.mean); upd(w_ops,c.ops); upd(w_rel,c.rel);
+                    cells.push_back(std::move(c));
+                }
+                fmt::print("    {:{}}  {:{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}\n",
+                           "epochs", w_epochs, "name", w_name, "iters/epoch", w_iters,
+                           fmt::format("best({})", ts.suffix), w_best, fmt::format("median({})", ts.suffix), w_median,
+                           fmt::format("mean({})", ts.suffix), w_mean, "ops/s", w_ops, "rel%", w_rel);
+                for (const auto& c : cells) {
+                    fmt::print("    {:>{}}  {:{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}\n",
+                               c.epochs, w_epochs, c.name, w_name, c.iters, w_iters, c.best, w_best, c.median, w_median, c.mean, w_mean, c.ops, w_ops, c.rel, w_rel);
                 }
             }
         }
@@ -476,18 +500,33 @@ const char* wants_jitter_filter(std::span<const char*> args) { return get_arg_va
 std::size_t parse_bins(std::span<const char*> args) { return parse_szt(get_arg_value_sv(args, "--jitter-bins="), 10); }
 
 struct JitterStats { double mean_ns = 0.0; double variance_ns2 = 0.0; double stddev_ns = 0.0; double min_ns = 0.0; double max_ns = 0.0; };
+
+struct TimeScale { double factor = 1.0; const char* suffix = "ns"; };
+static inline TimeScale choose_ns_unit_from_samples(const std::vector<double>& values_ns) {
+    double typical = 0.0;
+    for (double v : values_ns) if (v > typical) typical = v; // max is robust enough here
+    TimeScale ts;
+    if (typical >= 1e9) { ts.factor = 1e9; ts.suffix = "s"; }
+    else if (typical >= 1e6) { ts.factor = 1e6; ts.suffix = "ms"; }
+    else if (typical >= 1e3) { ts.factor = 1e3; ts.suffix = "\xC2\xB5s"; } // microseconds symbol
+    else { ts.factor = 1.0; ts.suffix = "ns"; }
+    return ts;
+}
 static inline JitterStats compute_stats(const std::vector<double>& v) {
     JitterStats js{}; if (v.empty()) return js; double sum=0.0; js.min_ns=v[0]; js.max_ns=v[0]; for (double x : v){sum+=x; if(x<js.min_ns)js.min_ns=x; if(x>js.max_ns)js.max_ns=x;} js.mean_ns=sum/static_cast<double>(v.size()); double var=0.0; for (double x: v){double d=x-js.mean_ns; var+=d*d;} var/= static_cast<double>(v.size()); js.variance_ns2=var; js.stddev_ns=std::sqrt(var); return js; }
 
-static inline void print_histogram(const std::vector<double>& v, std::size_t bins) {
+static inline void print_histogram_scaled(const std::vector<double>& v_ns, std::size_t bins, const TimeScale& ts) {
     if (v.empty() || bins==0) return;
+    std::vector<double> v;
+    v.reserve(v_ns.size());
+    for (double x : v_ns) v.push_back(x / ts.factor);
     double minv=*std::min_element(v.begin(), v.end());
     double maxv=*std::max_element(v.begin(), v.end());
-    fmt::print("  histogram (ns/op):\n");
+    fmt::print("  histogram ({}\/op):\n", ts.suffix);
     fmt::print("  {:>22}  {:>8}  {:>8}  {}\n", "range", "count", "percent", "bar");
     if (maxv<=minv) {
         std::string barstr(40, '#');
-        fmt::print("  [{:.2f},{:.2f}] ns/op  {:>8}  {:>7.1f}%  {}\n", minv, maxv, v.size(), 100.0, barstr);
+        fmt::print("  [{:.2f},{:.2f}] {}\/op  {:>8}  {:>7.1f}%  {}\n", minv, maxv, ts.suffix, v.size(), 100.0, barstr);
         return;
     }
     double width=(maxv-minv)/static_cast<double>(bins);
@@ -500,7 +539,7 @@ static inline void print_histogram(const std::vector<double>& v, std::size_t bin
         double pct = (v.empty()?0.0:(100.0*static_cast<double>(counts[i])/static_cast<double>(v.size())));
         std::size_t bar = maxc? static_cast<std::size_t>(40.0*static_cast<double>(counts[i])/static_cast<double>(maxc)) : 0;
         std::string barstr(bar, '#');
-        fmt::print("  [{:.2f},{:.2f}) ns/op  {:>8}  {:>7.1f}%  {}\n", lo, hi, counts[i], pct, barstr);
+        fmt::print("  [{:.2f},{:.2f}) {}\/op  {:>8}  {:>7.1f}%  {}\n", lo, hi, ts.suffix, counts[i], pct, barstr);
     }
 }
 
@@ -530,8 +569,11 @@ int handle_jitter_cli(std::span<const char*> args) {
             }
             JitterStats js = compute_stats(ns_per_iter);
             fmt::print("  iterations/epoch: {}  epochs: {}\n", iters, ns_per_iter.size());
-            fmt::print("  ns/op: mean {:.2f}, stddev {:.2f}, min {:.2f}, max {:.2f}\n", js.mean_ns, js.stddev_ns, js.min_ns, js.max_ns);
-            print_histogram(ns_per_iter, bins);
+            // Choose unit per jitter run for histogram and summary line
+            TimeScale ts = choose_ns_unit_from_samples(ns_per_iter);
+            fmt::print("  {:s}: mean {:.2f}, stddev {:.2f}, min {:.2f}, max {:.2f}\n",
+                       fmt::format("{}/op", ts.suffix), js.mean_ns/ts.factor, js.stddev_ns/ts.factor, js.min_ns/ts.factor, js.max_ns/ts.factor);
+            print_histogram_scaled(ns_per_iter, bins, ts);
             if (failed_expect_epochs > 0) {
                 double total_epochs = static_cast<double>(ns_per_iter.size() + failed_expect_epochs);
                 double pct = total_epochs > 0.0 ? (100.0 * static_cast<double>(failed_expect_epochs) / total_epochs) : 0.0;
@@ -547,12 +589,42 @@ int handle_jitter_cli(std::span<const char*> args) {
         std::map<std::string, std::vector<JRow>> by_suite;
         for (const auto& r : jrows) by_suite[r.suite].push_back(r);
         for (const auto& [suite, vec] : by_suite) {
-            fmt::print("\nJitter ({})\n", suite);
-            fmt::print("  {:<50}  {:>12}  {:>6}  {:>10}  {:>10}  {:>7}  {:>10}  {:>10}  {:>8}\n",
-                       "name", "iters/epoch", "epochs", "mean(ns)", "stddev(ns)", "CV(%)", "min(ns)", "max(ns)", "EXPECT");
+            // Choose unit across suite based on means
+            std::vector<double> means_ns; means_ns.reserve(vec.size()); for (const auto& r : vec) means_ns.push_back(r.mean);
+            TimeScale ts = choose_ns_unit_from_samples(means_ns);
+            // Build string cells for dynamic width alignment
+            struct Cells { std::string name, iters, epochs, mean, stddev, cv, minv, maxv, expfail; };
+            std::vector<Cells> cells;
+            cells.reserve(vec.size());
+            std::size_t w_name=4, w_iters=11, w_epochs=6, w_mean=8, w_stddev=10, w_cv=6, w_min=7, w_max=7, w_exp=6;
+            auto upd = [&](std::size_t& w, const std::string& s){ if (s.size() > w) w = s.size(); };
             for (const auto& r : vec) {
-                fmt::print("  {:<50}  {:>12}  {:>6}  {:>10.2f}  {:>10.2f}  {:>7.1f}  {:>10.2f}  {:>10.2f}  {:>8}\n",
-                           r.name, r.iters, r.epochs, r.mean, r.stddev, r.cv_pct, r.minv, r.maxv, r.failed_expect_epochs);
+                Cells c;
+                c.name = r.name;
+                c.iters = fmt::format("{}", r.iters);
+                c.epochs = fmt::format("{}", r.epochs);
+                c.mean = fmt::format("{:.2f}", r.mean/ts.factor);
+                c.stddev = fmt::format("{:.2f}", r.stddev/ts.factor);
+                c.cv = fmt::format("{:.1f}", r.cv_pct);
+                c.minv = fmt::format("{:.2f}", r.minv/ts.factor);
+                c.maxv = fmt::format("{:.2f}", r.maxv/ts.factor);
+                c.expfail = fmt::format("{}", r.failed_expect_epochs);
+                upd(w_name, c.name); upd(w_iters, c.iters); upd(w_epochs, c.epochs); upd(w_mean, c.mean); upd(w_stddev, c.stddev); upd(w_cv, c.cv); upd(w_min, c.minv); upd(w_max, c.maxv); upd(w_exp, c.expfail);
+                cells.push_back(std::move(c));
+            }
+            fmt::print("\nJitter ({})\n", suite);
+            fmt::print("  {:{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}\n",
+                       "name", w_name, "iters/epoch", w_iters, "epochs", w_epochs,
+                       fmt::format("mean({})", ts.suffix), w_mean,
+                       fmt::format("stddev({})", ts.suffix), w_stddev,
+                       "CV(%)", w_cv,
+                       fmt::format("min({})", ts.suffix), w_min,
+                       fmt::format("max({})", ts.suffix), w_max,
+                       "EXPECT", w_exp);
+            for (const auto& c : cells) {
+                fmt::print("  {:{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}  {:>{}}\n",
+                           c.name, w_name, c.iters, w_iters, c.epochs, w_epochs,
+                           c.mean, w_mean, c.stddev, w_stddev, c.cv, w_cv, c.minv, w_min, c.maxv, w_max, c.expfail, w_exp);
             }
         }
     }
