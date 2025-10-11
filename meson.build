@@ -1,114 +1,60 @@
-project('gentest', 'cpp', version: '1.0.0', default_options: ['cpp_std=c++23', 'warning_level=2'])
+project('gentest', 'cpp', default_options: ['cpp_std=c++23'])
 
+fmt_dep = dependency('fmt', required: false)
 cpp = meson.get_compiler('cpp')
 
-# Header-only interface dependency for consumers
-inc_root = include_directories('include')
+inc = include_directories('include', 'tests')
 
-# Suppress attribute warnings on different compilers
-gentest_cargs = []
-if cpp.get_id() == 'clang'
-  gentest_cargs += ['-Wno-unknown-attributes', '-Wno-attributes']
-elif cpp.get_id() == 'gcc'
-  gentest_cargs += ['-Wno-attributes']
-elif cpp.get_id() == 'msvc'
-  gentest_cargs += ['/wd5030']
+# Build the runtime as a static library (compiled, not header-only)
+runtime_cargs = ['-DFMT_HEADER_ONLY']
+if fmt_dep.found()
+  runtime_deps = [fmt_dep]
+else
+  runtime_deps = []
 endif
 
-gentest_iface = declare_dependency(
-  include_directories: inc_root,
-  compile_args: gentest_cargs,
+libgentest_runtime = static_library(
+  'gentest_runtime',
+  ['src/runner_impl.cpp'],
+  include_directories: inc,
+  cpp_args: runtime_cargs,
+  dependencies: runtime_deps,
 )
 
-# External deps
-fmt_dep = dependency('fmt', required: true, method: 'pkg-config', version: '>=10')
+# Helper to attach code generation via an external generator binary.
+# The path to gentest_codegen is taken from the environment variable
+# GENTEST_CODEGEN. Example:
+#   GENTEST_CODEGEN=build/debug-system/tools/gentest_codegen meson setup build/meson
+#   meson compile -C build/meson
+codegen = meson.get_env('GENTEST_CODEGEN')
+if codegen == ''
+  codegen = 'build/debug-system/tools/gentest_codegen'
+endif
 
-# Prefer monolithic libclang-cpp (covers clangTooling/AST/etc.)
-clang_cpp_link = ['-L/usr/local/lib', '-lclang-cpp']
+gen_args = ['--compdb', meson.current_build_dir(), '--']
+clang_args = ['-std=c++23', '-I@SOURCE_ROOT@/include', '-I@SOURCE_ROOT@/tests']
 
-# Use llvm-config to get include dir and any system libs
-llvm_config = find_program('llvm-config', required: true)
-llvm_includedir = run_command(llvm_config, '--includedir').stdout().strip()
-llvm_libdir = run_command(llvm_config, '--libdir').stdout().strip()
-llvm_inc = include_directories(llvm_includedir)
+tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 
-thread_dep = dependency('threads')
-
-# Build the code generator
-gentest_codegen = executable(
-  'gentest_codegen',
-  files(
-    'tools/src/main.cpp',
-    'tools/src/parse_core.cpp',
-    'tools/src/parse.cpp',
-    'tools/src/discovery.cpp',
-    'tools/src/mock_discovery.cpp',
-    'tools/src/validate.cpp',
-    'tools/src/emit.cpp',
-    'tools/src/render_mocks.cpp',
-    'tools/src/type_kind.cpp',
-    'tools/src/render.cpp',
-    'tools/src/tooling_support.cpp',
-  ),
-  include_directories: [inc_root, llvm_inc],
-  dependencies: [fmt_dep, thread_dep],
-  link_args: clang_cpp_link,
-  cpp_args: ['-DFMT_HEADER_ONLY', '-DGENTEST_VERSION_STR="' + meson.project_version() + '"'],
-  build_rpath: llvm_libdir,
-  install: false,
-)
-
-# Test suites (only pass-only suites to keep CI green)
-suites = [
-  'unit',
-  'integration',
-  'skiponly',
-  'fixtures',
-  'templates',
-  'mocking',
-]
-
-tests_dir = meson.current_source_dir() / 'tests'
-
-gen = generator(
-  gentest_codegen,
-  output: [
-    '@BASENAME@_test_impl.cpp',
-    '@BASENAME@_mock_registry.hpp',
-    '@BASENAME@_mock_impl.hpp',
-  ],
-  arguments: [
-    '--output', '@OUTPUT0@',
-    '--entry', 'gentest::run_all_tests',
-    '--mock-registry', '@OUTPUT1@',
-    '--mock-impl', '@OUTPUT2@',
-    '@INPUT@',
-    '--',
-    '-std=c++23',
-    '-Wno-unknown-attributes',
-    '-Wno-attributes',
-    '-I' + meson.current_source_dir() / 'include',
-    '-I' + tests_dir,
-  ],
-)
-
-foreach s : suites
-  src = files(tests_dir / s / 'cases.cpp')
-  outs = gen.process(src)
-  reg  = 'cases_mock_registry.hpp'
-  implhdr = 'cases_mock_impl.hpp'
+foreach s : tests_suites
+  out_cpp = 'gen/@0@/test_impl.cpp'.format(s)
+  gen = custom_target(
+    'gen_@0@'.format(s),
+    output: out_cpp,
+    input: 'tests/@0@/cases.cpp'.format(s),
+    command: [codegen, '--output', '@OUTPUT@', gen_args, '@INPUT@', clang_args],
+    build_by_default: true
+  )
 
   exe = executable(
-    'gentest_@0@_tests'.format(s),
-    [ 'tests/support/test_entry.cpp', outs ],
-    include_directories: [inc_root, include_directories('tests'), include_directories('.')],
-    dependencies: [fmt_dep, gentest_iface, thread_dep],
-    cpp_args: [
-      '-DFMT_HEADER_ONLY',
-      '-DGENTEST_MOCK_REGISTRY_PATH=' + reg,
-      '-DGENTEST_MOCK_IMPL_PATH=' + implhdr,
-    ] + gentest_cargs,
-    install: false,
+    'gentest_@0@_meson'.format(s),
+    ['tests/support/test_entry.cpp', gen],
+    include_directories: inc,
+    link_with: libgentest_runtime,
+    cpp_args: runtime_cargs,
+    dependencies: runtime_deps
   )
-  test(s, exe)
+
+  test('meson_@0@'.format(s), exe)
 endforeach
+
