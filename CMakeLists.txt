@@ -25,6 +25,7 @@ if(${PROJECT_NAME}_BUILD_TESTING)
     include(CTest)
     enable_testing()
     find_package(fmt CONFIG REQUIRED)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
     # Optional: libassert integration tests
     option(GENTEST_WITH_LIBASSERT "Enable libassert integration tests" OFF)
@@ -46,6 +47,22 @@ if(${PROJECT_NAME}_BUILD_TESTING)
 
     add_subdirectory(tools/core_tests)
     add_subdirectory(tests)
+
+    # Compile time benchmark targets
+    add_custom_target(bench-compile
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/bench_compile.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --jobs 1
+        USES_TERMINAL
+        COMMENT "Benchmark compile times (generator + test targets). Clean-first by default")
+
+    add_custom_target(bench-compile-no-clean
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/bench_compile.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --jobs 1
+                --no-clean
+        USES_TERMINAL
+        COMMENT "Benchmark compile times without clean (incremental)")
 endif()
 
 # Optional clang-tidy plugin (editor diagnostics) — default OFF
