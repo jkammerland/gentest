@@ -63,6 +63,22 @@ if(${PROJECT_NAME}_BUILD_TESTING)
                 --no-clean
         USES_TERMINAL
         COMMENT "Benchmark compile times without clean (incremental)")
+
+    # Release benchmark (requires a configured release preset build dir)
+    add_custom_target(bench-compile-release
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/bench_compile.py
+                --preset release
+                --jobs 1
+        USES_TERMINAL
+        COMMENT "Benchmark compile times for Release preset (generator + test targets)")
+
+    add_custom_target(bench-compile-release-no-clean
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/bench_compile.py
+                --preset release
+                --jobs 1
+                --no-clean
+        USES_TERMINAL
+        COMMENT "Benchmark compile times for Release preset without clean (incremental)")
 endif()
 
 # Optional clang-tidy plugin (editor diagnostics) — default OFF

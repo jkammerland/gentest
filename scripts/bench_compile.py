@@ -8,6 +8,7 @@ Benchmark compile times for gentest components.
 Usage examples:
   python3 scripts/bench_compile.py --build-dir build/debug-system
   python3 scripts/bench_compile.py --build-dir build/debug --jobs 4 --no-clean
+  python3 scripts/bench_compile.py --preset release                 # use a CMake preset
 
 Options:
   --build-dir   Path to an existing CMake build tree (any preset/config)
@@ -35,8 +36,11 @@ def run(cmd, **kwargs):
     return subprocess.run(cmd, check=True, **kwargs)
 
 
-def cmake_build(build_dir, target=None, jobs=1, clean_first=True, config=None):
-    cmd = ["cmake", "--build", str(build_dir)]
+def cmake_build(build_dir, target=None, jobs=1, clean_first=True, config=None, preset=None):
+    if preset:
+        cmd = ["cmake", "--build", "--preset", preset]
+    else:
+        cmd = ["cmake", "--build", str(build_dir)]
     if target:
         cmd += ["--target", target]
     if config:
@@ -51,11 +55,14 @@ def cmake_build(build_dir, target=None, jobs=1, clean_first=True, config=None):
     return end - start, proc
 
 
-def discover_test_targets(build_dir, config=None):
+def discover_test_targets(build_dir, config=None, preset=None):
     # Ask CMake for target help and collect likely test targets ending with _tests
-    cmd = ["cmake", "--build", str(build_dir), "--target", "help"]
-    if config:
-        cmd += ["--config", config]
+    if preset:
+        cmd = ["cmake", "--build", "--preset", preset, "--target", "help"]
+    else:
+        cmd = ["cmake", "--build", str(build_dir), "--target", "help"]
+        if config:
+            cmd += ["--config", config]
     try:
         out = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout
     except subprocess.CalledProcessError:
@@ -71,28 +78,35 @@ def discover_test_targets(build_dir, config=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--build-dir", required=True)
+    ap.add_argument("--build-dir", default=None)
+    ap.add_argument("--preset", default=None, help="CMake preset name to build/time")
     ap.add_argument("--config", default=None)
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--no-clean", action="store_true")
     ap.add_argument("--targets", default=None, help="Comma-separated target names to build and time")
     args = ap.parse_args()
 
-    build_dir = Path(args.build_dir)
-    if not build_dir.exists():
-        print(f"error: build dir not found: {build_dir}", file=sys.stderr)
-        return 2
+    if not args.preset:
+        if not args.build_dir:
+            print("error: either --build-dir or --preset must be provided", file=sys.stderr)
+            return 2
+        build_dir = Path(args.build_dir)
+        if not build_dir.exists():
+            print(f"error: build dir not found: {build_dir}", file=sys.stderr)
+            return 2
+    else:
+        build_dir = None
 
     # Time generator tool build separately
     print("[bench] Building generator tool: gentest_codegen ...")
-    gen_time, _ = cmake_build(build_dir, target="gentest_codegen", jobs=args.jobs, clean_first=not args.no_clean, config=args.config)
+    gen_time, _ = cmake_build(build_dir, target="gentest_codegen", jobs=args.jobs, clean_first=not args.no_clean, config=args.config, preset=args.preset)
     print(f"[bench] gentest_codegen: {gen_time:.3f}s")
 
     # Time test targets
     if args.targets:
         targets = [t.strip() for t in args.targets.split(',') if t.strip()]
     else:
-        targets = discover_test_targets(build_dir, args.config)
+        targets = discover_test_targets(build_dir, args.config) if not args.preset else discover_test_targets(None, None, preset=args.preset)
         if not targets:
             # fallback to known names
             targets = [
@@ -120,20 +134,22 @@ def main():
     total = 0.0
     for t in targets:
         print(f"[bench] Building {t} ...")
-        elapsed, _ = cmake_build(build_dir, target=t, jobs=args.jobs, clean_first=not args.no_clean, config=args.config)
+        elapsed, _ = cmake_build(build_dir, target=t, jobs=args.jobs, clean_first=not args.no_clean, config=args.config, preset=args.preset)
         print(f"[bench] {t}: {elapsed:.3f}s")
         results["targets"].append({"target": t, "elapsed_s": elapsed})
         total += elapsed
 
     results["total_elapsed_s"] = total
-    out_path = build_dir / "compile_bench.json"
+    out_dir = Path(args.build_dir) if args.build_dir else Path("build")/args.preset
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "compile_bench.json"
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     print(f"[bench] Wrote {out_path}")
 
     # Human summary
     print("\n=== Compile Benchmark Summary ===")
-    print(f"Build dir: {build_dir}")
+    print(f"Build dir: {build_dir or '(preset: ' + args.preset + ')'}")
     if args.config:
         print(f"Config:    {args.config}")
     print(f"Jobs:      {args.jobs}")
@@ -148,4 +164,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
