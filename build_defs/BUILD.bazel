@@ -1,0 +1,3 @@
+# Package to host Starlark macros
+package(default_visibility = ["//visibility:public"])
+

@@ -23,6 +23,39 @@ cmake --build --preset=debug-system
 ctest --preset=debug-system --output-on-failure
 ```
 
+### Meson
+
+Build and run the pass-only suites with Meson (uses system libclang-cpp and fmt headers; clang++ recommended):
+
+```bash
+CC=clang CXX=clang++ meson setup build/meson
+meson compile -C build/meson -j$(nproc)
+meson test -C build/meson --print-errorlogs
+```
+
+### Bazel
+
+Build the code generator and run a generator lint test under Bazel. Note: disable ccache in Bazel sandboxes.
+
+```bash
+bazel build //:gentest_codegen --action_env=CCACHE_DISABLE=1 --host_action_env=CCACHE_DISABLE=1 --cxxopt=-std=c++23 --linkopt=-std=c++23
+bazel test //:codegen_check_invalid --action_env=CCACHE_DISABLE=1 --host_action_env=CCACHE_DISABLE=1
+```
+
+Experimental Bazel targets for generated test executables are provided but are not yet enabled by default for all suites, due to include-path and sandbox constraints.
+
+### Xmake
+
+An initial xmake.lua is provided to build `gentest_codegen` and wire codegen into test executables. This path is experimental and may require two-step builds on some setups:
+
+```bash
+xmake -y gentest_codegen
+xmake -y gentest_unit_tests
+xmake r gentest_unit_tests -- --list
+```
+
+If linking `gentest_codegen` fails, ensure `libclang-cpp` is available and visible (e.g. `/usr/local/lib`) and that `fmt` headers are installed; the xmake build defines `FMT_HEADER_ONLY` by default.
+
 Legacy vcpkg-based toolchain (downloads and builds its own LLVM):
 ```bash
 cmake --preset=debug

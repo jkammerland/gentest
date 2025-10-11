@@ -1,0 +1,45 @@
+package(default_visibility = ["//visibility:public"])
+
+load("//build_defs:gentest.bzl", "gentest_suite")
+
+
+cc_binary(
+    name = "gentest_codegen",
+    srcs = [
+        "tools/src/main.cpp",
+        "tools/src/parse_core.cpp",
+        "tools/src/parse.cpp",
+        "tools/src/discovery.cpp",
+        "tools/src/mock_discovery.cpp",
+        "tools/src/validate.cpp",
+        "tools/src/emit.cpp",
+        "tools/src/render_mocks.cpp",
+        "tools/src/type_kind.cpp",
+        "tools/src/render.cpp",
+        "tools/src/tooling_support.cpp",
+    ] + glob(["tools/src/*.hpp"]),
+    copts = [
+        "-std=c++23",
+        "-Iinclude",
+        "-Itools/src",
+        "-DFMT_HEADER_ONLY",
+        "-Wno-unknown-attributes",
+        "-Wno-attributes",
+    ],
+    linkopts = [
+        "-L/usr/local/lib",
+        "-lclang-cpp",
+        "-Wl,-rpath,/usr/local/lib",
+        "-pthread",
+    ],
+)
+
+gentest_suite(name = "gentest_unit_tests", suite = "unit")
+gentest_suite(name = "gentest_integration_tests", suite = "integration")
+gentest_suite(name = "gentest_fixtures_tests", suite = "fixtures")
+gentest_suite(name = "gentest_skiponly_tests", suite = "skiponly")
+# templates/mocking are disabled under Bazel for simplicity
+# gentest_suite(name = "gentest_templates_tests", suite = "templates")
+# gentest_suite(name = "gentest_mocking_tests", suite = "mocking")
+
+## Generator lint tests are omitted to keep Bazel simple; the suites exercise codegen
