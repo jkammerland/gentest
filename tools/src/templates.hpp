@@ -506,6 +506,7 @@ int handle_jitter_cli(std::span<const char*> args) {
                 fmt::print("  FAILED (EXPECT): {:>6} ({:>5.1f}% )\n", failed_expect_epochs, pct);
             }
             if (killed_by_assert) { fmt::print(stderr, "  ABORTED: ASSERT encountered; jitter run terminated early.\n"); return 1; }
+            if (failed_expect_epochs > 0) { return 1; }
         } catch (const std::exception& e) { fmt::print(stderr, "[ FAIL ] {} :: exception: {}\n", c.name, e.what()); return 1; } catch (...) { fmt::print(stderr, "[ FAIL ] {} :: unknown exception\n", c.name); return 1; }
     }
     return 0;
