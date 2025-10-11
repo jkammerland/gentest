@@ -419,3 +419,33 @@ add_test(NAME junit_artifact_example
         -DEXPECT_SUBSTRING=<testsuite
         -DARGS=--junit=${CMAKE_CURRENT_BINARY_DIR}/junit_integration.xml
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+# Benchmarks: smoke checks for listing and suite table
+add_test(NAME benches_list_benches
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_benchmarks_tests>
+        -DARGS=--list-benches
+        -DEXPECT_SUBSTRING=benchmarks/string/concat_small
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
+
+add_test(NAME benches_table_smoke
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_benchmarks_tests>
+        -DARGS=--bench-filter=benchmarks/*\ --bench-table
+        -DEXPECT_SUBSTRING=Summary\ \(benchmarks\)
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
+
+# Jitter: histogram header and suite table header
+add_test(NAME jitter_hist_header
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_benchmarks_tests>
+        -DARGS=--run-jitter=benchmarks/math/sin_jitter\ --jitter-bins=5
+        -DEXPECT_SUBSTRING=histogram\ \(
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
+
+add_test(NAME jitter_suite_table_smoke
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=$<TARGET_FILE:gentest_benchmarks_tests>
+        -DARGS=--jitter-filter=benchmarks/*
+        -DEXPECT_SUBSTRING=Jitter\ \(benchmarks\)
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
