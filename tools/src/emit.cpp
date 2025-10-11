@@ -98,14 +98,21 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     // Include sources in the generated file so fixture types are visible
     namespace fs = std::filesystem;
     std::string    includes;
+    const char* no_inc_env = std::getenv("GENTEST_NO_INCLUDE_SOURCES");
+    const bool skip_includes = (no_inc_env && *no_inc_env && std::string_view(no_inc_env) != "0");
     const fs::path out_dir = options.output_path.has_parent_path() ? options.output_path.parent_path() : fs::current_path();
     for (const auto &src : options.sources) {
+        if (skip_includes) break;
         fs::path        spath(src);
         std::error_code ec;
         fs::path        rel = fs::proximate(spath, out_dir, ec);
         if (ec)
             rel = spath;
-        includes += fmt::format("#include \"{}\"\n", rel.generic_string());
+        std::string inc = rel.generic_string();
+        // Bazel note: when output_dir is under bazel-out, proximate may produce deep ../../.. paths;
+        // fallback to the original source path which is resolved by -I tests/include.
+        if (inc.find("..") != std::string::npos) inc = spath.generic_string();
+        includes += fmt::format("#include \"{}\"\n", inc);
     }
     replace_all(output, "{{INCLUDE_SOURCES}}", includes);
 

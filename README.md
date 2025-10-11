@@ -591,6 +591,32 @@ Measure compile times for the generator, code generation, and test builds.
 
 Outputs are written to `<build>/compile_bench.json` and printed with three numbers:
 1) Generator compile time, 2) Codegen time (sum of gentest_codegen invocations), 3) Test build time.
+
+## Alternative Builds (Experimental)
+
+Meson, Bazel, and Xmake support is provided for convenience. These flows reuse the compiled runtime and build the generator via CMake under the hood. Having `cmake` available on PATH is required.
+
+- Meson
+  - Setup and run minimal suites (unit, integration, fixtures, skiponly):
+    - `meson setup build/meson -Dcodegen_path=$PWD/build/debug-system/tools/gentest_codegen`
+    - `meson compile -C build/meson`
+    - `meson test -C build/meson`
+
+- Bazel
+  - Quick start (unit suite shown):
+    - `bazel test //:gentest_unit_bazel`
+  - The build invokes CMake to compile `tools/gentest_codegen` inside a genrule, then generates and builds the suite.
+  - Minimal target set wired: `gentest_unit_bazel`, `gentest_integration_bazel`, `gentest_fixtures_bazel`, `gentest_skiponly_bazel`.
+
+- Xmake
+  - Quick start (unit suite shown):
+    - `xmake b gentest_unit_xmake`
+    - `xmake r gentest_unit_xmake`
+  - If `GENTEST_CODEGEN` is not set, the build runs CMake once to build the generator to `build/xmake-codegen` and reuses it.
+
+Notes
+- These integrations are intentionally minimal. They rely on the same source tree and headers and expect a system `fmt` header (we compile the runtime with `FMT_HEADER_ONLY`).
+- For Bazel, the generator is built via CMake in a genrule and executed locally (non-hermetic). This is acceptable for local and experimental CI use.
   (wstring, u8string, u16string, u32string and their corresponding char* forms). Values are quoted with the appropriate prefix.
 - Char-like types (char, wchar_t, char8_t, char16_t, char32_t) are wrapped as character literals when a single character; otherwise
   the token is used verbatim (or you can provide explicit literals).
