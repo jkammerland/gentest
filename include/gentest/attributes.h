@@ -30,6 +30,7 @@
 // Benchmarking:
 //   [[using gentest : bench("suite/name")]]
 //   [[using gentest : jitter("suite/name")]]
+//   [[using gentest : baseline]] // optional: marks a bench as baseline within the suite
 //
 // Parameter generators (global convenience):
 //   [[using gentest : range(i, 1, 2, 9)]]                 // 1,3,5,7,9 (integers)

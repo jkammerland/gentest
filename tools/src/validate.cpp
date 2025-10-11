@@ -76,6 +76,13 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             summary.case_name    = attr.arguments.front();
             summary.is_benchmark = true;
+        } else if (lowered == "baseline") {
+            if (!attr.arguments.empty()) {
+                summary.had_error = true;
+                report("'baseline' does not take arguments");
+                continue;
+            }
+            summary.is_baseline = true;
         } else if (lowered == "jitter") {
             if (saw_jitter) {
                 summary.had_error = true;

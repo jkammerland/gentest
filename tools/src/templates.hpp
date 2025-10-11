@@ -109,6 +109,7 @@ struct Case {
     unsigned                          line;
     bool                              is_benchmark;
     bool                              is_jitter;
+    bool                              is_baseline;
     std::span<const std::string_view> tags;
     std::span<const std::string_view> requirements;
     std::string_view                  skip_reason;
@@ -387,8 +388,20 @@ int handle_bench_cli(std::span<const char*> args) {
     }
     BenchConfig cfg = parse_bench_config(args);
     const bool print_table = [] (std::span<const char*> a){ for (auto* p: a) if (p && std::string_view(p) == "--bench-table") return true; return false; }(args);
-    struct Row{ std::string name; std::size_t iters; std::size_t epochs; double best; double median; double mean; double ops_s; };
+    struct Row{ std::string suite; std::string name; std::string row_key; bool is_baseline; std::size_t iters; std::size_t epochs; double best; double median; double mean; double ops_s; };
     std::vector<Row> rows;
+    auto row_key_of = [](std::string_view full) -> std::string {
+        std::size_t p1 = full.find('<');
+        std::size_t p2 = full.find('(');
+        std::size_t pos = std::min(p1 == std::string::npos ? full.size() : p1, p2 == std::string::npos ? full.size() : p2);
+        if (pos >= full.size()) return std::string{};
+        return std::string(full.substr(pos));
+    };
+    auto base_name_of = [&](std::string_view full) -> std::string {
+        std::string rk = row_key_of(full);
+        if (rk.empty()) return std::string(full);
+        return std::string(full.substr(0, full.size() - rk.size()));
+    };
     // Group by fixture and lifetime similar to tests
     bool had_failures = false;
     for (auto i : sel) {
@@ -411,7 +424,7 @@ int handle_bench_cli(std::span<const char*> args) {
             const double ops_per_s = result.mean_ns > 0.0 ? (1e9 / result.mean_ns) : 0.0;
             fmt::print("  epochs: {}  iters/epoch: {}\n", result.epochs, result.iters_per_epoch);
             fmt::print("  ns/op  best: {:.2f}  median: {:.2f}  mean: {:.2f}  ({:.2f} ops/s)\n", result.best_ns, result.median_ns, result.mean_ns, ops_per_s);
-            if (print_table) rows.push_back(Row{std::string(c.name), result.iters_per_epoch, result.epochs, result.best_ns, result.median_ns, result.mean_ns, ops_per_s});
+            rows.push_back(Row{std::string(c.suite), base_name_of(c.name), row_key_of(c.name), c.is_baseline, result.iters_per_epoch, result.epochs, result.best_ns, result.median_ns, result.mean_ns, ops_per_s});
         } catch (const std::exception& e) {
             fmt::print(stderr, "[ FAIL ] {} :: exception: {}\n", c.name, e.what());
             return 1;
@@ -420,11 +433,28 @@ int handle_bench_cli(std::span<const char*> args) {
             return 1;
         }
     }
-    if (print_table) {
-        fmt::print("\nSummary (benchmarks)\n");
-        fmt::print("{:>8}  {:<50}  {:>12}  {:>10}  {:>10}  {:>10}  {:>12}\n", "epochs", "name", "iters/epoch", "best(ns)", "median(ns)", "mean(ns)", "ops/s");
-        for (const auto& r : rows) {
-            fmt::print("{:>8}  {:<50}  {:>12}  {:>10.2f}  {:>10.2f}  {:>10.2f}  {:>12.2f}\n", r.epochs, r.name, r.iters, r.best, r.median, r.mean, r.ops_s);
+    // Group and print per suite summary tables (median-based, relative to baseline)
+    if (!rows.empty()) {
+        // suite -> row_key -> vector<Row>
+        std::map<std::string, std::map<std::string, std::vector<Row>>> by_suite;
+        for (const auto& r : rows) by_suite[r.suite][r.row_key].push_back(r);
+        for (auto& [suite, by_row] : by_suite) {
+            fmt::print("\nSummary ({} ) — metric: median ns/op\n", suite);
+            for (auto& [rk, vec] : by_row) {
+                std::string row_hdr = rk.empty() ? std::string("(single)") : rk;
+                fmt::print("  row: {}\n", row_hdr);
+                // Find baseline entry for this row
+                const Row* baseline = nullptr;
+                for (const auto& r : vec) if (r.is_baseline) { baseline = &r; break; }
+                if (!baseline && !vec.empty()) baseline = &vec.front();
+                fmt::print("    {:>6}  {:<50}  {:>12}  {:>10}  {:>10}  {:>10}  {:>12}  {:>7}\n",
+                           "epochs", "name", "iters/epoch", "best(ns)", "median(ns)", "mean(ns)", "ops/s", "rel%" );
+                for (const auto& r : vec) {
+                    double rel = baseline && baseline->median > 0.0 ? ((r.median - baseline->median) / baseline->median) * 100.0 : 0.0;
+                    fmt::print("    {:>6}  {:<50}  {:>12}  {:>10.2f}  {:>10.2f}  {:>10.2f}  {:>12.2f}  {:>+6.1f}%\n",
+                               r.epochs, r.name, r.iters, r.best, r.median, r.mean, r.ops_s, rel);
+                }
+            }
         }
     }
     if (print_table) {
@@ -479,6 +509,8 @@ int handle_jitter_cli(std::span<const char*> args) {
     const char* run_exact = wants_run_jitter(args); const char* filter_pat = wants_jitter_filter(args); if (!run_exact && !filter_pat) return -1;
     std::vector<std::size_t> sel; if (run_exact) { for (std::size_t i=0;i<kCases.size();++i) if (kCases[i].is_jitter && std::string_view(kCases[i].name)==run_exact) { sel.push_back(i); break; } if (sel.empty()) { fmt::print(stderr, "Jitter benchmark not found: {}\n", run_exact); return 1; } } else { for (std::size_t i=0;i<kCases.size();++i) if (kCases[i].is_jitter && wildcard_match(kCases[i].name, filter_pat)) sel.push_back(i); if (sel.empty()) { fmt::print("Matched 0 jitter benchmark(s).\n"); return 0; } }
     BenchConfig cfg = parse_bench_config(args); std::size_t bins = parse_bins(args);
+    struct JRow { std::string suite; std::string name; std::size_t iters; std::size_t epochs; double mean; double stddev; double cv_pct; double minv; double maxv; std::size_t failed_expect_epochs; };
+    std::vector<JRow> jrows;
     for (auto i : sel) {
         const auto& c = kCases[i]; void* ctx=nullptr; switch (c.fixture_lifetime) { case FixtureLifetime::MemberSuite: case FixtureLifetime::MemberGlobal: if (c.acquire_fixture) ctx=c.acquire_fixture(c.suite); break; case FixtureLifetime::MemberEphemeral: case FixtureLifetime::None: default: ctx=nullptr; break; }
         try {
@@ -506,8 +538,23 @@ int handle_jitter_cli(std::span<const char*> args) {
                 fmt::print("  FAILED (EXPECT): {:>6} ({:>5.1f}% )\n", failed_expect_epochs, pct);
             }
             if (killed_by_assert) { fmt::print(stderr, "  ABORTED: ASSERT encountered; jitter run terminated early.\n"); return 1; }
+            double cv = js.mean_ns > 0.0 ? (js.stddev_ns / js.mean_ns) * 100.0 : 0.0;
+            jrows.push_back(JRow{std::string(c.suite), std::string(c.name), iters, ns_per_iter.size(), js.mean_ns, js.stddev_ns, cv, js.min_ns, js.max_ns, failed_expect_epochs});
             if (failed_expect_epochs > 0) { return 1; }
         } catch (const std::exception& e) { fmt::print(stderr, "[ FAIL ] {} :: exception: {}\n", c.name, e.what()); return 1; } catch (...) { fmt::print(stderr, "[ FAIL ] {} :: unknown exception\n", c.name); return 1; }
+    }
+    if (!jrows.empty()) {
+        std::map<std::string, std::vector<JRow>> by_suite;
+        for (const auto& r : jrows) by_suite[r.suite].push_back(r);
+        for (const auto& [suite, vec] : by_suite) {
+            fmt::print("\nJitter ({})\n", suite);
+            fmt::print("  {:<50}  {:>12}  {:>6}  {:>10}  {:>10}  {:>7}  {:>10}  {:>10}  {:>8}\n",
+                       "name", "iters/epoch", "epochs", "mean(ns)", "stddev(ns)", "CV(%)", "min(ns)", "max(ns)", "EXPECT");
+            for (const auto& r : vec) {
+                fmt::print("  {:<50}  {:>12}  {:>6}  {:>10.2f}  {:>10.2f}  {:>7.1f}  {:>10.2f}  {:>10.2f}  {:>8}\n",
+                           r.name, r.iters, r.epochs, r.mean, r.stddev, r.cv_pct, r.minv, r.maxv, r.failed_expect_epochs);
+            }
+        }
     }
     return 0;
 }
@@ -1080,6 +1127,7 @@ inline constexpr std::string_view case_entry = R"FMT(    Case{{
         .line = {line},
         .is_benchmark = {is_bench},
         .is_jitter = {is_jitter},
+        .is_baseline = {is_baseline},
         .tags = std::span{{{tags}}},
         .requirements = std::span{{{reqs}}},
         .skip_reason = {skip_reason},

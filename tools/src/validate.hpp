@@ -25,6 +25,7 @@ struct AttributeSummary {
     bool                       had_error = false;
     bool                       is_benchmark = false;
     bool                       is_jitter = false;
+    bool                       is_baseline = false;
     // Template matrix: list of (param, types...)
     std::vector<std::pair<std::string, std::vector<std::string>>> template_sets;
     std::vector<std::pair<std::string, std::vector<std::string>>> template_nttp_sets;
