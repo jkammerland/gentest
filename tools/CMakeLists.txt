@@ -70,12 +70,9 @@ endif()
 # Prefer the monolithic clang-cpp when exported by the installed Clang
 # package; fall back to granular libraries otherwise.
 if(TARGET clang-cpp)
-    # clang-cpp contains most Clang components, but Tooling may still
-    # be provided as a separate library on some platforms.
+    # Prefer monolithic shared library only; avoid mixing with static
+    # Tooling/Frontend libs to prevent undefined refs due to order/RTTI.
     set(_gentest_clang_libs clang-cpp)
-    if(TARGET clangTooling)
-        list(APPEND _gentest_clang_libs clangTooling)
-    endif()
 else()
     set(_gentest_clang_libs
         clangTooling
