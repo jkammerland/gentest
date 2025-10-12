@@ -18,12 +18,12 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup CMake
-        uses: actions/setup-cmake@v3
+        uses: jwlawson/actions-setup-cmake@v2.0.2
         with:
           cmake-version: '3.31.x'
 
       - name: Setup LLVM (20)
-        uses: llvm/actions/setup-llvm@v1
+        uses: KyleMayes/install-llvm-action@v2
         with:
           version: '20'
 
@@ -48,4 +48,3 @@ jobs:
           CMAKE_PREFIX_PATH: "$LLVM_PATH;${{ env.CMAKE_PREFIX_PATH }}"
         run: |
           bazel test //:gentest_unit_bazel
-

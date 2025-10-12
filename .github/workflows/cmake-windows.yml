@@ -14,12 +14,12 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup CMake
-        uses: actions/setup-cmake@v3
+        uses: jwlawson/actions-setup-cmake@v2.0.2
         with:
           cmake-version: '3.31.x'
 
       - name: Setup LLVM (20)
-        uses: llvm/actions/setup-llvm@v1
+        uses: KyleMayes/install-llvm-action@v2
         with:
           version: '20'
 
@@ -29,11 +29,11 @@ jobs:
           choco install -y ninja
 
       - name: Setup vcpkg (manifest mode)
-        uses: microsoft/setup-vcpkg@v1
+        uses: lukka/run-vcpkg@v11.5
         with:
           vcpkgDirectory: '${{ runner.temp }}/vcpkg'
-          runVcpkgInstall: false
-          appendedCacheKey: windows
+          vcpkgJsonGlob: 'vcpkg.json'
+          runVcpkgInstall: true
 
       - name: Configure (Release, LLVM + vcpkg)
         shell: bash
@@ -41,7 +41,7 @@ jobs:
           cmake -G Ninja -S . -B build/ci \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+            -DCMAKE_TOOLCHAIN_FILE="${{ runner.temp }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_FEATURE_FLAGS=manifests,versions \
             -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
             -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
@@ -53,4 +53,3 @@ jobs:
       - name: Test
         shell: bash
         run: ctest --test-dir build/ci --output-on-failure -j 2
-
