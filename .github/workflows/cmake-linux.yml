@@ -9,6 +9,10 @@ on:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm: [18, 19, 20]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -18,10 +22,23 @@ jobs:
         with:
           cmake-version: '3.31.x'
 
-      - name: Setup LLVM (20)
+      - name: Setup LLVM (apt, 18)
+        if: matrix.llvm == 18
+        shell: bash
+        run: |
+          sudo apt-get update
+          # Prefer distro packages for LLVM 18
+          sudo apt-get install -y \
+            clang-18 llvm-18-dev libclang-18-dev libclang-cpp18
+          echo "LLVM_PATH=/usr/lib/llvm-18" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=/usr/lib/llvm-18/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=/usr/lib/llvm-18/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+
+      - name: Setup LLVM (action, 19/20)
+        if: matrix.llvm != 18
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: '20'
+          version: ${{ matrix.llvm }}
 
       - name: Install deps (Linux)
         run: |

@@ -14,7 +14,10 @@ set(CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP 0)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-add_subdirectory(tools)
+option(GENTEST_BUILD_CODEGEN "Build gentest code generator (requires LLVM/Clang)" ON)
+if(GENTEST_BUILD_CODEGEN)
+    add_subdirectory(tools)
+endif()
 include(GentestCodegen)
 add_subdirectory(src)
 

@@ -1,0 +1,86 @@
+name: CMake
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2.0.2
+        with:
+          cmake-version: '3.31.x'
+
+      - name: Setup LLVM (20)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: '20'
+
+      # Dependencies per-OS
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libfmt-dev
+
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install ninja fmt
+
+      - name: Install deps (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          choco install -y ninja
+
+      - name: Setup vcpkg (Windows only)
+        if: runner.os == 'Windows'
+        uses: lukka/run-vcpkg@v11.5
+        with:
+          vcpkgDirectory: '${{ runner.temp }}/vcpkg'
+          vcpkgJsonGlob: 'vcpkg.json'
+          runVcpkgInstall: true
+
+      # Configure
+      - name: Configure (CMake + Ninja)
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cmake -G Ninja -S . -B build/ci \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+              -DCMAKE_TOOLCHAIN_FILE="${{ runner.temp }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+              -DVCPKG_FEATURE_FLAGS=manifests,versions \
+              -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
+              -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
+          else
+            cmake -G Ninja -S . -B build/ci \
+              -DCMAKE_BUILD_TYPE=Debug \
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+              -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
+              -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
+          fi
+
+      - name: Build
+        shell: bash
+        run: cmake --build build/ci -j 2
+
+      - name: Test
+        shell: bash
+        run: ctest --test-dir build/ci --output-on-failure -j 2
+
