@@ -7,17 +7,43 @@ on:
     branches: [ master ]
 
 jobs:
-  meson-bazel-xmake:
-    runs-on: ubuntu-latest
+  alt-builds:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install tools
+      - name: Setup Python (for Meson)
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install base tools (Linux)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build meson bazel xmake libfmt-dev
+          sudo apt-get install -y cmake ninja-build meson xmake libfmt-dev
+
+      - name: Install base tools (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew update
+          brew install cmake ninja meson xmake fmt
+
+      - name: Install base tools (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          choco install -y cmake ninja meson xmake
+
+      - name: Setup Bazelisk
+        uses: bazelbuild/setup-bazelisk@v2
 
       - name: Build generator via CMake (for Meson/Xmake)
         shell: bash
@@ -36,7 +62,8 @@ jobs:
           meson compile -C build/meson gentest_unit_meson
           meson test -C build/meson meson_unit
 
-      - name: Bazel unit test
+      - name: Bazel unit test (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           bazel test //:gentest_unit_bazel

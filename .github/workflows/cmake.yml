@@ -76,22 +76,29 @@ jobs:
         run: |
           choco install -y cmake ninja llvm
 
-      - name: Configure (Release using LLVM; tests disabled)
+      - name: Setup vcpkg (manifest mode)
+        uses: microsoft/setup-vcpkg@v1
+        with:
+          vcpkgDirectory: '${{ runner.temp }}/vcpkg'
+          runVcpkgInstall: false
+          appendedCacheKey: windows
+
+      - name: Configure (Release, LLVM + vcpkg; tests enabled)
         shell: bash
         run: |
           LLVM_ROOT="C:/Program Files/LLVM"
           cmake -G Ninja -S . -B build/ci \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -Dgentest_BUILD_TESTING=OFF \
+            -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_FEATURE_FLAGS=manifests,versions \
             -DLLVM_DIR="$LLVM_ROOT/lib/cmake/llvm" \
             -DClang_DIR="$LLVM_ROOT/lib/cmake/clang"
 
       - name: Build
         shell: bash
-        run: cmake --build build/ci -j 2 --target gentest_runtime tools/gentest_codegen
+        run: cmake --build build/ci -j 2
 
-      - name: Test (skipped)
-        if: ${{ always() }}
+      - name: Test
         shell: bash
-        run: echo "Windows CI: tests disabled for simplicity (no fmt vendor); runtime+codegen built"
+        run: ctest --test-dir build/ci --output-on-failure -j 2
