@@ -34,13 +34,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libfmt-dev
+          sudo apt-get install -y ninja-build libfmt-dev libboost-json-dev
 
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install ninja fmt
+          brew install ninja fmt boost
 
       - name: Install deps (Windows)
         if: runner.os == 'Windows'
@@ -66,6 +66,7 @@ jobs:
               -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
               -DCMAKE_TOOLCHAIN_FILE="${{ runner.temp }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
               -DVCPKG_FEATURE_FLAGS=manifests,versions \
+              -DCMAKE_PREFIX_PATH="${{ runner.temp }}/vcpkg/installed/x64-windows;$LLVM_PATH" \
               -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
               -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
           else
@@ -83,4 +84,3 @@ jobs:
       - name: Test
         shell: bash
         run: ctest --test-dir build/ci --output-on-failure -j 2
-

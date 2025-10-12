@@ -34,7 +34,7 @@ jobs:
       - name: Install deps (Homebrew)
         run: |
           brew update
-          brew install ninja fmt
+          brew install ninja fmt boost
 
       - name: Configure (Debug)
         shell: bash

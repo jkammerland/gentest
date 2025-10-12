@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "Attribute-driven test discovery with clang tooling",
   "dependencies": [
-    "fmt"
+    "fmt",
+    "boost-json"
   ]
 }
