@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <exception>
 #include <mutex>
 #include <source_location>
 #include <span>
