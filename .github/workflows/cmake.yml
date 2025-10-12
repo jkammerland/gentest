@@ -11,15 +11,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Install deps (CMake, Ninja, LLVM/Clang 20, fmt)
+      - name: Setup CMake
+        uses: actions/setup-cmake@v3
+        with:
+          cmake-version: '3.31.x'
+
+      - name: Setup LLVM (20)
+        uses: llvm/actions/setup-llvm@v1
+        with:
+          version: '20'
+
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build curl lsb-release gnupg libfmt-dev
-          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 20 all
+          sudo apt-get install -y ninja-build libfmt-dev
 
       - name: Configure (Debug + system LLVM/Clang)
         shell: bash
@@ -42,12 +50,22 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Setup CMake
+        uses: actions/setup-cmake@v3
+        with:
+          cmake-version: '3.31.x'
+
+      - name: Setup LLVM (20)
+        uses: llvm/actions/setup-llvm@v1
+        with:
+          version: '20'
 
       - name: Install deps (Homebrew)
         run: |
           brew update
-          brew install cmake ninja llvm fmt
+          brew install ninja fmt
 
       - name: Configure (Debug using Homebrew LLVM)
         shell: bash
@@ -69,12 +87,22 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Install deps (Chocolatey)
+      - name: Setup CMake
+        uses: actions/setup-cmake@v3
+        with:
+          cmake-version: '3.31.x'
+
+      - name: Setup LLVM (20)
+        uses: llvm/actions/setup-llvm@v1
+        with:
+          version: '20'
+
+      - name: Install Ninja (Chocolatey)
         shell: powershell
         run: |
-          choco install -y cmake ninja llvm
+          choco install -y ninja
 
       - name: Setup vcpkg (manifest mode)
         uses: microsoft/setup-vcpkg@v1
@@ -86,14 +114,13 @@ jobs:
       - name: Configure (Release, LLVM + vcpkg; tests enabled)
         shell: bash
         run: |
-          LLVM_ROOT="C:/Program Files/LLVM"
           cmake -G Ninja -S . -B build/ci \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_FEATURE_FLAGS=manifests,versions \
-            -DLLVM_DIR="$LLVM_ROOT/lib/cmake/llvm" \
-            -DClang_DIR="$LLVM_ROOT/lib/cmake/clang"
+            -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
+            -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
 
       - name: Build
         shell: bash
