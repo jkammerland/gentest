@@ -27,10 +27,25 @@ if(DEFINED LLVM_INCLUDE_DIRS)
     target_include_directories(gentest_codegen PRIVATE ${LLVM_INCLUDE_DIRS})
 endif()
 
+# Prefer explicit Clang include dirs if exported by the package
+if(DEFINED Clang_INCLUDE_DIRS)
+    target_include_directories(gentest_codegen PRIVATE ${Clang_INCLUDE_DIRS})
+endif()
+if(DEFINED CLANG_INCLUDE_DIRS)
+    target_include_directories(gentest_codegen PRIVATE ${CLANG_INCLUDE_DIRS})
+endif()
+
 if(TARGET clangTooling)
     get_target_property(_gentest_clang_includes clangTooling INTERFACE_INCLUDE_DIRECTORIES)
     if(_gentest_clang_includes)
         target_include_directories(gentest_codegen PRIVATE ${_gentest_clang_includes})
+    endif()
+endif()
+
+if(TARGET clang-cpp)
+    get_target_property(_gentest_clangcpp_includes clang-cpp INTERFACE_INCLUDE_DIRECTORIES)
+    if(_gentest_clangcpp_includes)
+        target_include_directories(gentest_codegen PRIVATE ${_gentest_clangcpp_includes})
     endif()
 endif()
 
@@ -46,15 +61,18 @@ endif()
   # - If dynamic monoliths are available and required, use clang-cpp + LLVM.
   # - If GENTEST_LLVM_DYNAMIC_ONLY is OFF, fall back to granular component linking when needed.
   set(_gentest_link_libs)
+  set(_gentest_using_monoliths OFF)
   if(GENTEST_LLVM_DYNAMIC_ONLY)
     if(TARGET clang-cpp AND TARGET LLVM)
       set(_gentest_link_libs clang-cpp;LLVM)
+      set(_gentest_using_monoliths ON)
     else()
       message(FATAL_ERROR "GENTEST_LLVM_DYNAMIC_ONLY=ON but required monolithic targets are missing (clang-cpp and/or LLVM)")
     endif()
   else()
     if(TARGET clang-cpp AND TARGET LLVM)
       set(_gentest_link_libs clang-cpp;LLVM)
+      set(_gentest_using_monoliths ON)
     else()
       # Fallback to granular component libraries
       set(_gentest_clang_libs
@@ -78,7 +96,7 @@ endif()
     endif()
   endif()
 
-  if(UNIX AND NOT APPLE)
+  if(UNIX AND NOT APPLE AND NOT _gentest_using_monoliths)
     # On Linux with static archives in imported targets, a rescan group helps resolve cycles
     target_link_libraries(gentest_codegen PRIVATE $<LINK_GROUP:RESCAN,${_gentest_link_libs}>)
   else()
@@ -95,6 +113,8 @@ endif()
   endif()
 
   unset(_gentest_clang_includes)
+  unset(_gentest_clangcpp_includes)
   unset(_gentest_clang_libs)
   unset(_gentest_llvm_libs)
   unset(_gentest_link_libs)
+  unset(_gentest_using_monoliths)
