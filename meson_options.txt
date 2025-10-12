@@ -1,0 +1,2 @@
+option('codegen_path', type: 'string', value: '', description: 'Path to gentest_codegen')
+

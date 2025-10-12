@@ -1,0 +1,49 @@
+name: Alt Builds (Meson/Bazel/Xmake)
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  meson-bazel-xmake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build meson bazel xmake libfmt-dev
+
+      - name: Build generator via CMake (for Meson/Xmake)
+        shell: bash
+        run: |
+          cmake -G Ninja -S . -B build/codegen -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/codegen --target gentest_codegen -j 2
+
+      - name: Meson configure (with codegen)
+        shell: bash
+        run: |
+          meson setup build/meson -Dcodegen_path="$GITHUB_WORKSPACE/build/codegen/tools/gentest_codegen"
+
+      - name: Meson unit test
+        shell: bash
+        run: |
+          meson compile -C build/meson gentest_unit_meson
+          meson test -C build/meson meson_unit
+
+      - name: Bazel unit test
+        shell: bash
+        run: |
+          bazel test //:gentest_unit_bazel
+
+      - name: Xmake unit test
+        shell: bash
+        run: |
+          xmake f -y
+          xmake b gentest_unit_xmake
+          xmake r gentest_unit_xmake

@@ -1,0 +1,97 @@
+name: CMake (Linux)
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps (CMake, Ninja, LLVM/Clang 20, fmt)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build curl lsb-release gnupg libfmt-dev
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 20 all
+
+      - name: Configure (Debug + system LLVM/Clang)
+        shell: bash
+        run: |
+          LLVM_CMAKE_DIR=$(llvm-config-20 --cmakedir)
+          CLANG_CMAKE_DIR=/usr/lib/llvm-20/lib/cmake/clang
+          cmake -G Ninja -S . -B build/ci \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DLLVM_DIR="$LLVM_CMAKE_DIR" \
+            -DClang_DIR="$CLANG_CMAKE_DIR"
+
+      - name: Build
+        run: cmake --build build/ci -j 2
+
+      - name: Test
+        run: ctest --test-dir build/ci --output-on-failure -j 2
+
+  build-test-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps (Homebrew)
+        run: |
+          brew update
+          brew install cmake ninja llvm fmt
+
+      - name: Configure (Debug using Homebrew LLVM)
+        shell: bash
+        run: |
+          LLVM_PREFIX=$(brew --prefix llvm)
+          cmake -G Ninja -S . -B build/ci \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DLLVM_DIR="$LLVM_PREFIX/lib/cmake/llvm" \
+            -DClang_DIR="$LLVM_PREFIX/lib/cmake/clang"
+
+      - name: Build
+        run: cmake --build build/ci -j 2
+
+      - name: Test
+        run: ctest --test-dir build/ci --output-on-failure -j 2
+
+  build-test-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps (Chocolatey)
+        shell: powershell
+        run: |
+          choco install -y cmake ninja llvm
+
+      - name: Configure (Release using LLVM; tests disabled)
+        shell: bash
+        run: |
+          LLVM_ROOT="C:/Program Files/LLVM"
+          cmake -G Ninja -S . -B build/ci \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -Dgentest_BUILD_TESTING=OFF \
+            -DLLVM_DIR="$LLVM_ROOT/lib/cmake/llvm" \
+            -DClang_DIR="$LLVM_ROOT/lib/cmake/clang"
+
+      - name: Build
+        shell: bash
+        run: cmake --build build/ci -j 2 --target gentest_runtime tools/gentest_codegen
+
+      - name: Test (skipped)
+        if: ${{ always() }}
+        shell: bash
+        run: echo "Windows CI: tests disabled for simplicity (no fmt vendor); runtime+codegen built"
