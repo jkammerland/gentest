@@ -92,11 +92,15 @@ else()
     llvm_map_components_to_libnames(_gentest_llvm_libs Support)
 endif()
 
-target_link_libraries(gentest_codegen
-    PRIVATE
-        ${_gentest_clang_libs}
-        ${_gentest_llvm_libs}
-        fmt::fmt)
+set(_gentest_all_libs ${_gentest_clang_libs};${_gentest_llvm_libs};fmt::fmt)
+
+# On Linux with static archives in the interface of imported targets,
+# circular dependencies require a link group so the resolver can rescan.
+if(UNIX AND NOT APPLE)
+    target_link_libraries(gentest_codegen PRIVATE $<LINK_GROUP:RESCAN,${_gentest_all_libs}>)
+else()
+    target_link_libraries(gentest_codegen PRIVATE ${_gentest_all_libs})
+endif()
 
 # Provide generator with project version for --help output in generated code
 
@@ -111,3 +115,4 @@ endif()
 unset(_gentest_llvm_libs)
 unset(_gentest_clang_includes)
 unset(_gentest_clang_libs)
+unset(_gentest_all_libs)
