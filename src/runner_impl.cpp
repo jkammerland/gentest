@@ -456,6 +456,21 @@ static void write_reports(const char* junit_path, const char* allure_dir) {
                 ex["message"] = it.failures.front();
                 obj["statusDetails"] = std::move(ex);
             }
+            // Attach logs as an Allure attachment when present
+            if (!it.logs.empty()) {
+                const std::string attach_name = "result-" + std::to_string(static_cast<unsigned>(idx)) + "-attachment.txt";
+                const std::string attach_path = std::string(allure_dir) + "/" + attach_name;
+                std::ofstream aout(attach_path, std::ios::binary);
+                if (aout) {
+                    for (const auto& ln : it.logs) { aout << ln << '\n'; }
+                }
+                boost::json::array atts;
+                boost::json::object att;
+                att["name"] = "logs";
+                att["source"] = attach_name;
+                atts.push_back(std::move(att));
+                obj["attachments"] = std::move(atts);
+            }
             const std::string file = std::string(allure_dir) + "/result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json";
             std::ofstream out(file, std::ios::binary);
             if (out) out << boost::json::serialize(obj);

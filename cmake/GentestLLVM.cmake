@@ -92,6 +92,16 @@ function(gentest_find_llvm_clang)
     endforeach()
   endif()
 
+  # Fallback: derive include root from LLVM install prefix exported by LLVMConfig
+  if(NOT _validated_incs)
+    if(DEFINED LLVM_INSTALL_PREFIX)
+      set(_cand "${LLVM_INSTALL_PREFIX}/include")
+      if(EXISTS "${_cand}/clang/AST/AST.h")
+        list(APPEND _validated_incs "${_cand}")
+      endif()
+    endif()
+  endif()
+
   if(_validated_incs)
     set(GENTEST_CLANG_INCLUDE_DIRS "${_validated_incs}" PARENT_SCOPE)
   endif()

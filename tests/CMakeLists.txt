@@ -452,7 +452,7 @@ add_test(NAME allure_smoke_single
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_unit_tests>
         -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/result-0-result.json
-        -DEXPECT_SUBSTRING=status\":\ \"passed
+        -DEXPECT_SUBSTRING=\"status\":\"passed\"
         -DARGS=--run-test=unit/arithmetic/sum\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
 
@@ -461,7 +461,7 @@ add_test(NAME allure_logs_attachment
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_failing_tests>
         -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-result.json
-        -DEXPECT_SUBSTRING=\"attachments\":\ \[\ {\ \"name\"\:\ \"logs\"\,\ \"source\"\:\ \"result-0-attachment.txt\"
+        -DEXPECT_SUBSTRING=\"attachments\":[{\"name\":\"logs\",\"source\":\"result-0-attachment.txt\"}]
         -DARGS=--run-test=failing/logging/attachment\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs
         -P ${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake)
 

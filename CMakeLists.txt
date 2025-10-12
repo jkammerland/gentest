@@ -16,18 +16,30 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option(GENTEST_BUILD_CODEGEN "Build gentest code generator (requires LLVM/Clang)" ON)
 if(GENTEST_BUILD_CODEGEN)
-    add_subdirectory(tools)
+add_subdirectory(tools)
 endif()
 include(GentestCodegen)
+
+# Resolve optional dependencies used by the runtime before building it
+if(GENTEST_USE_BOOST_JSON)
+    find_package(Boost QUIET CONFIG COMPONENTS json)
+    if(NOT TARGET Boost::json)
+        find_package(boost_json CONFIG REQUIRED)
+    endif()
+endif()
 add_subdirectory(src)
 
 option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
-option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
+# Enable Allure JSON writer by default; can be disabled by consumers
+option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" ON)
 option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
 if(${PROJECT_NAME}_BUILD_TESTING)
     include(CTest)
     enable_testing()
     find_package(fmt CONFIG REQUIRED)
+    if(GENTEST_USE_BOOST_JSON)
+        message(STATUS "gentest: Boost.JSON enabled")
+    endif()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
     # Optional: libassert integration tests

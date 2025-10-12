@@ -27,6 +27,20 @@ target_link_libraries(gentest_runtime
 
 target_compile_features(gentest_runtime PUBLIC cxx_std_23)
 
+# Propagate optional feature toggles to the runtime library
+if(GENTEST_USE_BOOST_JSON)
+    target_compile_definitions(gentest_runtime PUBLIC GENTEST_USE_BOOST_JSON)
+    # Link Boost.JSON when enabled (module or config)
+    if(TARGET Boost::json)
+        target_link_libraries(gentest_runtime PUBLIC Boost::json)
+    else()
+        target_link_libraries(gentest_runtime PUBLIC Boost::json)
+    endif()
+endif()
+if(GENTEST_USE_BOOST_UUID)
+    target_compile_definitions(gentest_runtime PUBLIC GENTEST_USE_BOOST_UUID)
+endif()
+
 # Glob all header files
 file(GLOB _gentest_headers
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/*.h
