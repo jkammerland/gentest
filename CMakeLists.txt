@@ -20,6 +20,11 @@ add_subdirectory(tools)
 endif()
 include(GentestCodegen)
 
+option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
+# Enable Allure JSON writer by default; can be disabled by consumers
+option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" ON)
+option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
+
 # Resolve optional dependencies used by the runtime before building it
 if(GENTEST_USE_BOOST_JSON)
     find_package(Boost QUIET CONFIG COMPONENTS json)
@@ -29,10 +34,6 @@ if(GENTEST_USE_BOOST_JSON)
 endif()
 add_subdirectory(src)
 
-option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
-# Enable Allure JSON writer by default; can be disabled by consumers
-option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" ON)
-option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
 if(${PROJECT_NAME}_BUILD_TESTING)
     include(CTest)
     enable_testing()

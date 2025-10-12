@@ -40,7 +40,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install ninja fmt boost
+          brew install boost ninja fmt
 
       - name: Install deps (Windows)
         if: runner.os == 'Windows'
@@ -66,13 +66,14 @@ jobs:
               -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
               -DCMAKE_TOOLCHAIN_FILE="${{ runner.temp }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
               -DVCPKG_FEATURE_FLAGS=manifests,versions \
-              -DCMAKE_PREFIX_PATH="${{ runner.temp }}/vcpkg/installed/x64-windows;$LLVM_PATH" \
+              -DGENTEST_LLVM_DYNAMIC_ONLY=OFF \
               -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
               -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
           else
             cmake -G Ninja -S . -B build/ci \
               -DCMAKE_BUILD_TYPE=Debug \
               -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+              -DGENTEST_LLVM_DYNAMIC_ONLY=OFF \
               -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
               -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
           fi

@@ -34,7 +34,7 @@ jobs:
       - name: Install deps (Homebrew)
         run: |
           brew update
-          brew install ninja fmt boost
+          brew install boost ninja fmt
 
       - name: Configure (Debug)
         shell: bash
@@ -42,6 +42,7 @@ jobs:
           cmake -G Ninja -S . -B build/ci \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DGENTEST_LLVM_DYNAMIC_ONLY=OFF \
             -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
             -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
 

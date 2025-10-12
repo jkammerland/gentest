@@ -46,6 +46,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_PREFIX_PATH="${{ runner.temp }}/vcpkg/installed/x64-windows;$LLVM_PATH" \
+            -Dfmt_DIR="${{ runner.temp }}/vcpkg/installed/x64-windows/share/fmt" \
+            -DGENTEST_LLVM_DYNAMIC_ONLY=OFF \
             -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
             -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
 

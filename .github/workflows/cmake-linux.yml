@@ -51,6 +51,7 @@ jobs:
           cmake -G Ninja -S . -B build/ci \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DGENTEST_LLVM_DYNAMIC_ONLY=OFF \
             -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
             -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
 
