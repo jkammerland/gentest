@@ -1,0 +1,56 @@
+name: CMake Windows
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup CMake
+        uses: actions/setup-cmake@v3
+        with:
+          cmake-version: '3.31.x'
+
+      - name: Setup LLVM (20)
+        uses: llvm/actions/setup-llvm@v1
+        with:
+          version: '20'
+
+      - name: Install Ninja (Chocolatey)
+        shell: powershell
+        run: |
+          choco install -y ninja
+
+      - name: Setup vcpkg (manifest mode)
+        uses: microsoft/setup-vcpkg@v1
+        with:
+          vcpkgDirectory: '${{ runner.temp }}/vcpkg'
+          runVcpkgInstall: false
+          appendedCacheKey: windows
+
+      - name: Configure (Release, LLVM + vcpkg)
+        shell: bash
+        run: |
+          cmake -G Ninja -S . -B build/ci \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_FEATURE_FLAGS=manifests,versions \
+            -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
+            -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
+
+      - name: Build
+        shell: bash
+        run: cmake --build build/ci -j 2
+
+      - name: Test
+        shell: bash
+        run: ctest --test-dir build/ci --output-on-failure -j 2
+

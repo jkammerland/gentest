@@ -1,4 +1,4 @@
-name: Alt Builds (Meson/Bazel/Xmake)
+name: Xmake
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ master ]
 
 jobs:
-  alt-builds:
+  xmake:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -16,31 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
-      - name: Setup Python (for Meson)
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-
-      - name: Install base tools (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build meson xmake libfmt-dev
-
-      - name: Install base tools (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          brew update
-          brew install cmake ninja meson xmake fmt
-
-      - name: Install base tools (Windows)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          choco install -y cmake ninja meson xmake
 
       - name: Setup CMake
         uses: actions/setup-cmake@v3
@@ -52,8 +27,23 @@ jobs:
         with:
           version: '20'
 
-      - name: Setup Bazelisk
-        uses: bazelbuild/setup-bazelisk@v3
+      - name: Install Xmake + deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xmake ninja-build libfmt-dev
+
+      - name: Install Xmake + deps (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install xmake ninja fmt
+
+      - name: Install Xmake + deps (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          choco install -y xmake ninja
 
       - name: Setup vcpkg (Windows only)
         if: runner.os == 'Windows'
@@ -61,9 +51,9 @@ jobs:
         with:
           vcpkgDirectory: '${{ runner.temp }}/vcpkg'
           runVcpkgInstall: false
-          appendedCacheKey: windows-alt
+          appendedCacheKey: windows-xmake
 
-      - name: Build generator via CMake (for Meson/Xmake) [non-Windows]
+      - name: Build generator (non-Windows)
         if: runner.os != 'Windows'
         shell: bash
         run: |
@@ -71,7 +61,7 @@ jobs:
             -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
           cmake --build build/codegen --target gentest_codegen -j 2
 
-      - name: Build generator via CMake (for Meson/Xmake) [Windows]
+      - name: Build generator (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
@@ -81,26 +71,10 @@ jobs:
             -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
           cmake --build build/codegen --target gentest_codegen -j 2
 
-      - name: Meson configure (with codegen)
-        shell: bash
-        run: |
-          meson setup build/meson -Dcodegen_path="$GITHUB_WORKSPACE/build/codegen/tools/gentest_codegen"
-
-      - name: Meson unit test
-        shell: bash
-        run: |
-          meson compile -C build/meson gentest_unit_meson
-          meson test -C build/meson meson_unit
-
-      - name: Bazel unit test (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          bazel test //:gentest_unit_bazel
-
-      - name: Xmake unit test
+      - name: Build + Run unit target
         shell: bash
         run: |
           xmake f -y
           xmake b gentest_unit_xmake
           xmake r gentest_unit_xmake
+
