@@ -15,6 +15,11 @@ endif()
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
 
+# Prefer dynamic monolithic libraries when available to avoid
+# platform-specific static archive quirks in CI.
+set(LLVM_LINK_LLVM_DYLIB ON CACHE BOOL "Link to libLLVM dylib if available" FORCE)
+set(CLANG_LINK_CLANG_DYLIB ON CACHE BOOL "Link to clang-cpp dylib if available" FORCE)
+
 if(GENTEST_REQUIRE_LLVM20)
     if(DEFINED LLVM_VERSION)
         set(_llvm_ver "${LLVM_VERSION}")
@@ -42,6 +47,7 @@ add_executable(gentest_codegen
     src/render.cpp
     src/tooling_support.cpp)
 
+
 target_compile_features(gentest_codegen PRIVATE cxx_std_23)
 
 ## Embedded templates are used by default; --template can point to an external file if desired
@@ -61,15 +67,21 @@ if(LLVM_ENABLE_RTTI)
     target_compile_definitions(gentest_codegen PRIVATE LLVM_ENABLE_RTTI)
 endif()
 
-set(_gentest_clang_libs
-    clangTooling
-    clangAST
-    clangASTMatchers
-    clangBasic
-    clangFrontend
-    clangLex
-    clangParse
-    clangSema)
+# Prefer the monolithic clang-cpp when exported by the installed Clang
+# package; fall back to granular libraries otherwise.
+if(TARGET clang-cpp)
+    set(_gentest_clang_libs clang-cpp)
+else()
+    set(_gentest_clang_libs
+        clangTooling
+        clangAST
+        clangASTMatchers
+        clangBasic
+        clangFrontend
+        clangLex
+        clangParse
+        clangSema)
+endif()
 
 llvm_map_components_to_libnames(_gentest_llvm_libs Support)
 
@@ -80,6 +92,7 @@ target_link_libraries(gentest_codegen
         fmt::fmt)
 
 # Provide generator with project version for --help output in generated code
+
 target_compile_definitions(gentest_codegen PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")
 
 # Toggle for template attribute validation (default ON)
