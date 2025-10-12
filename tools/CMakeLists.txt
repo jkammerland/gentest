@@ -70,7 +70,12 @@ endif()
 # Prefer the monolithic clang-cpp when exported by the installed Clang
 # package; fall back to granular libraries otherwise.
 if(TARGET clang-cpp)
+    # clang-cpp contains most Clang components, but Tooling may still
+    # be provided as a separate library on some platforms.
     set(_gentest_clang_libs clang-cpp)
+    if(TARGET clangTooling)
+        list(APPEND _gentest_clang_libs clangTooling)
+    endif()
 else()
     set(_gentest_clang_libs
         clangTooling
@@ -83,7 +88,12 @@ else()
         clangSema)
 endif()
 
-llvm_map_components_to_libnames(_gentest_llvm_libs Support)
+# Prefer LLVM shared dylib when available; otherwise, fall back to components
+if(TARGET LLVM)
+    set(_gentest_llvm_libs LLVM)
+else()
+    llvm_map_components_to_libnames(_gentest_llvm_libs Support)
+endif()
 
 target_link_libraries(gentest_codegen
     PRIVATE
