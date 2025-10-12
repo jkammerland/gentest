@@ -73,8 +73,7 @@ jobs:
         shell: bash
         run: |
           cmake -G Ninja -S . -B build/codegen -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE="${{ runner.temp }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_FEATURE_FLAGS=manifests,versions \
+            -DCMAKE_PREFIX_PATH="${{ runner.temp }}/vcpkg/installed/x64-windows;$LLVM_PATH" \
             -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
           cmake --build build/codegen --target gentest_codegen -j 2
 
