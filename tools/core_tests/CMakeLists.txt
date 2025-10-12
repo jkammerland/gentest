@@ -5,7 +5,7 @@ add_executable(gentest_core_tests
 
 target_compile_features(gentest_core_tests PRIVATE cxx_std_20)
 target_include_directories(gentest_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
-target_link_libraries(gentest_core_tests PRIVATE fmt::fmt)
+target_link_libraries(gentest_core_tests PRIVATE fmt::fmt-header-only)
 
 add_test(NAME gentest_core_parse_validate
     COMMAND gentest_core_tests)

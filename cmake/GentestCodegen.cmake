@@ -16,8 +16,20 @@ function(gentest_attach_codegen target)
         set(GENTEST_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${target}_generated.cpp")
     endif()
 
-    if(NOT TARGET gentest_codegen)
-        message(FATAL_ERROR "gentest_codegen executable target is not available")
+    # Allow external prebuilt generator if the in-tree target is disabled
+    set(_gentest_codegen_is_target FALSE)
+    if(TARGET gentest_codegen)
+        set(_gentest_codegen_is_target TRUE)
+    else()
+        # Honor explicit override or search PATH
+        if(DEFINED GENTEST_CODEGEN AND GENTEST_CODEGEN)
+            set(GENTEST_CODEGEN_EXE "${GENTEST_CODEGEN}")
+        else()
+            find_program(GENTEST_CODEGEN_EXE NAMES gentest_codegen)
+        endif()
+        if(NOT GENTEST_CODEGEN_EXE)
+            message(FATAL_ERROR "gentest_codegen is not available. Enable -DGENTEST_BUILD_CODEGEN=ON or provide a prebuilt generator via PATH or -DGENTEST_CODEGEN=/path/to/gentest_codegen")
+        endif()
     endif()
 
     get_filename_component(_gentest_output_dir "${GENTEST_OUTPUT}" DIRECTORY)
@@ -30,7 +42,13 @@ function(gentest_attach_codegen target)
     # by the generated test implementation after including sources.
     set(_gentest_mock_impl "${_gentest_output_dir}/mock_impl.hpp")
 
-    set(_command $<TARGET_FILE:gentest_codegen>
+    if(_gentest_codegen_is_target)
+        set(_codegen_launcher $<TARGET_FILE:gentest_codegen>)
+    else()
+        set(_codegen_launcher ${GENTEST_CODEGEN_EXE})
+    endif()
+
+    set(_command ${_codegen_launcher}
         --output ${GENTEST_OUTPUT}
         --entry ${GENTEST_ENTRY}
         --mock-registry ${_gentest_mock_registry}
@@ -48,7 +66,7 @@ function(gentest_attach_codegen target)
         OUTPUT ${GENTEST_OUTPUT} ${_gentest_mock_registry} ${_gentest_mock_impl}
         COMMAND ${_command}
         COMMAND_EXPAND_LISTS
-        DEPENDS gentest_codegen ${GENTEST_SOURCES} ${GENTEST_DEPENDS}
+        DEPENDS ${GENTEST_SOURCES} ${GENTEST_DEPENDS} $<$<BOOL:${_gentest_codegen_is_target}>:gentest_codegen>
         COMMENT "Generating ${GENTEST_OUTPUT} for target ${target}"
         VERBATIM
         CODEGEN
@@ -73,5 +91,7 @@ function(gentest_attach_codegen target)
     if(GENTEST_USE_BOOST_UUID)
         target_compile_definitions(${target} PRIVATE GENTEST_USE_BOOST_UUID)
     endif()
-    add_dependencies(${target} gentest_codegen)
+    if(_gentest_codegen_is_target)
+        add_dependencies(${target} gentest_codegen)
+    endif()
 endfunction()

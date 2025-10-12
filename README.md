@@ -13,15 +13,27 @@ discovered function through a single `gentest::run_all_tests` entry-point.
   `gentest_attach_codegen()` function.
 - `tests/` – two suites (`unit` and `integration`) that demonstrate codegen-driven execution through the shared
   `gentest::run_all_tests` harness.
- - The generated runtime uses `fmt::print` for output; CMake links `fmt::fmt` to test targets automatically.
+ - The generated runtime uses `fmt::print` for output; CMake links `fmt::fmt-header-only` to test targets automatically.
 
 ## Local workflow
-System toolchain (LLVM/Clang 20+ installed via your package manager):
+System toolchain (LLVM/Clang 18+ installed via your package manager):
 ```bash
 cmake --preset=debug-system
 cmake --build --preset=debug-system
 ctest --preset=debug-system --output-on-failure
 ```
+
+### LLVM/Clang Discovery
+
+Users provide their own LLVM/Clang installation (18+; 20+ preferred). The generator links against dynamic monolithic
+libraries only (`clang-cpp` and `LLVM`) for portability. Point CMake to your install by passing one of:
+
+- `-DCMAKE_PREFIX_PATH=/path/to/llvm` (e.g., `$(brew --prefix llvm@19)`, `/usr/lib/llvm-18`, `C:\\LLVM`)
+- `-DLLVM_DIR=/path/to/llvm/lib/cmake/llvm -DClang_DIR=/path/to/llvm/lib/cmake/clang`
+- `-DGENTEST_LLVM_ROOT=/path/to/llvm` (convenience; prepends to `CMAKE_PREFIX_PATH`)
+
+If you only need the runtime and not the generator, disable building the tool with `-DGENTEST_BUILD_CODEGEN=OFF` and
+optionally provide a prebuilt `gentest_codegen` on `PATH` (or pass `-DGENTEST_CODEGEN=/path/to/gentest_codegen`).
 
 ### Meson
 

@@ -124,11 +124,18 @@
       "name": "debug-system",
       "inherits": "base-debug",
       "displayName": "Debug (system LLVM/Clang)",
-      "description": "Debug build that consumes the system-installed LLVM/Clang toolchain instead of vcpkg",
+      "description": "Debug build that consumes the system-installed LLVM/Clang toolchain instead of vcpkg (no hardcoded defaults)",
       "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": null,
-        "LLVM_DIR": "/usr/local/lib/cmake/llvm",
-        "Clang_DIR": "/usr/local/lib/cmake/clang"
+        "CMAKE_TOOLCHAIN_FILE": null
+      }
+    },
+    {
+      "name": "sys-llvm-root",
+      "inherits": "base-debug",
+      "displayName": "Debug (system LLVM via GENTEST_LLVM_ROOT)",
+      "description": "Debug build using system LLVM/Clang discovered via -DGENTEST_LLVM_ROOT or CMAKE_PREFIX_PATH; no hardcoded defaults",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": null
       }
     },
     {
@@ -347,6 +354,13 @@
       "jobs": 0
     },
     {
+      "name": "sys-llvm-root",
+      "configurePreset": "sys-llvm-root",
+      "displayName": "Debug Build (system LLVM via root)",
+      "description": "Build with system-provided LLVM pointed by GENTEST_LLVM_ROOT or CMAKE_PREFIX_PATH",
+      "jobs": 0
+    },
+    {
       "name": "release",
       "configurePreset": "release",
       "displayName": "Release Build",
@@ -481,6 +495,13 @@
       "configurePreset": "debug-system",
       "displayName": "Debug Tests (system LLVM/Clang)",
       "description": "Run all tests in debug mode using the system LLVM/Clang toolchain"
+    },
+    {
+      "name": "sys-llvm-root",
+      "inherits": "test-base",
+      "configurePreset": "sys-llvm-root",
+      "displayName": "Debug Tests (system LLVM via root)",
+      "description": "Run all tests in debug mode using system LLVM/Clang discovered by GENTEST_LLVM_ROOT or CMAKE_PREFIX_PATH"
     },
     {
       "name": "release",

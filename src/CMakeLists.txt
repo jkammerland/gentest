@@ -23,7 +23,7 @@ target_include_directories(gentest_runtime
     PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
 target_link_libraries(gentest_runtime
-    PUBLIC fmt::fmt)
+    PUBLIC fmt::fmt-header-only)
 
 target_compile_features(gentest_runtime PUBLIC cxx_std_23)
 

@@ -23,7 +23,7 @@ foreach(suite IN LISTS _gentest_test_suites)
     target_link_libraries(${target_name}
         PRIVATE
             ${PROJECT_NAME}
-            fmt::fmt)
+            fmt::fmt-header-only)
 
     target_compile_features(${target_name} PRIVATE cxx_std_23)
     target_include_directories(${target_name}
@@ -51,7 +51,7 @@ unset(_gentest_test_suites)
 # Concurrency target (no default add_test to avoid suite-wide failure)
 add_executable(${PROJECT_NAME}_concurrency_tests
     support/test_entry.cpp)
-target_link_libraries(${PROJECT_NAME}_concurrency_tests PRIVATE ${PROJECT_NAME} fmt::fmt)
+target_link_libraries(${PROJECT_NAME}_concurrency_tests PRIVATE ${PROJECT_NAME} fmt::fmt-header-only)
 target_compile_features(${PROJECT_NAME}_concurrency_tests PRIVATE cxx_std_23)
 target_include_directories(${PROJECT_NAME}_concurrency_tests PRIVATE ${PROJECT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
 gentest_attach_codegen(${PROJECT_NAME}_concurrency_tests
@@ -96,8 +96,20 @@ add_test(NAME concurrency_multi_noadopt_death
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
 
 # Lint-only checks for generator
+if(TARGET gentest_codegen)
+    set(_gentest_codegen_prog $<TARGET_FILE:gentest_codegen>)
+else()
+    if(DEFINED GENTEST_CODEGEN AND GENTEST_CODEGEN)
+        set(_gentest_codegen_prog "${GENTEST_CODEGEN}")
+    else()
+        find_program(GENTEST_CODEGEN_EXE NAMES gentest_codegen)
+        set(_gentest_codegen_prog "${GENTEST_CODEGEN_EXE}")
+    endif()
+endif()
+
+if(_gentest_codegen_prog)
 add_test(NAME gentest_codegen_check_valid
-    COMMAND $<TARGET_FILE:gentest_codegen>
+    COMMAND ${_gentest_codegen_prog}
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
@@ -106,7 +118,7 @@ add_test(NAME gentest_codegen_check_valid
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
 add_test(NAME gentest_codegen_check_invalid
-    COMMAND $<TARGET_FILE:gentest_codegen>
+    COMMAND ${_gentest_codegen_prog}
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
@@ -119,31 +131,34 @@ set_tests_properties(gentest_codegen_check_invalid PROPERTIES WILL_FAIL TRUE)
 # Generator negative tests for mocks: robust diagnostics
 add_test(NAME gentest_codegen_mock_incomplete_virtual_msg
     COMMAND ${CMAKE_COMMAND}
-        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DPROG=${_gentest_codegen_prog}
         -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/incomplete_virtual_ref.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
         -DEXPECT_SUBSTRING=gentest::mock<T>: target type is incomplete
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
 
 add_test(NAME gentest_codegen_mock_virtual_defined_in_cpp_msg
     COMMAND ${CMAKE_COMMAND}
-        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DPROG=${_gentest_codegen_prog}
         -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/virtual_defined_in_cpp.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
         -DEXPECT_SUBSTRING=polymorphic target appears defined in a source file
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
 
 add_test(NAME gentest_codegen_mock_anonymous_namespace_msg
     COMMAND ${CMAKE_COMMAND}
-        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DPROG=${_gentest_codegen_prog}
         -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/anonymous_namespace_type.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
         -DEXPECT_SUBSTRING=cannot mock a type in an anonymous namespace
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
 
 add_test(NAME gentest_codegen_mock_local_class_msg
     COMMAND ${CMAKE_COMMAND}
-        -DPROG=$<TARGET_FILE:gentest_codegen>
+        -DPROG=${_gentest_codegen_prog}
         -DARGS=--check\ --compdb\ ${CMAKE_BINARY_DIR}\ ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/local_class.cpp\ --\ -std=c++23\ -I${PROJECT_SOURCE_DIR}/include\ -I${CMAKE_CURRENT_SOURCE_DIR}
         -DEXPECT_SUBSTRING=cannot mock a local class
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake)
+else()
+    message(STATUS "gentest: Skipping generator-only tests (gentest_codegen not available)")
+endif()
 
 # Generator negative tests for fixtures: disallow member tests on suite/global under strict mode
 add_test(NAME gentest_codegen_fixture_suite_member_illegal
