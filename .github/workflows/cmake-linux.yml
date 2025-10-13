@@ -29,7 +29,9 @@ jobs:
           sudo apt-get update
           # Prefer distro packages for LLVM 18
           sudo apt-get install -y \
-            clang-18 llvm-18-dev libclang-18-dev libclang-cpp18
+            clang-18 llvm-18-dev \
+            libclang-18-dev libclang-common-18-dev \
+            libclang-cpp18 libclang-cpp18-dev
           echo "LLVM_PATH=/usr/lib/llvm-18" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=/usr/lib/llvm-18/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
           echo "DYLD_LIBRARY_PATH=/usr/lib/llvm-18/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
