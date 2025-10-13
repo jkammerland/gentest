@@ -103,6 +103,54 @@ endif()
   if(TARGET clang-cpp)
     target_link_libraries(gentest_codegen PRIVATE clang-cpp)
     message(STATUS "gentest[tools]: linking gentest_codegen against 'clang-cpp' (monolith)")
+    # Some providers ship clang-cpp separate from the LLVM monolith. Our tool
+    # uses llvm::cl (CommandLine), so we may need to also link libLLVM.
+    # Prefer the imported 'LLVM' target when exported (e.g., apt llvm-18),
+    # otherwise link the libLLVM shared object by absolute path on Linux.
+    if(TARGET LLVM)
+      target_link_libraries(gentest_codegen PRIVATE LLVM)
+      message(STATUS "gentest[tools]: also linking against 'LLVM' (monolithic libLLVM target)")
+    elseif(UNIX AND NOT APPLE)
+      set(_gentest_llvm_so "")
+      # Common names across providers
+      set(_cand_paths
+        "${LLVM_INSTALL_PREFIX}/lib/libLLVM.so"
+        "${LLVM_INSTALL_PREFIX}/lib/llvm/libLLVM.so"
+      )
+      # Try versioned sonames if exact soname is present (e.g., libLLVM.so.18.1)
+      if(DEFINED LLVM_VERSION)
+        list(APPEND _cand_paths "${LLVM_INSTALL_PREFIX}/lib/libLLVM.so.${LLVM_VERSION}")
+      endif()
+      if(DEFINED LLVM_PACKAGE_VERSION AND NOT LLVM_PACKAGE_VERSION STREQUAL LLVM_VERSION)
+        list(APPEND _cand_paths "${LLVM_INSTALL_PREFIX}/lib/libLLVM.so.${LLVM_PACKAGE_VERSION}")
+      endif()
+      # Also try major-only form (libLLVM-20.so) used by some distros
+      if(DEFINED LLVM_VERSION)
+        string(REGEX MATCH "^[0-9]+" _gentest_llvm_major "${LLVM_VERSION}")
+        if(_gentest_llvm_major)
+          list(APPEND _cand_paths "${LLVM_INSTALL_PREFIX}/lib/libLLVM-${_gentest_llvm_major}.so")
+        endif()
+      endif()
+      foreach(_cand IN LISTS _cand_paths)
+        if(NOT _gentest_llvm_so AND EXISTS "${_cand}")
+          set(_gentest_llvm_so "${_cand}")
+        endif()
+      endforeach()
+      if(_gentest_llvm_so)
+        target_link_libraries(gentest_codegen PRIVATE "${_gentest_llvm_so}")
+        # Help the linker find dependent DSOs referenced by libLLVM when resolving
+        # direct references from our objects.
+        get_filename_component(_gentest_llvm_libdir "${_gentest_llvm_so}" DIRECTORY)
+        set_property(TARGET gentest_codegen APPEND PROPERTY LINK_OPTIONS "-Wl,-rpath-link,${_gentest_llvm_libdir}")
+        message(STATUS "gentest[tools]: also linking against libLLVM DSO -> '${_gentest_llvm_so}'")
+      else()
+        message(STATUS "gentest[tools]: libLLVM DSO not found under LLVM_INSTALL_PREFIX; assuming clang-cpp carries needed symbols")
+      endif()
+      unset(_cand_paths)
+      unset(_gentest_llvm_major)
+      unset(_gentest_llvm_so)
+      unset(_gentest_llvm_libdir)
+    endif()
   else()
     set(_gentest_clang_components "")
     if(TARGET clangTooling)
