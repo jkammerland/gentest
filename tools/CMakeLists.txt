@@ -103,6 +103,16 @@ endif()
   if(TARGET clang-cpp)
     target_link_libraries(gentest_codegen PRIVATE clang-cpp)
     message(STATUS "gentest[tools]: linking gentest_codegen against 'clang-cpp' (monolith)")
+    # If a shared clangTooling is exported in addition to clang-cpp, link it as well.
+    # Avoid static archives here due to bitcode-only packages on LLVM 19/20 providers.
+    if(TARGET clangTooling)
+      get_target_property(_gentest_ct_type clangTooling TYPE)
+      if(_gentest_ct_type STREQUAL "SHARED_LIBRARY")
+        target_link_libraries(gentest_codegen PRIVATE clangTooling)
+        message(STATUS "gentest[tools]: also linking shared 'clangTooling' alongside clang-cpp")
+      endif()
+      unset(_gentest_ct_type)
+    endif()
     # Some providers ship clang-cpp separate from the LLVM monolith. Our tool
     # uses llvm::cl (CommandLine), so we may need to also link libLLVM.
     # Prefer the imported 'LLVM' target when exported (e.g., apt llvm-18),
