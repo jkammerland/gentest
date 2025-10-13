@@ -121,75 +121,103 @@ endif()
       target_link_libraries(gentest_codegen PRIVATE LLVM)
       message(STATUS "gentest[tools]: also linking against 'LLVM' (monolithic libLLVM target)")
     elseif(UNIX AND NOT APPLE)
+      # Try to locate the libLLVM shared library by absolute path from multiple hints.
       set(_gentest_llvm_so "")
-      # Common names across providers
-      set(_cand_paths
-        "${LLVM_INSTALL_PREFIX}/lib/libLLVM.so"
-        "${LLVM_INSTALL_PREFIX}/lib64/libLLVM.so"
-        "${LLVM_INSTALL_PREFIX}/lib/llvm/libLLVM.so"
-        "${LLVM_INSTALL_PREFIX}/lib64/llvm/libLLVM.so"
-      )
-      # Try versioned sonames if exact soname is present (e.g., libLLVM.so.18.1)
-      if(DEFINED LLVM_VERSION)
-        list(APPEND _cand_paths
-          "${LLVM_INSTALL_PREFIX}/lib/libLLVM.so.${LLVM_VERSION}"
-          "${LLVM_INSTALL_PREFIX}/lib64/libLLVM.so.${LLVM_VERSION}"
+      set(_cand_paths)
+      set(_cand_libdirs)
+      # 1) Hints from LLVM_INSTALL_PREFIX (exported by some packages like apt LLVM 18)
+      if(DEFINED LLVM_INSTALL_PREFIX AND LLVM_INSTALL_PREFIX)
+        list(APPEND _cand_libdirs
+          "${LLVM_INSTALL_PREFIX}/lib"
+          "${LLVM_INSTALL_PREFIX}/lib64"
+          "${LLVM_INSTALL_PREFIX}/lib/llvm"
+          "${LLVM_INSTALL_PREFIX}/lib64/llvm"
         )
       endif()
-      if(DEFINED LLVM_PACKAGE_VERSION AND NOT LLVM_PACKAGE_VERSION STREQUAL LLVM_VERSION)
-        list(APPEND _cand_paths
-          "${LLVM_INSTALL_PREFIX}/lib/libLLVM.so.${LLVM_PACKAGE_VERSION}"
-          "${LLVM_INSTALL_PREFIX}/lib64/libLLVM.so.${LLVM_PACKAGE_VERSION}"
-        )
+      # 2) Hints derived from LLVM_DIR (…/lib[64]/cmake/llvm -> …/lib[64])
+      if(DEFINED LLVM_DIR AND LLVM_DIR)
+        get_filename_component(_gentest_llvm_cmake_dir "${LLVM_DIR}" ABSOLUTE)
+        get_filename_component(_gentest_llvm_from_dir_lib "${_gentest_llvm_cmake_dir}/../.." ABSOLUTE)
+        list(APPEND _cand_libdirs "${_gentest_llvm_from_dir_lib}")
       endif()
-      # Also try major-only form (libLLVM-20.so) used by some distros
-      if(DEFINED LLVM_VERSION)
-        string(REGEX MATCH "^[0-9]+" _gentest_llvm_major "${LLVM_VERSION}")
-        if(_gentest_llvm_major)
-          list(APPEND _cand_paths
-            "${LLVM_INSTALL_PREFIX}/lib/libLLVM-${_gentest_llvm_major}.so"
-            "${LLVM_INSTALL_PREFIX}/lib64/libLLVM-${_gentest_llvm_major}.so"
-            "${LLVM_INSTALL_PREFIX}/lib/libLLVM.so.${_gentest_llvm_major}"
-            "${LLVM_INSTALL_PREFIX}/lib64/libLLVM.so.${_gentest_llvm_major}"
-          )
+      # 3) Hints derived from clang-cpp imported location (same prefix as libLLVM on most providers)
+      get_target_property(_gentest_cc_loc clang-cpp IMPORTED_LOCATION)
+      if(NOT _gentest_cc_loc)
+        get_target_property(_gentest_cc_loc clang-cpp IMPORTED_LOCATION_RELEASE)
+      endif()
+      if(NOT _gentest_cc_loc)
+        get_target_property(_gentest_cc_loc clang-cpp IMPORTED_LOCATION_DEBUG)
+      endif()
+      if(_gentest_cc_loc)
+        get_filename_component(_gentest_cc_libdir "${_gentest_cc_loc}" DIRECTORY)
+        list(APPEND _cand_libdirs "${_gentest_cc_libdir}")
+      endif()
+
+      # Compose candidate filenames in each candidate libdir
+      foreach(_libdir IN LISTS _cand_libdirs)
+        if(NOT _libdir OR NOT EXISTS "${_libdir}")
+          continue()
         endif()
-      endif()
+        list(APPEND _cand_paths
+          "${_libdir}/libLLVM.so"
+        )
+        if(DEFINED LLVM_VERSION)
+          list(APPEND _cand_paths
+            "${_libdir}/libLLVM.so.${LLVM_VERSION}"
+          )
+          string(REGEX MATCH "^[0-9]+" _gentest_llvm_major "${LLVM_VERSION}")
+          if(_gentest_llvm_major)
+            list(APPEND _cand_paths
+              "${_libdir}/libLLVM-${_gentest_llvm_major}.so"
+              "${_libdir}/libLLVM.so.${_gentest_llvm_major}"
+            )
+          endif()
+        endif()
+        if(DEFINED LLVM_PACKAGE_VERSION AND NOT LLVM_PACKAGE_VERSION STREQUAL LLVM_VERSION)
+          list(APPEND _cand_paths "${_libdir}/libLLVM.so.${LLVM_PACKAGE_VERSION}")
+        endif()
+      endforeach()
+
+      list(REMOVE_DUPLICATES _cand_paths)
       message(STATUS "gentest[tools]: probing libLLVM candidates -> '${_cand_paths}'")
       foreach(_cand IN LISTS _cand_paths)
         if(NOT _gentest_llvm_so AND EXISTS "${_cand}")
           set(_gentest_llvm_so "${_cand}")
         endif()
       endforeach()
+
       if(_gentest_llvm_so)
         target_link_libraries(gentest_codegen PRIVATE "${_gentest_llvm_so}")
-        # Help the linker find dependent DSOs referenced by libLLVM when resolving
-        # direct references from our objects.
         get_filename_component(_gentest_llvm_libdir "${_gentest_llvm_so}" DIRECTORY)
         set_property(TARGET gentest_codegen APPEND PROPERTY LINK_OPTIONS "-Wl,-rpath-link,${_gentest_llvm_libdir}")
         message(STATUS "gentest[tools]: also linking against libLLVM DSO -> '${_gentest_llvm_so}'")
       else()
-        message(STATUS "gentest[tools]: libLLVM DSO not found under LLVM_INSTALL_PREFIX; will try link by name as last resort (-lLLVM)")
-        # Last-resort fallback: try -lLLVM with the obvious library directories.
-        # This is guarded to minimize the chance of picking a mismatched system LLVM.
-        set(_gentest_llvm_libdirs
-          "${LLVM_INSTALL_PREFIX}/lib"
-          "${LLVM_INSTALL_PREFIX}/lib64"
-        )
-        foreach(_ld IN LISTS _gentest_llvm_libdirs)
+        # As a last resort, add candidate libdirs and try linking by name if we have any real dirs.
+        set(_gentest_added_linkdirs "")
+        foreach(_ld IN LISTS _cand_libdirs)
           if(EXISTS "${_ld}")
             target_link_directories(gentest_codegen PRIVATE "${_ld}")
             set_property(TARGET gentest_codegen APPEND PROPERTY LINK_OPTIONS "-Wl,-rpath-link,${_ld}")
+            list(APPEND _gentest_added_linkdirs "${_ld}")
           endif()
         endforeach()
-        # On some providers the soname is major-suffixed; plain -lLLVM resolves via linker search.
-        target_link_libraries(gentest_codegen PRIVATE LLVM)
-        message(STATUS "gentest[tools]: added link directories for libLLVM and attempting 'LLVM' by name")
+        if(_gentest_added_linkdirs)
+          target_link_libraries(gentest_codegen PRIVATE LLVM)
+          message(STATUS "gentest[tools]: added link directories for libLLVM and attempting '-lLLVM' -> '${_gentest_added_linkdirs}'")
+        else()
+          message(STATUS "gentest[tools]: could not determine any libLLVM directory; not attempting '-lLLVM'")
+        endif()
+        unset(_gentest_added_linkdirs)
       endif()
       unset(_cand_paths)
+      unset(_cand_libdirs)
       unset(_gentest_llvm_major)
       unset(_gentest_llvm_so)
       unset(_gentest_llvm_libdir)
-      unset(_gentest_llvm_libdirs)
+      unset(_gentest_cc_loc)
+      unset(_gentest_cc_libdir)
+      unset(_gentest_llvm_cmake_dir)
+      unset(_gentest_llvm_from_dir_lib)
     endif()
   else()
     set(_gentest_clang_components "")
