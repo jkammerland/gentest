@@ -27,12 +27,6 @@ if(DEFINED LLVM_INCLUDE_DIRS)
     target_include_directories(gentest_codegen PRIVATE ${LLVM_INCLUDE_DIRS})
 endif()
 
-# Fallback: derive include root from LLVM install prefix when package
-# variables don't expose LLVM_INCLUDE_DIRS (e.g., some distro packages).
-if(NOT DEFINED LLVM_INCLUDE_DIRS AND DEFINED LLVM_INSTALL_PREFIX)
-    target_include_directories(gentest_codegen PRIVATE "${LLVM_INSTALL_PREFIX}/include")
-endif()
-
 # Prefer explicit Clang include dirs if exported by the package
 if(DEFINED Clang_INCLUDE_DIRS)
     target_include_directories(gentest_codegen PRIVATE ${Clang_INCLUDE_DIRS})
@@ -41,13 +35,39 @@ if(DEFINED CLANG_INCLUDE_DIRS)
     target_include_directories(gentest_codegen PRIVATE ${CLANG_INCLUDE_DIRS})
 endif()
 
+# Also pull include dirs from exported imported targets, which is the
+# canonical source of usage requirements when packages omit variables.
+if(TARGET LLVM)
+    get_target_property(_gentest_llvm_includes LLVM INTERFACE_INCLUDE_DIRECTORIES)
+    if(_gentest_llvm_includes)
+        target_include_directories(gentest_codegen PRIVATE ${_gentest_llvm_includes})
+    endif()
+endif()
+if(TARGET LLVMSupport)
+    get_target_property(_gentest_llvmsupp_includes LLVMSupport INTERFACE_INCLUDE_DIRECTORIES)
+    if(_gentest_llvmsupp_includes)
+        target_include_directories(gentest_codegen PRIVATE ${_gentest_llvmsupp_includes})
+    endif()
+endif()
+
 if(TARGET clangTooling)
     get_target_property(_gentest_clang_includes clangTooling INTERFACE_INCLUDE_DIRECTORIES)
     if(_gentest_clang_includes)
         target_include_directories(gentest_codegen PRIVATE ${_gentest_clang_includes})
     endif()
 endif()
-
+if(TARGET clangAST)
+    get_target_property(_gentest_clangast_includes clangAST INTERFACE_INCLUDE_DIRECTORIES)
+    if(_gentest_clangast_includes)
+        target_include_directories(gentest_codegen PRIVATE ${_gentest_clangast_includes})
+    endif()
+endif()
+if(TARGET clangBasic)
+    get_target_property(_gentest_clangbasic_includes clangBasic INTERFACE_INCLUDE_DIRECTORIES)
+    if(_gentest_clangbasic_includes)
+        target_include_directories(gentest_codegen PRIVATE ${_gentest_clangbasic_includes})
+    endif()
+endif()
 if(TARGET clang-cpp)
     get_target_property(_gentest_clangcpp_includes clang-cpp INTERFACE_INCLUDE_DIRECTORIES)
     if(_gentest_clangcpp_includes)
@@ -102,8 +122,7 @@ endif()
     endif()
   endif()
 
-  # Avoid CMake inter-target dependency cycles from wrapping imported targets
-  # in a link group. Rely on transitive link interfaces for ordering.
+  # Avoid CMake inter-target dependency cycles; rely on transitive interfaces
   target_link_libraries(gentest_codegen PRIVATE ${_gentest_link_libs})
 
   # Provide generator with project version for --help output in generated code
@@ -116,7 +135,11 @@ endif()
   endif()
 
   unset(_gentest_clang_includes)
+  unset(_gentest_clangast_includes)
+  unset(_gentest_clangbasic_includes)
   unset(_gentest_clangcpp_includes)
+  unset(_gentest_llvmsupp_includes)
+  unset(_gentest_llvm_includes)
   unset(_gentest_clang_libs)
   unset(_gentest_llvm_libs)
   unset(_gentest_link_libs)
