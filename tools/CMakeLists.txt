@@ -7,6 +7,20 @@ find_package(fmt CONFIG REQUIRED)
   # Centralized LLVM/Clang discovery (dynamic monoliths only)
   include(GentestLLVM)
   gentest_find_llvm_clang()
+  # Debug summary of discovery context for CI logs
+  message(STATUS "gentest[tools]: LLVM_INCLUDE_DIRS='${LLVM_INCLUDE_DIRS}'")
+  message(STATUS "gentest[tools]: Clang_DIR='${Clang_DIR}'")
+  message(STATUS "gentest[tools]: GENTEST_CLANG_INCLUDE_DIRS='${GENTEST_CLANG_INCLUDE_DIRS}'")
+  if(TARGET clang-cpp)
+    message(STATUS "gentest[tools]: target 'clang-cpp' is available")
+  else()
+    message(STATUS "gentest[tools]: target 'clang-cpp' is NOT available")
+  endif()
+  if(TARGET LLVM)
+    message(STATUS "gentest[tools]: target 'LLVM' is available")
+  else()
+    message(STATUS "gentest[tools]: target 'LLVM' is NOT available")
+  endif()
 
   add_executable(gentest_codegen
       src/main.cpp
@@ -26,18 +40,25 @@ find_package(fmt CONFIG REQUIRED)
 if(DEFINED LLVM_INCLUDE_DIRS)
     # Ensure correct LLVM headers take precedence over any stray /usr/local/include
     target_include_directories(gentest_codegen BEFORE PRIVATE ${LLVM_INCLUDE_DIRS})
+    message(STATUS "gentest[tools]: added LLVM include dirs -> '${LLVM_INCLUDE_DIRS}'")
 endif()
 
 if(TARGET clangTooling)
     get_target_property(_gentest_clang_includes clangTooling INTERFACE_INCLUDE_DIRECTORIES)
     if(_gentest_clang_includes)
         target_include_directories(gentest_codegen BEFORE PRIVATE ${_gentest_clang_includes})
+        message(STATUS "gentest[tools]: added clangTooling INTERFACE include dirs -> '${_gentest_clang_includes}'")
+    else()
+        message(STATUS "gentest[tools]: clangTooling target has no INTERFACE include dirs")
     endif()
+else()
+    message(STATUS "gentest[tools]: target 'clangTooling' is not available; skipping INTERFACE include discovery")
 endif()
 
 # If exported by discovery, add canonical Clang include roots explicitly
 if(DEFINED GENTEST_CLANG_INCLUDE_DIRS AND GENTEST_CLANG_INCLUDE_DIRS)
     target_include_directories(gentest_codegen BEFORE PRIVATE ${GENTEST_CLANG_INCLUDE_DIRS})
+    message(STATUS "gentest[tools]: added validated Clang include dirs -> '${GENTEST_CLANG_INCLUDE_DIRS}'")
 elseif(DEFINED Clang_DIR)
     # Fallback: derive include root from Clang_DIR (…/lib/cmake/clang -> prefix/include)
     get_filename_component(_gentest_clang_cmake_dir "${Clang_DIR}" ABSOLUTE)
@@ -45,6 +66,9 @@ elseif(DEFINED Clang_DIR)
     get_filename_component(_gentest_clang_root      "${_gentest_clang_lib_dir}/../.." ABSOLUTE)
     if(EXISTS "${_gentest_clang_root}/include/clang/AST/AST.h")
         target_include_directories(gentest_codegen BEFORE PRIVATE "${_gentest_clang_root}/include")
+        message(STATUS "gentest[tools]: added fallback include from Clang_DIR -> '${_gentest_clang_root}/include'")
+    else()
+        message(STATUS "gentest[tools]: fallback include from Clang_DIR was not valid -> '${_gentest_clang_root}/include'")
     endif()
 endif()
 
@@ -57,6 +81,7 @@ endif()
 
   # Link strictly against dynamic monoliths
   target_link_libraries(gentest_codegen PRIVATE clang-cpp LLVM)
+  message(STATUS "gentest[tools]: linking gentest_codegen against 'clang-cpp' and 'LLVM' (monoliths)")
 
   # Provide generator with project version for --help output in generated code
   target_compile_definitions(gentest_codegen PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")

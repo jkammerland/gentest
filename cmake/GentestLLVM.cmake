@@ -29,6 +29,22 @@ function(gentest_find_llvm_clang)
   find_package(LLVM CONFIG REQUIRED)
   find_package(Clang CONFIG REQUIRED)
 
+  # Debug discovery context
+  message(STATUS "gentest[llvm]: LLVM_VERSION='${LLVM_VERSION}', LLVM_PACKAGE_VERSION='${LLVM_PACKAGE_VERSION}'")
+  message(STATUS "gentest[llvm]: LLVM_INSTALL_PREFIX='${LLVM_INSTALL_PREFIX}'")
+  if(DEFINED LLVM_INCLUDE_DIRS)
+    message(STATUS "gentest[llvm]: LLVM_INCLUDE_DIRS='${LLVM_INCLUDE_DIRS}'")
+  else()
+    message(STATUS "gentest[llvm]: LLVM_INCLUDE_DIRS is not defined by the package")
+  endif()
+  message(STATUS "gentest[llvm]: Clang_DIR='${Clang_DIR}'")
+  if(DEFINED CLANG_INCLUDE_DIRS)
+    message(STATUS "gentest[llvm]: CLANG_INCLUDE_DIRS='${CLANG_INCLUDE_DIRS}'")
+  endif()
+  if(DEFINED Clang_INCLUDE_DIRS)
+    message(STATUS "gentest[llvm]: Clang_INCLUDE_DIRS='${Clang_INCLUDE_DIRS}'")
+  endif()
+
   # Version sanity
   if(DEFINED LLVM_VERSION)
     set(_llvm_ver "${LLVM_VERSION}")
@@ -41,7 +57,7 @@ function(gentest_find_llvm_clang)
     message(FATAL_ERROR "LLVM/Clang too old: ${_llvm_ver} (< ${GENTEST_LLVM_MIN_VERSION}). Provide a newer install via LLVM_DIR/Clang_DIR, CMAKE_PREFIX_PATH, or GENTEST_LLVM_ROOT")
   endif()
 
-  # Enforce dynamic monoliths for simplicity and portability when requested
+  # Enforce dynamic monoliths for simplicity and portability
   if(GENTEST_LLVM_DYNAMIC_ONLY)
     if(NOT TARGET clang-cpp)
       message(FATAL_ERROR "clang-cpp target not exported by your Clang package. Install a build that provides the monolithic shared clang-cpp (e.g., apt: libclang-cpp-18-dev, brew: llvm@19, Windows: prebuilt LLVM)")
@@ -51,8 +67,73 @@ function(gentest_find_llvm_clang)
     endif()
   endif()
 
-  # Summary (note: when dynamic-only is OFF, we may fallback to components at link time)
-  message(STATUS "gentest: LLVM/Clang ${_llvm_ver} found; dynamic-only=${GENTEST_LLVM_DYNAMIC_ONLY}")
+  # Nice summary for logs
+  message(STATUS "gentest: LLVM/Clang ${_llvm_ver} found; using targets: ${GENTEST_LLVM_DYNAMIC_ONLY}=>clang-cpp + LLVM")
 
   unset(_llvm_ver)
+
+  # Export best-effort Clang include directories for consumers that build
+  # against Clang headers (e.g., ASTMatchers). Some distros do not export
+  # INTERFACE_INCLUDE_DIRECTORIES on clang-cpp; provide a canonical include root.
+  set(_clang_incs "")
+  if(DEFINED CLANG_INCLUDE_DIRS AND CLANG_INCLUDE_DIRS)
+    list(APPEND _clang_incs ${CLANG_INCLUDE_DIRS})
+  elseif(DEFINED Clang_INCLUDE_DIRS AND Clang_INCLUDE_DIRS)
+    list(APPEND _clang_incs ${Clang_INCLUDE_DIRS})
+  endif()
+
+  if(_clang_incs)
+    message(STATUS "gentest[llvm]: initial Clang include hints='${_clang_incs}'")
+  else()
+    message(STATUS "gentest[llvm]: no Clang include hints exported; will derive from Clang_DIR/LLVM includes")
+  endif()
+
+  if(NOT _clang_incs)
+    # Derive from Clang_DIR: typically .../lib/cmake/clang -> prefix/include
+    if(DEFINED Clang_DIR)
+      get_filename_component(_clang_cmake_dir "${Clang_DIR}" ABSOLUTE)
+      get_filename_component(_clang_lib_dir "${_clang_cmake_dir}/.." ABSOLUTE)
+      get_filename_component(_clang_root "${_clang_lib_dir}/../.." ABSOLUTE)
+      list(APPEND _clang_incs "${_clang_root}/include")
+      message(STATUS "gentest[llvm]: derived candidate from Clang_DIR -> '${_clang_root}/include'")
+    endif()
+  endif()
+
+  # Validate include dir contains clang headers; fall back to LLVM include roots
+  set(_validated_incs "")
+  foreach(_inc IN LISTS _clang_incs)
+    if(EXISTS "${_inc}/clang/AST/AST.h")
+      list(APPEND _validated_incs "${_inc}")
+      message(STATUS "gentest[llvm]: validated Clang include='${_inc}' (contains clang/AST/AST.h)")
+    else()
+      message(STATUS "gentest[llvm]: rejected candidate include='${_inc}' (no clang/AST/AST.h)")
+    endif()
+  endforeach()
+
+  if(NOT _validated_incs AND DEFINED LLVM_INCLUDE_DIRS)
+    foreach(_inc IN LISTS LLVM_INCLUDE_DIRS)
+      if(EXISTS "${_inc}/clang/AST/AST.h")
+        list(APPEND _validated_incs "${_inc}")
+        message(STATUS "gentest[llvm]: fallback validated via LLVM_INCLUDE_DIRS -> '${_inc}'")
+      endif()
+    endforeach()
+  endif()
+
+  # Fallback: derive include root from LLVM install prefix exported by LLVMConfig
+  if(NOT _validated_incs)
+    if(DEFINED LLVM_INSTALL_PREFIX)
+      set(_cand "${LLVM_INSTALL_PREFIX}/include")
+      if(EXISTS "${_cand}/clang/AST/AST.h")
+        list(APPEND _validated_incs "${_cand}")
+        message(STATUS "gentest[llvm]: fallback validated via LLVM_INSTALL_PREFIX -> '${_cand}'")
+      endif()
+    endif()
+  endif()
+
+  if(_validated_incs)
+    set(GENTEST_CLANG_INCLUDE_DIRS "${_validated_incs}" PARENT_SCOPE)
+    message(STATUS "gentest[llvm]: GENTEST_CLANG_INCLUDE_DIRS='${_validated_incs}'")
+  else()
+    message(STATUS "gentest[llvm]: could not validate any Clang include root; consumers must provide includes explicitly")
+  endif()
 endfunction()
