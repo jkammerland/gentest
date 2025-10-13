@@ -29,7 +29,9 @@ jobs:
           sudo apt-get update
           # Prefer distro packages for LLVM 18
           sudo apt-get install -y \
-            clang-18 llvm-18-dev libclang-18-dev libclang-cpp18
+            clang-18 llvm-18-dev \
+            libclang-18-dev libclang-common-18-dev \
+            libclang-cpp18 libclang-cpp18-dev
           echo "LLVM_PATH=/usr/lib/llvm-18" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=/usr/lib/llvm-18/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
           echo "DYLD_LIBRARY_PATH=/usr/lib/llvm-18/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
@@ -43,7 +45,7 @@ jobs:
       - name: Install deps (Linux)
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libfmt-dev
+          sudo apt-get install -y ninja-build libfmt-dev libboost-json-dev
 
       - name: Configure (Debug)
         shell: bash
@@ -51,6 +53,7 @@ jobs:
           cmake -G Ninja -S . -B build/ci \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DGENTEST_LLVM_DYNAMIC_ONLY=OFF \
             -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
             -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
 
