@@ -27,6 +27,12 @@ if(DEFINED LLVM_INCLUDE_DIRS)
     target_include_directories(gentest_codegen PRIVATE ${LLVM_INCLUDE_DIRS})
 endif()
 
+# Fallback: derive include root from LLVM install prefix when package
+# variables don't expose LLVM_INCLUDE_DIRS (e.g., some distro packages).
+if(NOT DEFINED LLVM_INCLUDE_DIRS AND DEFINED LLVM_INSTALL_PREFIX)
+    target_include_directories(gentest_codegen PRIVATE "${LLVM_INSTALL_PREFIX}/include")
+endif()
+
 # Prefer explicit Clang include dirs if exported by the package
 if(DEFINED Clang_INCLUDE_DIRS)
     target_include_directories(gentest_codegen PRIVATE ${Clang_INCLUDE_DIRS})
@@ -96,12 +102,9 @@ endif()
     endif()
   endif()
 
-  if(UNIX AND NOT APPLE AND NOT _gentest_using_monoliths)
-    # On Linux with static archives in imported targets, a rescan group helps resolve cycles
-    target_link_libraries(gentest_codegen PRIVATE $<LINK_GROUP:RESCAN,${_gentest_link_libs}>)
-  else()
-    target_link_libraries(gentest_codegen PRIVATE ${_gentest_link_libs})
-  endif()
+  # Avoid CMake inter-target dependency cycles from wrapping imported targets
+  # in a link group. Rely on transitive link interfaces for ordering.
+  target_link_libraries(gentest_codegen PRIVATE ${_gentest_link_libs})
 
   # Provide generator with project version for --help output in generated code
   target_compile_definitions(gentest_codegen PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")
