@@ -79,10 +79,10 @@ endif()
   # Prefer header-only fmt to avoid system-shared libfmt dependencies
   target_link_libraries(gentest_codegen PRIVATE fmt::fmt-header-only)
 
-  # Link against monoliths when available, otherwise fall back to components
-  if(TARGET clang-cpp AND TARGET LLVM)
-    target_link_libraries(gentest_codegen PRIVATE clang-cpp LLVM)
-    message(STATUS "gentest[tools]: linking gentest_codegen against 'clang-cpp' and 'LLVM' (monoliths)")
+  # Link against monolith when available; otherwise fall back to components
+  if(TARGET clang-cpp)
+    target_link_libraries(gentest_codegen PRIVATE clang-cpp)
+    message(STATUS "gentest[tools]: linking gentest_codegen against 'clang-cpp' (monolith)")
   else()
     set(_gentest_clang_components "")
     if(TARGET clangTooling)
