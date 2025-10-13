@@ -170,6 +170,7 @@ endif()
             list(APPEND _cand_paths
               "${_libdir}/libLLVM-${_gentest_llvm_major}.so"
               "${_libdir}/libLLVM.so.${_gentest_llvm_major}"
+              "${_libdir}/libLLVM-${_gentest_llvm_major}.so.1"
             )
           endif()
         endif()
