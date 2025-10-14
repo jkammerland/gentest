@@ -24,8 +24,51 @@ foreach(_cand IN LISTS _gentest_llvm_config_candidates)
 endforeach()
 unset(_gentest_llvm_config_candidates)
 
+# Work around upstream LLVM exports referring to zstd::libzstd_shared while
+# vcpkg's zstd port commonly exposes zstd::libzstd. Define a compatibility
+# imported interface target before loading LLVM's exports so configure doesn't fail.
+find_package(zstd CONFIG QUIET)
+if(TARGET zstd::libzstd AND NOT TARGET zstd::libzstd_shared)
+    add_library(zstd::libzstd_shared INTERFACE IMPORTED)
+    set_target_properties(zstd::libzstd_shared PROPERTIES
+        INTERFACE_LINK_LIBRARIES "zstd::libzstd")
+endif()
+
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
+
+# Try to locate the monolithic libLLVM DSO for toolchains where clang-cpp
+# does not propagate all transitive dependencies at link time.
+set(_gentest_llvm_libdirs)
+if(DEFINED LLVM_LIBRARY_DIRS)
+    list(APPEND _gentest_llvm_libdirs ${LLVM_LIBRARY_DIRS})
+endif()
+if(DEFINED LLVM_LIBRARY_DIR)
+    list(APPEND _gentest_llvm_libdirs ${LLVM_LIBRARY_DIR})
+endif()
+if(DEFINED _gentest_llvm_prefix)
+    list(APPEND _gentest_llvm_libdirs "${_gentest_llvm_prefix}/lib")
+endif()
+list(REMOVE_DUPLICATES _gentest_llvm_libdirs)
+
+set(_gentest_llvm_dso)
+foreach(_dir IN LISTS _gentest_llvm_libdirs)
+    if(EXISTS "${_dir}")
+        # Prefer versioned lib first, then unversioned.
+        file(GLOB _cands_ver
+            LIST_DIRECTORIES FALSE
+            "${_dir}/libLLVM-*.so*" "${_dir}/libLLVM-*.dylib")
+        file(GLOB _cands_unver
+            LIST_DIRECTORIES FALSE
+            "${_dir}/libLLVM.so*" "${_dir}/libLLVM.dylib")
+        list(APPEND _cands ${_cands_ver} ${_cands_unver})
+        if(_cands)
+            list(GET _cands 0 _gentest_llvm_dso)
+            set(_gentest_llvm_dso_dir "${_dir}")
+            break()
+        endif()
+    endif()
+endforeach()
 
 find_package(fmt CONFIG REQUIRED)
 
@@ -68,10 +111,16 @@ llvm_map_components_to_libnames(_gentest_llvm_support Support)
 if(TARGET clang-cpp)
     # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
     # Link it when the imported target exists; otherwise fall back to LLVMSupport.
-    if(TARGET LLVM)
-        target_link_libraries(gentest_codegen PRIVATE clang-cpp LLVM fmt::fmt)
-    else()
-        target_link_libraries(gentest_codegen PRIVATE clang-cpp ${_gentest_llvm_support} fmt::fmt)
+    # Link the monolithic clang-cpp; avoid mixing in static LLVM components.
+    target_link_libraries(gentest_codegen PRIVATE clang-cpp fmt::fmt)
+    # If we discovered a monolithic libLLVM DSO, link it to satisfy LLVMSupport
+    # RTTI/vtables required by our TU and by clang-cpp on some platforms.
+    if(_gentest_llvm_dso)
+        target_link_libraries(gentest_codegen PRIVATE "${_gentest_llvm_dso}")
+        # Ensure runtime can locate the DSO without LD_LIBRARY_PATH tweaks.
+        if(UNIX)
+            set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_llvm_dso_dir}")
+        endif()
     endif()
 else()
     set(_gentest_clang_libs
@@ -102,3 +151,6 @@ endif()
 unset(_gentest_llvm_support)
 unset(_gentest_clang_includes)
 unset(_gentest_clang_libs)
+unset(_gentest_llvm_libdirs)
+unset(_gentest_llvm_dso)
+unset(_gentest_llvm_dso_dir)

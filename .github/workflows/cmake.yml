@@ -1,0 +1,105 @@
+name: cmake
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: 1
+
+jobs:
+  ubuntu:
+    name: Ubuntu • LLVM 18
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up CMake latest
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: latest
+
+      - name: Install Ninja and ccache
+        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache
+
+      - name: Setup vcpkg (script)
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Install LLVM/Clang 18
+        id: llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18"
+
+      - name: Install LLVM runtime deps (Ubuntu)
+        run: sudo apt-get update && sudo apt-get install -y libtinfo5
+
+      - name: Show tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang++ --version || true
+          llvm-config --version
+
+      - name: Configure (debug with vcpkg)
+        run: cmake --preset=debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+
+      - name: Build
+        run: cmake --build --preset=debug --parallel
+
+      - name: Test
+        run: ctest --preset=debug --output-on-failure
+
+  fedora:
+    name: Fedora 42 • LLVM 18
+    runs-on: ubuntu-24.04
+    container:
+      image: fedora:42
+    steps:
+      - name: Install base packages
+        run: |
+          dnf -y upgrade --refresh
+          dnf -y install git which tar xz ninja-build ccache gcc-c++ make curl ca-certificates ncurses-compat-libs
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup vcpkg (script)
+        run: bash scripts/setup-vcpkg.sh
+      - name: Set up CMake latest
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: latest
+      - name: Install LLVM/Clang 18
+        # Works inside the Fedora container: downloads official prebuilt toolchain.
+        id: llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18"
+      - name: Show tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang++ --version || true
+          llvm-config --version
+      - name: Configure (debug with vcpkg)
+        env:
+          # Ensure a clean locale for tools that rely on UTF-8
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: cmake --preset=debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+      - name: Build
+        run: cmake --build --preset=debug --parallel
+      - name: Test
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: ctest --preset=debug --output-on-failure
+
+  
