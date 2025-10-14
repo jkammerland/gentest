@@ -208,6 +208,14 @@ endif()
         set_property(TARGET gentest_codegen APPEND PROPERTY LINK_OPTIONS "-Wl,-rpath-link,${_gentest_llvm_libdir}")
         message(STATUS "gentest[tools]: also linking against libLLVM DSO -> '${_gentest_llvm_so}'")
       else()
+        # No monolithic libLLVM DSO found. On some providers (LLVM 19/20 action)
+        # the package exports shared component DSOs and INTERFACE targets.
+        # Fallback: link against 'clangTooling' target (any type) to pull its
+        # INTERFACE_LINK_LIBRARIES (clang*/LLVM* components as DSOs).
+        if(TARGET clangTooling)
+          target_link_libraries(gentest_codegen PRIVATE clangTooling)
+          message(STATUS "gentest[tools]: falling back to 'clangTooling' target to pull component DSOs")
+        endif()
         # As a last resort, add candidate libdirs and try linking by name if we have any real dirs.
         set(_gentest_added_linkdirs "")
         foreach(_ld IN LISTS _cand_libdirs)
@@ -218,10 +226,11 @@ endif()
           endif()
         endforeach()
         if(_gentest_added_linkdirs)
+          # Only attempt -lLLVM if present; component DSOs may suffice otherwise.
           target_link_libraries(gentest_codegen PRIVATE LLVM)
           message(STATUS "gentest[tools]: added link directories for libLLVM and attempting '-lLLVM' -> '${_gentest_added_linkdirs}'")
         else()
-          message(STATUS "gentest[tools]: could not determine any libLLVM directory; not attempting '-lLLVM'")
+          message(STATUS "gentest[tools]: could not determine any libLLVM directory; skipping '-lLLVM'")
         endif()
         unset(_gentest_added_linkdirs)
       endif()
