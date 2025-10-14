@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        llvm: [18, 19, 20]
+        llvm: [18, 19, 20, 21]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -22,19 +22,23 @@ jobs:
         with:
           cmake-version: '3.31.x'
 
-      - name: Setup LLVM with Homebrew
+      - name: Setup LLVM
+        id: setup-llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: ${{ matrix.llvm }}
+
+      - name: Configure LLVM environment
         shell: bash
         run: |
-          brew update
-          brew install llvm@${{ matrix.llvm }}
-          LLVM_PREFIX=$(brew --prefix llvm@${{ matrix.llvm }})
-          echo "LLVM_PATH=${LLVM_PREFIX}" >> "$GITHUB_ENV"
-          echo "DYLD_LIBRARY_PATH=${LLVM_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          prefix="${{ steps.setup-llvm.outputs.llvm-path }}"
+          echo "LLVM_PATH=$prefix" >> "$GITHUB_ENV"
+          echo "PATH=$prefix/bin:${PATH}" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$prefix/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Install deps (Homebrew)
         run: |
-          brew update
-          brew install ninja fmt
+          brew install boost ninja fmt
 
       - name: Configure (Debug)
         shell: bash
@@ -42,6 +46,7 @@ jobs:
           cmake -G Ninja -S . -B build/ci \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DGENTEST_LLVM_DYNAMIC_ONLY=OFF \
             -DLLVM_DIR="$LLVM_PATH/lib/cmake/llvm" \
             -DClang_DIR="$LLVM_PATH/lib/cmake/clang"
 
