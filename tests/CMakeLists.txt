@@ -432,31 +432,37 @@ add_test(NAME shuffle_seed_print
         -DARGS=--run-test=fixtures/free/basic\ --shuffle\ --seed\ 42
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
 
-# Allure results smoke: single test writes a result file with passed status
-add_test(NAME allure_smoke_single
-    COMMAND ${CMAKE_COMMAND}
-        -DPROG=$<TARGET_FILE:gentest_unit_tests>
-        -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/result-0-result.json
-        -DEXPECT_SUBSTRING=status\":\ \"passed
-        -DARGS=--run-test=unit/arithmetic/sum\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single
-        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+option(GENTEST_ENABLE_ALLURE_TESTS "Enable Allure writer tests (off by default)" OFF)
+if(GENTEST_ENABLE_ALLURE_TESTS)
+    # Allure results smoke: single test writes a result file with passed status
+    add_test(NAME allure_smoke_single
+        COMMAND ${CMAKE_COMMAND}
+            -DPROG=$<TARGET_FILE:gentest_unit_tests>
+            -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/result-0-result.json
+            -DEXPECT_SUBSTRING=status\":\ \"passed
+            -DARGS=--run-test=unit/arithmetic/sum\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single
+            -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+    set_tests_properties(allure_smoke_single PROPERTIES LABELS "allure")
 
-# Allure logs attachment: failing test with log_on_fail(true) should create a logs attachment
-add_test(NAME allure_logs_attachment
-    COMMAND ${CMAKE_COMMAND}
-        -DPROG=$<TARGET_FILE:gentest_failing_tests>
-        -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-result.json
-        -DEXPECT_SUBSTRING=\"attachments\":\ \[\ {\ \"name\"\:\ \"logs\"\,\ \"source\"\:\ \"result-0-attachment.txt\"
-        -DARGS=--run-test=failing/logging/attachment\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs
-        -P ${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake)
+    # Allure logs attachment: failing test with log_on_fail(true) should create a logs attachment
+    add_test(NAME allure_logs_attachment
+        COMMAND ${CMAKE_COMMAND}
+            -DPROG=$<TARGET_FILE:gentest_failing_tests>
+            -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-result.json
+            -DEXPECT_SUBSTRING=\"attachments\":\ \[\ {\ \"name\"\:\ \"logs\"\,\ \"source\"\:\ \"result-0-attachment.txt\"
+            -DARGS=--run-test=failing/logging/attachment\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs
+            -P ${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake)
+    set_tests_properties(allure_logs_attachment PROPERTIES LABELS "allure")
 
-add_test(NAME allure_logs_attachment_file
-    COMMAND ${CMAKE_COMMAND}
-        -DPROG=$<TARGET_FILE:gentest_failing_tests>
-        -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-attachment.txt
-        -DEXPECT_SUBSTRING=hello from log
-        -DARGS=--run-test=failing/logging/attachment\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs
-        -P ${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake)
+    add_test(NAME allure_logs_attachment_file
+        COMMAND ${CMAKE_COMMAND}
+            -DPROG=$<TARGET_FILE:gentest_failing_tests>
+            -DFILE=${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-attachment.txt
+            -DEXPECT_SUBSTRING=hello from log
+            -DARGS=--run-test=failing/logging/attachment\ --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs
+            -P ${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake)
+    set_tests_properties(allure_logs_attachment_file PROPERTIES LABELS "allure")
+endif()
 
 # Capture JUnit artifact example: unit suite emits JUnit; this smoke ensures the file is generated in build tree
 add_test(NAME junit_artifact_example

@@ -23,6 +23,15 @@ cmake --build --preset=debug-system
 ctest --preset=debug-system --output-on-failure
 ```
 
+Optional suites:
+- Allure writer tests are disabled by default. Enable them with:
+  ```bash
+  cmake --preset=debug-system -DGENTEST_ENABLE_ALLURE_TESTS=ON
+  cmake --build --preset=debug-system
+  ctest --preset=debug-system --output-on-failure  # or use the preset: ctest --preset=debug-system-allure
+  ```
+  Tests carry the label `allure`, so you can also run `ctest -L allure`.
+
 ### Meson
 
 Build and run the pass-only suites with Meson (uses system libclang-cpp and fmt headers; clang++ recommended):
