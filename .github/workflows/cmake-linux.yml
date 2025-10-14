@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        llvm: [18, 19, 20]
+        llvm: [18, 19, 20, 21]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -22,25 +22,18 @@ jobs:
         with:
           cmake-version: '3.31.x'
 
-      - name: Setup LLVM (apt, 18)
-        if: matrix.llvm == 18
-        shell: bash
-        run: |
-          sudo apt-get update
-          # Prefer distro packages for LLVM 18
-          sudo apt-get install -y \
-            clang-18 llvm-18-dev \
-            libclang-18-dev libclang-common-18-dev \
-            libclang-cpp18 libclang-cpp18-dev
-          echo "LLVM_PATH=/usr/lib/llvm-18" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=/usr/lib/llvm-18/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
-          echo "DYLD_LIBRARY_PATH=/usr/lib/llvm-18/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-
-      - name: Setup LLVM (action, 19/20)
-        if: matrix.llvm != 18
+      - name: Setup LLVM
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: ${{ matrix.llvm }}
+
+      - name: Configure LLVM environment
+        shell: bash
+        run: |
+          prefix="${LLVM_PATH:-$(llvm-config --prefix)}"
+          echo "LLVM_PATH=$prefix" >> "$GITHUB_ENV"
+          echo "PATH=$prefix/bin:${PATH}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$prefix/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Install deps (Linux)
         run: |
