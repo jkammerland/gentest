@@ -42,20 +42,7 @@
     "patch": 0
   },
   "configurePresets": [
-    {
-      "name": "sys-llvm20",
-      "inherits": "base-debug",
-      "displayName": "System LLVM/Clang 20+ (Debug)",
-      "description": "Use system clang-20/clang++-20 and require LLVM 20+; bypass vcpkg toolchain",
-      "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": "",
-        "CMAKE_C_COMPILER": "/usr/bin/clang-20",
-        "CMAKE_CXX_COMPILER": "/usr/bin/clang++-20",
-        "CMAKE_PREFIX_PATH": "/usr/lib64/llvm20/lib64/cmake",
-        "LLVM_DIR": "/usr/lib64/llvm20/lib64/cmake/llvm",
-        "GENTEST_REQUIRE_LLVM20": "ON"
-      }
-    },
+    
     {
       "name": "libassert-noexc",
       "inherits": "debug",
@@ -126,9 +113,7 @@
       "displayName": "Debug (system LLVM/Clang)",
       "description": "Debug build that consumes the system-installed LLVM/Clang toolchain instead of vcpkg",
       "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": null,
-        "LLVM_DIR": "/usr/local/lib/cmake/llvm",
-        "Clang_DIR": "/usr/local/lib/cmake/clang"
+        "CMAKE_TOOLCHAIN_FILE": null
       }
     },
     {

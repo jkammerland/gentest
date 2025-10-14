@@ -63,11 +63,9 @@ cmake --build --preset=debug
 ctest --preset=debug --output-on-failure
 ```
 
-If LLVM/Clang is installed somewhere other than `/usr/local/lib/cmake/{llvm,clang}`, set
-`LLVM_DIR` and `Clang_DIR` before configuring, for example:
-```bash
-cmake --preset=debug-system -DLLVM_DIR="$(llvm-config --cmakedir)" -DClang_DIR=/opt/llvm/lib/cmake/clang
-```
+LLVM/Clang discovery is automatic across versions 18–22 via `llvm-config`.
+No manual `LLVM_DIR`/`Clang_DIR` is required. If you do need to override
+discovery, you can still pass them explicitly.
 
 `gentest_codegen` relies on clang libraries and the active build’s `compile_commands.json`. vcpkg users can install the
 `llvm[clang,clang-tools-extra]` port plus `fmt` (pulled automatically for tests), and everyone else should ensure

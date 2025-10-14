@@ -2,5 +2,7 @@
   "name": "gentest",
   "version": "0.2.0",
   "description": "Attribute-driven test discovery with clang tooling",
-  "dependencies": []
+  "dependencies": [
+    "fmt"
+  ]
 }

@@ -2,31 +2,31 @@
 # vcpkg toolchains. Our tool does not depend on LibEdit.
 set(CMAKE_DISABLE_FIND_PACKAGE_LibEdit ON)
 
-option(GENTEST_REQUIRE_LLVM20 "Require LLVM 20+" OFF)
-if(GENTEST_REQUIRE_LLVM20)
-    execute_process(COMMAND llvm-config-20 --cmakedir
-        OUTPUT_VARIABLE _llvm20_cmakedir OUTPUT_STRIP_TRAILING_WHITESPACE
+# Minimal, version-flexible LLVM/Clang discovery (works with LLVM 18–22)
+# Prefer llvm-config if available to seed CMAKE_PREFIX_PATH without hardcoded paths.
+set(_gentest_llvm_config_candidates llvm-config)
+foreach(_v 22 21 20 19 18)
+    list(APPEND _gentest_llvm_config_candidates "llvm-config-${_v}")
+endforeach()
+foreach(_cand IN LISTS _gentest_llvm_config_candidates)
+    execute_process(
+        COMMAND ${_cand} --cmakedir
+        OUTPUT_VARIABLE _gentest_llvm_cmakedir
+        OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
-    if(_llvm20_cmakedir AND EXISTS "${_llvm20_cmakedir}/LLVMConfig.cmake")
-        list(PREPEND CMAKE_PREFIX_PATH "${_llvm20_cmakedir}")
+    if(_gentest_llvm_cmakedir AND EXISTS "${_gentest_llvm_cmakedir}/LLVMConfig.cmake")
+        # Use the install prefix (two dirs up from .../lib/cmake/llvm) so Clang is found too.
+        get_filename_component(_gentest_llvm_prefix "${_gentest_llvm_cmakedir}/../.." ABSOLUTE)
+        list(PREPEND CMAKE_PREFIX_PATH "${_gentest_llvm_prefix}")
+        set(_gentest_found_llvm_config TRUE)
+        break()
     endif()
-endif()
+endforeach()
+unset(_gentest_llvm_config_candidates)
 
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
 
-if(GENTEST_REQUIRE_LLVM20)
-    if(DEFINED LLVM_VERSION)
-        set(_llvm_ver "${LLVM_VERSION}")
-    elseif(DEFINED LLVM_PACKAGE_VERSION)
-        set(_llvm_ver "${LLVM_PACKAGE_VERSION}")
-    else()
-        set(_llvm_ver "0.0.0")
-    endif()
-    if(_llvm_ver VERSION_LESS "20.0.0")
-        message(FATAL_ERROR "System LLVM too old: ${_llvm_ver}. Please install LLVM/Clang 20+ and re-run with --preset=sys-llvm20")
-    endif()
-endif()
 find_package(fmt CONFIG REQUIRED)
 
 add_executable(gentest_codegen
@@ -61,23 +61,34 @@ if(LLVM_ENABLE_RTTI)
     target_compile_definitions(gentest_codegen PRIVATE LLVM_ENABLE_RTTI)
 endif()
 
-set(_gentest_clang_libs
-    clangTooling
-    clangAST
-    clangASTMatchers
-    clangBasic
-    clangFrontend
-    clangLex
-    clangParse
-    clangSema)
+llvm_map_components_to_libnames(_gentest_llvm_support Support)
 
-llvm_map_components_to_libnames(_gentest_llvm_libs Support)
-
-target_link_libraries(gentest_codegen
-    PRIVATE
-        ${_gentest_clang_libs}
-        ${_gentest_llvm_libs}
-        fmt::fmt)
+# Prefer monolithic clang-cpp when available (more stable across LLVM versions),
+# otherwise fall back to per-component linking.
+if(TARGET clang-cpp)
+    # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
+    # Link it when the imported target exists; otherwise fall back to LLVMSupport.
+    if(TARGET LLVM)
+        target_link_libraries(gentest_codegen PRIVATE clang-cpp LLVM fmt::fmt)
+    else()
+        target_link_libraries(gentest_codegen PRIVATE clang-cpp ${_gentest_llvm_support} fmt::fmt)
+    endif()
+else()
+    set(_gentest_clang_libs
+        clangTooling
+        clangAST
+        clangASTMatchers
+        clangBasic
+        clangFrontend
+        clangLex
+        clangParse
+        clangSema)
+    target_link_libraries(gentest_codegen
+        PRIVATE
+            ${_gentest_clang_libs}
+            ${_gentest_llvm_support}
+            fmt::fmt)
+endif()
 
 # Provide generator with project version for --help output in generated code
 target_compile_definitions(gentest_codegen PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")
@@ -88,6 +99,6 @@ if(NOT GENTEST_ENABLE_TEMPLATE_VALIDATION)
     target_compile_definitions(gentest_codegen PRIVATE GENTEST_DISABLE_TEMPLATE_VALIDATION)
 endif()
 
-unset(_gentest_llvm_libs)
+unset(_gentest_llvm_support)
 unset(_gentest_clang_includes)
 unset(_gentest_clang_libs)
