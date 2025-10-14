@@ -153,10 +153,19 @@ endif()
         list(APPEND _cand_libdirs "${_gentest_cc_libdir}")
       endif()
 
-      # Compose candidate filenames in each candidate libdir
+      # Compose candidate filenames in each candidate libdir; also glob for any libLLVM*.so to be robust
       foreach(_libdir IN LISTS _cand_libdirs)
         if(NOT _libdir OR NOT EXISTS "${_libdir}")
           continue()
+        endif()
+        # Glob visible libLLVM shared objects for diagnostics and as additional candidates
+        file(GLOB _llvm_glob_candidates
+          "${_libdir}/libLLVM*.so"
+          "${_libdir}/libLLVM*.so.*"
+        )
+        if(_llvm_glob_candidates)
+          list(APPEND _cand_paths ${_llvm_glob_candidates})
+          message(STATUS "gentest[tools]: discovered libLLVM globs in '${_libdir}' -> '${_llvm_glob_candidates}'")
         endif()
         list(APPEND _cand_paths
           "${_libdir}/libLLVM.so"
@@ -164,6 +173,8 @@ endif()
         if(DEFINED LLVM_VERSION)
           list(APPEND _cand_paths
             "${_libdir}/libLLVM.so.${LLVM_VERSION}"
+            "${_libdir}/libLLVM-${LLVM_VERSION}.so"
+            "${_libdir}/libLLVM-${LLVM_VERSION}.so.1"
           )
           string(REGEX MATCH "^[0-9]+" _gentest_llvm_major "${LLVM_VERSION}")
           if(_gentest_llvm_major)
@@ -175,7 +186,11 @@ endif()
           endif()
         endif()
         if(DEFINED LLVM_PACKAGE_VERSION AND NOT LLVM_PACKAGE_VERSION STREQUAL LLVM_VERSION)
-          list(APPEND _cand_paths "${_libdir}/libLLVM.so.${LLVM_PACKAGE_VERSION}")
+          list(APPEND _cand_paths
+            "${_libdir}/libLLVM.so.${LLVM_PACKAGE_VERSION}"
+            "${_libdir}/libLLVM-${LLVM_PACKAGE_VERSION}.so"
+            "${_libdir}/libLLVM-${LLVM_PACKAGE_VERSION}.so.1"
+          )
         endif()
       endforeach()
 
