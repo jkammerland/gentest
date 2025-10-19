@@ -34,6 +34,35 @@ if(TARGET zstd::libzstd AND NOT TARGET zstd::libzstd_shared)
         INTERFACE_LINK_LIBRARIES "zstd::libzstd")
 endif()
 
+# Some LLVM builds export a Terminfo::terminfo dependency even when the host
+# toolchain lacks a proper CMake package. Provide a best-effort target before
+# loading the LLVM exports to keep configuration working on minimalist runners.
+if(NOT TARGET Terminfo::terminfo)
+    find_package(Terminfo QUIET)
+    if(Terminfo_FOUND AND NOT TARGET Terminfo::terminfo)
+        add_library(Terminfo::terminfo INTERFACE IMPORTED)
+        set_target_properties(Terminfo::terminfo PROPERTIES
+            INTERFACE_LINK_LIBRARIES "${Terminfo_LIBRARIES}")
+        if(DEFINED Terminfo_INCLUDE_DIRS)
+            set_property(TARGET Terminfo::terminfo
+                PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${Terminfo_INCLUDE_DIRS}")
+        endif()
+    elseif(UNIX)
+        find_library(_gentest_terminfo_lib
+            NAMES tinfo terminfo curses ncursesw ncurses)
+        if(_gentest_terminfo_lib)
+            add_library(Terminfo::terminfo INTERFACE IMPORTED)
+            set_target_properties(Terminfo::terminfo PROPERTIES
+                INTERFACE_LINK_LIBRARIES "${_gentest_terminfo_lib}")
+        endif()
+        unset(_gentest_terminfo_lib CACHE)
+        unset(_gentest_terminfo_lib)
+    endif()
+    if(NOT TARGET Terminfo::terminfo)
+        add_library(Terminfo::terminfo INTERFACE IMPORTED)
+    endif()
+endif()
+
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
 
@@ -116,6 +145,7 @@ if(TARGET clang-cpp)
     # If we discovered a monolithic libLLVM DSO, link it to satisfy LLVMSupport
     # RTTI/vtables required by our TU and by clang-cpp on some platforms.
     if(_gentest_llvm_dso)
+        message(STATUS "gentest: linking LLVM DSO: ${_gentest_llvm_dso}")
         target_link_libraries(gentest_codegen PRIVATE "${_gentest_llvm_dso}")
         # Ensure runtime can locate the DSO without LD_LIBRARY_PATH tweaks.
         if(UNIX)

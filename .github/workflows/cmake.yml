@@ -27,8 +27,8 @@ jobs:
         with:
           cmake-version: latest
 
-      - name: Install Ninja and ccache
-        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache
+      - name: Install build deps (Ubuntu)
+        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache curl zip unzip tar
 
       - name: Setup vcpkg (script)
         run: bash scripts/setup-vcpkg.sh
@@ -64,10 +64,10 @@ jobs:
     container:
       image: fedora:42
     steps:
-      - name: Install base packages
+      - name: Install base packages (Fedora)
         run: |
           dnf -y upgrade --refresh
-          dnf -y install git which tar xz ninja-build ccache gcc-c++ make curl ca-certificates ncurses-compat-libs
+          dnf -y install git which tar xz ninja-build ccache gcc-c++ make curl ca-certificates ncurses-compat-libs zip unzip
       - name: Checkout
         uses: actions/checkout@v4
       - name: Setup vcpkg (script)
