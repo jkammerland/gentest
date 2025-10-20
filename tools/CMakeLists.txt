@@ -39,28 +39,72 @@ endif()
 # loading the LLVM exports to keep configuration working on minimalist runners.
 if(NOT TARGET Terminfo::terminfo)
     find_package(Terminfo QUIET)
-    if(Terminfo_FOUND AND NOT TARGET Terminfo::terminfo)
-        add_library(Terminfo::terminfo INTERFACE IMPORTED)
-        set_target_properties(Terminfo::terminfo PROPERTIES
-            INTERFACE_LINK_LIBRARIES "${Terminfo_LIBRARIES}")
+    set(_gentest_terminfo_links "")
+    set(_gentest_terminfo_includes "")
+    if(Terminfo_FOUND AND Terminfo_LIBRARIES)
+        list(APPEND _gentest_terminfo_links "${Terminfo_LIBRARIES}")
         if(DEFINED Terminfo_INCLUDE_DIRS)
-            set_property(TARGET Terminfo::terminfo
-                PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${Terminfo_INCLUDE_DIRS}")
+            set(_gentest_terminfo_includes "${Terminfo_INCLUDE_DIRS}")
         endif()
     elseif(UNIX)
-        find_library(_gentest_terminfo_lib
-            NAMES tinfo terminfo curses ncursesw ncurses)
-        if(_gentest_terminfo_lib)
-            add_library(Terminfo::terminfo INTERFACE IMPORTED)
-            set_target_properties(Terminfo::terminfo PROPERTIES
-                INTERFACE_LINK_LIBRARIES "${_gentest_terminfo_lib}")
+        set(_gentest_terminfo_candidates)
+        # Prefer compatibility libraries that ship the legacy versioned symbols.
+        set(_gentest_terminfo_search_dirs
+            /usr/lib64 /usr/lib /lib64 /lib
+            /usr/lib/x86_64-linux-gnu
+            /lib/x86_64-linux-gnu)
+        if(DEFINED _gentest_llvm_prefix)
+            list(APPEND _gentest_terminfo_search_dirs "${_gentest_llvm_prefix}/lib")
         endif()
-        unset(_gentest_terminfo_lib CACHE)
-        unset(_gentest_terminfo_lib)
+        if(CMAKE_C_COMPILER)
+            get_filename_component(_gentest_cc_dir "${CMAKE_C_COMPILER}" DIRECTORY)
+            if(_gentest_cc_dir)
+                get_filename_component(_gentest_cc_root "${_gentest_cc_dir}/.." ABSOLUTE)
+                list(APPEND _gentest_terminfo_search_dirs "${_gentest_cc_root}/lib")
+            endif()
+            unset(_gentest_cc_root)
+            unset(_gentest_cc_dir)
+        endif()
+        list(REMOVE_DUPLICATES _gentest_terminfo_search_dirs)
+
+        foreach(_gentest_dir IN LISTS _gentest_terminfo_search_dirs)
+            file(GLOB _gentest_found
+                LIST_DIRECTORIES FALSE
+                "${_gentest_dir}/libtinfo.so.5*" "${_gentest_dir}/libtinfo5.so*")
+            list(APPEND _gentest_terminfo_candidates ${_gentest_found})
+        endforeach()
+        if(NOT _gentest_terminfo_candidates)
+            # Fall back to generic libtinfo if the compat variant is not present.
+            find_library(_gentest_terminfo_lib
+                NAMES tinfo6 tinfo terminfo
+                PATHS ${_gentest_terminfo_search_dirs})
+            if(_gentest_terminfo_lib)
+                list(APPEND _gentest_terminfo_candidates "${_gentest_terminfo_lib}")
+            endif()
+            unset(_gentest_terminfo_lib CACHE)
+        endif()
+        if(_gentest_terminfo_candidates)
+            list(GET _gentest_terminfo_candidates 0 _gentest_best_terminfo)
+            list(APPEND _gentest_terminfo_links "${_gentest_best_terminfo}")
+            unset(_gentest_best_terminfo)
+        else()
+            # Final fallback: rely on the linker default.
+            list(APPEND _gentest_terminfo_links "tinfo")
+        endif()
+        unset(_gentest_terminfo_candidates)
+        unset(_gentest_terminfo_search_dirs)
     endif()
-    if(NOT TARGET Terminfo::terminfo)
-        add_library(Terminfo::terminfo INTERFACE IMPORTED)
+    add_library(Terminfo::terminfo INTERFACE IMPORTED)
+    if(_gentest_terminfo_links)
+        set_target_properties(Terminfo::terminfo PROPERTIES
+            INTERFACE_LINK_LIBRARIES "${_gentest_terminfo_links}")
     endif()
+    if(_gentest_terminfo_includes)
+        set_property(TARGET Terminfo::terminfo
+            PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_gentest_terminfo_includes}")
+    endif()
+    unset(_gentest_terminfo_links)
+    unset(_gentest_terminfo_includes)
 endif()
 
 find_package(LLVM CONFIG REQUIRED)
@@ -116,6 +160,18 @@ add_executable(gentest_codegen
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_23)
 
+if(UNIX AND NOT APPLE)
+    target_sources(gentest_codegen PRIVATE src/terminfo_shim.cpp)
+    find_library(_gentest_dl_lib dl)
+    if(_gentest_dl_lib)
+        target_link_libraries(gentest_codegen PRIVATE "${_gentest_dl_lib}")
+    else()
+        target_link_libraries(gentest_codegen PRIVATE dl)
+    endif()
+    unset(_gentest_dl_lib CACHE)
+    unset(_gentest_dl_lib)
+endif()
+
 ## Embedded templates are used by default; --template can point to an external file if desired
 
 if(DEFINED LLVM_INCLUDE_DIRS)
@@ -131,6 +187,8 @@ endif()
 
 if(LLVM_ENABLE_RTTI)
     target_compile_definitions(gentest_codegen PRIVATE LLVM_ENABLE_RTTI)
+else()
+    target_compile_options(gentest_codegen PRIVATE -fno-rtti)
 endif()
 
 llvm_map_components_to_libnames(_gentest_llvm_support Support)
@@ -142,6 +200,9 @@ if(TARGET clang-cpp)
     # Link it when the imported target exists; otherwise fall back to LLVMSupport.
     # Link the monolithic clang-cpp; avoid mixing in static LLVM components.
     target_link_libraries(gentest_codegen PRIVATE clang-cpp fmt::fmt)
+    if(TARGET Terminfo::terminfo)
+        target_link_libraries(gentest_codegen PRIVATE Terminfo::terminfo)
+    endif()
     # If we discovered a monolithic libLLVM DSO, link it to satisfy LLVMSupport
     # RTTI/vtables required by our TU and by clang-cpp on some platforms.
     if(_gentest_llvm_dso)

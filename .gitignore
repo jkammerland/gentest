@@ -49,6 +49,7 @@ Testing/
 vcpkg_installed/
 conan/
 .conan/
+.ci-toolchains/
 
 # Documentation
 docs/html/
