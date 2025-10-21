@@ -16,8 +16,12 @@ env:
 
 jobs:
   ubuntu:
-    name: Ubuntu • LLVM 18
+    name: Ubuntu • LLVM ${{ matrix.llvm-version }}
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm-version: ["18", "19", "20"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,16 +32,16 @@ jobs:
           cmake-version: latest
 
       - name: Install build deps (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache curl zip unzip tar
+        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache curl zip unzip tar libc++-dev libc++abi-dev libunwind8
 
       - name: Setup vcpkg (script)
         run: bash scripts/setup-vcpkg.sh
 
-      - name: Install LLVM/Clang 18
+      - name: Install LLVM/Clang ${{ matrix.llvm-version }}
         id: llvm
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "18"
+          version: "${{ matrix.llvm-version }}"
 
       - name: Install LLVM runtime deps (Ubuntu)
         run: sudo apt-get update && sudo apt-get install -y libtinfo5
@@ -59,15 +63,19 @@ jobs:
         run: ctest --preset=debug --output-on-failure
 
   fedora:
-    name: Fedora 42 • LLVM 18
+    name: Fedora 42 • LLVM ${{ matrix.llvm-version }}
     runs-on: ubuntu-24.04
     container:
       image: fedora:42
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm-version: ["18", "19", "20"]
     steps:
       - name: Install base packages (Fedora)
         run: |
           dnf -y upgrade --refresh
-          dnf -y install git which tar xz ninja-build ccache gcc-c++ make curl ca-certificates ncurses-compat-libs zip unzip
+          dnf -y install git which tar xz ninja-build ccache gcc-c++ make curl ca-certificates ncurses-compat-libs zip unzip libcxx libcxx-devel libcxxabi libcxxabi-devel libunwind libunwind-devel llvm-libunwind
       - name: Checkout
         uses: actions/checkout@v4
       - name: Setup vcpkg (script)
@@ -76,12 +84,12 @@ jobs:
         uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: latest
-      - name: Install LLVM/Clang 18
+      - name: Install LLVM/Clang ${{ matrix.llvm-version }}
         # Works inside the Fedora container: downloads official prebuilt toolchain.
         id: llvm
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "18"
+          version: "${{ matrix.llvm-version }}"
       - name: Show tool versions
         run: |
           cmake --version

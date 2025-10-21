@@ -193,6 +193,21 @@ add_executable(gentest_codegen
 target_compile_features(gentest_codegen PRIVATE cxx_std_23)
 set_source_files_properties(src/match_finder_shim.cpp PROPERTIES COMPILE_FLAGS "-std=c++17")
 
+set(_gentest_use_libcxx FALSE)
+if(DEFINED LLVM_TOOLS_BINARY_DIR)
+    set(_gentest_llvm_config "${LLVM_TOOLS_BINARY_DIR}/llvm-config")
+    if(EXISTS "${_gentest_llvm_config}")
+        execute_process(COMMAND "${_gentest_llvm_config}" --cxxflags
+            OUTPUT_VARIABLE _gentest_llvm_cxxflags
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if(_gentest_llvm_cxxflags MATCHES "-stdlib=libc\\+\\+")
+            set(_gentest_use_libcxx TRUE)
+        endif()
+        unset(_gentest_llvm_cxxflags)
+    endif()
+endif()
+
 if(_gentest_use_local_tinfo_shim AND UNIX)
     set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
     if(NOT APPLE)
@@ -200,6 +215,16 @@ if(_gentest_use_local_tinfo_shim AND UNIX)
         # directories so the bundled libtinfo shim is chosen over any host copy.
         target_link_options(gentest_codegen PRIVATE "-Wl,--disable-new-dtags")
     endif()
+endif()
+
+if(_gentest_use_libcxx)
+    target_compile_options(gentest_codegen PRIVATE "-stdlib=libc++")
+    target_link_options(gentest_codegen PRIVATE "-stdlib=libc++")
+endif()
+
+set(_gentest_fmt_target fmt::fmt)
+if(_gentest_use_libcxx)
+    set(_gentest_fmt_target fmt::fmt-header-only)
 endif()
 
 if(UNIX AND NOT APPLE)
@@ -243,7 +268,7 @@ if(TARGET clang-cpp)
     # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
     # Link it when the imported target exists; otherwise fall back to LLVMSupport.
     # Link the monolithic clang-cpp; avoid mixing in static LLVM components.
-    target_link_libraries(gentest_codegen PRIVATE clang-cpp fmt::fmt)
+    target_link_libraries(gentest_codegen PRIVATE clang-cpp ${_gentest_fmt_target})
     if(TARGET Terminfo::terminfo)
         target_link_libraries(gentest_codegen PRIVATE Terminfo::terminfo)
     endif()
@@ -271,7 +296,7 @@ else()
         PRIVATE
             ${_gentest_clang_libs}
             ${_gentest_llvm_support}
-            fmt::fmt)
+            ${_gentest_fmt_target})
 endif()
 
 # Provide generator with project version for --help output in generated code
@@ -289,3 +314,4 @@ unset(_gentest_clang_libs)
 unset(_gentest_llvm_libdirs)
 unset(_gentest_llvm_dso)
 unset(_gentest_llvm_dso_dir)
+unset(_gentest_fmt_target)
