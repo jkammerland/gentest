@@ -1,7 +1,9 @@
 
 Devlog 2025-10-20 (Clang 18 ABI guard and Fedora CI)
   - CI
-      - CMake workflow now exercises Ubuntu/Fedora builds across LLVM 18/19/20 in both debug and release presets. Ubuntu adds libc++/libc++abi/libunwind; Fedora installs libcxx/libcxxabi/libunwind/llvm-libunwind so clang 20 toolchains link and run. `act` runs confirmed every matrix entry on both distros.
+      - CMake workflow now exercises Ubuntu/Fedora builds across LLVM 18/19/20 in both debug and release presets. Ubuntu adds libc++/libc++abi/libunwind; Fedora installs libcxx/libcxxabi/libunwind/llvm-libunwind so clang 20 toolchains link and run. macOS jobs cover the hosted AppleClang toolchain and Homebrew LLVM; Windows builds with clang-cl + Ninja. `act` runs confirmed Linux release jobs locally; macOS/Windows rely on GitHub runners.
+      - macOS job switches to the default `/Applications/Xcode.app/Contents/Developer` bundle, installs Homebrew LLVM for both AppleClang and upstream clang variants, exports `LLVM_DIR`, and logs the active clang so runners always see matching headers/tools without manual path pins.
+      - Windows job upgrades Chocolatey `llvm`, exports `LLVM_DIR`, and logs `clang-cl`, keeping the configure step on the Ninja generator (no `-A x64`) and avoiding downgrade/install conflicts.
   - Tools
       - Updated `cmake/GentestCodegen.cmake` to wrap generator invocations with a `cmake -E env LD_LIBRARY_PATH=...` launcher when the bundled Terminfo shim is active. This ensures the shim wins lookup precedence for every suite, matching the behaviour of our new tests.
       - Added `tools/src/match_finder_compat.h` and `tools/src/match_finder_shim.cpp`. The shim compiles as C++17 and calls the mangled `clang::ast_matchers::MatchFinder` constructor directly, sidestepping the `std::optional` ABI change that caused clang-18 libclang-cpp to segfault under C++23.
@@ -21,6 +23,7 @@ Devlog 2025-10-20 (Clang 18 ABI guard and Fedora CI)
       - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act -j ubuntu --matrix llvm-version:20`
       - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act -j fedora --matrix llvm-version:19 --matrix build-type:release`
       - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act -j ubuntu --matrix llvm-version:20 --matrix build-type:release`
+      - (macOS / Windows jobs are validated on GitHub-hosted runners using the hosted AppleClang toolchain or Homebrew LLVM, and the latest clang-cl from Chocolatey.)
 
 Devlog 2025-10-11 (Benchmarks • Jitter • Params • Formatting)
 
