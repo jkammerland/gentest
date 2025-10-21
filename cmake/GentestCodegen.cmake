@@ -30,7 +30,18 @@ function(gentest_attach_codegen target)
     # by the generated test implementation after including sources.
     set(_gentest_mock_impl "${_gentest_output_dir}/mock_impl.hpp")
 
-    set(_command $<TARGET_FILE:gentest_codegen>
+    set(_command_launcher $<TARGET_FILE:gentest_codegen>)
+    if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
+        set(_gentest_ld_library_path "${GENTEST_TERMINFO_SHIM_DIR}")
+        if(DEFINED ENV{LD_LIBRARY_PATH} AND NOT "$ENV{LD_LIBRARY_PATH}" STREQUAL "")
+            string(APPEND _gentest_ld_library_path ":$ENV{LD_LIBRARY_PATH}")
+        endif()
+        set(_command_launcher ${CMAKE_COMMAND} -E env
+            "LD_LIBRARY_PATH=${_gentest_ld_library_path}"
+            $<TARGET_FILE:gentest_codegen>)
+    endif()
+
+    set(_command ${_command_launcher}
         --output ${GENTEST_OUTPUT}
         --entry ${GENTEST_ENTRY}
         --mock-registry ${_gentest_mock_registry}

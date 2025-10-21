@@ -3,6 +3,7 @@
 #include "mock_discovery.hpp"
 #include "model.hpp"
 #include "tooling_support.hpp"
+#include "match_finder_compat.h"
 
 #include <algorithm>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
@@ -193,7 +194,10 @@ int main(int argc, const char **argv) {
     std::vector<gentest::codegen::MockClassInfo> mocks;
     MockUsageCollector                           mock_collector{mocks};
 
-    MatchFinder finder;
+    MatchFinder::MatchFinderOptions finder_options;
+    gentest::clang_compat::MatchFinderHolder finder_holder(finder_options);
+    MatchFinder &finder = finder_holder.get();
+
     finder.addMatcher(functionDecl(isDefinition()).bind("gentest.func"), &collector);
     register_mock_matchers(finder, mock_collector);
 

@@ -116,6 +116,15 @@ if(NOT TARGET Terminfo::terminfo)
         if(UNIX)
             set_property(TARGET gentest_tinfo_shim PROPERTY BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
         endif()
+        set(GENTEST_TERMINFO_SHIM_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL
+            "Directory containing the Gentest Terminfo shim" FORCE)
+        set(GENTEST_USES_TERMINFO_SHIM ON CACHE INTERNAL
+            "Whether Gentest links against the bundled Terminfo shim" FORCE)
+    else()
+        set(GENTEST_TERMINFO_SHIM_DIR "" CACHE INTERNAL
+            "Directory containing the Gentest Terminfo shim" FORCE)
+        set(GENTEST_USES_TERMINFO_SHIM OFF CACHE INTERNAL
+            "Whether Gentest links against the bundled Terminfo shim" FORCE)
     endif()
     if(_gentest_terminfo_links)
         set_target_properties(Terminfo::terminfo PROPERTIES
@@ -169,6 +178,7 @@ find_package(fmt CONFIG REQUIRED)
 
 add_executable(gentest_codegen
     src/main.cpp
+    src/match_finder_shim.cpp
     src/parse_core.cpp
     src/parse.cpp
     src/discovery.cpp
@@ -181,9 +191,15 @@ add_executable(gentest_codegen
     src/tooling_support.cpp)
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_23)
+set_source_files_properties(src/match_finder_shim.cpp PROPERTIES COMPILE_FLAGS "-std=c++17")
 
 if(_gentest_use_local_tinfo_shim AND UNIX)
     set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
+    if(NOT APPLE)
+        # Force the link editor to honor BUILD_RPATH ahead of the default search
+        # directories so the bundled libtinfo shim is chosen over any host copy.
+        target_link_options(gentest_codegen PRIVATE "-Wl,--disable-new-dtags")
+    endif()
 endif()
 
 if(UNIX AND NOT APPLE)
