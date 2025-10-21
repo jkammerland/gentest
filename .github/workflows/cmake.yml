@@ -16,12 +16,13 @@ env:
 
 jobs:
   ubuntu:
-    name: Ubuntu • LLVM ${{ matrix.llvm-version }}
+    name: Ubuntu • LLVM ${{ matrix.llvm-version }} • ${{ matrix.build-type }}
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
         llvm-version: ["18", "19", "20"]
+        build-type: ["debug", "release"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,17 +54,17 @@ jobs:
           clang++ --version || true
           llvm-config --version
 
-      - name: Configure (debug with vcpkg)
-        run: cmake --preset=debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+      - name: Configure (${{ matrix.build-type }} with vcpkg)
+        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 
       - name: Build
-        run: cmake --build --preset=debug --parallel
+        run: cmake --build --preset=${{ matrix.build-type }} --parallel
 
       - name: Test
-        run: ctest --preset=debug --output-on-failure
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
   fedora:
-    name: Fedora 42 • LLVM ${{ matrix.llvm-version }}
+    name: Fedora 42 • LLVM ${{ matrix.llvm-version }} • ${{ matrix.build-type }}
     runs-on: ubuntu-24.04
     container:
       image: fedora:42
@@ -71,6 +72,7 @@ jobs:
       fail-fast: false
       matrix:
         llvm-version: ["18", "19", "20"]
+        build-type: ["debug", "release"]
     steps:
       - name: Install base packages (Fedora)
         run: |
@@ -96,18 +98,18 @@ jobs:
           ninja --version
           clang++ --version || true
           llvm-config --version
-      - name: Configure (debug with vcpkg)
+      - name: Configure (${{ matrix.build-type }} with vcpkg)
         env:
           # Ensure a clean locale for tools that rely on UTF-8
           LC_ALL: C.UTF-8
           LANG: C.UTF-8
-        run: cmake --preset=debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
       - name: Build
-        run: cmake --build --preset=debug --parallel
+        run: cmake --build --preset=${{ matrix.build-type }} --parallel
       - name: Test
         env:
           LC_ALL: C.UTF-8
           LANG: C.UTF-8
-        run: ctest --preset=debug --output-on-failure
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
   

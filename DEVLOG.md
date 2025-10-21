@@ -1,7 +1,7 @@
 
 Devlog 2025-10-20 (Clang 18 ABI guard and Fedora CI)
   - CI
-      - CMake workflow now exercises Ubuntu/Fedora builds across LLVM 18/19/20. Ubuntu adds libc++/libc++abi/libunwind; Fedora installs libcxx/libcxxabi/libunwind/llvm-libunwind so clang 20 toolchains link and run. `act` runs confirmed all matrix entries (18/19/20) on Fedora and Ubuntu.
+      - CMake workflow now exercises Ubuntu/Fedora builds across LLVM 18/19/20 in both debug and release presets. Ubuntu adds libc++/libc++abi/libunwind; Fedora installs libcxx/libcxxabi/libunwind/llvm-libunwind so clang 20 toolchains link and run. `act` runs confirmed every matrix entry on both distros.
   - Tools
       - Updated `cmake/GentestCodegen.cmake` to wrap generator invocations with a `cmake -E env LD_LIBRARY_PATH=...` launcher when the bundled Terminfo shim is active. This ensures the shim wins lookup precedence for every suite, matching the behaviour of our new tests.
       - Added `tools/src/match_finder_compat.h` and `tools/src/match_finder_shim.cpp`. The shim compiles as C++17 and calls the mangled `clang::ast_matchers::MatchFinder` constructor directly, sidestepping the `std::optional` ABI change that caused clang-18 libclang-cpp to segfault under C++23.
@@ -19,6 +19,8 @@ Devlog 2025-10-20 (Clang 18 ABI guard and Fedora CI)
       - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act -j fedora --matrix llvm-version:19`
       - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act -j fedora --matrix llvm-version:20`
       - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act -j ubuntu --matrix llvm-version:20`
+      - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act -j fedora --matrix llvm-version:19 --matrix build-type:release`
+      - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act -j ubuntu --matrix llvm-version:20 --matrix build-type:release`
 
 Devlog 2025-10-11 (Benchmarks • Jitter • Params • Formatting)
 
