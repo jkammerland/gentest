@@ -4,7 +4,10 @@
 // an ABI-compatible helper compiled with an older C++ standard. This avoids
 // the new ABI for std::optional introduced in newer language modes, which
 // would otherwise misalign the call convention expected by libclang-cpp
-// prebuilt toolchains.
+// prebuilt toolchains. The price we pay is that we manually name-link the
+// constructor symbol; bumps to LLVM/Clang that rename or inline it will cause
+// link errors until we refresh the mangled name, and the initializer runs
+// with the older libstdc++ ABI (no C++23 optional optimisations).
 
 #pragma once
 
@@ -53,4 +56,3 @@ private:
 };
 
 }  // namespace gentest::clang_compat
-

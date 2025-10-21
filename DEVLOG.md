@@ -1,3 +1,21 @@
+
+Devlog 2025-10-20 (Clang 18 ABI guard and Fedora CI)
+
+  - Tools
+      - Updated `cmake/GentestCodegen.cmake` to wrap generator invocations with a `cmake -E env LD_LIBRARY_PATH=...` launcher when the bundled Terminfo shim is active. This ensures the shim wins lookup precedence for every suite, matching the behaviour of our new tests.
+      - Added `tools/src/match_finder_compat.h` and `tools/src/match_finder_shim.cpp`. The shim compiles as C++17 and calls the mangled `clang::ast_matchers::MatchFinder` constructor directly, sidestepping the `std::optional` ABI change that caused clang-18 libclang-cpp to segfault under C++23.
+      - `MatchFinderHolder` now owns placement storage inside `main.cpp`, keeping lifetime management explicit.
+      - Portability caveats:
+          - The helper TU builds with `-std=c++17` and relies on the constructor’s Itanium mangled name. Bumping LLVM/Clang may require refreshing that symbol, and the helper forfeits C++23 optional optimisations.
+          - macOS follows the same Itanium ABI, so the shim works as-is on Apple Clang.
+          - Windows/MSVC is not yet supported; enabling the shim there will require a separate MSVC-mangled alias or bypassing the helper entirely.
+          - Upgrading to future clang releases (19/20, etc.) means re-checking that the `MatchFinder` constructor symbol still exists and that the distro’s libclang matches our ABI assumptions. If upstream inlines or renames the ctor—or libstdc++ finally flips to the C++23 optional layout—the shim must be revisited or removed.
+      - `tools/CMakeLists.txt` caches whether the shim is in play and its output directory, so downstream custom commands can reuse it.
+  - Verification
+      - `cmake --build --preset=debug --target gentest_codegen`
+      - `ctest --test-dir build/debug-fedora --output-on-failure`
+      - `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock act -j fedora -P ubuntu-22.04=ghcr.io/catthehacker/ubuntu:act-22.04 -P ubuntu-24.04=ghcr.io/catthehacker/ubuntu:act-24.04 --pull=false`
+
 Devlog 2025-10-11 (Benchmarks • Jitter • Params • Formatting)
 
   - Goals
