@@ -195,7 +195,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gcc-version: ["13", "12", "15"]
+        gcc-version: ["13", "12"]
         build-type: ["debug", "release"]
     steps:
       - name: Checkout
@@ -294,6 +294,71 @@ jobs:
         run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
       - name: Build
         run: cmake --build --preset=${{ matrix.build-type }} --parallel
+      - name: Test
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+
+  fedora-gcc:
+    name: Fedora GCC • GCC 15 • LLVM 20 • ${{ matrix.build-type }}
+    runs-on: ubuntu-24.04
+    container:
+      image: fedora:42
+    strategy:
+      fail-fast: false
+      matrix:
+        build-type: ["debug", "release"]
+    steps:
+      - name: Install system toolchain (Fedora)
+        run: |
+          dnf -y upgrade --refresh
+          dnf -y install \
+            git \
+            which \
+            tar \
+            xz \
+            ninja-build \
+            ccache \
+            gcc \
+            gcc-c++ \
+            make \
+            curl \
+            ca-certificates \
+            zip \
+            unzip \
+            cmake \
+            clang \
+            clang-tools-extra \
+            llvm-devel
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg (script)
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Configure tool paths
+        run: |
+          echo "LLVM_DIR=/usr/lib64/cmake/llvm" >> $GITHUB_ENV
+          echo "Clang_DIR=/usr/lib64/cmake/clang" >> $GITHUB_ENV
+
+      - name: Show tool versions
+        run: |
+          cmake --version
+          ninja --version
+          gcc --version
+          clang --version
+
+      - name: Configure (GCC ${{ matrix.build-type }})
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DLLVM_DIR=/usr/lib64/cmake/llvm
+
+      - name: Build
+        run: cmake --build --preset=${{ matrix.build-type }} --parallel
+
       - name: Test
         env:
           LC_ALL: C.UTF-8
