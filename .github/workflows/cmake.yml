@@ -190,11 +190,12 @@ jobs:
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
   ubuntu-gcc:
-    name: Ubuntu GCC • GCC 13 • LLVM 20 • ${{ matrix.build-type }}
+    name: Ubuntu GCC • GCC ${{ matrix.gcc-version }} • LLVM 20 • ${{ matrix.build-type }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
+        gcc-version: ["13", "12"]
         build-type: ["debug", "release"]
     steps:
       - name: Checkout
@@ -218,8 +219,8 @@ jobs:
             wget \
             software-properties-common \
             lsb-release \
-            gcc-13 \
-            g++-13
+            gcc-${{ matrix.gcc-version }} \
+            g++-${{ matrix.gcc-version }}
 
       - name: Setup vcpkg (script)
         run: bash scripts/setup-vcpkg.sh
@@ -238,11 +239,11 @@ jobs:
         run: |
           cmake --version
           ninja --version
-          gcc-13 --version
+          gcc-${{ matrix.gcc-version }} --version
           clang-20 --version||true
 
       - name: Configure (GCC ${{ matrix.build-type }})
-        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13
+        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=gcc-${{ matrix.gcc-version }} -DCMAKE_CXX_COMPILER=g++-${{ matrix.gcc-version }}
 
       - name: Build
         run: cmake --build --preset=${{ matrix.build-type }} --parallel
