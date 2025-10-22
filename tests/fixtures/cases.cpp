@@ -90,7 +90,7 @@ class C {
 };
 
 [[using gentest: test("free/basic"), fixtures(A, B<int>, C)]]
-constexpr void free_basic(A &a, B<int> &b, C &c) {
+void free_basic(A &a, B<int> &b, C &c) {
     // setUp must have run for A
     gentest::expect_eq(a.phase, 1, "A setUp ran");
     a.phase = 2; // allow tearDown to validate
