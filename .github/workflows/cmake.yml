@@ -189,6 +189,67 @@ jobs:
       - name: Test
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
+  ubuntu-gcc:
+    name: Ubuntu GCC • GCC 13 • LLVM 20 • ${{ matrix.build-type }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build-type: ["debug", "release"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up CMake latest
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: latest
+
+      - name: Install build deps (Ubuntu GCC)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            ccache \
+            curl \
+            zip \
+            unzip \
+            tar \
+            wget \
+            software-properties-common \
+            lsb-release \
+            gcc-13 \
+            g++-13
+
+      - name: Setup vcpkg (script)
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Install LLVM/Clang 20 (apt)
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 20
+          sudo apt-get install -y clang-20 libclang-20-dev llvm-20-dev
+          echo "/usr/lib/llvm-20/bin" >> $GITHUB_PATH
+          echo "LLVM_BIN=/usr/lib/llvm-20/bin" >> $GITHUB_ENV
+          echo "LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm" >> $GITHUB_ENV
+
+      - name: Show tool versions
+        run: |
+          cmake --version
+          ninja --version
+          gcc-13 --version
+          clang-20 --version||true
+
+      - name: Configure (GCC ${{ matrix.build-type }})
+        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13
+
+      - name: Build
+        run: cmake --build --preset=${{ matrix.build-type }} --parallel
+
+      - name: Test
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+
   fedora:
     name: Fedora 42 • LLVM ${{ matrix.llvm-version }} • ${{ matrix.build-type }}
     runs-on: ubuntu-24.04

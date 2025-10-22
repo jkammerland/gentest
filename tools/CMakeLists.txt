@@ -218,6 +218,10 @@ if(DEFINED LLVM_TOOLS_BINARY_DIR)
     endif()
 endif()
 
+if(_gentest_use_libcxx AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(_gentest_use_libcxx FALSE)
+endif()
+
 if(_gentest_use_local_tinfo_shim AND UNIX)
     set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
     if(NOT APPLE)
