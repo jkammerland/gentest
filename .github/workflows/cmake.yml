@@ -195,7 +195,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gcc-version: ["13", "12"]
+        gcc-version: ["13", "12", "15"]
         build-type: ["debug", "release"]
     steps:
       - name: Checkout
