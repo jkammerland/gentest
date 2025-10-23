@@ -330,6 +330,7 @@ jobs:
             cmake \
             clang \
             clang-tools-extra \
+            clang-devel \
             llvm-devel
 
       - name: Checkout
@@ -354,7 +355,10 @@ jobs:
         env:
           LC_ALL: C.UTF-8
           LANG: C.UTF-8
-        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DLLVM_DIR=/usr/lib64/cmake/llvm
+          CC: gcc
+          CXX: g++
+        run: |
+          cmake --preset=${{ matrix.build-type }} -DLLVM_DIR=/usr/lib64/cmake/llvm
 
       - name: Build
         run: cmake --build --preset=${{ matrix.build-type }} --parallel
