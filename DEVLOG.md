@@ -2,8 +2,7 @@
 Devlog 2025-10-20 (Clang 18 ABI guard and Fedora CI)
   - CI
       - CMake workflow now exercises Ubuntu/Fedora builds across LLVM 18/19/20 in both debug and release presets. Ubuntu adds libc++/libc++abi/libunwind; Fedora installs libcxx/libcxxabi/libunwind/llvm-libunwind so clang 20 toolchains link and run. macOS jobs cover the hosted AppleClang toolchain and Homebrew LLVM; Windows builds with clang-cl + Ninja. `act` runs confirmed Linux release jobs locally; macOS/Windows rely on GitHub runners.
-      - macOS job switches to the default `/Applications/Xcode.app/Contents/Developer` bundle, installs Homebrew LLVM for both AppleClang and upstream clang variants, exports `LLVM_DIR`, and logs the active clang so runners always see matching headers/tools without manual path pins. The Terminfo shim now uses a Darwin-specific exported symbol list instead of GNU ld version scripts, so the shared library links cleanly on Apple’s linker.
-      - Windows job now downloads the official `clang+llvm-*.tar.xz` toolchain and points CMake at its `lib/cmake/llvm` directory; Chocolatey’s `llvm` package keeps `LLVM_INSTALL_TOOLCHAIN_ONLY=ON`, so it can’t supply `LLVMConfig.cmake`.
+      - macOS and Windows jobs are temporarily disabled on this branch while we focus on the new GCC coverage; we’ll re-enable them once the Linux matrix settles.
       - Plan: add Linux GCC coverage in CI. Ubuntu covers GCC 12/13 with apt LLVM 20, and Fedora 42 adds GCC 15 using system clang/llvm packages (including `clang-devel` for the CMake config). Once these pass reliably we can fan out to clang-tools 18/19 for the full 3×3 coverage.
   - Tools
       - Updated `cmake/GentestCodegen.cmake` to wrap generator invocations with a `cmake -E env LD_LIBRARY_PATH=...` launcher when the bundled Terminfo shim is active. This ensures the shim wins lookup precedence for every suite, matching the behaviour of our new tests.

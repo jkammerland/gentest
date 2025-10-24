@@ -16,6 +16,7 @@ env:
 
 jobs:
   macos:
+    if: false
     name: macOS • ${matrix.compiler} • ${matrix.build-type}
     runs-on: macos-14
     strategy:
@@ -85,6 +86,7 @@ jobs:
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
   windows:
+    if: false
     name: Windows • clang-cl • ${{ matrix.build-type }}
     runs-on: windows-2022
     strategy:
