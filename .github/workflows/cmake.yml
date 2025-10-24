@@ -15,6 +15,169 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
 
 jobs:
+  macos:
+    name: macOS • ${{ matrix.compiler }} • ${{ matrix.build-type }}
+    runs-on: macos-15
+    strategy:
+        fail-fast: false
+        matrix:
+            compiler: ["appleclang", "llvm"]
+            build-type: ["debug", "release"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select bundled Xcode toolchain
+        if: matrix.compiler == 'appleclang'
+        run: |
+          set -euo pipefail
+          CANDIDATES=(
+            "/Applications/Xcode_26.1_beta_2.app/Contents/Developer"
+            "/Applications/Xcode_26.1_beta.app/Contents/Developer"
+            "/Applications/Xcode_26.1.app/Contents/Developer"
+            "/Applications/Xcode_26.0.1.app/Contents/Developer"
+            "/Applications/Xcode_26.0.app/Contents/Developer"
+            "/Applications/Xcode_16.4.app/Contents/Developer"
+            "/Applications/Xcode_16.3.app/Contents/Developer"
+            "/Applications/Xcode_16.2.app/Contents/Developer"
+            "/Applications/Xcode_16.1.app/Contents/Developer"
+            "/Applications/Xcode_16.0.app/Contents/Developer"
+            "/Applications/Xcode.app/Contents/Developer"
+          )
+          SELECTED=""
+          for candidate in "${CANDIDATES[@]}"; do
+            if [ -d "${candidate}" ]; then
+              SELECTED="${candidate}"
+              break
+            fi
+          done
+          if [ -z "${SELECTED}" ]; then
+            echo "No suitable Xcode installation found in: ${CANDIDATES[*]}" >&2
+            exit 1
+          fi
+          sudo xcode-select --switch "${SELECTED}"
+          echo "DEVELOPER_DIR=${SELECTED}" >> $GITHUB_ENV
+
+      - name: Install dependencies (Homebrew)
+        run: |
+          brew update
+          brew install ninja ccache
+
+      - name: Install LLVM toolchain
+        uses: KyleMayes/install-llvm-action@v2.0.8
+        with:
+          version: "20.1.8"
+          arch: "arm64"
+
+      - name: Configure LLVM environment
+        run: |
+          LLVM_PREFIX="${LLVM_PATH:-$(brew --prefix llvm)}"
+          echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
+          echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
+          echo "LDFLAGS=-L${LLVM_PREFIX}/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I${LLVM_PREFIX}/include" >> $GITHUB_ENV
+          if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then
+            echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}:${CMAKE_PREFIX_PATH}" >> $GITHUB_ENV
+          else
+            echo "CMAKE_PREFIX_PATH=${LLVM_PREFIX}" >> $GITHUB_ENV
+          fi
+          if [ "${{ matrix.compiler }}" = "llvm" ]; then
+            echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
+          fi
+
+      - name: Configure environment
+        run: |
+          echo "CCACHE_DISABLE=1" >> $GITHUB_ENV
+          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
+          if [ "${{ matrix.compiler }}" = "appleclang" ]; then
+            echo "SDKROOT=$(xcrun --show-sdk-path)" >> $GITHUB_ENV
+          fi
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v3
+
+      - name: Show tool versions
+        run: |
+          cmake --version
+          ninja --version
+          COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
+          "${COMPILER_BIN}/clang" --version
+
+      - name: Setup vcpkg
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Configure
+        run: |
+          COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
+          CMAKE_ARGS=(
+            "--preset=${{ matrix.build-type }}"
+            "-DCMAKE_C_COMPILER=${COMPILER_BIN}/clang"
+            "-DCMAKE_CXX_COMPILER=${COMPILER_BIN}/clang++"
+            "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="
+          )
+          if [ -n "${LLVM_DIR:-}" ]; then
+            CMAKE_ARGS+=("-DLLVM_DIR=${LLVM_DIR}")
+          fi
+          cmake "${CMAKE_ARGS[@]}"
+
+      - name: Build
+        run: cmake --build --preset=${{ matrix.build-type }}
+
+      - name: Test
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+
+  windows:
+    name: Windows • clang-cl • ${{ matrix.build-type }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        build-type: ["debug", "release"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v3
+
+      - name: Install LLVM/Clang
+        uses: KyleMayes/install-llvm-action@v2.0.8
+        with:
+          version: "20.1.8"
+          arch: "x64"
+
+      - name: Configure LLVM environment variables
+        shell: pwsh
+        run: |
+          if (-not $env:LLVM_PATH) { throw "LLVM_PATH was not set by install-llvm-action." }
+          "$env:LLVM_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "LLVM_BIN=$($env:LLVM_PATH)\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_DIR=$($env:LLVM_PATH)\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Show tool versions
+        shell: pwsh
+        run: |
+          cmake --version
+          ninja --version
+          "$env:LLVM_BIN\clang-cl.exe" --version
+          clang-cl --version
+
+      - name: Setup vcpkg
+        shell: pwsh
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DLLVM_DIR="$env:LLVM_DIR"
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset=${{ matrix.build-type }}
+
+      - name: Test
+        shell: pwsh
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+
   ubuntu:
     name: Ubuntu • LLVM ${{ matrix.llvm-version }} • ${{ matrix.build-type }}
     runs-on: ubuntu-22.04
@@ -56,6 +219,67 @@ jobs:
 
       - name: Configure (${{ matrix.build-type }} with vcpkg)
         run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+
+      - name: Build
+        run: cmake --build --preset=${{ matrix.build-type }} --parallel
+
+      - name: Test
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+
+  ubuntu-gcc:
+    name: Ubuntu GCC • GCC 13 • LLVM 20 • ${{ matrix.build-type }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build-type: ["debug", "release"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up CMake latest
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: latest
+
+      - name: Install build deps (Ubuntu GCC)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            ccache \
+            curl \
+            zip \
+            unzip \
+            tar \
+            wget \
+            software-properties-common \
+            lsb-release \
+            gcc-13 \
+            g++-13
+
+      - name: Setup vcpkg (script)
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Install LLVM/Clang 20 (apt)
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 20
+          sudo apt-get install -y clang-20 libclang-20-dev llvm-20-dev
+          echo "/usr/lib/llvm-20/bin" >> $GITHUB_PATH
+          echo "LLVM_BIN=/usr/lib/llvm-20/bin" >> $GITHUB_ENV
+          echo "LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm" >> $GITHUB_ENV
+
+      - name: Show tool versions
+        run: |
+          cmake --version
+          ninja --version
+          gcc-13 --version
+          clang-20 --version||true
+
+      - name: Configure (GCC ${{ matrix.build-type }})
+        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13
 
       - name: Build
         run: cmake --build --preset=${{ matrix.build-type }} --parallel
