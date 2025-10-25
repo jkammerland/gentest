@@ -253,6 +253,79 @@ jobs:
       - name: Test
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
+  ubuntu-system:
+    name: Ubuntu 24.04 System • GCC • ${{ matrix.build-type }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build-type: ["debug", "release"]
+    steps:
+      - name: Install system toolchain (Ubuntu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ninja-build \
+            ccache \
+            cmake \
+            clang \
+            clang-tools \
+            libclang-dev \
+            llvm \
+            llvm-dev \
+            pkg-config \
+            zip \
+            unzip \
+            curl \
+            tar
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg (script)
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Configure tool paths
+        run: |
+          set -euo pipefail
+          LLVM_CONFIG=$(ls /usr/lib/llvm-*/bin/llvm-config | sort -V | tail -n1)
+          LLVM_CMAKE_DIR="$("$LLVM_CONFIG" --cmakedir)"
+          echo "LLVM_DIR=${LLVM_CMAKE_DIR}" >> "$GITHUB_ENV"
+          CLANG_CMAKE_DIR="$(dirname "$LLVM_CMAKE_DIR")/clang"
+          if [ -d "$CLANG_CMAKE_DIR" ]; then
+            echo "Clang_DIR=${CLANG_CMAKE_DIR}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Show tool versions
+        run: |
+          cmake --version
+          ninja --version
+          gcc --version
+          clang --version
+          "$(ls /usr/lib/llvm-*/bin/llvm-config | sort -V | tail -n1)" --version
+
+      - name: Configure (System GCC ${{ matrix.build-type }})
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+          CC: gcc
+          CXX: g++
+        run: |
+          cmake --preset=${{ matrix.build-type }} \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DLLVM_DIR="${LLVM_DIR}"
+
+      - name: Build
+        run: cmake --build --preset=${{ matrix.build-type }} --parallel
+
+      - name: Test
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+
   fedora:
     name: Fedora 42 • LLVM ${{ matrix.llvm-version }} • ${{ matrix.build-type }}
     runs-on: ubuntu-24.04
