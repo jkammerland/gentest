@@ -1,3 +1,13 @@
+Devlog 2025-10-23 (Ubuntu 24.04 system LLVM + shim removal)
+
+  - Toolchain & CI
+      - Bumped the minimum system requirement to LLVM/Clang 20 on Ubuntu 24.04; libclang-cpp20 is built with the C++23 libstdc++ ABI, so the generator can stay on the default C++23 dialect without compatibility shims.
+      - Documented reliance on Kitware's `cmake` APT repo (>= 4.1) because the stock 24.04 cmake (3.28) no longer satisfies `cmake_minimum_required(VERSION 3.31)`.
+      - Validated Fedora 41 runners using system packages only. `dnf install clang clang-devel clang-tools-extra llvm-devel fmt-devel zlib-ng-compat-devel libunwind-devel libcurl-devel libffi-devel libxml2-devel ninja-build` plus `pip install cmake` (for 4.x) let `gentest_codegen` build and run its unit tests under Clang 19 with C++23 and no shim.
+  - Tools
+      - Dropped `match_finder_compat.h` and `match_finder_shim.cpp`; `gentest_codegen` now constructs `clang::ast_matchers::MatchFinder` directly.
+      - Restored the generator target to `cxx_std_23`.
+
 Devlog 2025-10-20 (Clang 18 ABI guard and Fedora CI)
 
   - Tools
