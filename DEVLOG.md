@@ -1,4 +1,19 @@
 
+Devlog 2025-10-26 (System Toolchain CI validation)
+  - Workflow
+      - Updated `.github/workflows/cmake.yml` apt stanza to drop `libtinfo5` (not present on Ubuntu 24/25), add `git`, `ccache`, and `ca-certificates`, and stop upgrading the distro-managed `pip` (only install the wheel-distributed `cmake`). Fedora packages now include `ccache` as well.
+      - Kept clang 20 packages across all Linux jobs; macOS/Windows sections remain unchanged.
+  - Verification
+      - `act` on this workstation (rootless Podman 5.6.2) still fails during the “Set up job” phase because the generated `act-…-env` volumes resolve to relative paths (`act-…-env/_data`), which crun cannot stat (`OCI runtime attempted to invoke a command that was not found`). Rather than block on that container runtime bug, reproduced each matrix leg manually with `podman run`, copying the repo into the container and executing the exact configure/build/test triplet:
+          * `ubuntu:24.04` — `clang-20` + `gcc` across `debug-system`/`release-system`
+          * `ubuntu:25.04` — `clang-20` + `gcc` across `debug-system`/`release-system`
+          * `fedora:41` — system clang 19.1.7 + gcc 14 in both presets
+          * `fedora:42` — system clang 20.1.8 + gcc 15 in both presets
+        All eight runs completed successfully (full `ctest --preset=…` output captured in the session log); expected LLVM `aligned_union_t` deprecation warnings only.
+  - Notes
+      - `pip` emits the usual root-user warning inside the containers; no functional impact.
+      - Next step is to revisit `act` once the Podman volume path bug is fixed upstream, so CI parity can be verified without the manual copy step.
+
 Devlog 2025-10-20 (Clang 18 ABI guard and Fedora CI)
   - CI
       - CMake workflow now exercises Ubuntu/Fedora builds across LLVM 18/19/20 in both debug and release presets. Ubuntu adds libc++/libc++abi/libunwind; Fedora installs libcxx/libcxxabi/libunwind/llvm-libunwind so clang 20 toolchains link and run. macOS jobs cover the hosted AppleClang toolchain and Homebrew LLVM; Windows builds with clang-cl + Ninja. `act` runs confirmed Linux release jobs locally; macOS/Windows rely on GitHub runners.
