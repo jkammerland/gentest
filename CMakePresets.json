@@ -117,6 +117,15 @@
       }
     },
     {
+      "name": "release-system",
+      "inherits": "base-release",
+      "displayName": "Release (system LLVM/Clang)",
+      "description": "Release build that consumes the system-installed LLVM/Clang toolchain instead of vcpkg",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": null
+      }
+    },
+    {
       "name": "debug-system-allure",
       "inherits": "debug-system",
       "displayName": "Debug (system LLVM/Clang, Allure tests)",
@@ -348,6 +357,13 @@
       "jobs": 0
     },
     {
+      "name": "release-system",
+      "configurePreset": "release-system",
+      "displayName": "Release Build (system LLVM/Clang)",
+      "description": "Build with release configuration using the system-provided LLVM/Clang toolchain",
+      "jobs": 0
+    },
+    {
       "name": "relwithdebinfo",
       "configurePreset": "relwithdebinfo",
       "displayName": "Release with Debug Info",
@@ -489,6 +505,13 @@
       "configurePreset": "release",
       "displayName": "Release Tests",
       "description": "Run all tests in release mode"
+    },
+    {
+      "name": "release-system",
+      "inherits": "test-base",
+      "configurePreset": "release-system",
+      "displayName": "Release Tests (system LLVM/Clang)",
+      "description": "Run all tests in release mode using the system LLVM/Clang toolchain"
     },
     {
       "name": "relwithdebinfo",

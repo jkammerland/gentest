@@ -102,6 +102,16 @@ if(NOT TARGET Terminfo::terminfo)
         set(_gentest_use_local_tinfo_shim TRUE)
     endif()
     add_library(Terminfo::terminfo INTERFACE IMPORTED)
+    if(APPLE AND _gentest_use_local_tinfo_shim)
+        find_library(_gentest_ncurses_lib NAMES ncursesw ncurses curses)
+        if(_gentest_ncurses_lib)
+            list(APPEND _gentest_terminfo_links "${_gentest_ncurses_lib}")
+        else()
+            list(APPEND _gentest_terminfo_links "-lncurses")
+        endif()
+        set(_gentest_use_local_tinfo_shim FALSE)
+    endif()
+
     if(_gentest_use_local_tinfo_shim)
         add_library(gentest_tinfo_shim SHARED src/terminfo_shim.cpp)
         target_link_libraries(gentest_tinfo_shim PRIVATE dl)
@@ -178,7 +188,6 @@ find_package(fmt CONFIG REQUIRED)
 
 add_executable(gentest_codegen
     src/main.cpp
-    src/match_finder_shim.cpp
     src/parse_core.cpp
     src/parse.cpp
     src/discovery.cpp
@@ -191,7 +200,6 @@ add_executable(gentest_codegen
     src/tooling_support.cpp)
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_23)
-set_source_files_properties(src/match_finder_shim.cpp PROPERTIES COMPILE_FLAGS "-std=c++17")
 
 set(_gentest_use_libcxx FALSE)
 if(DEFINED LLVM_TOOLS_BINARY_DIR)
@@ -206,6 +214,10 @@ if(DEFINED LLVM_TOOLS_BINARY_DIR)
         endif()
         unset(_gentest_llvm_cxxflags)
     endif()
+endif()
+
+if(_gentest_use_libcxx AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(_gentest_use_libcxx FALSE)
 endif()
 
 if(_gentest_use_local_tinfo_shim AND UNIX)

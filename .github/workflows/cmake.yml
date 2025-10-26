@@ -15,101 +15,403 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
 
 jobs:
-  ubuntu:
-    name: Ubuntu • LLVM ${{ matrix.llvm-version }} • ${{ matrix.build-type }}
-    runs-on: ubuntu-22.04
+  macos:
+    if: false
+    name: macOS • ${matrix.compiler} • ${matrix.build-type}
+    runs-on: macos-14
     strategy:
-      fail-fast: false
-      matrix:
-        llvm-version: ["18", "19", "20"]
-        build-type: ["debug", "release"]
+        fail-fast: false
+        matrix:
+            compiler: ["appleclang", "llvm"]
+            build-type: ["debug", "release"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up CMake latest
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: latest
+      - name: Select bundled Xcode toolchain
+        if: matrix.compiler == 'appleclang'
+        run: sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
 
-      - name: Install build deps (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache curl zip unzip tar libc++-dev libc++abi-dev libunwind8
+      - name: Install dependencies (Homebrew)
+        run: |
+          brew update
+          brew install llvm ninja ccache
 
-      - name: Setup vcpkg (script)
-        run: bash scripts/setup-vcpkg.sh
+      - name: Configure LLVM environment
+        run: |
+          LLVM_PREFIX="$(brew --prefix llvm)"
+          echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
+          echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
+          if [ "${{ matrix.compiler }}" = "llvm" ]; then
+            echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
+          fi
 
-      - name: Install LLVM/Clang ${{ matrix.llvm-version }}
-        id: llvm
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "${{ matrix.llvm-version }}"
+      - name: Configure environment
+        run: |
+          echo "SDKROOT=$(xcrun --show-sdk-path)" >> $GITHUB_ENV
+          echo "CCACHE_DISABLE=1" >> $GITHUB_ENV
+          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
 
-      - name: Install LLVM runtime deps (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y libtinfo5
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v3
 
       - name: Show tool versions
         run: |
           cmake --version
           ninja --version
-          clang++ --version || true
-          llvm-config --version
+          COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
+          "${COMPILER_BIN}/clang" --version
 
-      - name: Configure (${{ matrix.build-type }} with vcpkg)
-        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+      - name: Setup vcpkg
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Configure
+        run: |
+          COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
+          CMAKE_ARGS=(
+            "--preset=${{ matrix.build-type }}"
+            "-DCMAKE_C_COMPILER=${COMPILER_BIN}/clang"
+            "-DCMAKE_CXX_COMPILER=${COMPILER_BIN}/clang++"
+            "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="
+          )
+          if [ -n "${LLVM_DIR:-}" ]; then
+            CMAKE_ARGS+=("-DLLVM_DIR=${LLVM_DIR}")
+          fi
+          cmake "${CMAKE_ARGS[@]}"
 
       - name: Build
-        run: cmake --build --preset=${{ matrix.build-type }} --parallel
+        run: cmake --build --preset=${{ matrix.build-type }}
 
       - name: Test
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
-  fedora:
-    name: Fedora 42 • LLVM ${{ matrix.llvm-version }} • ${{ matrix.build-type }}
+  windows:
+    if: false
+    name: Windows • clang-cl • ${{ matrix.build-type }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        build-type: ["debug", "release"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v3
+
+      - name: Download LLVM distribution (tarball)
+        shell: pwsh
+        run: |
+          $version = "21.1.3"
+          $archive = "clang+llvm-$version-x86_64-pc-windows-msvc.tar.xz"
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/$archive"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+
+      - name: Extract LLVM toolchain
+        shell: pwsh
+        run: |
+          $archive = Get-Item clang+llvm-*-x86_64-pc-windows-msvc.tar.xz
+          tar -xf $archive.FullName
+          $extracted = Get-ChildItem -Directory | Where-Object { $_.Name -like "clang+llvm-*-x86_64-pc-windows-msvc" } | Select-Object -First 1
+          if (-not $extracted) { throw "Failed to locate extracted LLVM directory." }
+          "$($extracted.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "LLVM_BIN=$($extracted.FullName)\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_DIR=$($extracted.FullName)\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Show tool versions
+        shell: pwsh
+        run: |
+          cmake --version
+          ninja --version
+          "$env:LLVM_BIN\clang-cl.exe" --version
+          clang-cl --version
+
+      - name: Setup vcpkg
+        shell: pwsh
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DLLVM_DIR="$env:LLVM_DIR"
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset=${{ matrix.build-type }}
+
+      - name: Test
+        shell: pwsh
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+
+  linux:
+    name: ${{ matrix.name }} • ${{ matrix.build_type }}
     runs-on: ubuntu-24.04
-    container:
-      image: fedora:42
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
-        llvm-version: ["18", "19", "20"]
-        build-type: ["debug", "release"]
+        include:
+          - name: Ubuntu 24.04 • Clang 20
+            container: ubuntu:24.04
+            pkg_manager: apt
+            compiler: clang
+            cc: clang-20
+            cxx: clang++-20
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: debug
+          - name: Ubuntu 24.04 • Clang 20
+            container: ubuntu:24.04
+            pkg_manager: apt
+            compiler: clang
+            cc: clang-20
+            cxx: clang++-20
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: release
+          - name: Ubuntu 24.04 • GCC
+            container: ubuntu:24.04
+            pkg_manager: apt
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: debug
+          - name: Ubuntu 24.04 • GCC
+            container: ubuntu:24.04
+            pkg_manager: apt
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: release
+          - name: Ubuntu 25.04 • Clang 20
+            container: ubuntu:25.04
+            pkg_manager: apt
+            compiler: clang
+            cc: clang-20
+            cxx: clang++-20
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: debug
+          - name: Ubuntu 25.04 • Clang 20
+            container: ubuntu:25.04
+            pkg_manager: apt
+            compiler: clang
+            cc: clang-20
+            cxx: clang++-20
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: release
+          - name: Ubuntu 25.04 • GCC
+            container: ubuntu:25.04
+            pkg_manager: apt
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: debug
+          - name: Ubuntu 25.04 • GCC
+            container: ubuntu:25.04
+            pkg_manager: apt
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: release
+          - name: Fedora 41 • Clang
+            container: fedora:41
+            pkg_manager: dnf
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: debug
+          - name: Fedora 41 • Clang
+            container: fedora:41
+            pkg_manager: dnf
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: release
+          - name: Fedora 41 • GCC
+            container: fedora:41
+            pkg_manager: dnf
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: debug
+          - name: Fedora 41 • GCC
+            container: fedora:41
+            pkg_manager: dnf
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: release
+          - name: Fedora 42 • Clang
+            container: fedora:42
+            pkg_manager: dnf
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: debug
+          - name: Fedora 42 • Clang
+            container: fedora:42
+            pkg_manager: dnf
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: release
+          - name: Fedora 42 • GCC
+            container: fedora:42
+            pkg_manager: dnf
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: debug
+          - name: Fedora 42 • GCC
+            container: fedora:42
+            pkg_manager: dnf
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: release
     steps:
-      - name: Install base packages (Fedora)
+      - name: Update and install dependencies (apt)
+        if: ${{ matrix.pkg_manager == 'apt' }}
         run: |
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git \
+            build-essential \
+            ccache \
+            ninja-build \
+            python3 \
+            python3-pip \
+            pkg-config \
+            curl \
+            zip \
+            unzip \
+            tar \
+            ca-certificates \
+            libffi-dev \
+            libxml2-dev \
+            zlib1g-dev \
+            libzstd-dev \
+            libcurl4-openssl-dev \
+            libunwind-dev \
+            libfmt-dev \
+            clang-${{ matrix.clang_version }} \
+            clang-tools-${{ matrix.clang_version }} \
+            libclang-${{ matrix.clang_version }}-dev \
+            libclang-cpp${{ matrix.clang_version }}-dev \
+            llvm-${{ matrix.clang_version }}-dev
+          python3 -m pip install --break-system-packages --upgrade cmake
+          echo "/usr/lib/llvm-${{ matrix.clang_version }}/bin" >> "$GITHUB_PATH"
+      - name: Update and install dependencies (dnf)
+        if: ${{ matrix.pkg_manager == 'dnf' }}
+        run: |
+          set -euxo pipefail
           dnf -y upgrade --refresh
-          dnf -y install git which tar xz ninja-build ccache gcc-c++ make curl ca-certificates ncurses-compat-libs zip unzip libcxx libcxx-devel libcxxabi libcxxabi-devel libunwind libunwind-devel llvm-libunwind
+          dnf -y install \
+            git \
+            which \
+            tar \
+            xz \
+            ccache \
+            ninja-build \
+            python3 \
+            python3-pip \
+            pkg-config \
+            curl \
+            zip \
+            unzip \
+            clang \
+            clang-libs \
+            clang-devel \
+            clang-tools-extra \
+            llvm-devel \
+            fmt-devel \
+            zlib-ng-compat-devel \
+            libunwind-devel \
+            libcurl-devel \
+            libffi-devel \
+            libxml2-devel \
+            gcc \
+            gcc-c++ \
+            make \
+            ca-certificates \
+            ncurses-compat-libs
+          python3 -m pip install --upgrade pip cmake
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup vcpkg (script)
-        run: bash scripts/setup-vcpkg.sh
-      - name: Set up CMake latest
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: latest
-      - name: Install LLVM/Clang ${{ matrix.llvm-version }}
-        # Works inside the Fedora container: downloads official prebuilt toolchain.
-        id: llvm
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "${{ matrix.llvm-version }}"
+      - name: Configure environment variables
+        run: |
+          echo "LLVM_DIR=${{ matrix.llvm_dir }}" >> $GITHUB_ENV
+          echo "Clang_DIR=${{ matrix.clang_dir }}" >> $GITHUB_ENV
+          echo "CC=${{ matrix.cc }}" >> $GITHUB_ENV
+          echo "CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
+          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
+          echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
       - name: Show tool versions
         run: |
+          set -euxo pipefail
           cmake --version
           ninja --version
-          clang++ --version || true
-          llvm-config --version
-      - name: Configure (${{ matrix.build-type }} with vcpkg)
+          ${CC} --version
+          clang --version || true
+          if command -v llvm-config >/dev/null 2>&1; then llvm-config --version; fi
+      - name: Configure
         env:
-          # Ensure a clean locale for tools that rely on UTF-8
           LC_ALL: C.UTF-8
           LANG: C.UTF-8
-        run: cmake --preset=${{ matrix.build-type }} -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+        run: |
+          set -euxo pipefail
+          cmake --preset=${{ matrix.build_type == 'debug' && 'debug-system' || 'release-system' }} \
+            -DCMAKE_C_COMPILER=${CC} \
+            -DCMAKE_CXX_COMPILER=${CXX} \
+            -DLLVM_DIR=${LLVM_DIR} \
+            -DClang_DIR=${Clang_DIR}
       - name: Build
-        run: cmake --build --preset=${{ matrix.build-type }} --parallel
+        run: |
+          set -euxo pipefail
+          cmake --build --preset=${{ matrix.build_type == 'debug' && 'debug-system' || 'release-system' }} --parallel
       - name: Test
         env:
           LC_ALL: C.UTF-8
           LANG: C.UTF-8
-        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
-
-  
+        run: |
+          set -euxo pipefail
+          ctest --preset=${{ matrix.build_type == 'debug' && 'debug-system' || 'release-system' }} --output-on-failure
