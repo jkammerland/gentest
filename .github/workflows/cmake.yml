@@ -147,6 +147,9 @@ jobs:
     name: ${{ matrix.name }} • ${{ matrix.build_type }}
     runs-on: ubuntu-24.04
     container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:

@@ -1,7 +1,7 @@
 
 Devlog 2025-10-26 (System Toolchain CI validation)
   - Workflow
-      - Updated `.github/workflows/cmake.yml` apt stanza to drop `libtinfo5` (not present on Ubuntu 24/25), add `git`, `ccache`, and `ca-certificates`, and stop upgrading the distro-managed `pip` (only install the wheel-distributed `cmake`). Fedora packages now include `ccache` as well.
+      - Updated `.github/workflows/cmake.yml` apt stanza to drop `libtinfo5` (not present on Ubuntu 24/25), add `git`, `ccache`, and `ca-certificates`, and stop upgrading the distro-managed `pip` (only install the wheel-distributed `cmake`). Fedora packages now include `ccache` as well. Set `defaults.run.shell: bash` for the Linux matrix so `set -euxo pipefail` works inside the job containers.
       - Kept clang 20 packages across all Linux jobs; macOS/Windows sections remain unchanged.
   - Verification
       - `act` on this workstation (rootless Podman 5.6.2) still fails during the “Set up job” phase because the generated `act-…-env` volumes resolve to relative paths (`act-…-env/_data`), which crun cannot stat (`OCI runtime attempted to invoke a command that was not found`). Rather than block on that container runtime bug, reproduced each matrix leg manually with `podman run`, copying the repo into the container and executing the exact configure/build/test triplet:
