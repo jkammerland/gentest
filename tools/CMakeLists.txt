@@ -200,7 +200,14 @@ add_executable(gentest_codegen
     src/render.cpp
     src/tooling_support.cpp)
 
-target_compile_features(gentest_codegen PRIVATE cxx_std_23)
+# Clang 18's libclang-cpp is still built with the C++17 libstdc++ ABI; building
+# the generator as C++23 would switch std::optional to the new layout and crash.
+# Force the tool to stay on the C++20 ABI surface; the shim handles the ctor.
+set_target_properties(gentest_codegen PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF)
+target_compile_features(gentest_codegen PRIVATE cxx_std_20)
 set_source_files_properties(src/match_finder_shim.cpp PROPERTIES COMPILE_FLAGS "-std=c++17")
 
 set(_gentest_use_libcxx FALSE)
