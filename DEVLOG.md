@@ -5,7 +5,7 @@ Devlog 2025-10-28 (macOS Homebrew libc++ fix)
       - During configure we pass `-DCMAKE_OSX_SYSROOT`, `-DCMAKE_OSX_DEPLOYMENT_TARGET`, and mirror the Homebrew link flags into `CMAKE_*_LINKER_FLAGS` (brew-only). We also dropped the global `LDFLAGS`/`DYLD_LIBRARY_PATH` exports so host tools such as `cmake` keep using their baked-in runtimes.
   - Tools
       - Relaxed the main-file filter in `tools/src/discovery.cpp` to key off `SourceManager::getFileLoc(...)` before rejecting a function; AppleClang was returning an expansion location outside the TU for inline member tests, so the collector skipped every fixture case. Also pulled in `<cstdlib>` to make the `std::getenv` lookups standard-compliant.
-      - Added opt-in tracing (`GENTEST_TRACE_DISCOVERY=1`) around discovery skips so we can capture why a function was ignored on CI; the workflow temporarily enables it on macOS to capture logs for the failing suites.
+      - Added opt-in tracing (`GENTEST_TRACE_DISCOVERY=1`) around discovery skips and successful case emission (limited to source paths under `tests/`) so we can capture why a function was ignored on CI; the workflow temporarily enables it on macOS to collect evidence for the failing suites.
   - Verification
       - `act` still lacks a macOS runtime, so the matrix legs must be validated on the hosted GitHub runners; queued a follow-up run once the workflow lands to confirm the linker picks up Homebrew’s `libc++`.
   - Notes

@@ -63,6 +63,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         if (name.empty()) {
             name = func->getNameAsString();
         }
+        const llvm::StringRef file = sm->getFilename(loc);
+        if (file.empty() || file.find("/tests/") == llvm::StringRef::npos) {
+            return;
+        }
         llvm::errs() << fmt::format("gentest_codegen: trace skip [{}] {} @ {}\n", reason, name.empty() ? "<anonymous>" : name,
                                     describe_loc(loc));
     };
@@ -191,6 +195,16 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             return;
         }
     }
+
+    auto trace_add = [&](const TestCaseInfo &info) {
+        if (!trace_enabled) {
+            return;
+        }
+        if (info.filename.find("/tests/") == std::string::npos) {
+            return;
+        }
+        llvm::errs() << fmt::format("gentest_codegen: trace add {} [{}]\n", info.qualified_name, info.display_name);
+    };
 
     std::string qualified = func->getQualifiedNameAsString();
     if (qualified.empty())
@@ -362,8 +376,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
         }
         std::string key = info.qualified_name + "#" + info.display_name + "@" + info.filename + ":" + std::to_string(info.line);
-        if (seen_.insert(key).second)
-            out_.push_back(std::move(info));
+    if (seen_.insert(key).second) {
+        trace_add(info);
+        out_.push_back(std::move(info));
+    }
     };
 
     if (!summary.parameter_sets.empty() || !summary.param_packs.empty()) {
