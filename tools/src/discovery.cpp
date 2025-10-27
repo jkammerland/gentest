@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <clang/AST/Decl.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
@@ -41,21 +42,58 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     const auto *sm   = result.SourceManager;
     const auto &lang = result.Context->getLangOpts();
 
+    const char *trace_env     = std::getenv("GENTEST_TRACE_DISCOVERY");
+    const bool  trace_enabled = trace_env && *trace_env && std::string_view(trace_env) != "0";
+    auto describe_loc = [&](SourceLocation loc) -> std::string {
+        if (!loc.isValid()) {
+            return "<invalid>";
+        }
+        const llvm::StringRef file = sm->getFilename(loc);
+        const unsigned        line = sm->getSpellingLineNumber(loc);
+        if (file.empty()) {
+            return fmt::format("<unknown>:{}", line);
+        }
+        return fmt::format("{}:{}", file.str(), line);
+    };
+    auto trace_skip = [&](std::string_view reason, SourceLocation loc) {
+        if (!trace_enabled) {
+            return;
+        }
+        std::string name = func->getQualifiedNameAsString();
+        if (name.empty()) {
+            name = func->getNameAsString();
+        }
+        llvm::errs() << fmt::format("gentest_codegen: trace skip [{}] {} @ {}\n", reason, name.empty() ? "<anonymous>" : name,
+                                    describe_loc(loc));
+    };
+
     // Allow templated functions; instantiation handled by codegen.
 
     auto loc = func->getBeginLoc();
     if (loc.isInvalid()) {
+        trace_skip("invalid begin loc", loc);
         return;
     }
+
+    SourceLocation expansion_loc = loc;
     if (loc.isMacroID()) {
-        loc = sm->getExpansionLoc(loc);
+        expansion_loc = sm->getExpansionLoc(loc);
     }
 
-    if (!sm->isWrittenInMainFile(loc)) {
+    SourceLocation spelling_loc = sm->getSpellingLoc(expansion_loc);
+    SourceLocation file_loc     = sm->getFileLoc(spelling_loc.isValid() ? spelling_loc : expansion_loc);
+    if (!file_loc.isValid()) {
+        trace_skip("invalid file loc", file_loc);
         return;
     }
 
-    if (sm->isInSystemHeader(loc) || sm->isWrittenInBuiltinFile(loc)) {
+    if (sm->getFileID(file_loc) != sm->getMainFileID()) {
+        trace_skip("not main file", file_loc);
+        return;
+    }
+
+    if (sm->isInSystemHeader(file_loc) || sm->isWrittenInBuiltinFile(file_loc)) {
+        trace_skip("system header/builtin", file_loc);
         return;
     }
 
@@ -161,7 +199,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         llvm::errs() << fmt::format("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
         return;
     }
-    auto file_loc = sm->getFileLoc(func->getLocation());
     auto filename = sm->getFilename(file_loc);
     if (filename.empty())
         return;
