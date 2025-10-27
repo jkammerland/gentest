@@ -1,11 +1,12 @@
 
 Devlog 2025-10-28 (macOS Homebrew libc++ fix)
   - Workflow
-      - Adjusted `.github/workflows/cmake.yml` to export the Homebrew LLVM prefix (`LLVM_PREFIX`) and gate additional flags on the `brew-llvm` matrix legs. We now inject matching `CXXFLAGS`/`CPPFLAGS`, point `LDFLAGS`/`LIBRARY_PATH`/`DYLD_LIBRARY_PATH` at the keg, and surface `PKG_CONFIG_PATH` so `find_package` prefers LLVM from Homebrew.
-      - During configure we pass `-DCMAKE_OSX_SYSROOT`, `-DCMAKE_OSX_DEPLOYMENT_TARGET`, and mirror the Homebrew link flags into `CMAKE_*_LINKER_FLAGS`. This keeps `gentest_codegen` linking against the keg’s `libc++`/`libc++abi` instead of the Xcode SDK stubs, addressing the missing `std::__1::__hash_memory` symbol under C++23.
+      - Adjusted `.github/workflows/cmake.yml` to export the Homebrew LLVM prefix (`LLVM_PREFIX`) only when the matrix requests `brew-llvm`, inject the matching `BREW_CXXFLAGS`/`BREW_LINK_FLAGS`, and surface `PKG_CONFIG_PATH` so `find_package` prefers the keg. AppleClang legs now probe the active Xcode toolchain for LLVM/Clang CMake packages and fall back to the keg if they are unavailable.
+      - During configure we pass `-DCMAKE_OSX_SYSROOT`, `-DCMAKE_OSX_DEPLOYMENT_TARGET`, and mirror the Homebrew link flags into `CMAKE_*_LINKER_FLAGS` (brew-only). We also dropped the global `LDFLAGS`/`DYLD_LIBRARY_PATH` exports so host tools such as `cmake` keep using their baked-in runtimes.
   - Verification
       - `act` still lacks a macOS runtime, so the matrix legs must be validated on the hosted GitHub runners; queued a follow-up run once the workflow lands to confirm the linker picks up Homebrew’s `libc++`.
   - Notes
+      - AppleClang fixture suites were missing tests when libclang came from the Homebrew keg; pointing the job at Xcode’s bundled CMake packages (with a keg fallback) restores the expected discovery.
       - To revive the MatchFinder constructor shim (if a future libclang regression resurfaces), re-add `tools/src/match_finder_shim.cpp` to the build, define `GENTEST_USE_MATCH_FINDER_SHIM=ON` in `cmake/GentestCodegen.cmake`, and rebuild `gentest_codegen`. The helper TU must compile as C++17 and link against the same libclang that discovers the mangled `clang::ast_matchers::MatchFinder` symbol; remember to refresh the mangled name whenever LLVM revs the constructor signature.
 
 Devlog 2025-10-26 (System Toolchain CI validation)

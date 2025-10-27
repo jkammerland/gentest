@@ -55,12 +55,8 @@ jobs:
         run: |
           set -euxo pipefail
           BREW_PREFIX="$(brew --prefix)"
-          LLVM_PREFIX="$(brew --prefix llvm)"
           {
             echo "BREW_PREFIX=${BREW_PREFIX}"
-            echo "LLVM_PREFIX=${LLVM_PREFIX}"
-            echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm"
-            echo "Clang_DIR=${LLVM_PREFIX}/lib/cmake/clang"
             if [[ -n "${CMAKE_PREFIX_PATH:-}" ]]; then
               echo "CMAKE_PREFIX_PATH=${BREW_PREFIX}:${CMAKE_PREFIX_PATH}"
             else
@@ -68,23 +64,43 @@ jobs:
             fi
           } >> "$GITHUB_ENV"
           echo "${BREW_PREFIX}/bin" >> "$GITHUB_PATH"
-          echo "${LLVM_PREFIX}/bin" >> "$GITHUB_PATH"
           if [[ "${{ matrix.compiler }}" == "brew-llvm" ]]; then
+            LLVM_PREFIX="$(brew --prefix llvm)"
+            echo "${LLVM_PREFIX}/bin" >> "$GITHUB_PATH"
             {
+              echo "LLVM_PREFIX=${LLVM_PREFIX}"
+              echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm"
+              echo "Clang_DIR=${LLVM_PREFIX}/lib/cmake/clang"
               printf 'CC=%s\n' "${LLVM_PREFIX}/bin/clang"
               printf 'CXX=%s\n' "${LLVM_PREFIX}/bin/clang++"
-              printf 'CXXFLAGS=%s\n' "-nostdinc++ -isystem${LLVM_PREFIX}/include/c++/v1"
-              printf 'CPPFLAGS=%s\n' "-I${LLVM_PREFIX}/include"
-              printf 'LDFLAGS=%s\n' "-L${LLVM_PREFIX}/lib -Wl,-rpath,${LLVM_PREFIX}/lib -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${LLVM_PREFIX}/lib/unwind -Wl,-rpath,${LLVM_PREFIX}/lib/unwind -lc++ -lc++abi -lunwind"
-              printf 'LIBRARY_PATH=%s\n' "${LLVM_PREFIX}/lib:${LLVM_PREFIX}/lib/c++:${LLVM_PREFIX}/lib/unwind"
-              printf 'DYLD_LIBRARY_PATH=%s\n' "${LLVM_PREFIX}/lib:${LLVM_PREFIX}/lib/c++:${LLVM_PREFIX}/lib/unwind"
+              printf 'BREW_CXXFLAGS=%s\n' "-nostdinc++ -isystem${LLVM_PREFIX}/include/c++/v1"
+              printf 'BREW_LINK_FLAGS=%s\n' "-L${LLVM_PREFIX}/lib -Wl,-rpath,${LLVM_PREFIX}/lib -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${LLVM_PREFIX}/lib/unwind -Wl,-rpath,${LLVM_PREFIX}/lib/unwind -lc++ -lc++abi -lunwind"
               printf 'PKG_CONFIG_PATH=%s\n' "${LLVM_PREFIX}/lib/pkgconfig"
             } >> "$GITHUB_ENV"
           else
-            {
-              echo "CC=/usr/bin/clang"
-              echo "CXX=/usr/bin/clang++"
-            } >> "$GITHUB_ENV"
+            DEVELOPER_DIR="$(xcode-select -p)"
+            TOOLCHAIN="${DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr"
+            if [[ -d "${TOOLCHAIN}/lib/cmake/llvm" && -d "${TOOLCHAIN}/lib/cmake/clang" ]]; then
+              {
+                echo "DEVELOPER_DIR=${DEVELOPER_DIR}"
+                echo "LLVM_PREFIX=${TOOLCHAIN}"
+                echo "LLVM_DIR=${TOOLCHAIN}/lib/cmake/llvm"
+                echo "Clang_DIR=${TOOLCHAIN}/lib/cmake/clang"
+                echo "CC=/usr/bin/clang"
+                echo "CXX=/usr/bin/clang++"
+              } >> "$GITHUB_ENV"
+            else
+              LLVM_PREFIX="$(brew --prefix llvm)"
+              echo "${LLVM_PREFIX}/bin" >> "$GITHUB_PATH"
+              {
+                echo "DEVELOPER_DIR=${DEVELOPER_DIR}"
+                echo "LLVM_PREFIX=${LLVM_PREFIX}"
+                echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm"
+                echo "Clang_DIR=${LLVM_PREFIX}/lib/cmake/clang"
+                echo "CC=/usr/bin/clang"
+                echo "CXX=/usr/bin/clang++"
+              } >> "$GITHUB_ENV"
+            fi
           fi
           {
             printf 'SDKROOT=%s\n' "$(xcrun --show-sdk-path)"
@@ -116,8 +132,7 @@ jobs:
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}"
           )
           if [[ "${{ matrix.compiler }}" == "brew-llvm" ]]; then
-            BREW_LINK_FLAGS="-L${LLVM_PREFIX}/lib -Wl,-rpath,${LLVM_PREFIX}/lib -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${LLVM_PREFIX}/lib/unwind -Wl,-rpath,${LLVM_PREFIX}/lib/unwind -lc++ -lc++abi -lunwind"
-            CMAKE_ARGS+=("-DCMAKE_CXX_FLAGS=${CXXFLAGS}")
+            CMAKE_ARGS+=("-DCMAKE_CXX_FLAGS=${BREW_CXXFLAGS}")
             CMAKE_ARGS+=("-DCMAKE_EXE_LINKER_FLAGS=${BREW_LINK_FLAGS}")
             CMAKE_ARGS+=("-DCMAKE_SHARED_LINKER_FLAGS=${BREW_LINK_FLAGS}")
             CMAKE_ARGS+=("-DCMAKE_MODULE_LINKER_FLAGS=${BREW_LINK_FLAGS}")
