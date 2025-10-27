@@ -16,14 +16,27 @@ env:
 
 jobs:
   macos:
-    if: false
-    name: macOS • ${matrix.compiler} • ${matrix.build-type}
+    name: ${{ matrix.name }} • ${{ matrix.build_type }}
     runs-on: macos-14
+    defaults:
+      run:
+        shell: bash
     strategy:
-        fail-fast: false
-        matrix:
-            compiler: ["appleclang", "llvm"]
-            build-type: ["debug", "release"]
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS 14 • AppleClang
+            compiler: appleclang
+            build_type: debug
+          - name: macOS 14 • AppleClang
+            compiler: appleclang
+            build_type: release
+          - name: macOS 14 • Homebrew LLVM
+            compiler: brew-llvm
+            build_type: debug
+          - name: macOS 14 • Homebrew LLVM
+            compiler: brew-llvm
+            build_type: release
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,56 +47,97 @@ jobs:
 
       - name: Install dependencies (Homebrew)
         run: |
+          set -euxo pipefail
           brew update
-          brew install llvm ninja ccache
-
-      - name: Configure LLVM environment
-        run: |
-          LLVM_PREFIX="$(brew --prefix llvm)"
-          echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
-          echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
-          if [ "${{ matrix.compiler }}" = "llvm" ]; then
-            echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
-          fi
+          brew install cmake ninja ccache fmt llvm
 
       - name: Configure environment
         run: |
-          echo "SDKROOT=$(xcrun --show-sdk-path)" >> $GITHUB_ENV
-          echo "CCACHE_DISABLE=1" >> $GITHUB_ENV
-          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
-
-      - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v3
+          set -euxo pipefail
+          BREW_PREFIX="$(brew --prefix)"
+          LLVM_PREFIX="$(brew --prefix llvm)"
+          {
+            echo "BREW_PREFIX=${BREW_PREFIX}"
+            echo "LLVM_PREFIX=${LLVM_PREFIX}"
+            echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm"
+            echo "Clang_DIR=${LLVM_PREFIX}/lib/cmake/clang"
+            if [[ -n "${CMAKE_PREFIX_PATH:-}" ]]; then
+              echo "CMAKE_PREFIX_PATH=${BREW_PREFIX}:${CMAKE_PREFIX_PATH}"
+            else
+              echo "CMAKE_PREFIX_PATH=${BREW_PREFIX}"
+            fi
+          } >> "$GITHUB_ENV"
+          echo "${BREW_PREFIX}/bin" >> "$GITHUB_PATH"
+          echo "${LLVM_PREFIX}/bin" >> "$GITHUB_PATH"
+          if [[ "${{ matrix.compiler }}" == "brew-llvm" ]]; then
+            {
+              printf 'CC=%s\n' "${LLVM_PREFIX}/bin/clang"
+              printf 'CXX=%s\n' "${LLVM_PREFIX}/bin/clang++"
+              printf 'CXXFLAGS=%s\n' "-nostdinc++ -isystem${LLVM_PREFIX}/include/c++/v1"
+              printf 'CPPFLAGS=%s\n' "-I${LLVM_PREFIX}/include"
+              printf 'LDFLAGS=%s\n' "-L${LLVM_PREFIX}/lib -Wl,-rpath,${LLVM_PREFIX}/lib -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${LLVM_PREFIX}/lib/unwind -Wl,-rpath,${LLVM_PREFIX}/lib/unwind -lc++ -lc++abi -lunwind"
+              printf 'LIBRARY_PATH=%s\n' "${LLVM_PREFIX}/lib:${LLVM_PREFIX}/lib/c++:${LLVM_PREFIX}/lib/unwind"
+              printf 'DYLD_LIBRARY_PATH=%s\n' "${LLVM_PREFIX}/lib:${LLVM_PREFIX}/lib/c++:${LLVM_PREFIX}/lib/unwind"
+              printf 'PKG_CONFIG_PATH=%s\n' "${LLVM_PREFIX}/lib/pkgconfig"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "CC=/usr/bin/clang"
+              echo "CXX=/usr/bin/clang++"
+            } >> "$GITHUB_ENV"
+          fi
+          {
+            printf 'SDKROOT=%s\n' "$(xcrun --show-sdk-path)"
+            echo "CCACHE_DISABLE=1"
+            echo "CMAKE_GENERATOR=Ninja"
+            echo "MACOSX_DEPLOYMENT_TARGET=14.0"
+          } >> "$GITHUB_ENV"
 
       - name: Show tool versions
         run: |
+          set -euxo pipefail
           cmake --version
           ninja --version
-          COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
-          "${COMPILER_BIN}/clang" --version
-
-      - name: Setup vcpkg
-        run: bash scripts/setup-vcpkg.sh
+          "${CC}" --version
 
       - name: Configure
+        env:
+          LC_ALL: en_US.UTF-8
+          LANG: en_US.UTF-8
         run: |
-          COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
+          set -euxo pipefail
+          PRESET="${{ matrix.build_type == 'debug' && 'debug-system' || 'release-system' }}"
           CMAKE_ARGS=(
-            "--preset=${{ matrix.build-type }}"
-            "-DCMAKE_C_COMPILER=${COMPILER_BIN}/clang"
-            "-DCMAKE_CXX_COMPILER=${COMPILER_BIN}/clang++"
-            "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="
+            "-DCMAKE_C_COMPILER=${CC}"
+            "-DCMAKE_CXX_COMPILER=${CXX}"
+            "-DLLVM_DIR=${LLVM_DIR}"
+            "-DClang_DIR=${Clang_DIR}"
+            "-DCMAKE_OSX_SYSROOT=${SDKROOT}"
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}"
           )
-          if [ -n "${LLVM_DIR:-}" ]; then
-            CMAKE_ARGS+=("-DLLVM_DIR=${LLVM_DIR}")
+          if [[ "${{ matrix.compiler }}" == "brew-llvm" ]]; then
+            BREW_LINK_FLAGS="-L${LLVM_PREFIX}/lib -Wl,-rpath,${LLVM_PREFIX}/lib -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++ -L${LLVM_PREFIX}/lib/unwind -Wl,-rpath,${LLVM_PREFIX}/lib/unwind -lc++ -lc++abi -lunwind"
+            CMAKE_ARGS+=("-DCMAKE_CXX_FLAGS=${CXXFLAGS}")
+            CMAKE_ARGS+=("-DCMAKE_EXE_LINKER_FLAGS=${BREW_LINK_FLAGS}")
+            CMAKE_ARGS+=("-DCMAKE_SHARED_LINKER_FLAGS=${BREW_LINK_FLAGS}")
+            CMAKE_ARGS+=("-DCMAKE_MODULE_LINKER_FLAGS=${BREW_LINK_FLAGS}")
           fi
-          cmake "${CMAKE_ARGS[@]}"
+          cmake --preset="${PRESET}" "${CMAKE_ARGS[@]}"
 
       - name: Build
-        run: cmake --build --preset=${{ matrix.build-type }}
+        run: |
+          set -euxo pipefail
+          PRESET="${{ matrix.build_type == 'debug' && 'debug-system' || 'release-system' }}"
+          cmake --build --preset="${PRESET}" --parallel
 
       - name: Test
-        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+        env:
+          LC_ALL: en_US.UTF-8
+          LANG: en_US.UTF-8
+        run: |
+          set -euxo pipefail
+          PRESET="${{ matrix.build_type == 'debug' && 'debug-system' || 'release-system' }}"
+          ctest --preset="${PRESET}" --output-on-failure
 
   windows:
     if: false

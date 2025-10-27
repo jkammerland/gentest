@@ -1,7 +1,17 @@
 
+Devlog 2025-10-28 (macOS Homebrew libc++ fix)
+  - Workflow
+      - Adjusted `.github/workflows/cmake.yml` to export the Homebrew LLVM prefix (`LLVM_PREFIX`) and gate additional flags on the `brew-llvm` matrix legs. We now inject matching `CXXFLAGS`/`CPPFLAGS`, point `LDFLAGS`/`LIBRARY_PATH`/`DYLD_LIBRARY_PATH` at the keg, and surface `PKG_CONFIG_PATH` so `find_package` prefers LLVM from Homebrew.
+      - During configure we pass `-DCMAKE_OSX_SYSROOT`, `-DCMAKE_OSX_DEPLOYMENT_TARGET`, and mirror the Homebrew link flags into `CMAKE_*_LINKER_FLAGS`. This keeps `gentest_codegen` linking against the keg’s `libc++`/`libc++abi` instead of the Xcode SDK stubs, addressing the missing `std::__1::__hash_memory` symbol under C++23.
+  - Verification
+      - `act` still lacks a macOS runtime, so the matrix legs must be validated on the hosted GitHub runners; queued a follow-up run once the workflow lands to confirm the linker picks up Homebrew’s `libc++`.
+  - Notes
+      - To revive the MatchFinder constructor shim (if a future libclang regression resurfaces), re-add `tools/src/match_finder_shim.cpp` to the build, define `GENTEST_USE_MATCH_FINDER_SHIM=ON` in `cmake/GentestCodegen.cmake`, and rebuild `gentest_codegen`. The helper TU must compile as C++17 and link against the same libclang that discovers the mangled `clang::ast_matchers::MatchFinder` symbol; remember to refresh the mangled name whenever LLVM revs the constructor signature.
+
 Devlog 2025-10-26 (System Toolchain CI validation)
   - Workflow
       - Updated `.github/workflows/cmake.yml` apt stanza to drop `libtinfo5` (not present on Ubuntu 24/25), add `git`, `ccache`, and `ca-certificates`, and stop upgrading the distro-managed `pip` (only install the wheel-distributed `cmake`). Fedora packages now include `ccache` as well. Set `defaults.run.shell: bash` for the Linux matrix so `set -euxo pipefail` works inside the job containers.
+      - Re-enabled a macOS matrix that builds both AppleClang and Homebrew `llvm` toolchains (debug/release) using only Homebrew-provided packages (cmake/ninja/fmt/llvm) and system Xcode; generator preset stays on `debug-system`/`release-system`, and the Homebrew legs export LLVM’s lib directory through `LDFLAGS`/`LIBRARY_PATH`/`DYLD_LIBRARY_PATH` so `libc++` resolves correctly.
       - Kept clang 20 packages across all Linux jobs; macOS/Windows sections remain unchanged.
   - Verification
       - `act` on this workstation (rootless Podman 5.6.2) still fails during the “Set up job” phase because the generated `act-…-env` volumes resolve to relative paths (`act-…-env/_data`), which crun cannot stat (`OCI runtime attempted to invoke a command that was not found`). Rather than block on that container runtime bug, reproduced each matrix leg manually with `podman run`, copying the repo into the container and executing the exact configure/build/test triplet:
