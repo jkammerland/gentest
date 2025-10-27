@@ -17,8 +17,11 @@
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
 #include <fmt/core.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Path.h>
 #include <llvm/Support/raw_ostream.h>
 #include <optional>
+#include <system_error>
 #include <set>
 #include <string>
 #include <utility>
@@ -91,7 +94,39 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         return;
     }
 
-    if (sm->getFileID(file_loc) != sm->getMainFileID()) {
+    auto normalizePath = [&](llvm::StringRef path) -> std::string {
+        if (path.empty()) {
+            return {};
+        }
+        llvm::SmallString<256> storage{path};
+        if (llvm::sys::path::is_relative(storage)) {
+            llvm::SmallString<256> absolute = storage;
+            if (auto cwd = result.SourceManager->getFileManager().getFileSystemOpts().WorkingDir; !cwd.empty()) {
+                llvm::SmallString<256> working_dir{cwd};
+                llvm::sys::path::append(working_dir, absolute);
+                storage = std::move(working_dir);
+            } else if (std::error_code ec = llvm::sys::fs::make_absolute(absolute)) {
+                (void)ec;
+                storage = std::move(absolute);
+            } else {
+                storage = std::move(absolute);
+            }
+        }
+        llvm::sys::path::remove_dots(storage, true);
+        llvm::sys::path::native(storage);
+        return std::string(storage.str());
+    };
+
+    bool in_main_file = sm->getFileID(file_loc) == sm->getMainFileID();
+    if (!in_main_file) {
+        const SourceLocation main_loc  = sm->getLocForStartOfFile(sm->getMainFileID());
+        const std::string    main_path = normalizePath(sm->getFilename(main_loc));
+        const std::string    this_path = normalizePath(sm->getFilename(file_loc));
+        if (!main_path.empty() && !this_path.empty() && main_path == this_path) {
+            in_main_file = true;
+        }
+    }
+    if (!in_main_file) {
         trace_skip("not main file", file_loc);
         return;
     }
