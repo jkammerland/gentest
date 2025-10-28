@@ -12,12 +12,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <clang/AST/Decl.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
 #include <fmt/core.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Path.h>
 #include <llvm/Support/raw_ostream.h>
 #include <optional>
+#include <system_error>
 #include <set>
 #include <string>
 #include <utility>
@@ -41,21 +45,100 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     const auto *sm   = result.SourceManager;
     const auto &lang = result.Context->getLangOpts();
 
+    const char *trace_env     = std::getenv("GENTEST_TRACE_DISCOVERY");
+    const bool  trace_enabled = trace_env && *trace_env && std::string_view(trace_env) != "0";
+    auto describe_loc = [&](SourceLocation loc) -> std::string {
+        if (!loc.isValid()) {
+            return "<invalid>";
+        }
+        const llvm::StringRef file = sm->getFilename(loc);
+        const unsigned        line = sm->getSpellingLineNumber(loc);
+        if (file.empty()) {
+            return fmt::format("<unknown>:{}", line);
+        }
+        return fmt::format("{}:{}", file.str(), line);
+    };
+    auto trace_skip = [&](std::string_view reason, SourceLocation loc) {
+        if (!trace_enabled) {
+            return;
+        }
+        std::string name = func->getQualifiedNameAsString();
+        if (name.empty()) {
+            name = func->getNameAsString();
+        }
+        const llvm::StringRef file = sm->getFilename(loc);
+        if (file.empty() || file.find("/tests/") == llvm::StringRef::npos) {
+            return;
+        }
+        llvm::errs() << fmt::format("gentest_codegen: trace skip [{}] {} @ {}\n", reason, name.empty() ? "<anonymous>" : name,
+                                    describe_loc(loc));
+    };
+
     // Allow templated functions; instantiation handled by codegen.
 
     auto loc = func->getBeginLoc();
     if (loc.isInvalid()) {
+        trace_skip("invalid begin loc", loc);
         return;
     }
+
+    SourceLocation expansion_loc = loc;
     if (loc.isMacroID()) {
-        loc = sm->getExpansionLoc(loc);
+        expansion_loc = sm->getExpansionLoc(loc);
     }
 
-    if (!sm->isWrittenInMainFile(loc)) {
+    SourceLocation spelling_loc = sm->getSpellingLoc(expansion_loc);
+    SourceLocation file_loc     = sm->getFileLoc(spelling_loc.isValid() ? spelling_loc : expansion_loc);
+    if (!file_loc.isValid()) {
+        trace_skip("invalid file loc", file_loc);
         return;
     }
 
-    if (sm->isInSystemHeader(loc) || sm->isWrittenInBuiltinFile(loc)) {
+    auto normalizePath = [&](llvm::StringRef path) -> std::string {
+        if (path.empty()) {
+            return {};
+        }
+        llvm::SmallString<256> storage{path};
+        if (llvm::sys::path::is_relative(storage)) {
+            llvm::SmallString<256> absolute = storage;
+            if (auto cwd = sm->getFileManager().getFileSystemOpts().WorkingDir; !cwd.empty()) {
+                llvm::SmallString<256> working_dir{cwd};
+                llvm::sys::path::append(working_dir, absolute);
+                storage = std::move(working_dir);
+            } else if (std::error_code ec = llvm::sys::fs::make_absolute(absolute)) {
+                (void)ec;
+                storage = std::move(absolute);
+            } else {
+                storage = std::move(absolute);
+            }
+        } else {
+            (void)llvm::sys::fs::make_absolute(storage);
+        }
+        llvm::SmallString<256> resolved;
+        if (!llvm::sys::fs::real_path(storage, resolved)) {
+            storage = std::move(resolved);
+        }
+        llvm::sys::path::remove_dots(storage, true);
+        llvm::sys::path::native(storage);
+        return std::string(storage.str());
+    };
+
+    bool in_main_file = sm->getFileID(file_loc) == sm->getMainFileID();
+    if (!in_main_file) {
+        const SourceLocation main_loc  = sm->getLocForStartOfFile(sm->getMainFileID());
+        const std::string    main_path = normalizePath(sm->getFilename(main_loc));
+        const std::string    this_path = normalizePath(sm->getFilename(file_loc));
+        if (!main_path.empty() && !this_path.empty() && main_path == this_path) {
+            in_main_file = true;
+        }
+    }
+    if (!in_main_file) {
+        trace_skip("not main file", file_loc);
+        return;
+    }
+
+    if (sm->isInSystemHeader(file_loc) || sm->isWrittenInBuiltinFile(file_loc)) {
+        trace_skip("system header/builtin", file_loc);
         return;
     }
 
@@ -154,6 +237,16 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
 
+    auto trace_add = [&](const TestCaseInfo &info) {
+        if (!trace_enabled) {
+            return;
+        }
+        if (info.filename.find("/tests/") == std::string::npos) {
+            return;
+        }
+        llvm::errs() << fmt::format("gentest_codegen: trace add {} [{}]\n", info.qualified_name, info.display_name);
+    };
+
     std::string qualified = func->getQualifiedNameAsString();
     if (qualified.empty())
         qualified = func->getNameAsString();
@@ -161,7 +254,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         llvm::errs() << fmt::format("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
         return;
     }
-    auto file_loc = sm->getFileLoc(func->getLocation());
     auto filename = sm->getFilename(file_loc);
     if (filename.empty())
         return;
@@ -325,8 +417,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
         }
         std::string key = info.qualified_name + "#" + info.display_name + "@" + info.filename + ":" + std::to_string(info.line);
-        if (seen_.insert(key).second)
-            out_.push_back(std::move(info));
+    if (seen_.insert(key).second) {
+        trace_add(info);
+        out_.push_back(std::move(info));
+    }
     };
 
     if (!summary.parameter_sets.empty() || !summary.param_packs.empty()) {
