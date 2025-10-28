@@ -101,7 +101,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         llvm::SmallString<256> storage{path};
         if (llvm::sys::path::is_relative(storage)) {
             llvm::SmallString<256> absolute = storage;
-            if (auto cwd = result.SourceManager->getFileManager().getFileSystemOpts().WorkingDir; !cwd.empty()) {
+            if (auto cwd = sm->getFileManager().getFileSystemOpts().WorkingDir; !cwd.empty()) {
                 llvm::SmallString<256> working_dir{cwd};
                 llvm::sys::path::append(working_dir, absolute);
                 storage = std::move(working_dir);
@@ -111,6 +111,12 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             } else {
                 storage = std::move(absolute);
             }
+        } else {
+            (void)llvm::sys::fs::make_absolute(storage);
+        }
+        llvm::SmallString<256> resolved;
+        if (!llvm::sys::fs::real_path(storage, resolved)) {
+            storage = std::move(resolved);
         }
         llvm::sys::path::remove_dots(storage, true);
         llvm::sys::path::native(storage);
