@@ -27,6 +27,18 @@ target_link_libraries(gentest_runtime
 
 target_compile_features(gentest_runtime PUBLIC cxx_std_23)
 
+# For LLVM 21+ with libc++, explicitly link LLVM's libc++ to avoid ABI issues
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE)
+    # Detect if we're using Homebrew LLVM (not Apple Clang)
+    get_filename_component(_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_llvm_prefix "${_compiler_dir}/.." ABSOLUTE)
+    # Check if this is Homebrew LLVM by looking for the libc++ in the LLVM tree
+    if(EXISTS "${_llvm_prefix}/lib/c++/libc++.dylib")
+        target_link_libraries(gentest_runtime PUBLIC "${_llvm_prefix}/lib/c++/libc++.dylib")
+        message(STATUS "gentest_runtime: linking LLVM libc++: ${_llvm_prefix}/lib/c++/libc++.dylib")
+    endif()
+endif()
+
 # Glob all header files
 file(GLOB _gentest_headers
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/*.h

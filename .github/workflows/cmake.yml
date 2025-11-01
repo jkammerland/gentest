@@ -21,7 +21,7 @@ jobs:
     strategy:
         fail-fast: false
         matrix:
-            compiler: ["appleclang", "llvm", "llvm@20"]
+            compiler: ["appleclang", "llvm@20", "llvm"]
             build-type: ["debug", "release"]
     steps:
       - name: Checkout
@@ -90,6 +90,11 @@ jobs:
           )
           if [ -n "${LLVM_DIR:-}" ]; then
             CMAKE_ARGS+=("-DLLVM_DIR=${LLVM_DIR}")
+            # Also add Clang_DIR to find ClangConfig.cmake
+            CLANG_DIR="$(dirname ${LLVM_DIR})/clang"
+            if [ -f "${CLANG_DIR}/ClangConfig.cmake" ]; then
+              CMAKE_ARGS+=("-DClang_DIR=${CLANG_DIR}")
+            fi
           fi
           cmake "${CMAKE_ARGS[@]}"
 
