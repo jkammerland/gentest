@@ -110,24 +110,17 @@ int main(int argc, const char **argv) {
     clang::tooling::ClangTool tool{*database, options.sources};
     tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
 
-    const auto extra_args           = options.clang_args;
-    const auto default_include_dirs = gentest::codegen::detect_platform_include_dirs();
+    const auto extra_args = options.clang_args;
 
     if (options.compilation_database) {
         tool.appendArgumentsAdjuster(
-            [extra_args, default_include_dirs](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
+            [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
+                    // Use compiler and flags from compilation database
                     adjusted.emplace_back(command_line.front());
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                    for (const auto &dir : default_include_dirs) {
-                        if (gentest::codegen::contains_isystem_entry(command_line, dir) ||
-                            gentest::codegen::contains_isystem_entry(adjusted, dir)) {
-                            continue;
-                        }
-                        adjusted.emplace_back("-isystem");
-                        adjusted.emplace_back(dir);
-                    }
+                    // Copy remaining args, filtering out C++ module flags
                     for (std::size_t i = 1; i < command_line.size(); ++i) {
                         const auto &arg = command_line[i];
                         if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
@@ -137,26 +130,22 @@ int main(int argc, const char **argv) {
                         adjusted.push_back(arg);
                     }
                 } else {
+                    // No database entry found - create minimal synthetic command
+                    // This shouldn't happen often, but is a fallback
                     static constexpr std::string_view compiler = "clang++";
                     adjusted.emplace_back(compiler);
 #if defined(__linux__)
                     adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                    for (const auto &dir : default_include_dirs) {
-                        if (gentest::codegen::contains_isystem_entry(command_line, dir) ||
-                            gentest::codegen::contains_isystem_entry(adjusted, dir)) {
-                            continue;
-                        }
-                        adjusted.emplace_back("-isystem");
-                        adjusted.emplace_back(dir);
-                    }
                 }
                 return adjusted;
             });
     } else {
+        // No compilation database - use minimal synthetic command
+        // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
         tool.appendArgumentsAdjuster(
-            [extra_args, default_include_dirs](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
+            [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
                 clang::tooling::CommandLineArguments adjusted;
                 static constexpr std::string_view    compiler = "clang++";
                 adjusted.emplace_back(compiler);
@@ -164,14 +153,6 @@ int main(int argc, const char **argv) {
                 adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
                 adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                for (const auto &dir : default_include_dirs) {
-                    if (gentest::codegen::contains_isystem_entry(command_line, dir) ||
-                        gentest::codegen::contains_isystem_entry(adjusted, dir)) {
-                        continue;
-                    }
-                    adjusted.emplace_back("-isystem");
-                    adjusted.emplace_back(dir);
-                }
                 if (!command_line.empty()) {
                     for (std::size_t i = 1; i < command_line.size(); ++i) {
                         const auto &arg = command_line[i];

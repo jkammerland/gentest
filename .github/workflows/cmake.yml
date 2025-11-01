@@ -16,33 +16,47 @@ env:
 
 jobs:
   macos:
-    if: false
-    name: macOS • ${matrix.compiler} • ${matrix.build-type}
-    runs-on: macos-14
+    name: macOS • ${{ matrix.compiler }} • ${{ matrix.build-type }}
+    runs-on: macos-15
     strategy:
         fail-fast: false
         matrix:
-            compiler: ["appleclang", "llvm"]
+            compiler: ["appleclang", "llvm@20", "llvm"]
             build-type: ["debug", "release"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select bundled Xcode toolchain
+      - name: Select Xcode 16.2 toolchain
         if: matrix.compiler == 'appleclang'
-        run: sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+        run: |
+          # Use Xcode 16.2 (has Apple Clang 16/AppleClang 26)
+          if [ -d "/Applications/Xcode_16.2.app" ]; then
+            sudo xcode-select --switch /Applications/Xcode_16.2.app/Contents/Developer
+          else
+            sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+          fi
+          xcodebuild -version
 
       - name: Install dependencies (Homebrew)
         run: |
           brew update
-          brew install llvm ninja ccache
+          if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
+            brew install llvm@20 ninja ccache
+          else
+            brew install llvm ninja ccache
+          fi
 
       - name: Configure LLVM environment
         run: |
-          LLVM_PREFIX="$(brew --prefix llvm)"
+          if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
+            LLVM_PREFIX="$(brew --prefix llvm@20)"
+          else
+            LLVM_PREFIX="$(brew --prefix llvm)"
+          fi
           echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
           echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
-          if [ "${{ matrix.compiler }}" = "llvm" ]; then
+          if [ "${{ matrix.compiler }}" = "llvm" ] || [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
           fi
 
@@ -76,6 +90,11 @@ jobs:
           )
           if [ -n "${LLVM_DIR:-}" ]; then
             CMAKE_ARGS+=("-DLLVM_DIR=${LLVM_DIR}")
+            # Also add Clang_DIR to find ClangConfig.cmake
+            CLANG_DIR="$(dirname ${LLVM_DIR})/clang"
+            if [ -f "${CLANG_DIR}/ClangConfig.cmake" ]; then
+              CMAKE_ARGS+=("-DClang_DIR=${CLANG_DIR}")
+            fi
           fi
           cmake "${CMAKE_ARGS[@]}"
 

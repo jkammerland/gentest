@@ -7,6 +7,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Export implicit compiler include directories to compile_commands.json
+# This makes system headers visible to tools like clangd and our gentest_codegen
+# without requiring runtime compiler queries
+set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
+
 # Keep compile_commands.json free of experimental C++ modules flags so that
 # external tools (clangd, static analyzers) don't choke on unknown options.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)

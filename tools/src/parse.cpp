@@ -108,9 +108,41 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
 auto collect_gentest_attributes_for(const FunctionDecl &func, const SourceManager &sm) -> AttributeCollection {
     AttributeCollection collected;
 
-    SourceLocation begin = func.getBeginLoc();
+    // LLVM 21 behavior change: For inline CXX member functions, getBeginLoc() points
+    // to the enclosing class, not the function. We need to find the actual start
+    // of the function declaration (including any attributes before it).
+    //
+    // Strategy: Use getSourceRange().getBegin() but adjust for member functions:
+    // In LLVM 21, for CXXMethodDecl with inline definitions, all location APIs
+    // (getBeginLoc, getOuterLocStart, etc.) incorrectly point to the class.
+    // Only getLocation() correctly points to the function name.
+    //
+    // For member functions: Use getTypeSourceInfo() to find the return type location,
+    // which should be before the function name but after any attributes.
+    // Then scan backward from there to find attributes.
+    SourceLocation begin;
+
+    if (auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {
+        // For member functions: try to get return type location
+        if (auto *tsi = method->getTypeSourceInfo()) {
+            begin = tsi->getTypeLoc().getBeginLoc();
+        }
+        if (!begin.isValid()) {
+            // Fallback to function name location for members
+            begin = func.getLocation();
+        }
+    } else {
+        // For free functions: getBeginLoc should work correctly
+        begin = func.getBeginLoc();
+    }
+
     if (!begin.isValid()) {
         return collected;
+    }
+
+    // Expand macros to file location
+    if (begin.isMacroID()) {
+        begin = sm.getExpansionLoc(begin);
     }
 
     SourceLocation file_location = sm.getFileLoc(begin);

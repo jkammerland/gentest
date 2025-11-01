@@ -232,6 +232,17 @@ endif()
 if(_gentest_use_libcxx)
     target_compile_options(gentest_codegen PRIVATE "-stdlib=libc++")
     target_link_options(gentest_codegen PRIVATE "-stdlib=libc++")
+
+    # For LLVM 21+, explicitly link LLVM's libc++ to avoid ABI issues with system libc++
+    if(APPLE AND DEFINED _gentest_llvm_libdirs)
+        foreach(_dir IN LISTS _gentest_llvm_libdirs)
+            if(EXISTS "${_dir}/c++/libc++.dylib")
+                target_link_libraries(gentest_codegen PRIVATE "${_dir}/c++/libc++.dylib")
+                message(STATUS "gentest: explicitly linking LLVM libc++: ${_dir}/c++/libc++.dylib")
+                break()
+            endif()
+        endforeach()
+    endif()
 endif()
 
 set(_gentest_fmt_target fmt::fmt)
