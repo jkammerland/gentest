@@ -54,51 +54,16 @@ struct ReportItem {
 static std::vector<ReportItem> g_report_items;
 static bool g_record_results = false;
 
-bool wants_list(std::span<const char*> args) {
-    for (const auto* arg : args) {
-        if (arg != nullptr && std::string_view(arg) == "--list") {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool wants_shuffle(std::span<const char*> args) {
+bool hasFlag(std::span<const char*> args, std::string_view flag) {
     for (const auto* arg : args) {
         if (!arg) continue;
-        const std::string_view s(arg);
-        if (s == "--shuffle") return true;
+        std::string_view s(arg);
+        if (s == flag) return true;
     }
     return false;
 }
 
-std::uint64_t parse_seed(std::span<const char*> args) {
-    for (std::size_t i = 0; i + 1 < args.size(); ++i) {
-        if (args[i] != nullptr && std::string_view(args[i]) == "--seed") {
-            if (args[i + 1]) {
-                std::uint64_t v = 0;
-                for (const char ch : std::string_view(args[i + 1])) {
-                    if (ch < '0' || ch > '9') { v = 0; break; }
-                    v = v * 10 + static_cast<std::uint64_t>(ch - '0');
-                }
-                if (v != 0) return v;
-            }
-        }
-    }
-    return 0;
-}
-
-bool wants_help(std::span<const char*> args) {
-    for (const auto* arg : args) if (arg && std::string_view(arg) == "--help") return true;
-    return false;
-}
-
-bool wants_list_tests(std::span<const char*> args) {
-    for (const auto* arg : args) if (arg && std::string_view(arg) == "--list-tests") return true;
-    return false;
-}
-
-const char* get_arg_value(std::span<const char*> args, std::string_view prefix) {
+const char* flagValue(std::span<const char*> args, std::string_view prefix) {
     for (const auto* arg : args) {
         if (!arg) continue;
         std::string_view s(arg);
@@ -107,13 +72,39 @@ const char* get_arg_value(std::span<const char*> args, std::string_view prefix) 
     return nullptr;
 }
 
-bool wants_fail_fast(std::span<const char*> args) {
-    for (const auto* arg : args) if (arg && std::string_view(arg) == "--fail-fast") return true;
-    return false;
+const char* flagOperand(std::span<const char*> args, std::string_view flag) {
+    for (std::size_t i = 0; i + 1 < args.size(); ++i) {
+        if (args[i] && std::string_view(args[i]) == flag) {
+            return args[i + 1];
+        }
+    }
+    return nullptr;
 }
 
+bool wants_list(std::span<const char*> args) { return hasFlag(args, "--list"); }
+
+bool wants_shuffle(std::span<const char*> args) { return hasFlag(args, "--shuffle"); }
+
+std::uint64_t parse_seed(std::span<const char*> args) {
+    if (const char* operand = flagOperand(args, "--seed"); operand) {
+        std::uint64_t v = 0;
+        for (const char ch : std::string_view(operand)) {
+            if (ch < '0' || ch > '9') { v = 0; break; }
+            v = v * 10 + static_cast<std::uint64_t>(ch - '0');
+        }
+        if (v != 0) return v;
+    }
+    return 0;
+}
+
+bool wants_help(std::span<const char*> args) { return hasFlag(args, "--help"); }
+
+bool wants_list_tests(std::span<const char*> args) { return hasFlag(args, "--list-tests"); }
+
+bool wants_fail_fast(std::span<const char*> args) { return hasFlag(args, "--fail-fast"); }
+
 std::size_t parse_repeat(std::span<const char*> args) {
-    const char* v = get_arg_value(args, "--repeat=");
+    const char* v = flagValue(args, "--repeat=");
     if (!v) return 1;
     std::size_t n = 0;
     for (const char ch : std::string_view(v)) {
@@ -125,14 +116,11 @@ std::size_t parse_repeat(std::span<const char*> args) {
 }
 
 // Benchmark/Jitter CLI helpers
-static inline const char* arg_value(std::span<const char*> args, std::string_view prefix) { return get_arg_value(args, prefix); }
-static inline bool wants_list_benches(std::span<const char*> args) {
-    for (const auto* a : args) if (a && std::string_view(a) == "--list-benches") return true; return false;
-}
-static inline const char* wants_run_bench(std::span<const char*> args) { return arg_value(args, "--run-bench="); }
-static inline const char* wants_bench_filter(std::span<const char*> args) { return arg_value(args, "--bench-filter="); }
-static inline const char* wants_run_jitter(std::span<const char*> args) { return arg_value(args, "--run-jitter="); }
-static inline const char* wants_jitter_filter(std::span<const char*> args) { return arg_value(args, "--jitter-filter="); }
+static inline bool wants_list_benches(std::span<const char*> args) { return hasFlag(args, "--list-benches"); }
+static inline const char* wants_run_bench(std::span<const char*> args) { return flagValue(args, "--run-bench="); }
+static inline const char* wants_bench_filter(std::span<const char*> args) { return flagValue(args, "--bench-filter="); }
+static inline const char* wants_run_jitter(std::span<const char*> args) { return flagValue(args, "--run-jitter="); }
+static inline const char* wants_jitter_filter(std::span<const char*> args) { return flagValue(args, "--jitter-filter="); }
 
 struct BenchConfig {
     double      min_epoch_time_s = 0.01; // 10 ms
@@ -148,10 +136,10 @@ static inline double parse_double_c(const char* s, double defv) {
 }
 static inline BenchConfig parse_bench_cfg(std::span<const char*> args) {
     BenchConfig cfg{};
-    cfg.min_epoch_time_s = parse_double_c(get_arg_value(args, "--bench-min-epoch-time-s="), cfg.min_epoch_time_s);
-    cfg.max_total_time_s = parse_double_c(get_arg_value(args, "--bench-max-total-time-s="), cfg.max_total_time_s);
-    cfg.warmup_epochs    = parse_szt_c(get_arg_value(args, "--bench-warmup="), cfg.warmup_epochs);
-    cfg.measure_epochs   = parse_szt_c(get_arg_value(args, "--bench-epochs="), cfg.measure_epochs);
+    cfg.min_epoch_time_s = parse_double_c(flagValue(args, "--bench-min-epoch-time-s="), cfg.min_epoch_time_s);
+    cfg.max_total_time_s = parse_double_c(flagValue(args, "--bench-max-total-time-s="), cfg.max_total_time_s);
+    cfg.warmup_epochs    = parse_szt_c(flagValue(args, "--bench-warmup="), cfg.warmup_epochs);
+    cfg.measure_epochs   = parse_szt_c(flagValue(args, "--bench-epochs="), cfg.measure_epochs);
     if (cfg.measure_epochs == 0) cfg.measure_epochs = 1;
     return cfg;
 }
@@ -591,7 +579,7 @@ auto run_all_tests(std::span<const char*> args) -> int {
             for (std::size_t i=0;i<kCases.size();++i) if (kCases[i].is_benchmark && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
             if (idxs.empty()) { fmt::print("Executed 0 benchmark(s).\n"); return 0; }
         }
-        bool table = (get_arg_value(args, "--bench-table") != nullptr);
+        bool table = (flagValue(args, "--bench-table") != nullptr);
         if (table) fmt::print("Summary ({})\n", (idxs.empty()?"":std::string(kCases[idxs.front()].suite)));
         for (auto i : idxs) {
             const auto& c = kCases[i];
@@ -606,7 +594,7 @@ auto run_all_tests(std::span<const char*> args) -> int {
 
     // Jitter
     if (const char* rj = wants_run_jitter(args); rj || wants_jitter_filter(args)) {
-        int bins = 10; if (const char* b = get_arg_value(args, "--jitter-bins=")) bins = static_cast<int>(parse_szt_c(b, 10));
+        int bins = 10; if (const char* b = flagValue(args, "--jitter-bins=")) bins = static_cast<int>(parse_szt_c(b, 10));
         (void)bins;
         std::vector<std::size_t> idxs;
         if (rj) {
@@ -623,12 +611,12 @@ auto run_all_tests(std::span<const char*> args) -> int {
     }
 
     Counters counters;
-    const char* junit_path = get_arg_value(args, "--junit=");
-    const char* allure_dir = get_arg_value(args, "--allure-dir=");
+    const char* junit_path = flagValue(args, "--junit=");
+    const char* allure_dir = flagValue(args, "--allure-dir=");
     g_record_results = (junit_path != nullptr) || (allure_dir != nullptr);
 
-    const char* run_exact = get_arg_value(args, "--run-test=");
-    const char* filter_pat = get_arg_value(args, "--filter=");
+    const char* run_exact = flagValue(args, "--run-test=");
+    const char* filter_pat = flagValue(args, "--filter=");
     if (run_exact || filter_pat) {
         std::vector<std::size_t> sel;
         if (run_exact) {
