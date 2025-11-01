@@ -55,6 +55,14 @@ function(gentest_attach_codegen target)
         list(APPEND _command ${GENTEST_CLANG_ARGS})
     endif()
 
+    # Add system include directories from CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES
+    # to ensure gentest_codegen can parse headers correctly with all compilers
+    if(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES)
+        foreach(_inc_dir ${CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES})
+            list(APPEND _command "-isystem" "${_inc_dir}")
+        endforeach()
+    endif()
+
     add_custom_command(
         OUTPUT ${GENTEST_OUTPUT} ${_gentest_mock_registry} ${_gentest_mock_impl}
         COMMAND ${_command}
