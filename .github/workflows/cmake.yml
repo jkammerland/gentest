@@ -325,6 +325,42 @@ jobs:
             llvm_dir: /usr/lib64/cmake/llvm
             clang_dir: /usr/lib64/cmake/clang
             build_type: release
+          - name: Fedora 43 • Clang
+            container: fedora:43
+            pkg_manager: dnf
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: debug
+          - name: Fedora 43 • Clang
+            container: fedora:43
+            pkg_manager: dnf
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: release
+          - name: Fedora 43 • GCC
+            container: fedora:43
+            pkg_manager: dnf
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: debug
+          - name: Fedora 43 • GCC
+            container: fedora:43
+            pkg_manager: dnf
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: release
     steps:
       - name: Update and install dependencies (apt)
         if: ${{ matrix.pkg_manager == 'apt' }}
