@@ -1,3 +1,47 @@
+function(_gentest_define_suite suite)
+    set(options NO_DEFAULT_TEST)
+    set(one_value_args OUTPUT TARGET)
+    cmake_parse_arguments(GENTEST_SUITE "${options}" "${one_value_args}" "" ${ARGN})
+
+    if(NOT GENTEST_SUITE_TARGET)
+        set(GENTEST_SUITE_TARGET "${PROJECT_NAME}_${suite}_tests")
+    endif()
+
+    if(NOT GENTEST_SUITE_OUTPUT)
+        set(GENTEST_SUITE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${suite}/test_impl.cpp")
+    endif()
+
+    add_executable(${GENTEST_SUITE_TARGET}
+        support/test_entry.cpp)
+
+    target_link_libraries(${GENTEST_SUITE_TARGET}
+        PRIVATE
+            ${PROJECT_NAME}
+            fmt::fmt)
+
+    target_compile_features(${GENTEST_SUITE_TARGET} PRIVATE cxx_std_23)
+    target_include_directories(${GENTEST_SUITE_TARGET}
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR})
+
+    gentest_attach_codegen(${GENTEST_SUITE_TARGET}
+        OUTPUT ${GENTEST_SUITE_OUTPUT}
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/${suite}/cases.cpp
+        CLANG_ARGS
+            -std=c++23
+            -Wno-unknown-attributes
+            -Wno-attributes
+            -I${PROJECT_SOURCE_DIR}/include
+            -I${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    if(NOT GENTEST_SUITE_NO_DEFAULT_TEST)
+        add_test(NAME ${suite}
+            COMMAND ${GENTEST_SUITE_TARGET})
+    endif()
+endfunction()
+
 set(_gentest_test_suites
     unit
     integration
@@ -15,49 +59,13 @@ if(GENTEST_WITH_LIBASSERT)
 endif()
 
 foreach(suite IN LISTS _gentest_test_suites)
-    set(target_name "${PROJECT_NAME}_${suite}_tests")
-
-    add_executable(${target_name}
-        support/test_entry.cpp)
-
-    target_link_libraries(${target_name}
-        PRIVATE
-            ${PROJECT_NAME}
-            fmt::fmt)
-
-    target_compile_features(${target_name} PRIVATE cxx_std_23)
-    target_include_directories(${target_name}
-        PRIVATE
-            ${PROJECT_SOURCE_DIR}/include
-            ${CMAKE_CURRENT_SOURCE_DIR})
-
-    gentest_attach_codegen(${target_name}
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${suite}/test_impl.cpp
-        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/${suite}/cases.cpp
-        CLANG_ARGS
-            -std=c++23
-            -Wno-unknown-attributes
-            -Wno-attributes
-            -I${PROJECT_SOURCE_DIR}/include
-            -I${CMAKE_CURRENT_SOURCE_DIR}
-    )
-
-    add_test(NAME ${suite}
-        COMMAND ${target_name})
+    _gentest_define_suite(${suite})
 endforeach()
 
 unset(_gentest_test_suites)
 
 # Concurrency target (no default add_test to avoid suite-wide failure)
-add_executable(${PROJECT_NAME}_concurrency_tests
-    support/test_entry.cpp)
-target_link_libraries(${PROJECT_NAME}_concurrency_tests PRIVATE ${PROJECT_NAME} fmt::fmt)
-target_compile_features(${PROJECT_NAME}_concurrency_tests PRIVATE cxx_std_23)
-target_include_directories(${PROJECT_NAME}_concurrency_tests PRIVATE ${PROJECT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
-gentest_attach_codegen(${PROJECT_NAME}_concurrency_tests
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/concurrency/test_impl.cpp
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/concurrency/cases.cpp
-    CLANG_ARGS -std=c++23 -Wno-unknown-attributes -Wno-attributes -I${PROJECT_SOURCE_DIR}/include -I${CMAKE_CURRENT_SOURCE_DIR})
+_gentest_define_suite(concurrency NO_DEFAULT_TEST)
 
 # Focused checks: ensure pass-only selection passes, and failing selection returns non-zero
 add_test(NAME concurrency_pass_single
