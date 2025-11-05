@@ -93,7 +93,6 @@ function(gentest_attach_codegen target)
     add_custom_command(
         OUTPUT ${GENTEST_OUTPUT} ${_gentest_mock_registry} ${_gentest_mock_impl}
         COMMAND ${_command}
-        COMMAND_EXPAND_LISTS
         DEPENDS gentest_codegen ${GENTEST_SOURCES} ${GENTEST_DEPENDS}
         COMMENT "Generating ${GENTEST_OUTPUT} for target ${target}"
         VERBATIM
