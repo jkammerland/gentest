@@ -112,7 +112,9 @@ if(NOT TARGET Terminfo::terminfo)
         set(_gentest_use_local_tinfo_shim FALSE)
     endif()
 
-    if(_gentest_use_local_tinfo_shim)
+    # Build the local terminfo shim only on UNIX; Windows/MSVC doesn't need it
+    # and the GCC-style link flags/libraries are not supported there.
+    if(_gentest_use_local_tinfo_shim AND UNIX)
         add_library(gentest_tinfo_shim SHARED src/terminfo_shim.cpp)
         target_link_libraries(gentest_tinfo_shim PRIVATE dl)
         set_target_properties(gentest_tinfo_shim PROPERTIES

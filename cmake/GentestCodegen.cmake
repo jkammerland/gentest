@@ -51,13 +51,20 @@ function(gentest_attach_codegen target)
 
     list(APPEND _command --)
     list(APPEND _command -DGENTEST_CODEGEN=1)
+    # On Windows, make clang use MSVC driver mode so it discovers the
+    # proper STL and SDK headers without extra flags.
+    if(WIN32)
+        list(APPEND _command --driver-mode=cl)
+    endif()
     if(GENTEST_CLANG_ARGS)
         list(APPEND _command ${GENTEST_CLANG_ARGS})
     endif()
 
     # Add system include directories from CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES
-    # to ensure gentest_codegen can parse headers correctly with all compilers
-    if(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES)
+    # to ensure gentest_codegen can parse headers correctly with non-Windows toolchains.
+    # On Windows, cl-driver mode already injects MSVC/STL/SDK headers; adding
+    # -isystem paths is unnecessary and can bloat command lines.
+    if(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES AND NOT WIN32)
         foreach(_inc_dir ${CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES})
             list(APPEND _command "-isystem" "${_inc_dir}")
         endforeach()
