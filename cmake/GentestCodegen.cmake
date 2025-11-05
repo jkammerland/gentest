@@ -41,25 +41,9 @@ function(gentest_attach_codegen target)
             $<TARGET_FILE:gentest_codegen>)
     endif()
 
-    # On Windows, ensure PATH contains the LLVM bin dir so the loader
-    # finds clang-cpp/LLVM DLLs used by gentest_codegen.
-    if(WIN32)
-        # Compose PATH as a single argument; escape semicolons so CMake
-        # does not split it into multiple args when expanding the command.
-        set(_gentest_path "$ENV{PATH}")
-        if(DEFINED GENTEST_LLVM_BIN_DIR AND NOT GENTEST_LLVM_BIN_DIR STREQUAL "")
-            if(NOT _gentest_path STREQUAL "")
-                set(_gentest_path "${GENTEST_LLVM_BIN_DIR};${_gentest_path}")
-            else()
-                set(_gentest_path "${GENTEST_LLVM_BIN_DIR}")
-            endif()
-        endif()
-        string(REPLACE ";" "\\;" _gentest_path_escaped "${_gentest_path}")
-        set(_command_launcher ${CMAKE_COMMAND} -E env
-            "PATH=${_gentest_path_escaped}"
-            $<TARGET_FILE:gentest_codegen>)
-        unset(_gentest_path_escaped)
-    endif()
+    # Rely on user's PATH to find LLVM/Clang DLLs on Windows to avoid
+    # brittle quoting issues with cmake -E env and semicolons. Users can
+    # set PATH to include LLVM's bin (e.g. $env:Path = "$env:LLVM_ROOT\bin;$env:Path").
 
     set(_command ${_command_launcher}
         --output ${GENTEST_OUTPUT}

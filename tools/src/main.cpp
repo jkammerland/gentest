@@ -108,7 +108,7 @@ int main(int argc, const char **argv) {
     }
 
     clang::tooling::ClangTool tool{*database, options.sources};
-    tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
+    // Show diagnostics to help debug configuration issues, especially on Windows.
 
     const auto extra_args = options.clang_args;
 
