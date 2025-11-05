@@ -24,6 +24,15 @@ foreach(_cand IN LISTS _gentest_llvm_config_candidates)
 endforeach()
 unset(_gentest_llvm_config_candidates)
 
+# Export LLVM bin directory for runtime dependency resolution of clang-cpp/LLVM DLLs
+if(DEFINED LLVM_TOOLS_BINARY_DIR AND EXISTS "${LLVM_TOOLS_BINARY_DIR}")
+    set(GENTEST_LLVM_BIN_DIR "${LLVM_TOOLS_BINARY_DIR}" CACHE INTERNAL "LLVM tools bin dir for codegen runtime" FORCE)
+elseif(DEFINED _gentest_llvm_prefix AND EXISTS "${_gentest_llvm_prefix}/bin")
+    set(GENTEST_LLVM_BIN_DIR "${_gentest_llvm_prefix}/bin" CACHE INTERNAL "LLVM tools bin dir for codegen runtime" FORCE)
+else()
+    set(GENTEST_LLVM_BIN_DIR "" CACHE INTERNAL "LLVM tools bin dir for codegen runtime" FORCE)
+endif()
+
 # Work around upstream LLVM exports referring to zstd::libzstd_shared while
 # vcpkg's zstd port commonly exposes zstd::libzstd. Define a compatibility
 # imported interface target before loading LLVM's exports so configure doesn't fail.
