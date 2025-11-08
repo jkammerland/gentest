@@ -25,20 +25,41 @@
 namespace gentest {
 
 #ifdef GENTEST_CODEGEN
+// Lightweight codegen placeholders that allow parsing test sources on any
+// platform/compiler without requiring generated mock specializations.
+//
+// Goals under GENTEST_CODEGEN:
+// - Non-abstract targets (concrete classes) should allow direct method calls
+//   on gentest::mock<T>. We achieve this by deriving from T.
+// - Abstract targets should still compile when tests instantiate gentest::mock<T>
+//   and take a base pointer (e.g., Calculator* p = &mock). Local calls on the
+//   mock are uncommon for abstract interfaces. To avoid “abstract class” errors,
+//   use a non-deriving stub that overloads operator& to yield a T*.
+
 namespace detail::mocking {
-template <typename T, typename = void>
-struct PlaceholderMockBase {
-    PlaceholderMockBase()  = default;
-    ~PlaceholderMockBase() = default;
+template <typename T, bool IsAbstract = std::is_abstract_v<T>>
+struct CodegenMockBase;
+
+// Non-abstract: inherit from T so members are visible for direct calls
+template <typename T>
+struct CodegenMockBase<T, false> : T {
+    using __gentest_target = T;
+    using T::T;
 };
 
+// Abstract: do not inherit, but provide address-of conversion to T*
 template <typename T>
-struct PlaceholderMockBase<T, std::void_t<decltype(sizeof(T))>> : T {
-    using T::T;
+struct CodegenMockBase<T, true> {
+    using __gentest_target = T;
+    // Provide an address-of operator to allow expressions like
+    //   T* p = &mock;
+    // during parsing. The returned pointer value is never used at runtime by
+    // the generator, so a dummy value is sufficient.
+    T* operator&() noexcept { return reinterpret_cast<T*>(this); }
 };
 } // namespace detail::mocking
 
-template <typename T> struct mock : detail::mocking::PlaceholderMockBase<T> {
+template <typename T> struct mock : detail::mocking::CodegenMockBase<T> {
     mock()  = default;
     ~mock() = default;
 };
@@ -489,18 +510,22 @@ template <typename R, typename... Args> struct ExpectationPusher<R(Args...)> {
 
 namespace detail {
 
+#ifdef GENTEST_CODEGEN
+// Namespace-scope stub used by MockAccess::expect during code generation
+struct CodegenExpectationStub {
+    CodegenExpectationStub &times(...) { return *this; }
+    template <typename... Ts> CodegenExpectationStub &returns(Ts &&...) { return *this; }
+    template <typename... Ts> CodegenExpectationStub &invokes(Ts &&...) { return *this; }
+    CodegenExpectationStub &allow_more(...) { return *this; }
+};
+#endif
+
 template <class Mock> struct MockAccess {
 #ifndef GENTEST_CODEGEN
     static_assert(sizeof(Mock) == 0, "gentest::mock<T> specialization missing generated accessors");
 #else
     template <class MethodPtr> static auto expect(Mock &, MethodPtr) {
-        struct Stub {
-            Stub &times(...) { return *this; }
-            template <typename... Ts> Stub &returns(Ts &&...) { return *this; }
-            template <typename... Ts> Stub &invokes(Ts &&...) { return *this; }
-            Stub &allow_more(...) { return *this; }
-        };
-        return Stub{};
+        return ::gentest::detail::CodegenExpectationStub{};
     }
     static void set_nice(Mock&, bool) {}
 #endif
