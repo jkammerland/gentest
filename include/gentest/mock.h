@@ -511,12 +511,20 @@ template <typename R, typename... Args> struct ExpectationPusher<R(Args...)> {
 namespace detail {
 
 #ifdef GENTEST_CODEGEN
-// Namespace-scope stub used by MockAccess::expect during code generation
+// Namespace-scope stub used by MockAccess::expect during code generation.
+// Provide all fluent methods referenced by tests so parsing succeeds:
+//  - times, returns, invokes, allow_more
+//  - with, where_args, where, where_call
 struct CodegenExpectationStub {
     CodegenExpectationStub &times(...) { return *this; }
     template <typename... Ts> CodegenExpectationStub &returns(Ts &&...) { return *this; }
     template <typename... Ts> CodegenExpectationStub &invokes(Ts &&...) { return *this; }
     CodegenExpectationStub &allow_more(...) { return *this; }
+
+    template <typename... Ts> CodegenExpectationStub &with(Ts &&...) { return *this; }
+    template <typename... Ts> CodegenExpectationStub &where_args(Ts &&...) { return *this; }
+    template <typename... Ts> CodegenExpectationStub &where(Ts &&...) { return *this; }
+    template <typename... Ts> CodegenExpectationStub &where_call(Ts &&...) { return *this; }
 };
 #endif
 
