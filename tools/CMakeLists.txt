@@ -288,10 +288,11 @@ if(TARGET clangTooling)
     endif()
 endif()
 
+# Clang Tooling relies on C++ RTTI; some LLVM exports set LLVM_ENABLE_RTTI,
+# but we avoid forcing -fno-rtti because it can cause crashes with clang-cpp
+# on platforms where the binary is built with RTTI (e.g., official Windows builds).
 if(LLVM_ENABLE_RTTI)
     target_compile_definitions(gentest_codegen PRIVATE LLVM_ENABLE_RTTI)
-else()
-    target_compile_options(gentest_codegen PRIVATE -fno-rtti)
 endif()
 
 llvm_map_components_to_libnames(_gentest_llvm_support Support)
