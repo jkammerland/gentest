@@ -176,7 +176,13 @@ int main(int argc, const char **argv) {
 
     MatchFinder finder;
     finder.addMatcher(functionDecl(isDefinition()).bind("gentest.func"), &collector);
-    register_mock_matchers(finder, mock_collector);
+    const char* no_mock_env = std::getenv("GENTEST_NO_MOCK_DISCOVERY");
+    const bool  disable_mock_discovery = (no_mock_env && *no_mock_env && std::string_view(no_mock_env) != "0");
+    if (!disable_mock_discovery) {
+        register_mock_matchers(finder, mock_collector);
+    } else {
+        llvm::errs() << "gentest_codegen: mock discovery disabled via GENTEST_NO_MOCK_DISCOVERY\n";
+    }
 
     const int status = tool.run(newFrontendActionFactory(&finder).get());
     if (status != 0) {
@@ -189,6 +195,7 @@ int main(int argc, const char **argv) {
     std::sort(cases.begin(), cases.end(),
               [](const TestCaseInfo &lhs, const TestCaseInfo &rhs) { return lhs.display_name < rhs.display_name; });
 
+    llvm::errs() << fmt::format("gentest_codegen: discovered {} test case(s), {} mock target(s)\n", cases.size(), mocks.size());
     if (options.check_only) {
         return 0;
     }
@@ -197,5 +204,7 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
-    return gentest::codegen::emit(options, cases, mocks);
+    const int emit_status = gentest::codegen::emit(options, cases, mocks);
+    llvm::errs() << fmt::format("gentest_codegen: emit status {}\n", emit_status);
+    return emit_status;
 }

@@ -176,6 +176,21 @@ if(DEFINED _gentest_llvm_prefix)
 endif()
 list(REMOVE_DUPLICATES _gentest_llvm_libdirs)
 
+# Try to find Clang resource directory (builtin headers) under the LLVM prefix
+if(DEFINED _gentest_llvm_prefix)
+    file(GLOB _gentest_resdir_candidates
+        LIST_DIRECTORIES TRUE
+        "${_gentest_llvm_prefix}/lib/clang/*")
+    list(SORT _gentest_resdir_candidates COMPARE NATURAL ORDER DESCENDING)
+    foreach(_cand IN LISTS _gentest_resdir_candidates)
+        if(EXISTS "${_cand}/include")
+            set(GENTEST_CLANG_RESOURCE_DIR "${_cand}" CACHE INTERNAL "Clang resource directory" FORCE)
+            break()
+        endif()
+    endforeach()
+    unset(_gentest_resdir_candidates)
+endif()
+
 set(_gentest_llvm_dso)
 foreach(_dir IN LISTS _gentest_llvm_libdirs)
     if(EXISTS "${_dir}")

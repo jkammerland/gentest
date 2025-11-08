@@ -74,6 +74,11 @@ function(gentest_attach_codegen target)
         endforeach()
     endif()
 
+    # Ensure builtin headers are found when using clang driver mode on Windows
+    if(WIN32 AND DEFINED GENTEST_CLANG_RESOURCE_DIR AND NOT GENTEST_CLANG_RESOURCE_DIR STREQUAL "")
+        list(APPEND _command -resource-dir "${GENTEST_CLANG_RESOURCE_DIR}")
+    endif()
+
     add_custom_command(
         OUTPUT ${GENTEST_OUTPUT} ${_gentest_mock_registry} ${_gentest_mock_impl}
         COMMAND ${_command}
