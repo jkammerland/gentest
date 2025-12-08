@@ -493,13 +493,13 @@ template <class Mock> struct MockAccess {
 #ifndef GENTEST_CODEGEN
     static_assert(sizeof(Mock) == 0, "gentest::mock<T> specialization missing generated accessors");
 #else
+    struct Stub {
+        template <typename... Ts> Stub &times(Ts &&...) { return *this; }
+        template <typename... Ts> Stub &returns(Ts &&...) { return *this; }
+        template <typename... Ts> Stub &invokes(Ts &&...) { return *this; }
+        Stub &allow_more(...) { return *this; }
+    };
     template <class MethodPtr> static auto expect(Mock &, MethodPtr) {
-        struct Stub {
-            Stub &times(...) { return *this; }
-            template <typename... Ts> Stub &returns(Ts &&...) { return *this; }
-            template <typename... Ts> Stub &invokes(Ts &&...) { return *this; }
-            Stub &allow_more(...) { return *this; }
-        };
         return Stub{};
     }
     static void set_nice(Mock&, bool) {}

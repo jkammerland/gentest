@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/Diagnostic.h>
+#include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
@@ -91,6 +92,17 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
 
 } // namespace
 
+std::optional<std::filesystem::path> find_nearest_compdb() {
+    auto dir = std::filesystem::current_path();
+    while (true) {
+        const auto candidate = dir / "compile_commands.json";
+        if (std::filesystem::exists(candidate)) return dir;
+        if (!dir.has_parent_path() || dir.parent_path() == dir) break;
+        dir = dir.parent_path();
+    }
+    return std::nullopt;
+}
+
 int main(int argc, const char **argv) {
     const auto options = parse_arguments(argc, argv);
 
@@ -104,25 +116,31 @@ int main(int argc, const char **argv) {
             return 1;
         }
     } else {
-        database = std::make_unique<clang::tooling::FixedCompilationDatabase>(".", std::vector<std::string>{});
+        if (auto nearest = find_nearest_compdb()) {
+            database = clang::tooling::CompilationDatabase::loadFromDirectory(nearest->string(), db_error);
+        }
+        if (!database) {
+            database = std::make_unique<clang::tooling::FixedCompilationDatabase>(".", std::vector<std::string>{});
+        }
     }
 
     clang::tooling::ClangTool tool{*database, options.sources};
-    tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
+    auto diag_opts = std::make_unique<clang::DiagnosticOptions>();
+    tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), *diag_opts, true));
 
     const auto extra_args = options.clang_args;
 
-    if (options.compilation_database) {
-        tool.appendArgumentsAdjuster(
-            [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
-                clang::tooling::CommandLineArguments adjusted;
-                if (!command_line.empty()) {
-                    // Use compiler and flags from compilation database
-                    adjusted.emplace_back(command_line.front());
-                    adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                    // Copy remaining args, filtering out C++ module flags
-                    for (std::size_t i = 1; i < command_line.size(); ++i) {
-                        const auto &arg = command_line[i];
+    auto make_adjuster = [extra_args](bool have_db) {
+        return [extra_args, have_db](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef filename) {
+            clang::tooling::CommandLineArguments adjusted;
+
+            auto add_filtered = [&](const clang::tooling::CommandLineArguments &cmd) {
+                if (!cmd.empty()) {
+                    adjusted.emplace_back(cmd.front());
+                    for (std::size_t i = 1; i < cmd.size(); ++i) {
+                        const auto &arg = cmd[i];
+                        if (arg == filename) continue; // we'll append the file after inserting extra args
+                        if (arg == "-o" && i + 1 < cmd.size()) { ++i; continue; }
                         if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
                             arg == "-fmodule-header") {
                             continue;
@@ -131,43 +149,38 @@ int main(int argc, const char **argv) {
                     }
                 } else {
                     // No database entry found - create minimal synthetic command
-                    // This shouldn't happen often, but is a fallback
                     static constexpr std::string_view compiler = "clang++";
                     adjusted.emplace_back(compiler);
 #if defined(__linux__)
                     adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
-                    adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                 }
-                return adjusted;
-            });
-    } else {
-        // No compilation database - use minimal synthetic command
-        // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
-        tool.appendArgumentsAdjuster(
-            [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
-                clang::tooling::CommandLineArguments adjusted;
-                static constexpr std::string_view    compiler = "clang++";
-                adjusted.emplace_back(compiler);
-#if defined(__linux__)
-                adjusted.emplace_back("--gcc-toolchain=/usr");
-#endif
+            };
+
+            add_filtered(command_line);
+
+            // Insert extra args before any existing "--" so clang treats them as options
+            auto dashdash = std::find(adjusted.begin(), adjusted.end(), "--");
+            if (dashdash != adjusted.end()) {
+                adjusted.insert(dashdash, extra_args.begin(), extra_args.end());
+            } else {
                 adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                if (!command_line.empty()) {
-                    for (std::size_t i = 1; i < command_line.size(); ++i) {
-                        const auto &arg = command_line[i];
-                        if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
-                            arg == "-fmodule-header") {
-                            continue;
-                        }
-                        adjusted.push_back(arg);
-                    }
-                }
-                return adjusted;
-            });
-    }
+            }
+            if (!filename.empty()) {
+                adjusted.emplace_back(filename.str());
+            }
+
+            // If the database is missing the source file (rare), keep at least one input
+            if (filename.empty() && have_db && !command_line.empty()) {
+                adjusted.emplace_back(command_line.back());
+            }
+
+            return adjusted;
+        };
+    };
 
     tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
+    tool.appendArgumentsAdjuster(make_adjuster(options.compilation_database.has_value()));
 
     std::vector<TestCaseInfo>                    cases;
     TestCaseCollector                            collector{cases};
