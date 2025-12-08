@@ -27,6 +27,23 @@ target_link_libraries(gentest_runtime
 
 target_compile_features(gentest_runtime PUBLIC cxx_std_23)
 
+set(_gentest_boost_components "")
+set(_gentest_boost_links "")
+if(GENTEST_USE_BOOST_JSON)
+    list(APPEND _gentest_boost_components json)
+    list(APPEND _gentest_boost_links Boost::json)
+    target_compile_definitions(gentest_runtime PUBLIC GENTEST_USE_BOOST_JSON)
+endif()
+if(GENTEST_USE_BOOST_UUID)
+    list(APPEND _gentest_boost_components uuid)
+    list(APPEND _gentest_boost_links Boost::uuid)
+    target_compile_definitions(gentest_runtime PUBLIC GENTEST_USE_BOOST_UUID)
+endif()
+if(_gentest_boost_components)
+    find_package(Boost CONFIG REQUIRED COMPONENTS ${_gentest_boost_components})
+    target_link_libraries(gentest_runtime PUBLIC ${_gentest_boost_links})
+endif()
+
 # For LLVM 21+ with libc++, explicitly link LLVM's libc++ to avoid ABI issues
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE)
     # Detect if we're using Homebrew LLVM (not Apple Clang)

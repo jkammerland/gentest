@@ -4,8 +4,15 @@
   "description": "Attribute-driven test discovery with clang tooling",
   "dependencies": [
     "fmt",
-    "zlib",
-    "zstd",
-    "libxml2"
-  ]
+    "zstd"
+  ],
+  "features": {
+    "allure": {
+      "description": "Enable Boost-powered Allure result writer (Boost.JSON + Boost.UUID)",
+      "dependencies": [
+        "boost-json",
+        "boost-uuid"
+      ]
+    }
+  }
 }

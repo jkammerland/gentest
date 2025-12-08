@@ -148,6 +148,10 @@ if(NOT TARGET Terminfo::terminfo)
     unset(_gentest_terminfo_includes)
 endif()
 
+# Prefer shared zlib when LLVM exports reference ZLIB::zlibstatic but the
+# platform does not ship static libz.
+set(ZLIB_USE_STATIC_LIBS OFF)
+
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
 

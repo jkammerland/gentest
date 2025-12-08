@@ -38,7 +38,7 @@
   ],
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 28,
+    "minor": 31,
     "patch": 0
   },
   "configurePresets": [
@@ -102,6 +102,20 @@
       }
     },
     {
+      "name": "base-conan",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "23",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_CXX_EXTENSIONS": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/conan/generators/conan_toolchain.cmake"
+      }
+    },
+    {
       "name": "debug",
       "inherits": "base-debug",
       "displayName": "Debug",
@@ -132,6 +146,26 @@
       "description": "Debug build enabling Allure writer tests",
       "cacheVariables": {
         "GENTEST_ENABLE_ALLURE_TESTS": "ON"
+      }
+    },
+    {
+      "name": "conan-local-debug",
+      "inherits": "base-conan",
+      "displayName": "Debug (Conan)",
+      "description": "Debug build using Conan-provided dependencies",
+      "binaryDir": "${sourceDir}/build/conan/Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "conan-local-release",
+      "inherits": "base-conan",
+      "displayName": "Release (Conan)",
+      "description": "Release build using Conan-provided dependencies",
+      "binaryDir": "${sourceDir}/build/conan/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
@@ -350,10 +384,24 @@
       "jobs": 0
     },
     {
+      "name": "conan-local-debug",
+      "configurePreset": "conan-local-debug",
+      "displayName": "Debug Build (Conan)",
+      "description": "Build with dependencies from Conan (toolchain in build/conan/generators)",
+      "jobs": 0
+    },
+    {
       "name": "release",
       "configurePreset": "release",
       "displayName": "Release Build",
       "description": "Build with release configuration, full optimizations and no debug symbols",
+      "jobs": 0
+    },
+    {
+      "name": "conan-local-release",
+      "configurePreset": "conan-local-release",
+      "displayName": "Release Build (Conan)",
+      "description": "Build with release configuration using Conan-provided dependencies",
       "jobs": 0
     },
     {
@@ -500,11 +548,25 @@
       "description": "Run all tests including Allure writer tests (may fail by design)"
     },
     {
+      "name": "conan-local-debug",
+      "inherits": "test-base",
+      "configurePreset": "conan-local-debug",
+      "displayName": "Debug Tests (Conan)",
+      "description": "Run all tests in debug mode using Conan-provided dependencies"
+    },
+    {
       "name": "release",
       "inherits": "test-base",
       "configurePreset": "release",
       "displayName": "Release Tests",
       "description": "Run all tests in release mode"
+    },
+    {
+      "name": "conan-local-release",
+      "inherits": "test-base",
+      "configurePreset": "conan-local-release",
+      "displayName": "Release Tests (Conan)",
+      "description": "Run all tests in release mode using Conan-provided dependencies"
     },
     {
       "name": "release-system",
@@ -651,6 +713,16 @@
           "type": "test",
           "name": "debug"
         }
+      ]
+    },
+    {
+      "name": "conan-local-debug",
+      "displayName": "Conan Debug Workflow",
+      "description": "Configure, build, and test using Conan-provided dependencies",
+      "steps": [
+        { "type": "configure", "name": "conan-local-debug" },
+        { "type": "build",     "name": "conan-local-debug" },
+        { "type": "test",      "name": "conan-local-debug" }
       ]
     },
     {

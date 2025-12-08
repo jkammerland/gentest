@@ -65,7 +65,7 @@ xmake r gentest_unit_tests -- --list
 
 If linking `gentest_codegen` fails, ensure `libclang-cpp` is available and visible (e.g. `/usr/local/lib`) and that `fmt` headers are installed; the xmake build defines `FMT_HEADER_ONLY` by default.
 
-Legacy vcpkg-based toolchain (downloads and builds its own LLVM):
+Legacy vcpkg-based toolchain (fmt/zstd from manifest; uses host LLVM/Clang by default):
 ```bash
 cmake --preset=debug
 cmake --build --preset=debug
@@ -76,9 +76,33 @@ LLVM/Clang discovery is automatic across versions 18–22 via `llvm-config`.
 No manual `LLVM_DIR`/`Clang_DIR` is required. If you do need to override
 discovery, you can still pass them explicitly.
 
-`gentest_codegen` relies on clang libraries and the active build’s `compile_commands.json`. vcpkg users can install the
-`llvm[clang,clang-tools-extra]` port plus `fmt` (pulled automatically for tests), and everyone else should ensure
-`clang++` is on `PATH` together with the host libstdc++ headers (e.g. `/usr/lib/gcc/x86_64-redhat-linux/15`).
+To pull Boost-backed Allure writer dependencies via vcpkg, enable the manifest
+feature before configuring:
+```bash
+VCPKG_MANIFEST_FEATURES=allure cmake --preset=debug
+```
+
+`gentest_codegen` relies on clang libraries and the active build’s `compile_commands.json`.
+When using the vcpkg toolchain, the build will pick up host LLVM/Clang; if you prefer
+vcpkg-provided toolchains, install the `llvm`/`clang` ports in your cache before configuring.
+
+### Conan (dependencies only)
+
+Conan drives dependency resolution (fmt/zstd, optional Boost) while the build still uses
+your host LLVM/Clang:
+```bash
+~/.local/bin/conan profile detect --force
+~/.local/bin/conan install . -s build_type=Debug --build=missing
+cmake --preset=conan-local-debug
+cmake --build --preset=conan-local-debug
+ctest --preset=conan-local-debug --output-on-failure
+```
+
+Enable the Boost-powered Allure writer via Conan options:
+```bash
+~/.local/bin/conan install . -s build_type=Debug --build=missing \
+    -o gentest:with_boost_json=True -o gentest:with_boost_uuid=True
+```
 
 ## Linkage (static vs shared)
 
