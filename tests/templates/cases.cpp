@@ -36,7 +36,7 @@ void pairs(int a, int b) {
     gentest::expect((a == 1 || a == 2) && (b == 5 || b == 6), "cartesian pairs valid");
 }
 
-[[using gentest: test("strs"), parameters(s, "a", b)]]
+[[using gentest: test("strs"), parameters(s, "a", "b")]]
 void strs(std::string s) {
     gentest::expect(s == "a" || s == "b", "strings axis values");
 }
@@ -44,7 +44,7 @@ void strs(std::string s) {
 // Mixed axes and templates
 
 template <typename T>
-[[using gentest: test("bar"), template(T, int, long), parameters(s, x, y)]]
+[[using gentest: test("bar"), template(T, int, long), parameters(s, "x", "y")]]
 void bar(std::string s) {
     if constexpr (!std::is_integral_v<T>) {
         gentest::expect(false, "T must be integral");
@@ -55,7 +55,7 @@ void bar(std::string s) {
 
 // parameters_pack: bundle multiple args per row
 
-[[using gentest: test("pack"), parameters_pack((a, b), (42, a), (7, "b"))]]
+[[using gentest: test("pack"), parameters_pack((a, b), (42, "a"), (7, "b"))]]
 void pack(int a, std::string b) {
     const bool row1 = (a == 42 && b == "a");
     const bool row2 = (a == 7 && b == "b");
@@ -71,14 +71,14 @@ void raw_msec(std::chrono::milliseconds v) {
 
 // Char-like literals
 
-[[using gentest: test("chars"), parameters(c, a, 'z')]]
+[[using gentest: test("chars"), parameters(c, 'a', 'z')]]
 void chars(char c) {
     gentest::expect(c == 'a' || c == 'z', "char axis values");
 }
 
 // Wide/UTF strings
 
-[[using gentest: test("wstrs"), parameters(s, Alpha)]]
+[[using gentest: test("wstrs"), parameters(s, L"Alpha")]]
 void wstrs(std::wstring s) {
     gentest::expect(s == L"Alpha", "wide string literal value");
 }
