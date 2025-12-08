@@ -119,14 +119,14 @@ if(NOT TARGET Terminfo::terminfo)
             OUTPUT_NAME tinfo
             SOVERSION 5
             VERSION 5
-            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
         target_link_options(gentest_tinfo_shim PRIVATE
             "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/terminfo_shim.map")
         list(APPEND _gentest_terminfo_links gentest_tinfo_shim)
         if(UNIX)
-            set_property(TARGET gentest_tinfo_shim PROPERTY BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
+            set_property(TARGET gentest_tinfo_shim PROPERTY BUILD_RPATH "$<TARGET_FILE_DIR:gentest_tinfo_shim>")
         endif()
-        set(GENTEST_TERMINFO_SHIM_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL
+        set(GENTEST_TERMINFO_SHIM_DIR "$<TARGET_FILE_DIR:gentest_tinfo_shim>" CACHE INTERNAL
             "Directory containing the Gentest Terminfo shim" FORCE)
         set(GENTEST_USES_TERMINFO_SHIM ON CACHE INTERNAL
             "Whether Gentest links against the bundled Terminfo shim" FORCE)
