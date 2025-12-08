@@ -84,6 +84,20 @@ inline void                             record_failure(std::string msg) {
     ctx->event_lines.push_back(ctx->failures.back());
     ctx->event_kinds.push_back('F');
 }
+inline void record_failure_at(std::string msg, std::string file, unsigned line) {
+    auto ctx = g_current_test;
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+        std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
+                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                   stderr);
+        std::abort();
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    ctx->failures.push_back(std::move(msg));
+    ctx->failure_locations.push_back({std::move(file), line});
+    ctx->event_lines.push_back(ctx->failures.back());
+    ctx->event_kinds.push_back('F');
+}
 inline void record_failure(std::string msg, const std::source_location &loc) {
     auto ctx = g_current_test;
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
@@ -241,43 +255,59 @@ template <typename T> inline bool operator!=(const Approx &lhs, const T &rhs) { 
 } // namespace approx
 
 // Assert that `condition` is true, otherwise throws gentest::failure with `message`.
-inline void expect(bool condition, std::string_view /*message*/ = {}, const std::source_location &loc = std::source_location::current()) {
+inline void expect(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
     if (!condition) {
         std::string text;
         ::gentest::detail::append_label(text, "EXPECT_TRUE");
         text.append(::gentest::detail::loc_to_string(loc));
+        if (!message.empty()) {
+            text.append(": ");
+            text.append(message);
+        }
         ::gentest::detail::record_failure(std::move(text), loc);
     }
 }
 
 // Assert that `lhs == rhs` holds. Optional `message` is prefixed to the error text.
-inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
+inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
     if (!(lhs == rhs)) {
         std::string text;
         ::gentest::detail::append_label(text, "EXPECT_EQ");
         text.append(::gentest::detail::loc_to_string(loc));
+        if (!message.empty()) {
+            text.append(": ");
+            text.append(message);
+        }
         ::gentest::detail::record_failure(std::move(text), loc);
     }
 }
 
 // Assert that `lhs != rhs` holds. Optional `message` is prefixed to the error text.
-inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
+inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
     if (!(lhs != rhs)) {
         std::string text;
         ::gentest::detail::append_label(text, "EXPECT_NE");
         text.append(::gentest::detail::loc_to_string(loc));
+        if (!message.empty()) {
+            text.append(": ");
+            text.append(message);
+        }
         ::gentest::detail::record_failure(std::move(text), loc);
     }
 }
 
 // Require that `condition` holds; throws gentest::assertion on failure.
-inline void require(bool condition, std::string_view /*message*/ = {}, const std::source_location &loc = std::source_location::current()) {
+inline void require(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
     if (!condition) {
         std::string text;
         ::gentest::detail::append_label(text, "ASSERT_TRUE");
         text.append(::gentest::detail::loc_to_string(loc));
+        if (!message.empty()) {
+            text.append(": ");
+            text.append(message);
+        }
         ::gentest::detail::record_failure(text, loc);
 #if GENTEST_EXCEPTIONS_ENABLED
         throw assertion("ASSERT_TRUE");
@@ -288,12 +318,16 @@ inline void require(bool condition, std::string_view /*message*/ = {}, const std
 }
 
 // Require equality; throws gentest::assertion on mismatch.
-inline void require_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
+inline void require_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     if (!(lhs == rhs)) {
         std::string text;
         ::gentest::detail::append_label(text, "ASSERT_EQ");
         text.append(::gentest::detail::loc_to_string(loc));
+        if (!message.empty()) {
+            text.append(": ");
+            text.append(message);
+        }
         ::gentest::detail::record_failure(text, loc);
 #if GENTEST_EXCEPTIONS_ENABLED
         throw assertion("ASSERT_EQ");
@@ -304,12 +338,16 @@ inline void require_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {}
 }
 
 // Require inequality; throws gentest::assertion on mismatch.
-inline void require_ne(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
+inline void require_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     if (!(lhs != rhs)) {
         std::string text;
         ::gentest::detail::append_label(text, "ASSERT_NE");
         text.append(::gentest::detail::loc_to_string(loc));
+        if (!message.empty()) {
+            text.append(": ");
+            text.append(message);
+        }
         ::gentest::detail::record_failure(text, loc);
 #if GENTEST_EXCEPTIONS_ENABLED
         throw assertion("ASSERT_NE");

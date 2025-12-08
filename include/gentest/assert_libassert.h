@@ -54,7 +54,11 @@ inline void failure_handler(const ::libassert::assertion_info& info) {
     std::string message = info.to_string();
 
     // Record into the active gentest context (includes per-test logs if enabled).
-    ::gentest::detail::record_failure(message);
+    if (info.location.file != nullptr && info.location.line != 0) {
+        ::gentest::detail::record_failure_at(message, std::string(info.location.file), info.location.line);
+    } else {
+        ::gentest::detail::record_failure(message);
+    }
 
     // Heuristic: treat macros containing "EXPECT" as non-fatal (if present in the
     // toolchain); everything else fatal. This mirrors gtest/catch behavior for

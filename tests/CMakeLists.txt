@@ -190,7 +190,7 @@ add_test(NAME integration_list_counts
 add_test(NAME failing_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_failing_tests>
-        -DPASS=0 -DFAIL=3 -DSKIP=0
+        -DPASS=0 -DFAIL=4 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 # The raw failing suite run is expected to fail

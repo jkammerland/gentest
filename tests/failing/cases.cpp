@@ -27,6 +27,11 @@ void predicate_mismatch() {
     mock_obj.call(4);
 }
 
+[[using gentest: test("messages/custom_text")]]
+void message_text_is_preserved() {
+    EXPECT_TRUE(false, "custom failure payload");
+}
+
 [[using gentest: test("logging/attachment")]]
 void logging_attachment() {
     gentest::log_on_fail(true);
