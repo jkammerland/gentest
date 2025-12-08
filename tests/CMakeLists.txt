@@ -518,6 +518,16 @@ add_test(NAME benches_table_smoke
         -DEXPECT_SUBSTRING=benchmarks/string/concat_small
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake)
 
+add_test(NAME bench_failure_nonzero
+    COMMAND $<TARGET_FILE:gentest_benchmarks_tests> --run-bench=benchmarks/string/failing)
+set_tests_properties(bench_failure_nonzero PROPERTIES WILL_FAIL TRUE)
+
+# The full benchmarks suite contains a deliberately failing benchmark; skip the
+# default "benchmarks" test and run a passing bench for smoke coverage instead.
+set_tests_properties(benchmarks PROPERTIES DISABLED TRUE)
+add_test(NAME benchmarks_smoke
+    COMMAND $<TARGET_FILE:gentest_benchmarks_tests> --run-bench=benchmarks/string/concat_small)
+
 # Jitter: histogram header and suite table header
 add_test(NAME jitter_hist_header
     COMMAND ${CMAKE_COMMAND}

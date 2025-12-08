@@ -1,4 +1,5 @@
 #include "gentest/attributes.h"
+#include "gentest/runner.h"
 
 #include <cmath>
 #include <string>
@@ -49,6 +50,11 @@ void bench_struct_params(demo::Blob p) {
 void bench_complex(std::complex<double> z) {
     auto m = std::norm(z);
     gentest::doNotOptimizeAway(m);
+}
+
+[[using gentest: bench("string/failing")]]
+void bench_failing() {
+    gentest::require(false, "bench failures must surface");
 }
 
 } // namespace benchmarks

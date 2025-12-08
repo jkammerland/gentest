@@ -168,7 +168,8 @@ static inline double mean_of(const std::vector<double>& v) {
     if (v.empty()) return 0.0; double s=0; for (double x : v) s+=x; return s / static_cast<double>(v.size());
 }
 
-static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters, std::size_t& iterations_done, bool& had_assert_fail) {
+static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters, std::size_t& iterations_done, bool& had_assert_fail,
+                                     std::string* failure_msg) {
     using clock = std::chrono::steady_clock;
     auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
     ctxinfo->display_name = std::string(c.name);
@@ -177,7 +178,9 @@ static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters
     auto start = clock::now();
     had_assert_fail = false; iterations_done = 0;
     for (std::size_t i = 0; i < iters; ++i) {
-        try { c.fn(ctx); } catch (const gentest::assertion&) { had_assert_fail = true; break; } catch (...) { /* ignore */ }
+        try { c.fn(ctx); }
+        catch (const gentest::assertion& ex) { had_assert_fail = true; if (failure_msg) *failure_msg = ex.message(); break; }
+        catch (...) { had_assert_fail = true; if (failure_msg) *failure_msg = "unexpected exception"; break; }
         iterations_done = i + 1;
     }
     auto end = clock::now();
@@ -185,20 +188,33 @@ static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters
     return std::chrono::duration<double>(end - start).count();
 }
 
-static BenchResult run_bench(const Case& c, void* ctx, const BenchConfig& cfg) {
+struct BenchRun {
+    BenchResult result;
+    bool        failed = false;
+    std::string failure_message;
+};
+
+static BenchRun run_bench(const Case& c, void* ctx, const BenchConfig& cfg) {
+    BenchRun    out{};
     BenchResult br{};
     // Calibrate iterations to reach min epoch time
     std::size_t iters = 1; bool had_assert = false; std::size_t done = 0;
-    while (run_epoch_calls(c, ctx, iters, done, had_assert) < cfg.min_epoch_time_s) {
+    while (run_epoch_calls(c, ctx, iters, done, had_assert, &out.failure_message) < cfg.min_epoch_time_s) {
+        if (had_assert) { out.failed = true; break; }
         iters *= 2; if (iters == 0 || iters > (std::size_t(1)<<30)) break;
     }
+    if (out.failed) return out;
     // Warmup epochs
-    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) { (void)run_epoch_calls(c, ctx, iters, done, had_assert); }
+    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) {
+        (void)run_epoch_calls(c, ctx, iters, done, had_assert, &out.failure_message);
+        if (had_assert) { out.failed = true; return out; }
+    }
     // Measure epochs
     std::vector<double> epoch_ns;
     auto start_all = std::chrono::steady_clock::now();
     for (std::size_t i = 0; i < cfg.measure_epochs; ++i) {
-        double s = run_epoch_calls(c, ctx, iters, done, had_assert);
+        double s = run_epoch_calls(c, ctx, iters, done, had_assert, &out.failure_message);
+        if (had_assert) { out.failed = true; return out; }
         epoch_ns.push_back(ns_from_s(s) / static_cast<double>(done ? done : 1));
         auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_all).count();
         if (elapsed > cfg.max_total_time_s) break;
@@ -206,7 +222,8 @@ static BenchResult run_bench(const Case& c, void* ctx, const BenchConfig& cfg) {
     if (!epoch_ns.empty()) {
         br.epochs = epoch_ns.size(); br.iters_per_epoch = iters; br.best_ns = *std::min_element(epoch_ns.begin(), epoch_ns.end()); br.median_ns = median_of(epoch_ns); br.mean_ns = mean_of(epoch_ns);
     }
-    return br;
+    out.result = br;
+    return out;
 }
 
 bool wildcard_match(std::string_view text, std::string_view pattern) {
@@ -596,9 +613,13 @@ auto run_all_tests(std::span<const char*> args) -> int {
         for (auto i : idxs) {
             const auto& c = kCases[i];
             void* ctx=nullptr; if (c.fixture_lifetime!=FixtureLifetime::None) { try { ctx = c.acquire_fixture?c.acquire_fixture(c.suite):nullptr; } catch (...) {} }
-            BenchResult br = run_bench(c, ctx, cfg);
+            BenchRun br = run_bench(c, ctx, cfg);
+            if (br.failed) {
+                fmt::print(stderr, "Benchmark {} failed: {}\n", c.name, br.failure_message.empty() ? "assertion/exception" : br.failure_message);
+                return 1;
+            }
             if (!table) {
-                fmt::print("{}: epochs={}, iters/epoch={}, best={:.0f} ns, median={:.0f} ns, mean={:.0f} ns\n", c.name, br.epochs, br.iters_per_epoch, br.best_ns, br.median_ns, br.mean_ns);
+                fmt::print("{}: epochs={}, iters/epoch={}, best={:.0f} ns, median={:.0f} ns, mean={:.0f} ns\n", c.name, br.result.epochs, br.result.iters_per_epoch, br.result.best_ns, br.result.median_ns, br.result.mean_ns);
             }
         }
         return 0;
