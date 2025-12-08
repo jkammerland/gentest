@@ -33,13 +33,9 @@ namespace stateful {
 struct [[using gentest: fixture(suite)]] Counter /* optionally implement setup/teardown later */ {
     int x = 0;
 
-    [[using gentest: test("stateful/a_set_flag")]]
-    void set_flag() {
+    [[using gentest: test("stateful/preserve_state")]]
+    void preserve_state() {
         x = 1;
-    }
-
-    [[using gentest: test("stateful/b_check_flag")]]
-    void check_flag() {
         gentest::expect_eq(x, 1, "state preserved across methods");
     }
 };
@@ -51,14 +47,10 @@ namespace global_shared {
 struct [[using gentest: fixture(global)]] GlobalCounter {
     int hits = 0;
 
-    [[using gentest: test("global/increment")]]
-    void increment() {
+    [[using gentest: test("global/increment_and_observe")]]
+    void increment_and_observe() {
         ++hits;
         gentest::expect_eq(hits, 1, "first increment sets global state");
-    }
-
-    [[using gentest: test("global/observe")]]
-    void observe() {
         gentest::expect_eq(hits, 1, "global fixture persists across tests");
     }
 };

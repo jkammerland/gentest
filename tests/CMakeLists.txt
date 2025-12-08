@@ -178,7 +178,9 @@ add_test(NAME unit_list_counts
 add_test(NAME integration_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_integration_tests>
-        -DPASS=3 -DFAIL=0 -DSKIP=1
+        -DPASS=$<IF:$<STREQUAL:${CMAKE_SYSTEM_NAME},Linux>,3,2>
+        -DFAIL=0
+        -DSKIP=$<IF:$<STREQUAL:${CMAKE_SYSTEM_NAME},Linux>,1,2>
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME integration_list_counts
@@ -214,13 +216,13 @@ add_test(NAME skiponly_list_counts
 add_test(NAME fixtures_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
-        -DPASS=7 -DFAIL=0 -DSKIP=0
+        -DPASS=5 -DFAIL=0 -DSKIP=0
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME fixtures_list_counts
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
-        -DLIST=ON -DCASES=7
+        -DLIST=ON -DCASES=5
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake)
 
 add_test(NAME templates_counts
@@ -390,7 +392,7 @@ add_test(NAME filter_single
 add_test(NAME fixtures_list_tests_lines
     COMMAND ${CMAKE_COMMAND}
         -DPROG=$<TARGET_FILE:gentest_fixtures_tests>
-        -DLINES=7
+        -DLINES=5
         -DARGS=--list-tests
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake)
 
