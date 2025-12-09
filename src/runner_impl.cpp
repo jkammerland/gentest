@@ -178,9 +178,24 @@ static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters
     auto start = clock::now();
     had_assert_fail = false; iterations_done = 0;
     for (std::size_t i = 0; i < iters; ++i) {
-        try { c.fn(ctx); }
-        catch (const gentest::assertion& ex) { had_assert_fail = true; if (failure_msg) *failure_msg = ex.message(); break; }
-        catch (...) { had_assert_fail = true; if (failure_msg) *failure_msg = "unexpected exception"; break; }
+        try {
+            c.fn(ctx);
+        } catch (const gentest::assertion& ex) {
+            had_assert_fail = true;
+            if (failure_msg) *failure_msg = ex.message();
+            break;
+        } catch (const std::exception& ex) {
+            had_assert_fail = true;
+            if (failure_msg) *failure_msg = ex.what();
+            break;
+        } catch (...) {
+            had_assert_fail = true;
+            if (failure_msg) *failure_msg = "unexpected exception";
+            break;
+        }
+        if (failure_msg && !ctxinfo->failures.empty()) {
+            *failure_msg = ctxinfo->failures.back();
+        }
         iterations_done = i + 1;
     }
     auto end = clock::now();

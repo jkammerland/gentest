@@ -54,6 +54,11 @@ void bench_complex(std::complex<double> z) {
 
 [[using gentest: bench("string/failing")]]
 void bench_failing() {
+    const bool enabled = std::getenv("GENTEST_ENABLE_FAILING_BENCH") != nullptr;
+    if (!enabled) {
+        gentest::expect(true, "failing bench skipped unless GENTEST_ENABLE_FAILING_BENCH is set");
+        return;
+    }
     gentest::require(false, "bench failures must surface");
 }
 

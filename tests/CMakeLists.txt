@@ -520,13 +520,10 @@ add_test(NAME benches_table_smoke
 
 add_test(NAME bench_failure_nonzero
     COMMAND $<TARGET_FILE:gentest_benchmarks_tests> --run-bench=benchmarks/string/failing)
-set_tests_properties(bench_failure_nonzero PROPERTIES WILL_FAIL TRUE)
+set_tests_properties(bench_failure_nonzero PROPERTIES WILL_FAIL TRUE ENVIRONMENT GENTEST_ENABLE_FAILING_BENCH=1)
 
-# The full benchmarks suite contains a deliberately failing benchmark; skip the
-# default "benchmarks" test and run a passing bench for smoke coverage instead.
-set_tests_properties(benchmarks PROPERTIES DISABLED TRUE)
 add_test(NAME benchmarks_smoke
-    COMMAND $<TARGET_FILE:gentest_benchmarks_tests> --run-bench=benchmarks/string/concat_small)
+    COMMAND $<TARGET_FILE:gentest_benchmarks_tests> --bench-filter=benchmarks/*)
 
 # Jitter: histogram header and suite table header
 add_test(NAME jitter_hist_header

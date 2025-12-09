@@ -55,7 +55,8 @@ inline void failure_handler(const ::libassert::assertion_info& info) {
 
     // Record into the active gentest context (includes per-test logs if enabled).
     if (info.location.file != nullptr && info.location.line != 0) {
-        ::gentest::detail::record_failure_at(message, std::string(info.location.file), info.location.line);
+        std::filesystem::path p{info.location.file};
+        ::gentest::detail::record_failure_at(message, p.lexically_normal().generic_string(), info.location.line);
     } else {
         ::gentest::detail::record_failure(message);
     }

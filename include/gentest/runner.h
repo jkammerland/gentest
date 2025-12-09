@@ -94,7 +94,8 @@ inline void record_failure_at(std::string msg, std::string file, unsigned line) 
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->failures.push_back(std::move(msg));
-    ctx->failure_locations.push_back({std::move(file), line});
+    std::filesystem::path p{file};
+    ctx->failure_locations.push_back({p.lexically_normal().generic_string(), line});
     ctx->event_lines.push_back(ctx->failures.back());
     ctx->event_kinds.push_back('F');
 }
