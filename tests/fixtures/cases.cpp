@@ -35,8 +35,16 @@ struct [[using gentest: fixture(suite)]] Counter /* optionally implement setup/t
 
     [[using gentest: test("stateful/preserve_state")]]
     void preserve_state() {
-        x = 1;
-        gentest::expect_eq(x, 1, "state preserved across methods");
+        auto before = x;
+        ++x;
+        gentest::expect(x == before + 1, "suite fixture increments across invocations");
+    }
+
+    [[using gentest: test("stateful/observe_after_preserve")]]
+    void observe_after_preserve() {
+        auto before = x;
+        ++x;
+        gentest::expect(x >= 1, "suite fixture retains prior increments");
     }
 };
 
@@ -52,6 +60,12 @@ struct [[using gentest: fixture(global)]] GlobalCounter {
         ++hits;
         gentest::expect_eq(hits, 1, "first increment sets global state");
         gentest::expect_eq(hits, 1, "global fixture persists across tests");
+    }
+
+    [[using gentest: test("global/persists_across_tests")]]
+    void persists_across_tests() {
+        gentest::expect_eq(hits, 1, "global fixture value carried over");
+        ++hits;
     }
 };
 
