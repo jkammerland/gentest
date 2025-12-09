@@ -141,15 +141,29 @@ int main(int argc, const char **argv) {
                         const auto &arg = cmd[i];
                         if (arg == filename) continue; // we'll append the file after inserting extra args
                         if (arg == "-o" && i + 1 < cmd.size()) { ++i; continue; }
-                        if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
-                            arg == "-fmodule-header") {
+                        // Strip module-related flags that require compiled BMI artifacts
+                        auto is_module_flag = [](std::string_view a) {
+                            return a == "-fmodules" || a == "-fmodules-ts" || a == "-fmodule-header" ||
+                                   a.rfind("-fmodule-mapper=", 0) == 0 || a.rfind("-fmodule-file=", 0) == 0 ||
+                                   a.rfind("-fprebuilt-module-path=", 0) == 0 || a.rfind("-fmodules-cache-path=", 0) == 0 ||
+                                   a.rfind("-fdeps-format=", 0) == 0;
+                        };
+                        if (is_module_flag(arg)) {
                             continue;
+                        }
+                        if (arg == "-Xclang" && i + 1 < cmd.size()) {
+                            std::string next = cmd[i + 1];
+                            if (is_module_flag(next)) { ++i; continue; }
                         }
                         adjusted.push_back(arg);
                     }
                 } else {
                     // No database entry found - create minimal synthetic command
+#if defined(_WIN32)
+                    static constexpr std::string_view compiler = "clang-cl";
+#else
                     static constexpr std::string_view compiler = "clang++";
+#endif
                     adjusted.emplace_back(compiler);
 #if defined(__linux__)
                     adjusted.emplace_back("--gcc-toolchain=/usr");
@@ -159,13 +173,10 @@ int main(int argc, const char **argv) {
 
             add_filtered(command_line);
 
-            // Insert extra args before any existing "--" so clang treats them as options
-            auto dashdash = std::find(adjusted.begin(), adjusted.end(), "--");
-            if (dashdash != adjusted.end()) {
-                adjusted.insert(dashdash, extra_args.begin(), extra_args.end());
-            } else {
-                adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-            }
+            // Insert extra args right after the compiler to honor user overrides
+            auto insert_pos = adjusted.begin();
+            if (insert_pos != adjusted.end()) { ++insert_pos; }
+            adjusted.insert(insert_pos, extra_args.begin(), extra_args.end());
             if (!filename.empty()) {
                 adjusted.emplace_back(filename.str());
             }
@@ -180,7 +191,7 @@ int main(int argc, const char **argv) {
     };
 
     tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
-    tool.appendArgumentsAdjuster(make_adjuster(options.compilation_database.has_value()));
+    tool.appendArgumentsAdjuster(make_adjuster(database != nullptr));
 
     std::vector<TestCaseInfo>                    cases;
     TestCaseCollector                            collector{cases};
