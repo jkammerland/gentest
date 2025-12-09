@@ -112,7 +112,7 @@ if(NOT TARGET Terminfo::terminfo)
         set(_gentest_use_local_tinfo_shim FALSE)
     endif()
 
-    if(_gentest_use_local_tinfo_shim)
+    if(_gentest_use_local_tinfo_shim AND UNIX)
         add_library(gentest_tinfo_shim SHARED src/terminfo_shim.cpp)
         target_link_libraries(gentest_tinfo_shim PRIVATE dl)
         set_target_properties(gentest_tinfo_shim PROPERTIES
