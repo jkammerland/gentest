@@ -126,7 +126,8 @@ int main(int argc, const char **argv) {
 
     clang::tooling::ClangTool tool{*database, options.sources};
     auto diag_opts = std::make_unique<clang::DiagnosticOptions>();
-    tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), *diag_opts, true));
+    tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), *diag_opts, /*ShouldOwnClient=*/true));
+    diag_opts.release();
 
     const auto extra_args = options.clang_args;
 
