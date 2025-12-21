@@ -12,6 +12,12 @@ genrule(
     tags = ['no-sandbox', 'local'],
 )
 
+alias(
+    name = 'gentest_codegen',
+    actual = ':gentest_codegen_build',
+    visibility = ['//visibility:public'],
+)
+
 cc_library(
     name = 'gentest_runtime',
     srcs = ['src/runner_impl.cpp'],
@@ -19,6 +25,15 @@ cc_library(
     copts = ['-std=c++23', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'],
     includes = ['include'],
     visibility = ['//visibility:public'],
+)
+
+sh_test(
+    name = 'codegen_check_invalid',
+    srcs = ['scripts/codegen_check_invalid.sh'],
+    data = [
+        ':gentest_codegen_build',
+        'tests/smoke/invalid_attrs.cpp',
+    ],
 )
 
 gentest_suite('unit')

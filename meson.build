@@ -2,6 +2,7 @@ project('gentest', 'cpp', default_options: ['cpp_std=c++23'])
 
 fmt_dep = dependency('fmt', required: false)
 cpp = meson.get_compiler('cpp')
+fs = import('fs')
 
 inc = include_directories('include', 'tests')
 
@@ -22,13 +23,15 @@ libgentest_runtime = static_library(
 )
 
 # Helper to attach code generation via an external generator binary.
-# The path to gentest_codegen is taken from the environment variable
-# GENTEST_CODEGEN. Example:
-#   GENTEST_CODEGEN=build/debug-system/tools/gentest_codegen meson setup build/meson
+# Configure the generator path via the Meson option `-Dcodegen_path=...`.
+# Example:
+#   meson setup build/meson -Dcodegen_path=build/debug-system/tools/gentest_codegen
 #   meson compile -C build/meson
 codegen_opt = get_option('codegen_path')
 if codegen_opt == ''
-  codegen_opt = 'build/debug-system/tools/gentest_codegen'
+  codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen')
+elif not fs.is_absolute(codegen_opt)
+  codegen_opt = join_paths(meson.project_source_root(), codegen_opt)
 endif
 codegen = codegen_opt
 
