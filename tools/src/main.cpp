@@ -7,10 +7,13 @@
 #include <algorithm>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/Diagnostic.h>
+#include <clang/Basic/DiagnosticOptions.h>
+#include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
+#include <cstdlib>
 #include <filesystem>
 #include <fmt/core.h>
 #include <llvm/Support/CommandLine.h>
@@ -45,6 +48,21 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<bool>         no_include_sources_option{
+        "no-include-sources",
+        llvm::cl::desc("Do not emit #include directives for input sources (deprecated env: GENTEST_NO_INCLUDE_SOURCES)"),
+        llvm::cl::init(false),
+        llvm::cl::cat(category)};
+    static llvm::cl::opt<bool>         strict_fixture_option{
+        "strict-fixture",
+        llvm::cl::desc("Treat member tests on suite/global fixtures as errors (deprecated env: GENTEST_STRICT_FIXTURE)"),
+        llvm::cl::init(false),
+        llvm::cl::cat(category)};
+    static llvm::cl::opt<bool>         quiet_clang_option{
+        "quiet-clang",
+        llvm::cl::desc("Suppress clang diagnostics"),
+        llvm::cl::init(false),
+        llvm::cl::cat(category)};
     static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::OneOrMore,
                                                      llvm::cl::cat(category)};
     static llvm::cl::list<std::string> clang_option{llvm::cl::ConsumeAfter, llvm::cl::desc("-- <clang arguments>")};
@@ -66,6 +84,22 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.clang_args.assign(clang_option.begin(), clang_option.end());
     opts.check_only = check_option.getValue();
+    opts.quiet_clang = quiet_clang_option.getValue();
+    opts.strict_fixture = [&] {
+        if (strict_fixture_option.getValue()) {
+            return true;
+        }
+        const char *strict_env = std::getenv("GENTEST_STRICT_FIXTURE");
+        return strict_env && *strict_env && std::string_view(strict_env) != "0";
+    }();
+    opts.include_sources = [&] {
+        if (no_include_sources_option.getValue()) {
+            return false;
+        }
+        const char *no_inc_env = std::getenv("GENTEST_NO_INCLUDE_SOURCES");
+        const bool  skip_env   = (no_inc_env && *no_inc_env && std::string_view(no_inc_env) != "0");
+        return !skip_env;
+    }();
     if (!mock_registry_option.getValue().empty()) {
         opts.mock_registry_path = std::filesystem::path{mock_registry_option.getValue()};
     }
@@ -108,7 +142,13 @@ int main(int argc, const char **argv) {
     }
 
     clang::tooling::ClangTool tool{*database, options.sources};
-    tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
+    std::unique_ptr<clang::DiagnosticOptions> diag_options;
+    if (options.quiet_clang) {
+        tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
+    } else {
+        diag_options = std::make_unique<clang::DiagnosticOptions>();
+        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), *diag_options));
+    }
 
     const auto extra_args = options.clang_args;
 
@@ -170,7 +210,7 @@ int main(int argc, const char **argv) {
     tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
 
     std::vector<TestCaseInfo>                    cases;
-    TestCaseCollector                            collector{cases};
+    TestCaseCollector                            collector{cases, options.strict_fixture};
     std::vector<gentest::codegen::MockClassInfo> mocks;
     MockUsageCollector                           mock_collector{mocks};
 

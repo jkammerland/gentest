@@ -254,7 +254,7 @@ std::string build_class_declaration(const MockClassInfo &cls) {
     const std::string fq_type = fmt::format("::{}", cls.qualified_name);
     header += fmt::format("template <>\nstruct mock<{}>{} {{\n", fq_type,
                           cls.derive_for_virtual ? fmt::format(" final : public {}", fq_type) : std::string{});
-    header += fmt::format("    using __gentest_target = {};\n", fq_type);
+    header += fmt::format("    using GentestTarget = {};\n", fq_type);
     header += constructors_block(cls);
     if (!cls.methods.empty()) {
         header += method_declarations_block(cls);
