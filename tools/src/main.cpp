@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fmt/core.h>
+#include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/raw_ostream.h>
 #include <optional>
@@ -142,15 +143,19 @@ int main(int argc, const char **argv) {
         database = std::make_unique<clang::tooling::FixedCompilationDatabase>(".", std::vector<std::string>{});
     }
 
+#if CLANG_VERSION_MAJOR < 21
+    llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> diag_options;
+#else
+    clang::DiagnosticOptions diag_options;
+#endif
     clang::tooling::ClangTool tool{*database, options.sources};
-    std::unique_ptr<clang::DiagnosticOptions> diag_options;
     if (options.quiet_clang) {
         tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
     } else {
-        diag_options = std::make_unique<clang::DiagnosticOptions>();
 #if CLANG_VERSION_MAJOR >= 21
-        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), *diag_options, /*OwnsOutputStream=*/false));
+        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), diag_options, /*OwnsOutputStream=*/false));
 #else
+        diag_options = new clang::DiagnosticOptions();
         tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false));
 #endif
     }
