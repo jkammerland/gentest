@@ -16,7 +16,11 @@ endif()
 
 set(_args)
 if(DEFINED ARGS)
-  separate_arguments(_args NATIVE_COMMAND "${ARGS}")
+  if(ARGS MATCHES ";")
+    set(_args ${ARGS}) # already a list
+  else()
+    separate_arguments(_args NATIVE_COMMAND "${ARGS}") # string
+  endif()
 endif()
 
 execute_process(
@@ -37,4 +41,3 @@ string(FIND "${_content}" "${EXPECT_SUBSTRING}" _pos)
 if(_pos EQUAL -1)
   message(FATAL_ERROR "Expected substring not found in file: '${EXPECT_SUBSTRING}'. File: ${FILE}\nContent:\n${_content}")
 endif()
-

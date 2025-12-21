@@ -8,7 +8,11 @@ endif()
 
 set(_args)
 if(DEFINED ARGS)
-  separate_arguments(_args NATIVE_COMMAND "${ARGS}")
+  if(ARGS MATCHES ";")
+    set(_args ${ARGS}) # already a list
+  else()
+    separate_arguments(_args NATIVE_COMMAND "${ARGS}") # string
+  endif()
 endif()
 
 if(LIST)

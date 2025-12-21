@@ -10,7 +10,11 @@ endif()
 
 set(_args)
 if(DEFINED ARGS)
-  separate_arguments(_args NATIVE_COMMAND "${ARGS}")
+  if(ARGS MATCHES ";")
+    set(_args ${ARGS}) # already a list
+  else()
+    separate_arguments(_args NATIVE_COMMAND "${ARGS}") # string
+  endif()
 endif()
 
 execute_process(
@@ -28,4 +32,3 @@ string(FIND "${out}" "${EXPECT_SUBSTRING}" _pos)
 if(_pos EQUAL -1)
   message(FATAL_ERROR "Expected substring not found: '${EXPECT_SUBSTRING}'. Output:\n${out}")
 endif()
-
