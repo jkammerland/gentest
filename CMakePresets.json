@@ -38,7 +38,7 @@
   ],
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 28,
+    "minor": 31,
     "patch": 0
   },
   "configurePresets": [
@@ -64,8 +64,6 @@
         "CMAKE_CXX_STANDARD_REQUIRED": "ON",
         "CMAKE_CXX_EXTENSIONS": "OFF",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
-        "CMAKE_C_COMPILER_LAUNCHER": "ccache",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
       }
     },
@@ -108,6 +106,16 @@
       "description": "Debug build with no optimizations (-O0), full debug info (-g), suitable for interactive debugging"
     },
     {
+      "name": "debug-ccache",
+      "inherits": "debug",
+      "displayName": "Debug (ccache)",
+      "description": "Debug build using ccache as the compiler launcher (requires ccache on PATH)",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache"
+      }
+    },
+    {
       "name": "debug-system",
       "inherits": "base-debug",
       "displayName": "Debug (system LLVM/Clang)",
@@ -117,12 +125,32 @@
       }
     },
     {
+      "name": "debug-system-ccache",
+      "inherits": "debug-system",
+      "displayName": "Debug (system LLVM/Clang, ccache)",
+      "description": "Debug build using the system toolchain and ccache as the compiler launcher (requires ccache on PATH)",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache"
+      }
+    },
+    {
       "name": "release-system",
       "inherits": "base-release",
       "displayName": "Release (system LLVM/Clang)",
       "description": "Release build that consumes the system-installed LLVM/Clang toolchain instead of vcpkg",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": null
+      }
+    },
+    {
+      "name": "release-system-ccache",
+      "inherits": "release-system",
+      "displayName": "Release (system LLVM/Clang, ccache)",
+      "description": "Release build using the system toolchain and ccache as the compiler launcher (requires ccache on PATH)",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache"
       }
     },
     {
@@ -139,6 +167,16 @@
       "inherits": "base-release",
       "displayName": "Release",
       "description": "Optimized release build (-O3), no debug info, maximum performance for production"
+    },
+    {
+      "name": "release-ccache",
+      "inherits": "release",
+      "displayName": "Release (ccache)",
+      "description": "Release build using ccache as the compiler launcher (requires ccache on PATH)",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache"
+      }
     },
     {
       "name": "relwithdebinfo",
@@ -336,6 +374,13 @@
       "jobs": 0
     },
     {
+      "name": "debug-ccache",
+      "configurePreset": "debug-ccache",
+      "displayName": "Debug Build (ccache)",
+      "description": "Build with debug configuration using ccache as the compiler launcher",
+      "jobs": 0
+    },
+    {
       "name": "libassert-noexc",
       "configurePreset": "libassert-noexc",
       "displayName": "Build (Libassert no-exceptions)",
@@ -350,6 +395,13 @@
       "jobs": 0
     },
     {
+      "name": "debug-system-ccache",
+      "configurePreset": "debug-system-ccache",
+      "displayName": "Debug Build (system LLVM/Clang, ccache)",
+      "description": "Build with the system toolchain using ccache as the compiler launcher",
+      "jobs": 0
+    },
+    {
       "name": "release",
       "configurePreset": "release",
       "displayName": "Release Build",
@@ -357,10 +409,24 @@
       "jobs": 0
     },
     {
+      "name": "release-ccache",
+      "configurePreset": "release-ccache",
+      "displayName": "Release Build (ccache)",
+      "description": "Build with release configuration using ccache as the compiler launcher",
+      "jobs": 0
+    },
+    {
       "name": "release-system",
       "configurePreset": "release-system",
       "displayName": "Release Build (system LLVM/Clang)",
       "description": "Build with release configuration using the system-provided LLVM/Clang toolchain",
+      "jobs": 0
+    },
+    {
+      "name": "release-system-ccache",
+      "configurePreset": "release-system-ccache",
+      "displayName": "Release Build (system LLVM/Clang, ccache)",
+      "description": "Build with the system toolchain using ccache as the compiler launcher",
       "jobs": 0
     },
     {
@@ -486,11 +552,25 @@
       "description": "Run all tests in debug mode"
     },
     {
+      "name": "debug-ccache",
+      "inherits": "test-base",
+      "configurePreset": "debug-ccache",
+      "displayName": "Debug Tests (ccache)",
+      "description": "Run all tests in debug mode using ccache as the compiler launcher"
+    },
+    {
       "name": "debug-system",
       "inherits": "test-base",
       "configurePreset": "debug-system",
       "displayName": "Debug Tests (system LLVM/Clang)",
       "description": "Run all tests in debug mode using the system LLVM/Clang toolchain"
+    },
+    {
+      "name": "debug-system-ccache",
+      "inherits": "test-base",
+      "configurePreset": "debug-system-ccache",
+      "displayName": "Debug Tests (system LLVM/Clang, ccache)",
+      "description": "Run all tests in debug mode using the system toolchain with ccache as the compiler launcher"
     },
     {
       "name": "debug-system-allure",
@@ -507,11 +587,25 @@
       "description": "Run all tests in release mode"
     },
     {
+      "name": "release-ccache",
+      "inherits": "test-base",
+      "configurePreset": "release-ccache",
+      "displayName": "Release Tests (ccache)",
+      "description": "Run all tests in release mode using ccache as the compiler launcher"
+    },
+    {
       "name": "release-system",
       "inherits": "test-base",
       "configurePreset": "release-system",
       "displayName": "Release Tests (system LLVM/Clang)",
       "description": "Run all tests in release mode using the system LLVM/Clang toolchain"
+    },
+    {
+      "name": "release-system-ccache",
+      "inherits": "test-base",
+      "configurePreset": "release-system-ccache",
+      "displayName": "Release Tests (system LLVM/Clang, ccache)",
+      "description": "Run all tests in release mode using the system toolchain with ccache as the compiler launcher"
     },
     {
       "name": "relwithdebinfo",
@@ -654,6 +748,16 @@
       ]
     },
     {
+      "name": "debug-ccache",
+      "displayName": "Debug Workflow (ccache)",
+      "description": "Configure, build, and test using ccache as the compiler launcher",
+      "steps": [
+        { "type": "configure", "name": "debug-ccache" },
+        { "type": "build",     "name": "debug-ccache" },
+        { "type": "test",      "name": "debug-ccache" }
+      ]
+    },
+    {
       "name": "libassert-noexc",
       "displayName": "Libassert No-Exceptions Workflow",
       "description": "Configure → build → test with libassert and no-exceptions death test enabled",
@@ -683,6 +787,16 @@
       ]
     },
     {
+      "name": "debug-system-ccache",
+      "displayName": "Debug Workflow (system LLVM/Clang, ccache)",
+      "description": "Configure, build, and test using the system toolchain with ccache as the compiler launcher",
+      "steps": [
+        { "type": "configure", "name": "debug-system-ccache" },
+        { "type": "build",     "name": "debug-system-ccache" },
+        { "type": "test",      "name": "debug-system-ccache" }
+      ]
+    },
+    {
       "name": "release",
       "displayName": "Release Workflow",
       "description": "Standard release build and test workflow",
@@ -699,6 +813,16 @@
           "type": "test",
           "name": "release"
         }
+      ]
+    },
+    {
+      "name": "release-ccache",
+      "displayName": "Release Workflow (ccache)",
+      "description": "Configure, build, and test using ccache as the compiler launcher",
+      "steps": [
+        { "type": "configure", "name": "release-ccache" },
+        { "type": "build",     "name": "release-ccache" },
+        { "type": "test",      "name": "release-ccache" }
       ]
     },
     {

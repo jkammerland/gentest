@@ -7,9 +7,13 @@ local incdirs = {"include", "tests"}
 
 -- Build or locate gentest_codegen via CMake
 function locate_or_build_codegen()
-    local path = os.getenv("GENTEST_CODEGEN")
-    if path and os.isfile(path) then
-        return path
+    local env_path = os.getenv("GENTEST_CODEGEN")
+    if env_path and os.isfile(env_path) then
+        local compdb_dir = path.directory(path.directory(env_path))
+        if os.isfile(path.join(compdb_dir, "compile_commands.json")) then
+            return env_path, compdb_dir
+        end
+        return env_path, nil
     end
     local outdir = path.join(os.projectdir(), "build", "xmake-codegen")
     os.mkdir(outdir)
@@ -21,7 +25,7 @@ function locate_or_build_codegen()
     if not os.isfile(bin) then
         raise("Failed to build gentest_codegen via CMake")
     end
-    return bin
+    return bin, outdir
 end
 
 target("gentest_runtime")
@@ -33,11 +37,19 @@ target("gentest_runtime")
 function gentest_suite(name)
     local out = path.join("build", "gen", name, "test_impl.cpp")
     on_load(function (target)
-        local codegen = locate_or_build_codegen()
+        local codegen, compdb_dir = locate_or_build_codegen()
         os.mkdir(path.directory(out))
-        local cmd = string.format("%s --output %s --compdb . tests/%s/cases.cpp -- -std=c++23 -Iinclude -Itests",
-            codegen, out, name)
-        os.exec(cmd)
+        local args = {"--output", out}
+        if compdb_dir then
+            table.insert(args, "--compdb")
+            table.insert(args, compdb_dir)
+        end
+        table.insert(args, path.join("tests", name, "cases.cpp"))
+        table.insert(args, "--")
+        table.insert(args, "-std=c++23")
+        table.insert(args, "-Iinclude")
+        table.insert(args, "-Itests")
+        os.execv(codegen, args)
     end)
 
     target("gentest_" .. name .. "_xmake")

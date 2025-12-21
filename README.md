@@ -11,9 +11,9 @@ discovered function through a single `gentest::run_all_tests` entry-point.
 - `tools/gentest_codegen` – the clang-based manifest generator that scans sources and emits `test_impl.cpp` files.
 - `cmake/GentestCodegen.cmake` – helper that wires code-generation results into any CMake target through the
   `gentest_attach_codegen()` function.
-- `tests/` – two suites (`unit` and `integration`) that demonstrate codegen-driven execution through the shared
-  `gentest::run_all_tests` harness.
- - The generated runtime uses `fmt::print` for output; CMake links `fmt::fmt` to test targets automatically.
+- `tests/` – suite corpus (unit, integration, failing, skiponly, fixtures, templates, mocking, ctor, benchmarks, concurrency, …)
+  that demonstrates codegen-driven execution through the shared `gentest::run_all_tests` harness.
+- The generated runtime uses `fmt::print` for output; CMake links `fmt::fmt` to test targets automatically.
 
 ## Local workflow
 System toolchain (LLVM/Clang 20+ installed via your package manager):
@@ -34,10 +34,14 @@ Optional suites:
 
 ### Meson
 
-Build and run the pass-only suites with Meson (uses system libclang-cpp and fmt headers; clang++ recommended):
+Build and run the pass-only suites with Meson (uses system libclang-cpp and fmt headers; clang++ recommended). Meson
+expects a prebuilt `gentest_codegen` binary; configure its path via `-Dcodegen_path=...`:
 
 ```bash
-CC=clang CXX=clang++ meson setup build/meson
+cmake --preset=debug-system
+cmake --build --preset=debug-system --target gentest_codegen
+
+CC=clang CXX=clang++ meson setup build/meson -Dcodegen_path=build/debug-system/tools/gentest_codegen
 meson compile -C build/meson -j$(nproc)
 meson test -C build/meson --print-errorlogs
 ```
@@ -49,18 +53,19 @@ Build the code generator and run a generator lint test under Bazel. Note: disabl
 ```bash
 bazel build //:gentest_codegen --action_env=CCACHE_DISABLE=1 --host_action_env=CCACHE_DISABLE=1 --cxxopt=-std=c++23 --linkopt=-std=c++23
 bazel test //:codegen_check_invalid --action_env=CCACHE_DISABLE=1 --host_action_env=CCACHE_DISABLE=1
+bazel test //:gentest_unit_bazel --action_env=CCACHE_DISABLE=1 --host_action_env=CCACHE_DISABLE=1
 ```
 
 Experimental Bazel targets for generated test executables are provided but are not yet enabled by default for all suites, due to include-path and sandbox constraints.
 
 ### Xmake
 
-An initial xmake.lua is provided to build `gentest_codegen` and wire codegen into test executables. This path is experimental and may require two-step builds on some setups:
+An initial xmake.lua is provided to build `gentest_codegen` (via CMake) and wire codegen into test executables. This path
+is experimental:
 
 ```bash
-xmake -y gentest_codegen
-xmake -y gentest_unit_tests
-xmake r gentest_unit_tests -- --list
+xmake -y b gentest_unit_xmake
+xmake r gentest_unit_xmake -- --list
 ```
 
 If linking `gentest_codegen` fails, ensure `libclang-cpp` is available and visible (e.g. `/usr/local/lib`) and that `fmt` headers are installed; the xmake build defines `FMT_HEADER_ONLY` by default.
