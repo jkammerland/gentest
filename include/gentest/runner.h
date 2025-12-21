@@ -6,11 +6,14 @@
 #include <memory>
 #include <exception>
 #include <mutex>
+#include <ostream>
 #include <source_location>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <typeinfo>
 #include <vector>
 #include <filesystem>
 
@@ -18,8 +21,12 @@ namespace gentest {
 
 // Lightweight assertion and test-runner interfaces used by generated code.
 //
-// All helper functions throw `gentest::failure` on assertion failure. The
-// generated test runner catches these and reports them as [ FAIL ] lines.
+// Assertions fall into two categories:
+// - `expect*`: record a non-fatal failure in the current test context and
+//   continue executing the test.
+// - `require*`: record a failure and abort the current test by throwing
+//   `gentest::assertion` (not derived from std::exception). When exceptions are
+//   disabled, `require*` terminates the process via `std::terminate()`.
 //
 // `run_all_tests` is the unified entry point emitted by the generator. The
 // generator invokes it by name (configurable via `--entry`). It consumes the
@@ -128,6 +135,52 @@ inline std::string loc_to_string(const std::source_location &loc) {
     s.push_back(':');
     s.append(std::to_string(loc.line()));
     return s;
+}
+
+template <typename T>
+concept Ostreamable = requires(std::ostream &os, const T &v) {
+    os << v;
+};
+
+template <typename T>
+inline std::string to_string_fallback(const T &v) {
+    if constexpr (Ostreamable<T>) {
+        std::ostringstream oss;
+        oss << std::boolalpha << v;
+        return oss.str();
+    } else {
+#if defined(__clang__)
+#if __has_feature(cxx_rtti)
+        std::string out = typeid(T).name();
+        out.append(" (unprintable)");
+        return out;
+#else
+        return "(unprintable, enable RTTI)";
+#endif
+#elif defined(__GXX_RTTI) || defined(_CPPRTTI)
+        std::string out = typeid(T).name();
+        out.append(" (unprintable)");
+        return out;
+#else
+        return "(unprintable, enable RTTI)";
+#endif
+    }
+}
+
+inline void append_message(std::string &out, std::string_view message) {
+    if (message.empty())
+        return;
+    out.append(": ");
+    out.append(message);
+}
+
+template <typename L, typename R>
+inline void append_cmp_values(std::string &out, const L &lhs, const R &rhs, std::string_view message) {
+    out.append(message.empty() ? ": " : "; ");
+    out.append("lhs=");
+    out.append(to_string_fallback(lhs));
+    out.append(", rhs=");
+    out.append(to_string_fallback(rhs));
 }
 
 // Exception support detection
@@ -240,45 +293,53 @@ template <typename T> inline bool operator!=(const T &lhs, const Approx &rhs) { 
 template <typename T> inline bool operator!=(const Approx &lhs, const T &rhs) { return !(lhs == rhs); }
 } // namespace approx
 
-// Assert that `condition` is true, otherwise throws gentest::failure with `message`.
-inline void expect(bool condition, std::string_view /*message*/ = {}, const std::source_location &loc = std::source_location::current()) {
+// Record a non-fatal failure if `condition` is false; execution continues.
+inline void expect(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
     if (!condition) {
         std::string text;
         ::gentest::detail::append_label(text, "EXPECT_TRUE");
         text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
         ::gentest::detail::record_failure(std::move(text), loc);
     }
 }
 
-// Assert that `lhs == rhs` holds. Optional `message` is prefixed to the error text.
-inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
+// Record a non-fatal failure if `lhs == rhs` does not hold; execution continues.
+inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
     if (!(lhs == rhs)) {
         std::string text;
         ::gentest::detail::append_label(text, "EXPECT_EQ");
         text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
         ::gentest::detail::record_failure(std::move(text), loc);
     }
 }
 
-// Assert that `lhs != rhs` holds. Optional `message` is prefixed to the error text.
-inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
+// Record a non-fatal failure if `lhs != rhs` does not hold; execution continues.
+inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
     if (!(lhs != rhs)) {
         std::string text;
         ::gentest::detail::append_label(text, "EXPECT_NE");
         text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
         ::gentest::detail::record_failure(std::move(text), loc);
     }
 }
 
-// Require that `condition` holds; throws gentest::assertion on failure.
-inline void require(bool condition, std::string_view /*message*/ = {}, const std::source_location &loc = std::source_location::current()) {
+// Record a failure if `condition` is false and abort the current test.
+// - Exceptions enabled: throws `gentest::assertion`
+// - Exceptions disabled: terminates via `std::terminate()`
+inline void require(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
     if (!condition) {
         std::string text;
         ::gentest::detail::append_label(text, "ASSERT_TRUE");
         text.append(::gentest::detail::loc_to_string(loc));
-        ::gentest::detail::record_failure(text, loc);
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
         throw assertion("ASSERT_TRUE");
 #else
@@ -287,14 +348,18 @@ inline void require(bool condition, std::string_view /*message*/ = {}, const std
     }
 }
 
-// Require equality; throws gentest::assertion on mismatch.
-inline void require_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
+// Record a failure if `lhs == rhs` does not hold and abort the current test.
+// - Exceptions enabled: throws `gentest::assertion`
+// - Exceptions disabled: terminates via `std::terminate()`
+inline void require_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     if (!(lhs == rhs)) {
         std::string text;
         ::gentest::detail::append_label(text, "ASSERT_EQ");
         text.append(::gentest::detail::loc_to_string(loc));
-        ::gentest::detail::record_failure(text, loc);
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
         throw assertion("ASSERT_EQ");
 #else
@@ -303,14 +368,18 @@ inline void require_eq(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {}
     }
 }
 
-// Require inequality; throws gentest::assertion on mismatch.
-inline void require_ne(auto &&lhs, auto &&rhs, std::string_view /*message*/ = {},
+// Record a failure if `lhs != rhs` does not hold and abort the current test.
+// - Exceptions enabled: throws `gentest::assertion`
+// - Exceptions disabled: terminates via `std::terminate()`
+inline void require_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     if (!(lhs != rhs)) {
         std::string text;
         ::gentest::detail::append_label(text, "ASSERT_NE");
         text.append(::gentest::detail::loc_to_string(loc));
-        ::gentest::detail::record_failure(text, loc);
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
         throw assertion("ASSERT_NE");
 #else
