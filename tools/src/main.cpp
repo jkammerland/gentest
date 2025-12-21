@@ -8,6 +8,7 @@
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
+#include <clang/Basic/Version.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/CompilationDatabase.h>
@@ -147,7 +148,11 @@ int main(int argc, const char **argv) {
         tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
     } else {
         diag_options = std::make_unique<clang::DiagnosticOptions>();
-        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), *diag_options));
+#if CLANG_VERSION_MAJOR >= 21
+        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), *diag_options, /*OwnsOutputStream=*/false));
+#else
+        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false));
+#endif
     }
 
     const auto extra_args = options.clang_args;
