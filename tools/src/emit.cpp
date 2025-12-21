@@ -6,17 +6,100 @@
 #include "render_mocks.hpp"
 #include "templates.hpp"
 
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fmt/core.h>
 #include <fstream>
+#include <iterator>
 #include <llvm/Support/raw_ostream.h>
 #include <map>
+#include <random>
 #include <set>
 #include <string>
 #include <string_view>
 #include <utility>
 
 namespace gentest::codegen {
+
+namespace {
+
+namespace fs = std::filesystem;
+
+auto make_unique_tmp_path(const fs::path &path) -> fs::path {
+    const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+    const auto rand_hi = static_cast<std::uint64_t>(std::random_device{}());
+    const auto rand_lo = static_cast<std::uint64_t>(std::random_device{}());
+    const auto nonce   = (rand_hi << 32) ^ rand_lo;
+
+    fs::path tmp_path = path;
+    tmp_path += fmt::format(".tmp.{}.{}", now_ns, nonce);
+    return tmp_path;
+}
+
+bool read_file(const fs::path &path, std::string &out) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    return !in.bad();
+}
+
+bool write_file_atomic_if_changed(const fs::path &path, std::string_view content) {
+    std::string existing;
+    if (read_file(path, existing) && existing == content) {
+        return true;
+    }
+
+    const fs::path tmp_path = make_unique_tmp_path(path);
+    {
+        std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            llvm::errs() << fmt::format("gentest_codegen: failed to open output file '{}'\n", tmp_path.string());
+            return false;
+        }
+        out.write(content.data(), static_cast<std::streamsize>(content.size()));
+        out.close();
+        if (!out) {
+            llvm::errs() << fmt::format("gentest_codegen: failed to write output file '{}'\n", tmp_path.string());
+            return false;
+        }
+    }
+
+    std::error_code ec;
+    fs::rename(tmp_path, path, ec);
+    if (ec) {
+        std::error_code remove_ec;
+        fs::remove(path, remove_ec);
+        ec.clear();
+        fs::rename(tmp_path, path, ec);
+        if (ec) {
+            llvm::errs() << fmt::format("gentest_codegen: failed to replace output file '{}': {}\n", path.string(), ec.message());
+            std::error_code cleanup_ec;
+            fs::remove(tmp_path, cleanup_ec);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool ensure_parent_dir(const fs::path &path) {
+    if (!path.has_parent_path()) {
+        return true;
+    }
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    if (ec) {
+        llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", path.parent_path().string(), ec.message());
+        return false;
+    }
+    return true;
+}
+
+} // namespace
 
 void replace_all(std::string &inout, std::string_view needle, std::string_view replacement) {
     const std::string target{needle};
@@ -96,10 +179,8 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     replace_all(output, "{{RUN_GROUPS}}", run_groups);
 
     // Include sources in the generated file so fixture types are visible
-    namespace fs = std::filesystem;
     std::string    includes;
-    const char* no_inc_env = std::getenv("GENTEST_NO_INCLUDE_SOURCES");
-    const bool skip_includes = (no_inc_env && *no_inc_env && std::string_view(no_inc_env) != "0");
+    const bool     skip_includes = !options.include_sources;
     const fs::path out_dir = options.output_path.has_parent_path() ? options.output_path.parent_path() : fs::current_path();
     for (const auto &src : options.sources) {
         if (skip_includes) break;
@@ -123,16 +204,9 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
 }
 
 int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<MockClassInfo> &mocks) {
-    namespace fs      = std::filesystem;
     fs::path out_path = opts.output_path;
-    if (out_path.has_parent_path()) {
-        std::error_code ec;
-        fs::create_directories(out_path.parent_path(), ec);
-        if (ec) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", out_path.parent_path().string(),
-                                        ec.message());
-            return 1;
-        }
+    if (!ensure_parent_dir(out_path)) {
+        return 1;
     }
 
     // Embedded template is used when no template path is provided.
@@ -142,14 +216,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         return 1;
     }
 
-    std::ofstream file(out_path, std::ios::binary);
-    if (!file) {
-        llvm::errs() << fmt::format("gentest_codegen: failed to open output file '{}'\n", out_path.string());
-        return 1;
-    }
-    file << *content;
-    file.close();
-    if (!file) {
+    if (!write_file_atomic_if_changed(out_path, *content)) {
         return 1;
     }
 
@@ -168,49 +235,15 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             outputs.implementation_unit = "// gentest_codegen: no mocks discovered.\n";
         }
 
-        namespace fs = std::filesystem;
-
-        auto ensure_parent = [](const fs::path &path) {
-            if (path.has_parent_path()) {
-                std::error_code ec;
-                fs::create_directories(path.parent_path(), ec);
-                if (ec) {
-                    llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", path.parent_path().string(),
-                                                ec.message());
-                    return false;
-                }
-            }
-            return true;
-        };
-
-        if (!ensure_parent(opts.mock_registry_path) || !ensure_parent(opts.mock_impl_path)) {
+        if (!ensure_parent_dir(opts.mock_registry_path) || !ensure_parent_dir(opts.mock_impl_path)) {
             return 1;
         }
 
-        {
-            std::ofstream registry_file(opts.mock_registry_path, std::ios::binary);
-            if (!registry_file) {
-                llvm::errs() << fmt::format("gentest_codegen: failed to open output file '{}'\n", opts.mock_registry_path.string());
-                return 1;
-            }
-            registry_file << outputs.registry_header;
-            registry_file.close();
-            if (!registry_file) {
-                return 1;
-            }
+        if (!write_file_atomic_if_changed(opts.mock_registry_path, outputs.registry_header)) {
+            return 1;
         }
-
-        {
-            std::ofstream impl_file(opts.mock_impl_path, std::ios::binary);
-            if (!impl_file) {
-                llvm::errs() << fmt::format("gentest_codegen: failed to open output file '{}'\n", opts.mock_impl_path.string());
-                return 1;
-            }
-            impl_file << outputs.implementation_unit;
-            impl_file.close();
-            if (!impl_file) {
-                return 1;
-            }
+        if (!write_file_atomic_if_changed(opts.mock_impl_path, outputs.implementation_unit)) {
+            return 1;
         }
     }
 

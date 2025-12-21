@@ -50,6 +50,9 @@ struct CollectorOptions {
     std::vector<std::string>             sources;
     std::vector<std::string>             clang_args;
     std::optional<std::filesystem::path> compilation_database;
+    bool                                 include_sources = true;
+    bool                                 strict_fixture  = false;
+    bool                                 quiet_clang     = false;
     bool                                 check_only = false;
 };
 
