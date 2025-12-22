@@ -96,11 +96,19 @@ run_or_fail(
     "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
 
 message(STATUS "Build and install producer into '${_install_prefix}'...")
-set(_producer_build_args --build "${_producer_build_dir}" --target install)
 if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
-  list(APPEND _producer_build_args --config "${BUILD_CONFIG}")
+  # Multi-config generators (Visual Studio, Xcode, Ninja Multi-Config) often
+  # generate for several configurations at once. Install both Debug and Release
+  # so imported targets have locations for common configs (and for the config
+  # mapping logic in the generated *Config.cmake files).
+  set(_install_configs Debug Release)
+  list(REMOVE_DUPLICATES _install_configs)
+  foreach(_cfg IN LISTS _install_configs)
+    run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install --config "${_cfg}")
+  endforeach()
+else()
+  run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install)
 endif()
-run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_producer_build_args})
 
 message(STATUS "Locate installed '${PACKAGE_NAME}' CMake package...")
 file(GLOB_RECURSE _config_candidates
@@ -150,4 +158,3 @@ endif()
 
 message(STATUS "Run consumer executable...")
 run_or_fail(COMMAND "${_consumer_exe}")
-
