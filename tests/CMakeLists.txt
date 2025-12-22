@@ -422,3 +422,29 @@ gentest_add_check_contains(
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     EXPECT_SUBSTRING benchmarks/math/sin_jitter
     ARGS --list)
+
+option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
+if(GENTEST_ENABLE_PACKAGE_TESTS)
+    set(_gentest_package_test_config "")
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(_gentest_package_test_config "Debug")
+    endif()
+
+    add_test(NAME gentest_package_consumer
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+            -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
+            -DPACKAGE_NAME=${PROJECT_NAME}
+            -DGENERATOR=${CMAKE_GENERATOR}
+            -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+            -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
+            -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+            -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+            -DC_COMPILER=${CMAKE_C_COMPILER}
+            -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
+            -DBUILD_CONFIG=${_gentest_package_test_config}
+            -P ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake)
+
+    set_tests_properties(gentest_package_consumer PROPERTIES LABELS "package")
+endif()

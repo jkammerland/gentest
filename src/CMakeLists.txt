@@ -19,9 +19,6 @@ if(GENTEST_RUNTIME_SHARED)
     endif()
 endif()
 
-target_include_directories(gentest_runtime
-    PUBLIC ${PROJECT_SOURCE_DIR}/include)
-
 target_link_libraries(gentest_runtime
     PUBLIC fmt::fmt)
 
@@ -46,9 +43,9 @@ file(GLOB _gentest_headers
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/*.inl
 )
 
-# Publish headers for dependents
-target_sources(${PROJECT_NAME}
-    INTERFACE
+# Publish headers for dependents (and install/export them via FILE_SET)
+target_sources(gentest_runtime
+    PUBLIC
         FILE_SET public_headers
             TYPE HEADERS
             BASE_DIRS ${PROJECT_SOURCE_DIR}/include

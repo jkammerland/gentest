@@ -23,6 +23,28 @@ add_subdirectory(tools)
 include(GentestCodegen)
 add_subdirectory(src)
 
+option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
+if(${PROJECT_NAME}_INSTALL)
+    include(FetchContent)
+    FetchContent_Declare(
+        target_install_package
+        GIT_REPOSITORY https://github.com/jkammerland/target_install_package.cmake.git
+        GIT_TAG v6.1.4
+        FIND_PACKAGE_ARGS CONFIG QUIET
+    )
+    FetchContent_MakeAvailable(target_install_package)
+
+    # Export a single 'gentest' package that contains both the interface target and the runtime library.
+    target_install_package(gentest_runtime
+        EXPORT_NAME ${PROJECT_NAME}
+        PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
+    target_install_package(${PROJECT_NAME}
+        EXPORT_NAME ${PROJECT_NAME}
+        PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
+else()
+    message(STATUS "Enable install of ${PROJECT_NAME} with -D${PROJECT_NAME}_INSTALL=ON")
+endif()
+
 option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
 option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
 option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
