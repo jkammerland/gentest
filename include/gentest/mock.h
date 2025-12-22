@@ -33,14 +33,32 @@ struct PlaceholderMockBase {
 };
 
 template <typename T>
-struct PlaceholderMockBase<T, std::void_t<decltype(sizeof(T))>> : T {
+struct PlaceholderMockBase<T, std::void_t<decltype(sizeof(T)), std::enable_if_t<!std::is_abstract_v<T>>>> : T {
     using T::T;
 };
 } // namespace detail::mocking
 
 template <typename T> struct mock : detail::mocking::PlaceholderMockBase<T> {
+    using GentestTarget = T;
+
     mock()  = default;
     ~mock() = default;
+
+    GentestTarget *operator&() {
+        if constexpr (std::is_base_of_v<GentestTarget, detail::mocking::PlaceholderMockBase<T>>) {
+            return static_cast<GentestTarget *>(this);
+        } else {
+            return reinterpret_cast<GentestTarget *>(this);
+        }
+    }
+
+    const GentestTarget *operator&() const {
+        if constexpr (std::is_base_of_v<GentestTarget, detail::mocking::PlaceholderMockBase<T>>) {
+            return static_cast<const GentestTarget *>(this);
+        } else {
+            return reinterpret_cast<const GentestTarget *>(this);
+        }
+    }
 };
 #else
 template <typename T> struct mock;
@@ -494,15 +512,10 @@ template <class Mock> struct MockAccess {
     static_assert(sizeof(Mock) == 0, "gentest::mock<T> specialization missing generated accessors");
 #else
     template <class MethodPtr> static auto expect(Mock &, MethodPtr) {
-        struct Stub {
-            Stub &times(...) { return *this; }
-            template <typename... Ts> Stub &returns(Ts &&...) { return *this; }
-            template <typename... Ts> Stub &invokes(Ts &&...) { return *this; }
-            Stub &allow_more(...) { return *this; }
-        };
-        return Stub{};
+        using Signature = typename mocking::MethodTraits<MethodPtr>::Signature;
+        return mocking::ExpectationHandle<Signature>{};
     }
-    static void set_nice(Mock&, bool) {}
+    static void set_nice(Mock &, bool) {}
 #endif
 };
 
@@ -525,7 +538,7 @@ void make_strict(Mock &instance) {
 // Usage: EXPECT_CALL(mock, method).times(2)...
 #ifndef GENTEST_NO_EXPECT_CALL_MACROS
 #define EXPECT_CALL(instance, method) \
-    ::gentest::expect((instance), &std::remove_reference_t<decltype(instance)>::__gentest_target::method)
+    ::gentest::expect((instance), &std::remove_reference_t<decltype(instance)>::GentestTarget::method)
 #define ASSERT_CALL(instance, method) EXPECT_CALL(instance, method)
 #endif
 

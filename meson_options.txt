@@ -1,0 +1,6 @@
+option(
+  'codegen_path',
+  type: 'string',
+  value: '',
+  description: 'Path to gentest_codegen (absolute path, or relative to the project root)',
+)

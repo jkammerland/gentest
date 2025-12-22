@@ -1,5 +1,5 @@
 function(gentest_attach_codegen target)
-    set(options)
+    set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
     set(one_value_args OUTPUT ENTRY)
     set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
@@ -25,10 +25,11 @@ function(gentest_attach_codegen target)
         set(_gentest_output_dir "${CMAKE_CURRENT_BINARY_DIR}")
     endif()
 
-    set(_gentest_mock_registry "${_gentest_output_dir}/mock_registry.hpp")
+    string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
+    set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
     # Generate inline mock implementations as a header; it will be included
     # by the generated test implementation after including sources.
-    set(_gentest_mock_impl "${_gentest_output_dir}/mock_impl.hpp")
+    set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
 
     set(_command_launcher $<TARGET_FILE:gentest_codegen>)
     if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
@@ -46,8 +47,19 @@ function(gentest_attach_codegen target)
         --entry ${GENTEST_ENTRY}
         --mock-registry ${_gentest_mock_registry}
         --mock-impl ${_gentest_mock_impl}
-        --compdb ${CMAKE_BINARY_DIR}
-        ${GENTEST_SOURCES})
+        --compdb ${CMAKE_BINARY_DIR})
+
+    if(GENTEST_NO_INCLUDE_SOURCES)
+        list(APPEND _command --no-include-sources)
+    endif()
+    if(GENTEST_STRICT_FIXTURE)
+        list(APPEND _command --strict-fixture)
+    endif()
+    if(GENTEST_QUIET_CLANG)
+        list(APPEND _command --quiet-clang)
+    endif()
+
+    list(APPEND _command ${GENTEST_SOURCES})
 
     list(APPEND _command --)
     list(APPEND _command -DGENTEST_CODEGEN=1)

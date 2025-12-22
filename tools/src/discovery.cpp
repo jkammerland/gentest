@@ -30,7 +30,7 @@ using gentest::codegen::TypeKind;
 
 namespace gentest::codegen {
 
-TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out) : out_(out) {}
+TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture) : out_(out), strict_fixture_(strict_fixture) {}
 
 void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     const auto *func = result.Nodes.getNodeAs<FunctionDecl>("gentest.func");
@@ -312,8 +312,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
                 // Optional strict mode: disallow member tests on suite/global fixtures
                 if (info.fixture_lifetime == FixtureLifetime::MemberSuite || info.fixture_lifetime == FixtureLifetime::MemberGlobal) {
-                    const char* strict = std::getenv("GENTEST_STRICT_FIXTURE");
-                    if (strict && *strict && std::string_view(strict) != "0") {
+                    if (strict_fixture_) {
                         had_error_ = true;
                         if (info.fixture_lifetime == FixtureLifetime::MemberSuite) {
                             report("suite fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
@@ -688,8 +687,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
 
             // Optional strict mode: disallow member tests on suite/global fixtures
             if (info.fixture_lifetime == FixtureLifetime::MemberSuite || info.fixture_lifetime == FixtureLifetime::MemberGlobal) {
-                const char* strict = std::getenv("GENTEST_STRICT_FIXTURE");
-                if (strict && *strict && std::string_view(strict) != "0") {
+                if (strict_fixture_) {
                     had_error_ = true;
                     if (info.fixture_lifetime == FixtureLifetime::MemberSuite) {
                         report("suite fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");

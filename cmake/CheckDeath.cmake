@@ -1,6 +1,7 @@
 # Requires:
 #  -DPROG=<path to test binary>
 #  -DARGS=<optional CLI args>
+#  -DENV_VARS=<optional env vars (list of KEY=VALUE)>
 #  -DEXPECT_SUBSTRING=<substring expected in combined output>
 
 if(NOT DEFINED PROG)
@@ -9,11 +10,24 @@ endif()
 
 set(_args)
 if(DEFINED ARGS)
-  separate_arguments(_args NATIVE_COMMAND ${ARGS})
+  if(ARGS MATCHES ";")
+    set(_args ${ARGS})
+  else()
+    separate_arguments(_args NATIVE_COMMAND "${ARGS}")
+  endif()
+endif()
+
+set(_command "${PROG}" ${_args})
+if(DEFINED ENV_VARS)
+  set(_env)
+  foreach(kv IN LISTS ENV_VARS)
+    list(APPEND _env "${kv}")
+  endforeach()
+  set(_command ${CMAKE_COMMAND} -E env ${_env} "${PROG}" ${_args})
 endif()
 
 execute_process(
-  COMMAND ${PROG} ${_args}
+  COMMAND ${_command}
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err
