@@ -11,6 +11,14 @@
   - `cmake --preset=debug-system`
   - `cmake --build --preset=debug-system`
   - `ctest --preset=debug-system --output-on-failure`
+- Windows (system LLVM/Clang under `C:\\Tools\\llvm-*`):
+  - Pick the LLVM you want first (examples):
+    - `cmd.exe`: `set PATH=C:\Tools\llvm-21.1.4\bin;%PATH%` (or `C:\Tools\llvm-20.1.8\bin`)
+    - PowerShell: `$env:Path = 'C:\Tools\llvm-21.1.4\bin;' + $env:Path`
+  - Then run the same presets:
+    - `cmake --preset=debug-system`
+    - `cmake --build --preset=debug-system`
+    - `ctest --preset=debug-system --output-on-failure`
 - Legacy vcpkg workflow:
   - `cmake --preset=debug`
   - `cmake --build --preset=debug`
@@ -37,4 +45,8 @@
 ## Tooling & Configuration Tips
 - Keep `CMAKE_EXPORT_COMPILE_COMMANDS=ON` so `gentest_codegen` reuses the active compilation database.
 - Let CMake manage dependencies via `vcpkg.json`; pin any new packages there.
-
+- Notes for Windows + system LLVM:
+  - `debug`/`release` presets require `VCPKG_ROOT` to be set; otherwise the toolchain file resolves to `/scripts/buildsystems/vcpkg.cmake` and configure fails.
+  - When building with Clang on Windows, `cmake/GentestDependencies.cmake` aligns fmt + project flags to match typical prebuilt LLVM CRT/iterator settings and disables fmt's compile-time format checking (to avoid clang constant-eval issues).
+  - LLVM 20 Windows packages may reference a non-existent `diaguids.lib` path; `tools/CMakeLists.txt` patches `LLVMDebugInfoPDB` to use an installed Visual Studio DIA SDK when found.
+  - The `debug-system`/`release-system` presets enable `GENTEST_ENABLE_PACKAGE_TESTS` by default; disable with `-DGENTEST_ENABLE_PACKAGE_TESTS=OFF` if you want faster local runs.

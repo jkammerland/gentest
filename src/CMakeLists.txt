@@ -61,4 +61,3 @@ target_compile_options(${PROJECT_NAME}
         $<$<COMPILE_LANG_AND_ID:CXX,AppleClang>:-Wno-unknown-attributes;-Wno-attributes>
         $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-attributes>
         $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/wd5030>)
-find_package(fmt CONFIG REQUIRED)

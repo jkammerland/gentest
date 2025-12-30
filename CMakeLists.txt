@@ -19,6 +19,9 @@ set(CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP 0)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+include(GentestDependencies)
+gentest_ensure_fmt()
+
 add_subdirectory(tools)
 include(GentestCodegen)
 add_subdirectory(src)
@@ -51,7 +54,6 @@ option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated r
 if(${PROJECT_NAME}_BUILD_TESTING)
     include(CTest)
     enable_testing()
-    find_package(fmt CONFIG REQUIRED)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
     # Optional: libassert integration tests

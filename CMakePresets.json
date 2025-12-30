@@ -121,6 +121,7 @@
       "displayName": "Debug (system LLVM/Clang)",
       "description": "Debug build that consumes the system-installed LLVM/Clang toolchain instead of vcpkg",
       "cacheVariables": {
+        "GENTEST_ENABLE_PACKAGE_TESTS": "ON",
         "CMAKE_TOOLCHAIN_FILE": null
       }
     },
@@ -140,6 +141,7 @@
       "displayName": "Release (system LLVM/Clang)",
       "description": "Release build that consumes the system-installed LLVM/Clang toolchain instead of vcpkg",
       "cacheVariables": {
+        "GENTEST_ENABLE_PACKAGE_TESTS": "ON",
         "CMAKE_TOOLCHAIN_FILE": null
       }
     },

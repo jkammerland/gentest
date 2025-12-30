@@ -126,6 +126,16 @@ if(NOT EXISTS "${_consumer_source_dir}/CMakeLists.txt")
   message(FATAL_ERROR "Consumer project not found: '${_consumer_source_dir}'")
 endif()
 
+set(_consumer_cache_args ${_cmake_cache_args})
+# Make dependencies installed into the same prefix (e.g., fmt) discoverable.
+list(APPEND _consumer_cache_args "-DCMAKE_PREFIX_PATH=${_install_prefix}")
+if(CMAKE_HOST_WIN32 AND DEFINED CXX_COMPILER AND CXX_COMPILER MATCHES "[Cc]lang")
+  # Keep the consumer build compatible with the producer's Windows+Clang settings.
+  list(APPEND _consumer_cache_args "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
+  list(APPEND _consumer_cache_args
+       "-DCMAKE_CXX_FLAGS=-D_ITERATOR_DEBUG_LEVEL=0 -D_HAS_ITERATOR_DEBUGGING=0")
+endif()
+
 set(_consumer_dir_var "${PACKAGE_NAME}_DIR")
 run_or_fail(
   COMMAND
@@ -133,8 +143,9 @@ run_or_fail(
     ${_cmake_generator_args}
     -S "${_consumer_source_dir}"
     -B "${_consumer_build_dir}"
-    ${_cmake_cache_args}
+    ${_consumer_cache_args}
     "-D${_consumer_dir_var}=${_config_dir}")
+unset(_consumer_cache_args)
 
 message(STATUS "Build consumer project...")
 set(_consumer_build_args --build "${_consumer_build_dir}")

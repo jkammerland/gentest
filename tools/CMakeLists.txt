@@ -155,6 +155,54 @@ endif()
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
 
+# LLVM 20 Windows distributions sometimes embed an absolute dependency on
+# diaguids.lib that points at a Visual Studio installation that might not exist
+# on the current machine. Patch the imported target to point at an existing DIA
+# SDK if available.
+if(WIN32 AND TARGET LLVMDebugInfoPDB)
+    get_target_property(_gentest_pdb_link_libs LLVMDebugInfoPDB INTERFACE_LINK_LIBRARIES)
+    set(_gentest_pdb_needs_diaguids_patch FALSE)
+    foreach(_lib IN LISTS _gentest_pdb_link_libs)
+        if(_lib MATCHES "diaguids\\.lib$" AND NOT EXISTS "${_lib}")
+            set(_gentest_pdb_needs_diaguids_patch TRUE)
+            break()
+        endif()
+    endforeach()
+
+    if(_gentest_pdb_needs_diaguids_patch)
+        file(GLOB _gentest_diaguids_candidates
+            LIST_DIRECTORIES FALSE
+            "C:/Program Files/Microsoft Visual Studio/2022/*/DIA SDK/lib/amd64/diaguids.lib"
+            "C:/Program Files (x86)/Microsoft Visual Studio/2022/*/DIA SDK/lib/amd64/diaguids.lib"
+            "C:/Program Files/Microsoft Visual Studio/2019/*/DIA SDK/lib/amd64/diaguids.lib"
+            "C:/Program Files (x86)/Microsoft Visual Studio/2019/*/DIA SDK/lib/amd64/diaguids.lib")
+
+        if(_gentest_diaguids_candidates)
+            list(GET _gentest_diaguids_candidates 0 _gentest_diaguids_lib)
+            set(_gentest_pdb_patched_libs)
+            foreach(_lib IN LISTS _gentest_pdb_link_libs)
+                if(_lib MATCHES "diaguids\\.lib$" AND NOT EXISTS "${_lib}")
+                    list(APPEND _gentest_pdb_patched_libs "${_gentest_diaguids_lib}")
+                else()
+                    list(APPEND _gentest_pdb_patched_libs "${_lib}")
+                endif()
+            endforeach()
+            set_property(TARGET LLVMDebugInfoPDB PROPERTY
+                INTERFACE_LINK_LIBRARIES "${_gentest_pdb_patched_libs}")
+            message(STATUS "gentest: patched LLVMDebugInfoPDB diaguids.lib: ${_gentest_diaguids_lib}")
+            unset(_gentest_pdb_patched_libs)
+            unset(_gentest_diaguids_lib)
+        else()
+            message(WARNING "gentest: LLVMDebugInfoPDB depends on missing diaguids.lib and no DIA SDK was found")
+        endif()
+
+        unset(_gentest_diaguids_candidates)
+    endif()
+
+    unset(_gentest_pdb_link_libs)
+    unset(_gentest_pdb_needs_diaguids_patch)
+endif()
+
 # Try to locate the monolithic libLLVM DSO for toolchains where clang-cpp
 # does not propagate all transitive dependencies at link time.
 set(_gentest_llvm_libdirs)
@@ -187,8 +235,6 @@ foreach(_dir IN LISTS _gentest_llvm_libdirs)
         endif()
     endif()
 endforeach()
-
-find_package(fmt CONFIG REQUIRED)
 
 add_executable(gentest_codegen
     src/main.cpp
