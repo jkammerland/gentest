@@ -172,8 +172,8 @@ jobs:
         run: |
           cmake --version
           ninja --version
-          "$env:LLVM_BIN\clang.exe" --version
-          "$env:LLVM_BIN\clang++.exe" --version
+          & (Join-Path $env:LLVM_BIN "clang.exe") --version
+          & (Join-Path $env:LLVM_BIN "clang++.exe") --version
 
       - name: Configure/Build/Test
         shell: pwsh
