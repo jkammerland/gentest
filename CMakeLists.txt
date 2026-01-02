@@ -22,11 +22,24 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(GentestDependencies)
 gentest_ensure_fmt()
 
-add_subdirectory(tools)
+option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
+option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
+option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
+option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
+
+set(_gentest_build_codegen_default ON)
+if(CMAKE_CROSSCOMPILING OR NOT ${PROJECT_NAME}_BUILD_TESTING)
+    set(_gentest_build_codegen_default OFF)
+endif()
+option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" ${_gentest_build_codegen_default})
+unset(_gentest_build_codegen_default)
+
+if(GENTEST_BUILD_CODEGEN)
+    add_subdirectory(tools)
+endif()
 include(GentestCodegen)
 add_subdirectory(src)
 
-option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
 if(${PROJECT_NAME}_INSTALL)
     include(FetchContent)
     FetchContent_Declare(
@@ -43,14 +56,12 @@ if(${PROJECT_NAME}_INSTALL)
         PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
     target_install_package(${PROJECT_NAME}
         EXPORT_NAME ${PROJECT_NAME}
+        INCLUDE_ON_FIND_PACKAGE "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
         PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
 else()
     message(STATUS "Enable install of ${PROJECT_NAME} with -D${PROJECT_NAME}_INSTALL=ON")
 endif()
 
-option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
-option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
-option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
 if(${PROJECT_NAME}_BUILD_TESTING)
     include(CTest)
     enable_testing()

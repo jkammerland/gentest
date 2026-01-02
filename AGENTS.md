@@ -19,6 +19,10 @@
     - `cmake --preset=debug-system`
     - `cmake --build --preset=debug-system`
     - `ctest --preset=debug-system --output-on-failure`
+- Windows (MSVC + system LLVM for codegen):
+  - Run from an x64 VS developer prompt (`VsDevCmd.bat -arch=amd64`), with `C:\Tools\llvm-*/bin` on `PATH`.
+  - Example (LLVM 21): `cmake -S . -B build/debug-system-msvc-llvm21 -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_PREFIX_PATH=C:\Tools\llvm-21.1.4`
+  - Build/test: `cmake --build build/debug-system-msvc-llvm21 && ctest --test-dir build/debug-system-msvc-llvm21 --output-on-failure`
 - Legacy vcpkg workflow:
   - `cmake --preset=debug`
   - `cmake --build --preset=debug`
@@ -45,6 +49,13 @@
 ## Tooling & Configuration Tips
 - Keep `CMAKE_EXPORT_COMPILE_COMMANDS=ON` so `gentest_codegen` reuses the active compilation database.
 - Let CMake manage dependencies via `vcpkg.json`; pin any new packages there.
+- Cross-compiling (target = arm/riscv/etc, host runs codegen):
+  - `GENTEST_BUILD_CODEGEN` defaults `OFF` when `CMAKE_CROSSCOMPILING=TRUE` (and also when `gentest_BUILD_TESTING=OFF`).
+  - Build the host tool separately, then point the target build at it with `GENTEST_CODEGEN_EXECUTABLE`:
+    - Host tool (native) build: `cmake -S . -B build/host -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON && cmake --build build/host --target gentest_codegen`
+    - Target build: `cmake -S <proj> -B build/target -DCMAKE_TOOLCHAIN_FILE=<toolchain.cmake> -DGENTEST_BUILD_CODEGEN=OFF -DGENTEST_CODEGEN_EXECUTABLE=<path-to-host-gentest_codegen>`
+  - When consuming via `find_package(gentest CONFIG REQUIRED)`, `GentestCodegen.cmake` is included automatically; you still need to set `GENTEST_CODEGEN_EXECUTABLE` (or `GENTEST_CODEGEN_TARGET`) before calling `gentest_attach_codegen()`.
+  - Future idea (not implemented): make the runtime fully header-only / consumer-built-from-sources and install `gentest_codegen` into the same prefix, then auto-set `GENTEST_CODEGEN_EXECUTABLE` relative to `gentestConfig.cmake` (single “devkit” prefix). Watch out for host-vs-target binary dependency pollution (e.g., `fmt`), and prefer documenting a consumer `ExternalProject_Add` pattern + adding a CI example test that validates the host-tool + target-build wiring.
 - Notes for Windows + system LLVM:
   - `debug`/`release` presets require `VCPKG_ROOT` to be set; otherwise the toolchain file resolves to `/scripts/buildsystems/vcpkg.cmake` and configure fails.
   - When building with Clang on Windows, `cmake/GentestDependencies.cmake` aligns fmt + project flags to match typical prebuilt LLVM CRT/iterator settings and disables fmt's compile-time format checking (to avoid clang constant-eval issues).

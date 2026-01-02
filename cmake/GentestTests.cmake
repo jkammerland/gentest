@@ -30,15 +30,23 @@ function(gentest_add_suite suite)
             ${PROJECT_SOURCE_DIR}/include
             ${CMAKE_CURRENT_SOURCE_DIR})
 
+    set(_gentest_codegen_std_arg "-std=c++23")
+    if(DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        # When the project is built with an MSVC-style frontend (MSVC or clang-cl),
+        # clang tooling runs in clang-cl mode and expects MSVC /std: flags.
+        set(_gentest_codegen_std_arg "/std:c++latest")
+    endif()
+
     gentest_attach_codegen(${GENTEST_TARGET}
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${GENTEST_OUTPUT_DIR}/test_impl.cpp
         SOURCES ${GENTEST_CASES}
         CLANG_ARGS
-            -std=c++23
+            ${_gentest_codegen_std_arg}
             -Wno-unknown-attributes
             -Wno-attributes
             -I${PROJECT_SOURCE_DIR}/include
             -I${CMAKE_CURRENT_SOURCE_DIR})
+    unset(_gentest_codegen_std_arg)
 
     if(NOT GENTEST_NO_CTEST)
         add_test(NAME ${suite} COMMAND ${GENTEST_TARGET})

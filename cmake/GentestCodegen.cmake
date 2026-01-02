@@ -1,3 +1,15 @@
+include_guard(GLOBAL)
+
+if(NOT DEFINED GENTEST_CODEGEN_EXECUTABLE)
+    set(GENTEST_CODEGEN_EXECUTABLE "" CACHE FILEPATH
+        "Path to a host-built gentest_codegen executable used when the in-tree gentest_codegen target is unavailable (e.g. cross-compiling).")
+endif()
+
+if(NOT DEFINED GENTEST_CODEGEN_TARGET)
+    set(GENTEST_CODEGEN_TARGET "" CACHE STRING
+        "CMake target name that produces a runnable gentest_codegen executable (alternative to GENTEST_CODEGEN_EXECUTABLE).")
+endif()
+
 function(gentest_attach_codegen target)
     set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
     set(one_value_args OUTPUT ENTRY)
@@ -16,8 +28,24 @@ function(gentest_attach_codegen target)
         set(GENTEST_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${target}_generated.cpp")
     endif()
 
-    if(NOT TARGET gentest_codegen)
-        message(FATAL_ERROR "gentest_codegen executable target is not available")
+    set(_gentest_codegen_target "")
+    set(_gentest_codegen_executable "")
+    if(GENTEST_CODEGEN_EXECUTABLE)
+        set(_gentest_codegen_executable "${GENTEST_CODEGEN_EXECUTABLE}")
+    elseif(GENTEST_CODEGEN_TARGET)
+        if(NOT TARGET ${GENTEST_CODEGEN_TARGET})
+            message(FATAL_ERROR "gentest_attach_codegen: GENTEST_CODEGEN_TARGET='${GENTEST_CODEGEN_TARGET}' does not exist")
+        endif()
+        set(_gentest_codegen_target "${GENTEST_CODEGEN_TARGET}")
+        set(_gentest_codegen_executable $<TARGET_FILE:${GENTEST_CODEGEN_TARGET}>)
+    elseif(TARGET gentest_codegen)
+        set(_gentest_codegen_target gentest_codegen)
+        set(_gentest_codegen_executable $<TARGET_FILE:gentest_codegen>)
+    else()
+        message(FATAL_ERROR
+            "gentest_attach_codegen: no gentest code generator available. "
+            "Either enable -DGENTEST_BUILD_CODEGEN=ON (native builds) or provide a host tool via "
+            "-DGENTEST_CODEGEN_EXECUTABLE=<path> (cross builds).")
     endif()
 
     get_filename_component(_gentest_output_dir "${GENTEST_OUTPUT}" DIRECTORY)
@@ -31,7 +59,7 @@ function(gentest_attach_codegen target)
     # by the generated test implementation after including sources.
     set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
 
-    set(_command_launcher $<TARGET_FILE:gentest_codegen>)
+    set(_command_launcher ${_gentest_codegen_executable})
     if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
         set(_gentest_ld_library_path "${GENTEST_TERMINFO_SHIM_DIR}")
         if(DEFINED ENV{LD_LIBRARY_PATH} AND NOT "$ENV{LD_LIBRARY_PATH}" STREQUAL "")
@@ -39,7 +67,7 @@ function(gentest_attach_codegen target)
         endif()
         set(_command_launcher ${CMAKE_COMMAND} -E env
             "LD_LIBRARY_PATH=${_gentest_ld_library_path}"
-            $<TARGET_FILE:gentest_codegen>)
+            ${_gentest_codegen_executable})
     endif()
 
     set(_command ${_command_launcher}
@@ -69,21 +97,41 @@ function(gentest_attach_codegen target)
 
     # Add system include directories from CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES
     # to ensure gentest_codegen can parse headers correctly with all compilers
-    if(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES)
-        foreach(_inc_dir ${CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES})
+    set(_gentest_system_includes "${CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES}")
+    if(_gentest_system_includes STREQUAL "" AND CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES)
+        set(_gentest_system_includes "${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES}")
+    endif()
+    if(_gentest_system_includes)
+        foreach(_inc_dir ${_gentest_system_includes})
             list(APPEND _command "-isystem" "${_inc_dir}")
         endforeach()
     endif()
+    unset(_gentest_system_includes)
 
-    add_custom_command(
+    set(_gentest_codegen_deps "")
+    if(_gentest_codegen_target)
+        list(APPEND _gentest_codegen_deps ${_gentest_codegen_target})
+    endif()
+
+    cmake_policy(PUSH)
+    if(POLICY CMP0171)
+        cmake_policy(SET CMP0171 NEW)
+    endif()
+
+    set(_gentest_custom_command_args
         OUTPUT ${GENTEST_OUTPUT} ${_gentest_mock_registry} ${_gentest_mock_impl}
         COMMAND ${_command}
         COMMAND_EXPAND_LISTS
-        DEPENDS gentest_codegen ${GENTEST_SOURCES} ${GENTEST_DEPENDS}
+        DEPENDS ${_gentest_codegen_deps} ${GENTEST_SOURCES} ${GENTEST_DEPENDS}
         COMMENT "Generating ${GENTEST_OUTPUT} for target ${target}"
-        VERBATIM
-        CODEGEN
-    )
+        VERBATIM)
+    if(POLICY CMP0171)
+        list(APPEND _gentest_custom_command_args CODEGEN)
+    endif()
+    add_custom_command(${_gentest_custom_command_args})
+    unset(_gentest_custom_command_args)
+
+    cmake_policy(POP)
 
     # Only compile the generated test implementation; the mock impl header
     # is included by it and must not be compiled as a separate TU.
@@ -104,5 +152,7 @@ function(gentest_attach_codegen target)
     if(GENTEST_USE_BOOST_UUID)
         target_compile_definitions(${target} PRIVATE GENTEST_USE_BOOST_UUID)
     endif()
-    add_dependencies(${target} gentest_codegen)
+    if(_gentest_codegen_target)
+        add_dependencies(${target} ${_gentest_codegen_target})
+    endif()
 endfunction()

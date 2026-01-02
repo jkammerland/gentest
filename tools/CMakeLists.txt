@@ -251,6 +251,14 @@ add_executable(gentest_codegen
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_23)
 
+if(WIN32 AND MSVC)
+    # Prebuilt LLVM/Clang distributions typically ship with /MT and a release-mode STL.
+    # When building gentest_codegen (which links against those libs) with MSVC, keep
+    # the tool compatible even in Debug builds.
+    set_property(TARGET gentest_codegen PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    target_compile_definitions(gentest_codegen PRIVATE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
+endif()
+
 set(_gentest_use_libcxx FALSE)
 if(DEFINED LLVM_TOOLS_BINARY_DIR)
     set(_gentest_llvm_config "${LLVM_TOOLS_BINARY_DIR}/llvm-config")
@@ -296,7 +304,7 @@ if(_gentest_use_libcxx)
 endif()
 
 set(_gentest_fmt_target fmt::fmt)
-if(_gentest_use_libcxx)
+if(_gentest_use_libcxx OR (WIN32 AND MSVC))
     set(_gentest_fmt_target fmt::fmt-header-only)
 endif()
 

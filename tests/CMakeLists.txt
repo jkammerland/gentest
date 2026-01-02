@@ -1,5 +1,12 @@
 include(GentestTests)
 
+set(_gentest_codegen_std_flag "-std=c++23")
+if(DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    # The compilation database uses MSVC-style flags (MSVC or clang-cl), so the
+    # clang tooling driver runs in clang-cl mode and expects /std: arguments.
+    set(_gentest_codegen_std_flag "/std:c++latest")
+endif()
+
 set(_gentest_test_suites
     unit
     integration
@@ -68,7 +75,7 @@ add_test(NAME gentest_codegen_check_valid
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
-        -- -std=c++23
+        -- ${_gentest_codegen_std_flag}
            -I${PROJECT_SOURCE_DIR}/include
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -77,7 +84,7 @@ add_test(NAME gentest_codegen_check_invalid
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
-        -- -std=c++23
+        -- ${_gentest_codegen_std_flag}
            -I${PROJECT_SOURCE_DIR}/include
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -94,7 +101,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/incomplete_virtual_ref.cpp
         --
-        -std=c++23
+        ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -108,7 +115,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/virtual_defined_in_cpp.cpp
         --
-        -std=c++23
+        ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -122,7 +129,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/anonymous_namespace_type.cpp
         --
-        -std=c++23
+        ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -136,7 +143,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/local_class.cpp
         --
-        -std=c++23
+        ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -152,7 +159,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/suite_member_test.cpp
         --
-        -std=c++23
+        ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -167,7 +174,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/global_member_test.cpp
         --
-        -std=c++23
+        ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
