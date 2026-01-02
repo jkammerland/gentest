@@ -18,6 +18,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+#  include <windows.h>
+#endif
+
 #ifdef GENTEST_USE_BOOST_JSON
 #  include <boost/json.hpp>
 #endif
@@ -26,12 +30,23 @@ namespace gentest {
 namespace {
 
 static void configure_crash_behavior() {
-#if defined(_WIN32) && defined(_CALL_REPORTFAULT)
+#if defined(_WIN32)
+    // Some Windows CI environments can show modal crash dialogs (WER/JIT/CRT) for
+    // abort/termination paths, which would stall "death" tests until the CTest
+    // timeout triggers.
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+
+#  if defined(_OUT_TO_STDERR)
+    _set_error_mode(_OUT_TO_STDERR);
+#  endif
+
+#  if defined(_CALL_REPORTFAULT)
     // When a test intentionally calls std::abort() (e.g., "death" checks),
     // the MSVC CRT may invoke Windows Error Reporting (WER) which can hang
     // in headless CI environments. Disable ReportFault so abort terminates
     // immediately without UI or external reporting.
     _set_abort_behavior(0, _CALL_REPORTFAULT);
+#  endif
 #endif
 }
 
