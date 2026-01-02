@@ -105,12 +105,13 @@ jobs:
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
   windows:
-    name: Windows • LLVM ${{ matrix.llvm-version }}
+    name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.preset }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
         llvm-version: ["21.1.4", "20.1.8"]
+        preset: ["debug-system", "release-system"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -180,20 +181,22 @@ jobs:
           & (Join-Path $env:LLVM_BIN "clang.exe") --version
           & (Join-Path $env:LLVM_BIN "clang++.exe") --version
 
-      - name: Configure/Build/Test
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset=${{ matrix.preset }} -DCMAKE_C_COMPILER="$env:LLVM_BIN\\clang.exe" -DCMAKE_CXX_COMPILER="$env:LLVM_BIN\\clang++.exe" -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset=${{ matrix.preset }}
+
+      - name: Test
+        shell: pwsh
+        run: ctest --preset=${{ matrix.preset }} --output-on-failure
+
+      - name: Configure/Build/Test (MSVC)
+        if: matrix.preset == 'debug-system'
         shell: pwsh
         run: |
-          $presets = @("debug-system", "release-system")
-          foreach ($preset in $presets) {
-            cmake --preset=$preset `
-              -DCMAKE_C_COMPILER="$env:LLVM_BIN\\clang.exe" `
-              -DCMAKE_CXX_COMPILER="$env:LLVM_BIN\\clang++.exe" `
-              -DLLVM_DIR="$env:LLVM_DIR" `
-              -DClang_DIR="$env:Clang_DIR"
-            cmake --build --preset=$preset
-            ctest --preset=$preset --output-on-failure
-          }
-
           # Also validate MSVC + LLVM tooling (Debug only).
           $msvcBuildDir = Join-Path $env:GITHUB_WORKSPACE "build\\debug-system-msvc"
           cmake -S . -B $msvcBuildDir -G Ninja `

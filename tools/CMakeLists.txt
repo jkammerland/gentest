@@ -251,6 +251,10 @@ add_executable(gentest_codegen
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_23)
 
+if(WIN32)
+    target_compile_definitions(gentest_codegen PRIVATE _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING)
+endif()
+
 if(WIN32 AND MSVC)
     # Prebuilt LLVM/Clang distributions typically ship with /MT and a release-mode STL.
     # When building gentest_codegen (which links against those libs) with MSVC, keep

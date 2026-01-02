@@ -42,6 +42,29 @@ static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
 
 namespace {
 
+std::optional<std::string> get_env_value(std::string_view name) {
+    std::string name_str{name};
+#if defined(_WIN32)
+    char  *env_value = nullptr;
+    size_t env_len   = 0;
+    if (_dupenv_s(&env_value, &env_len, name_str.c_str()) != 0 || env_value == nullptr) {
+        return std::nullopt;
+    }
+    std::string value{env_value};
+    std::free(env_value);
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    return value;
+#else
+    const char *env_value = std::getenv(name_str.c_str());
+    if (env_value == nullptr || *env_value == '\0') {
+        return std::nullopt;
+    }
+    return std::string{env_value};
+#endif
+}
+
 CollectorOptions parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory    category{"gentest codegen"};
     static llvm::cl::opt<std::string>  output_option{"output", llvm::cl::desc("Path to the output source file"), llvm::cl::init(""),
@@ -91,15 +114,15 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         if (strict_fixture_option.getValue()) {
             return true;
         }
-        const char *strict_env = std::getenv("GENTEST_STRICT_FIXTURE");
-        return strict_env && *strict_env && std::string_view(strict_env) != "0";
+        const auto strict_env = get_env_value("GENTEST_STRICT_FIXTURE");
+        return strict_env && *strict_env != "0";
     }();
     opts.include_sources = [&] {
         if (no_include_sources_option.getValue()) {
             return false;
         }
-        const char *no_inc_env = std::getenv("GENTEST_NO_INCLUDE_SOURCES");
-        const bool  skip_env   = (no_inc_env && *no_inc_env && std::string_view(no_inc_env) != "0");
+        const auto no_inc_env = get_env_value("GENTEST_NO_INCLUDE_SOURCES");
+        const bool skip_env   = (no_inc_env && *no_inc_env != "0");
         return !skip_env;
     }();
     if (!mock_registry_option.getValue().empty()) {
