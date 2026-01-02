@@ -105,13 +105,12 @@ jobs:
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
   windows:
-    name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.preset }}
+    name: Windows • LLVM ${{ matrix.llvm-version }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
         llvm-version: ["21.1.4", "20.1.8"]
-        preset: ["debug-system", "release-system"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -119,7 +118,15 @@ jobs:
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v3
 
+      - name: Cache extracted LLVM toolchain
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\llvm\clang+llvm-${{ matrix.llvm-version }}-x86_64-pc-windows-msvc
+          key: llvm-${{ runner.os }}-${{ matrix.llvm-version }}
+
       - name: Download LLVM distribution (tarball)
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $version = "${{ matrix.llvm-version }}"
@@ -128,16 +135,37 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $archive
 
       - name: Extract LLVM toolchain
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $archive = Get-Item clang+llvm-*-x86_64-pc-windows-msvc.tar.xz
-          tar -xf $archive.FullName
-          $extracted = Get-ChildItem -Directory | Where-Object { $_.Name -like "clang+llvm-*-x86_64-pc-windows-msvc" } | Select-Object -First 1
-          if (-not $extracted) { throw "Failed to locate extracted LLVM directory." }
-          "$($extracted.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "LLVM_BIN=$($extracted.FullName)\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "LLVM_DIR=$($extracted.FullName)\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "Clang_DIR=$($extracted.FullName)\lib\cmake\clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $version = "${{ matrix.llvm-version }}"
+          $root = Join-Path $env:RUNNER_TEMP "llvm"
+          $null = New-Item -ItemType Directory -Force -Path $root
+          $archive = Get-Item "clang+llvm-$version-x86_64-pc-windows-msvc.tar.xz"
+
+          # bsdtar extraction on windows runners is extremely slow; use 7-Zip instead.
+          $sevenZip = Join-Path $env:ProgramFiles "7-Zip\\7z.exe"
+          if (-not (Test-Path $sevenZip)) { $sevenZip = "7z.exe" }
+
+          & $sevenZip x -y $archive.FullName "-o$root"
+          $tarPath = Join-Path $root "clang+llvm-$version-x86_64-pc-windows-msvc.tar"
+          if (-not (Test-Path $tarPath)) { throw "7-Zip failed to produce tar archive at $tarPath" }
+          & $sevenZip x -y $tarPath "-o$root"
+
+          Remove-Item -Force -ErrorAction SilentlyContinue $tarPath
+          Remove-Item -Force -ErrorAction SilentlyContinue $archive.FullName
+
+      - name: Configure LLVM environment
+        shell: pwsh
+        run: |
+          $version = "${{ matrix.llvm-version }}"
+          $root = Join-Path $env:RUNNER_TEMP "llvm"
+          $extracted = Join-Path $root "clang+llvm-$version-x86_64-pc-windows-msvc"
+          if (-not (Test-Path $extracted)) { throw "Failed to locate extracted LLVM directory at $extracted" }
+          "$extracted\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "LLVM_BIN=$extracted\\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_DIR=$extracted\\lib\\cmake\\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "Clang_DIR=$extracted\\lib\\cmake\\clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Show tool versions
         shell: pwsh
@@ -147,17 +175,19 @@ jobs:
           "$env:LLVM_BIN\clang.exe" --version
           "$env:LLVM_BIN\clang++.exe" --version
 
-      - name: Configure
+      - name: Configure/Build/Test
         shell: pwsh
-        run: cmake --preset=${{ matrix.preset }} -DCMAKE_C_COMPILER="$env:LLVM_BIN\\clang.exe" -DCMAKE_CXX_COMPILER="$env:LLVM_BIN\\clang++.exe" -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"
-
-      - name: Build
-        shell: pwsh
-        run: cmake --build --preset=${{ matrix.preset }}
-
-      - name: Test
-        shell: pwsh
-        run: ctest --preset=${{ matrix.preset }} --output-on-failure
+        run: |
+          $presets = @("debug-system", "release-system")
+          foreach ($preset in $presets) {
+            cmake --preset=$preset `
+              -DCMAKE_C_COMPILER="$env:LLVM_BIN\\clang.exe" `
+              -DCMAKE_CXX_COMPILER="$env:LLVM_BIN\\clang++.exe" `
+              -DLLVM_DIR="$env:LLVM_DIR" `
+              -DClang_DIR="$env:Clang_DIR"
+            cmake --build --preset=$preset
+            ctest --preset=$preset --output-on-failure
+          }
 
   linux:
     name: ${{ matrix.name }} • ${{ matrix.build_type }}
