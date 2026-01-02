@@ -25,6 +25,16 @@
 namespace gentest {
 namespace {
 
+static void configure_crash_behavior() {
+#if defined(_WIN32) && defined(_CALL_REPORTFAULT)
+    // When a test intentionally calls std::abort() (e.g., "death" checks),
+    // the MSVC CRT may invoke Windows Error Reporting (WER) which can hang
+    // in headless CI environments. Disable ReportFault so abort terminates
+    // immediately without UI or external reporting.
+    _set_abort_behavior(0, _CALL_REPORTFAULT);
+#endif
+}
+
 struct Counters { std::size_t executed = 0; int failures = 0; };
 
 struct RunResult {
@@ -708,6 +718,8 @@ static bool run_tests_once(RunnerState& state, std::span<const Case> cases, std:
 }
 
 auto run_all_tests(std::span<const char*> args) -> int {
+    configure_crash_behavior();
+
     CliOptions opt{};
     if (!parse_cli(args, opt)) return 1;
 
