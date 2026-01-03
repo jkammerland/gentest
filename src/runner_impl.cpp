@@ -18,37 +18,12 @@
 #include <utility>
 #include <vector>
 
-#if defined(_WIN32)
-#  include <windows.h>
-#endif
-
 #ifdef GENTEST_USE_BOOST_JSON
 #  include <boost/json.hpp>
 #endif
 
 namespace gentest {
 namespace {
-
-static void configure_crash_behavior() {
-#if defined(_WIN32)
-    // Some Windows CI environments can show modal crash dialogs (WER/JIT/CRT) for
-    // abort/termination paths, which would stall "death" tests until the CTest
-    // timeout triggers.
-    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
-
-#  if defined(_OUT_TO_STDERR)
-    _set_error_mode(_OUT_TO_STDERR);
-#  endif
-
-#  if defined(_CALL_REPORTFAULT)
-    // When a test intentionally calls std::abort() (e.g., "death" checks),
-    // the MSVC CRT may invoke Windows Error Reporting (WER) which can hang
-    // in headless CI environments. Disable ReportFault so abort terminates
-    // immediately without UI or external reporting.
-    _set_abort_behavior(0, _CALL_REPORTFAULT);
-#  endif
-#endif
-}
 
 struct Counters { std::size_t executed = 0; int failures = 0; };
 
@@ -167,17 +142,25 @@ std::string join_span(std::span<const std::string_view> items, char sep) {
     return out;
 }
 
+static bool env_has_value(const char* name) {
+#if defined(_WIN32) && defined(_MSC_VER)
+    char*  value = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&value, &len, name) != 0 || value == nullptr) return false;
+    const bool has_value = value[0] != '\0';
+    std::free(value);
+    return has_value;
+#else
+    const char* value = std::getenv(name);
+    return value != nullptr && value[0] != '\0';
+#endif
+}
+
 bool env_no_color() {
-    const char* a = std::getenv("NO_COLOR");
-    if (a && *a) return true;
-    a = std::getenv("GENTEST_NO_COLOR");
-    if (a && *a) return true;
-    return false;
+    return env_has_value("NO_COLOR") || env_has_value("GENTEST_NO_COLOR");
 }
 bool env_github_actions() {
-    const char* a = std::getenv("GITHUB_ACTIONS");
-    if (a && *a) return true;
-    return false;
+    return env_has_value("GITHUB_ACTIONS");
 }
 static inline std::string gha_escape(std::string_view s) {
     std::string out;
@@ -733,8 +716,6 @@ static bool run_tests_once(RunnerState& state, std::span<const Case> cases, std:
 }
 
 auto run_all_tests(std::span<const char*> args) -> int {
-    configure_crash_behavior();
-
     CliOptions opt{};
     if (!parse_cli(args, opt)) return 1;
 

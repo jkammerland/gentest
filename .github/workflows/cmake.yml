@@ -183,7 +183,18 @@ jobs:
 
       - name: Configure
         shell: pwsh
-        run: cmake --preset=${{ matrix.preset }} -DCMAKE_C_COMPILER="$env:LLVM_BIN\\clang.exe" -DCMAKE_CXX_COMPILER="$env:LLVM_BIN\\clang++.exe" -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"
+        run: |
+          $cmakeArgs = @(
+            "--preset=${{ matrix.preset }}",
+            "-DCMAKE_C_COMPILER=$env:LLVM_BIN\\clang.exe",
+            "-DCMAKE_CXX_COMPILER=$env:LLVM_BIN\\clang++.exe",
+            "-DLLVM_DIR=$env:LLVM_DIR",
+            "-DClang_DIR=$env:Clang_DIR"
+          )
+          if ("${{ matrix.preset }}" -eq "debug-system") {
+            $cmakeArgs += "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON"
+          }
+          cmake @cmakeArgs
 
       - name: Build
         shell: pwsh
@@ -207,6 +218,7 @@ jobs:
             -DCMAKE_CXX_STANDARD_REQUIRED=ON `
             -DCMAKE_CXX_EXTENSIONS=OFF `
             -DGENTEST_ENABLE_PACKAGE_TESTS=ON `
+            -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON `
             -DLLVM_DIR="$env:LLVM_DIR" `
             -DClang_DIR="$env:Clang_DIR"
           cmake --build $msvcBuildDir

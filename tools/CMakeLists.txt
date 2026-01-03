@@ -260,6 +260,7 @@ if(WIN32 AND MSVC)
     # When building gentest_codegen (which links against those libs) with MSVC, keep
     # the tool compatible even in Debug builds.
     set_property(TARGET gentest_codegen PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    target_compile_options(gentest_codegen PRIVATE /wd4805 /wd4291)
     target_compile_definitions(gentest_codegen PRIVATE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
 endif()
 

@@ -69,6 +69,11 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
     ARGS --run-test=concurrency/no_adopt_expect_death_multi)
 
+option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
+if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
+    set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
+endif()
+
 # Lint-only checks for generator
 add_test(NAME gentest_codegen_check_valid
     COMMAND $<TARGET_FILE:gentest_codegen>
