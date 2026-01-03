@@ -295,6 +295,9 @@ endif()
 if(_gentest_use_libcxx)
     target_compile_options(gentest_codegen PRIVATE "-stdlib=libc++")
     target_link_options(gentest_codegen PRIVATE "-stdlib=libc++")
+    if(APPLE)
+        target_compile_options(gentest_codegen PRIVATE "-Wno-deprecated-declarations")
+    endif()
 
     # For LLVM 21+, explicitly link LLVM's libc++ to avoid ABI issues with system libc++
     if(APPLE AND DEFINED _gentest_llvm_libdirs)
@@ -330,13 +333,13 @@ endif()
 ## Embedded templates are used by default; --template can point to an external file if desired
 
 if(DEFINED LLVM_INCLUDE_DIRS)
-    target_include_directories(gentest_codegen PRIVATE ${LLVM_INCLUDE_DIRS})
+    target_include_directories(gentest_codegen SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
 endif()
 
 if(TARGET clangTooling)
     get_target_property(_gentest_clang_includes clangTooling INTERFACE_INCLUDE_DIRECTORIES)
     if(_gentest_clang_includes)
-        target_include_directories(gentest_codegen PRIVATE ${_gentest_clang_includes})
+        target_include_directories(gentest_codegen SYSTEM PRIVATE ${_gentest_clang_includes})
     endif()
 endif()
 
