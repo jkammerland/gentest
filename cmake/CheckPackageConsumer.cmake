@@ -34,8 +34,29 @@ function(run_or_fail)
     message(FATAL_ERROR "run_or_fail: COMMAND is required")
   endif()
 
+  # The consumer test performs nested builds. Some environments configure ccache
+  # with an unwritable temp directory (e.g. sandboxed /run/user/...); provide a
+  # deterministic temp location under the test's build root unless the caller
+  # already configured one.
+  set(_ccache_dir "$ENV{CCACHE_DIR}")
+  set(_ccache_tmp "$ENV{CCACHE_TEMPDIR}")
+  if(_ccache_dir STREQUAL "")
+    set(_ccache_dir "${_work_dir}/ccache")
+  endif()
+  if(_ccache_tmp STREQUAL "")
+    set(_ccache_tmp "${_work_dir}/ccache/tmp")
+  endif()
+  file(MAKE_DIRECTORY "${_ccache_dir}")
+  file(MAKE_DIRECTORY "${_ccache_tmp}")
+
+  set(_command
+    "${CMAKE_COMMAND}" -E env
+      "CCACHE_DIR=${_ccache_dir}"
+      "CCACHE_TEMPDIR=${_ccache_tmp}"
+      ${RUN_COMMAND})
+
   execute_process(
-    COMMAND ${RUN_COMMAND}
+    COMMAND ${_command}
     WORKING_DIRECTORY "${RUN_WORKING_DIRECTORY}"
     OUTPUT_VARIABLE out
     ERROR_VARIABLE err
