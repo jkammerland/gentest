@@ -11,18 +11,24 @@
   - `cmake --preset=debug-system`
   - `cmake --build --preset=debug-system`
   - `ctest --preset=debug-system --output-on-failure`
-- Windows (system LLVM/Clang under `C:\\Tools\\llvm-*`):
-  - Pick the LLVM you want first (examples):
-    - `cmd.exe`: `set PATH=C:\Tools\llvm-21.1.4\bin;%PATH%` (or `C:\Tools\llvm-20.1.8\bin`)
-    - PowerShell: `$env:Path = 'C:\Tools\llvm-21.1.4\bin;' + $env:Path`
-  - Then run the same presets:
-    - `cmake --preset=debug-system`
+- Windows (dev machine):
+  - Connect: `ssh ai-dev1@windows-11`
+  - Repo path: `B:\repos\gentest`
+- Windows (Clang/LLVM release packages + Ninja):
+  - Pick the LLVM you want (examples use `C:\Tools\llvm-21.1.4` / `C:\Tools\llvm-20.1.8`), then from `B:\repos\gentest` in PowerShell:
+    - `$llvm = 'C:\Tools\llvm-21.1.4'`
+    - `$env:LLVM_BIN = "$llvm\bin"; $env:PATH = "$env:LLVM_BIN;$env:PATH"`
+    - `$env:LLVM_DIR = "$llvm\lib\cmake\llvm"; $env:Clang_DIR = "$llvm\lib\cmake\clang"`
+    - `cmake --preset=debug-system -DCMAKE_C_COMPILER="$env:LLVM_BIN\clang.exe" -DCMAKE_CXX_COMPILER="$env:LLVM_BIN\clang++.exe" -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"`
     - `cmake --build --preset=debug-system`
     - `ctest --preset=debug-system --output-on-failure`
-- Windows (MSVC + system LLVM for codegen):
-  - Run from an x64 VS developer prompt (`VsDevCmd.bat -arch=amd64`), with `C:\Tools\llvm-*/bin` on `PATH`.
-  - Example (LLVM 21): `cmake -S . -B build/debug-system-msvc-llvm21 -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_PREFIX_PATH=C:\Tools\llvm-21.1.4`
-  - Build/test: `cmake --build build/debug-system-msvc-llvm21 && ctest --test-dir build/debug-system-msvc-llvm21 --output-on-failure`
+- Windows (MSVC + LLVM tooling, Ninja):
+  - From `B:\repos\gentest` in PowerShell (Developer prompt env required):
+    - `& "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64`
+    - `$msvcBuildDir = 'build\debug-system-msvc'`
+    - `cmake -S . -B $msvcBuildDir -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DGENTEST_ENABLE_PACKAGE_TESTS=ON -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"`
+    - `cmake --build $msvcBuildDir`
+    - `ctest --test-dir $msvcBuildDir --output-on-failure`
 - Legacy vcpkg workflow:
   - `cmake --preset=debug`
   - `cmake --build --preset=debug`
@@ -61,3 +67,4 @@
   - When building with Clang on Windows, `cmake/GentestDependencies.cmake` aligns fmt + project flags to match typical prebuilt LLVM CRT/iterator settings and disables fmt's compile-time format checking (to avoid clang constant-eval issues).
   - LLVM 20 Windows packages may reference a non-existent `diaguids.lib` path; `tools/CMakeLists.txt` patches `LLVMDebugInfoPDB` to use an installed Visual Studio DIA SDK when found.
   - The `debug-system`/`release-system` presets enable `GENTEST_ENABLE_PACKAGE_TESTS` by default; disable with `-DGENTEST_ENABLE_PACKAGE_TESTS=OFF` if you want faster local runs.
+  - Some Windows Debug CI environments hang on the two concurrency "death" tests; the CI sets `-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON` (only disables `concurrency_fail_single_death` and `concurrency_multi_noadopt_death` in `Debug` on `WIN32`).
