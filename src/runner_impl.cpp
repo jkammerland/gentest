@@ -9,6 +9,7 @@
 #include <fmt/color.h>
 #include <fmt/core.h>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <random>
@@ -62,7 +63,19 @@ struct BenchConfig {
     std::size_t measure_epochs   = 12;
 };
 static inline std::size_t parse_szt_c(const char* s, std::size_t defv) {
-    if (!s) return defv; std::size_t n = 0; for (char ch : std::string_view(s)) { if (ch < '0' || ch > '9') return defv; n = n*10 + (ch-'0'); if (n > (std::size_t(1)<<62)) return defv; } return n;
+    if (!s)
+        return defv;
+    std::size_t n = 0;
+    const std::size_t maxv = std::numeric_limits<std::size_t>::max();
+    for (char ch : std::string_view(s)) {
+        if (ch < '0' || ch > '9')
+            return defv;
+        const std::size_t digit = static_cast<std::size_t>(ch - '0');
+        if (n > (maxv - digit) / 10)
+            return defv;
+        n = (n * 10) + digit;
+    }
+    return n;
 }
 static inline double parse_double_c(const char* s, double defv) {
     if (!s) return defv; try { return std::stod(std::string(s)); } catch (...) { return defv; }

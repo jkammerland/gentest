@@ -230,6 +230,7 @@ inline void log_on_fail(bool enable = true) {
     auto ctx = detail::g_current_test;
     if (!ctx || !ctx->active.load(std::memory_order_relaxed))
         return;
+    std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->dump_logs_on_failure = enable;
 }
 inline void clear_logs() {
@@ -239,12 +240,17 @@ inline void clear_logs() {
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->logs.clear();
     // Remove any pending log events; keep failure events
-    if (!ctx->event_lines.empty()) {
+    const std::size_t n = ctx->event_lines.size() < ctx->event_kinds.size() ? ctx->event_lines.size() : ctx->event_kinds.size();
+    if (ctx->event_lines.size() != ctx->event_kinds.size()) {
+        ctx->event_lines.resize(n);
+        ctx->event_kinds.resize(n);
+    }
+    if (n != 0) {
         std::vector<std::string> kept_lines;
         std::vector<char>        kept_kinds;
-        kept_lines.reserve(ctx->event_lines.size());
-        kept_kinds.reserve(ctx->event_kinds.size());
-        for (std::size_t i = 0; i < ctx->event_lines.size(); ++i) {
+        kept_lines.reserve(n);
+        kept_kinds.reserve(n);
+        for (std::size_t i = 0; i < n; ++i) {
             if (ctx->event_kinds[i] == 'F') { kept_lines.push_back(std::move(ctx->event_lines[i])); kept_kinds.push_back('F'); }
         }
         ctx->event_lines.swap(kept_lines);
@@ -278,7 +284,9 @@ struct Approx {
         if (abs_epsilon > 0 && diff <= abs_epsilon)
             return true;
         if (rel_percent > 0) {
-            const long double scale = (a > target ? a : target);
+            const long double abs_a = a < 0 ? -a : a;
+            const long double abs_t = target < 0 ? -target : target;
+            const long double scale = abs_a > abs_t ? abs_a : abs_t;
             const long double tol   = scale * (rel_percent / 100.0L);
             if (diff <= tol)
                 return true;

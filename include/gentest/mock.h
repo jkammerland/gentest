@@ -323,7 +323,7 @@ class InstanceState {
         if constexpr (std::is_void_v<R>) {
             expectation->invoke(method_name, std::forward<Args>(args)...);
         } else {
-            auto result = expectation->invoke(method_name, std::forward<Args>(args)...);
+            decltype(auto) result = expectation->invoke(method_name, std::forward<Args>(args)...);
             if (expectation->is_satisfied() && !expectation->allow_excess) {
                 it->second.queue.pop_front();
             }
@@ -333,7 +333,11 @@ class InstanceState {
             it->second.queue.pop_front();
         }
         if constexpr (!std::is_void_v<R>) {
-            return R{};
+            if constexpr (std::is_reference_v<R>) {
+                std::terminate();
+            } else {
+                return R{};
+            }
         }
     }
 
@@ -413,19 +417,30 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     template <typename Value> ExpectationHandle &returns(Value &&value) {
         if constexpr (std::is_void_v<R>) {
             static_assert(!std::is_void_v<R>, "returns() is not available for void-returning methods");
+        } else if constexpr (std::is_reference_v<R>) {
+            static_assert(!std::is_reference_v<R>, "returns() is not available for reference-returning methods; use returns_ref()");
         } else {
             if (expectation_) {
-                if constexpr (std::is_reference_v<R>) {
-                    expectation_->action = [&value](const std::decay_t<Args> &... a) -> R {
-                        (void)sizeof...(a);
-                        return value;
-                    };
-                } else {
-                    expectation_->action = [captured = std::forward<Value>(value)](const std::decay_t<Args> &... a) -> R {
-                        (void)sizeof...(a);
-                        return captured;
-                    };
-                }
+                expectation_->action = [captured = std::forward<Value>(value)](const std::decay_t<Args> &... a) -> R {
+                    (void)sizeof...(a);
+                    return captured;
+                };
+            }
+        }
+        return *this;
+    }
+
+    template <typename RR = R>
+    ExpectationHandle &returns_ref(std::remove_reference_t<RR> &value) {
+        if constexpr (!std::is_lvalue_reference_v<RR>) {
+            static_assert(std::is_lvalue_reference_v<RR>, "returns_ref() is only available for lvalue-reference returning methods");
+        } else {
+            if (expectation_) {
+                auto *ptr            = std::addressof(value);
+                expectation_->action = [ptr](const std::decay_t<Args> &... a) -> R {
+                    (void)sizeof...(a);
+                    return *ptr;
+                };
             }
         }
         return *this;
@@ -695,18 +710,34 @@ template <typename V, typename E> struct NearFactory {
 };
 template <typename V, typename E> inline auto Near(V &&v, E &&eps) { return NearFactory<V, E>{std::forward<V>(v), std::forward<E>(eps)}; }
 
+template <typename T>
+static inline std::optional<std::string_view> to_string_view_safe(const T &a) {
+    using D = std::decay_t<T>;
+    if constexpr (std::is_same_v<D, const char *> || std::is_same_v<D, char *>) {
+        if (a == nullptr)
+            return std::nullopt;
+        return std::string_view(a);
+    } else {
+        return std::string_view(a);
+    }
+}
+
 struct StrContainsFactory {
     std::string needle;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const std::string nd = needle;
         ap.test               = [nd](const T &a) {
-            std::string_view s(a);
-            return s.find(nd) != std::string_view::npos;
+            auto s = to_string_view_safe(a);
+            if (!s)
+                return false;
+            return s->find(nd) != std::string_view::npos;
         };
         ap.describe = [nd](const T &a) {
-            std::string_view s(a);
-            return fmt::format("expected substring '{}', got '{}'", nd, s);
+            auto s = to_string_view_safe(a);
+            if (!s)
+                return fmt::format("expected substring '{}', got <null>", nd);
+            return fmt::format("expected substring '{}', got '{}'", nd, *s);
         };
         return ap;
     }
@@ -719,12 +750,16 @@ struct StartsWithFactory {
         ArgPredicate<T> ap;
         const std::string px = prefix;
         ap.test               = [px](const T &a) {
-            std::string_view s(a);
-            return s.rfind(px, 0) == 0;
+            auto s = to_string_view_safe(a);
+            if (!s)
+                return false;
+            return s->rfind(px, 0) == 0;
         };
         ap.describe = [px](const T &a) {
-            std::string_view s(a);
-            return fmt::format("expected prefix '{}', got '{}'", px, s);
+            auto s = to_string_view_safe(a);
+            if (!s)
+                return fmt::format("expected prefix '{}', got <null>", px);
+            return fmt::format("expected prefix '{}', got '{}'", px, *s);
         };
         return ap;
     }
@@ -737,12 +772,16 @@ struct EndsWithFactory {
         ArgPredicate<T> ap;
         const std::string sx = suffix;
         ap.test               = [sx](const T &a) {
-            std::string_view s(a);
-            return s.size() >= sx.size() && s.substr(s.size() - sx.size()) == sx;
+            auto s = to_string_view_safe(a);
+            if (!s)
+                return false;
+            return s->size() >= sx.size() && s->substr(s->size() - sx.size()) == sx;
         };
         ap.describe = [sx](const T &a) {
-            std::string_view s(a);
-            return fmt::format("expected suffix '{}', got '{}'", sx, s);
+            auto s = to_string_view_safe(a);
+            if (!s)
+                return fmt::format("expected suffix '{}', got <null>", sx);
+            return fmt::format("expected suffix '{}', got '{}'", sx, *s);
         };
         return ap;
     }

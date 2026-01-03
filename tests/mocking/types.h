@@ -8,6 +8,11 @@ struct Calculator {
     virtual void reset() = 0;
 };
 
+struct RefProvider {
+    virtual ~RefProvider() = default;
+    virtual int& value() = 0;
+};
+
 struct Ticker {
     void tick(int value) { (void)value; }
     template <typename T>
