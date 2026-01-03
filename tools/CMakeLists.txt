@@ -118,6 +118,7 @@ if(NOT TARGET Terminfo::terminfo)
 
     if(_gentest_use_local_tinfo_shim AND UNIX)
         add_library(gentest_tinfo_shim SHARED src/terminfo_shim.cpp)
+        target_compile_features(gentest_tinfo_shim PRIVATE cxx_std_20)
         target_link_libraries(gentest_tinfo_shim PRIVATE dl)
         set_target_properties(gentest_tinfo_shim PROPERTIES
             OUTPUT_NAME tinfo

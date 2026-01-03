@@ -22,7 +22,7 @@ endif()
 target_link_libraries(gentest_runtime
     PUBLIC fmt::fmt)
 
-target_compile_features(gentest_runtime PUBLIC cxx_std_23)
+target_compile_features(gentest_runtime PUBLIC cxx_std_20)
 
 # For LLVM 21+ with libc++, explicitly link LLVM's libc++ to avoid ABI issues
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE)
