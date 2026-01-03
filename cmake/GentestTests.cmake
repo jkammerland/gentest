@@ -127,7 +127,7 @@ endfunction()
 
 function(gentest_add_check_counts)
     set(options LIST)
-    set(one_value_args NAME PROG PASS FAIL SKIP CASES)
+    set(one_value_args NAME PROG PASS FAIL SKIP XFAIL XPASS CASES)
     set(multi_value_args ARGS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -146,6 +146,12 @@ function(gentest_add_check_counts)
             message(FATAL_ERROR "gentest_add_check_counts: PASS, FAIL, and SKIP are required")
         endif()
         list(APPEND _defines "PASS=${GENTEST_PASS}" "FAIL=${GENTEST_FAIL}" "SKIP=${GENTEST_SKIP}")
+        if(NOT "${GENTEST_XFAIL}" STREQUAL "")
+            list(APPEND _defines "XFAIL=${GENTEST_XFAIL}")
+        endif()
+        if(NOT "${GENTEST_XPASS}" STREQUAL "")
+            list(APPEND _defines "XPASS=${GENTEST_XPASS}")
+        endif()
     endif()
 
     gentest_add_cmake_script_test(

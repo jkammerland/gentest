@@ -1,5 +1,6 @@
 # Usage:
 #   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> -P cmake/CheckTestCounts.cmake
+#   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> [-DXFAIL=<n>] [-DXPASS=<n>] -P cmake/CheckTestCounts.cmake
 #   cmake -DPROG=<path> -DLIST=ON -DCASES=<n> -P cmake/CheckTestCounts.cmake
 
 if(NOT DEFINED PROG)
@@ -53,6 +54,10 @@ string(REGEX MATCHALL "\\[ FAIL \\]" _fail_matches "${all}")
 list(LENGTH _fail_matches fail_count)
 string(REGEX MATCHALL "\\[ SKIP \\]" _skip_matches "${all}")
 list(LENGTH _skip_matches skip_count)
+string(REGEX MATCHALL "\\[ XFAIL \\]" _xfail_matches "${all}")
+list(LENGTH _xfail_matches xfail_count)
+string(REGEX MATCHALL "\\[ XPASS \\]" _xpass_matches "${all}")
+list(LENGTH _xpass_matches xpass_count)
 
 set(_ok TRUE)
 if(NOT pass_count EQUAL PASS)
@@ -67,9 +72,22 @@ if(NOT skip_count EQUAL SKIP)
   message(STATUS "SKIP count mismatch: expected ${SKIP}, got ${skip_count}")
   set(_ok FALSE)
 endif()
+if(DEFINED XFAIL AND NOT "${XFAIL}" STREQUAL "" AND NOT xfail_count EQUAL XFAIL)
+  message(STATUS "XFAIL count mismatch: expected ${XFAIL}, got ${xfail_count}")
+  set(_ok FALSE)
+endif()
+if(DEFINED XPASS AND NOT "${XPASS}" STREQUAL "" AND NOT xpass_count EQUAL XPASS)
+  message(STATUS "XPASS count mismatch: expected ${XPASS}, got ${xpass_count}")
+  set(_ok FALSE)
+endif()
 
 # Exit code validation: when there are failures expect non-zero; otherwise 0.
-if(FAIL GREATER 0)
+set(_fail_like ${FAIL})
+if(DEFINED XPASS AND NOT "${XPASS}" STREQUAL "")
+  math(EXPR _fail_like "${_fail_like} + ${XPASS}")
+endif()
+
+if(_fail_like GREATER 0)
   if(rc EQUAL 0)
     message(STATUS "Expected non-zero exit code when failures present, got ${rc}")
     set(_ok FALSE)
