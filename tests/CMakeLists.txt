@@ -32,6 +32,9 @@ unset(_gentest_test_suites)
 # Concurrency target (no default add_test to avoid suite-wide failure)
 gentest_add_suite(concurrency TARGET ${PROJECT_NAME}_concurrency_tests NO_CTEST)
 
+# Outcome semantics target (no default add_test; contains deliberate FAIL/XPASS cases)
+gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
+
 # Focused checks: ensure pass-only selection passes, and failing selection returns non-zero
 gentest_add_check_counts(
     NAME concurrency_pass_single
@@ -209,6 +212,91 @@ gentest_add_check_lines(NAME templates_list_tests_lines PROG $<TARGET_FILE:gente
 
 gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_tests> PASS 21 FAIL 0 SKIP 0)
 gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 21)
+
+# Runtime skip/xfail/XPASS outcome checks
+gentest_add_check_counts(
+    NAME outcomes_runtime_skip_simple
+    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+    PASS 0
+    FAIL 0
+    SKIP 1
+    XFAIL 0
+    XPASS 0
+    ARGS --run-test=outcomes/runtime_skip_simple)
+
+gentest_add_check_counts(
+    NAME outcomes_runtime_skip_if
+    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+    PASS 0
+    FAIL 0
+    SKIP 1
+    XFAIL 0
+    XPASS 0
+    ARGS --run-test=outcomes/runtime_skip_if)
+
+gentest_add_check_counts(
+    NAME outcomes_xfail_expect_fail
+    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+    PASS 0
+    FAIL 0
+    SKIP 0
+    XFAIL 1
+    XPASS 0
+    ARGS --run-test=outcomes/xfail_expect_fail)
+
+gentest_add_check_counts(
+    NAME outcomes_xfail_throw
+    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+    PASS 0
+    FAIL 0
+    SKIP 0
+    XFAIL 1
+    XPASS 0
+    ARGS --run-test=outcomes/xfail_throw)
+
+gentest_add_check_counts(
+    NAME outcomes_xfail_xpass
+    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+    PASS 0
+    FAIL 0
+    SKIP 0
+    XFAIL 0
+    XPASS 1
+    ARGS --run-test=outcomes/xfail_xpass)
+
+gentest_add_check_counts(
+    NAME outcomes_skip_overrides_xfail
+    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+    PASS 0
+    FAIL 0
+    SKIP 1
+    XFAIL 0
+    XPASS 0
+    ARGS --run-test=outcomes/skip_overrides_xfail)
+
+gentest_add_check_counts(
+    NAME outcomes_skip_after_failure_is_fail
+    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+    PASS 0
+    FAIL 1
+    SKIP 0
+    XFAIL 0
+    XPASS 0
+    ARGS --run-test=outcomes/skip_after_failure_is_fail)
+
+gentest_add_run_and_check_file(
+    NAME outcomes_junit_xfail_mapping
+    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+    FILE ${CMAKE_BINARY_DIR}/outcomes_junit_xfail.xml
+    EXPECT_SUBSTRING "message=\"xfail: expected failure\""
+    ARGS --run-test=outcomes/xfail_expect_fail --junit=${CMAKE_BINARY_DIR}/outcomes_junit_xfail.xml)
+
+gentest_add_run_and_check_file(
+    NAME outcomes_junit_xpass_mapping
+    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+    FILE ${CMAKE_BINARY_DIR}/outcomes_junit_xpass.xml
+    EXPECT_SUBSTRING "xpass: unexpected pass"
+    ARGS --run-test=outcomes/xfail_xpass --junit=${CMAKE_BINARY_DIR}/outcomes_junit_xpass.xml)
 
 # libassert integration counts (optional)
 if(GENTEST_WITH_LIBASSERT)

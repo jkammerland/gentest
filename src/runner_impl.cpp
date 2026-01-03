@@ -28,9 +28,20 @@ namespace {
 
 struct Counters { std::size_t executed = 0; int failures = 0; };
 
+enum class Outcome {
+    Pass,
+    Fail,
+    Skip,
+    XFail,
+    XPass,
+};
+
 struct RunResult {
     double                    time_s = 0.0;
     bool                      skipped = false;
+    Outcome                   outcome = Outcome::Pass;
+    std::string               skip_reason;
+    std::string               xfail_reason;
     std::vector<std::string>  failures;
     std::vector<std::string>  logs;
     std::vector<std::string>  timeline;
@@ -42,6 +53,7 @@ struct ReportItem {
     double      time_s = 0.0;
     bool        skipped = false;
     std::string skip_reason;
+    Outcome     outcome = Outcome::Pass;
     std::vector<std::string> failures;
     std::vector<std::string> logs;
     std::vector<std::string> timeline;
@@ -404,6 +416,8 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
     RunResult rr;
     if (test.should_skip) {
         rr.skipped = true;
+        rr.outcome = Outcome::Skip;
+        rr.skip_reason = std::string(test.skip_reason);
         const long long dur_ms = 0LL;
         if (state.color_output) {
             fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
@@ -420,26 +434,29 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
     ctxinfo->display_name = std::string(test.name);
     ctxinfo->active = true;
     gentest::detail::set_current_test(ctxinfo);
-    bool threw = false;
+    bool threw_non_skip = false;
+    bool runtime_skipped = false;
     const auto start_tp = std::chrono::steady_clock::now();
     try {
         test.fn(ctx);
+    } catch (const gentest::detail::skip_exception&) {
+        runtime_skipped = true;
     } catch (const gentest::failure& err) {
-        threw = true;
+        threw_non_skip = true;
         ctxinfo->failures.push_back(std::string("FAIL() :: ") + err.what());
         // Record event for console output as well
         ctxinfo->event_lines.push_back(ctxinfo->failures.back());
         ctxinfo->event_kinds.push_back('F');
     } catch (const gentest::assertion&) {
-        threw = true;
+        threw_non_skip = true;
     } catch (const std::exception& err) {
-        threw = true;
+        threw_non_skip = true;
         ctxinfo->failures.push_back(std::string("unexpected std::exception: ") + err.what());
         // Record event for console output as well
         ctxinfo->event_lines.push_back(ctxinfo->failures.back());
         ctxinfo->event_kinds.push_back('F');
     } catch (...) {
-        threw = true;
+        threw_non_skip = true;
         ctxinfo->failures.push_back("unknown exception");
         // Record event for console output as well
         ctxinfo->event_lines.push_back(ctxinfo->failures.back());
@@ -449,11 +466,80 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
     gentest::detail::set_current_test(nullptr);
     const auto end_tp = std::chrono::steady_clock::now();
     rr.time_s = std::chrono::duration<double>(end_tp - start_tp).count();
-    rr.failures = ctxinfo->failures;
     rr.logs = ctxinfo->logs;
     rr.timeline = ctxinfo->event_lines;
 
+    bool        should_skip = false;
+    std::string runtime_skip_reason;
+    bool        is_xfail = false;
+    std::string xfail_reason;
+    {
+        std::lock_guard<std::mutex> lk(ctxinfo->mtx);
+        should_skip = runtime_skipped && ctxinfo->runtime_skip_requested;
+        runtime_skip_reason = ctxinfo->runtime_skip_reason;
+        is_xfail = ctxinfo->xfail_requested;
+        xfail_reason = ctxinfo->xfail_reason;
+    }
+
+    const bool has_failures = !ctxinfo->failures.empty();
+
+    if (should_skip && !has_failures && !threw_non_skip) {
+        rr.skipped = true;
+        rr.outcome = Outcome::Skip;
+        rr.skip_reason = std::move(runtime_skip_reason);
+        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        if (state.color_output) {
+            fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
+            if (!rr.skip_reason.empty()) fmt::print(" {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
+            else fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+        } else {
+            if (!rr.skip_reason.empty()) fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
+            else fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+        }
+        return rr;
+    }
+
+    if (is_xfail && !should_skip) {
+        rr.xfail_reason = std::move(xfail_reason);
+        if (has_failures || threw_non_skip) {
+            rr.outcome = Outcome::XFail;
+            rr.skipped = true;
+            rr.skip_reason = rr.xfail_reason.empty() ? "xfail" : std::string("xfail: ") + rr.xfail_reason;
+            const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+            if (state.color_output) {
+                fmt::print(fmt::fg(fmt::color::cyan), "[ XFAIL ]");
+                if (!rr.xfail_reason.empty()) fmt::print(" {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
+                else fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+            } else {
+                if (!rr.xfail_reason.empty()) fmt::print("[ XFAIL ] {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
+                else fmt::print("[ XFAIL ] {} ({} ms)\n", test.name, dur_ms);
+            }
+            return rr;
+        }
+        rr.outcome = Outcome::XPass;
+        rr.failures.push_back(rr.xfail_reason.empty() ? "xpass" : std::string("xpass: ") + rr.xfail_reason);
+        ++c.failures;
+        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        if (state.color_output) {
+            fmt::print(stderr, fmt::fg(fmt::color::red), "[ XPASS ]");
+            if (!rr.xfail_reason.empty()) fmt::print(stderr, " {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
+            else fmt::print(stderr, " {} ({} ms)\n", test.name, dur_ms);
+        } else {
+            if (!rr.xfail_reason.empty()) fmt::print(stderr, "[ XPASS ] {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
+            else fmt::print(stderr, "[ XPASS ] {} ({} ms)\n", test.name, dur_ms);
+        }
+        fmt::print(stderr, "{}\n\n", rr.failures.front());
+        if (state.github_annotations) {
+            fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, gha_escape(std::string(test.name)),
+                       gha_escape(rr.failures.front()));
+        }
+        return rr;
+    }
+
+    rr.failures = ctxinfo->failures;
+
     if (!ctxinfo->failures.empty()) {
+        rr.outcome = Outcome::Fail;
         ++c.failures;
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
@@ -484,7 +570,7 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
             }
         }
         fmt::print(stderr, "\n");
-    } else if (!threw) {
+    } else if (!threw_non_skip) {
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
             fmt::print(fmt::fg(fmt::color::green), "[ PASS ]");
@@ -492,7 +578,9 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
         } else {
             fmt::print("[ PASS ] {} ({} ms)\n", test.name, dur_ms);
         }
+        rr.outcome = Outcome::Pass;
     } else {
+        rr.outcome = Outcome::Fail;
         ++c.failures;
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
@@ -514,7 +602,8 @@ inline void execute_and_record(RunnerState& state, const Case& test, void* ctx, 
     item.name        = std::string(test.name);
     item.time_s      = rr.time_s;
     item.skipped     = rr.skipped;
-    item.skip_reason = std::string(test.skip_reason);
+    item.skip_reason = rr.skip_reason.empty() ? std::string(test.skip_reason) : rr.skip_reason;
+    item.outcome     = rr.outcome;
     item.failures    = std::move(rr.failures);
     item.logs        = std::move(rr.logs);
     item.timeline    = std::move(rr.timeline);
@@ -585,10 +674,24 @@ static void write_reports(const RunnerState& state, const char* junit_path, cons
             obj["time"] = it.time_s;
             boost::json::array labels;
             labels.push_back({ {"name", "suite"}, {"value", it.suite} });
+            if (it.skipped && it.skip_reason.rfind("xfail", 0) == 0) {
+                std::string_view r = it.skip_reason;
+                if (r.rfind("xfail:", 0) == 0) {
+                    r.remove_prefix(std::string_view("xfail:").size());
+                    while (!r.empty() && r.front() == ' ') r.remove_prefix(1);
+                } else if (r == "xfail") {
+                    r = std::string_view{};
+                }
+                labels.push_back({ {"name", "xfail"}, {"value", std::string(r)} });
+            }
             obj["labels"] = std::move(labels);
             if (!it.failures.empty()) {
                 boost::json::object ex;
                 ex["message"] = it.failures.front();
+                obj["statusDetails"] = std::move(ex);
+            } else if (it.skipped && !it.skip_reason.empty()) {
+                boost::json::object ex;
+                ex["message"] = it.skip_reason;
                 obj["statusDetails"] = std::move(ex);
             }
             const std::string file = std::string(allure_dir) + "/result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json";

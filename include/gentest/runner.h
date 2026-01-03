@@ -70,9 +70,17 @@ struct TestContextInfo {
     std::mutex               mtx;
     std::atomic<bool>        active{false};
     bool                     dump_logs_on_failure{false};
+
+    bool        runtime_skip_requested{false};
+    std::string runtime_skip_reason;
+
+    bool        xfail_requested{false};
+    std::string xfail_reason;
 };
 
 inline thread_local std::shared_ptr<TestContextInfo> g_current_test{};
+
+struct skip_exception {};
 
 inline void                             set_current_test(std::shared_ptr<TestContextInfo> ctx) { g_current_test = std::move(ctx); }
 inline std::shared_ptr<TestContextInfo> current_test() { return g_current_test; }
@@ -443,6 +451,49 @@ inline void ASSERT_NE(L &&lhs, R &&rhs, std::string_view message = {},
 
 // Unconditionally throw a gentest::failure with the provided message.
 inline void fail(std::string message) { throw failure(std::move(message)); }
+
+[[noreturn]] inline void skip(std::string_view reason = {}, const std::source_location& loc = std::source_location::current()) {
+    (void)loc;
+    auto ctx = detail::g_current_test;
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+        std::fputs("gentest: fatal: skip called without an active test context.\n"
+                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                   stderr);
+        std::abort();
+    }
+    {
+        std::lock_guard<std::mutex> lk(ctx->mtx);
+        ctx->runtime_skip_requested = true;
+        ctx->runtime_skip_reason    = std::string(reason);
+    }
+#if GENTEST_EXCEPTIONS_ENABLED
+    throw detail::skip_exception{};
+#else
+    ::gentest::detail::terminate_no_exceptions_fatal("gentest::skip");
+#endif
+}
+
+inline void skip_if(bool condition, std::string_view reason = {}, const std::source_location& loc = std::source_location::current()) {
+    if (condition) skip(reason, loc);
+}
+
+inline void xfail(std::string_view reason = {}, const std::source_location& loc = std::source_location::current()) {
+    (void)loc;
+    auto ctx = detail::g_current_test;
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+        std::fputs("gentest: fatal: xfail called without an active test context.\n"
+                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                   stderr);
+        std::abort();
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    ctx->xfail_requested = true;
+    if (!reason.empty()) ctx->xfail_reason = std::string(reason);
+}
+
+inline void xfail_if(bool condition, std::string_view reason = {}, const std::source_location& loc = std::source_location::current()) {
+    if (condition) xfail(reason, loc);
+}
 
 // Unified test entry (argc/argv version). Consumed by generated code.
 auto run_all_tests(int argc, char **argv) -> int;
