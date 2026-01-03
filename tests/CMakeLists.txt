@@ -1,11 +1,7 @@
 include(GentestTests)
 
-set(_gentest_codegen_std_flag "-std=c++23")
-if(DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-    # The compilation database uses MSVC-style flags (MSVC or clang-cl), so the
-    # clang tooling driver runs in clang-cl mode and expects /std: arguments.
-    set(_gentest_codegen_std_flag "/std:c++latest")
-endif()
+gentest_resolve_test_std(_gentest_test_std_feature _gentest_codegen_std_flag)
+unset(_gentest_test_std_feature)
 
 set(_gentest_test_suites
     unit

@@ -9,9 +9,12 @@ function(gentest_ensure_fmt)
         endif()
 
         # Work around a clang-on-Windows constant-evaluation issue in fmt's
-        # compile-time format string checks (observed with LLVM 21, and likely
-        # affects LLVM 20 as well).
-        add_compile_definitions(FMT_USE_CONSTEXPR=0 FMT_CONSTEVAL=)
+        # compile-time format string checks (observed with LLVM 21).
+        #
+        # Note: Do not set FMT_USE_CONSTEXPR=0. fmt uses constexpr helpers in
+        # headers even when building our targets as C++20, and disabling them
+        # breaks compilation under clang.
+        add_compile_definitions(FMT_CONSTEVAL=)
 
         # Prebuilt LLVM/Clang distributions typically ship release-mode STL
         # settings. Keep our build compatible when linking against those libs

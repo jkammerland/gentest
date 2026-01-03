@@ -1,5 +1,31 @@
 include_guard(GLOBAL)
 
+function(gentest_resolve_test_std out_compile_feature out_codegen_std_arg)
+    if(DEFINED GENTEST_TEST_CXX_STANDARD)
+        set(_std "${GENTEST_TEST_CXX_STANDARD}")
+    else()
+        set(_std "23")
+    endif()
+
+    if(NOT (_std STREQUAL "20" OR _std STREQUAL "23"))
+        message(FATAL_ERROR "GENTEST_TEST_CXX_STANDARD must be 20 or 23 (got '${_std}')")
+    endif()
+
+    set(_compile_feature "cxx_std_${_std}")
+
+    set(_codegen_std_arg "-std=c++${_std}")
+    if(DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        if(_std STREQUAL "20")
+            set(_codegen_std_arg "/std:c++20")
+        else()
+            set(_codegen_std_arg "/std:c++latest")
+        endif()
+    endif()
+
+    set(${out_compile_feature} "${_compile_feature}" PARENT_SCOPE)
+    set(${out_codegen_std_arg} "${_codegen_std_arg}" PARENT_SCOPE)
+endfunction()
+
 function(gentest_add_suite suite)
     set(options NO_CTEST)
     set(one_value_args TARGET OUTPUT_DIR CASES)
@@ -24,18 +50,12 @@ function(gentest_add_suite suite)
             ${PROJECT_NAME}
             fmt::fmt)
 
-    target_compile_features(${GENTEST_TARGET} PRIVATE cxx_std_23)
+    gentest_resolve_test_std(_gentest_target_std_feature _gentest_codegen_std_arg)
+    target_compile_features(${GENTEST_TARGET} PRIVATE ${_gentest_target_std_feature})
     target_include_directories(${GENTEST_TARGET}
         PRIVATE
             ${PROJECT_SOURCE_DIR}/include
             ${CMAKE_CURRENT_SOURCE_DIR})
-
-    set(_gentest_codegen_std_arg "-std=c++23")
-    if(DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-        # When the project is built with an MSVC-style frontend (MSVC or clang-cl),
-        # clang tooling runs in clang-cl mode and expects MSVC /std: flags.
-        set(_gentest_codegen_std_arg "/std:c++latest")
-    endif()
 
     gentest_attach_codegen(${GENTEST_TARGET}
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${GENTEST_OUTPUT_DIR}/test_impl.cpp
@@ -47,6 +67,7 @@ function(gentest_add_suite suite)
             -I${PROJECT_SOURCE_DIR}/include
             -I${CMAKE_CURRENT_SOURCE_DIR})
     unset(_gentest_codegen_std_arg)
+    unset(_gentest_target_std_feature)
 
     if(NOT GENTEST_NO_CTEST)
         add_test(NAME ${suite} COMMAND ${GENTEST_TARGET})

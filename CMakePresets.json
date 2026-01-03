@@ -60,8 +60,6 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "CMAKE_CXX_STANDARD": "23",
-        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
         "CMAKE_CXX_EXTENSIONS": "OFF",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
@@ -123,6 +121,15 @@
       "cacheVariables": {
         "GENTEST_ENABLE_PACKAGE_TESTS": "ON",
         "CMAKE_TOOLCHAIN_FILE": null
+      }
+    },
+    {
+      "name": "debug-system-cxx20",
+      "inherits": "debug-system",
+      "displayName": "Debug (system LLVM/Clang, C++20 tests)",
+      "description": "Debug build using the system toolchain; builds the gentest test executables as C++20 to validate consumer compatibility",
+      "cacheVariables": {
+        "GENTEST_TEST_CXX_STANDARD": "20"
       }
     },
     {
@@ -397,6 +404,13 @@
       "jobs": 0
     },
     {
+      "name": "debug-system-cxx20",
+      "configurePreset": "debug-system-cxx20",
+      "displayName": "Debug Build (system LLVM/Clang, C++20 tests)",
+      "description": "Build with system toolchain and C++20 test executables",
+      "jobs": 0
+    },
+    {
       "name": "debug-system-ccache",
       "configurePreset": "debug-system-ccache",
       "displayName": "Debug Build (system LLVM/Clang, ccache)",
@@ -566,6 +580,13 @@
       "configurePreset": "debug-system",
       "displayName": "Debug Tests (system LLVM/Clang)",
       "description": "Run all tests in debug mode using the system LLVM/Clang toolchain"
+    },
+    {
+      "name": "debug-system-cxx20",
+      "inherits": "test-base",
+      "configurePreset": "debug-system-cxx20",
+      "displayName": "Debug Tests (system LLVM/Clang, C++20 tests)",
+      "description": "Run all tests in debug mode using the system toolchain with test executables built as C++20"
     },
     {
       "name": "debug-system-ccache",
@@ -786,6 +807,16 @@
           "type": "test",
           "name": "debug-system"
         }
+      ]
+    },
+    {
+      "name": "debug-system-cxx20",
+      "displayName": "Debug Workflow (system LLVM/Clang, C++20 tests)",
+      "description": "Configure, build, and test using the system toolchain with test executables built as C++20",
+      "steps": [
+        { "type": "configure", "name": "debug-system-cxx20" },
+        { "type": "build",     "name": "debug-system-cxx20" },
+        { "type": "test",      "name": "debug-system-cxx20" }
       ]
     },
     {

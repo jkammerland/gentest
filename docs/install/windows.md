@@ -23,5 +23,4 @@ ctest --preset=debug-system --output-on-failure
 
 ## Troubleshooting
 
-- See `docs/windows_troubleshooting.md` for common LLVM/Clang and environment issues.
-
+- See [`docs/windows_troubleshooting.md`](../windows_troubleshooting.md) for common LLVM/Clang and environment issues.

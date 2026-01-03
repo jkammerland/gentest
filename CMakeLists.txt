@@ -1,11 +1,15 @@
 cmake_minimum_required(VERSION 3.31)
 project(gentest VERSION 1.0.0 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Test executables in this repo are built as C++23 by default, but the runtime
+# is intended to be usable from C++20 projects. Use this knob to validate the
+# repo test suites under C++20 as well.
+set(GENTEST_TEST_CXX_STANDARD "23" CACHE STRING "C++ standard used to build gentest's test executables (20 or 23).")
+set_property(CACHE GENTEST_TEST_CXX_STANDARD PROPERTY STRINGS 20 23)
 
 # Export implicit compiler include directories to compile_commands.json
 # This makes system headers visible to tools like clangd and our gentest_codegen
