@@ -184,8 +184,8 @@ gentest_add_check_death(
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
 # End-to-end behavioral checks with robust counting
-gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 5 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 5)
+gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 6 FAIL 0 SKIP 0)
+gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 6)
 
 gentest_add_check_counts(NAME integration_counts PROG $<TARGET_FILE:gentest_integration_tests> PASS 3 FAIL 0 SKIP 1)
 gentest_add_check_counts(NAME integration_list_counts PROG $<TARGET_FILE:gentest_integration_tests> LIST CASES 4)
@@ -207,8 +207,8 @@ gentest_add_check_counts(NAME fixtures_list_counts PROG $<TARGET_FILE:gentest_fi
 gentest_add_check_counts(NAME templates_counts PROG $<TARGET_FILE:gentest_templates_tests> PASS 93 FAIL 0 SKIP 0)
 gentest_add_check_lines(NAME templates_list_tests_lines PROG $<TARGET_FILE:gentest_templates_tests> LINES 93 ARGS --list-tests)
 
-gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_tests> PASS 19 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 19)
+gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_tests> PASS 21 FAIL 0 SKIP 0)
+gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 21)
 
 # libassert integration counts (optional)
 if(GENTEST_WITH_LIBASSERT)
@@ -284,7 +284,7 @@ gentest_add_check_death(
 
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
-gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 5 ARGS --list-tests)
+gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 6 ARGS --list-tests)
 gentest_add_check_lines(NAME integration_list_tests_lines PROG $<TARGET_FILE:gentest_integration_tests> LINES 4 ARGS --list-tests)
 
 gentest_add_check_counts(
@@ -326,7 +326,7 @@ gentest_add_check_file_contains(
     EXPECT_SUBSTRING "<property name=\"requirement\" value=\"#42\""
     ARGS --junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml)
 
-gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 10 FAIL 0 SKIP 0 ARGS --repeat=2)
+gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 12 FAIL 0 SKIP 0 ARGS --repeat=2)
 
 gentest_add_check_counts(NAME failing_fail_fast PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 1 SKIP 0 ARGS --fail-fast)
 

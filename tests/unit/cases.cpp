@@ -34,6 +34,13 @@ void approx_relative() {
     EXPECT_EQ(Approx(200.0).rel(1.0), 198.5);  // 0.75% diff within 1%
 }
 
+[[using gentest: test("approx/relative_negative")]]
+void approx_relative_negative() {
+    using gentest::approx::Approx;
+    EXPECT_EQ(-101.0, Approx(-100.0).rel(2.0));  // 1% diff within 2%
+    EXPECT_EQ(Approx(-200.0).rel(1.0), -198.5);  // 0.75% diff within 1%
+}
+
 [[using gentest: test("strings/concatenate"), req("#42"), slow]]
 void concatenate_strings() {
     std::string greeting = "hello";

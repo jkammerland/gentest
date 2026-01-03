@@ -21,6 +21,19 @@ void interface_returns() {
     EXPECT_EQ(result, 42);
 }
 
+[[using gentest: test("mocking/interface/returns_ref")]]
+void interface_returns_ref() {
+    gentest::mock<RefProvider> mock_ref;
+    int                        storage = 7;
+    EXPECT_CALL(mock_ref, value).times(1).returns_ref(storage);
+
+    RefProvider *iface = &mock_ref;
+    int &result = iface->value();
+    EXPECT_EQ(&result, &storage);
+    result = 9;
+    EXPECT_EQ(storage, 9);
+}
+
 [[using gentest: test("mocking/interface/returns_matches")]]
 void interface_returns_matches() {
     gentest::mock<Calculator> mock_calc;
@@ -197,6 +210,32 @@ void matchers_starts_ends() {
 
     mock_str.put("hello world!");
     EXPECT_EQ(hits, 1);
+}
+
+[[using gentest: test("mocking/matchers/cstr_null_safe")]]
+void matchers_cstr_null_safe() {
+    using namespace gentest::match;
+
+    auto contains = StrContains("abc").make<const char *>();
+    EXPECT_TRUE(static_cast<bool>(contains.test));
+    EXPECT_TRUE(static_cast<bool>(contains.describe));
+    EXPECT_TRUE(!contains.test(nullptr));
+    EXPECT_TRUE(contains.describe(nullptr).find("null") != std::string::npos);
+    EXPECT_TRUE(contains.test("xxabcxx"));
+
+    auto starts = StartsWith("abc").make<const char *>();
+    EXPECT_TRUE(static_cast<bool>(starts.test));
+    EXPECT_TRUE(static_cast<bool>(starts.describe));
+    EXPECT_TRUE(!starts.test(nullptr));
+    EXPECT_TRUE(starts.describe(nullptr).find("null") != std::string::npos);
+    EXPECT_TRUE(starts.test("abcdef"));
+
+    auto ends = EndsWith("xyz").make<const char *>();
+    EXPECT_TRUE(static_cast<bool>(ends.test));
+    EXPECT_TRUE(static_cast<bool>(ends.describe));
+    EXPECT_TRUE(!ends.test(nullptr));
+    EXPECT_TRUE(ends.describe(nullptr).find("null") != std::string::npos);
+    EXPECT_TRUE(ends.test("123xyz"));
 }
 
 [[using gentest: test("mocking/matchers/near")]]
