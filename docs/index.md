@@ -14,6 +14,10 @@
 - macOS: [`docs/install/macos.md`](install/macos.md)
 - Windows: [`docs/install/windows.md`](install/windows.md)
 
+## Cross-compiling
+
+- Linux → aarch64 (QEMU): [`docs/cross_compile/linux_aarch64_qemu.md`](cross_compile/linux_aarch64_qemu.md)
+
 ## Troubleshooting / notes
 
 - Windows troubleshooting: [`docs/windows_troubleshooting.md`](windows_troubleshooting.md)

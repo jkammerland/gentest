@@ -75,9 +75,10 @@ function(gentest_add_suite suite)
 endfunction()
 
 function(gentest_add_cmake_script_test)
+    set(options NO_EMULATOR)
     set(one_value_args NAME PROG SCRIPT)
     set(multi_value_args ARGS ENV_VARS DEFINES)
-    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+    cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     if(NOT GENTEST_NAME)
         message(FATAL_ERROR "gentest_add_cmake_script_test: NAME is required")
@@ -90,6 +91,13 @@ function(gentest_add_cmake_script_test)
     endif()
 
     set(_prog_def "-DPROG=${GENTEST_PROG}")
+
+    set(_emu_def "")
+    if(NOT GENTEST_NO_EMULATOR AND CMAKE_CROSSCOMPILING AND DEFINED CMAKE_CROSSCOMPILING_EMULATOR AND NOT CMAKE_CROSSCOMPILING_EMULATOR STREQUAL "")
+        string(JOIN " " _gentest_emu_joined ${CMAKE_CROSSCOMPILING_EMULATOR})
+        set(_emu_def "-DEMU=${_gentest_emu_joined}")
+        unset(_gentest_emu_joined)
+    endif()
 
     set(_args_def "")
     if(GENTEST_ARGS)
@@ -108,42 +116,19 @@ function(gentest_add_cmake_script_test)
         list(APPEND _defines "-D${def}")
     endforeach()
 
-    if(_args_def STREQUAL "" AND _env_def STREQUAL "")
-        add_test(NAME ${GENTEST_NAME}
-            COMMAND ${CMAKE_COMMAND}
-                "${_prog_def}"
-                ${_defines}
-                -P "${GENTEST_SCRIPT}")
-        return()
+    set(_cmd_args "${_prog_def}")
+    if(NOT _args_def STREQUAL "")
+        list(APPEND _cmd_args "${_args_def}")
     endif()
-
-    if(NOT _args_def STREQUAL "" AND _env_def STREQUAL "")
-        add_test(NAME ${GENTEST_NAME}
-            COMMAND ${CMAKE_COMMAND}
-                "${_prog_def}"
-                "${_args_def}"
-                ${_defines}
-                -P "${GENTEST_SCRIPT}")
-        return()
+    if(NOT _env_def STREQUAL "")
+        list(APPEND _cmd_args "${_env_def}")
     endif()
-
-    if(_args_def STREQUAL "" AND NOT _env_def STREQUAL "")
-        add_test(NAME ${GENTEST_NAME}
-            COMMAND ${CMAKE_COMMAND}
-                "${_prog_def}"
-                "${_env_def}"
-                ${_defines}
-                -P "${GENTEST_SCRIPT}")
-        return()
+    if(NOT _emu_def STREQUAL "")
+        list(APPEND _cmd_args "${_emu_def}")
     endif()
+    list(APPEND _cmd_args ${_defines} -P "${GENTEST_SCRIPT}")
 
-    add_test(NAME ${GENTEST_NAME}
-        COMMAND ${CMAKE_COMMAND}
-            "${_prog_def}"
-            "${_args_def}"
-            "${_env_def}"
-            ${_defines}
-            -P "${GENTEST_SCRIPT}")
+    add_test(NAME ${GENTEST_NAME} COMMAND ${CMAKE_COMMAND} ${_cmd_args})
 endfunction()
 
 function(gentest_add_check_counts)
@@ -235,9 +220,10 @@ function(gentest_add_check_lines)
 endfunction()
 
 function(gentest_add_check_death)
+    set(options NO_EMULATOR)
     set(one_value_args NAME PROG EXPECT_SUBSTRING)
     set(multi_value_args ARGS ENV_VARS)
-    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+    cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     if(NOT GENTEST_NAME OR NOT GENTEST_PROG)
         message(FATAL_ERROR "gentest_add_check_death: NAME and PROG are required")
@@ -248,12 +234,18 @@ function(gentest_add_check_death)
         list(APPEND _defines "EXPECT_SUBSTRING=${GENTEST_EXPECT_SUBSTRING}")
     endif()
 
+    set(_no_emulator_arg "")
+    if(GENTEST_NO_EMULATOR)
+        set(_no_emulator_arg NO_EMULATOR)
+    endif()
+
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake"
         ARGS ${GENTEST_ARGS}
         ENV_VARS ${GENTEST_ENV_VARS}
+        ${_no_emulator_arg}
         DEFINES ${_defines})
 endfunction()
 

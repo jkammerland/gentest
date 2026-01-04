@@ -8,6 +8,15 @@ if(NOT DEFINED PROG)
   message(FATAL_ERROR "CheckDeath.cmake: PROG not set")
 endif()
 
+set(_emu)
+if(DEFINED EMU)
+  if(EMU MATCHES ";")
+    set(_emu ${EMU}) # already a list
+  else()
+    separate_arguments(_emu NATIVE_COMMAND "${EMU}") # string
+  endif()
+endif()
+
 set(_args)
 if(DEFINED ARGS)
   if(ARGS MATCHES ";")
@@ -17,13 +26,13 @@ if(DEFINED ARGS)
   endif()
 endif()
 
-set(_command "${PROG}" ${_args})
+set(_command ${_emu} "${PROG}" ${_args})
 if(DEFINED ENV_VARS)
   set(_env)
   foreach(kv IN LISTS ENV_VARS)
     list(APPEND _env "${kv}")
   endforeach()
-  set(_command ${CMAKE_COMMAND} -E env ${_env} "${PROG}" ${_args})
+  set(_command ${CMAKE_COMMAND} -E env ${_env} ${_emu} "${PROG}" ${_args})
 endif()
 
 execute_process(

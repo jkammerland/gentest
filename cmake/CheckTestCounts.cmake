@@ -7,6 +7,15 @@ if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")
 endif()
 
+set(_emu)
+if(DEFINED EMU)
+  if(EMU MATCHES ";")
+    set(_emu ${EMU}) # already a list
+  else()
+    separate_arguments(_emu NATIVE_COMMAND "${EMU}") # string
+  endif()
+endif()
+
 set(_args)
 if(DEFINED ARGS)
   if(ARGS MATCHES ";")
@@ -21,7 +30,7 @@ if(LIST)
 endif()
 
 execute_process(
-  COMMAND "${PROG}" ${_args}
+  COMMAND ${_emu} "${PROG}" ${_args}
   OUTPUT_VARIABLE out
   ERROR_VARIABLE err
   RESULT_VARIABLE rc

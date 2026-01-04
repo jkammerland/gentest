@@ -36,6 +36,13 @@ sh_test(
     ],
 )
 
+sh_binary(
+    name = 'poc_cross_aarch64_qemu',
+    srcs = ['scripts/poc_cross_aarch64_qemu.sh'],
+    tags = ['local', 'manual'],
+    visibility = ['//visibility:public'],
+)
+
 gentest_suite('unit')
 gentest_suite('integration')
 gentest_suite('fixtures')
