@@ -44,7 +44,8 @@ if(NOT TARGET Terminfo::terminfo)
     set(_gentest_use_local_tinfo_shim FALSE)
     if(GENTEST_USE_SYSTEM_TERMINFO AND UNIX)
         set(_gentest_terminfo_candidates)
-        # Prefer compatibility libraries that ship the legacy versioned symbols.
+        # Prefer newer system libraries first to avoid mixing libtinfo ABI
+        # versions (e.g., libedit typically pulls in libtinfo.so.6 on Ubuntu).
         set(_gentest_terminfo_search_dirs
             /usr/lib64 /usr/lib /lib64 /lib
             /usr/lib/x86_64-linux-gnu
@@ -66,6 +67,7 @@ if(NOT TARGET Terminfo::terminfo)
         foreach(_gentest_dir IN LISTS _gentest_terminfo_search_dirs)
             file(GLOB _gentest_found
                 LIST_DIRECTORIES FALSE
+                "${_gentest_dir}/libtinfo.so.6*" "${_gentest_dir}/libtinfo6.so*"
                 "${_gentest_dir}/libtinfo.so.5*" "${_gentest_dir}/libtinfo5.so*")
             list(APPEND _gentest_terminfo_candidates ${_gentest_found})
         endforeach()
