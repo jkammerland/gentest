@@ -42,7 +42,7 @@ gentest_add_check_counts(
 
 gentest_add_check_death(
     NAME concurrency_fail_single_death
-    PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+    PROG ${PROJECT_NAME}_concurrency_tests
     EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
     ARGS --run-test=concurrency/child_expect_fail)
 
@@ -64,7 +64,7 @@ gentest_add_check_counts(
 
 gentest_add_check_death(
     NAME concurrency_multi_noadopt_death
-    PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+    PROG ${PROJECT_NAME}_concurrency_tests
     EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
     ARGS --run-test=concurrency/no_adopt_expect_death_multi)
 
@@ -365,7 +365,7 @@ if(GENTEST_WITH_LIBASSERT AND GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS)
     # Death test: fatal assertion must terminate and print the adapter's message
     gentest_add_check_death(
         NAME libassert_noexc_assert_fail_death
-        PROG $<TARGET_FILE:${target_name_noexc}>
+        PROG ${target_name_noexc}
         EXPECT_SUBSTRING "gentest: exceptions are disabled; terminating after fatal assertion"
         ARGS --run-test=libassert/assert_fail_simple)
 endif()
@@ -373,14 +373,14 @@ endif()
 # Verify descriptive predicate mismatch content
 gentest_add_check_death(
     NAME mocking_predicate_mismatch_message
-    PROG $<TARGET_FILE:gentest_failing_tests>
+    PROG gentest_failing_tests
     EXPECT_SUBSTRING "expected == 3"
     ARGS --run-test=failing/mocking/predicate_mismatch)
 
 # GitHub annotations smoke: ensure ::error lines present when enabled
 gentest_add_check_death(
     NAME github_annotations_smoke
-    PROG $<TARGET_FILE:gentest_failing_tests>
+    PROG gentest_failing_tests
     EXPECT_SUBSTRING "::error file="
     ARGS
         --run-test=failing/mocking/predicate_mismatch
@@ -490,25 +490,25 @@ gentest_add_check_file_contains(
 # Constructor exception handling across fixture lifetimes
 gentest_add_check_death(
     NAME fixture_ctor_ephemeral_member
-    PROG $<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+    PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "unexpected std::exception: ephemeral-ctor"
     ARGS --run-test=ctor/ephemeral_member)
 
 gentest_add_check_death(
     NAME fixture_ctor_free_fixtures
-    PROG $<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+    PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "unexpected std::exception: free-fx-ctor"
     ARGS --run-test=ctor/free_fixtures)
 
 gentest_add_check_death(
     NAME fixture_ctor_suite_shared
-    PROG $<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+    PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "fixture construction threw std::exception: suite-ctor"
     ARGS --run-test=ctor/suite)
 
 gentest_add_check_death(
     NAME fixture_ctor_global_shared
-    PROG $<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+    PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "fixture construction threw std::exception: global-ctor"
     ARGS --run-test=ctor/global)
 # The 'ctor' suite intentionally contains failing tests; mark its raw run as WILL_FAIL
