@@ -94,7 +94,23 @@ jobs:
       - name: Configure cross build (Linux/aarch64)
         run: |
           set -euxo pipefail
-          cmake --preset=aarch64-qemu
+          sysroot="$(aarch64-linux-gnu-gcc -print-sysroot)"
+          libc="$(aarch64-linux-gnu-gcc -print-file-name=libc.so.6 || true)"
+          loader="$(aarch64-linux-gnu-gcc -print-file-name=ld-linux-aarch64.so.1 || true)"
+          echo "aarch64-linux-gnu-gcc -print-sysroot: ${sysroot}"
+          echo "aarch64 libc: ${libc}"
+          echo "aarch64 loader: ${loader}"
+          if [[ -n "${libc}" && "${libc}" != "libc.so.6" && -e "${libc}" ]]; then
+            sysroot="$(cd "$(dirname "${libc}")/.." && pwd)"
+          elif [[ -n "${loader}" && "${loader}" != "ld-linux-aarch64.so.1" && -e "${loader}" ]]; then
+            sysroot="$(cd "$(dirname "${loader}")/.." && pwd)"
+          fi
+          echo "Resolved SYSROOT=${sysroot}"
+          echo "SYSROOT=${sysroot}" >> $GITHUB_ENV
+          ls -la "${sysroot}/lib" | head -n 50 || true
+          test -e "${sysroot}/lib/libc.so.6"
+
+          cmake --preset=aarch64-qemu -DCMAKE_SYSROOT="${sysroot}"
 
       - name: Build cross target (Linux/aarch64)
         run: |
