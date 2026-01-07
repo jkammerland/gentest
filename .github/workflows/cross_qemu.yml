@@ -46,6 +46,7 @@ jobs:
             libclang-20-dev \
             libclang-cpp20-dev \
             llvm-20-dev \
+            libtinfo6 \
             qemu-user \
             libc6-dev-arm64-cross \
             libc6-arm64-cross \
@@ -94,23 +95,15 @@ jobs:
       - name: Configure cross build (Linux/aarch64)
         run: |
           set -euxo pipefail
-          sysroot="$(aarch64-linux-gnu-gcc -print-sysroot)"
-          libc="$(aarch64-linux-gnu-gcc -print-file-name=libc.so.6 || true)"
-          loader="$(aarch64-linux-gnu-gcc -print-file-name=ld-linux-aarch64.so.1 || true)"
-          echo "aarch64-linux-gnu-gcc -print-sysroot: ${sysroot}"
-          echo "aarch64 libc: ${libc}"
+          aarch64-linux-gnu-gcc -print-sysroot
+          loader="$(aarch64-linux-gnu-gcc -print-file-name=ld-linux-aarch64.so.1)"
+          libc="$(aarch64-linux-gnu-gcc -print-file-name=libc.so.6)"
           echo "aarch64 loader: ${loader}"
-          if [[ -n "${libc}" && "${libc}" != "libc.so.6" && -e "${libc}" ]]; then
-            sysroot="$(cd "$(dirname "${libc}")/.." && pwd)"
-          elif [[ -n "${loader}" && "${loader}" != "ld-linux-aarch64.so.1" && -e "${loader}" ]]; then
-            sysroot="$(cd "$(dirname "${loader}")/.." && pwd)"
-          fi
-          echo "Resolved SYSROOT=${sysroot}"
-          echo "SYSROOT=${sysroot}" >> $GITHUB_ENV
-          ls -la "${sysroot}/lib" | head -n 50 || true
-          test -e "${sysroot}/lib/libc.so.6"
+          echo "aarch64 libc: ${libc}"
+          test -e "${loader}"
+          test -e "${libc}"
 
-          cmake --preset=aarch64-qemu -DCMAKE_SYSROOT="${sysroot}"
+          cmake --preset=aarch64-qemu
 
       - name: Build cross target (Linux/aarch64)
         run: |

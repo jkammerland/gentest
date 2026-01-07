@@ -12,7 +12,7 @@ Environment overrides:
   HOST_BUILD_DIR   (default: build/host-codegen)
   TARGET_BUILD_DIR (default: build/aarch64-qemu)
   BUILD_TYPE       (default: Debug)
-  SYSROOT          (default: compiler-detected)
+  SYSROOT          (default: compiler/runtime-detected; used for QEMU -L only)
 EOF
 }
 
@@ -80,7 +80,7 @@ echo "Repo:            ${root}"
 echo "Host build:      ${host_build_dir}"
 echo "Target build:    ${target_build_dir}"
 echo "Build type:      ${build_type}"
-echo "Aarch64 sysroot: ${sysroot}"
+echo "QEMU -L root:    ${sysroot}"
 
 cmake -S "${root}" -B "${host_build_dir}" -G Ninja \
   -DCMAKE_BUILD_TYPE="${build_type}" \
@@ -102,12 +102,17 @@ echo "Host codegen:    ${codegen}"
 toolchain_args=()
 if [[ ! -f "${target_build_dir}/CMakeCache.txt" ]]; then
   toolchain_args=(-DCMAKE_TOOLCHAIN_FILE="${root}/cmake/toolchains/aarch64-linux-gnu.cmake")
+else
+  cached_sysroot="$(grep -E '^CMAKE_SYSROOT:.*=' "${target_build_dir}/CMakeCache.txt" | head -n 1 | cut -d= -f2- || true)"
+  if [[ "${cached_sysroot}" == "/usr/aarch64-linux-gnu" ]]; then
+    echo "NOTE: ${target_build_dir} was previously configured with CMAKE_SYSROOT=/usr/aarch64-linux-gnu." >&2
+    echo "      On Ubuntu/Debian cross toolchains this breaks linking; delete the build dir and rerun." >&2
+  fi
 fi
 
 cmake -S "${root}" -B "${target_build_dir}" -G Ninja \
   -DCMAKE_BUILD_TYPE="${build_type}" \
   "${toolchain_args[@]}" \
-  -DCMAKE_SYSROOT="${sysroot}" \
   -DGENTEST_BUILD_CODEGEN=OFF \
   -DGENTEST_CODEGEN_EXECUTABLE="${codegen}" \
   -DGENTEST_ENABLE_PACKAGE_TESTS=OFF

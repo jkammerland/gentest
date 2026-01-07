@@ -19,6 +19,20 @@ if(NOT DEFINED CMAKE_CXX_COMPILER)
     set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
 endif()
 
+set(_gentest_qemu_sysroot "")
+execute_process(
+    COMMAND ${CMAKE_C_COMPILER} -print-file-name=ld-linux-aarch64.so.1
+    OUTPUT_VARIABLE _gentest_loader
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(_gentest_loader AND NOT _gentest_loader STREQUAL "ld-linux-aarch64.so.1" AND IS_ABSOLUTE "${_gentest_loader}" AND EXISTS "${_gentest_loader}")
+    get_filename_component(_gentest_loader_dir "${_gentest_loader}" DIRECTORY)
+    get_filename_component(_gentest_qemu_sysroot "${_gentest_loader_dir}" DIRECTORY)
+    get_filename_component(_gentest_qemu_sysroot "${_gentest_qemu_sysroot}" REALPATH)
+    unset(_gentest_loader_dir)
+endif()
+unset(_gentest_loader)
+
 if(NOT DEFINED CMAKE_SYSROOT OR CMAKE_SYSROOT STREQUAL "")
     execute_process(
         COMMAND ${CMAKE_C_COMPILER} -print-sysroot
@@ -26,45 +40,21 @@ if(NOT DEFINED CMAKE_SYSROOT OR CMAKE_SYSROOT STREQUAL "")
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
 
-    set(_gentest_sysroot_candidate "")
-    if(_gentest_sysroot_from_compiler AND EXISTS "${_gentest_sysroot_from_compiler}")
-        set(_gentest_sysroot_candidate "${_gentest_sysroot_from_compiler}")
+    # Some distros report '/' (or an empty string) as the compiler sysroot even
+    # though the target runtime lives under a multiarch prefix like
+    # /usr/aarch64-linux-gnu. Avoid forcing CMAKE_SYSROOT to such prefixes since
+    # it can break the compiler's built-in search paths.
+    if(_gentest_sysroot_from_compiler AND EXISTS "${_gentest_sysroot_from_compiler}" AND NOT _gentest_sysroot_from_compiler STREQUAL "/")
+        get_filename_component(_gentest_sysroot_from_compiler "${_gentest_sysroot_from_compiler}" REALPATH)
+        set(CMAKE_SYSROOT "${_gentest_sysroot_from_compiler}")
     endif()
-
-    set(_gentest_sysroot "${_gentest_sysroot_candidate}")
-
-    # Some distros provide a compiler sysroot that doesn't include the dynamic
-    # loader. Try deriving the sysroot from the loader path instead.
-    if(NOT _gentest_sysroot_candidate OR
-       (NOT EXISTS "${_gentest_sysroot_candidate}/lib/ld-linux-aarch64.so.1" AND
-        NOT EXISTS "${_gentest_sysroot_candidate}/lib64/ld-linux-aarch64.so.1"))
-        execute_process(
-            COMMAND ${CMAKE_C_COMPILER} -print-file-name=ld-linux-aarch64.so.1
-            OUTPUT_VARIABLE _gentest_loader
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET)
-
-        if(_gentest_loader AND NOT _gentest_loader STREQUAL "ld-linux-aarch64.so.1" AND IS_ABSOLUTE "${_gentest_loader}" AND EXISTS "${_gentest_loader}")
-            get_filename_component(_gentest_loader_dir "${_gentest_loader}" DIRECTORY)
-            get_filename_component(_gentest_sysroot_from_loader "${_gentest_loader_dir}" DIRECTORY)
-            if(EXISTS "${_gentest_sysroot_from_loader}")
-                set(_gentest_sysroot "${_gentest_sysroot_from_loader}")
-            endif()
-            unset(_gentest_loader_dir)
-            unset(_gentest_sysroot_from_loader)
-        endif()
-        unset(_gentest_loader)
-    endif()
-
-    if(_gentest_sysroot AND EXISTS "${_gentest_sysroot}")
-        set(CMAKE_SYSROOT "${_gentest_sysroot}")
-    endif()
-    unset(_gentest_sysroot)
-    unset(_gentest_sysroot_candidate)
+    unset(_gentest_sysroot_from_compiler)
 endif()
 
 if(DEFINED CMAKE_SYSROOT AND NOT CMAKE_SYSROOT STREQUAL "")
     set(CMAKE_FIND_ROOT_PATH "${CMAKE_SYSROOT}")
+elseif(_gentest_qemu_sysroot AND EXISTS "${_gentest_qemu_sysroot}")
+    set(CMAKE_FIND_ROOT_PATH "${_gentest_qemu_sysroot}")
 endif()
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
@@ -74,10 +64,12 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 
 if(NOT DEFINED CMAKE_CROSSCOMPILING_EMULATOR OR CMAKE_CROSSCOMPILING_EMULATOR STREQUAL "")
     find_program(_gentest_qemu_aarch64 NAMES qemu-aarch64 qemu-aarch64-static)
-    if(_gentest_qemu_aarch64 AND DEFINED CMAKE_SYSROOT AND NOT CMAKE_SYSROOT STREQUAL "")
+    if(_gentest_qemu_aarch64 AND _gentest_qemu_sysroot AND EXISTS "${_gentest_qemu_sysroot}")
+        set(CMAKE_CROSSCOMPILING_EMULATOR "${_gentest_qemu_aarch64};-L;${_gentest_qemu_sysroot}")
+    elseif(_gentest_qemu_aarch64 AND DEFINED CMAKE_SYSROOT AND NOT CMAKE_SYSROOT STREQUAL "")
         set(CMAKE_CROSSCOMPILING_EMULATOR "${_gentest_qemu_aarch64};-L;${CMAKE_SYSROOT}")
     endif()
 endif()
 
-unset(_gentest_sysroot_from_compiler)
 unset(_gentest_qemu_aarch64)
+unset(_gentest_qemu_sysroot)
