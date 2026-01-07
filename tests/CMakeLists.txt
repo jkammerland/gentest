@@ -42,7 +42,7 @@ gentest_add_check_counts(
 
 gentest_add_check_death(
     NAME concurrency_fail_single_death
-    PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+    PROG ${PROJECT_NAME}_concurrency_tests
     EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
     ARGS --run-test=concurrency/child_expect_fail)
 
@@ -64,7 +64,7 @@ gentest_add_check_counts(
 
 gentest_add_check_death(
     NAME concurrency_multi_noadopt_death
-    PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+    PROG ${PROJECT_NAME}_concurrency_tests
     EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
     ARGS --run-test=concurrency/no_adopt_expect_death_multi)
 
@@ -73,9 +73,23 @@ if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DE
     set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
 endif()
 
+set(_gentest_codegen_prog "")
+if(GENTEST_CODEGEN_EXECUTABLE)
+    set(_gentest_codegen_prog "${GENTEST_CODEGEN_EXECUTABLE}")
+elseif(GENTEST_CODEGEN_TARGET)
+    if(NOT TARGET ${GENTEST_CODEGEN_TARGET})
+        message(FATAL_ERROR "tests: GENTEST_CODEGEN_TARGET='${GENTEST_CODEGEN_TARGET}' does not exist")
+    endif()
+    set(_gentest_codegen_prog "$<TARGET_FILE:${GENTEST_CODEGEN_TARGET}>")
+elseif(TARGET gentest_codegen)
+    set(_gentest_codegen_prog "$<TARGET_FILE:gentest_codegen>")
+else()
+    message(FATAL_ERROR "tests: no gentest code generator available (gentest_codegen). Configure with -DGENTEST_BUILD_CODEGEN=ON or -DGENTEST_CODEGEN_EXECUTABLE=<path>.")
+endif()
+
 # Lint-only checks for generator
 add_test(NAME gentest_codegen_check_valid
-    COMMAND $<TARGET_FILE:gentest_codegen>
+    COMMAND ${_gentest_codegen_prog}
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
@@ -84,7 +98,7 @@ add_test(NAME gentest_codegen_check_valid
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
 add_test(NAME gentest_codegen_check_invalid
-    COMMAND $<TARGET_FILE:gentest_codegen>
+    COMMAND ${_gentest_codegen_prog}
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
@@ -97,7 +111,8 @@ set_tests_properties(gentest_codegen_check_invalid PROPERTIES WILL_FAIL TRUE)
 # Generator negative tests for mocks: robust diagnostics
 gentest_add_check_death(
     NAME gentest_codegen_mock_incomplete_virtual_msg
-    PROG $<TARGET_FILE:gentest_codegen>
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "gentest::mock<T>: target type is incomplete"
     ARGS
         --check
@@ -111,7 +126,8 @@ gentest_add_check_death(
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_virtual_defined_in_cpp_msg
-    PROG $<TARGET_FILE:gentest_codegen>
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "polymorphic target appears defined in a source file"
     ARGS
         --check
@@ -125,7 +141,8 @@ gentest_add_check_death(
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_anonymous_namespace_msg
-    PROG $<TARGET_FILE:gentest_codegen>
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "cannot mock a type in an anonymous namespace"
     ARGS
         --check
@@ -139,7 +156,8 @@ gentest_add_check_death(
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_local_class_msg
-    PROG $<TARGET_FILE:gentest_codegen>
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "cannot mock a local class"
     ARGS
         --check
@@ -154,7 +172,8 @@ gentest_add_check_death(
 # Generator negative tests for fixtures: disallow member tests on suite/global under strict mode
 gentest_add_check_death(
     NAME gentest_codegen_fixture_suite_member_illegal
-    PROG $<TARGET_FILE:gentest_codegen>
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "suite fixtures cannot declare member tests"
     ENV_VARS GENTEST_STRICT_FIXTURE=1
     ARGS
@@ -169,7 +188,8 @@ gentest_add_check_death(
 
 gentest_add_check_death(
     NAME gentest_codegen_fixture_global_member_illegal
-    PROG $<TARGET_FILE:gentest_codegen>
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "global fixtures cannot declare member tests"
     ENV_VARS GENTEST_STRICT_FIXTURE=1
     ARGS
@@ -345,7 +365,7 @@ if(GENTEST_WITH_LIBASSERT AND GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS)
     # Death test: fatal assertion must terminate and print the adapter's message
     gentest_add_check_death(
         NAME libassert_noexc_assert_fail_death
-        PROG $<TARGET_FILE:${target_name_noexc}>
+        PROG ${target_name_noexc}
         EXPECT_SUBSTRING "gentest: exceptions are disabled; terminating after fatal assertion"
         ARGS --run-test=libassert/assert_fail_simple)
 endif()
@@ -353,14 +373,14 @@ endif()
 # Verify descriptive predicate mismatch content
 gentest_add_check_death(
     NAME mocking_predicate_mismatch_message
-    PROG $<TARGET_FILE:gentest_failing_tests>
+    PROG gentest_failing_tests
     EXPECT_SUBSTRING "expected == 3"
     ARGS --run-test=failing/mocking/predicate_mismatch)
 
 # GitHub annotations smoke: ensure ::error lines present when enabled
 gentest_add_check_death(
     NAME github_annotations_smoke
-    PROG $<TARGET_FILE:gentest_failing_tests>
+    PROG gentest_failing_tests
     EXPECT_SUBSTRING "::error file="
     ARGS
         --run-test=failing/mocking/predicate_mismatch
@@ -470,25 +490,25 @@ gentest_add_check_file_contains(
 # Constructor exception handling across fixture lifetimes
 gentest_add_check_death(
     NAME fixture_ctor_ephemeral_member
-    PROG $<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+    PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "unexpected std::exception: ephemeral-ctor"
     ARGS --run-test=ctor/ephemeral_member)
 
 gentest_add_check_death(
     NAME fixture_ctor_free_fixtures
-    PROG $<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+    PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "unexpected std::exception: free-fx-ctor"
     ARGS --run-test=ctor/free_fixtures)
 
 gentest_add_check_death(
     NAME fixture_ctor_suite_shared
-    PROG $<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+    PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "fixture construction threw std::exception: suite-ctor"
     ARGS --run-test=ctor/suite)
 
 gentest_add_check_death(
     NAME fixture_ctor_global_shared
-    PROG $<TARGET_FILE:${PROJECT_NAME}_ctor_tests>
+    PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "fixture construction threw std::exception: global-ctor"
     ARGS --run-test=ctor/global)
 # The 'ctor' suite intentionally contains failing tests; mark its raw run as WILL_FAIL

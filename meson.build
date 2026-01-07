@@ -61,3 +61,12 @@ foreach s : tests_suites
 
   test('meson_@0@'.format(s), exe)
 endforeach
+
+# Convenience: run the CMake-based cross-compile POC from Meson.
+bash = find_program('bash', required: false)
+if bash.found()
+  run_target(
+    'poc_cross_aarch64_qemu',
+    command: [bash, join_paths(meson.project_source_root(), 'scripts', 'poc_cross_aarch64_qemu.sh')]
+  )
+endif

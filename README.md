@@ -71,7 +71,8 @@ Run:
 ```
 
 >[!WARNING]
-> Cross-compiling requires a *host* `gentest_codegen` executable. See the install templates under
+> Cross-compiling requires a *host* `gentest_codegen` executable. See
+> [`docs/cross_compile/linux_aarch64_qemu.md`](docs/cross_compile/linux_aarch64_qemu.md) and the install templates under
 > [`docs/install/`](docs/install/).
 
 ## Docs

@@ -143,6 +143,35 @@
       }
     },
     {
+      "name": "host-codegen",
+      "inherits": "debug-system",
+      "displayName": "Host codegen (native)",
+      "description": "Minimal host build that produces a runnable gentest_codegen (for cross-compiling)",
+      "cacheVariables": {
+        "gentest_BUILD_TESTING": "OFF",
+        "GENTEST_BUILD_CODEGEN": "ON",
+        "GENTEST_ENABLE_PACKAGE_TESTS": null
+      }
+    },
+    {
+      "name": "aarch64-qemu",
+      "inherits": "base-debug",
+      "displayName": "Debug (Linux/aarch64, QEMU)",
+      "description": "Cross-compile tests for Linux/aarch64 using aarch64-linux-gnu and run via qemu-aarch64 (requires host-codegen)",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "toolchainFile": "${sourceDir}/cmake/toolchains/aarch64-linux-gnu.cmake",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": null,
+        "GENTEST_BUILD_CODEGEN": "OFF",
+        "GENTEST_CODEGEN_EXECUTABLE": "${sourceDir}/build/host-codegen/tools/gentest_codegen",
+        "GENTEST_ENABLE_PACKAGE_TESTS": "OFF"
+      }
+    },
+    {
       "name": "release-system",
       "inherits": "base-release",
       "displayName": "Release (system LLVM/Clang)",
@@ -418,6 +447,43 @@
       "jobs": 0
     },
     {
+      "name": "host-codegen",
+      "configurePreset": "host-codegen",
+      "displayName": "Build Host Codegen",
+      "description": "Build the host gentest_codegen executable used by cross-compiling presets",
+      "targets": [
+        "gentest_codegen"
+      ],
+      "jobs": 0
+    },
+    {
+      "name": "aarch64-qemu",
+      "configurePreset": "aarch64-qemu",
+      "displayName": "Build (Linux/aarch64, QEMU)",
+      "description": "Cross-build gentest_unit_tests for Linux/aarch64",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "targets": [
+        "gentest_unit_tests"
+      ],
+      "jobs": 0
+    },
+    {
+      "name": "aarch64-qemu-full",
+      "configurePreset": "aarch64-qemu",
+      "displayName": "Build (Linux/aarch64, QEMU, full)",
+      "description": "Cross-build all targets for Linux/aarch64",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "jobs": 0
+    },
+    {
       "name": "release",
       "configurePreset": "release",
       "displayName": "Release Build",
@@ -601,6 +667,35 @@
       "configurePreset": "debug-system-allure",
       "displayName": "Debug Tests (system LLVM/Clang, Allure)",
       "description": "Run all tests including Allure writer tests (may fail by design)"
+    },
+    {
+      "name": "aarch64-qemu",
+      "inherits": "test-base",
+      "configurePreset": "aarch64-qemu",
+      "displayName": "Tests (Linux/aarch64, QEMU, smoke)",
+      "description": "Run a small subset of tests under qemu-aarch64 (requires host-codegen)",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "filter": {
+        "include": {
+          "name": "^(gentest_codegen_check_valid|unit|unit_counts|unit_list_counts)$"
+        }
+      }
+    },
+    {
+      "name": "aarch64-qemu-full",
+      "inherits": "test-base",
+      "configurePreset": "aarch64-qemu",
+      "displayName": "Tests (Linux/aarch64, QEMU, full)",
+      "description": "Run all tests under qemu-aarch64 (slow; requires host-codegen)",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
     },
     {
       "name": "release",
@@ -827,6 +922,35 @@
         { "type": "configure", "name": "debug-system-ccache" },
         { "type": "build",     "name": "debug-system-ccache" },
         { "type": "test",      "name": "debug-system-ccache" }
+      ]
+    },
+    {
+      "name": "host-codegen",
+      "displayName": "Host Codegen Workflow",
+      "description": "Configure and build a host gentest_codegen executable (for cross-compiling)",
+      "steps": [
+        { "type": "configure", "name": "host-codegen" },
+        { "type": "build",     "name": "host-codegen" }
+      ]
+    },
+    {
+      "name": "aarch64-qemu",
+      "displayName": "Workflow (Linux/aarch64, QEMU, smoke)",
+      "description": "Configure → build → test a small subset under qemu-aarch64 (requires host-codegen)",
+      "steps": [
+        { "type": "configure", "name": "aarch64-qemu" },
+        { "type": "build",     "name": "aarch64-qemu" },
+        { "type": "test",      "name": "aarch64-qemu" }
+      ]
+    },
+    {
+      "name": "aarch64-qemu-full",
+      "displayName": "Workflow (Linux/aarch64, QEMU, full)",
+      "description": "Configure → build → test everything under qemu-aarch64 (slow; requires host-codegen)",
+      "steps": [
+        { "type": "configure", "name": "aarch64-qemu" },
+        { "type": "build",     "name": "aarch64-qemu-full" },
+        { "type": "test",      "name": "aarch64-qemu-full" }
       ]
     },
     {
