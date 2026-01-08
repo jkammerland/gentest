@@ -78,5 +78,5 @@ cmake --workflow --preset=aarch64-qemu
 
 ## Notes
 
-- The toolchain file auto-detects the cross sysroot via `aarch64-linux-gnu-gcc -print-sysroot` and sets `CMAKE_CROSSCOMPILING_EMULATOR` to `qemu-aarch64 -L <sysroot>` when available.
-- If you need a custom sysroot, set `-DCMAKE_SYSROOT=/path/to/sysroot` when configuring the target build.
+- The toolchain file tries to locate an aarch64 runtime root (via `aarch64-linux-gnu-gcc -print-file-name=ld-linux-aarch64.so.1` and/or `-print-sysroot`) and sets `CMAKE_CROSSCOMPILING_EMULATOR` to `qemu-aarch64 -L <root>` when available.
+- To use a custom sysroot/runtime root, configure with `-DCMAKE_SYSROOT=/path/to/sysroot` and/or set `-DCMAKE_CROSSCOMPILING_EMULATOR="qemu-aarch64;-L;/path/to/root"`.
