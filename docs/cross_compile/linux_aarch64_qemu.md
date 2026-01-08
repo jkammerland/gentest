@@ -63,11 +63,12 @@ ctest --test-dir build/aarch64-qemu --output-on-failure \
 
 ## CMake presets
 
-If you prefer presets over the script:
+If you prefer presets over the script (defaults assume the host tool is at `build/host-codegen/tools/gentest_codegen`):
 
 ```bash
 cmake --workflow --preset=host-codegen
-cmake --workflow --preset=aarch64-qemu
+cmake --workflow --preset=aarch64-qemu        # smoke subset
+cmake --workflow --preset=aarch64-qemu-full   # full suite (slow)
 ```
 
 ## Invoke from other build systems
