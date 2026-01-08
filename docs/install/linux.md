@@ -6,7 +6,7 @@
 ## Prerequisites
 
 - CMake ≥ 3.31
-- A C++23 compiler
+- A C++20 compiler (runtime); this repo builds/tests its executables as C++23 by default (see `GENTEST_TEST_CXX_STANDARD`)
 - LLVM/Clang (required to build/run `gentest_codegen`)
 
 >[!IMPORTANT]

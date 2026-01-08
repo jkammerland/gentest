@@ -13,7 +13,7 @@ Write tests using standard C++ attributes (`[[using gentest: ...]]`). The build 
 ## Requirements
 
 - CMake ≥ 3.31
-- C++23 compiler (this repo is built/tested as C++23)
+- C++20 compiler (runtime); this repo builds/tests its executables as C++23 by default (see `GENTEST_TEST_CXX_STANDARD`)
 - LLVM/Clang (for `gentest_codegen`)
 
 >[!IMPORTANT]

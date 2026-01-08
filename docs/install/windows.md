@@ -7,7 +7,7 @@
 
 - CMake ≥ 3.31
 - Ninja (recommended) or Visual Studio generator
-- A C++23 toolchain (MSVC or clang-cl)
+- A C++20 toolchain (runtime); this repo builds/tests its executables as C++23 by default (see `GENTEST_TEST_CXX_STANDARD`)
 - LLVM/Clang tooling (required to build/run `gentest_codegen`)
 
 >[!IMPORTANT]

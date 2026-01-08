@@ -6,7 +6,7 @@
 ## Prerequisites
 
 - CMake ≥ 3.31
-- A C++23 compiler (AppleClang or Homebrew LLVM)
+- A C++20 compiler (runtime); this repo builds/tests its executables as C++23 by default (see `GENTEST_TEST_CXX_STANDARD`)
 - LLVM/Clang libraries (required to build/run `gentest_codegen`)
 
 >[!IMPORTANT]
@@ -24,4 +24,3 @@ ctest --preset=debug-system --output-on-failure
 
 - Ensure your build produces `compile_commands.json`.
 - Ensure `gentest_codegen` is runnable at build time (it runs on the host during the build).
-
