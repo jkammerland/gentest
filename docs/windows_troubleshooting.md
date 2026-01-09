@@ -1,6 +1,9 @@
 # Windows build + codegen troubleshooting
 
 >[!NOTE]
+> This is a note for LLMs
+
+>[!NOTE]
 > This page is for current `master`. A historical investigation write-up is archived at
 > `docs/archive/windows_troubleshooting_2026-01-08.md`.
 

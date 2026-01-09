@@ -6,14 +6,12 @@ Write tests using standard C++ attributes (`[[using gentest: ...]]`). The build 
 `test_impl.cpp`, then your test binary runs `gentest::run_all_tests`.
 
 >[!NOTE]
-> This README is intentionally minimal. The previous (full) README snapshot is archived at
-> [`docs/archive/README_2026-01-03.md`](docs/archive/README_2026-01-03.md).
 > Start at [`docs/index.md`](docs/index.md) for the rest of the docs.
 
 ## Requirements
 
 - CMake ≥ 3.31
-- C++20 compiler (runtime); this repo builds/tests its executables as C++23 by default (see `GENTEST_TEST_CXX_STANDARD`)
+- C++20 compiler for tests; C++23 to build the codegen tool
 - LLVM/Clang (for `gentest_codegen`)
 
 >[!IMPORTANT]
@@ -36,7 +34,7 @@ ctest --preset=debug-system --output-on-failure
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
-namespace [[using gentest: suite("demo")]] demo {
+namespace demo {
 
 [[using gentest: test("basic")]]
 void basic() { EXPECT_TRUE(1 + 1 == 2); }
