@@ -18,7 +18,7 @@ if [[ ! -f "${INPUT}" ]]; then
 fi
 
 set +e
-"${CODEGEN}" --check "${INPUT}" -- -std=c++23 -I"${INCLUDE_DIR}" -I"${TESTS_DIR}"
+"${CODEGEN}" --check "${INPUT}" -- -std=c++20 -I"${INCLUDE_DIR}" -I"${TESTS_DIR}"
 status=$?
 set -e
 

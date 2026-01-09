@@ -11,7 +11,7 @@ Write tests using standard C++ attributes (`[[using gentest: ...]]`). The build 
 ## Requirements
 
 - CMake ≥ 3.31
-- C++20 compiler for tests; C++23 to build the codegen tool
+- C++20 compiler
 - LLVM/Clang (for `gentest_codegen`)
 
 >[!IMPORTANT]

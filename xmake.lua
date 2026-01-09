@@ -1,5 +1,5 @@
 set_project("gentest")
-set_languages("cxx23")
+set_languages("cxx20")
 
 add_rules("mode.debug", "mode.release")
 
@@ -53,7 +53,7 @@ local function gentest_suite(name)
             end
             table.insert(args, path.join("tests", name, "cases.cpp"))
             table.insert(args, "--")
-            table.insert(args, "-std=c++23")
+            table.insert(args, "-std=c++20")
             table.insert(args, "-Iinclude")
             table.insert(args, "-Itests")
             os.execv(codegen, args)

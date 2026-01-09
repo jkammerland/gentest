@@ -252,7 +252,7 @@ add_executable(gentest_codegen
     src/render.cpp
     src/tooling_support.cpp)
 
-target_compile_features(gentest_codegen PRIVATE cxx_std_23)
+target_compile_features(gentest_codegen PRIVATE cxx_std_20)
 
 if(WIN32)
     target_compile_definitions(gentest_codegen PRIVATE _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING)

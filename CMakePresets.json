@@ -133,6 +133,15 @@
       }
     },
     {
+      "name": "debug-system-cxx23",
+      "inherits": "debug-system",
+      "displayName": "Debug (system LLVM/Clang, C++23 tests)",
+      "description": "Debug build using the system toolchain; builds the gentest test executables as C++23 to validate newer language modes",
+      "cacheVariables": {
+        "GENTEST_TEST_CXX_STANDARD": "23"
+      }
+    },
+    {
       "name": "debug-system-ccache",
       "inherits": "debug-system",
       "displayName": "Debug (system LLVM/Clang, ccache)",
@@ -440,6 +449,13 @@
       "jobs": 0
     },
     {
+      "name": "debug-system-cxx23",
+      "configurePreset": "debug-system-cxx23",
+      "displayName": "Debug Build (system LLVM/Clang, C++23 tests)",
+      "description": "Build with system toolchain and C++23 test executables",
+      "jobs": 0
+    },
+    {
       "name": "debug-system-ccache",
       "configurePreset": "debug-system-ccache",
       "displayName": "Debug Build (system LLVM/Clang, ccache)",
@@ -653,6 +669,13 @@
       "configurePreset": "debug-system-cxx20",
       "displayName": "Debug Tests (system LLVM/Clang, C++20 tests)",
       "description": "Run all tests in debug mode using the system toolchain with test executables built as C++20"
+    },
+    {
+      "name": "debug-system-cxx23",
+      "inherits": "test-base",
+      "configurePreset": "debug-system-cxx23",
+      "displayName": "Debug Tests (system LLVM/Clang, C++23 tests)",
+      "description": "Run all tests in debug mode using the system toolchain with test executables built as C++23"
     },
     {
       "name": "debug-system-ccache",
@@ -912,6 +935,16 @@
         { "type": "configure", "name": "debug-system-cxx20" },
         { "type": "build",     "name": "debug-system-cxx20" },
         { "type": "test",      "name": "debug-system-cxx20" }
+      ]
+    },
+    {
+      "name": "debug-system-cxx23",
+      "displayName": "Debug Workflow (system LLVM/Clang, C++23 tests)",
+      "description": "Configure, build, and test using the system toolchain with test executables built as C++23",
+      "steps": [
+        { "type": "configure", "name": "debug-system-cxx23" },
+        { "type": "build",     "name": "debug-system-cxx23" },
+        { "type": "test",      "name": "debug-system-cxx23" }
       ]
     },
     {

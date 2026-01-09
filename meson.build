@@ -1,4 +1,4 @@
-project('gentest', 'cpp', default_options: ['cpp_std=c++23'])
+project('gentest', 'cpp', default_options: ['cpp_std=c++20'])
 
 fmt_dep = dependency('fmt', required: false)
 cpp = meson.get_compiler('cpp')
@@ -36,7 +36,7 @@ endif
 codegen = codegen_opt
 
 gen_args = ['--compdb', meson.current_build_dir(), '--']
-clang_args = ['-std=c++23', '-I@SOURCE_ROOT@/include', '-I@SOURCE_ROOT@/tests']
+clang_args = ['-std=c++20', '-I@SOURCE_ROOT@/include', '-I@SOURCE_ROOT@/tests']
 
 tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 

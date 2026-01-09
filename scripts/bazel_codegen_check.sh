@@ -19,9 +19,9 @@ if [[ ! -x "$gen" ]]; then
 fi
 
 if [[ "$mode" == "valid" ]]; then
-  "$gen" --check tests/unit/cases.cpp -- -std=c++23 -Iinclude -Itests
+  "$gen" --check tests/unit/cases.cpp -- -std=c++20 -Iinclude -Itests
 elif [[ "$mode" == "invalid" ]]; then
-  if "$gen" --check tests/smoke/invalid_attrs.cpp -- -std=c++23 -Iinclude -Itests; then
+  if "$gen" --check tests/smoke/invalid_attrs.cpp -- -std=c++20 -Iinclude -Itests; then
     echo "expected non-zero exit for invalid attributes" >&2
     exit 1
   fi

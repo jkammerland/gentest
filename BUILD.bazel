@@ -22,7 +22,7 @@ cc_library(
     name = 'gentest_runtime',
     srcs = ['src/runner_impl.cpp'],
     hdrs = glob(['include/gentest/*.h'], allow_empty = False),
-    copts = ['-std=c++23', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'],
+    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'],
     includes = ['include'],
     visibility = ['//visibility:public'],
 )
