@@ -1,9 +1,8 @@
 # gentest
 
-`gentest` is an attribute-driven C++ test runner + code generator.
+`gentest` is an attribute-driven C++ test runner + clang tools based code generator.  
 
-Write tests using standard C++ attributes (`[[using gentest: ...]]`). The build runs `gentest_codegen` to generate
-`test_impl.cpp`, then your test binary runs `gentest::run_all_tests`.
+Write tests using standard C++ attributes (`[[using gentest: ...]]`). The build runs `gentest_codegen` based on the attributes found in the src files, moving the code generation outside the build phase of the test themselves as you have with macro based code expansion. Allowing yourself this degree of freedom allows for much greater flexibility when adding new features and naturalness since we can communicate via modern c++ style attributes to the compiler, which are made for this purpose. The tradeoff being higher tooling complexity. 
 
 >[!NOTE]
 > Start at [`docs/index.md`](docs/index.md) for the rest of the docs.
@@ -37,7 +36,9 @@ using namespace gentest::asserts;
 namespace demo {
 
 [[using gentest: test("basic")]]
-void basic() { EXPECT_TRUE(1 + 1 == 2); }
+void basic() { 
+    EXPECT_TRUE(1 + 1 == 2); 
+}
 
 } // namespace demo
 ```
@@ -47,7 +48,9 @@ void basic() { EXPECT_TRUE(1 + 1 == 2); }
 ```cpp
 #include "gentest/runner.h"
 
-int main(int argc, char** argv) { return gentest::run_all_tests(argc, argv); }
+int main(int argc, char** argv) { 
+    return gentest::run_all_tests(argc, argv); 
+}
 ```
 
 `CMakeLists.txt`:
@@ -280,7 +283,6 @@ using namespace gentest::asserts;
 void mock_clock() {
     gentest::mock<Clock> clock;
     EXPECT_CALL(clock, now).times(1).returns(123);
-
     EXPECT_EQ(clock.now(), 123);
 }
 ```
