@@ -201,13 +201,6 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     }
     info.has_accessible_default_ctor = has_accessible_default_ctor(*record);
 
-    if (!info.has_accessible_default_ctor) {
-        had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(),
-               fmt::format("gentest::mock requires '{}' to have an accessible default constructor", info.display_name));
-        return;
-    }
-
     const ASTContext &ctx = *result.Context;
 
     // Polymorphic (virtual) types must have their interface visible from a header.
@@ -228,6 +221,93 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         }
     }
 
+    // Capture constructors (excluding the default ctor which is tracked via
+    // has_accessible_default_ctor). For polymorphic targets, this list is used
+    // to generate forwarding constructors so mocks don't require default
+    // constructibility.
+    auto capture_ctor = [&](const CXXConstructorDecl *ctor) {
+        if (ctor == nullptr)
+            return;
+        if (ctor->isDefaultConstructor())
+            return;
+        if (ctor->isDeleted())
+            return;
+        if (!is_supported_access(ctor->getAccess()))
+            return;
+
+        MockCtorInfo ctor_info;
+        ctor_info.is_explicit = ctor->isExplicit();
+        // NOTE: Querying constructor noexcept-ness via FunctionProtoType on
+        // Clang 21 has been observed to SIGILL in some environments. The mock
+        // constructor's own noexcept is not semantically important, so we
+        // intentionally omit it here.
+        ctor_info.is_noexcept = false;
+
+        if (const auto *ft = ctor->getDescribedFunctionTemplate()) {
+            std::string tpl;
+            tpl += "template <";
+            bool first = true;
+            for (const auto *param : *ft->getTemplateParameters()) {
+                if (!first)
+                    tpl += ", ";
+                first = false;
+                if (const auto *ttp = llvm::dyn_cast<TemplateTypeParmDecl>(param)) {
+                    tpl += (ttp->isParameterPack() ? "typename... " : "typename ");
+                    const std::string name = ttp->getNameAsString();
+                    tpl += name;
+                    ctor_info.template_param_names.push_back(name);
+                } else if (const auto *nttp = llvm::dyn_cast<NonTypeTemplateParmDecl>(param)) {
+                    tpl += print_type(nttp->getType(), ctx);
+                    if (nttp->isParameterPack())
+                        tpl += "...";
+                    tpl += ' ';
+                    const std::string name = nttp->getNameAsString();
+                    tpl += name;
+                    ctor_info.template_param_names.push_back(name);
+                } else if (const auto *tttp = llvm::dyn_cast<TemplateTemplateParmDecl>(param)) {
+                    tpl += "template <class...> class ";
+                    const std::string name = tttp->getNameAsString();
+                    tpl += name;
+                    ctor_info.template_param_names.push_back(name);
+                } else {
+                    tpl += "typename __unk"; // fallback
+                }
+            }
+            tpl += ">";
+            ctor_info.template_prefix = std::move(tpl);
+        }
+
+        const bool is_template = ctor->getDescribedFunctionTemplate() != nullptr;
+        unsigned arg_index = 0;
+        for (const auto *param : ctor->parameters()) {
+            MockParamInfo param_info;
+            param_info.type = is_template ? print_type_as_written(param->getType(), ctx) : print_type(param->getType(), ctx);
+            if (!param->getNameAsString().empty()) {
+                param_info.name = param->getNameAsString();
+            } else {
+                param_info.name = fmt::format("arg{}", arg_index);
+            }
+            ctor_info.parameters.push_back(std::move(param_info));
+            ++arg_index;
+        }
+
+        info.constructors.push_back(std::move(ctor_info));
+    };
+
+    for (const auto *ctor : record->ctors()) {
+        capture_ctor(ctor);
+    }
+
+    // For polymorphic targets, require that at least one constructor is
+    // accessible from the generated mock (default or non-default). Otherwise
+    // the mock type would be impossible to instantiate.
+    if (info.derive_for_virtual && !info.has_accessible_default_ctor && info.constructors.empty()) {
+        had_error_ = true;
+        report(*result.SourceManager, decl.getBeginLoc(),
+               fmt::format("gentest::mock<{}>: target has no accessible constructors", record->getQualifiedNameAsString()));
+        return;
+    }
+
     auto capture_method = [&](const CXXMethodDecl* method) {
         if (llvm::isa<CXXConstructorDecl>(method) || llvm::isa<CXXDestructorDecl>(method)) {
             return;
@@ -237,8 +317,6 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         }
         if (method->isDeleted())
             return;
-        if (method->isStatic())
-            return; // static members currently unsupported
         if (!is_supported_access(method->getAccess())) {
             return;
         }

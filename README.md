@@ -267,11 +267,10 @@ void counter(Counter& c) {
 
 Preconditions (enforced by codegen):
 - At least one scanned source (or a header included from it) must reference `gentest::mock<T>` so the generator emits the specialization.
-- `T` must be complete where you instantiate `gentest::mock<T>` (include the defining header before `gentest/mock.h`).
-- `T` must be default-constructible, non-final, and not in an anonymous namespace / local class; destructor must not be private.
-- Static member functions are not currently mockable.
+- `T` must be non-final, not in an anonymous namespace / local class, and its destructor must not be private.
+- Polymorphic targets (virtual interfaces) must have at least one accessible constructor (default or otherwise).
 
-Virtual interface example (define the interface in a header, then include it before `gentest/mock.h`):
+Virtual interface example:
 
 ```cpp
 #include "gentest/attributes.h"
@@ -320,6 +319,14 @@ Matchers (continuing the example above; use `.where(...)` with `gentest::match` 
 using namespace gentest::match;
 
 EXPECT_CALL(sink, write).times(2).where(InRange(10, 20));
+```
+
+Static member functions can be mocked too (calls must go through the mock object):
+
+```cpp
+gentest::mock<Ticker> t;
+EXPECT_CALL(t, add).times(1).returns(123);
+EXPECT_EQ(t.add(4, 5), 123);
 ```
 
 ### Benchmarks and jitter

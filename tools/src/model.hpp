@@ -100,6 +100,15 @@ struct MockParamInfo {
     std::string name;     // argument name (auto-assigned when empty)
 };
 
+// Parameter metadata for mocked constructors.
+struct MockCtorInfo {
+    std::vector<MockParamInfo> parameters;
+    std::string                template_prefix; // e.g. "template <typename T, int N>"
+    std::vector<std::string>   template_param_names; // e.g. {"T", "N"}
+    bool                       is_explicit = false;
+    bool                       is_noexcept = false;
+};
+
 // Discovered member function suitable for mocking.
 struct MockMethodInfo {
     std::string              qualified_name; // e.g. Namespace::Type::method
@@ -124,6 +133,7 @@ struct MockClassInfo {
     bool                      derive_for_virtual = false;
     bool                      has_accessible_default_ctor = false;
     bool                      has_virtual_destructor = false;
+    std::vector<MockCtorInfo> constructors;
     std::vector<MockMethodInfo> methods;
 };
 

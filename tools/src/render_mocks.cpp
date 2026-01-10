@@ -82,6 +82,15 @@ std::string signature_from(const MockMethodInfo &method) {
 
 std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &method) {
     std::string ptr;
+    if (method.is_static) {
+        ptr += ensure_global_qualifiers(method.return_type);
+        ptr += " (*)(";
+        ptr += ensure_global_qualifiers(join_type_list(method.parameters));
+        ptr += ')';
+        if (method.is_noexcept)
+            ptr += " noexcept";
+        return ptr;
+    }
     ptr += ensure_global_qualifiers(method.return_type);
     ptr += " (";
     ptr += "::";
@@ -234,7 +243,29 @@ std::string argument_list(const MockMethodInfo &method) {
 
 std::string constructors_block(const MockClassInfo &cls) {
     std::string block;
-    block += "    mock();\n";
+    if (cls.has_accessible_default_ctor) {
+        block += "    mock();\n";
+    }
+
+    for (const auto &ctor : cls.constructors) {
+        if (!ctor.template_prefix.empty()) {
+            block += "    ";
+            block += ctor.template_prefix;
+            block += "\n";
+        }
+        block += "    ";
+        if (ctor.is_explicit) {
+            block += "explicit ";
+        }
+        block += "mock(";
+        block += join_parameter_list(ctor.parameters);
+        block += ')';
+        if (ctor.is_noexcept) {
+            block += " noexcept";
+        }
+        block += ";\n";
+    }
+
     block += fmt::format("    ~mock(){};\n", cls.has_virtual_destructor && cls.derive_for_virtual ? " override" : "");
     return block;
 }
@@ -377,7 +408,42 @@ std::string generate_implementation_header(const std::vector<MockClassInfo> &moc
     impl += "namespace gentest {\n\n";
 
     for (const auto &cls : mocks) {
-        impl += fmt::format("inline mock<{0}>::mock() = default;\n", cls.qualified_name);
+        const std::string fq_type = fmt::format("::{}", cls.qualified_name);
+        if (cls.has_accessible_default_ctor) {
+            impl += fmt::format("inline mock<{0}>::mock() = default;\n", cls.qualified_name);
+        }
+        for (const auto &ctor : cls.constructors) {
+            if (!ctor.template_prefix.empty()) {
+                impl += ctor.template_prefix;
+                impl += '\n';
+            }
+            impl += fmt::format("inline mock<{0}>::mock(", fq_type);
+            impl += ensure_global_qualifiers(join_parameter_list(ctor.parameters));
+            impl += ')';
+            if (ctor.is_noexcept) {
+                impl += " noexcept";
+            }
+            if (cls.derive_for_virtual) {
+                impl += " : ";
+                impl += fq_type;
+                impl += '(';
+                for (std::size_t i = 0; i < ctor.parameters.size(); ++i) {
+                    if (i != 0)
+                        impl += ", ";
+                    const auto &p = ctor.parameters[i];
+                    impl += fmt::format("std::forward<decltype({0})>({0})", p.name);
+                }
+                impl += ')';
+                impl += " {}\n";
+            } else {
+                impl += " {\n";
+                for (const auto &p : ctor.parameters) {
+                    impl += fmt::format("    (void){};\n", p.name);
+                }
+                impl += "}\n";
+            }
+            impl += '\n';
+        }
         impl += fmt::format("inline mock<{0}>::~mock() {{ this->__gentest_state_.verify_all(); }}\n\n", cls.qualified_name);
         for (const auto &method : cls.methods) {
             if (!method.template_prefix.empty()) continue; // defined inline in class declaration

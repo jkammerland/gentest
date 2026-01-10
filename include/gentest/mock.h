@@ -28,7 +28,13 @@ namespace gentest {
 namespace detail::mocking {
 template <typename T, typename = void>
 struct PlaceholderMockBase {
-    PlaceholderMockBase()  = default;
+    PlaceholderMockBase() = default;
+
+    // Allow constructing codegen-only placeholder mocks with arbitrary
+    // arguments (for targets without a default constructor).
+    template <typename... Args>
+    explicit PlaceholderMockBase(Args &&...) {}
+
     ~PlaceholderMockBase() = default;
 };
 
@@ -40,9 +46,9 @@ struct PlaceholderMockBase<T, std::void_t<decltype(sizeof(T)), std::enable_if_t<
 
 template <typename T> struct mock : detail::mocking::PlaceholderMockBase<T> {
     using GentestTarget = T;
+    using Base          = detail::mocking::PlaceholderMockBase<T>;
 
-    mock()  = default;
-    ~mock() = default;
+    using Base::Base;
 
     GentestTarget *operator&() {
         if constexpr (std::is_base_of_v<GentestTarget, detail::mocking::PlaceholderMockBase<T>>) {
@@ -464,6 +470,7 @@ template <typename R, typename... Args> struct MethodTraits<R(Args...)> {
 };
 
 template <typename R, typename... Args> struct MethodTraits<R (*)(Args...)> : MethodTraits<R(Args...)> {};
+template <typename R, typename... Args> struct MethodTraits<R (*)(Args...) noexcept> : MethodTraits<R(Args...)> {};
 
 template <typename Class, typename R, typename... Args> struct MethodTraits<R (Class::*)(Args...)> : MethodTraits<R(Args...)> {};
 
