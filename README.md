@@ -65,6 +65,9 @@ Run:
 
 ```bash
 ./my_tests --list-tests
+./my_tests --list
+./my_tests --run-test=<exact-name>
+./my_tests --shuffle --seed 123
 ./my_tests
 ```
 
@@ -228,7 +231,6 @@ void matrix() {
 
 Member-function tests run on an instance of the enclosing type:
 - Ephemeral (default): fresh instance per member test.
-- Suite: `[[using gentest: fixture(suite)]]` shares one instance for the suite.
 - Global: `[[using gentest: fixture(global)]]` shares one instance across the full run.
 
 ```cpp
@@ -236,7 +238,7 @@ Member-function tests run on an instance of the enclosing type:
 #include "gentest/fixture.h"
 #include "gentest/runner.h"
 
-struct [[using gentest: fixture(suite)]] Counter : gentest::FixtureSetup {
+struct [[using gentest: fixture(global)]] Counter : gentest::FixtureSetup {
     int x = 0;
     void setUp() override { x = 1; }
 
@@ -256,10 +258,12 @@ void free_case(Db& db) { (void)db; }
 
 ### Mocks
 
-`gentest::mock<T>` is generated from your test sources. It works for both virtual interfaces *and* non-virtual types.
+`gentest::mock<T>` is generated from your test sources. It works for both virtual interfaces *and* non-virtual types
+(you don’t need to make production APIs `virtual` just to mock them).
 
 Preconditions (enforced by codegen):
-- `T` must be complete at the `gentest::mock<T>` site in a scanned source.
+- At least one scanned source (or a header included from it) must reference `gentest::mock<T>` so the generator emits the specialization.
+- `T` must be complete where you instantiate `gentest::mock<T>` (include the defining header before `gentest/mock.h`).
 - `T` must be default-constructible, non-final, and not in an anonymous namespace / local class; destructor must not be private.
 - Static member functions are not currently mockable.
 
@@ -281,7 +285,7 @@ void mock_clock() {
 ```
 
 For virtual interfaces, `gentest::mock<T>` derives from `T`, so you can also pass it to code under test as `T&`/`T*`
-when needed (e.g. DI: `Clock* iface = &clock;`).
+when needed (useful for pointer-based DI / legacy APIs).
 
 Non-virtual type example (the mock does not derive from `T`; use it directly, typically via templates/CRTP):
 
@@ -305,6 +309,14 @@ void mock_nonvirtual() {
     EXPECT_CALL(sink, write).times(1).with(7);
     emit(sink);
 }
+```
+
+Matchers (continuing the example above; use `.where(...)` with `gentest::match` helpers):
+
+```cpp
+using namespace gentest::match;
+
+EXPECT_CALL(sink, write).times(2).where(InRange(10, 20));
 ```
 
 ### Benchmarks and jitter
@@ -338,6 +350,14 @@ CLI:
 ./my_tests --list-benches
 ./my_tests --run-bench=bench/concat
 ./my_tests --run-jitter=bench/sin --jitter-bins=20
+```
+
+### Reporting (JUnit / Allure / GitHub annotations)
+
+```bash
+./my_tests --junit=./junit.xml
+./my_tests --allure-dir=./allure-results
+./my_tests --github-annotations
 ```
 
 >[!WARNING]

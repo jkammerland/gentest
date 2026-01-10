@@ -28,6 +28,56 @@ function(gentest_attach_codegen target)
         set(GENTEST_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${target}_generated.cpp")
     endif()
 
+    # Configure-time collision checks: prevent multiple targets (or multiple
+    # calls) from writing to the same generated OUTPUT file, which would
+    # silently clobber results during the build.
+    if("${GENTEST_OUTPUT}" MATCHES "\\$<")
+        message(WARNING "gentest_attach_codegen(${target}): OUTPUT contains generator expressions; collision checks skipped: '${GENTEST_OUTPUT}'")
+    else()
+        set(_gentest_output_path "${GENTEST_OUTPUT}")
+        cmake_path(ABSOLUTE_PATH _gentest_output_path BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" NORMALIZE
+                   OUTPUT_VARIABLE _gentest_output_abs)
+
+        # Use a normalized key for case-insensitive filesystems.
+        set(_gentest_output_key "${_gentest_output_abs}")
+        if(WIN32)
+            string(TOLOWER "${_gentest_output_key}" _gentest_output_key)
+        endif()
+        string(MD5 _gentest_output_md5 "${_gentest_output_key}")
+
+        get_property(_gentest_prev_owner GLOBAL PROPERTY "GENTEST_CODEGEN_OUTPUT_OWNER_${_gentest_output_md5}")
+        if(_gentest_prev_owner)
+            if(NOT _gentest_prev_owner STREQUAL "${target}")
+                message(FATAL_ERROR
+                    "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' is already used by '${_gentest_prev_owner}'. "
+                    "Each target must have a unique OUTPUT to avoid generated file clobbering.")
+            endif()
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' is registered multiple times for the same target. "
+                "Call gentest_attach_codegen() once per target and list all SOURCES in that call.")
+        endif()
+        set_property(GLOBAL PROPERTY "GENTEST_CODEGEN_OUTPUT_OWNER_${_gentest_output_md5}" "${target}")
+
+        # Also prevent the OUTPUT from overwriting any scanned source file.
+        foreach(_gentest_src IN LISTS GENTEST_SOURCES)
+            if("${_gentest_src}" MATCHES "\\$<")
+                continue()
+            endif()
+            set(_gentest_src_path "${_gentest_src}")
+            cmake_path(ABSOLUTE_PATH _gentest_src_path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
+                       OUTPUT_VARIABLE _gentest_src_abs)
+
+            set(_gentest_src_key "${_gentest_src_abs}")
+            if(WIN32)
+                string(TOLOWER "${_gentest_src_key}" _gentest_src_key)
+            endif()
+            if(_gentest_src_key STREQUAL _gentest_output_key)
+                message(FATAL_ERROR
+                    "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' would overwrite a scanned source file '${_gentest_src_abs}'.")
+            endif()
+        endforeach()
+    endif()
+
     set(_gentest_codegen_target "")
     set(_gentest_codegen_executable "")
     if(GENTEST_CODEGEN_EXECUTABLE)
