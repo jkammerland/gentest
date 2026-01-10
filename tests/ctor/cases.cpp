@@ -4,7 +4,7 @@
 
 #include <stdexcept>
 
-namespace [[using gentest: suite("ctor")]] ctor_tests {
+namespace ctor {
 
 // Ephemeral (member) fixture with throwing constructor
 struct Thrower {
@@ -29,5 +29,4 @@ struct [[using gentest: fixture(global)]] BadGlobal {
     [[using gentest: test("global")]] void a() {}
 };
 
-} // namespace ctor_tests
-
+} // namespace ctor

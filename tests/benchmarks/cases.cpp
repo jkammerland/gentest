@@ -6,7 +6,7 @@
 #include <complex>
 #include "gentest/bench_util.h"
 
-namespace [[using gentest: suite("benchmarks")]] benchmarks {
+namespace benchmarks {
 
 [[using gentest: bench("string/concat_small")]]
 void bench_concat_small() {

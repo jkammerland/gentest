@@ -555,6 +555,30 @@ add_test(NAME gentest_codegen_output_collision
 
 set_tests_properties(gentest_codegen_output_collision PROPERTIES LABELS "cmake")
 
+set(_gentest_discover_tests_config "")
+if(CMAKE_CONFIGURATION_TYPES)
+    set(_gentest_discover_tests_config "Debug")
+endif()
+
+add_test(NAME gentest_discover_tests_smoke
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/discover_tests
+        -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
+        -DGENERATOR=${CMAKE_GENERATOR}
+        -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+        -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
+        -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+        -DC_COMPILER=${CMAKE_C_COMPILER}
+        -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DBUILD_CONFIG=${_gentest_discover_tests_config}
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDiscoverTests.cmake)
+
+set_tests_properties(gentest_discover_tests_smoke PROPERTIES LABELS "cmake")
+
+unset(_gentest_discover_tests_config)
+
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
     set(_gentest_package_test_config "")

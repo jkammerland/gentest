@@ -8,7 +8,7 @@ struct SingleArg {
 
 #include "gentest/mock.h"
 
-namespace [[using gentest: suite("failing")]] failing {
+namespace failing {
 
 [[using gentest: test("single")]]
 void will_fail() {

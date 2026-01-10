@@ -3,7 +3,7 @@ using namespace gentest::asserts;
 
 #include <thread>
 
-namespace [[using gentest: suite("concurrency")]] concurrency {
+namespace concurrency {
 
 [[using gentest: test("child_expect_pass")]]
 void child_expect_pass() {
@@ -30,7 +30,7 @@ void child_expect_fail() {
 
 } // namespace concurrency
 
-namespace [[using gentest: suite("concurrency")]] concurrency_multi {
+namespace concurrency {
 
 [[using gentest: test("multi_adopt_expect_pass")]]
 void multi_adopt_expect_pass() {
@@ -80,4 +80,4 @@ void no_adopt_expect_death_multi() {
     t2.join();
 }
 
-} // namespace concurrency_multi
+} // namespace concurrency

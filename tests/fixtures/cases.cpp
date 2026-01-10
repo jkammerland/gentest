@@ -5,9 +5,7 @@
 #include <vector>
 #include <stdexcept>
 
-namespace [[using gentest: suite("fixtures")]] fixtures {
-
-namespace ephemeral {
+namespace fixtures {
 
 struct StackFixture {
     std::vector<int> data;
@@ -26,10 +24,6 @@ struct StackFixture {
     }
 };
 
-} // namespace ephemeral
-
-namespace stateful {
-
 struct [[using gentest: fixture(suite)]] Counter /* optionally implement setup/teardown later */ {
     int x = 0;
 
@@ -43,10 +37,6 @@ struct [[using gentest: fixture(suite)]] Counter /* optionally implement setup/t
         gentest::expect_eq(x, 1, "state preserved across methods");
     }
 };
-
-} // namespace stateful
-
-namespace global_shared {
 
 struct [[using gentest: fixture(global)]] GlobalCounter {
     int hits = 0;
@@ -63,10 +53,7 @@ struct [[using gentest: fixture(global)]] GlobalCounter {
     }
 };
 
-} // namespace global_shared
-
 // Free-function fixtures composed via attribute
-namespace free_compose {
 
 struct A : gentest::FixtureSetup, gentest::FixtureTearDown {
     int  phase = 0;
@@ -98,7 +85,5 @@ void free_basic(A &a, B<int> &b, C &c) {
     gentest::expect(std::string(b.msg) == "ok", "B default value");
     gentest::expect_eq(c.v, 7, "C default value");
 }
-
-} // namespace free_compose
 
 } // namespace fixtures

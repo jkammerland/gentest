@@ -53,12 +53,20 @@ int main(int argc, char** argv) { return gentest::run_all_tests(argc, argv); }
 `CMakeLists.txt`:
 
 ```cmake
+include(CTest)
+enable_testing()
+
 add_executable(my_tests main.cpp)
 target_link_libraries(my_tests PRIVATE gentest::gentest)
 gentest_attach_codegen(my_tests
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/test_impl.cpp
   SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp)
-add_test(NAME my_tests COMMAND my_tests)
+
+# Register each discovered case as its own CTest test (like gtest/catch/doctest).
+gentest_discover_tests(my_tests)
+
+# Alternative: run everything in a single process.
+# add_test(NAME my_tests COMMAND my_tests)
 ```
 
 Run:
@@ -229,31 +237,24 @@ void matrix() {
 
 ### Fixtures
 
-Member-function tests run on an instance of the enclosing type:
-- Ephemeral (default): fresh instance per member test.
-- Global: `[[using gentest: fixture(global)]]` shares one instance across the full run.
+Use `fixtures(A, B, ...)` on a free-function test to get ephemeral (per-invocation) fixture objects passed by reference.
+If a fixture implements `gentest::FixtureSetup`/`gentest::FixtureTearDown`, hooks run automatically.
 
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/fixture.h"
 #include "gentest/runner.h"
+using namespace gentest::asserts;
 
-struct [[using gentest: fixture(global)]] Counter : gentest::FixtureSetup {
+struct Counter : gentest::FixtureSetup {
     int x = 0;
     void setUp() override { x = 1; }
-
-    [[using gentest: test("fx/a")]] void a() { gentest::expect_eq(x, 1); }
-    [[using gentest: test("fx/b")]] void b() { gentest::expect_eq(x, 1); }
 };
-```
 
-Free-function fixture composition (always ephemeral):
-
-```cpp
-struct Db { /* ... */ };
-
-[[using gentest: test("fx/free"), fixtures(Db)]]
-void free_case(Db& db) { (void)db; }
+[[using gentest: test("fx/counter"), fixtures(Counter)]]
+void counter(Counter& c) {
+    EXPECT_EQ(c.x, 1);
+}
 ```
 
 ### Mocks

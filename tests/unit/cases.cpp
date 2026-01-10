@@ -6,7 +6,7 @@ using namespace gentest::asserts;
 #include <numeric>
 #include <string>
 
-namespace [[using gentest: suite("unit")]] unit {
+namespace unit {
 
 [[using gentest: test("arithmetic/sum"), fast]]
 void sum_is_computed() {

@@ -1,6 +1,6 @@
 #include "gentest/runner.h"
 
-namespace [[using gentest: suite("skiponly")]] skiponly {
+namespace skiponly {
 
 [[using gentest: test("alpha"), skip("not ready")]]
 void alpha() {

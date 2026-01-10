@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace [[using gentest: suite("integration")]] integration {
+namespace integration {
 
 namespace math {
 

@@ -3,7 +3,7 @@ using namespace gentest::asserts;
 
 #include <stdexcept>
 
-namespace [[using gentest: suite("outcomes")]] outcomes {
+namespace outcomes {
 
 [[using gentest: test("runtime_skip_simple")]]
 void runtime_skip_simple() {
@@ -45,4 +45,3 @@ void skip_after_failure_is_fail() {
 }
 
 } // namespace outcomes
-
