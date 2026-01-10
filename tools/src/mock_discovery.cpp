@@ -80,10 +80,18 @@ namespace {
 }
 
 [[nodiscard]] bool is_noexcept(const CXXMethodDecl &method) {
-    if (const auto *fn = method.getType()->getAs<FunctionProtoType>()) {
-        return fn->isNothrow();
+    // Avoid FunctionProtoType::isNothrow()/canThrow() here: we observed SIGILL
+    // in Clang 21 when querying canThrow() for some constructors (special
+    // members with unresolved exception specs). For mocking, we only need the
+    // *declared* "nothrow-ness" to reproduce the signature; we don't want to
+    // evaluate dependent/noexcept expressions.
+    switch (method.getExceptionSpecType()) {
+    case EST_DynamicNone: // throw()
+    case EST_NoThrow:     // MS __declspec(nothrow)
+    case EST_BasicNoexcept:
+    case EST_NoexceptTrue: return true;
+    default: return false;
     }
-    return false;
 }
 
 } // namespace
@@ -237,11 +245,10 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
 
         MockCtorInfo ctor_info;
         ctor_info.is_explicit = ctor->isExplicit();
-        // NOTE: Querying constructor noexcept-ness via FunctionProtoType on
-        // Clang 21 has been observed to SIGILL in some environments. The mock
-        // constructor's own noexcept is not semantically important, so we
-        // intentionally omit it here.
-        ctor_info.is_noexcept = false;
+        // Preserve declared noexcept-ness so the generated forwarding ctors keep
+        // matching the target's signature (e.g. std::is_nothrow_constructible).
+        // The helper avoids Clang's canThrow() evaluation (see is_noexcept()).
+        ctor_info.is_noexcept = is_noexcept(*ctor);
 
         if (const auto *ft = ctor->getDescribedFunctionTemplate()) {
             std::string tpl;

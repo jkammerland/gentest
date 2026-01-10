@@ -3,6 +3,7 @@
 #include "helper.hpp" // use mock<T> in non-annotated helper code
 #include "types.h"
 
+#include <type_traits>
 #include <vector>
 
 using namespace gentest::asserts;
@@ -10,6 +11,11 @@ using namespace gentest::asserts;
 #include "gentest/mock.h"
 
 namespace mocking {
+
+#ifndef GENTEST_CODEGEN
+static_assert(std::is_nothrow_constructible_v<gentest::mock<NoDefault>, int>);
+static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, int>);
+#endif
 
 [[using gentest: test("mocking/interface/returns")]]
 void interface_returns() {
@@ -62,7 +68,7 @@ void interface_non_default_ctor() {
 #ifdef GENTEST_CODEGEN
     // Codegen parses this TU with a placeholder gentest::mock<T> to discover
     // mockable methods; avoid relying on generated constructors/overrides here.
-    gentest::mock<NeedsInit> mock_clock;
+    gentest::mock<NeedsInit> mock_clock{5};
     EXPECT_CALL(mock_clock, now).times(1);
 #else
     gentest::mock<NeedsInit> mock_clock{5};

@@ -14,20 +14,20 @@ struct RefProvider {
 };
 
 struct Ticker {
-    static int add(int lhs, int rhs) { return lhs + rhs; }
+    static int add(int lhs, int rhs) noexcept { return lhs + rhs; }
     void tick(int value) { (void)value; }
     template <typename T>
     void tadd(T value) { (void)value; }
 };
 
 struct NoDefault {
-    explicit NoDefault(int seed) : seed(seed) {}
+    explicit NoDefault(int seed) noexcept : seed(seed) {}
     int  seed = 0;
     void work(int) {}
 };
 
 struct NeedsInit {
-    explicit NeedsInit(int seed) : seed(seed) {}
+    explicit NeedsInit(int seed) noexcept : seed(seed) {}
     virtual ~NeedsInit() = default;
     virtual int now() = 0;
 
