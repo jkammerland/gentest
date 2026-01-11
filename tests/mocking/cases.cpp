@@ -13,8 +13,18 @@ using namespace gentest::asserts;
 namespace mocking {
 
 #ifndef GENTEST_CODEGEN
+static_assert(!std::is_default_constructible_v<gentest::mock<NoDefault>>);
 static_assert(std::is_nothrow_constructible_v<gentest::mock<NoDefault>, int>);
+static_assert(std::is_constructible_v<gentest::mock<NoDefault>, int, long>);
+static_assert(!std::is_nothrow_constructible_v<gentest::mock<NoDefault>, int, long>);
+static_assert(std::is_nothrow_constructible_v<gentest::mock<NoDefault>, short, int>);
+
+static_assert(!std::is_default_constructible_v<gentest::mock<NeedsInit>>);
 static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, int>);
+static_assert(std::is_constructible_v<gentest::mock<NeedsInit>, int, long>);
+static_assert(!std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, int, long>);
+static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, short>);
+static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, short, int>);
 #endif
 
 [[using gentest: test("mocking/interface/returns")]]

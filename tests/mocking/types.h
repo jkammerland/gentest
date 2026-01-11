@@ -22,12 +22,25 @@ struct Ticker {
 
 struct NoDefault {
     explicit NoDefault(int seed) noexcept : seed(seed) {}
+    NoDefault(int seed, long extra) : seed(seed + static_cast<int>(extra)) {}
+
+    template <typename T>
+    explicit NoDefault(T seed_like, int extra) noexcept : seed(static_cast<int>(seed_like) + extra) {}
+
     int  seed = 0;
     void work(int) {}
 };
 
 struct NeedsInit {
     explicit NeedsInit(int seed) noexcept : seed(seed) {}
+    NeedsInit(int seed, long extra) : seed(seed + static_cast<int>(extra)) {}
+
+    template <typename T>
+    explicit NeedsInit(T seed_like) noexcept : seed(static_cast<int>(seed_like)) {}
+
+    template <typename T>
+    NeedsInit(T seed_like, int extra) noexcept : seed(static_cast<int>(seed_like) + extra) {}
+
     virtual ~NeedsInit() = default;
     virtual int now() = 0;
 

@@ -9,6 +9,7 @@
 #include <clang/AST/Type.h>
 #include <clang/Basic/SourceManager.h>
 #include <fmt/core.h>
+#include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/Support/raw_ostream.h>
 #include <string>
 
@@ -233,8 +234,11 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     // has_accessible_default_ctor). For polymorphic targets, this list is used
     // to generate forwarding constructors so mocks don't require default
     // constructibility.
+    llvm::SmallPtrSet<const Decl *, 16> captured_ctors;
     auto capture_ctor = [&](const CXXConstructorDecl *ctor) {
         if (ctor == nullptr)
+            return;
+        if (!captured_ctors.insert(ctor->getCanonicalDecl()).second)
             return;
         if (ctor->isDefaultConstructor())
             return;
@@ -303,6 +307,12 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
 
     for (const auto *ctor : record->ctors()) {
         capture_ctor(ctor);
+    }
+    for (const auto *decl : record->decls()) {
+        const auto *ft = llvm::dyn_cast<FunctionTemplateDecl>(decl);
+        if (ft == nullptr)
+            continue;
+        capture_ctor(llvm::dyn_cast<CXXConstructorDecl>(ft->getTemplatedDecl()));
     }
 
     // For polymorphic targets, require that at least one constructor is
