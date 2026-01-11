@@ -31,3 +31,5 @@
 - Per‑TU registration wrappers (CMake): [`docs/stories/003_per_tu_registration_wrappers.md`](stories/003_per_tu_registration_wrappers.md)
 - Deprecate manifest + port non‑CMake builds: [`docs/stories/004_deprecate_manifest_mode_and_port_non_cmake_builds.md`](stories/004_deprecate_manifest_mode_and_port_non_cmake_builds.md)
 - Parallel `gentest_codegen` jobs (TU mode): [`docs/stories/005_codegen_parallelism_jobs.md`](stories/005_codegen_parallelism_jobs.md)
+- Fuzzing support (research: FuzzTest / Centipede): [`docs/stories/003_fuzzing_research.md`](stories/003_fuzzing_research.md)
+- Fuzzing support (FuzzTest / Centipede integration): [`docs/stories/004_fuzzing_fuzztest_integration.md`](stories/004_fuzzing_fuzztest_integration.md)
