@@ -24,6 +24,10 @@
 - LLVM 21 location notes: [`docs/llvm21-location-api-fix.md`](llvm21-location-api-fix.md)
 - Compilation database include-path notes: [`INCLUDE_PATH_FIX.md`](../INCLUDE_PATH_FIX.md)
 
+## Fuzzing
+
+- FuzzTest + Centipede long read (integration notes): [`docs/fuzzing/fuzztest_centipede_long_read.md`](fuzzing/fuzztest_centipede_long_read.md)
+
 ## Work items
 
 - Correctness fixes + regression tests: [`docs/stories/001_p0_correctness_and_regression_tests.md`](stories/001_p0_correctness_and_regression_tests.md)
