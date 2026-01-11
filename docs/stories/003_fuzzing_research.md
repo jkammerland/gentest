@@ -5,6 +5,10 @@
 Decide how `gentest` should support fuzzing, with a strong preference for first-class integration with Google
 FuzzTest (Centipede engine), leveraging `gentest_codegen` to reduce boilerplate.
 
+## Status
+
+- **2026-01-11:** research performed; key findings captured in `docs/fuzzing/fuzztest_centipede_long_read.md`.
+
 ## Motivation / user impact
 
 - Pure random fuzzing can miss corner cases; feedback-guided engines (coverage, cmp tracing/value profiling) are the
@@ -21,7 +25,7 @@ FuzzTest (Centipede engine), leveraging `gentest_codegen` to reduce boilerplate.
 
 1. **FuzzTest / Centipede fundamentals**
    - What is the canonical “fuzz target” API surface in FuzzTest (e.g., `FUZZ_TEST`, domains, corpus, repro flags)?
-   - Confirm Centipede is the default engine in fuzzing mode and understand the supported CLI surface for
+   - Determine when Centipede is the engine (and when it is not), and understand the supported CLI surface for
      long-running fuzzing vs short “unit” executions.
 
 2. **Integration shape with `gentest`**
@@ -76,17 +80,16 @@ FuzzTest (Centipede engine), leveraging `gentest_codegen` to reduce boilerplate.
 
 - Google FuzzTest repository: https://github.com/google/fuzztest
 - FuzzTest CMake quickstart (mentions `FUZZTEST_FUZZING_MODE` + `fuzztest_setup_fuzzing_flags()`): https://github.com/google/fuzztest/blob/main/doc/quickstart-cmake.md
+- FuzzTest + Centipede long read (integration notes): `docs/fuzzing/fuzztest_centipede_long_read.md`
 
 ## Recommendation (initial)
 
-Prefer **first-class integration with FuzzTest (Centipede)**, using `gentest_codegen` to generate the registration and
-minimize user boilerplate. Treat a gentest-native engine as a long-term option only after we’ve validated the authoring
-and build/run UX with a mature engine.
+Prefer **first-class integration with FuzzTest**, using `gentest_codegen` to generate engine registration and minimize user boilerplate.
+Treat Centipede as an optional backend detail (not guaranteed by upstream CMake workflows) and treat a gentest-native engine as a
+long-term option only after we’ve validated the authoring and build/run UX with a mature engine.
 
 ### Follow-up stories
 
-1. **Fuzz attribute + discovery + validation**: define `[[using gentest: fuzz(\"...\")]]` and validate supported signatures.
-2. **FuzzTest codegen**: emit a `*_fuzz_impl.cpp` that registers fuzz targets (defaults inferred from signature).
-3. **CMake integration**: `gentest_add_fuzztest_target(...)` (or similar) that builds a fuzzing executable when FuzzTest is available.
-4. **CI smoke**: run fuzz targets in “unit mode” for a bounded number of iterations; leave long-running fuzzing to a dedicated job.
-
+1. **Fuzzing API surface (no engine leakage)**: `docs/stories/005_fuzzing_public_api_nonleakage.md`
+2. **Codegen backend abstraction (engine-pluggable)**: `docs/stories/006_fuzzing_codegen_backend_abstraction.md`
+3. **Backend v1 (FuzzTest)**: `docs/stories/007_fuzzing_fuzztest_backend.md`

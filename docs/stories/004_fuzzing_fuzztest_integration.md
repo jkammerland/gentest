@@ -5,6 +5,11 @@
 Add a first, end-to-end fuzzing workflow for `gentest` based on Google FuzzTest (Centipede engine), with an
 attribute-driven authoring model and minimal boilerplate.
 
+> **Note:** This story is now an umbrella; implementation details are split into:
+> - `docs/stories/005_fuzzing_public_api_nonleakage.md`
+> - `docs/stories/006_fuzzing_codegen_backend_abstraction.md`
+> - `docs/stories/007_fuzzing_fuzztest_backend.md`
+
 ## Motivation / user impact
 
 - Users should be able to turn a function into a fuzz target as easily as writing a `gentest` case today.
@@ -26,15 +31,11 @@ attribute-driven authoring model and minimal boilerplate.
 
 ### Codegen
 
-- Discovery:
-  - Extend `gentest_codegen` to find fuzz targets (separate from unit tests/benches).
-  - Validate signatures and emit clear diagnostics (generator failure is preferred over silently ignoring).
-- Emission:
-  - Generate a dedicated translation unit for fuzz targets (e.g. `<target>_fuzz_impl.cpp`) that:
-    - includes the user’s sources (or a configurable subset),
-    - includes FuzzTest headers,
-    - registers each fuzz target with `FUZZ_TEST(...)` and appropriate domains.
-- Keep generated fuzz artifacts separate from `gentest` unit test impl generation.
+- Discovery/validation is handled by `gentest_codegen` as a separate kind from tests/benches.
+- Emission must generate a dedicated fuzzing TU (separate from `test_impl.cpp`).
+- Prefer FuzzTest’s **macro-free registration** (`RegisterFuzzTest(GetRegistration(...))`) over `FUZZ_TEST(...)` to avoid macro token-pasting
+  constraints and to keep stable names derived from `gentest` attributes.
+- Keep all engine-specific includes in generated code and/or backend-only source files (never in `include/gentest/`).
 
 ### Build integration (CMake)
 
@@ -73,16 +74,12 @@ attribute-driven authoring model and minimal boilerplate.
 
 ## Acceptance criteria
 
-- With FuzzTest available, a user can:
-  - annotate fuzz targets,
-  - build a fuzzing executable via a `gentest` CMake helper,
-  - run a single fuzz target with the engine’s CLI,
-  - reproduce crashes using saved artifacts.
-- Without FuzzTest available, default `gentest` builds continue to work (fuzzing is opt-in).
-- `ctest --preset=debug-system --output-on-failure` passes on default configurations.
+- Story `005` lands and enforces “no engine leakage” from public headers.
+- Story `006` lands and defines the backend boundary (engine-neutral model + backend emission).
+- Story `007` lands and provides an opt-in FuzzTest backend + CMake helper.
+- Default `gentest` builds/tests remain unchanged unless fuzzing is enabled.
 
 ## Notes / references
 
 - FuzzTest repository: https://github.com/google/fuzztest
 - CMake quickstart: https://github.com/google/fuzztest/blob/main/doc/quickstart-cmake.md
-
