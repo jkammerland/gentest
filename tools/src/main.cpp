@@ -45,6 +45,8 @@ using namespace clang;
 using namespace clang::tooling;
 using namespace clang::ast_matchers;
 using gentest::codegen::CollectorOptions;
+using gentest::codegen::FuzzBackend;
+using gentest::codegen::FuzzTargetInfo;
 using gentest::codegen::TestCaseCollector;
 using gentest::codegen::TestCaseInfo;
 using gentest::codegen::MockUsageCollector;
@@ -111,6 +113,64 @@ bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
             }
         }
         cases = std::move(filtered);
+    }
+
+    return ok;
+}
+
+bool enforce_unique_fuzz_names(std::vector<FuzzTargetInfo> &targets) {
+    if (targets.empty()) {
+        return true;
+    }
+
+    std::vector<std::size_t> order(targets.size());
+    for (std::size_t i = 0; i < targets.size(); ++i) {
+        order[i] = i;
+    }
+    std::ranges::sort(order, [&](std::size_t lhs, std::size_t rhs) {
+        const auto &a = targets[lhs];
+        const auto &b = targets[rhs];
+        return std::tie(a.display_name, a.filename, a.line, a.qualified_name) < std::tie(b.display_name, b.filename, b.line, b.qualified_name);
+    });
+
+    std::unordered_map<std::string, std::string> first_location;
+    std::unordered_set<std::string>              reported;
+    std::vector<bool>                            keep(targets.size(), true);
+    bool                                         ok = true;
+
+    for (const auto idx : order) {
+        const auto &t = targets[idx];
+        if (t.display_name.empty()) {
+            continue;
+        }
+        const std::string here = fmt::format("{}:{}", t.filename, t.line);
+        auto              it   = first_location.find(t.display_name);
+        if (it == first_location.end()) {
+            first_location.emplace(t.display_name, here);
+            continue;
+        }
+        if (it->second == here) {
+            continue;
+        }
+        ok = false;
+        keep[idx] = false;
+
+        const std::string report_key = fmt::format("{}\n{}", t.display_name, here);
+        if (reported.insert(report_key).second) {
+            gentest::codegen::log_err("gentest_codegen: duplicate fuzz target name '{}' at {} (previously declared at {})\n", t.display_name, here,
+                                      it->second);
+        }
+    }
+
+    if (!ok) {
+        std::vector<FuzzTargetInfo> filtered;
+        filtered.reserve(targets.size());
+        for (std::size_t i = 0; i < targets.size(); ++i) {
+            if (keep[i]) {
+                filtered.push_back(std::move(targets[i]));
+            }
+        }
+        targets = std::move(filtered);
     }
 
     return ok;
@@ -258,6 +318,15 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory    category{"gentest codegen"};
     static llvm::cl::opt<std::string>  output_option{"output", llvm::cl::desc("Path to the output source file"), llvm::cl::init(""),
                                                     llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  fuzz_output_option{"fuzz-output", llvm::cl::desc("Path to the generated fuzzing source file"),
+                                                         llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<FuzzBackend>  fuzz_backend_option{
+        "fuzz-backend",
+        llvm::cl::desc("Fuzzing backend used when --fuzz-output is provided"),
+        llvm::cl::init(FuzzBackend::None),
+        llvm::cl::values(clEnumValN(FuzzBackend::None, "none", "Do not generate an engine-specific fuzzing TU"),
+                         clEnumValN(FuzzBackend::FuzzTest, "fuzztest", "Generate a FuzzTest registration TU")),
+        llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  tu_out_dir_option{
@@ -333,6 +402,8 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     if (!tu_out_dir_option.getValue().empty()) {
         opts.tu_output_dir = std::filesystem::path{tu_out_dir_option.getValue()};
     }
+    opts.fuzz_output_path = std::filesystem::path{fuzz_output_option.getValue()};
+    opts.fuzz_backend     = fuzz_backend_option.getValue();
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.clang_args = std::move(clang_args);
     opts.check_only = check_option.getValue();
@@ -381,8 +452,8 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     } else if (!kTemplateDir.empty()) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
-    if (!opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
-        gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
+    if (!opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty() && opts.fuzz_output_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --output, --tu-out-dir, or --fuzz-output is required unless --check is specified\n");
     }
     return opts;
 }
@@ -430,6 +501,7 @@ int main(int argc, const char **argv) {
     const std::string resource_dir = need_resource_dir ? resolve_resource_dir(compiler_path) : std::string{};
 
     std::vector<TestCaseInfo>                    cases;
+    std::vector<FuzzTargetInfo>                  fuzz_targets;
     const bool                                   allow_includes = !options.tu_output_dir.empty();
     std::vector<gentest::codegen::MockClassInfo> mocks;
 
@@ -527,6 +599,7 @@ int main(int argc, const char **argv) {
         bool                                had_test_errors = false;
         bool                                had_mock_errors = false;
         std::vector<TestCaseInfo>           cases;
+        std::vector<FuzzTargetInfo>         fuzz_targets;
         std::vector<gentest::codegen::MockClassInfo> mocks;
     };
 
@@ -606,8 +679,9 @@ int main(int argc, const char **argv) {
             tool.appendArgumentsAdjuster(args_adjuster);
             tool.appendArgumentsAdjuster(syntax_only_adjuster);
 
-            std::vector<TestCaseInfo> local_cases;
-            TestCaseCollector         collector{local_cases, options.strict_fixture, allow_includes};
+            std::vector<TestCaseInfo>   local_cases;
+            std::vector<FuzzTargetInfo> local_fuzz_targets;
+            TestCaseCollector            collector{local_cases, local_fuzz_targets, options.strict_fixture, allow_includes};
             std::vector<gentest::codegen::MockClassInfo> local_mocks;
             MockUsageCollector                            mock_collector{local_mocks};
 
@@ -620,6 +694,7 @@ int main(int argc, const char **argv) {
             result.had_test_errors = collector.has_errors();
             result.had_mock_errors = mock_collector.has_errors();
             result.cases = std::move(local_cases);
+            result.fuzz_targets = std::move(local_fuzz_targets);
             result.mocks = std::move(local_mocks);
             results[idx] = std::move(result);
 
@@ -654,6 +729,8 @@ int main(int argc, const char **argv) {
             }
             had_errors = had_errors || r.had_test_errors || r.had_mock_errors;
             cases.insert(cases.end(), std::make_move_iterator(r.cases.begin()), std::make_move_iterator(r.cases.end()));
+            fuzz_targets.insert(fuzz_targets.end(), std::make_move_iterator(r.fuzz_targets.begin()),
+                                std::make_move_iterator(r.fuzz_targets.end()));
             mocks.insert(mocks.end(), std::make_move_iterator(r.mocks.begin()), std::make_move_iterator(r.mocks.end()));
         }
         if (status != 0) {
@@ -668,7 +745,7 @@ int main(int argc, const char **argv) {
         tool.appendArgumentsAdjuster(args_adjuster);
         tool.appendArgumentsAdjuster(syntax_only_adjuster);
 
-        TestCaseCollector  collector{cases, options.strict_fixture, allow_includes};
+        TestCaseCollector  collector{cases, fuzz_targets, options.strict_fixture, allow_includes};
         MockUsageCollector mock_collector{mocks};
 
         MatchFinder finder;
@@ -688,17 +765,21 @@ int main(int argc, const char **argv) {
         if (!enforce_unique_base_names(cases)) {
             return 1;
         }
+        if (!enforce_unique_fuzz_names(fuzz_targets)) {
+            return 1;
+        }
     }
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
+    std::ranges::sort(fuzz_targets, {}, &FuzzTargetInfo::display_name);
 
     if (options.check_only) {
         return 0;
     }
-    if (options.output_path.empty() && options.tu_output_dir.empty()) {
-        gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
+    if (options.output_path.empty() && options.tu_output_dir.empty() && options.fuzz_output_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --output, --tu-out-dir, or --fuzz-output is required unless --check is specified\n");
         return 1;
     }
 
-    return gentest::codegen::emit(options, cases, mocks);
+    return gentest::codegen::emit(options, cases, fuzz_targets, mocks);
 }

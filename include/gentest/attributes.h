@@ -39,6 +39,14 @@
 //   [[using gentest : jitter("suite/name")]]
 //   [[using gentest : baseline]] // optional: marks a bench as baseline within the suite
 //
+// Fuzzing (backend-generated):
+//   [[using gentest : fuzz("suite/name")]]
+//   void my_fuzz(int x, std::string_view y);
+//   - Fuzz targets are discovered by gentest_codegen and emitted into a separate generated TU when fuzzing is enabled.
+//   - v1 supported signatures:
+//     - typed: `void f(T1, T2, ...)` (no raw pointers; no non-const refs)
+//     - bytes: `void f(std::span<const std::uint8_t>)` or `void f(const std::uint8_t*, std::size_t)`
+//
 // Parameter generators (global convenience):
 //   [[using gentest : range(i, 1, 2, 9)]]                 // 1,3,5,7,9 (integers)
 //   [[using gentest : range(i, "1:2:9")]]                 // Matlab-style triple in a string

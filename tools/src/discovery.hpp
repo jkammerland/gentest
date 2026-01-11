@@ -10,12 +10,14 @@
 
 namespace gentest::codegen {
 
-// AST matcher callback that classifies functions as tests based on parsed
-// attributes and validation rules.
+// AST matcher callback that classifies functions as tests or fuzz targets based
+// on parsed attributes and validation rules.
 class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
     // out: vector to append discovered tests to.
-    explicit TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes);
+    // fuzz_out: vector to append discovered fuzz targets to.
+    explicit TestCaseCollector(std::vector<TestCaseInfo> &out, std::vector<FuzzTargetInfo> &fuzz_out, bool strict_fixture,
+                               bool allow_includes);
 
     // Called by clang tooling; extracts a TestCaseInfo when the bound node is a function definition.
     void run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
@@ -30,6 +32,7 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
     void                        report(const clang::FunctionDecl &func, const clang::SourceManager &sm, std::string_view message) const;
 
     std::vector<TestCaseInfo> &out_;
+    std::vector<FuzzTargetInfo> &fuzz_out_;
     bool                       strict_fixture_ = false;
     bool                       allow_includes_ = false;
     // Dedup emitted test cases by a composite key (qualified + display + file:line)
@@ -38,6 +41,7 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
     mutable std::unordered_map<const clang::NamespaceDecl *, SuiteAttributeSummary> suite_cache_;
     // Enforce unique final base names (suite_path/base), before decorations
     mutable std::unordered_map<std::string, std::string> unique_base_locations_;
+    mutable std::unordered_map<std::string, std::string> unique_fuzz_locations_;
 };
 
 } // namespace gentest::codegen

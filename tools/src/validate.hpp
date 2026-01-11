@@ -24,6 +24,7 @@ struct AttributeSummary {
     bool                       should_skip = false;
     std::string                skip_reason;
     bool                       had_error = false;
+    bool                       is_fuzz = false;
     bool                       is_benchmark = false;
     bool                       is_jitter = false;
     bool                       is_baseline = false;

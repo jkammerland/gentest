@@ -20,6 +20,11 @@ enum class FixtureLifetime {
     MemberGlobal,
 };
 
+enum class FuzzBackend {
+    None,
+    FuzzTest,
+};
+
 // Parsed attribute name with its argument strings as written in source.
 struct ParsedAttribute {
     std::string              name;
@@ -46,9 +51,11 @@ struct CollectorOptions {
     std::string                          entry = "gentest::run_all_tests";
     std::filesystem::path                output_path;
     std::filesystem::path                tu_output_dir;
+    std::filesystem::path                fuzz_output_path;
     std::filesystem::path                mock_registry_path;
     std::filesystem::path                mock_impl_path;
     std::filesystem::path                template_path;
+    FuzzBackend                           fuzz_backend = FuzzBackend::None;
     std::vector<std::string>             sources;
     std::vector<std::string>             clang_args;
     std::optional<std::filesystem::path> compilation_database;
@@ -102,6 +109,26 @@ struct TestCaseInfo {
     // These are constructed ephemerally in the wrapper and passed by reference
     // to the test function in declaration order.
     std::vector<std::string> free_fixtures;
+};
+
+enum class FuzzTargetSignatureKind {
+    Typed,
+    BytesSpan,
+    BytesPtrSize,
+};
+
+// Description of a discovered fuzz target (engine-neutral).
+// - qualified_name: fully qualified symbol name used to call the target
+// - display_name: stable user-facing name (suite path + case name)
+// - filename/line: origin information for diagnostics
+// - signature_kind: classified input shape for backend mapping
+struct FuzzTargetInfo {
+    std::string             qualified_name;
+    std::string             display_name;
+    std::string             filename;
+    unsigned                line = 0;
+    FuzzTargetSignatureKind signature_kind = FuzzTargetSignatureKind::Typed;
+    std::vector<std::string> parameter_types;
 };
 
 // Parameter metadata for mocked member functions.

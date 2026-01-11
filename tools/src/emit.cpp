@@ -222,6 +222,29 @@ bool ensure_parent_dir(const fs::path &path) {
     return true;
 }
 
+std::string render_include_sources(const fs::path &output_path, const CollectorOptions &options) {
+    std::string includes;
+    if (!options.include_sources) {
+        return includes;
+    }
+
+    const fs::path out_dir = output_path.has_parent_path() ? output_path.parent_path() : fs::current_path();
+    for (const auto &src : options.sources) {
+        fs::path spath(src);
+        // Avoid `std::filesystem::proximate()` because it canonicalizes paths, which
+        // can resolve symlink forests (e.g. Bazel execroot) into host paths that
+        // don't exist in sandboxed builds.
+        fs::path rel = spath.lexically_relative(out_dir);
+        if (rel.empty()) {
+            rel = spath;
+        }
+        std::string inc = rel.generic_string();
+        includes += fmt::format("#include \"{}\"\n", render::escape_string(inc));
+    }
+
+    return includes;
+}
+
 } // namespace
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -293,24 +316,8 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     replace_all(output, "{{VERSION}}", "0.0.0");
 #endif
 
-    // Include sources in the generated file so fixture types are visible
-    std::string    includes;
-    const bool     skip_includes = !options.include_sources;
-    const fs::path out_dir = options.output_path.has_parent_path() ? options.output_path.parent_path() : fs::current_path();
-    for (const auto &src : options.sources) {
-        if (skip_includes) break;
-        fs::path spath(src);
-        // Avoid `std::filesystem::proximate()` because it canonicalizes paths, which
-        // can resolve symlink forests (e.g. Bazel execroot) into host paths that
-        // don't exist in sandboxed builds.
-        fs::path rel = spath.lexically_relative(out_dir);
-        if (rel.empty()) {
-            rel = spath;
-        }
-        std::string inc = rel.generic_string();
-        includes += fmt::format("#include \"{}\"\n", render::escape_string(inc));
-    }
-    replace_all(output, "{{INCLUDE_SOURCES}}", includes);
+    // Include sources in the generated file so fixture types are visible.
+    replace_all(output, "{{INCLUDE_SOURCES}}", render_include_sources(options.output_path, options));
 
     // Mock registry and inline implementations are generated alongside the
     // test wrappers. Test sources that use mocking should include
@@ -319,7 +326,120 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     return output;
 }
 
-int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<MockClassInfo> &mocks) {
+auto render_fuzz(const CollectorOptions &options, const std::vector<FuzzTargetInfo> &fuzz_targets) -> std::optional<std::string> {
+    auto sanitize_gtest_name = [](std::string_view raw, std::string_view fallback, std::string_view prefix) -> std::string {
+        std::string out;
+        out.reserve(raw.size());
+        for (const char ch : raw) {
+            const unsigned char uch = static_cast<unsigned char>(ch);
+            if (std::isalnum(uch) != 0 || ch == '_') {
+                out.push_back(ch);
+            } else {
+                out.push_back('_');
+            }
+        }
+
+        if (out.empty()) {
+            out.assign(fallback);
+        }
+
+        const unsigned char first = static_cast<unsigned char>(out.front());
+        if ((std::isalpha(first) == 0) && out.front() != '_') {
+            out.insert(0, std::string(prefix));
+        }
+
+        return out;
+    };
+
+    std::string output;
+    if (options.fuzz_backend == FuzzBackend::FuzzTest) {
+        output = std::string(tpl::fuzztest_impl);
+    } else {
+        output = std::string(tpl::fuzz_stub_impl);
+    }
+
+    replace_all(output, "{{INCLUDE_SOURCES}}", render_include_sources(options.fuzz_output_path, options));
+
+    if (options.fuzz_backend != FuzzBackend::FuzzTest) {
+        return output;
+    }
+
+    std::string wrappers;
+    std::string registrations;
+    if (fuzz_targets.empty()) {
+        registrations = "    // No fuzz targets discovered during code generation.\n";
+    } else {
+        for (std::size_t idx = 0; idx < fuzz_targets.size(); ++idx) {
+            const auto &target       = fuzz_targets[idx];
+            const auto  wrapper_name = fmt::format("gentest_fuzz_invoke_{}", idx);
+
+            std::string param_list;
+            std::string arg_list;
+            for (std::size_t i = 0; i < target.parameter_types.size(); ++i) {
+                if (i) {
+                    param_list += ", ";
+                    arg_list += ", ";
+                }
+                param_list += target.parameter_types[i];
+                param_list += " arg";
+                param_list += std::to_string(i);
+                arg_list += "arg";
+                arg_list += std::to_string(i);
+            }
+
+            if (target.signature_kind == FuzzTargetSignatureKind::BytesSpan) {
+                wrappers += fmt::format("static void {}(std::vector<std::uint8_t> data) {{\n"
+                                        "    const std::span<const std::uint8_t> span{{data.data(), data.size()}};\n"
+                                        "    {}(span);\n"
+                                        "}}\n\n",
+                                        wrapper_name, target.qualified_name);
+            } else if (target.signature_kind == FuzzTargetSignatureKind::BytesPtrSize) {
+                wrappers += fmt::format("static void {}(std::vector<std::uint8_t> data) {{\n"
+                                        "    {}(data.data(), data.size());\n"
+                                        "}}\n\n",
+                                        wrapper_name, target.qualified_name);
+            } else {
+                wrappers += fmt::format("static void {}({}) {{\n"
+                                        "    {}({});\n"
+                                        "}}\n\n",
+                                        wrapper_name, param_list, target.qualified_name, arg_list);
+            }
+
+            std::string_view full_name = target.display_name;
+            std::string_view suite_raw;
+            std::string_view test_raw;
+            const auto       split = full_name.rfind('/');
+            if (split == std::string_view::npos) {
+                suite_raw = "gentest";
+                test_raw  = full_name;
+            } else {
+                suite_raw = full_name.substr(0, split);
+                test_raw  = full_name.substr(split + 1);
+            }
+
+            const std::string suite_name = sanitize_gtest_name(suite_raw, "gentest", "gentest_");
+            const std::string test_name  = sanitize_gtest_name(test_raw, "fuzz", "t_");
+
+            registrations += fmt::format(
+                "[[maybe_unused]] static int gentest_fuzz_reg_{idx} = [] {{\n"
+                "    ::fuzztest::RegisterFuzzTest(\n"
+                "        ::fuzztest::GetRegistration<decltype(+{wrapper})>(\"{suite}\", \"{test}\", \"{file}\", {line}, +{wrapper}));\n"
+                "    return 0;\n"
+                "}}();\n\n",
+                fmt::arg("idx", idx), fmt::arg("wrapper", wrapper_name), fmt::arg("suite", render::escape_string(suite_name)),
+                fmt::arg("test", render::escape_string(test_name)), fmt::arg("file", render::escape_string(target.filename)),
+                fmt::arg("line", target.line));
+        }
+    }
+
+    replace_all(output, "{{FUZZ_WRAPPERS}}", wrappers);
+    replace_all(output, "{{FUZZ_REGISTRATIONS}}", registrations);
+
+    return output;
+}
+
+int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<FuzzTargetInfo> &fuzz_targets,
+         const std::vector<MockClassInfo> &mocks) {
     std::vector<TestCaseInfo> cases_for_render = cases;
     if (opts.source_root && !opts.source_root->empty()) {
         for (auto &c : cases_for_render) {
@@ -327,13 +447,11 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         }
     }
 
-    if (opts.tu_output_dir.empty()) {
+    if (!opts.output_path.empty()) {
         fs::path out_path = opts.output_path;
         if (!ensure_parent_dir(out_path)) {
             return 1;
         }
-
-        // Embedded template is used when no template path is provided.
 
         const auto content = render_cases(opts, cases_for_render);
         if (!content) {
@@ -343,7 +461,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         if (!write_file_atomic_if_changed(out_path, *content)) {
             return 1;
         }
-    } else {
+    } else if (!opts.tu_output_dir.empty()) {
         if (!ensure_dir(opts.tu_output_dir)) {
             return 1;
         }
@@ -448,12 +566,35 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         }
     }
 
+    if (!opts.fuzz_output_path.empty()) {
+        if (opts.fuzz_backend == FuzzBackend::None && !fuzz_targets.empty()) {
+            log_err_raw(
+                "gentest_codegen: fuzz targets discovered but --fuzz-backend=none; enable a backend (e.g. --fuzz-backend=fuzztest)\n");
+            return 1;
+        }
+
+        fs::path fuzz_path = opts.fuzz_output_path;
+        if (!ensure_parent_dir(fuzz_path)) {
+            return 1;
+        }
+
+        const auto content = render_fuzz(opts, fuzz_targets);
+        if (!content) {
+            return 1;
+        }
+
+        if (!write_file_atomic_if_changed(fuzz_path, *content)) {
+            return 1;
+        }
+    }
+
     const bool have_mock_paths = !opts.mock_registry_path.empty() && !opts.mock_impl_path.empty();
     if (!mocks.empty() || have_mock_paths) {
         if (!have_mock_paths) {
             log_err_raw("gentest_codegen: mock outputs requested but --mock-registry/--mock-impl paths were not provided\n");
             return 1;
         }
+
         auto                rendered = render::render_mocks(opts, mocks);
         render::MockOutputs outputs;
         if (rendered) {

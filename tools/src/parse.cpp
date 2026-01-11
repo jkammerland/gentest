@@ -25,12 +25,53 @@ std::string_view trim_view(std::string_view text) {
 }
 
 void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buffer, std::size_t start_offset) {
+    auto rewind_over_ws_and_comments = [&](std::size_t position) -> std::size_t {
+        while (position > 0) {
+            while (position > 0 && std::isspace(static_cast<unsigned char>(buffer[position - 1])) != 0) {
+                --position;
+            }
+
+            // Skip block comments (/* ... */) and line comments (// ...).
+            if (position >= 2 && buffer[position - 2] == '*' && buffer[position - 1] == '/') {
+                const llvm::StringRef prefix = buffer.take_front(position - 2);
+                const std::size_t     open   = prefix.rfind("/*");
+                if (open == llvm::StringRef::npos) {
+                    break;
+                }
+                position = open;
+                continue;
+            }
+
+            if (position > 0) {
+                std::size_t line_begin = 0;
+                const auto  prev_nl    = buffer.rfind('\n', position - 1);
+                if (prev_nl != llvm::StringRef::npos) {
+                    line_begin = prev_nl + 1;
+                }
+
+                const llvm::StringRef line        = buffer.slice(line_begin, position);
+                const std::size_t     comment_pos = line.find("//");
+                if (comment_pos != llvm::StringRef::npos) {
+                    llvm::StringRef before = line.take_front(comment_pos);
+                    while (!before.empty() && std::isspace(static_cast<unsigned char>(before.back())) != 0) {
+                        before = before.drop_back();
+                    }
+                    // Allow comments on an otherwise-empty line and trailing comments after an attribute.
+                    if (before.empty() || before.ends_with("]]")) {
+                        position = line_begin;
+                        continue;
+                    }
+                }
+            }
+
+            break;
+        }
+        return position;
+    };
+
     std::size_t cursor = start_offset <= static_cast<std::size_t>(buffer.size()) ? start_offset : buffer.size();
     while (cursor > 0) {
-        std::size_t position = cursor;
-        while (position > 0 && std::isspace(static_cast<unsigned char>(buffer[position - 1])) != 0) {
-            --position;
-        }
+        std::size_t position = rewind_over_ws_and_comments(cursor);
 
         if (position < 2 || buffer[position - 1] != ']' || buffer[position - 2] != ']') {
             break;
@@ -210,82 +251,8 @@ auto collect_gentest_attributes_for(const NamespaceDecl &ns, const SourceManager
 
     const llvm::StringRef buffer = sm.getBufferData(file_id);
 
-    auto scan_back_from = [&](unsigned start_offset) {
-        std::size_t cursor = start_offset;
-        while (cursor > 0) {
-            std::size_t position = cursor;
-            while (position > 0 && std::isspace(static_cast<unsigned char>(buffer[position - 1])) != 0) {
-                --position;
-            }
-            if (position < 2 || buffer[position - 1] != ']' || buffer[position - 2] != ']') {
-                break;
-            }
-            const llvm::StringRef prefix = buffer.take_front(position);
-            const std::size_t     open   = prefix.rfind("[[");
-            if (open == llvm::StringRef::npos) {
-                break;
-            }
-            const std::size_t close_marker = buffer.find("]]", open);
-            if (close_marker == llvm::StringRef::npos) {
-                break;
-            }
-            const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
-            std::string_view      view(attribute_text.data(), attribute_text.size());
-            if (!view.starts_with("[[")) {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            view.remove_prefix(2);
-            while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-                view.remove_prefix(1);
-            }
-            if (!view.starts_with("using")) {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            view.remove_prefix(5);
-            while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-                view.remove_prefix(1);
-            }
-            std::size_t ns_len = 0;
-            while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
-                ++ns_len;
-            }
-            std::string_view namespace_name(view.substr(0, ns_len));
-            view.remove_prefix(ns_len);
-            while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-                view.remove_prefix(1);
-            }
-            if (view.empty() || view.front() != ':') {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            view.remove_prefix(1);
-
-            std::size_t args_end = view.rfind("]]");
-            if (args_end == std::string_view::npos) {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            std::string_view args_text = trim_view(view.substr(0, args_end));
-
-            if (namespace_name != "gentest") {
-                collected.other_namespaces.push_back(attribute_text.str());
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-
-            auto parsed = parse_attribute_list(args_text);
-            if (!parsed.empty()) {
-                collected.gentest.insert(collected.gentest.begin(), parsed.begin(), parsed.end());
-            }
-
-            cursor = static_cast<unsigned>(open);
-        }
-    };
-
     const unsigned loc_offset = sm.getFileOffset(sm.getSpellingLoc(ns.getLocation()));
-    scan_back_from(loc_offset);
+    scan_attributes_before(collected, buffer, loc_offset);
 
     return collected;
 }

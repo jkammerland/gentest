@@ -16,6 +16,8 @@
 #include <cstdio>
 #include <clang/AST/Decl.h>
 #include <clang/AST/PrettyPrinter.h>
+#include <clang/AST/TemplateBase.h>
+#include <clang/AST/Type.h>
 #include <clang/Basic/SourceManager.h>
 #include <fmt/core.h>
 #include <optional>
@@ -72,10 +74,132 @@ bool has_cpp_extension(llvm::StringRef path) {
     }
     return out;
 }
+
+bool is_u8_like(QualType type) {
+    if (type.isNull()) {
+        return false;
+    }
+    type = type.getCanonicalType().getUnqualifiedType();
+    const auto *builtin = type->getAs<BuiltinType>();
+    return builtin != nullptr && builtin->getKind() == BuiltinType::UChar;
+}
+
+bool is_size_type(QualType type, ASTContext &ctx) {
+    if (type.isNull()) {
+        return false;
+    }
+    return ctx.hasSameType(type.getCanonicalType(), ctx.getSizeType());
+}
+
+bool is_std_span_of_const_u8(QualType type) {
+    if (type.isNull()) {
+        return false;
+    }
+
+    const auto *spec = type->getAs<TemplateSpecializationType>();
+    if (spec == nullptr) {
+        const auto canonical = type.getCanonicalType();
+        spec                = canonical->getAs<TemplateSpecializationType>();
+    }
+    if (spec == nullptr) {
+        return false;
+    }
+
+    const auto *tmpl = spec->getTemplateName().getAsTemplateDecl();
+    if (tmpl == nullptr) {
+        return false;
+    }
+    if (tmpl->getQualifiedNameAsString() != "std::span") {
+        return false;
+    }
+    const auto args = spec->template_arguments();
+    if (args.empty()) {
+        return false;
+    }
+    const auto &arg0 = args.front();
+    if (arg0.getKind() != TemplateArgument::Type) {
+        return false;
+    }
+    QualType elem = arg0.getAsType();
+    if (!elem.isConstQualified()) {
+        return false;
+    }
+    return is_u8_like(elem.getUnqualifiedType());
+}
+
+template <typename Report>
+std::optional<FuzzTargetSignatureKind> classify_fuzz_signature(const FunctionDecl &func, ASTContext &ctx, Report &&report) {
+    if (func.isVariadic()) {
+        report("fuzz targets cannot be variadic");
+        return std::nullopt;
+    }
+
+    const unsigned param_count = func.getNumParams();
+    if (param_count == 0) {
+        report("fuzz targets must declare at least one parameter");
+        return std::nullopt;
+    }
+
+    // Bytes: std::span<const std::uint8_t>
+    if (param_count == 1) {
+        const QualType p0 = func.getParamDecl(0)->getType();
+        if (is_std_span_of_const_u8(p0)) {
+            return FuzzTargetSignatureKind::BytesSpan;
+        }
+    }
+
+    // Bytes: (const std::uint8_t*, std::size_t)
+    if (param_count == 2) {
+        const QualType p0 = func.getParamDecl(0)->getType();
+        const QualType p1 = func.getParamDecl(1)->getType();
+        if (!p0.isNull() && p0->isPointerType()) {
+            const QualType pointee = p0->getPointeeType();
+            if (pointee.isConstQualified() && is_u8_like(pointee.getUnqualifiedType()) && is_size_type(p1, ctx)) {
+                return FuzzTargetSignatureKind::BytesPtrSize;
+            }
+        }
+    }
+
+    // Typed: void f(T1, T2, ...)
+    for (unsigned i = 0; i < param_count; ++i) {
+        const QualType param_type = func.getParamDecl(i)->getType();
+        if (param_type.isNull()) {
+            report("fuzz target parameter type could not be resolved");
+            return std::nullopt;
+        }
+
+        if (param_type->isArrayType()) {
+            report("typed fuzz target parameters cannot be array types");
+            return std::nullopt;
+        }
+
+        if (param_type->isPointerType()) {
+            report("typed fuzz target parameters cannot be raw pointers; use std::span<const std::uint8_t> or (const std::uint8_t*, std::size_t)");
+            return std::nullopt;
+        }
+
+        if (param_type->isRValueReferenceType()) {
+            report("fuzz target parameters cannot be rvalue references");
+            return std::nullopt;
+        }
+
+        if (param_type->isLValueReferenceType()) {
+            const QualType referred = param_type.getNonReferenceType();
+            if (!referred.isConstQualified()) {
+                report("fuzz target parameters cannot be non-const lvalue references");
+                return std::nullopt;
+            }
+        }
+    }
+
+    return FuzzTargetSignatureKind::Typed;
+}
+
 } // namespace
 
-TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes)
-    : out_(out), strict_fixture_(strict_fixture), allow_includes_(allow_includes) {}
+TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, std::vector<FuzzTargetInfo> &fuzz_out, bool strict_fixture,
+                                     bool allow_includes)
+    : out_(out), fuzz_out_(fuzz_out), strict_fixture_(strict_fixture), allow_includes_(allow_includes) {}
 
 void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     const auto *func = result.Nodes.getNodeAs<FunctionDecl>("gentest.func");
@@ -178,6 +302,88 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         return std::nullopt;
     };
 
+    std::string qualified = func->getQualifiedNameAsString();
+    if (qualified.empty())
+        qualified = func->getNameAsString();
+    if (qualified.find("(anonymous namespace)") != std::string::npos) {
+        log_err("gentest_codegen: ignoring {} in anonymous namespace: {}\n", summary.is_fuzz ? "fuzz target" : "test", qualified);
+        return;
+    }
+    auto file_loc = sm->getFileLoc(func->getLocation());
+    auto filename = sm->getFilename(file_loc);
+    if (filename.empty())
+        return;
+    unsigned lnum = sm->getSpellingLineNumber(file_loc);
+
+    if (summary.is_fuzz) {
+        auto report_error = [&](std::string_view message) {
+            had_error_ = true;
+            report(message);
+        };
+
+        if (llvm::isa<CXXMethodDecl>(func)) {
+            report_error("'fuzz(...)' is not supported on member functions");
+            return;
+        }
+        if (!summary.template_sets.empty() || !summary.template_nttp_sets.empty()) {
+            report_error("fuzz targets do not support template(...) attributes");
+            return;
+        }
+        if (!summary.parameter_sets.empty() || !summary.param_packs.empty() || !summary.parameter_ranges.empty() ||
+            !summary.parameter_linspaces.empty() || !summary.parameter_geoms.empty() || !summary.parameter_logspaces.empty()) {
+            report_error("fuzz targets do not support parameters(...) attributes");
+            return;
+        }
+        if (!summary.fixtures_types.empty()) {
+            report_error("fuzz targets do not support fixtures(...) attributes");
+            return;
+        }
+        if (!func->getReturnType()->isVoidType()) {
+            report_error("fuzz targets must return void");
+            return;
+        }
+
+        const auto signature_kind = classify_fuzz_signature(*func, *result.Context, report_error);
+        if (!signature_kind.has_value()) {
+            return;
+        }
+
+        const auto  suite_override = find_suite(func->getDeclContext());
+        std::string suite_path     = suite_override.value_or(derive_namespace_path(func->getDeclContext()));
+        std::string base_case_name = summary.case_name.value_or(func->getNameAsString());
+        std::string final_base     = suite_path.empty() ? base_case_name : (suite_path + "/" + base_case_name);
+
+        {
+            const std::string here    = fmt::format("{}:{}", filename.str(), lnum);
+            auto              it_base = unique_fuzz_locations_.find(final_base);
+            if (it_base == unique_fuzz_locations_.end()) {
+                unique_fuzz_locations_.emplace(final_base, here);
+            } else {
+                had_error_ = true;
+                log_err("gentest_codegen: duplicate fuzz target name '{}' at {} (previously declared at {})\n", final_base, here, it_base->second);
+                return;
+            }
+        }
+
+        FuzzTargetInfo info{};
+        info.qualified_name = qualified;
+        info.display_name   = final_base;
+        info.filename       = filename.str();
+        info.line           = lnum;
+        info.signature_kind = *signature_kind;
+        {
+            auto policy = PrintingPolicy(result.Context->getLangOpts());
+            policy.adjustForCPlusPlus();
+            policy.SuppressScope          = false;
+            policy.FullyQualifiedName     = true;
+            policy.SuppressUnwrittenScope = false;
+            for (unsigned i = 0; i < func->getNumParams(); ++i) {
+                info.parameter_types.push_back(func->getParamDecl(i)->getType().getAsString(policy));
+            }
+        }
+        fuzz_out_.push_back(std::move(info));
+        return;
+    }
     // 'fixtures(...)' applies only to free functions; reject on member functions.
     if (!summary.fixtures_types.empty()) {
         if (llvm::isa<CXXMethodDecl>(func)) {
@@ -186,19 +392,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             return;
         }
     }
-
-    std::string qualified = func->getQualifiedNameAsString();
-    if (qualified.empty())
-        qualified = func->getNameAsString();
-    if (qualified.find("(anonymous namespace)") != std::string::npos) {
-        log_err("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
-        return;
-    }
-    auto file_loc = sm->getFileLoc(func->getLocation());
-    auto filename = sm->getFilename(file_loc);
-    if (filename.empty())
-        return;
-    unsigned lnum = sm->getSpellingLineNumber(file_loc);
 
     // Validate template attribute usage and collect declaration order (optional under flag).
     std::vector<disc::TParam> fn_params_order;
@@ -759,7 +952,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         report(m);
     });
 
-    if (!summary.is_case) {
+    if (!summary.is_case || summary.is_fuzz) {
         return std::nullopt;
     }
 

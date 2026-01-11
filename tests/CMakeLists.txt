@@ -184,6 +184,58 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+# Guard: fuzz backends must not leak into public headers.
+add_test(NAME gentest_public_headers_no_fuzztest
+    COMMAND ${CMAKE_COMMAND}
+        -DROOT=${PROJECT_SOURCE_DIR}/include/gentest
+        -DSUBSTRING=fuzztest
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckNoFuzztestLeak.cmake)
+
+# Lint-only checks for fuzz target discovery/validation
+add_test(NAME gentest_codegen_check_fuzz_valid
+    COMMAND ${_gentest_codegen_prog}
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/fuzz_valid.cpp
+        -- ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+add_test(NAME gentest_codegen_check_fuzz_invalid
+    COMMAND ${_gentest_codegen_prog}
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/fuzz_invalid.cpp
+        -- ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+set_tests_properties(gentest_codegen_check_fuzz_invalid PROPERTIES WILL_FAIL TRUE)
+
+# Generator positive test: emit a fuzz TU and check it contains the expected registration call.
+set(_gentest_codegen_fuzz_emit_file "${CMAKE_BINARY_DIR}/gentest_codegen_fuzz_emit.cpp")
+set(_gentest_codegen_fuzz_emit_args
+    --fuzz-output
+    ${_gentest_codegen_fuzz_emit_file}
+    --fuzz-backend
+    fuzztest
+    --compdb
+    ${CMAKE_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/smoke/fuzz_valid.cpp
+    --
+    ${_gentest_codegen_std_flag}
+    -I${PROJECT_SOURCE_DIR}/include
+    -I${CMAKE_CURRENT_SOURCE_DIR})
+string(JOIN "\\;" _gentest_codegen_fuzz_emit_args_escaped ${_gentest_codegen_fuzz_emit_args})
+
+add_test(NAME gentest_codegen_emit_fuzz_contains_register
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=${_gentest_codegen_prog}
+        -DFILE=${_gentest_codegen_fuzz_emit_file}
+        -DEXPECT_SUBSTRING=RegisterFuzzTest
+        -DARGS=${_gentest_codegen_fuzz_emit_args_escaped}
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
 # Generator negative tests for mocks: robust diagnostics
 gentest_add_check_death(
     NAME gentest_codegen_mock_incomplete_virtual_msg
@@ -283,6 +335,10 @@ set_tests_properties(
     gentest_codegen_check_valid
     gentest_codegen_check_invalid
     gentest_codegen_baseline_requires_bench
+    gentest_public_headers_no_fuzztest
+    gentest_codegen_check_fuzz_valid
+    gentest_codegen_check_fuzz_invalid
+    gentest_codegen_emit_fuzz_contains_register
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
     gentest_codegen_mock_anonymous_namespace_msg

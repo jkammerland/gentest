@@ -41,6 +41,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     bool                       saw_test = false;
     bool                       saw_bench = false;
     bool                       saw_jitter = false;
+    bool                       saw_fuzz = false;
     std::set<std::string>      seen_flags;
     std::optional<std::string> seen_owner;
 
@@ -49,6 +50,11 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
         std::ranges::transform(lowered, lowered.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 
         if (lowered == "test") {
+            if (saw_fuzz) {
+                summary.had_error = true;
+                report("conflicting gentest attributes 'test' and 'fuzz'");
+                continue;
+            }
             if (saw_test) {
                 summary.had_error = true;
                 report("duplicate gentest attribute 'test'");
@@ -66,6 +72,11 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             summary.case_name = trim_copy(attr.arguments.front());
         } else if (lowered == "bench" || lowered == "benchmark") {
+            if (saw_fuzz) {
+                summary.had_error = true;
+                report("conflicting gentest attributes 'bench' and 'fuzz'");
+                continue;
+            }
             if (saw_bench) {
                 summary.had_error = true;
                 report("duplicate gentest attribute 'bench'");
@@ -88,6 +99,11 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             summary.is_baseline = true;
         } else if (lowered == "jitter") {
+            if (saw_fuzz) {
+                summary.had_error = true;
+                report("conflicting gentest attributes 'jitter' and 'fuzz'");
+                continue;
+            }
             if (saw_jitter) {
                 summary.had_error = true;
                 report("duplicate gentest attribute 'jitter'");
@@ -102,6 +118,26 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             summary.case_name  = attr.arguments.front();
             summary.is_jitter  = true;
+        } else if (lowered == "fuzz") {
+            if (saw_test || saw_bench || saw_jitter) {
+                summary.had_error = true;
+                report("conflicting gentest attributes: 'fuzz' cannot be combined with 'test', 'bench', or 'jitter'");
+                continue;
+            }
+            if (saw_fuzz) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'fuzz'");
+                continue;
+            }
+            saw_fuzz = true;
+            saw_case = true;
+            if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
+                summary.had_error = true;
+                report("'fuzz' requires exactly one non-empty string argument");
+                continue;
+            }
+            summary.case_name = attr.arguments.front();
+            summary.is_fuzz   = true;
         } else if (lowered == "req" || lowered == "requires") {
             if (attr.arguments.empty()) {
                 summary.had_error = true;

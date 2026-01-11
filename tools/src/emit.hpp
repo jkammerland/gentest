@@ -17,7 +17,7 @@ namespace gentest::codegen {
 auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases) -> std::optional<std::string>;
 
 // Write the rendered content to `options.output_path`. Returns 0 on success.
-int emit(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases,
+int emit(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases, const std::vector<FuzzTargetInfo> &fuzz_targets,
          const std::vector<MockClassInfo> &mocks);
 
 } // namespace gentest::codegen
