@@ -28,6 +28,10 @@
 
 - FuzzTest + Centipede long read (integration notes): [`docs/fuzzing/fuzztest_centipede_long_read.md`](fuzzing/fuzztest_centipede_long_read.md)
 
+## Reviews
+
+- Fuzzing MCP review (2026-01-11): [`docs/reviews/fuzzing_mcp_review_2026-01-11.md`](reviews/fuzzing_mcp_review_2026-01-11.md)
+
 ## Work items
 
 - Correctness fixes + regression tests: [`docs/stories/001_p0_correctness_and_regression_tests.md`](stories/001_p0_correctness_and_regression_tests.md)

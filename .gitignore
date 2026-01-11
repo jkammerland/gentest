@@ -58,6 +58,7 @@ docs/latex/
 *.tmp
 *.temp
 *.log
+.codex-mcp-jobs/
 
 # Ignore local worktree directories
 mocking-support/
