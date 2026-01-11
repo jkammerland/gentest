@@ -37,3 +37,6 @@
 - Parallel `gentest_codegen` jobs (TU mode): [`docs/stories/005_codegen_parallelism_jobs.md`](stories/005_codegen_parallelism_jobs.md)
 - Fuzzing support (research: FuzzTest / Centipede): [`docs/stories/003_fuzzing_research.md`](stories/003_fuzzing_research.md)
 - Fuzzing support (FuzzTest / Centipede integration): [`docs/stories/004_fuzzing_fuzztest_integration.md`](stories/004_fuzzing_fuzztest_integration.md)
+- Fuzzing API surface (no engine leakage): [`docs/stories/005_fuzzing_public_api_nonleakage.md`](stories/005_fuzzing_public_api_nonleakage.md)
+- Fuzzing codegen backend abstraction: [`docs/stories/006_fuzzing_codegen_backend_abstraction.md`](stories/006_fuzzing_codegen_backend_abstraction.md)
+- Fuzzing backend v1 (FuzzTest): [`docs/stories/007_fuzzing_fuzztest_backend.md`](stories/007_fuzzing_fuzztest_backend.md)
