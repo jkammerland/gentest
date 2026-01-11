@@ -35,7 +35,7 @@ using namespace gentest::asserts;
 
 namespace demo {
 
-[[using gentest: test("basic")]]
+[[using gentest: test]]
 void basic() { 
     EXPECT_TRUE(1 + 1 == 2); 
 }
@@ -82,6 +82,11 @@ Run:
 ./my_tests
 ```
 
+Naming:
+- Any gentest function-level attribute marks the declaration as a case.
+- `test("...")` is optional; if omitted, the base name defaults to the C++ function name (or `FixtureType/method` for member tests).
+- Use `test("...")` to disambiguate overloads and keep names stable across refactors.
+
 ## Feature examples
 
 ### Assertions, failures, and exceptions
@@ -95,7 +100,7 @@ using namespace gentest::asserts;
 
 namespace math {
 
-[[using gentest: test("add")]]
+[[using gentest: test]]
 void add() {
     EXPECT_EQ(1 + 1, 2);
     ASSERT_TRUE(2 + 2 == 4, "fatal: aborts the current test");
@@ -263,12 +268,7 @@ void counter(Counter& c) {
 ### Mocks
 
 `gentest::mock<T>` is generated from your test sources. It works for both virtual interfaces *and* non-virtual types
-(you don’t need to make production APIs `virtual` just to mock them).
-
-Preconditions (enforced by codegen):
-- At least one scanned source (or a header included from it) must reference `gentest::mock<T>` so the generator emits the specialization.
-- `T` must be non-final, not in an anonymous namespace / local class, and its destructor must not be private.
-- Polymorphic targets (virtual interfaces) must have at least one accessible constructor (default or otherwise).
+(you don’t need `virtual` APIs just to mock them).
 
 Virtual interface example:
 

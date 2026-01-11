@@ -108,6 +108,21 @@ add_test(NAME gentest_codegen_check_invalid
 
 set_tests_properties(gentest_codegen_check_invalid PROPERTIES WILL_FAIL TRUE)
 
+gentest_add_check_death(
+    NAME gentest_codegen_baseline_requires_bench
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "'baseline' requires 'bench' or 'jitter'"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/baseline_requires_bench.cpp
+        --
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
 # Generator negative tests for mocks: robust diagnostics
 gentest_add_check_death(
     NAME gentest_codegen_mock_incomplete_virtual_msg
@@ -203,8 +218,8 @@ gentest_add_check_death(
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
 # End-to-end behavioral checks with robust counting
-gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 6 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 6)
+gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 8 FAIL 0 SKIP 0)
+gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 8)
 
 gentest_add_check_counts(NAME integration_counts PROG $<TARGET_FILE:gentest_integration_tests> PASS 3 FAIL 0 SKIP 1)
 gentest_add_check_counts(NAME integration_list_counts PROG $<TARGET_FILE:gentest_integration_tests> LIST CASES 4)
@@ -388,7 +403,7 @@ gentest_add_check_death(
 
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
-gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 6 ARGS --list-tests)
+gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 8 ARGS --list-tests)
 gentest_add_check_lines(NAME integration_list_tests_lines PROG $<TARGET_FILE:gentest_integration_tests> LINES 4 ARGS --list-tests)
 
 gentest_add_check_counts(
@@ -398,6 +413,22 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --run-test=unit/arithmetic/sum)
+
+gentest_add_check_counts(
+    NAME run_test_default_name_free
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run-test=unit/default_name_free)
+
+gentest_add_check_counts(
+    NAME run_test_default_name_member
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run-test=unit/DefaultNameFixture/default_name_member)
 
 gentest_add_check_exit_code(
     NAME run_test_not_found
@@ -430,7 +461,7 @@ gentest_add_check_file_contains(
     EXPECT_SUBSTRING "<property name=\"requirement\" value=\"#42\""
     ARGS --junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml)
 
-gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 12 FAIL 0 SKIP 0 ARGS --repeat=2)
+gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 16 FAIL 0 SKIP 0 ARGS --repeat=2)
 
 gentest_add_check_counts(NAME failing_fail_fast PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 1 SKIP 0 ARGS --fail-fast)
 

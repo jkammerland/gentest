@@ -37,6 +37,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     -> AttributeSummary {
     AttributeSummary summary;
 
+    bool                       saw_case = false;
     bool                       saw_test = false;
     bool                       saw_bench = false;
     bool                       saw_jitter = false;
@@ -55,12 +56,16 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             saw_test = true;
-            if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
-                summary.had_error = true;
-                report("'test' requires exactly one non-empty string argument");
+            saw_case = true;
+            if (attr.arguments.empty()) {
                 continue;
             }
-            summary.case_name = attr.arguments.front();
+            if (attr.arguments.size() != 1 || trim_copy(attr.arguments.front()).empty()) {
+                summary.had_error = true;
+                report("'test' takes zero arguments (default name) or exactly one non-empty string argument");
+                continue;
+            }
+            summary.case_name = trim_copy(attr.arguments.front());
         } else if (lowered == "bench" || lowered == "benchmark") {
             if (saw_bench) {
                 summary.had_error = true;
@@ -68,6 +73,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             saw_bench = true;
+            saw_case  = true;
             if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
                 summary.had_error = true;
                 report("'bench' requires exactly one non-empty string argument");
@@ -89,6 +95,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             saw_jitter = true;
+            saw_case   = true;
             if (attr.arguments.size() != 1 || attr.arguments.front().empty()) {
                 summary.had_error = true;
                 report("'jitter' requires exactly one non-empty string argument");
@@ -102,10 +109,12 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'req' requires at least one string argument");
                 continue;
             }
+            saw_case = true;
             for (const auto &req : attr.arguments) {
                 add_unique(summary.requirements, req);
             }
         } else if (lowered == "skip") {
+            saw_case = true;
             summary.should_skip = true;
             if (!attr.arguments.empty()) {
                 std::string reason = attr.arguments.front();
@@ -121,6 +130,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'template' requires a parameter name and at least one type");
                 continue;
             }
+            saw_case = true;
             const std::string &raw_param = attr.arguments.front();
             std::string        param     = trim_copy(raw_param);
             if (param.empty()) {
@@ -150,6 +160,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'parameters' requires a parameter name and at least one value");
                 continue;
             }
+            saw_case = true;
             AttributeSummary::ParamSet set;
             set.param_name = attr.arguments.front();
             for (std::size_t i = 1; i < attr.arguments.size(); ++i)
@@ -162,6 +173,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'parameters_range' requires (name, start, step, end) or (name, \"start:step:end\")");
                 continue;
             }
+            saw_case = true;
             AttributeSummary::RangeSpec spec;
             spec.name = attr.arguments.front();
             if (attr.arguments.size() == 2) {
@@ -192,6 +204,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'parameters_linspace' requires (name, start, end, count)");
                 continue;
             }
+            saw_case = true;
             AttributeSummary::LinspaceSpec spec{attr.arguments[0], attr.arguments[1], attr.arguments[2], attr.arguments[3]};
             summary.parameter_linspaces.push_back(std::move(spec));
         } else if (lowered == "geom" || lowered == "geomspace" || lowered == "geospace") {
@@ -200,6 +213,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'geom' requires (name, start, factor, count)");
                 continue;
             }
+            saw_case = true;
             AttributeSummary::GeomSpec spec{attr.arguments[0], attr.arguments[1], attr.arguments[2], attr.arguments[3]};
             summary.parameter_geoms.push_back(std::move(spec));
         } else if (lowered == "logspace") {
@@ -208,6 +222,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'logspace' requires (name, startExp, endExp, count[, base])");
                 continue;
             }
+            saw_case = true;
             // Reuse GeomSpec storage by encoding base and exponents; expansion handled in discovery
             // We'll store as: name, startExp, endExp, count, with base optionally appended to factor field when provided.
             // Instead, add a dedicated struct in summary to avoid overloading.
@@ -225,6 +240,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'parameters_pack' requires a parameter name tuple and at least one value tuple");
                 continue;
             }
+            saw_case = true;
             auto parse_tuple = [&](const std::string &text, std::vector<std::string> &out) {
                 std::string s = text;
                 // Strip outer parens if present
@@ -317,6 +333,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'fixtures' requires at least one type name");
                 continue;
             }
+            saw_case = true;
             for (const auto &ty : attr.arguments) {
                 if (ty.empty()) {
                     summary.had_error = true;
@@ -331,6 +348,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report(fmt::format("unknown gentest attribute '{}'", attr.name));
                 continue;
             }
+            saw_case = true;
             if (seen_flags.contains(lowered)) {
                 summary.had_error = true;
                 report(fmt::format("duplicate gentest flag attribute '{}'", attr.name));
@@ -369,13 +387,20 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                     report(fmt::format("duplicate '{}' attribute", lowered));
                     continue;
                 }
+                saw_case   = true;
                 seen_owner = attr.arguments.front();
                 add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
             }
         }
     }
 
-    // 'test("...")' is optional: if absent, we fall back to the C++ function name.
+    // baseline is only meaningful for benchmarks/jitter measurements.
+    if (summary.is_baseline && !summary.is_benchmark && !summary.is_jitter) {
+        summary.had_error = true;
+        report("'baseline' requires 'bench' or 'jitter' on the same declaration");
+    }
+
+    summary.is_case = saw_case;
 
     return summary;
 }

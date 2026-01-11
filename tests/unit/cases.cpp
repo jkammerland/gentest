@@ -68,4 +68,16 @@ void negate_condition() {
     EXPECT_EQ(flag, false, "double negation");
 }
 
+[[using gentest: fast]]
+void default_name_free() {
+    EXPECT_TRUE(true);
+}
+
+struct DefaultNameFixture {
+    [[using gentest: fast]]
+    void default_name_member() {
+        EXPECT_TRUE(true);
+    }
+};
+
 } // namespace unit

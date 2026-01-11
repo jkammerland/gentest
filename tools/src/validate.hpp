@@ -12,11 +12,12 @@
 namespace gentest::codegen {
 
 // Summary of function-level attributes after validation.
-// - case_name: discovery name (required)
+// - case_name: optional display base name override (from test("...")/bench("...")/jitter("..."))
 // - tags/requirements: collected metadata
 // - should_skip/skip_reason: skip semantics
 // - had_error: any validation error encountered (diagnosed via `report`)
 struct AttributeSummary {
+    bool                       is_case = false;
     std::optional<std::string> case_name;
     std::vector<std::string>   tags;
     std::vector<std::string>   requirements;

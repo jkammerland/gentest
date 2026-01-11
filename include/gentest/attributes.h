@@ -21,7 +21,14 @@
 //   - If a fixture derives from gentest::FixtureSetup/TearDown, setUp/tearDown are called automatically.
 //   - Applies to free functions only (not member tests) and is always ephemeral.
 //
-// The `test("...")` attribute is required and defines the public case name.
+// Naming:
+// - Any gentest function-level attribute marks the declaration as a case.
+// - `test("...")` is optional and overrides the base name. If omitted, the base
+//   name falls back to the C++ function name (or `FixtureType/method` for member
+//   tests).
+// - Use `test("...")` to disambiguate overloads and keep names stable across
+//   refactors.
+// - `baseline` is only valid for `bench`/`jitter` cases.
 // Additional attribute names (e.g. `slow`, `linux`) are collected as tags,
 // while attributes such as `req("BUG-123")` or `skip("reason")` attach
 // requirements or skipping instructions. All information is extracted by the

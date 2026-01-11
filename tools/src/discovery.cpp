@@ -30,6 +30,31 @@ using gentest::codegen::TypeKind;
 
 namespace gentest::codegen {
 
+namespace {
+[[nodiscard]] std::string derive_namespace_path(const DeclContext *ctx) {
+    std::vector<std::string> parts;
+    const DeclContext       *current = ctx;
+    while (current != nullptr) {
+        if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
+            if (!ns->isAnonymousNamespace()) {
+                parts.push_back(ns->getNameAsString());
+            }
+        }
+        current = current->getParent();
+    }
+    if (parts.empty())
+        return std::string{};
+    std::reverse(parts.begin(), parts.end());
+    std::string out;
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        if (i)
+            out.push_back('/');
+        out += parts[i];
+    }
+    return out;
+}
+} // namespace
+
 TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture) : out_(out), strict_fixture_(strict_fixture) {}
 
 void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
@@ -80,7 +105,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         had_error_ = true;
         report(m);
     });
-    if (!summary.case_name.has_value())
+    if (!summary.is_case)
         return;
     if (!func->doesThisDeclarationHaveABody())
         return;
@@ -122,27 +147,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             current = current->getParent();
         }
         return std::nullopt;
-    };
-
-    auto derive_namespace_path = [&](const DeclContext *ctx) -> std::string {
-        std::vector<std::string> parts;
-        const DeclContext       *current = ctx;
-        while (current != nullptr) {
-            if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
-                if (!ns->isAnonymousNamespace()) {
-                    parts.push_back(ns->getNameAsString());
-                }
-            }
-            current = current->getParent();
-        }
-        if (parts.empty()) return std::string{};
-        std::reverse(parts.begin(), parts.end());
-        std::string out;
-        for (std::size_t i = 0; i < parts.size(); ++i) {
-            if (i) out.push_back('/');
-            out += parts[i];
-        }
-        return out;
     };
 
     // 'fixtures(...)' applies only to free functions; reject on member functions.
@@ -245,7 +249,21 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
     const auto  suite_override = find_suite(func->getDeclContext());
     std::string suite_path     = suite_override.value_or(derive_namespace_path(func->getDeclContext()));
-    std::string base_case_name = summary.case_name.value_or(func->getNameAsString());
+    std::string base_case_name;
+    if (summary.case_name.has_value()) {
+        base_case_name = *summary.case_name;
+    } else if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
+        const auto *fixture = method->getParent();
+        const std::string fixture_name = fixture ? fixture->getNameAsString() : std::string{};
+        const std::string method_name  = method->getNameAsString();
+        if (!fixture_name.empty()) {
+            base_case_name = fixture_name + "/" + method_name;
+        } else {
+            base_case_name = method_name;
+        }
+    } else {
+        base_case_name = func->getNameAsString();
+    }
     std::string final_base     = suite_path.empty() ? base_case_name : (suite_path + "/" + base_case_name);
     // Enforce uniqueness of final base names across this binary
     {
@@ -578,7 +596,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         report(m);
     });
 
-    if (!summary.case_name.has_value()) {
+    if (!summary.is_case) {
         return std::nullopt;
     }
 
@@ -617,7 +635,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         llvm::errs() << fmt::format("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
 
-    auto suite_name = [&]() -> std::optional<std::string> {
+    const auto suite_override = [&]() -> std::optional<std::string> {
         const DeclContext *current = func.getDeclContext();
         while (current != nullptr) {
             if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
@@ -642,19 +660,31 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         return std::nullopt;
     }();
 
-    std::string display_base = *summary.case_name;
-    if (suite_name.has_value()) {
-        const std::string &suite = *suite_name;
-        if (display_base.rfind(suite + '/', 0) != 0) {
-            display_base = suite + "/" + display_base;
+    const std::string suite_path = suite_override.value_or(derive_namespace_path(func.getDeclContext()));
+
+    std::string base_case_name;
+    if (summary.case_name.has_value()) {
+        base_case_name = *summary.case_name;
+    } else if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {
+        const auto *fixture = method->getParent();
+        const std::string fixture_name = fixture ? fixture->getNameAsString() : std::string{};
+        const std::string method_name  = method->getNameAsString();
+        if (!fixture_name.empty()) {
+            base_case_name = fixture_name + "/" + method_name;
+        } else {
+            base_case_name = method_name;
         }
+    } else {
+        base_case_name = func.getNameAsString();
     }
+
+    std::string display_base = suite_path.empty() ? base_case_name : (suite_path + "/" + base_case_name);
 
     TestCaseInfo info{};
     info.qualified_name = std::move(qualified);
     info.display_name   = std::move(display_base);
     info.filename       = filename.str();
-    info.suite_name     = suite_name.value_or(std::string{});
+    info.suite_name     = suite_path;
     info.line           = line;
     info.tags           = std::move(summary.tags);
     info.requirements   = std::move(summary.requirements);
@@ -677,9 +707,9 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
                 report(m);
             });
             info.fixture_qualified_name = record->getQualifiedNameAsString();
-            if (fixture_summary.lifetime == FixtureLifetime::MemberSuite && !suite_name.has_value()) {
+            if (fixture_summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
                 had_error_            = true;
-                report("'fixture(suite)' requires an enclosing namespace annotated with [[using gentest : suite(\"<suite>\")]]");
+                report("'fixture(suite)' requires an enclosing named namespace to derive a suite path");
                 info.fixture_lifetime = FixtureLifetime::MemberEphemeral;
             } else {
                 info.fixture_lifetime = fixture_summary.lifetime;
