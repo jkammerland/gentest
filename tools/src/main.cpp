@@ -182,18 +182,6 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
 int main(int argc, const char **argv) {
     const auto options = parse_arguments(argc, argv);
 
-    const auto debug_sources = get_env_value("GENTEST_CODEGEN_DEBUG_SOURCES");
-    if (debug_sources && *debug_sources != "0") {
-        llvm::errs() << fmt::format("gentest_codegen: debug: {} source(s)\n", options.sources.size());
-        for (const auto &src : options.sources) {
-            llvm::errs() << fmt::format("gentest_codegen: debug: source='{}'\n", src);
-        }
-        llvm::errs() << fmt::format("gentest_codegen: debug: {} clang arg(s)\n", options.clang_args.size());
-        for (const auto &arg : options.clang_args) {
-            llvm::errs() << fmt::format("gentest_codegen: debug: clang_arg='{}'\n", arg);
-        }
-    }
-
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
     std::string                                          db_error;
     if (options.compilation_database) {

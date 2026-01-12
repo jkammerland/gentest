@@ -45,6 +45,57 @@ fs::path normalize_path(const fs::path &path) {
     return out;
 }
 
+bool is_path_within(const fs::path &path, const fs::path &root) {
+    if (root.empty())
+        return false;
+    auto path_it = path.begin();
+    for (auto root_it = root.begin(); root_it != root.end(); ++root_it, ++path_it) {
+        if (path_it == path.end() || *path_it != *root_it) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool resolve_include_path(std::string_view include_path, const fs::path &src_dir, const std::vector<fs::path> &include_roots,
+                          fs::path &resolved) {
+    const fs::path include_rel{std::string(include_path)};
+    std::error_code ec;
+    if (!src_dir.empty()) {
+        const fs::path candidate = src_dir / include_rel;
+        if (fs::exists(candidate, ec) && !ec) {
+            resolved = normalize_path(candidate);
+            return true;
+        }
+    }
+    for (const auto &root : include_roots) {
+        if (root.empty())
+            continue;
+        const fs::path candidate = root / include_rel;
+        if (fs::exists(candidate, ec) && !ec) {
+            resolved = normalize_path(candidate);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool rewrite_include_to_root(const fs::path &resolved, const std::vector<fs::path> &include_roots, std::string &rewritten) {
+    const fs::path normalized = normalize_path(resolved);
+    for (const auto &root : include_roots) {
+        if (root.empty())
+            continue;
+        if (!is_path_within(normalized, root))
+            continue;
+        const fs::path rel = normalized.lexically_relative(root);
+        if (rel.empty() || rel.is_absolute())
+            continue;
+        rewritten = rel.generic_string();
+        return true;
+    }
+    return false;
+}
+
 std::string include_path_for_generated(const fs::path &out_dir, const fs::path &header_path) {
     const fs::path abs_hdr = normalize_path(header_path);
     fs::path       rel     = abs_hdr.lexically_relative(normalize_path(out_dir));
@@ -65,14 +116,23 @@ bool is_header_include_target(std::string_view path) {
     return !(lower == ".c" || lower == ".cc" || lower == ".cpp" || lower == ".cxx" || lower == ".c++" || lower == ".m" || lower == ".mm");
 }
 
-std::vector<std::string> collect_header_includes(const std::vector<std::string> &sources) {
+std::vector<std::string> collect_header_includes(const std::vector<std::string> &sources, const std::vector<fs::path> &include_roots) {
     std::vector<std::string> includes;
     std::set<std::string>    seen;
+    std::vector<fs::path>    normalized_roots;
+    normalized_roots.reserve(include_roots.size());
+    for (const auto &root : include_roots) {
+        if (!root.empty()) {
+            normalized_roots.push_back(normalize_path(root));
+        }
+    }
 
     for (const auto &src : sources) {
         std::ifstream in(src);
         if (!in)
             continue;
+        const fs::path src_path = normalize_path(src);
+        const fs::path src_dir  = src_path.has_parent_path() ? src_path.parent_path() : fs::path{};
         std::string line;
         while (std::getline(in, line)) {
             std::string_view view{line};
@@ -95,13 +155,25 @@ std::vector<std::string> collect_header_includes(const std::vector<std::string> 
             if (end == std::string_view::npos || end <= pos + 1)
                 continue;
             const std::string path = std::string(view.substr(pos + 1, end - pos - 1));
+            if (path == "gentest/mock.h")
+                continue;
             if (!is_header_include_target(path))
                 continue;
+            std::string include_path = path;
+            if (open == '"') {
+                fs::path resolved;
+                if (resolve_include_path(path, src_dir, normalized_roots, resolved)) {
+                    std::string rewritten;
+                    if (rewrite_include_to_root(resolved, normalized_roots, rewritten)) {
+                        include_path = std::move(rewritten);
+                    }
+                }
+            }
             std::string inc_line;
-            inc_line.reserve(path.size() + 12);
+            inc_line.reserve(include_path.size() + 12);
             inc_line += "#include ";
             inc_line += open;
-            inc_line += path;
+            inc_line += include_path;
             inc_line += close;
             if (seen.insert(inc_line).second)
                 includes.push_back(std::move(inc_line));
@@ -117,7 +189,7 @@ std::string render_test_decls_header(const CollectorOptions &options, const std:
     out += "// Do not edit manually.\n\n";
     out += "#pragma once\n\n";
 
-    for (const auto &line : collect_header_includes(options.sources)) {
+    for (const auto &line : collect_header_includes(options.sources, options.include_roots)) {
         out += line;
         out += '\n';
     }
