@@ -9,18 +9,23 @@
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
+#include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
+#include <clang/Lex/PPCallbacks.h>
+#include <clang/Lex/Preprocessor.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
 #include <cstdlib>
 #include <filesystem>
+#include <cctype>
 #include <fmt/core.h>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/raw_ostream.h>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -41,6 +46,173 @@ using gentest::codegen::register_mock_matchers;
 static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
 
 namespace {
+
+struct CapturedInclude {
+    std::string spelling;
+    std::string resolved_path;
+    bool        is_angled = false;
+};
+
+namespace fs = std::filesystem;
+
+fs::path normalize_path(const fs::path &path) {
+    std::error_code ec;
+    fs::path        out = path;
+    if (!out.is_absolute()) {
+        out = fs::absolute(out, ec);
+        if (ec) {
+            return path;
+        }
+    }
+    ec.clear();
+    out = fs::weakly_canonical(out, ec);
+    if (ec) {
+        return path;
+    }
+    return out;
+}
+
+bool is_header_include_target(std::string_view path) {
+    const fs::path p{std::string(path)};
+    std::string    ext = p.extension().string();
+    std::string    lower;
+    lower.resize(ext.size());
+    std::transform(ext.begin(), ext.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (lower.empty())
+        return true;
+    return !(lower == ".c" || lower == ".cc" || lower == ".cpp" || lower == ".cxx" || lower == ".c++" || lower == ".m" || lower == ".mm");
+}
+
+bool is_path_within(const fs::path &path, const fs::path &root) {
+    if (root.empty())
+        return false;
+    auto path_it = path.begin();
+    for (auto root_it = root.begin(); root_it != root.end(); ++root_it, ++path_it) {
+        if (path_it == path.end() || *path_it != *root_it) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void collect_include_roots_from_args(const std::vector<std::string> &args, const fs::path &base_dir,
+                                    std::vector<fs::path> &roots, std::set<std::string> &seen) {
+    auto add_root = [&](std::string_view value) {
+        if (value.empty())
+            return;
+        fs::path p{std::string(value)};
+        if (!p.is_absolute()) {
+            p = base_dir / p;
+        }
+        p = normalize_path(p);
+        const auto key = p.generic_string();
+        if (seen.insert(key).second) {
+            roots.push_back(std::move(p));
+        }
+    };
+
+    auto maybe_add_next = [&](std::size_t &i) {
+        if (i + 1 >= args.size())
+            return;
+        add_root(args[i + 1]);
+        ++i;
+    };
+
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const std::string_view arg = args[i];
+        if (arg == "-I" || arg == "-isystem" || arg == "-iquote" || arg == "-idirafter") {
+            maybe_add_next(i);
+            continue;
+        }
+        if (arg == "/I") {
+            maybe_add_next(i);
+            continue;
+        }
+        if (arg.rfind("-I", 0) == 0 && arg.size() > 2) {
+            add_root(arg.substr(2));
+            continue;
+        }
+        if (arg.rfind("-isystem", 0) == 0 && arg.size() > 8) {
+            add_root(arg.substr(8));
+            continue;
+        }
+        if (arg.rfind("-iquote", 0) == 0 && arg.size() > 7) {
+            add_root(arg.substr(7));
+            continue;
+        }
+        if (arg.rfind("-idirafter", 0) == 0 && arg.size() > 10) {
+            add_root(arg.substr(10));
+            continue;
+        }
+        if (arg.rfind("/I", 0) == 0 && arg.size() > 2) {
+            add_root(arg.substr(2));
+            continue;
+        }
+    }
+}
+
+std::vector<fs::path> collect_include_roots(const clang::tooling::CompilationDatabase &database, const CollectorOptions &options) {
+    std::vector<fs::path> roots;
+    std::set<std::string> seen;
+
+    // Prefer roots from the compilation database (per-source commands); also add any
+    // extra args provided to gentest_codegen, plus user-provided include roots as a
+    // fallback for non-compdb invocations.
+    for (const auto &source : options.sources) {
+        const auto commands = database.getCompileCommands(source);
+        if (commands.empty())
+            continue;
+        const fs::path base_dir{commands.front().Directory};
+        collect_include_roots_from_args(commands.front().CommandLine, base_dir, roots, seen);
+    }
+
+    collect_include_roots_from_args(options.clang_args, fs::current_path(), roots, seen);
+
+    for (const auto &root : options.include_roots) {
+        if (root.empty())
+            continue;
+        const fs::path normalized = normalize_path(root);
+        const auto     key        = normalized.generic_string();
+        if (seen.insert(key).second) {
+            roots.push_back(normalized);
+        }
+    }
+
+    return roots;
+}
+
+std::string make_include_line(const CapturedInclude &include, const std::vector<fs::path> &roots) {
+    const char open  = include.is_angled ? '<' : '"';
+    const char close = include.is_angled ? '>' : '"';
+
+    std::string path = include.spelling;
+    if (!include.is_angled && !include.resolved_path.empty()) {
+        const fs::path resolved = normalize_path(include.resolved_path);
+        std::string   best;
+        for (const auto &root : roots) {
+            if (!is_path_within(resolved, root))
+                continue;
+            const fs::path rel = resolved.lexically_relative(root);
+            if (rel.empty() || rel.is_absolute())
+                continue;
+            const std::string candidate = rel.generic_string();
+            if (best.empty() || candidate.size() < best.size()) {
+                best = candidate;
+            }
+        }
+        if (!best.empty()) {
+            path = std::move(best);
+        }
+    }
+
+    std::string line;
+    line.reserve(path.size() + 12);
+    line += "#include ";
+    line += open;
+    line += path;
+    line += close;
+    return line;
+}
 
 std::optional<std::string> get_env_value(std::string_view name) {
     std::string name_str{name};
@@ -177,6 +349,66 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     return opts;
 }
 
+class IncludeCapturingCallbacks : public clang::PPCallbacks {
+public:
+    IncludeCapturingCallbacks(clang::SourceManager &sm, std::vector<CapturedInclude> &out) : sm_(sm), out_(out) {}
+
+    void InclusionDirective(clang::SourceLocation HashLoc, const clang::Token &, llvm::StringRef FileName, bool IsAngled,
+                            clang::CharSourceRange, clang::OptionalFileEntryRef File, llvm::StringRef, llvm::StringRef,
+                            const clang::Module *, bool, clang::SrcMgr::CharacteristicKind) override {
+        if (!sm_.isWrittenInMainFile(HashLoc)) {
+            return;
+        }
+        if (FileName.empty()) {
+            return;
+        }
+        if (FileName == "gentest/mock.h") {
+            return;
+        }
+
+        CapturedInclude inc;
+        inc.spelling  = FileName.str();
+        inc.is_angled = IsAngled;
+        if (File) {
+            inc.resolved_path = std::string(File->getName());
+        }
+        out_.push_back(std::move(inc));
+    }
+
+private:
+    clang::SourceManager &        sm_;
+    std::vector<CapturedInclude> &out_;
+};
+
+class IncludeCapturingAction : public clang::ASTFrontendAction {
+public:
+    IncludeCapturingAction(clang::ast_matchers::MatchFinder &finder, std::vector<CapturedInclude> &includes)
+        : finder_(finder), includes_(includes) {}
+
+    std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &ci, llvm::StringRef) override {
+        ci.getPreprocessor().addPPCallbacks(std::make_unique<IncludeCapturingCallbacks>(ci.getSourceManager(), includes_));
+        return finder_.newASTConsumer();
+    }
+
+private:
+    clang::ast_matchers::MatchFinder &finder_;
+    std::vector<CapturedInclude> &    includes_;
+};
+
+class IncludeCapturingFactory : public clang::tooling::FrontendActionFactory {
+public:
+    IncludeCapturingFactory(clang::ast_matchers::MatchFinder &finder, std::vector<CapturedInclude> &includes)
+        : finder_(finder), includes_(includes) {}
+
+    std::unique_ptr<clang::FrontendAction> create() override {
+        return std::make_unique<IncludeCapturingAction>(finder_, includes_);
+    }
+
+private:
+    clang::ast_matchers::MatchFinder &finder_;
+    std::vector<CapturedInclude> &    includes_;
+};
+
 } // namespace
 
 int main(int argc, const char **argv) {
@@ -207,12 +439,13 @@ int main(int argc, const char **argv) {
     TestCaseCollector                            collector{cases, options.strict_fixture};
     std::vector<gentest::codegen::MockClassInfo> mocks;
     MockUsageCollector                           mock_collector{mocks};
+    std::vector<CapturedInclude>                 includes;
 
     MatchFinder finder;
     finder.addMatcher(functionDecl().bind("gentest.func"), &collector);
     register_mock_matchers(finder, mock_collector);
 
-    const auto factory = newFrontendActionFactory(&finder);
+    const auto factory = std::make_unique<IncludeCapturingFactory>(finder, includes);
     for (const auto &source : options.sources) {
         clang::tooling::ClangTool tool{*database, std::vector<std::string>{source}};
         if (options.quiet_clang) {
@@ -307,5 +540,23 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
-    return gentest::codegen::emit(options, cases, mocks);
+    std::vector<std::string> include_lines;
+    include_lines.reserve(includes.size());
+
+    const auto roots = collect_include_roots(*database, options);
+
+    std::set<std::string> seen_include_lines;
+    for (const auto &inc : includes) {
+        const std::string_view target = inc.resolved_path.empty() ? std::string_view{inc.spelling} : std::string_view{inc.resolved_path};
+        if (!is_header_include_target(target)) {
+            continue;
+        }
+
+        auto line = make_include_line(inc, roots);
+        if (seen_include_lines.insert(line).second) {
+            include_lines.push_back(std::move(line));
+        }
+    }
+
+    return gentest::codegen::emit(options, cases, mocks, include_lines);
 }

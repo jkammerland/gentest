@@ -18,6 +18,6 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
 
 // Write the rendered content to `options.output_path`. Returns 0 on success.
 int emit(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases,
-         const std::vector<MockClassInfo> &mocks);
+         const std::vector<MockClassInfo> &mocks, const std::vector<std::string> &include_lines);
 
 } // namespace gentest::codegen

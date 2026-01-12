@@ -45,57 +45,6 @@ fs::path normalize_path(const fs::path &path) {
     return out;
 }
 
-bool is_path_within(const fs::path &path, const fs::path &root) {
-    if (root.empty())
-        return false;
-    auto path_it = path.begin();
-    for (auto root_it = root.begin(); root_it != root.end(); ++root_it, ++path_it) {
-        if (path_it == path.end() || *path_it != *root_it) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool resolve_include_path(std::string_view include_path, const fs::path &src_dir, const std::vector<fs::path> &include_roots,
-                          fs::path &resolved) {
-    const fs::path include_rel{std::string(include_path)};
-    std::error_code ec;
-    if (!src_dir.empty()) {
-        const fs::path candidate = src_dir / include_rel;
-        if (fs::exists(candidate, ec) && !ec) {
-            resolved = normalize_path(candidate);
-            return true;
-        }
-    }
-    for (const auto &root : include_roots) {
-        if (root.empty())
-            continue;
-        const fs::path candidate = root / include_rel;
-        if (fs::exists(candidate, ec) && !ec) {
-            resolved = normalize_path(candidate);
-            return true;
-        }
-    }
-    return false;
-}
-
-bool rewrite_include_to_root(const fs::path &resolved, const std::vector<fs::path> &include_roots, std::string &rewritten) {
-    const fs::path normalized = normalize_path(resolved);
-    for (const auto &root : include_roots) {
-        if (root.empty())
-            continue;
-        if (!is_path_within(normalized, root))
-            continue;
-        const fs::path rel = normalized.lexically_relative(root);
-        if (rel.empty() || rel.is_absolute())
-            continue;
-        rewritten = rel.generic_string();
-        return true;
-    }
-    return false;
-}
-
 std::string include_path_for_generated(const fs::path &out_dir, const fs::path &header_path) {
     const fs::path abs_hdr = normalize_path(header_path);
     fs::path       rel     = abs_hdr.lexically_relative(normalize_path(out_dir));
@@ -105,93 +54,17 @@ std::string include_path_for_generated(const fs::path &out_dir, const fs::path &
     return rel.generic_string();
 }
 
-bool is_header_include_target(std::string_view path) {
-    const fs::path          p{std::string(path)};
-    const std::string       ext = p.extension().string();
-    std::string             lower;
-    lower.resize(ext.size());
-    std::transform(ext.begin(), ext.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (lower.empty())
-        return true;
-    return !(lower == ".c" || lower == ".cc" || lower == ".cpp" || lower == ".cxx" || lower == ".c++" || lower == ".m" || lower == ".mm");
-}
-
-std::vector<std::string> collect_header_includes(const std::vector<std::string> &sources, const std::vector<fs::path> &include_roots) {
-    std::vector<std::string> includes;
-    std::set<std::string>    seen;
-    std::vector<fs::path>    normalized_roots;
-    normalized_roots.reserve(include_roots.size());
-    for (const auto &root : include_roots) {
-        if (!root.empty()) {
-            normalized_roots.push_back(normalize_path(root));
-        }
-    }
-
-    for (const auto &src : sources) {
-        std::ifstream in(src);
-        if (!in)
-            continue;
-        const fs::path src_path = normalize_path(src);
-        const fs::path src_dir  = src_path.has_parent_path() ? src_path.parent_path() : fs::path{};
-        std::string line;
-        while (std::getline(in, line)) {
-            std::string_view view{line};
-            std::size_t      pos = view.find_first_not_of(" \t");
-            if (pos == std::string_view::npos || view[pos] != '#')
-                continue;
-            pos = view.find_first_not_of(" \t", pos + 1);
-            if (pos == std::string_view::npos)
-                continue;
-            if (view.compare(pos, 7, "include") != 0)
-                continue;
-            pos = view.find_first_not_of(" \t", pos + 7);
-            if (pos == std::string_view::npos)
-                continue;
-            const char open = view[pos];
-            if (open != '"' && open != '<')
-                continue;
-            const char close = (open == '"') ? '"' : '>';
-            const std::size_t end = view.find(close, pos + 1);
-            if (end == std::string_view::npos || end <= pos + 1)
-                continue;
-            const std::string path = std::string(view.substr(pos + 1, end - pos - 1));
-            if (path == "gentest/mock.h")
-                continue;
-            if (!is_header_include_target(path))
-                continue;
-            std::string include_path = path;
-            if (open == '"') {
-                fs::path resolved;
-                if (resolve_include_path(path, src_dir, normalized_roots, resolved)) {
-                    std::string rewritten;
-                    if (rewrite_include_to_root(resolved, normalized_roots, rewritten)) {
-                        include_path = std::move(rewritten);
-                    }
-                }
-            }
-            std::string inc_line;
-            inc_line.reserve(include_path.size() + 12);
-            inc_line += "#include ";
-            inc_line += open;
-            inc_line += include_path;
-            inc_line += close;
-            if (seen.insert(inc_line).second)
-                includes.push_back(std::move(inc_line));
-        }
-    }
-
-    return includes;
-}
-
-std::string render_test_decls_header(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases) {
+std::string render_test_decls_header(const std::vector<std::string> &include_lines, const std::vector<TestCaseInfo> &cases) {
     std::string out;
     out += "// This file is auto-generated by gentest_codegen.\n";
     out += "// Do not edit manually.\n\n";
     out += "#pragma once\n\n";
 
-    for (const auto &line : collect_header_includes(options.sources, options.include_roots)) {
+    for (const auto &line : include_lines) {
         out += line;
-        out += '\n';
+        if (!out.empty() && out.back() != '\n') {
+            out += '\n';
+        }
     }
     out += '\n';
 
@@ -369,7 +242,8 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     return output;
 }
 
-int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<MockClassInfo> &mocks) {
+int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<MockClassInfo> &mocks,
+         const std::vector<std::string> &include_lines) {
     fs::path out_path = opts.output_path;
     if (!ensure_parent_dir(out_path)) {
         return 1;
@@ -381,7 +255,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         if (!ensure_parent_dir(opts.test_decls_path)) {
             return 1;
         }
-        const auto decls = render_test_decls_header(opts, cases);
+        const auto decls = render_test_decls_header(include_lines, cases);
         if (!write_file_atomic_if_changed(opts.test_decls_path, decls)) {
             return 1;
         }

@@ -185,7 +185,7 @@ function(_gentest_attach_codegen_impl target)
         --mock-registry ${_gentest_mock_registry}
         --mock-impl ${_gentest_mock_impl}
         --compdb ${CMAKE_BINARY_DIR}
-        --include-root ${CMAKE_CURRENT_SOURCE_DIR})
+        )
 
     if(GENTEST_NO_INCLUDE_SOURCES)
         list(APPEND _command --no-include-sources)
