@@ -29,3 +29,4 @@
 - Correctness fixes + regression tests: [`docs/stories/001_p0_correctness_and_regression_tests.md`](stories/001_p0_correctness_and_regression_tests.md)
 - Runtime outcomes (`skip()` / `xfail()`): [`docs/stories/002_runtime_skip_and_xfail.md`](stories/002_runtime_skip_and_xfail.md)
 - Codegen include roots + fixture headers: [`docs/stories/003_codegen_include_roots_and_fixture_headers.md`](stories/003_codegen_include_roots_and_fixture_headers.md)
+- Codegen no `.cpp` includes + auto sources: [`docs/stories/004_codegen_no_cpp_includes_and_auto_sources.md`](stories/004_codegen_no_cpp_includes_and_auto_sources.md)

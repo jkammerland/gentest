@@ -1,9 +1,5 @@
 #include "gentest/assert_libassert.h"
-
-struct Simple {
-    int  v() const { return 0; }
-    void set(int) {}
-};
+#include "libassert/mock_types.hpp"
 
 // Bring in mock API (includes generated registry)
 #include "gentest/mock.h"

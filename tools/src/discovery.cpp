@@ -10,8 +10,10 @@
 #include "validate.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <clang/AST/Decl.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
@@ -52,6 +54,57 @@ namespace {
         out += parts[i];
     }
     return out;
+}
+
+std::string lower_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+bool is_header_path(std::string_view path) {
+    const std::filesystem::path p{std::string(path)};
+    std::string                ext = lower_copy(p.extension().string());
+    if (ext.empty()) {
+        return true;
+    }
+    return !(ext == ".c" || ext == ".cc" || ext == ".cpp" || ext == ".cxx" || ext == ".c++" || ext == ".m" || ext == ".mm");
+}
+
+struct FunctionSignature {
+    std::string              return_type;
+    std::vector<std::string> params;
+    bool                     is_variadic = false;
+    bool                     is_constexpr = false;
+    bool                     is_noexcept = false;
+};
+
+FunctionSignature collect_signature(const FunctionDecl &func, const ASTContext &ctx) {
+    FunctionSignature sig{};
+    PrintingPolicy    policy(ctx.getLangOpts());
+    policy.adjustForCPlusPlus();
+    policy.SuppressScope          = false;
+    policy.FullyQualifiedName     = true;
+    policy.SuppressUnwrittenScope = false;
+
+    {
+        llvm::raw_string_ostream os(sig.return_type);
+        func.getReturnType().print(os, policy);
+        os.flush();
+    }
+    sig.params.reserve(func.getNumParams());
+    for (const ParmVarDecl *p : func.parameters()) {
+        std::string ty;
+        llvm::raw_string_ostream os(ty);
+        p->getType().print(os, policy);
+        os.flush();
+        sig.params.push_back(std::move(ty));
+    }
+    sig.is_variadic = func.isVariadic();
+    sig.is_constexpr = func.isConstexpr();
+    if (const auto *proto = func.getType()->getAs<FunctionProtoType>()) {
+        sig.is_noexcept = proto->isNothrow();
+    }
+    return sig;
 }
 } // namespace
 
@@ -103,8 +156,16 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     });
     if (!summary.is_case)
         return;
-    if (!func->doesThisDeclarationHaveABody())
+    if (func->isInAnonymousNamespace()) {
+        had_error_ = true;
+        report("tests in anonymous namespaces are not supported; move the test to a named namespace");
         return;
+    }
+    if (!func->doesThisDeclarationHaveABody()) {
+        had_error_ = true;
+        report("gentest attributes applied to a forward declaration without a definition are not supported");
+        return;
+    }
 
     auto report_namespace = [&](const NamespaceDecl &ns, std::string_view message) {
         SourceLocation loc = sm->getSpellingLoc(ns.getBeginLoc());
@@ -157,15 +218,38 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     std::string qualified = func->getQualifiedNameAsString();
     if (qualified.empty())
         qualified = func->getNameAsString();
-    if (qualified.find("(anonymous namespace)") != std::string::npos) {
-        llvm::errs() << fmt::format("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
-        return;
-    }
     auto file_loc = sm->getFileLoc(func->getLocation());
     auto filename = sm->getFilename(file_loc);
     if (filename.empty())
         return;
     unsigned lnum = sm->getSpellingLineNumber(file_loc);
+
+    const bool   definition_in_header = is_header_path(filename.str());
+    const bool   is_template           = func->getTemplatedKind() != FunctionDecl::TK_NonTemplate;
+    const auto   signature             = collect_signature(*func, *result.Context);
+
+    if (is_template && !definition_in_header) {
+        had_error_ = true;
+        report("template tests must be defined in a header so the wrapper TU can instantiate them");
+        return;
+    }
+
+    if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
+        const auto *record = method->getParent();
+        if (record != nullptr) {
+            const auto *def = record->getDefinition();
+            const Decl *decl = def != nullptr ? static_cast<const Decl *>(def) : static_cast<const Decl *>(record);
+            SourceLocation rloc = sm->getSpellingLoc(decl->getLocation());
+            if (rloc.isInvalid())
+                rloc = sm->getSpellingLoc(decl->getBeginLoc());
+            const llvm::StringRef rec_file = sm->getFilename(rloc);
+            if (!rec_file.empty() && !is_header_path(rec_file.str())) {
+                had_error_ = true;
+                report(fmt::format("fixture type '{}' must be defined in a header (found in '{}')", record->getQualifiedNameAsString(),
+                                   rec_file.str()));
+            }
+        }
+    }
 
     // Validate template attribute usage and collect declaration order (optional under flag).
     std::vector<disc::TParam> fn_params_order;
@@ -295,6 +379,74 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.template_args  = tpl_ordered;
         info.call_arguments = call_args;
         info.returns_value  = !func->getReturnType()->isVoidType();
+        info.definition_in_header = definition_in_header;
+        info.is_template = is_template;
+        info.return_type = signature.return_type;
+        info.param_decls = signature.params;
+        info.is_variadic = signature.is_variadic;
+        info.is_constexpr = signature.is_constexpr;
+        info.is_noexcept = signature.is_noexcept;
+
+        auto add_required_header = [&](const std::string &path) {
+            if (path.empty())
+                return;
+            if (!is_header_path(path))
+                return;
+            if (std::find(info.required_headers.begin(), info.required_headers.end(), path) == info.required_headers.end()) {
+                info.required_headers.push_back(path);
+            }
+        };
+
+        auto add_required_header_from_decl = [&](const Decl *decl) {
+            if (decl == nullptr)
+                return;
+            SourceLocation loc = sm->getSpellingLoc(decl->getLocation());
+            if (loc.isInvalid())
+                loc = sm->getSpellingLoc(decl->getBeginLoc());
+            if (loc.isInvalid())
+                return;
+            if (loc.isMacroID())
+                loc = sm->getExpansionLoc(loc);
+            if (loc.isInvalid())
+                return;
+            if (sm->isInSystemHeader(loc) || sm->isWrittenInBuiltinFile(loc))
+                return;
+            const llvm::StringRef file = sm->getFilename(loc);
+            if (file.empty())
+                return;
+            add_required_header(file.str());
+        };
+
+        // Template tests must have their definitions visible to the wrapper TU.
+        if (info.is_template) {
+            add_required_header(info.filename);
+        }
+
+        // Member tests require the fixture type definition.
+        if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
+            if (const auto *record = method->getParent()) {
+                const auto *def  = record->getDefinition();
+                const Decl *decl = def != nullptr ? static_cast<const Decl *>(def) : static_cast<const Decl *>(record);
+                add_required_header_from_decl(decl);
+            }
+        }
+
+        // Pull in non-system record types referenced by the signature so forward decls compile.
+        {
+            const auto add_type_record = [&](QualType qt) {
+                if (qt.isNull())
+                    return;
+                if (const auto *record = qt->getAsCXXRecordDecl()) {
+                    const auto *def  = record->getDefinition();
+                    const Decl *decl = def != nullptr ? static_cast<const Decl *>(def) : static_cast<const Decl *>(record);
+                    add_required_header_from_decl(decl);
+                }
+            };
+            add_type_record(func->getReturnType());
+            for (const auto *param : func->parameters()) {
+                add_type_record(param->getType());
+            }
+        }
         // Qualify fixture type names if unqualified, using the function's enclosing scope
         if (!summary.fixtures_types.empty()) {
             for (const auto &ty : summary.fixtures_types) {

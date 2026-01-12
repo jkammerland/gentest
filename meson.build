@@ -42,17 +42,18 @@ tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 
 foreach s : tests_suites
   out_cpp = 'test_impl_@0@.cpp'.format(s)
+  out_hpp = 'test_decls_@0@.hpp'.format(s)
   gen = custom_target(
     'gen_@0@'.format(s),
-    output: out_cpp,
+    output: [out_cpp, out_hpp],
     input: 'tests/@0@/cases.cpp'.format(s),
-    command: [codegen, '--output', '@OUTPUT@', gen_args, '@INPUT@', clang_args],
+    command: [codegen, '--output', '@OUTPUT0@', '--test-decls', '@OUTPUT1@', gen_args, '@INPUT@', clang_args],
     build_by_default: true
   )
 
   exe = executable(
     'gentest_@0@_meson'.format(s),
-    ['tests/support/test_entry.cpp', gen],
+    ['tests/support/test_entry.cpp', 'tests/@0@/cases.cpp'.format(s), gen[0]],
     include_directories: inc,
     link_with: libgentest_runtime,
     cpp_args: runtime_cargs,

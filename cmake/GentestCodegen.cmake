@@ -10,14 +10,71 @@ if(NOT DEFINED GENTEST_CODEGEN_TARGET)
         "CMake target name that produces a runnable gentest_codegen executable (alternative to GENTEST_CODEGEN_EXECUTABLE).")
 endif()
 
-function(gentest_attach_codegen target)
+function(_gentest_collect_target_sources target out_var)
+    get_property(_gentest_target_sources TARGET ${target} PROPERTY SOURCES)
+    if(NOT _gentest_target_sources)
+        set(${out_var} "" PARENT_SCOPE)
+        return()
+    endif()
+
+    set(_gentest_tu_exts ".c" ".cc" ".cpp" ".cxx" ".c++" ".m" ".mm")
+    set(_gentest_filtered "")
+
+    set(_gentest_bin_dir "${CMAKE_CURRENT_BINARY_DIR}")
+    cmake_path(ABSOLUTE_PATH _gentest_bin_dir BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" NORMALIZE
+               OUTPUT_VARIABLE _gentest_bin_dir)
+
+    foreach(_gentest_src IN LISTS _gentest_target_sources)
+        if("${_gentest_src}" MATCHES "\\$<")
+            continue()
+        endif()
+
+        get_filename_component(_gentest_ext "${_gentest_src}" EXT)
+        if(_gentest_ext STREQUAL "")
+            continue()
+        endif()
+        string(TOLOWER "${_gentest_ext}" _gentest_ext_lower)
+        if(NOT _gentest_ext_lower IN_LIST _gentest_tu_exts)
+            continue()
+        endif()
+
+        set(_gentest_src_abs "${_gentest_src}")
+        if(NOT IS_ABSOLUTE "${_gentest_src_abs}")
+            cmake_path(ABSOLUTE_PATH _gentest_src_abs BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
+                       OUTPUT_VARIABLE _gentest_src_abs)
+        else()
+            cmake_path(NORMAL_PATH _gentest_src_abs OUTPUT_VARIABLE _gentest_src_abs)
+        endif()
+
+        cmake_path(RELATIVE_PATH _gentest_src_abs BASE_DIRECTORY "${_gentest_bin_dir}" OUTPUT_VARIABLE _gentest_rel)
+        if(NOT _gentest_rel MATCHES "^\\.\\." AND NOT IS_ABSOLUTE "${_gentest_rel}")
+            continue()
+        endif()
+
+        # Always return absolute paths so the code generator can be run from
+        # the build tree without relying on the current working directory.
+        list(APPEND _gentest_filtered "${_gentest_src_abs}")
+    endforeach()
+
+    set(${out_var} "${_gentest_filtered}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_attach_codegen_impl target)
     set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
     set(one_value_args OUTPUT ENTRY)
     set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
+    set(_gentest_auto_sources FALSE)
     if(NOT GENTEST_SOURCES)
-        message(FATAL_ERROR "gentest_attach_codegen requires SOURCES")
+        _gentest_collect_target_sources(${target} GENTEST_SOURCES)
+        set(_gentest_auto_sources TRUE)
+    endif()
+
+    if(NOT GENTEST_SOURCES)
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${target}): no scan sources found. "
+            "Add translation units with target_sources() or pass SOURCES explicitly.")
     endif()
 
     if(NOT GENTEST_ENTRY)
@@ -106,8 +163,9 @@ function(gentest_attach_codegen target)
     string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
     set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
     # Generate inline mock implementations as a header; it will be included
-    # by the generated test implementation after including sources.
+    # by the generated test implementation after test declarations.
     set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
+    set(_gentest_test_decls "${_gentest_output_dir}/${_gentest_target_id}_test_decls.hpp")
 
     set(_command_launcher ${_gentest_codegen_executable})
     if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
@@ -122,6 +180,7 @@ function(gentest_attach_codegen target)
 
     set(_command ${_command_launcher}
         --output ${GENTEST_OUTPUT}
+        --test-decls ${_gentest_test_decls}
         --entry ${GENTEST_ENTRY}
         --mock-registry ${_gentest_mock_registry}
         --mock-impl ${_gentest_mock_impl}
@@ -170,7 +229,7 @@ function(gentest_attach_codegen target)
     endif()
 
     set(_gentest_custom_command_args
-        OUTPUT ${GENTEST_OUTPUT} ${_gentest_mock_registry} ${_gentest_mock_impl}
+        OUTPUT ${GENTEST_OUTPUT} ${_gentest_test_decls} ${_gentest_mock_registry} ${_gentest_mock_impl}
         COMMAND ${_command}
         COMMAND_EXPAND_LISTS
         DEPENDS ${_gentest_codegen_deps} ${GENTEST_SOURCES} ${GENTEST_DEPENDS}
@@ -184,9 +243,33 @@ function(gentest_attach_codegen target)
 
     cmake_policy(POP)
 
-    # Only compile the generated test implementation; the mock impl header
-    # is included by it and must not be compiled as a separate TU.
-    target_sources(${target} PRIVATE ${GENTEST_OUTPUT})
+    set(_gentest_codegen_target_name "gentest_codegen_${_gentest_target_id}")
+    add_custom_target(${_gentest_codegen_target_name}
+        DEPENDS ${GENTEST_OUTPUT} ${_gentest_test_decls} ${_gentest_mock_registry} ${_gentest_mock_impl})
+    add_dependencies(${target} ${_gentest_codegen_target_name})
+
+    # Compile scanned sources as real TUs; the generated impl no longer includes them.
+    # The mock impl header is included by the generated implementation and must not
+    # be compiled as a separate TU.
+    if(_gentest_auto_sources)
+        target_sources(${target} PRIVATE ${GENTEST_OUTPUT})
+    else()
+        target_sources(${target} PRIVATE ${GENTEST_OUTPUT} ${GENTEST_SOURCES})
+    endif()
+
+    set(_gentest_dep_sources "")
+    foreach(_gentest_src IN LISTS GENTEST_SOURCES)
+        if("${_gentest_src}" MATCHES "\\$<")
+            continue()
+        endif()
+        list(APPEND _gentest_dep_sources "${_gentest_src}")
+    endforeach()
+    if(_gentest_dep_sources)
+        set(_gentest_codegen_outputs
+            "${GENTEST_OUTPUT};${_gentest_test_decls};${_gentest_mock_registry};${_gentest_mock_impl}")
+        set_source_files_properties(${_gentest_dep_sources}
+            PROPERTIES OBJECT_DEPENDS "${_gentest_codegen_outputs}")
+    endif()
 
     get_filename_component(_gentest_mock_dir "${_gentest_mock_registry}" DIRECTORY)
     target_include_directories(${target} PRIVATE ${_gentest_mock_dir})
@@ -209,6 +292,101 @@ function(gentest_attach_codegen target)
     if(_gentest_codegen_target)
         add_dependencies(${target} ${_gentest_codegen_target})
     endif()
+endfunction()
+
+function(_gentest_attach_codegen_finalize target)
+    get_target_property(_gentest_registered "${target}" GENTEST_CODEGEN_REGISTERED)
+    if(NOT _gentest_registered)
+        message(FATAL_ERROR "gentest_attach_codegen(${target}): internal error: finalize called for unregistered target")
+    endif()
+
+    get_target_property(_gentest_output "${target}" GENTEST_CODEGEN_OUTPUT)
+    get_target_property(_gentest_entry "${target}" GENTEST_CODEGEN_ENTRY)
+    get_target_property(_gentest_sources "${target}" GENTEST_CODEGEN_SOURCES)
+    get_target_property(_gentest_clang_args "${target}" GENTEST_CODEGEN_CLANG_ARGS)
+    get_target_property(_gentest_depends "${target}" GENTEST_CODEGEN_DEPENDS)
+
+    get_target_property(_gentest_no_include "${target}" GENTEST_CODEGEN_NO_INCLUDE_SOURCES)
+    get_target_property(_gentest_strict_fixture "${target}" GENTEST_CODEGEN_STRICT_FIXTURE)
+    get_target_property(_gentest_quiet_clang "${target}" GENTEST_CODEGEN_QUIET_CLANG)
+
+    set(_gentest_call_args "")
+    if(_gentest_output)
+        list(APPEND _gentest_call_args OUTPUT "${_gentest_output}")
+    endif()
+    if(_gentest_entry)
+        list(APPEND _gentest_call_args ENTRY "${_gentest_entry}")
+    endif()
+    if(_gentest_sources)
+        list(APPEND _gentest_call_args SOURCES ${_gentest_sources})
+    endif()
+    if(_gentest_clang_args)
+        list(APPEND _gentest_call_args CLANG_ARGS ${_gentest_clang_args})
+    endif()
+    if(_gentest_depends)
+        list(APPEND _gentest_call_args DEPENDS ${_gentest_depends})
+    endif()
+
+    if(_gentest_no_include)
+        list(APPEND _gentest_call_args NO_INCLUDE_SOURCES)
+    endif()
+    if(_gentest_strict_fixture)
+        list(APPEND _gentest_call_args STRICT_FIXTURE)
+    endif()
+    if(_gentest_quiet_clang)
+        list(APPEND _gentest_call_args QUIET_CLANG)
+    endif()
+
+    _gentest_attach_codegen_impl(${target} ${_gentest_call_args})
+endfunction()
+
+function(gentest_attach_codegen target)
+    set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
+    set(one_value_args OUTPUT ENTRY)
+    set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
+    cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    get_target_property(_gentest_registered "${target}" GENTEST_CODEGEN_REGISTERED)
+    if(_gentest_registered)
+        message(FATAL_ERROR "gentest_attach_codegen(${target}): called more than once for the same target")
+    endif()
+    set_property(TARGET "${target}" PROPERTY GENTEST_CODEGEN_REGISTERED TRUE)
+
+    if(GENTEST_OUTPUT)
+        set_property(TARGET "${target}" PROPERTY GENTEST_CODEGEN_OUTPUT "${GENTEST_OUTPUT}")
+    endif()
+    if(GENTEST_ENTRY)
+        set_property(TARGET "${target}" PROPERTY GENTEST_CODEGEN_ENTRY "${GENTEST_ENTRY}")
+    endif()
+    if(GENTEST_SOURCES)
+        set_property(TARGET "${target}" PROPERTY GENTEST_CODEGEN_SOURCES "${GENTEST_SOURCES}")
+    endif()
+    if(GENTEST_CLANG_ARGS)
+        set_property(TARGET "${target}" PROPERTY GENTEST_CODEGEN_CLANG_ARGS "${GENTEST_CLANG_ARGS}")
+    endif()
+    if(GENTEST_DEPENDS)
+        set_property(TARGET "${target}" PROPERTY GENTEST_CODEGEN_DEPENDS "${GENTEST_DEPENDS}")
+    endif()
+
+    if(GENTEST_NO_INCLUDE_SOURCES)
+        set_property(TARGET "${target}" PROPERTY GENTEST_CODEGEN_NO_INCLUDE_SOURCES TRUE)
+    endif()
+    if(GENTEST_STRICT_FIXTURE)
+        set_property(TARGET "${target}" PROPERTY GENTEST_CODEGEN_STRICT_FIXTURE TRUE)
+    endif()
+    if(GENTEST_QUIET_CLANG)
+        set_property(TARGET "${target}" PROPERTY GENTEST_CODEGEN_QUIET_CLANG TRUE)
+    endif()
+
+    string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
+    set(_gentest_defer_id "gentest_codegen_${_gentest_target_id}")
+    unset(_gentest_target_id)
+
+    # `cmake_language(DEFER)` evaluates variable references at execution time.
+    # Use `cmake_language(EVAL)` + bracket args to freeze the target name.
+    cmake_language(EVAL CODE
+        "cmake_language(DEFER ID ${_gentest_defer_id} CALL _gentest_attach_codegen_finalize [[${target}]])")
+    unset(_gentest_defer_id)
 endfunction()
 
 function(_gentest_write_discover_tests_script out_script)

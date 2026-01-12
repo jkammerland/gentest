@@ -5,6 +5,7 @@
 #include <vector>
 #include <complex>
 #include "gentest/bench_util.h"
+#include "benchmarks/bench_types.hpp"
 
 namespace benchmarks {
 
@@ -31,12 +32,6 @@ void jitter_sin() {
     volatile double x = 1.2345;
     volatile double y = std::sin(x);
     (void)y;
-}
-
-// Struct and complex parameterization smoke for benches
-namespace demo {
-struct Blob { int a; int b; };
-inline int work(const Blob& b) { return (b.a * 3) + (b.b * 5); }
 }
 
 [[using gentest: bench("struct/process"), parameters(p, benchmarks::demo::Blob{1,2}, benchmarks::demo::Blob{3,4})]]

@@ -8,7 +8,7 @@
 //
 // Placeholders and where they apply:
 // - Main file (test_impl):
-//     {{INCLUDE_SOURCES}}, {{FORWARD_DECLS}}, {{TRAIT_DECLS}},
+//     {{TEST_DECLS_INCLUDE}}, {{FORWARD_DECLS}}, {{TRAIT_DECLS}},
 //     {{WRAPPER_IMPLS}}, {{CASE_INITS}}, {{GROUP_RUNNERS}},
 //     {{RUN_GROUPS}}, {{ENTRY_FUNCTION}}
 //   The emitter uses simple string replacement for these.
@@ -21,7 +21,7 @@
 //                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite}
 //   group_runner_*:   {gid}, {fixture}, {count}, {idxs}
 //   array_decl_*:     {name}; or {count}, {name}, {body}
-//   forward_decl_*:   {name}; or {scope}, {lines}
+//   forward_decl_*:   {constexpr}, {ret}, {name}, {params}, {noexcept}; or {scope}, {lines}
 //
 // IMPORTANT: Partials are fed into fmt::format, so any literal braces that
 // must appear in the generated C++ need to be doubled here (e.g. function
@@ -37,21 +37,24 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 // Do not edit manually.
 
 #include <array>
+#include <cstddef>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <span>
 #include <type_traits>
+#include <vector>
 
 #include "gentest/runner.h"
 #include "gentest/fixture.h"
 
-// Include test sources so fixture types are visible for wrappers
-{{INCLUDE_SOURCES}}
+// Generated declarations and required headers for tests and fixtures
+{{TEST_DECLS_INCLUDE}}
 
-// After sources, include mock API to bring in the generated mock registry
+// After test declarations, include mock API to bring in the generated mock registry
 // and inline implementations once all original types are visible.
 #include "gentest/mock.h"
 
-{{FORWARD_DECLS}}
 {{ACCESSOR_DECLS}}
 
 namespace {
@@ -171,7 +174,7 @@ inline constexpr std::string_view array_decl_nonempty = R"FMT(constexpr std::arr
 
 )FMT";
 
-inline constexpr std::string_view forward_decl_line = R"FMT(void {name}();
+inline constexpr std::string_view forward_decl_line = R"FMT({constexpr}{ret} {name}({params}){noexcept};
 
 )FMT";
 

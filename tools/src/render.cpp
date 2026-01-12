@@ -34,12 +34,72 @@ std::string escape_string(std::string_view value) {
     return escaped;
 }
 
-std::string render_forward_decls(const std::vector<TestCaseInfo> & /*cases*/, const std::string & /*tpl_line*/, const std::string & /*tpl_ns*/) {
-    // Forward declarations for test functions are not emitted.
-    // The generated TU includes the test sources before wrappers, so declarations
-    // are available, and emitting prototypes with a fixed return type (e.g., void)
-    // would incorrectly reject non-void test functions.
-    return {};
+std::string render_forward_decls(const std::vector<TestCaseInfo> &cases, const std::string &tpl_line, const std::string &tpl_ns) {
+    std::map<std::string, std::vector<std::string>> scope_lines;
+    std::set<std::string>                           seen;
+
+    for (const auto &test : cases) {
+        if (!test.fixture_qualified_name.empty())
+            continue; // only free functions
+        if (test.definition_in_header)
+            continue;
+        if (test.is_template)
+            continue;
+
+        std::string params;
+        for (std::size_t i = 0; i < test.param_decls.size(); ++i) {
+            if (i)
+                params += ", ";
+            params += test.param_decls[i];
+        }
+        if (test.is_variadic) {
+            if (!params.empty())
+                params += ", ";
+            params += "...";
+        }
+        const std::string constexpr_prefix = test.is_constexpr ? "constexpr " : "";
+        const std::string noexcept_suffix  = test.is_noexcept ? " noexcept" : "";
+        const std::string ret_type = test.return_type.empty() ? "void" : test.return_type;
+
+        std::string qualified = test.qualified_name;
+        std::string scope;
+        std::string name = qualified;
+        if (auto pos = qualified.rfind("::"); pos != std::string::npos) {
+            scope = qualified.substr(0, pos);
+            name  = qualified.substr(pos + 2);
+        }
+
+        std::string sig_key = scope;
+        sig_key += "::";
+        sig_key += name;
+        sig_key += "(";
+        sig_key += params;
+        sig_key += ")";
+        sig_key += ret_type;
+        sig_key += noexcept_suffix;
+        if (!seen.insert(sig_key).second)
+            continue;
+
+        std::string line = fmt::format(fmt::runtime(tpl_line), fmt::arg("constexpr", constexpr_prefix), fmt::arg("ret", ret_type),
+                                       fmt::arg("name", name), fmt::arg("params", params),
+                                       fmt::arg("noexcept", noexcept_suffix));
+        scope_lines[scope].push_back(std::move(line));
+    }
+
+    std::string out;
+    auto        it = scope_lines.find(std::string{});
+    if (it != scope_lines.end()) {
+        for (const auto &line : it->second)
+            out += line;
+        scope_lines.erase(it);
+    }
+    for (const auto &entry : scope_lines) {
+        std::string lines;
+        for (const auto &line : entry.second)
+            lines += line;
+        out += fmt::format(fmt::runtime(tpl_ns), fmt::arg("scope", entry.first), fmt::arg("lines", lines));
+    }
+    return out;
 }
 
 static std::string format_sv_array(const std::string &name, const std::vector<std::string> &values, const std::string &tpl_empty,

@@ -35,18 +35,20 @@ target("gentest_runtime")
 
 local function gentest_suite(name)
     local out = path.join("build", "gen", name, "test_impl.cpp")
+    local decls = path.join("build", "gen", name, "test_decls.hpp")
 
     target("gentest_" .. name .. "_xmake")
         set_kind("binary")
         add_includedirs(incdirs)
         add_defines("FMT_HEADER_ONLY")
         add_files("tests/support/test_entry.cpp")
+        add_files(path.join("tests", name, "cases.cpp"))
         add_files(out, {always_added = true})
         add_deps("gentest_runtime")
         before_build(function (target)
             local codegen, compdb_dir = locate_or_build_codegen()
             os.mkdir(path.directory(out))
-            local args = {"--output", out}
+            local args = {"--output", out, "--test-decls", decls}
             if compdb_dir then
                 table.insert(args, "--compdb")
                 table.insert(args, compdb_dir)

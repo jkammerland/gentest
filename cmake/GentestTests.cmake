@@ -44,6 +44,7 @@ function(gentest_add_suite suite)
     endif()
 
     add_executable(${GENTEST_TARGET} support/test_entry.cpp)
+    target_sources(${GENTEST_TARGET} PRIVATE ${GENTEST_CASES})
 
     target_link_libraries(${GENTEST_TARGET}
         PRIVATE
@@ -59,7 +60,6 @@ function(gentest_add_suite suite)
 
     gentest_attach_codegen(${GENTEST_TARGET}
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${GENTEST_OUTPUT_DIR}/test_impl.cpp
-        SOURCES ${GENTEST_CASES}
         CLANG_ARGS
             ${_gentest_codegen_std_arg}
             -Wno-unknown-attributes

@@ -36,6 +36,7 @@ struct AttributeCollection {
 // Options consumed by the generator tool entry point.
 // - entry: fully qualified function name to emit as the test entry
 // - output_path: file to write the generated source into
+// - test_decls_path: header to write test declarations and required includes into
 // - template_path: optional external template path; if empty, built-in used
 // - sources: translation units to scan
 // - clang_args: extra arguments appended to the underlying clang invocation
@@ -44,6 +45,7 @@ struct AttributeCollection {
 struct CollectorOptions {
     std::string                          entry = "gentest::run_all_tests";
     std::filesystem::path                output_path;
+    std::filesystem::path                test_decls_path;
     std::filesystem::path                mock_registry_path;
     std::filesystem::path                mock_impl_path;
     std::filesystem::path                template_path;
@@ -89,6 +91,16 @@ struct TestCaseInfo {
     std::vector<std::string> template_args;
     // Call-time arguments for free/member tests (e.g., parameterized value list joined by ',').
     std::string call_arguments;
+    bool        definition_in_header = false;
+    bool        is_template = false;
+    std::string return_type;
+    std::vector<std::string> param_decls;
+    bool        is_variadic = false;
+    bool        is_constexpr = false;
+    bool        is_noexcept = false;
+    // Header files required to compile wrappers and forward declarations.
+    // Stored as absolute paths; emission will rewrite to include-root-relative.
+    std::vector<std::string> required_headers;
     // Free-function fixtures declared via [[using gentest: fixtures(A, B, ...)]].
     // These are constructed ephemerally in the wrapper and passed by reference
     // to the test function in declaration order.

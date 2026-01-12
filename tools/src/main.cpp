@@ -95,18 +95,35 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         llvm::cl::cat(category)};
     static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::OneOrMore,
                                                      llvm::cl::cat(category)};
-    static llvm::cl::list<std::string> clang_option{llvm::cl::ConsumeAfter, llvm::cl::desc("-- <clang arguments>")};
     static llvm::cl::opt<std::string>  template_option{"template", llvm::cl::desc("Path to the template file used for code generation"),
                                                       llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_registry_option{"mock-registry", llvm::cl::desc("Path to the generated mock registry header"),
                                                            llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
                                                        llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  test_decls_option{"test-decls",
+                                                        llvm::cl::desc("Path to the generated test declarations header"),
+                                                        llvm::cl::init(""),
+                                                        llvm::cl::cat(category)};
     static llvm::cl::opt<bool> check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"), llvm::cl::init(false),
                                             llvm::cl::cat(category)};
 
     llvm::cl::HideUnrelatedOptions(category);
-    llvm::cl::ParseCommandLineOptions(argc, argv, "gentest clang code generator\n");
+    // Manually split args at `--` so `clang_args` never steals positional
+    // sources. This keeps `gentest_codegen a.cpp b.cpp -- -I...` stable even
+    // when multiple source paths are provided.
+    std::vector<std::string> trailing_clang_args;
+    int                      parse_argc = argc;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--") {
+            for (int j = i + 1; j < argc; ++j) {
+                trailing_clang_args.emplace_back(argv[j]);
+            }
+            parse_argc = i;
+            break;
+        }
+    }
+    llvm::cl::ParseCommandLineOptions(parse_argc, argv, "gentest clang code generator\n");
 
     CollectorOptions opts;
     opts.entry       = entry_option;
@@ -116,7 +133,7 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     for (const auto &root : include_root_option) {
         opts.include_roots.emplace_back(std::filesystem::path{root});
     }
-    opts.clang_args.assign(clang_option.begin(), clang_option.end());
+    opts.clang_args = std::move(trailing_clang_args);
     opts.check_only = check_option.getValue();
     opts.quiet_clang = quiet_clang_option.getValue();
     opts.strict_fixture = [&] {
@@ -140,8 +157,8 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     if (!mock_impl_option.getValue().empty()) {
         opts.mock_impl_path = std::filesystem::path{mock_impl_option.getValue()};
     }
-    if (!opts.clang_args.empty() && opts.clang_args.front() == "--") {
-        opts.clang_args.erase(opts.clang_args.begin());
+    if (!test_decls_option.getValue().empty()) {
+        opts.test_decls_path = std::filesystem::path{test_decls_option.getValue()};
     }
     if (!compdb_option.getValue().empty()) {
         opts.compilation_database = std::filesystem::path{compdb_option.getValue()};
@@ -154,6 +171,9 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     if (!opts.check_only && opts.output_path.empty()) {
         llvm::errs() << "gentest_codegen: --output is required unless --check is specified\n";
     }
+    if (!opts.check_only && opts.test_decls_path.empty()) {
+        llvm::errs() << "gentest_codegen: --test-decls is required unless --check is specified\n";
+    }
     return opts;
 }
 
@@ -161,6 +181,18 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
 
 int main(int argc, const char **argv) {
     const auto options = parse_arguments(argc, argv);
+
+    const auto debug_sources = get_env_value("GENTEST_CODEGEN_DEBUG_SOURCES");
+    if (debug_sources && *debug_sources != "0") {
+        llvm::errs() << fmt::format("gentest_codegen: debug: {} source(s)\n", options.sources.size());
+        for (const auto &src : options.sources) {
+            llvm::errs() << fmt::format("gentest_codegen: debug: source='{}'\n", src);
+        }
+        llvm::errs() << fmt::format("gentest_codegen: debug: {} clang arg(s)\n", options.clang_args.size());
+        for (const auto &arg : options.clang_args) {
+            llvm::errs() << fmt::format("gentest_codegen: debug: clang_arg='{}'\n", arg);
+        }
+    }
 
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
     std::string                                          db_error;
@@ -180,76 +212,8 @@ int main(int argc, const char **argv) {
 #else
     clang::DiagnosticOptions diag_options;
 #endif
-    clang::tooling::ClangTool tool{*database, options.sources};
-    if (options.quiet_clang) {
-        tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
-    } else {
-#if CLANG_VERSION_MAJOR >= 21
-        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), diag_options, /*OwnsOutputStream=*/false));
-#else
-        diag_options = new clang::DiagnosticOptions();
-        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false));
-#endif
-    }
 
     const auto extra_args = options.clang_args;
-
-    if (options.compilation_database) {
-        tool.appendArgumentsAdjuster(
-            [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
-                clang::tooling::CommandLineArguments adjusted;
-                if (!command_line.empty()) {
-                    // Use compiler and flags from compilation database
-                    adjusted.emplace_back(command_line.front());
-                    adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                    // Copy remaining args, filtering out C++ module flags
-                    for (std::size_t i = 1; i < command_line.size(); ++i) {
-                        const auto &arg = command_line[i];
-                        if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
-                            arg == "-fmodule-header") {
-                            continue;
-                        }
-                        adjusted.push_back(arg);
-                    }
-                } else {
-                    // No database entry found - create minimal synthetic command
-                    // This shouldn't happen often, but is a fallback
-                    static constexpr std::string_view compiler = "clang++";
-                    adjusted.emplace_back(compiler);
-#if defined(__linux__)
-                    adjusted.emplace_back("--gcc-toolchain=/usr");
-#endif
-                    adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                }
-                return adjusted;
-            });
-    } else {
-        // No compilation database - use minimal synthetic command
-        // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
-        tool.appendArgumentsAdjuster(
-            [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
-                clang::tooling::CommandLineArguments adjusted;
-                static constexpr std::string_view    compiler = "clang++";
-                adjusted.emplace_back(compiler);
-#if defined(__linux__)
-                adjusted.emplace_back("--gcc-toolchain=/usr");
-#endif
-                adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                if (!command_line.empty()) {
-                    for (std::size_t i = 1; i < command_line.size(); ++i) {
-                        const auto &arg = command_line[i];
-                        if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
-                            arg == "-fmodule-header") {
-                            continue;
-                        }
-                        adjusted.push_back(arg);
-                    }
-                }
-                return adjusted;
-            });
-    }
-
-    tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
 
     std::vector<TestCaseInfo>                    cases;
     TestCaseCollector                            collector{cases, options.strict_fixture};
@@ -257,12 +221,84 @@ int main(int argc, const char **argv) {
     MockUsageCollector                           mock_collector{mocks};
 
     MatchFinder finder;
-    finder.addMatcher(functionDecl(isDefinition()).bind("gentest.func"), &collector);
+    finder.addMatcher(functionDecl().bind("gentest.func"), &collector);
     register_mock_matchers(finder, mock_collector);
 
-    const int status = tool.run(newFrontendActionFactory(&finder).get());
-    if (status != 0) {
-        return status;
+    const auto factory = newFrontendActionFactory(&finder);
+    for (const auto &source : options.sources) {
+        clang::tooling::ClangTool tool{*database, std::vector<std::string>{source}};
+        if (options.quiet_clang) {
+            tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
+        } else {
+#if CLANG_VERSION_MAJOR >= 21
+            tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), diag_options, /*OwnsOutputStream=*/false));
+#else
+            diag_options = new clang::DiagnosticOptions();
+            tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false));
+#endif
+        }
+
+        if (options.compilation_database) {
+            tool.appendArgumentsAdjuster(
+                [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
+                    clang::tooling::CommandLineArguments adjusted;
+                    if (!command_line.empty()) {
+                        // Use compiler and flags from compilation database
+                        adjusted.emplace_back(command_line.front());
+                        adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+                        // Copy remaining args, filtering out C++ module flags
+                        for (std::size_t i = 1; i < command_line.size(); ++i) {
+                            const auto &arg = command_line[i];
+                            if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 ||
+                                arg.rfind("-fdeps-format=", 0) == 0 || arg == "-fmodule-header") {
+                                continue;
+                            }
+                            adjusted.push_back(arg);
+                        }
+                    } else {
+                        // No database entry found - create minimal synthetic command
+                        // This shouldn't happen often, but is a fallback
+                        static constexpr std::string_view compiler = "clang++";
+                        adjusted.emplace_back(compiler);
+#if defined(__linux__)
+                        adjusted.emplace_back("--gcc-toolchain=/usr");
+#endif
+                        adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+                    }
+                    return adjusted;
+                });
+        } else {
+            // No compilation database - use minimal synthetic command
+            // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
+            tool.appendArgumentsAdjuster(
+                [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
+                    clang::tooling::CommandLineArguments adjusted;
+                    static constexpr std::string_view    compiler = "clang++";
+                    adjusted.emplace_back(compiler);
+#if defined(__linux__)
+                    adjusted.emplace_back("--gcc-toolchain=/usr");
+#endif
+                    adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+                    if (!command_line.empty()) {
+                        for (std::size_t i = 1; i < command_line.size(); ++i) {
+                            const auto &arg = command_line[i];
+                            if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 ||
+                                arg.rfind("-fdeps-format=", 0) == 0 || arg == "-fmodule-header") {
+                                continue;
+                            }
+                            adjusted.push_back(arg);
+                        }
+                    }
+                    return adjusted;
+                });
+        }
+
+        tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
+
+        const int status = tool.run(factory.get());
+        if (status != 0) {
+            return status;
+        }
     }
     if (collector.has_errors() || mock_collector.has_errors()) {
         return 1;
@@ -276,6 +312,10 @@ int main(int argc, const char **argv) {
     }
     if (options.output_path.empty()) {
         llvm::errs() << fmt::format("gentest_codegen: --output is required unless --check is specified\n");
+        return 1;
+    }
+    if (options.test_decls_path.empty()) {
+        llvm::errs() << fmt::format("gentest_codegen: --test-decls is required unless --check is specified\n");
         return 1;
     }
 

@@ -3,7 +3,7 @@
 #include "model.hpp"
 
 #include <clang/ASTMatchers/ASTMatchFinder.h>
-#include <llvm/ADT/DenseSet.h>
+#include <unordered_set>
 #include <string_view>
 #include <vector>
 
@@ -23,7 +23,7 @@ class MockUsageCollector : public clang::ast_matchers::MatchFinder::MatchCallbac
                                const clang::ast_matchers::MatchFinder::MatchResult &result);
 
     std::vector<MockClassInfo>                  &out_;
-    llvm::DenseSet<const clang::CXXRecordDecl *> seen_;
+    std::unordered_set<std::string>              seen_;
     mutable bool                                 had_error_ = false;
 };
 

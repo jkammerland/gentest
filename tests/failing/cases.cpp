@@ -1,10 +1,6 @@
 #include "gentest/runner.h"
+#include "failing/mock_types.hpp"
 using namespace gentest::asserts;
-
-// Helper type for mocking checks in this suite (global to ease mock codegen)
-struct SingleArg {
-    void call(int) {}
-};
 
 #include "gentest/mock.h"
 

@@ -150,8 +150,8 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         return;
     }
 
-    const auto *canonical = record->getCanonicalDecl();
-    if (!seen_.insert(canonical).second) {
+    const std::string qualified_name = record->getQualifiedNameAsString();
+    if (!seen_.insert(qualified_name).second) {
         return;
     }
 
@@ -200,8 +200,8 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     }
 
     MockClassInfo info;
-    info.qualified_name              = record->getQualifiedNameAsString();
-    info.display_name                = info.qualified_name;
+    info.qualified_name              = qualified_name;
+    info.display_name                = qualified_name;
     info.derive_for_virtual          = record->isPolymorphic();
     if (const auto *dtor = record->getDestructor()) {
         info.has_virtual_destructor = dtor->isVirtual();
