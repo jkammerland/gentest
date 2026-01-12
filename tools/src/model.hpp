@@ -48,6 +48,7 @@ struct CollectorOptions {
     std::filesystem::path                mock_impl_path;
     std::filesystem::path                template_path;
     std::vector<std::string>             sources;
+    std::vector<std::filesystem::path>   include_roots;
     std::vector<std::string>             clang_args;
     std::optional<std::filesystem::path> compilation_database;
     bool                                 include_sources = true;

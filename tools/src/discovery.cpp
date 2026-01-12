@@ -76,10 +76,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         loc = sm->getExpansionLoc(loc);
     }
 
-    if (!sm->isWrittenInMainFile(loc)) {
-        return;
-    }
-
     if (sm->isInSystemHeader(loc) || sm->isWrittenInBuiltinFile(loc)) {
         return;
     }
@@ -274,7 +270,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         auto                  it_base = unique_base_locations_.find(final_base);
         if (it_base == unique_base_locations_.end()) {
             unique_base_locations_.emplace(final_base, here);
-        } else {
+        } else if (it_base->second != here) {
             had_error_ = true;
             llvm::errs() << fmt::format("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", final_base, here,
                                         it_base->second);

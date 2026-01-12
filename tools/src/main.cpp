@@ -73,6 +73,11 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> include_root_option{
+        "include-root",
+        llvm::cl::desc("Path prefix used to emit relative #include directives for input sources (repeatable)"),
+        llvm::cl::ZeroOrMore,
+        llvm::cl::cat(category)};
     static llvm::cl::opt<bool>         no_include_sources_option{
         "no-include-sources",
         llvm::cl::desc("Do not emit #include directives for input sources (deprecated env: GENTEST_NO_INCLUDE_SOURCES)"),
@@ -107,6 +112,10 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     opts.entry       = entry_option;
     opts.output_path = std::filesystem::path{output_option.getValue()};
     opts.sources.assign(source_option.begin(), source_option.end());
+    opts.include_roots.reserve(include_root_option.size());
+    for (const auto &root : include_root_option) {
+        opts.include_roots.emplace_back(std::filesystem::path{root});
+    }
     opts.clang_args.assign(clang_option.begin(), clang_option.end());
     opts.check_only = check_option.getValue();
     opts.quiet_clang = quiet_clang_option.getValue();

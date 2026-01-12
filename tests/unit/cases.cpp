@@ -1,10 +1,12 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
-using namespace gentest::asserts;
+#include "unit/fixtures.hpp"
 
 #include <array>
 #include <numeric>
 #include <string>
+
+using namespace gentest::asserts;
 
 namespace unit {
 
@@ -72,12 +74,5 @@ void negate_condition() {
 void default_name_free() {
     EXPECT_TRUE(true);
 }
-
-struct DefaultNameFixture {
-    [[using gentest: fast]]
-    void default_name_member() {
-        EXPECT_TRUE(true);
-    }
-};
 
 } // namespace unit

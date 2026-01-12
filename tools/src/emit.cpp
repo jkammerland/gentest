@@ -26,6 +26,52 @@ namespace {
 
 namespace fs = std::filesystem;
 
+fs::path normalize_path(const fs::path &path) {
+    std::error_code ec;
+    fs::path        out = path;
+    if (!out.is_absolute()) {
+        out = fs::absolute(out, ec);
+        if (ec) {
+            return path;
+        }
+    }
+    ec.clear();
+    out = fs::weakly_canonical(out, ec);
+    if (ec) {
+        return path;
+    }
+    return out;
+}
+
+std::string include_path_for_source(const CollectorOptions &options, const fs::path &out_dir, const fs::path &source_path) {
+    const fs::path abs_src = normalize_path(source_path);
+    for (const auto &root : options.include_roots) {
+        if (root.empty()) {
+            continue;
+        }
+        const fs::path abs_root = normalize_path(root);
+        fs::path       rel      = abs_src.lexically_relative(abs_root);
+        if (rel.empty() || rel.is_absolute()) {
+            continue;
+        }
+        if (rel.begin() != rel.end() && *rel.begin() == "..") {
+            continue;
+        }
+        return rel.generic_string();
+    }
+
+    // Fallback: emit a relative path to the generated output directory to
+    // avoid absolute includes in generated code.
+    fs::path rel = abs_src.lexically_relative(normalize_path(out_dir));
+    if (rel.empty() || rel.is_absolute()) {
+        rel = source_path;
+    }
+    if (rel.is_absolute()) {
+        rel = source_path.filename();
+    }
+    return rel.generic_string();
+}
+
 auto make_unique_tmp_path(const fs::path &path) -> fs::path {
     const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
                             .count();
@@ -184,16 +230,8 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     const fs::path out_dir = options.output_path.has_parent_path() ? options.output_path.parent_path() : fs::current_path();
     for (const auto &src : options.sources) {
         if (skip_includes) break;
-        fs::path        spath(src);
-        std::error_code ec;
-        fs::path        rel = fs::proximate(spath, out_dir, ec);
-        if (ec)
-            rel = spath;
-        std::string inc = rel.generic_string();
-        // Bazel note: when output_dir is under bazel-out, proximate may produce deep ../../.. paths;
-        // fallback to the original source path which is resolved by -I tests/include.
-        if (inc.find("..") != std::string::npos) inc = spath.generic_string();
-        includes += fmt::format("#include \"{}\"\n", inc);
+        const fs::path spath(src);
+        includes += fmt::format("#include \"{}\"\n", include_path_for_source(options, out_dir, spath));
     }
     replace_all(output, "{{INCLUDE_SOURCES}}", includes);
 

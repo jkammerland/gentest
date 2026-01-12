@@ -125,7 +125,8 @@ function(gentest_attach_codegen target)
         --entry ${GENTEST_ENTRY}
         --mock-registry ${_gentest_mock_registry}
         --mock-impl ${_gentest_mock_impl}
-        --compdb ${CMAKE_BINARY_DIR})
+        --compdb ${CMAKE_BINARY_DIR}
+        --include-root ${CMAKE_CURRENT_SOURCE_DIR})
 
     if(GENTEST_NO_INCLUDE_SOURCES)
         list(APPEND _command --no-include-sources)
@@ -189,6 +190,9 @@ function(gentest_attach_codegen target)
 
     get_filename_component(_gentest_mock_dir "${_gentest_mock_registry}" DIRECTORY)
     target_include_directories(${target} PRIVATE ${_gentest_mock_dir})
+    # Ensure relative source includes emitted by gentest_codegen are resolvable
+    # without relying on absolute paths.
+    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
     get_filename_component(_gentest_mock_header_name "${_gentest_mock_registry}" NAME)
     get_filename_component(_gentest_mock_impl_name "${_gentest_mock_impl}" NAME)
