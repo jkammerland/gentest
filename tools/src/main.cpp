@@ -2,6 +2,7 @@
 #include "emit.hpp"
 #include "mock_discovery.hpp"
 #include "model.hpp"
+#include "path_utils.hpp"
 #include "tooling_support.hpp"
 
 #include <algorithm>
@@ -55,22 +56,8 @@ struct CapturedInclude {
 
 namespace fs = std::filesystem;
 
-fs::path normalize_path(const fs::path &path) {
-    std::error_code ec;
-    fs::path        out = path;
-    if (!out.is_absolute()) {
-        out = fs::absolute(out, ec);
-        if (ec) {
-            return path;
-        }
-    }
-    ec.clear();
-    out = fs::weakly_canonical(out, ec);
-    if (ec) {
-        return path;
-    }
-    return out;
-}
+using gentest::codegen::is_path_within;
+using gentest::codegen::normalize_path;
 
 bool is_header_include_target(std::string_view path) {
     const fs::path p{std::string(path)};
@@ -81,18 +68,6 @@ bool is_header_include_target(std::string_view path) {
     if (lower.empty())
         return true;
     return !(lower == ".c" || lower == ".cc" || lower == ".cpp" || lower == ".cxx" || lower == ".c++" || lower == ".m" || lower == ".mm");
-}
-
-bool is_path_within(const fs::path &path, const fs::path &root) {
-    if (root.empty())
-        return false;
-    auto path_it = path.begin();
-    for (auto root_it = root.begin(); root_it != root.end(); ++root_it, ++path_it) {
-        if (path_it == path.end() || *path_it != *root_it) {
-            return false;
-        }
-    }
-    return true;
 }
 
 void collect_include_roots_from_args(const std::vector<std::string> &args, const fs::path &base_dir,
