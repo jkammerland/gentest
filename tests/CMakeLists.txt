@@ -138,6 +138,21 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+gentest_add_check_death(
+    NAME gentest_codegen_signature_type_defined_in_cpp
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "type 'LocalSignatureType' used by test signature must be defined in a header"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/signature_type_defined_in_cpp.cpp
+        --
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
 # Generator negative tests for mocks: robust diagnostics
 gentest_add_check_death(
     NAME gentest_codegen_mock_incomplete_virtual_msg

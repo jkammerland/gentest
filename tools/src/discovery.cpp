@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <clang/AST/Decl.h>
+#include <clang/AST/Type.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
 #include <fmt/core.h>
@@ -68,6 +69,80 @@ bool is_header_path(std::string_view path) {
         return true;
     }
     return !(ext == ".c" || ext == ".cc" || ext == ".cpp" || ext == ".cxx" || ext == ".c++" || ext == ".m" || ext == ".mm");
+}
+
+void collect_record_decls(QualType qt, const ASTContext &ctx, std::vector<const CXXRecordDecl *> &out, std::set<const Type *> &seen) {
+    if (qt.isNull()) {
+        return;
+    }
+    qt = qt.getDesugaredType(ctx);
+    const Type *ty = qt.getTypePtrOrNull();
+    if (ty == nullptr) {
+        return;
+    }
+    if (!seen.insert(ty).second) {
+        return;
+    }
+
+    if (const auto *record = qt->getAsCXXRecordDecl()) {
+        out.push_back(record);
+    }
+
+    if (const auto *ptr = llvm::dyn_cast<PointerType>(ty)) {
+        collect_record_decls(ptr->getPointeeType(), ctx, out, seen);
+        return;
+    }
+    if (const auto *ref = llvm::dyn_cast<ReferenceType>(ty)) {
+        collect_record_decls(ref->getPointeeType(), ctx, out, seen);
+        return;
+    }
+    if (const auto *memptr = llvm::dyn_cast<MemberPointerType>(ty)) {
+        collect_record_decls(memptr->getPointeeType(), ctx, out, seen);
+        return;
+    }
+    if (const auto *arr = llvm::dyn_cast<ArrayType>(ty)) {
+        collect_record_decls(arr->getElementType(), ctx, out, seen);
+        return;
+    }
+    if (const auto *elab = llvm::dyn_cast<ElaboratedType>(ty)) {
+        collect_record_decls(elab->getNamedType(), ctx, out, seen);
+        return;
+    }
+    if (const auto *paren = llvm::dyn_cast<ParenType>(ty)) {
+        collect_record_decls(paren->getInnerType(), ctx, out, seen);
+        return;
+    }
+    if (const auto *subst = llvm::dyn_cast<SubstTemplateTypeParmType>(ty)) {
+        collect_record_decls(subst->getReplacementType(), ctx, out, seen);
+        return;
+    }
+    if (const auto *auto_ty = llvm::dyn_cast<AutoType>(ty)) {
+        if (auto_ty->isDeduced()) {
+            collect_record_decls(auto_ty->getDeducedType(), ctx, out, seen);
+        }
+        return;
+    }
+    if (const auto *tpl = llvm::dyn_cast<TemplateSpecializationType>(ty)) {
+        for (const auto &arg : tpl->template_arguments()) {
+            if (arg.getKind() == TemplateArgument::Type) {
+                collect_record_decls(arg.getAsType(), ctx, out, seen);
+            } else if (arg.getKind() == TemplateArgument::Pack) {
+                for (const auto &inner : arg.pack_elements()) {
+                    if (inner.getKind() == TemplateArgument::Type) {
+                        collect_record_decls(inner.getAsType(), ctx, out, seen);
+                    }
+                }
+            }
+        }
+        return;
+    }
+    if (const auto *fn = llvm::dyn_cast<FunctionProtoType>(ty)) {
+        collect_record_decls(fn->getReturnType(), ctx, out, seen);
+        for (QualType p : fn->param_types()) {
+            collect_record_decls(p, ctx, out, seen);
+        }
+        return;
+    }
 }
 
 struct FunctionSignature {
@@ -170,6 +245,39 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         had_error_ = true;
         report("tests with internal linkage are not supported; remove 'static' or move the definition to a header");
         return;
+    }
+    if (!llvm::isa<CXXMethodDecl>(func)) {
+        std::vector<const CXXRecordDecl *> records;
+        std::set<const Type *>             seen_types;
+        collect_record_decls(func->getReturnType(), *result.Context, records, seen_types);
+        for (const auto *param : func->parameters()) {
+            collect_record_decls(param->getType(), *result.Context, records, seen_types);
+        }
+        for (const auto *record : records) {
+            if (record == nullptr) {
+                continue;
+            }
+            const auto *def = record->getDefinition();
+            const Decl *decl = def != nullptr ? static_cast<const Decl *>(def) : static_cast<const Decl *>(record);
+            SourceLocation rloc = sm->getSpellingLoc(decl->getLocation());
+            if (rloc.isInvalid())
+                rloc = sm->getSpellingLoc(decl->getBeginLoc());
+            if (rloc.isInvalid())
+                continue;
+            if (rloc.isMacroID())
+                rloc = sm->getExpansionLoc(rloc);
+            if (rloc.isInvalid())
+                continue;
+            if (sm->isInSystemHeader(rloc) || sm->isWrittenInBuiltinFile(rloc))
+                continue;
+            const llvm::StringRef rec_file = sm->getFilename(rloc);
+            if (!rec_file.empty() && !is_header_path(rec_file.str())) {
+                had_error_ = true;
+                report(fmt::format("type '{}' used by test signature must be defined in a header (found in '{}')",
+                                   record->getQualifiedNameAsString(), rec_file.str()));
+                return;
+            }
+        }
     }
 
     auto report_namespace = [&](const NamespaceDecl &ns, std::string_view message) {
