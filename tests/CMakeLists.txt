@@ -87,6 +87,14 @@ else()
     message(FATAL_ERROR "tests: no gentest code generator available (gentest_codegen). Configure with -DGENTEST_BUILD_CODEGEN=ON or -DGENTEST_CODEGEN_EXECUTABLE=<path>.")
 endif()
 
+# Helper target used to populate compile_commands.json for generator regression tests.
+add_library(gentest_codegen_pp_flags OBJECT
+    ${CMAKE_CURRENT_SOURCE_DIR}/smoke/pp_flags_a.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/smoke/pp_flags_b.cpp)
+target_compile_features(gentest_codegen_pp_flags PRIVATE cxx_std_20)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/smoke/pp_flags_a.cpp PROPERTIES
+    COMPILE_DEFINITIONS "GENTEST_PPFLAGS_DRIFT=1")
+
 # Lint-only checks for generator
 add_test(NAME gentest_codegen_check_valid
     COMMAND ${_gentest_codegen_prog}
@@ -118,6 +126,22 @@ gentest_add_check_death(
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/baseline_requires_bench.cpp
+        --
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_pp_flags_drift
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "per-source preprocessor flags differ across scanned sources"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/pp_flags_a.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/pp_flags_b.cpp
         --
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include

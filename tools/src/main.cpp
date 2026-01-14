@@ -151,6 +151,217 @@ void collect_include_roots_from_args(const std::vector<std::string> &args, const
     }
 }
 
+std::vector<std::string> collect_pp_flags_from_args(const std::vector<std::string> &args, const fs::path &base_dir) {
+    std::vector<std::string> flags;
+
+    auto normalize_value_path = [&](std::string_view value) -> std::string {
+        if (value.empty()) {
+            return {};
+        }
+        fs::path p{std::string(value)};
+        if (!p.is_absolute()) {
+            p = base_dir / p;
+        }
+        p = normalize_path(p);
+        return p.generic_string();
+    };
+
+    auto maybe_add_next = [&](std::size_t &i, std::string_view key) {
+        if (i + 1 >= args.size()) {
+            return;
+        }
+        const std::string normalized = normalize_value_path(args[i + 1]);
+        flags.push_back(fmt::format("{}={}", key, normalized));
+        ++i;
+    };
+
+    auto add_define = [&](std::string_view value) {
+        if (value.empty()) {
+            return;
+        }
+        flags.push_back(std::string("-D") + std::string(value));
+    };
+
+    auto add_undef = [&](std::string_view value) {
+        if (value.empty()) {
+            return;
+        }
+        flags.push_back(std::string("-U") + std::string(value));
+    };
+
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const std::string_view arg = args[i];
+        if (arg == "-I") {
+            maybe_add_next(i, "-I");
+            continue;
+        }
+        if (arg == "-isystem") {
+            maybe_add_next(i, "-isystem");
+            continue;
+        }
+        if (arg == "-iquote") {
+            maybe_add_next(i, "-iquote");
+            continue;
+        }
+        if (arg == "-idirafter") {
+            maybe_add_next(i, "-idirafter");
+            continue;
+        }
+        if (arg == "--sysroot") {
+            maybe_add_next(i, "--sysroot");
+            continue;
+        }
+        if (arg == "-isysroot") {
+            maybe_add_next(i, "-isysroot");
+            continue;
+        }
+        if (arg == "-D") {
+            if (i + 1 < args.size()) {
+                add_define(args[i + 1]);
+                ++i;
+            }
+            continue;
+        }
+        if (arg == "-U") {
+            if (i + 1 < args.size()) {
+                add_undef(args[i + 1]);
+                ++i;
+            }
+            continue;
+        }
+        if (arg == "/I") {
+            maybe_add_next(i, "/I");
+            continue;
+        }
+        if (arg == "/D") {
+            if (i + 1 < args.size()) {
+                add_define(args[i + 1]);
+                ++i;
+            }
+            continue;
+        }
+        if (arg == "/U") {
+            if (i + 1 < args.size()) {
+                add_undef(args[i + 1]);
+                ++i;
+            }
+            continue;
+        }
+        if (arg.rfind("-I", 0) == 0 && arg.size() > 2) {
+            flags.push_back(fmt::format("-I={}", normalize_value_path(arg.substr(2))));
+            continue;
+        }
+        if (arg.rfind("-isystem", 0) == 0 && arg.size() > 8) {
+            flags.push_back(fmt::format("-isystem={}", normalize_value_path(arg.substr(8))));
+            continue;
+        }
+        if (arg.rfind("-iquote", 0) == 0 && arg.size() > 7) {
+            flags.push_back(fmt::format("-iquote={}", normalize_value_path(arg.substr(7))));
+            continue;
+        }
+        if (arg.rfind("-idirafter", 0) == 0 && arg.size() > 10) {
+            flags.push_back(fmt::format("-idirafter={}", normalize_value_path(arg.substr(10))));
+            continue;
+        }
+        if (arg.rfind("-D", 0) == 0 && arg.size() > 2) {
+            add_define(arg.substr(2));
+            continue;
+        }
+        if (arg.rfind("-U", 0) == 0 && arg.size() > 2) {
+            add_undef(arg.substr(2));
+            continue;
+        }
+        if (arg.rfind("--sysroot=", 0) == 0 && arg.size() > 10) {
+            flags.push_back(fmt::format("--sysroot={}", normalize_value_path(arg.substr(10))));
+            continue;
+        }
+        if (arg.rfind("-isysroot", 0) == 0 && arg.size() > 9) {
+            flags.push_back(fmt::format("-isysroot={}", normalize_value_path(arg.substr(9))));
+            continue;
+        }
+        if (arg.rfind("/I", 0) == 0 && arg.size() > 2) {
+            flags.push_back(fmt::format("/I={}", normalize_value_path(arg.substr(2))));
+            continue;
+        }
+        if (arg.rfind("/D", 0) == 0 && arg.size() > 2) {
+            add_define(arg.substr(2));
+            continue;
+        }
+        if (arg.rfind("/U", 0) == 0 && arg.size() > 2) {
+            add_undef(arg.substr(2));
+            continue;
+        }
+    }
+
+    return flags;
+}
+
+bool validate_consistent_pp_flags(const clang::tooling::CompilationDatabase &database, const CollectorOptions &options) {
+    if (!options.compilation_database) {
+        return true;
+    }
+    if (options.sources.size() < 2) {
+        return true;
+    }
+
+    std::optional<std::vector<std::string>> baseline;
+    std::string                             baseline_source;
+
+    // Prefer a source with exactly one compile command as baseline. This avoids
+    // ambiguity when a file is compiled into multiple targets (and therefore
+    // appears multiple times in compile_commands.json).
+    for (const auto &source : options.sources) {
+        const auto commands = database.getCompileCommands(source);
+        if (commands.size() != 1) {
+            continue;
+        }
+        const fs::path base_dir{commands.front().Directory};
+        baseline        = collect_pp_flags_from_args(commands.front().CommandLine, base_dir);
+        baseline_source = source;
+        break;
+    }
+    if (!baseline.has_value()) {
+        for (const auto &source : options.sources) {
+            const auto commands = database.getCompileCommands(source);
+            if (commands.empty()) {
+                continue;
+            }
+            const fs::path base_dir{commands.front().Directory};
+            baseline        = collect_pp_flags_from_args(commands.front().CommandLine, base_dir);
+            baseline_source = source;
+            break;
+        }
+    }
+    if (!baseline.has_value()) {
+        return true;
+    }
+
+    for (const auto &source : options.sources) {
+        const auto commands = database.getCompileCommands(source);
+        if (commands.empty()) {
+            continue;
+        }
+        bool matched = false;
+        for (const auto &command : commands) {
+            const fs::path base_dir{command.Directory};
+            const auto     flags = collect_pp_flags_from_args(command.CommandLine, base_dir);
+            if (flags == *baseline) {
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            llvm::errs() << "gentest_codegen: per-source preprocessor flags differ across scanned sources; this is not supported\n";
+            llvm::errs() << fmt::format("gentest_codegen: baseline source: {}\n", baseline_source);
+            llvm::errs() << fmt::format("gentest_codegen: mismatching source: {}\n", source);
+            llvm::errs() << "gentest_codegen: move per-source -I/-D flags to target-level (target_include_directories/target_compile_definitions)\n";
+            return false;
+        }
+    }
+
+    return true;
+}
+
 std::vector<fs::path> collect_include_roots(const clang::tooling::CompilationDatabase &database, const CollectorOptions &options) {
     std::vector<fs::path> roots;
     std::set<std::string> seen;
@@ -434,6 +645,9 @@ int main(int argc, const char **argv) {
 #endif
 
     const auto extra_args = options.clang_args;
+    if (!validate_consistent_pp_flags(*database, options)) {
+        return 1;
+    }
 
     std::vector<TestCaseInfo>                    cases;
     TestCaseCollector                            collector{cases, options.strict_fixture};
