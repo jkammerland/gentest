@@ -147,6 +147,28 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+set(_gentest_iquote_out "${CMAKE_CURRENT_BINARY_DIR}/smoke/iquote/test_impl.cpp")
+set(_gentest_iquote_decls "${CMAKE_CURRENT_BINARY_DIR}/smoke/iquote/test_decls.hpp")
+gentest_add_run_and_check_file(
+    NAME gentest_codegen_iquote_rewrite
+    PROG ${_gentest_codegen_prog}
+    FILE ${_gentest_iquote_decls}
+    EXPECT_SUBSTRING "#include \"iq.hpp\""
+    ARGS
+        --output
+        ${_gentest_iquote_out}
+        --test-decls
+        ${_gentest_iquote_decls}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/iquote_include.cpp
+        --
+        ${_gentest_codegen_std_flag}
+        -Wno-unknown-attributes
+        -Wno-attributes
+        -iquote../../tests/smoke/iquote_root)
+set_tests_properties(gentest_codegen_iquote_rewrite PROPERTIES WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+unset(_gentest_iquote_out)
+unset(_gentest_iquote_decls)
+
 gentest_add_check_death(
     NAME gentest_codegen_internal_linkage_test
     NO_EMULATOR
