@@ -123,6 +123,21 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+gentest_add_check_death(
+    NAME gentest_codegen_internal_linkage_test
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "tests with internal linkage are not supported"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/internal_linkage.cpp
+        --
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
 # Generator negative tests for mocks: robust diagnostics
 gentest_add_check_death(
     NAME gentest_codegen_mock_incomplete_virtual_msg

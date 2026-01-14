@@ -166,6 +166,11 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         report("gentest attributes applied to a forward declaration without a definition are not supported");
         return;
     }
+    if (!llvm::isa<CXXMethodDecl>(func) && !func->isExternallyVisible()) {
+        had_error_ = true;
+        report("tests with internal linkage are not supported; remove 'static' or move the definition to a header");
+        return;
+    }
 
     auto report_namespace = [&](const NamespaceDecl &ns, std::string_view message) {
         SourceLocation loc = sm->getSpellingLoc(ns.getBeginLoc());
