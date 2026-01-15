@@ -414,7 +414,17 @@
   ],
   "buildPresets": [
     {
+      "name": "build-base",
+      "hidden": true,
+      "environment": {
+        "CCACHE_BASEDIR": "${sourceDir}",
+        "CCACHE_DIR": "${sourceDir}/.cache/ccache",
+        "CCACHE_TEMPDIR": "${sourceDir}/.cache/ccache/tmp"
+      }
+    },
+    {
       "name": "debug",
+      "inherits": "build-base",
       "configurePreset": "debug",
       "displayName": "Debug Build",
       "description": "Build with debug configuration, no optimizations and full debug symbols",
@@ -422,6 +432,7 @@
     },
     {
       "name": "debug-ccache",
+      "inherits": "build-base",
       "configurePreset": "debug-ccache",
       "displayName": "Debug Build (ccache)",
       "description": "Build with debug configuration using ccache as the compiler launcher",
@@ -429,6 +440,7 @@
     },
     {
       "name": "libassert-noexc",
+      "inherits": "build-base",
       "configurePreset": "libassert-noexc",
       "displayName": "Build (Libassert no-exceptions)",
       "description": "Build with libassert integration and the no-exceptions death-test target",
@@ -436,6 +448,7 @@
     },
     {
       "name": "debug-system",
+      "inherits": "build-base",
       "configurePreset": "debug-system",
       "displayName": "Debug Build (system LLVM/Clang)",
       "description": "Build with system-provided LLVM/Clang toolchain",
@@ -443,6 +456,7 @@
     },
     {
       "name": "debug-system-cxx20",
+      "inherits": "build-base",
       "configurePreset": "debug-system-cxx20",
       "displayName": "Debug Build (system LLVM/Clang, C++20 tests)",
       "description": "Build with system toolchain and C++20 test executables",
@@ -450,6 +464,7 @@
     },
     {
       "name": "debug-system-cxx23",
+      "inherits": "build-base",
       "configurePreset": "debug-system-cxx23",
       "displayName": "Debug Build (system LLVM/Clang, C++23 tests)",
       "description": "Build with system toolchain and C++23 test executables",
@@ -457,6 +472,7 @@
     },
     {
       "name": "debug-system-ccache",
+      "inherits": "build-base",
       "configurePreset": "debug-system-ccache",
       "displayName": "Debug Build (system LLVM/Clang, ccache)",
       "description": "Build with the system toolchain using ccache as the compiler launcher",
@@ -464,6 +480,7 @@
     },
     {
       "name": "host-codegen",
+      "inherits": "build-base",
       "configurePreset": "host-codegen",
       "displayName": "Build Host Codegen",
       "description": "Build the host gentest_codegen executable used by cross-compiling presets",
@@ -474,6 +491,7 @@
     },
     {
       "name": "aarch64-qemu",
+      "inherits": "build-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Build (Linux/aarch64, QEMU)",
       "description": "Cross-build gentest_unit_tests for Linux/aarch64",
@@ -489,6 +507,7 @@
     },
     {
       "name": "aarch64-qemu-full",
+      "inherits": "build-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Build (Linux/aarch64, QEMU, full)",
       "description": "Cross-build all targets for Linux/aarch64",
@@ -501,6 +520,7 @@
     },
     {
       "name": "release",
+      "inherits": "build-base",
       "configurePreset": "release",
       "displayName": "Release Build",
       "description": "Build with release configuration, full optimizations and no debug symbols",
@@ -508,6 +528,7 @@
     },
     {
       "name": "release-ccache",
+      "inherits": "build-base",
       "configurePreset": "release-ccache",
       "displayName": "Release Build (ccache)",
       "description": "Build with release configuration using ccache as the compiler launcher",
@@ -515,6 +536,7 @@
     },
     {
       "name": "release-system",
+      "inherits": "build-base",
       "configurePreset": "release-system",
       "displayName": "Release Build (system LLVM/Clang)",
       "description": "Build with release configuration using the system-provided LLVM/Clang toolchain",
@@ -522,6 +544,7 @@
     },
     {
       "name": "release-system-ccache",
+      "inherits": "build-base",
       "configurePreset": "release-system-ccache",
       "displayName": "Release Build (system LLVM/Clang, ccache)",
       "description": "Build with the system toolchain using ccache as the compiler launcher",
@@ -529,6 +552,7 @@
     },
     {
       "name": "relwithdebinfo",
+      "inherits": "build-base",
       "configurePreset": "relwithdebinfo",
       "displayName": "Release with Debug Info",
       "description": "Build with optimizations and debug symbols for profiling and debugging",
@@ -536,6 +560,7 @@
     },
     {
       "name": "minsizerel",
+      "inherits": "build-base",
       "configurePreset": "minsizerel",
       "displayName": "Minimum Size Release",
       "description": "Build with size optimizations for minimal binary size",
@@ -543,6 +568,7 @@
     },
     {
       "name": "coverage",
+      "inherits": "build-base",
       "configurePreset": "coverage",
       "displayName": "Coverage Build",
       "description": "Build with code coverage instrumentation",
@@ -550,6 +576,7 @@
     },
     {
       "name": "tidy",
+      "inherits": "build-base",
       "configurePreset": "tidy",
       "displayName": "Clang-Tidy Build",
       "description": "Build with clang-tidy static analysis checks",
@@ -557,6 +584,7 @@
     },
     {
       "name": "tidy-fix",
+      "inherits": "build-base",
       "configurePreset": "tidy-fix",
       "displayName": "Clang-Tidy Fix Build",
       "description": "Build with clang-tidy auto-fixing enabled",
@@ -564,6 +592,7 @@
     },
     {
       "name": "profile",
+      "inherits": "build-base",
       "configurePreset": "profile",
       "displayName": "Production-Like Profile Build",
       "description": "Build with frame pointers for production-like profiling",
@@ -571,6 +600,7 @@
     },
     {
       "name": "profile-gprof",
+      "inherits": "build-base",
       "configurePreset": "profile-gprof",
       "displayName": "Instrumented Profile Build",
       "description": "Build with gprof instrumentation",
@@ -578,6 +608,7 @@
     },
     {
       "name": "pgo-generate",
+      "inherits": "build-base",
       "configurePreset": "pgo-generate",
       "displayName": "PGO Profile Generation Build",
       "description": "Build for generating PGO profile data",
@@ -585,6 +616,7 @@
     },
     {
       "name": "pgo-use",
+      "inherits": "build-base",
       "configurePreset": "pgo-use",
       "displayName": "PGO Optimized Build",
       "description": "Build using PGO profile data for optimization",
@@ -592,6 +624,7 @@
     },
     {
       "name": "alsan",
+      "inherits": "build-base",
       "configurePreset": "alsan",
       "displayName": "Build Quick Diagnostics",
       "description": "Build with AddressSanitizer and LeakSanitizer for memory error detection",
@@ -599,6 +632,7 @@
     },
     {
       "name": "alusan",
+      "inherits": "build-base",
       "configurePreset": "alusan",
       "displayName": "Build Deep Diagnostics",
       "description": "Build with AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer",
@@ -606,6 +640,7 @@
     },
     {
       "name": "msan",
+      "inherits": "build-base",
       "configurePreset": "msan",
       "displayName": "Build Memory Diagnostics",
       "description": "Build with MemorySanitizer for uninitialized memory read detection",
@@ -613,6 +648,7 @@
     },
     {
       "name": "cfihwasan",
+      "inherits": "build-base",
       "configurePreset": "cfihwasan",
       "displayName": "Build Security Diagnostics",
       "description": "Build with Control Flow Integrity and Hardware AddressSanitizer",
@@ -620,6 +656,7 @@
     },
     {
       "name": "fullsan",
+      "inherits": "build-base",
       "configurePreset": "fullsan",
       "displayName": "Build Full Diagnostics",
       "description": "Build with all compatible sanitizers for comprehensive diagnostic coverage",
