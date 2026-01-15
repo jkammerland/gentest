@@ -164,7 +164,8 @@ gentest_add_run_and_check_file(
         ${_gentest_codegen_std_flag}
         -Wno-unknown-attributes
         -Wno-attributes
-        -iquote../../tests/smoke/iquote_root)
+        -iquote
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/iquote_root)
 set_tests_properties(gentest_codegen_iquote_rewrite PROPERTIES WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 unset(_gentest_iquote_out)
 unset(_gentest_iquote_decls)
