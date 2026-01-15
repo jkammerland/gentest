@@ -230,16 +230,30 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::s
 }
 
 std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const std::vector<std::string> &tag_names,
-                                const std::vector<std::string> &req_names, const std::string &tpl_case_entry,
-                                const std::map<std::string, std::string> &fixture_accessors) {
+                                const std::vector<std::string> &req_names, const std::string &tpl_case_entry) {
     std::string out;
     out.reserve(cases.size() * 128);
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test             = cases[idx];
         std::string accessor_literal = "nullptr";
-        if (!test.fixture_qualified_name.empty()) {
-            if (auto it = fixture_accessors.find(test.fixture_qualified_name); it != fixture_accessors.end()) {
-                accessor_literal = it->second;
+        const bool  has_fixture      = !test.fixture_qualified_name.empty();
+        if (has_fixture) {
+            const auto qualify_fixture = [&]() -> std::string {
+                if (test.fixture_qualified_name.rfind("::", 0) == 0) {
+                    return test.fixture_qualified_name;
+                }
+                return std::string("::") + test.fixture_qualified_name;
+            };
+            switch (test.fixture_lifetime) {
+            case FixtureLifetime::MemberSuite:
+                accessor_literal = fmt::format("&::gentest::detail::acquire_suite_fixture<{}>", qualify_fixture());
+                break;
+            case FixtureLifetime::MemberGlobal:
+                accessor_literal = fmt::format("&::gentest::detail::acquire_global_fixture<{}>", qualify_fixture());
+                break;
+            case FixtureLifetime::MemberEphemeral:
+            case FixtureLifetime::None:
+            default: accessor_literal = "nullptr"; break;
             }
         }
 
@@ -255,62 +269,6 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
             fmt::arg("lifetime", fixture_lifetime_literal(test.fixture_lifetime)),
             fmt::arg("suite", !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}")),
             fmt::arg("acquire", accessor_literal));
-    }
-    return out;
-}
-
-GroupRender render_groups(const std::vector<TestCaseInfo> &cases, const std::string &tpl_ephemeral, const std::string &tpl_suite,
-                          const std::string &tpl_global) {
-    std::map<std::string, std::vector<std::size_t>> groups;
-    for (std::size_t idx = 0; idx < cases.size(); ++idx) {
-        const auto &test = cases[idx];
-        if (test.fixture_qualified_name.empty())
-            continue;
-        if (test.is_benchmark)
-            continue; // do not include benchmark cases in default grouped test execution
-        groups[test.fixture_qualified_name].push_back(idx);
-    }
-    GroupRender out;
-    std::size_t gid = 0;
-    for (const auto &kv : groups) {
-        const auto &fixture = kv.first;
-        const auto &idxs    = kv.second;
-        if (idxs.empty())
-            continue;
-        FixtureLifetime lifetime = FixtureLifetime::MemberEphemeral;
-        if (const auto first = idxs.front(); first < cases.size()) {
-            lifetime = cases[first].fixture_lifetime;
-        }
-        std::string idx_list;
-        for (std::size_t j = 0; j < idxs.size(); ++j) {
-            if (j != 0)
-                idx_list += ", ";
-            idx_list += std::to_string(idxs[j]);
-        }
-        const std::string *tpl              = &tpl_ephemeral;
-        std::string        accessor_literal = "nullptr";
-        switch (lifetime) {
-        case FixtureLifetime::MemberSuite:
-            tpl              = &tpl_suite;
-            accessor_literal = std::string("&gentest_access_fixture_") + std::to_string(gid);
-            out.declarations += fmt::format("static void* gentest_access_fixture_{gid}(std::string_view);\n",
-                                             fmt::arg("gid", gid));
-            break;
-        case FixtureLifetime::MemberGlobal:
-            tpl              = &tpl_global;
-            accessor_literal = std::string("&gentest_access_fixture_") + std::to_string(gid);
-            out.declarations += fmt::format("static void* gentest_access_fixture_{gid}(std::string_view);\n",
-                                             fmt::arg("gid", gid));
-            break;
-        case FixtureLifetime::MemberEphemeral:
-        case FixtureLifetime::None:
-        default: tpl = &tpl_ephemeral; break;
-        }
-        out.runners += fmt::format(fmt::runtime(*tpl), fmt::arg("gid", gid), fmt::arg("fixture", fixture), fmt::arg("count", idxs.size()),
-                                   fmt::arg("idxs", idx_list));
-        out.run_calls += fmt::format("    gentest_run_group_{gid}(shuffle, seed, counters);\n", fmt::arg("gid", gid));
-        out.accessors[fixture] = accessor_literal;
-        ++gid;
     }
     return out;
 }

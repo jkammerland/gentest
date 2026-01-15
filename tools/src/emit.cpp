@@ -7,6 +7,7 @@
 #include "templates.hpp"
 
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <fmt/core.h>
@@ -25,6 +26,40 @@ namespace gentest::codegen {
 namespace {
 
 namespace fs = std::filesystem;
+
+bool ensure_dir(const fs::path &dir) {
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) {
+        llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", dir.string(), ec.message());
+        return false;
+    }
+    return true;
+}
+
+std::string normalize_path_key(const fs::path &path) {
+    std::error_code ec;
+    fs::path        abs = fs::absolute(path, ec);
+    if (ec) {
+        abs = path;
+        ec.clear();
+    }
+    abs = abs.lexically_normal();
+    std::string key = abs.generic_string();
+#if defined(_WIN32)
+    for (auto &ch : key) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+#endif
+    return key;
+}
+
+std::string sanitize_stem(std::string value) {
+    for (auto &ch : value) {
+        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
+        if (!ok) ch = '_';
+    }
+    if (value.empty()) return std::string("tu");
+    return value;
+}
 
 auto make_unique_tmp_path(const fs::path &path) -> fs::path {
     const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
@@ -129,9 +164,6 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
     const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
     const auto tpl_case_entry        = std::string(tpl::case_entry);
-    const auto tpl_group_ephemeral   = std::string(tpl::group_runner_ephemeral);
-    const auto tpl_group_suite       = std::string(tpl::group_runner_suite);
-    const auto tpl_group_global      = std::string(tpl::group_runner_global);
     const auto tpl_array_empty       = std::string(tpl::array_decl_empty);
     const auto tpl_array_nonempty    = std::string(tpl::array_decl_nonempty);
     const auto tpl_fwd_line          = std::string(tpl::forward_decl_line);
@@ -147,26 +179,18 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     std::string wrapper_impls =
         render::render_wrappers(cases, tpl_wrapper_free, tpl_wrapper_free_fix, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
 
-    auto gr = render::render_groups(cases, tpl_group_ephemeral, tpl_group_suite, tpl_group_global);
-
     std::string case_entries;
     if (cases.empty()) {
         case_entries = "    // No test cases discovered during code generation.\n";
     } else {
-        case_entries =
-            render::render_case_entries(cases, tag_array_names, requirement_array_names, tpl_case_entry, gr.accessors);
+        case_entries = render::render_case_entries(cases, tag_array_names, requirement_array_names, tpl_case_entry);
     }
-
-    std::string accessor_decls = std::move(gr.declarations);
-    std::string group_runners  = std::move(gr.runners);
-    std::string run_groups     = std::move(gr.run_calls);
 
     std::string output = template_content;
     replace_all(output, "{{FORWARD_DECLS}}", forward_decl_block);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(cases.size()));
     replace_all(output, "{{TRAIT_DECLS}}", trait_declarations);
     replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
-    replace_all(output, "{{ACCESSOR_DECLS}}", accessor_decls);
     replace_all(output, "{{CASE_INITS}}", case_entries);
     replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
     // Version for --help
@@ -175,8 +199,6 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
 #else
     replace_all(output, "{{VERSION}}", "0.0.0");
 #endif
-    replace_all(output, "{{GROUP_RUNNERS}}", group_runners);
-    replace_all(output, "{{RUN_GROUPS}}", run_groups);
 
     // Include sources in the generated file so fixture types are visible
     std::string    includes;
@@ -197,27 +219,128 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     }
     replace_all(output, "{{INCLUDE_SOURCES}}", includes);
 
-    // Mock registry and inline implementations are pulled via gentest/mock.h in the
-    // template after including sources, ensuring original types are visible first.
+    // Mock registry and inline implementations are generated alongside the
+    // test wrappers. Test sources that use mocking should include
+    // `gentest/mock.h` after the mocked types are declared/defined.
 
     return output;
 }
 
 int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<MockClassInfo> &mocks) {
-    fs::path out_path = opts.output_path;
-    if (!ensure_parent_dir(out_path)) {
-        return 1;
-    }
+    if (opts.tu_output_dir.empty()) {
+        fs::path out_path = opts.output_path;
+        if (!ensure_parent_dir(out_path)) {
+            return 1;
+        }
 
-    // Embedded template is used when no template path is provided.
+        // Embedded template is used when no template path is provided.
 
-    const auto content = render_cases(opts, cases);
-    if (!content) {
-        return 1;
-    }
+        const auto content = render_cases(opts, cases);
+        if (!content) {
+            return 1;
+        }
 
-    if (!write_file_atomic_if_changed(out_path, *content)) {
-        return 1;
+        if (!write_file_atomic_if_changed(out_path, *content)) {
+            return 1;
+        }
+    } else {
+        if (!ensure_dir(opts.tu_output_dir)) {
+            return 1;
+        }
+
+        // Group discovered cases by their originating translation unit so we
+        // can emit one wrapper TU per input source.
+        std::map<std::string, std::vector<TestCaseInfo>> cases_by_file;
+        for (const auto &c : cases) {
+            cases_by_file[normalize_path_key(fs::path(c.filename))].push_back(c);
+        }
+
+        for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+            const fs::path source_path = fs::path(opts.sources[idx]);
+            const std::string key      = normalize_path_key(source_path);
+            auto it                    = cases_by_file.find(key);
+            std::vector<TestCaseInfo> tu_cases;
+            if (it != cases_by_file.end()) {
+                tu_cases = it->second;
+            }
+
+            std::sort(tu_cases.begin(), tu_cases.end(),
+                      [](const TestCaseInfo &lhs, const TestCaseInfo &rhs) { return lhs.display_name < rhs.display_name; });
+
+            const std::string stem       = sanitize_stem(source_path.stem().string());
+            const fs::path    header_out = opts.tu_output_dir / fmt::format("tu_{:04d}_{}.gentest.h", idx, stem);
+            const fs::path    cpp_out    = opts.tu_output_dir / fmt::format("tu_{:04d}_{}.gentest.cpp", idx, stem);
+
+            if (!ensure_parent_dir(header_out) || !ensure_parent_dir(cpp_out)) {
+                return 1;
+            }
+
+            const std::string register_fn = fmt::format("register_tu_{:04d}", idx);
+
+            // Header
+            std::string header_content = std::string(tpl::tu_header);
+            replace_all(header_content, "{{REGISTER_FN}}", register_fn);
+            if (!write_file_atomic_if_changed(header_out, header_content)) {
+                return 1;
+            }
+
+            // Wrapper implementation
+            std::string impl = std::string(tpl::tu_impl);
+
+            // Inject header include
+            replace_all(impl, "{{TU_HEADER}}", header_out.filename().generic_string());
+
+            // Compute include path for the original TU relative to the wrapper directory.
+            std::string include_src;
+            {
+                std::error_code ec;
+                fs::path        rel = fs::proximate(source_path, opts.tu_output_dir, ec);
+                if (ec) rel = source_path;
+                std::string inc = rel.generic_string();
+                if (inc.find("..") != std::string::npos) inc = source_path.generic_string();
+                include_src = fmt::format("#include \"{}\"\n", inc);
+            }
+            replace_all(impl, "{{INCLUDE_SOURCE}}", include_src);
+
+            // Render test wrappers and cases for this TU
+            const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
+            const auto tpl_wrapper_free_fix  = std::string(tpl::wrapper_free_fixtures);
+            const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
+            const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
+            const auto tpl_case_entry        = std::string(tpl::case_entry);
+            const auto tpl_array_empty       = std::string(tpl::array_decl_empty);
+            const auto tpl_array_nonempty    = std::string(tpl::array_decl_nonempty);
+            const auto tpl_fwd_line          = std::string(tpl::forward_decl_line);
+            const auto tpl_fwd_ns            = std::string(tpl::forward_decl_ns);
+
+            std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
+
+            auto                     traits = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
+            std::string              trait_declarations = std::move(traits.declarations);
+            std::vector<std::string> tag_array_names = std::move(traits.tag_names);
+            std::vector<std::string> requirement_array_names = std::move(traits.req_names);
+
+            std::string wrapper_impls =
+                render::render_wrappers(tu_cases, tpl_wrapper_free, tpl_wrapper_free_fix, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
+
+            std::string case_entries;
+            if (tu_cases.empty()) {
+                case_entries = "    // No test cases discovered during code generation.\n";
+            } else {
+                case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
+            }
+
+            replace_all(impl, "{{FORWARD_DECLS}}", forward_decl_block);
+            replace_all(impl, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
+            replace_all(impl, "{{TRAIT_DECLS}}", trait_declarations);
+            replace_all(impl, "{{WRAPPER_IMPLS}}", wrapper_impls);
+            replace_all(impl, "{{CASE_INITS}}", case_entries);
+            replace_all(impl, "{{REGISTER_FN}}", register_fn);
+
+            if (!write_file_atomic_if_changed(cpp_out, impl)) {
+                return 1;
+            }
+        }
     }
 
     const bool have_mock_paths = !opts.mock_registry_path.empty() && !opts.mock_impl_path.empty();

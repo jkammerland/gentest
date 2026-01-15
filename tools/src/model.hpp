@@ -44,6 +44,7 @@ struct AttributeCollection {
 struct CollectorOptions {
     std::string                          entry = "gentest::run_all_tests";
     std::filesystem::path                output_path;
+    std::filesystem::path                tu_output_dir;
     std::filesystem::path                mock_registry_path;
     std::filesystem::path                mock_impl_path;
     std::filesystem::path                template_path;

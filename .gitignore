@@ -64,3 +64,8 @@ docs/latex/
 mocking-support/
 more-expects/
 suites/
+
+# Codex CLI artifacts
+.codex-mcp-jobs/
+.worktrees/
+results/

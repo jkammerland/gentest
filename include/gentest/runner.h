@@ -530,8 +530,37 @@ struct Case {
     FixtureAccessor                   acquire_fixture;
 };
 
-// Provided by the generated manifest TU
+// Provided by the runtime registry; populated by generated translation units.
 const Case* get_cases();
 std::size_t get_case_count();
+
+namespace detail {
+// Called by generated sources to register discovered cases. Not intended for
+// direct use in test code.
+void register_cases(std::span<const Case> cases);
+
+// Fixture acquisition helpers used by generated `Case` entries.
+// Suite fixtures: one instance per suite string.
+template <typename Fixture>
+inline void* acquire_suite_fixture(std::string_view suite_) {
+    struct Entry {
+        std::string_view           key;
+        std::unique_ptr<Fixture>   instance;
+    };
+    static std::vector<Entry> fixtures_;
+    for (auto& entry : fixtures_) {
+        if (entry.key == suite_) return entry.instance.get();
+    }
+    fixtures_.push_back(Entry{.key = suite_, .instance = std::make_unique<Fixture>()});
+    return fixtures_.back().instance.get();
+}
+
+// Global fixtures: one process-wide instance.
+template <typename Fixture>
+inline void* acquire_global_fixture(std::string_view) {
+    static Fixture fx_;
+    return &fx_;
+}
+} // namespace detail
 
 } // namespace gentest

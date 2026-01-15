@@ -36,19 +36,7 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::s
 
 // Render kCases initializer entries from discovered tests and trait arrays.
 std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const std::vector<std::string> &tag_names,
-                                const std::vector<std::string> &req_names, const std::string &tpl_case_entry,
-                                const std::map<std::string, std::string> &fixture_accessors);
-
-struct GroupRender {
-    std::string                        declarations;
-    std::string                        runners;
-    std::string                        run_calls;
-    std::map<std::string, std::string> accessors;
-};
-
-// Render per-fixture group runner functions and the corresponding run calls.
-GroupRender render_groups(const std::vector<TestCaseInfo> &cases, const std::string &tpl_ephemeral, const std::string &tpl_suite,
-                          const std::string &tpl_global);
+                                const std::vector<std::string> &req_names, const std::string &tpl_case_entry);
 
 // Utility for escaping string literals in generated C++.
 std::string escape_string(std::string_view value);

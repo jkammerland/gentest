@@ -59,11 +59,9 @@ int main(int argc, char** argv) {
 include(CTest)
 enable_testing()
 
-add_executable(my_tests main.cpp)
+add_executable(my_tests main.cpp cases.cpp)
 target_link_libraries(my_tests PRIVATE gentest::gentest)
-gentest_attach_codegen(my_tests
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/test_impl.cpp
-  SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp)
+gentest_attach_codegen(my_tests)
 
 # Register each discovered case as its own CTest test (like gtest/catch/doctest).
 gentest_discover_tests(my_tests)

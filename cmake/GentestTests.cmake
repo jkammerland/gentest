@@ -43,7 +43,9 @@ function(gentest_add_suite suite)
         set(GENTEST_CASES "${CMAKE_CURRENT_SOURCE_DIR}/${suite}/cases.cpp")
     endif()
 
-    add_executable(${GENTEST_TARGET} support/test_entry.cpp)
+    add_executable(${GENTEST_TARGET}
+        support/test_entry.cpp
+        ${GENTEST_CASES})
 
     target_link_libraries(${GENTEST_TARGET}
         PRIVATE
@@ -58,8 +60,7 @@ function(gentest_add_suite suite)
             ${CMAKE_CURRENT_SOURCE_DIR})
 
     gentest_attach_codegen(${GENTEST_TARGET}
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${GENTEST_OUTPUT_DIR}/test_impl.cpp
-        SOURCES ${GENTEST_CASES}
+        OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${GENTEST_OUTPUT_DIR}
         CLANG_ARGS
             ${_gentest_codegen_std_arg}
             -Wno-unknown-attributes

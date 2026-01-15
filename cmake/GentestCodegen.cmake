@@ -12,70 +12,143 @@ endif()
 
 function(gentest_attach_codegen target)
     set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
-    set(one_value_args OUTPUT ENTRY)
+    set(one_value_args OUTPUT OUTPUT_DIR ENTRY)
     set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
-
-    if(NOT GENTEST_SOURCES)
-        message(FATAL_ERROR "gentest_attach_codegen requires SOURCES")
-    endif()
 
     if(NOT GENTEST_ENTRY)
         set(GENTEST_ENTRY gentest::run_all_tests)
     endif()
 
-    if(NOT GENTEST_OUTPUT)
-        set(GENTEST_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${target}_generated.cpp")
+    string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
+
+    # Scan sources: explicit SOURCES preferred, otherwise pull from target.
+    set(_gentest_scan_sources "${GENTEST_SOURCES}")
+    if(NOT _gentest_scan_sources)
+        get_target_property(_gentest_scan_sources ${target} SOURCES)
+    endif()
+    if(NOT _gentest_scan_sources)
+        message(FATAL_ERROR "gentest_attach_codegen(${target}): SOURCES not provided and target has no SOURCES property")
     endif()
 
-    # Configure-time collision checks: prevent multiple targets (or multiple
-    # calls) from writing to the same generated OUTPUT file, which would
-    # silently clobber results during the build.
-    if("${GENTEST_OUTPUT}" MATCHES "\\$<")
-        message(WARNING "gentest_attach_codegen(${target}): OUTPUT contains generator expressions; collision checks skipped: '${GENTEST_OUTPUT}'")
-    else()
-        set(_gentest_output_path "${GENTEST_OUTPUT}")
-        cmake_path(ABSOLUTE_PATH _gentest_output_path BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" NORMALIZE
-                   OUTPUT_VARIABLE _gentest_output_abs)
-
-        # Use a normalized key for case-insensitive filesystems.
-        set(_gentest_output_key "${_gentest_output_abs}")
-        if(WIN32)
-            string(TOLOWER "${_gentest_output_key}" _gentest_output_key)
+    # Select translation units (C++ sources only, no generator expressions).
+    set(_gentest_tus "")
+    foreach(_gentest_src IN LISTS _gentest_scan_sources)
+        if("${_gentest_src}" MATCHES "\\$<")
+            continue()
         endif()
-        string(MD5 _gentest_output_md5 "${_gentest_output_key}")
-
-        get_property(_gentest_prev_owner GLOBAL PROPERTY "GENTEST_CODEGEN_OUTPUT_OWNER_${_gentest_output_md5}")
-        if(_gentest_prev_owner)
-            if(NOT _gentest_prev_owner STREQUAL "${target}")
-                message(FATAL_ERROR
-                    "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' is already used by '${_gentest_prev_owner}'. "
-                    "Each target must have a unique OUTPUT to avoid generated file clobbering.")
-            endif()
-            message(FATAL_ERROR
-                "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' is registered multiple times for the same target. "
-                "Call gentest_attach_codegen() once per target and list all SOURCES in that call.")
+        get_filename_component(_gentest_ext "${_gentest_src}" EXT)
+        if(NOT _gentest_ext MATCHES "^\\.(cc|cpp|cxx)$")
+            continue()
         endif()
-        set_property(GLOBAL PROPERTY "GENTEST_CODEGEN_OUTPUT_OWNER_${_gentest_output_md5}" "${target}")
+        set(_gentest_src_path "${_gentest_src}")
+        cmake_path(ABSOLUTE_PATH _gentest_src_path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
+                   OUTPUT_VARIABLE _gentest_src_abs)
+        list(APPEND _gentest_tus "${_gentest_src_abs}")
+    endforeach()
 
-        # Also prevent the OUTPUT from overwriting any scanned source file.
-        foreach(_gentest_src IN LISTS GENTEST_SOURCES)
-            if("${_gentest_src}" MATCHES "\\$<")
-                continue()
-            endif()
-            set(_gentest_src_path "${_gentest_src}")
-            cmake_path(ABSOLUTE_PATH _gentest_src_path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
-                       OUTPUT_VARIABLE _gentest_src_abs)
+    if(NOT _gentest_tus)
+        message(FATAL_ERROR "gentest_attach_codegen(${target}): no C++ translation units found to scan")
+    endif()
 
-            set(_gentest_src_key "${_gentest_src_abs}")
+    # Mode selection:
+    # - If OUTPUT is provided, emit a single manifest TU (legacy).
+    # - Otherwise, emit a wrapper TU + header per translation unit and replace
+    #   the target sources (gtest/catch/doctest-like workflow).
+    set(_gentest_mode "tu")
+    if(GENTEST_OUTPUT)
+        set(_gentest_mode "manifest")
+    endif()
+
+    if(_gentest_mode STREQUAL "manifest")
+        if(NOT GENTEST_OUTPUT)
+            set(GENTEST_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${target}_generated.cpp")
+        endif()
+
+        # Configure-time collision checks: prevent multiple targets (or multiple
+        # calls) from writing to the same generated OUTPUT file.
+        if("${GENTEST_OUTPUT}" MATCHES "\\$<")
+            message(WARNING "gentest_attach_codegen(${target}): OUTPUT contains generator expressions; collision checks skipped: '${GENTEST_OUTPUT}'")
+        else()
+            set(_gentest_output_path "${GENTEST_OUTPUT}")
+            cmake_path(ABSOLUTE_PATH _gentest_output_path BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" NORMALIZE
+                       OUTPUT_VARIABLE _gentest_output_abs)
+
+            # Use a normalized key for case-insensitive filesystems.
+            set(_gentest_output_key "${_gentest_output_abs}")
             if(WIN32)
-                string(TOLOWER "${_gentest_src_key}" _gentest_src_key)
+                string(TOLOWER "${_gentest_output_key}" _gentest_output_key)
             endif()
-            if(_gentest_src_key STREQUAL _gentest_output_key)
+            string(MD5 _gentest_output_md5 "${_gentest_output_key}")
+
+            get_property(_gentest_prev_owner GLOBAL PROPERTY "GENTEST_CODEGEN_OUTPUT_OWNER_${_gentest_output_md5}")
+            if(_gentest_prev_owner)
+                if(NOT _gentest_prev_owner STREQUAL "${target}")
+                    message(FATAL_ERROR
+                        "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' is already used by '${_gentest_prev_owner}'. "
+                        "Each target must have a unique OUTPUT to avoid generated file clobbering.")
+                endif()
                 message(FATAL_ERROR
-                    "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' would overwrite a scanned source file '${_gentest_src_abs}'.")
+                    "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' is registered multiple times for the same target. "
+                    "Call gentest_attach_codegen() once per target and list all SOURCES in that call.")
             endif()
-        endforeach()
+            set_property(GLOBAL PROPERTY "GENTEST_CODEGEN_OUTPUT_OWNER_${_gentest_output_md5}" "${target}")
+
+            # Also prevent the OUTPUT from overwriting any scanned source file.
+            foreach(_gentest_src IN LISTS _gentest_tus)
+                set(_gentest_src_path "${_gentest_src}")
+                cmake_path(ABSOLUTE_PATH _gentest_src_path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
+                           OUTPUT_VARIABLE _gentest_src_abs)
+
+                set(_gentest_src_key "${_gentest_src_abs}")
+                if(WIN32)
+                    string(TOLOWER "${_gentest_src_key}" _gentest_src_key)
+                endif()
+                if(_gentest_src_key STREQUAL _gentest_output_key)
+                    message(FATAL_ERROR
+                        "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' would overwrite a scanned source file '${_gentest_src_abs}'.")
+                endif()
+            endforeach()
+        endif()
+
+        get_filename_component(_gentest_output_dir "${GENTEST_OUTPUT}" DIRECTORY)
+        if(_gentest_output_dir STREQUAL "")
+            set(_gentest_output_dir "${CMAKE_CURRENT_BINARY_DIR}")
+        endif()
+    else()
+        if(GENTEST_NO_INCLUDE_SOURCES)
+            message(FATAL_ERROR "gentest_attach_codegen(${target}): NO_INCLUDE_SOURCES is not supported in TU wrapper mode")
+        endif()
+
+        if(GENTEST_OUTPUT_DIR)
+            set(_gentest_output_dir "${GENTEST_OUTPUT_DIR}")
+        else()
+            set(_gentest_output_dir "${CMAKE_CURRENT_BINARY_DIR}/gentest/${_gentest_target_id}")
+        endif()
+
+        # Configure-time collision checks for the output directory when a
+        # concrete path is provided (avoid clobbering among targets).
+        if("${_gentest_output_dir}" MATCHES "\\$<")
+            message(WARNING "gentest_attach_codegen(${target}): OUTPUT_DIR contains generator expressions; collision checks skipped: '${_gentest_output_dir}'")
+        else()
+            set(_gentest_outdir_path "${_gentest_output_dir}")
+            cmake_path(ABSOLUTE_PATH _gentest_outdir_path BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" NORMALIZE
+                       OUTPUT_VARIABLE _gentest_outdir_abs)
+
+            set(_gentest_outdir_key "${_gentest_outdir_abs}")
+            if(WIN32)
+                string(TOLOWER "${_gentest_outdir_key}" _gentest_outdir_key)
+            endif()
+            string(MD5 _gentest_outdir_md5 "${_gentest_outdir_key}")
+
+            get_property(_gentest_prev_owner GLOBAL PROPERTY "GENTEST_CODEGEN_OUTDIR_OWNER_${_gentest_outdir_md5}")
+            if(_gentest_prev_owner AND NOT _gentest_prev_owner STREQUAL "${target}")
+                message(FATAL_ERROR
+                    "gentest_attach_codegen(${target}): OUTPUT_DIR '${_gentest_outdir_abs}' is already used by '${_gentest_prev_owner}'. "
+                    "Each target should have a unique OUTPUT_DIR to avoid generated file clobbering.")
+            endif()
+            set_property(GLOBAL PROPERTY "GENTEST_CODEGEN_OUTDIR_OWNER_${_gentest_outdir_md5}" "${target}")
+        endif()
     endif()
 
     set(_gentest_codegen_target "")
@@ -98,16 +171,35 @@ function(gentest_attach_codegen target)
             "-DGENTEST_CODEGEN_EXECUTABLE=<path> (cross builds).")
     endif()
 
-    get_filename_component(_gentest_output_dir "${GENTEST_OUTPUT}" DIRECTORY)
-    if(_gentest_output_dir STREQUAL "")
-        set(_gentest_output_dir "${CMAKE_CURRENT_BINARY_DIR}")
-    endif()
-
-    string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
     set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
-    # Generate inline mock implementations as a header; it will be included
-    # by the generated test implementation after including sources.
+    # Generate inline mock implementations as a header; it will be included by
+    # the generated wrapper translation units after including sources.
     set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
+
+    # Compute per-TU wrapper outputs (TU mode).
+    set(_gentest_wrapper_cpp "")
+    set(_gentest_wrapper_headers "")
+    if(_gentest_mode STREQUAL "tu")
+        set(_gentest_idx 0)
+        foreach(_tu IN LISTS _gentest_tus)
+            get_filename_component(_stem "${_tu}" NAME_WE)
+            string(REGEX REPLACE "[^A-Za-z0-9_]" "_" _stem "${_stem}")
+            if(_stem STREQUAL "")
+                set(_stem "tu")
+            endif()
+            set(_idx_str "${_gentest_idx}")
+            string(LENGTH "${_idx_str}" _idx_len)
+            if(_idx_len LESS 4)
+                math(EXPR _pad "4 - ${_idx_len}")
+                string(REPEAT "0" ${_pad} _zeros)
+                set(_idx_str "${_zeros}${_idx_str}")
+            endif()
+            list(APPEND _gentest_wrapper_headers "${_gentest_output_dir}/tu_${_idx_str}_${_stem}.gentest.h")
+            list(APPEND _gentest_wrapper_cpp "${_gentest_output_dir}/tu_${_idx_str}_${_stem}.gentest.cpp")
+            math(EXPR _gentest_idx "${_gentest_idx} + 1")
+        endforeach()
+        unset(_gentest_idx)
+    endif()
 
     set(_command_launcher ${_gentest_codegen_executable})
     if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
@@ -121,15 +213,20 @@ function(gentest_attach_codegen target)
     endif()
 
     set(_command ${_command_launcher}
-        --output ${GENTEST_OUTPUT}
-        --entry ${GENTEST_ENTRY}
         --mock-registry ${_gentest_mock_registry}
         --mock-impl ${_gentest_mock_impl}
         --compdb ${CMAKE_BINARY_DIR})
 
-    if(GENTEST_NO_INCLUDE_SOURCES)
-        list(APPEND _command --no-include-sources)
+    if(_gentest_mode STREQUAL "manifest")
+        list(APPEND _command --output ${GENTEST_OUTPUT})
+        list(APPEND _command --entry ${GENTEST_ENTRY})
+        if(GENTEST_NO_INCLUDE_SOURCES)
+            list(APPEND _command --no-include-sources)
+        endif()
+    else()
+        list(APPEND _command --tu-out-dir ${_gentest_output_dir})
     endif()
+
     if(GENTEST_STRICT_FIXTURE)
         list(APPEND _command --strict-fixture)
     endif()
@@ -137,7 +234,7 @@ function(gentest_attach_codegen target)
         list(APPEND _command --quiet-clang)
     endif()
 
-    list(APPEND _command ${GENTEST_SOURCES})
+    list(APPEND _command ${_gentest_tus})
 
     list(APPEND _command --)
     list(APPEND _command -DGENTEST_CODEGEN=1)
@@ -168,12 +265,18 @@ function(gentest_attach_codegen target)
         cmake_policy(SET CMP0171 NEW)
     endif()
 
+    if(_gentest_mode STREQUAL "manifest")
+        set(_gentest_codegen_outputs ${GENTEST_OUTPUT} ${_gentest_mock_registry} ${_gentest_mock_impl})
+    else()
+        set(_gentest_codegen_outputs ${_gentest_wrapper_cpp} ${_gentest_wrapper_headers} ${_gentest_mock_registry} ${_gentest_mock_impl})
+    endif()
+
     set(_gentest_custom_command_args
-        OUTPUT ${GENTEST_OUTPUT} ${_gentest_mock_registry} ${_gentest_mock_impl}
+        OUTPUT ${_gentest_codegen_outputs}
         COMMAND ${_command}
         COMMAND_EXPAND_LISTS
-        DEPENDS ${_gentest_codegen_deps} ${GENTEST_SOURCES} ${GENTEST_DEPENDS}
-        COMMENT "Generating ${GENTEST_OUTPUT} for target ${target}"
+        DEPENDS ${_gentest_codegen_deps} ${_gentest_tus} ${GENTEST_DEPENDS}
+        COMMENT "Running gentest_codegen for target ${target}"
         VERBATIM)
     if(POLICY CMP0171)
         list(APPEND _gentest_custom_command_args CODEGEN)
@@ -183,9 +286,48 @@ function(gentest_attach_codegen target)
 
     cmake_policy(POP)
 
-    # Only compile the generated test implementation; the mock impl header
-    # is included by it and must not be compiled as a separate TU.
-    target_sources(${target} PRIVATE ${GENTEST_OUTPUT})
+    if(_gentest_mode STREQUAL "manifest")
+        target_sources(${target} PRIVATE ${GENTEST_OUTPUT})
+    else()
+        # Replace the original translation units with generated wrappers to
+        # avoid ODR violations (wrapper TU includes the original .cpp).
+        get_target_property(_gentest_target_sources ${target} SOURCES)
+        if(NOT _gentest_target_sources)
+            set(_gentest_target_sources "")
+        endif()
+
+        set(_gentest_wrap_keys "")
+        foreach(_tu IN LISTS _gentest_tus)
+            set(_p "${_tu}")
+            cmake_path(ABSOLUTE_PATH _p BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE _abs)
+            set(_key "${_abs}")
+            if(WIN32)
+                string(TOLOWER "${_key}" _key)
+            endif()
+            list(APPEND _gentest_wrap_keys "${_key}")
+        endforeach()
+
+        set(_gentest_new_sources "")
+        foreach(_src IN LISTS _gentest_target_sources)
+            if("${_src}" MATCHES "\\$<")
+                list(APPEND _gentest_new_sources "${_src}")
+                continue()
+            endif()
+            set(_p "${_src}")
+            cmake_path(ABSOLUTE_PATH _p BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE _abs)
+            set(_key "${_abs}")
+            if(WIN32)
+                string(TOLOWER "${_key}" _key)
+            endif()
+            list(FIND _gentest_wrap_keys "${_key}" _found)
+            if(_found EQUAL -1)
+                list(APPEND _gentest_new_sources "${_src}")
+            endif()
+        endforeach()
+
+        list(APPEND _gentest_new_sources ${_gentest_wrapper_cpp})
+        set_property(TARGET ${target} PROPERTY SOURCES "${_gentest_new_sources}")
+    endif()
 
     get_filename_component(_gentest_mock_dir "${_gentest_mock_registry}" DIRECTORY)
     target_include_directories(${target} PRIVATE ${_gentest_mock_dir})

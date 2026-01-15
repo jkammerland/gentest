@@ -71,6 +71,11 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
                                                     llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  tu_out_dir_option{
+        "tu-out-dir",
+        llvm::cl::desc("Emit per-translation-unit wrapper .cpp/.h files into this directory (enables TU mode)"),
+        llvm::cl::init(""),
+        llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<bool>         no_include_sources_option{
@@ -90,7 +95,6 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         llvm::cl::cat(category)};
     static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::OneOrMore,
                                                      llvm::cl::cat(category)};
-    static llvm::cl::list<std::string> clang_option{llvm::cl::ConsumeAfter, llvm::cl::desc("-- <clang arguments>")};
     static llvm::cl::opt<std::string>  template_option{"template", llvm::cl::desc("Path to the template file used for code generation"),
                                                       llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_registry_option{"mock-registry", llvm::cl::desc("Path to the generated mock registry header"),
@@ -100,14 +104,38 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<bool> check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"), llvm::cl::init(false),
                                             llvm::cl::cat(category)};
 
+    // Split tool args from trailing clang args after `--` ourselves because
+    // llvm::cl positional parsing is otherwise prone to consuming everything.
+    std::vector<const char*> tool_argv;
+    tool_argv.reserve(static_cast<std::size_t>(argc));
+    tool_argv.push_back(argv[0]);
+
+    std::vector<std::string> clang_args;
+    bool                     clang_mode = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i] ? std::string_view(argv[i]) : std::string_view{};
+        if (!clang_mode && arg == "--") {
+            clang_mode = true;
+            continue;
+        }
+        if (clang_mode) {
+            clang_args.emplace_back(arg);
+        } else {
+            tool_argv.push_back(argv[i]);
+        }
+    }
+
     llvm::cl::HideUnrelatedOptions(category);
-    llvm::cl::ParseCommandLineOptions(argc, argv, "gentest clang code generator\n");
+    llvm::cl::ParseCommandLineOptions(static_cast<int>(tool_argv.size()), tool_argv.data(), "gentest clang code generator\n");
 
     CollectorOptions opts;
     opts.entry       = entry_option;
     opts.output_path = std::filesystem::path{output_option.getValue()};
+    if (!tu_out_dir_option.getValue().empty()) {
+        opts.tu_output_dir = std::filesystem::path{tu_out_dir_option.getValue()};
+    }
     opts.sources.assign(source_option.begin(), source_option.end());
-    opts.clang_args.assign(clang_option.begin(), clang_option.end());
+    opts.clang_args = std::move(clang_args);
     opts.check_only = check_option.getValue();
     opts.quiet_clang = quiet_clang_option.getValue();
     opts.strict_fixture = [&] {
@@ -131,9 +159,6 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     if (!mock_impl_option.getValue().empty()) {
         opts.mock_impl_path = std::filesystem::path{mock_impl_option.getValue()};
     }
-    if (!opts.clang_args.empty() && opts.clang_args.front() == "--") {
-        opts.clang_args.erase(opts.clang_args.begin());
-    }
     if (!compdb_option.getValue().empty()) {
         opts.compilation_database = std::filesystem::path{compdb_option.getValue()};
     }
@@ -142,8 +167,8 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     } else if (!kTemplateDir.empty()) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
-    if (!opts.check_only && opts.output_path.empty()) {
-        llvm::errs() << "gentest_codegen: --output is required unless --check is specified\n";
+    if (!opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
+        llvm::errs() << "gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n";
     }
     return opts;
 }
@@ -265,8 +290,8 @@ int main(int argc, const char **argv) {
     if (options.check_only) {
         return 0;
     }
-    if (options.output_path.empty()) {
-        llvm::errs() << fmt::format("gentest_codegen: --output is required unless --check is specified\n");
+    if (options.output_path.empty() && options.tu_output_dir.empty()) {
+        llvm::errs() << fmt::format("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
         return 1;
     }
 

@@ -23,6 +23,42 @@
 #  include <boost/json.hpp>
 #endif
 
+namespace {
+struct CaseRegistry {
+    std::vector<gentest::Case> cases;
+    bool                       sorted = false;
+};
+
+auto case_registry() -> CaseRegistry& {
+    static CaseRegistry reg;
+    return reg;
+}
+} // namespace
+
+namespace gentest::detail {
+void register_cases(std::span<const Case> cases) {
+    auto& reg = case_registry();
+    reg.cases.insert(reg.cases.end(), cases.begin(), cases.end());
+    reg.sorted = false;
+}
+} // namespace gentest::detail
+
+namespace gentest {
+const Case* get_cases() {
+    auto& reg = case_registry();
+    if (!reg.sorted) {
+        std::sort(reg.cases.begin(), reg.cases.end(), [](const Case& lhs, const Case& rhs) { return lhs.name < rhs.name; });
+        reg.sorted = true;
+    }
+    return reg.cases.data();
+}
+
+std::size_t get_case_count() {
+    auto& reg = case_registry();
+    return reg.cases.size();
+}
+} // namespace gentest
+
 namespace gentest {
 namespace {
 

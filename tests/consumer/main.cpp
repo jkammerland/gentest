@@ -28,15 +28,11 @@ constexpr gentest::Case kCases[] = {
     },
 };
 
+struct Registrar {
+    Registrar() { gentest::detail::register_cases(std::span{kCases}); }
+};
+[[maybe_unused]] const Registrar kRegistrar{};
+
 } // namespace
 
-namespace gentest {
-
-const Case *get_cases() { return kCases; }
-
-std::size_t get_case_count() { return sizeof(kCases) / sizeof(kCases[0]); }
-
-} // namespace gentest
-
 int main(int argc, char **argv) { return gentest::run_all_tests(argc, argv); }
-

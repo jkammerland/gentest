@@ -1,0 +1,14 @@
+- Goal: make gentest usage closer to gtest/catch/doctest by compiling tests as separate TUs (no single unity `test_impl.cpp` TU), while still using attribute-driven discovery + generation.
+-
+- ```mermaid
+- graph TD
+-   R[Runtime: global case registry] --> G[Codegen: per-TU wrapper .cpp/.h]
+-   R --> C[CMake: replace target TUs with wrappers]
+-   G --> C
+-   C --> T[Repo suites + docs updates]
+-   T --> V[Build + ctest verification]
+- ```
+-
+- Notes:
+- - The wrapper `.cpp` includes the original TU and emits registration code for the discovered cases in that TU.
+- - The target’s original `.cpp` sources are replaced with generated wrappers to avoid ODR violations.
