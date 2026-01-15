@@ -33,8 +33,11 @@ function(gentest_attach_codegen target)
 
     # Select translation units (C++ sources only, no generator expressions).
     set(_gentest_tus "")
+    set(_gentest_tu_source_entries "")
+    set(_gentest_skipped_genex_sources "")
     foreach(_gentest_src IN LISTS _gentest_scan_sources)
         if("${_gentest_src}" MATCHES "\\$<")
+            list(APPEND _gentest_skipped_genex_sources "${_gentest_src}")
             continue()
         endif()
         get_filename_component(_gentest_ext "${_gentest_src}" EXT)
@@ -44,8 +47,16 @@ function(gentest_attach_codegen target)
         set(_gentest_src_path "${_gentest_src}")
         cmake_path(ABSOLUTE_PATH _gentest_src_path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
                    OUTPUT_VARIABLE _gentest_src_abs)
+        list(APPEND _gentest_tu_source_entries "${_gentest_src}")
         list(APPEND _gentest_tus "${_gentest_src_abs}")
     endforeach()
+
+    if(_gentest_skipped_genex_sources)
+        list(LENGTH _gentest_skipped_genex_sources _gentest_skipped_genex_count)
+        message(WARNING
+            "gentest_attach_codegen(${target}): skipping ${_gentest_skipped_genex_count} generator-expression SOURCES entries. "
+            "Pass concrete files via SOURCES=... if you need those scanned/wrapped.")
+    endif()
 
     if(NOT _gentest_tus)
         message(FATAL_ERROR "gentest_attach_codegen(${target}): no C++ translation units found to scan")
@@ -153,6 +164,11 @@ function(gentest_attach_codegen target)
 
     set(_gentest_codegen_target "")
     set(_gentest_codegen_executable "")
+    if(CMAKE_CROSSCOMPILING AND NOT GENTEST_CODEGEN_EXECUTABLE AND NOT GENTEST_CODEGEN_TARGET)
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${target}): cross-compiling requires a host gentest_codegen. "
+            "Set -DGENTEST_CODEGEN_EXECUTABLE=<path> or -DGENTEST_CODEGEN_TARGET=<target>.")
+    endif()
     if(GENTEST_CODEGEN_EXECUTABLE)
         set(_gentest_codegen_executable "${GENTEST_CODEGEN_EXECUTABLE}")
     elseif(GENTEST_CODEGEN_TARGET)
@@ -311,6 +327,10 @@ function(gentest_attach_codegen target)
         foreach(_src IN LISTS _gentest_target_sources)
             if("${_src}" MATCHES "\\$<")
                 list(APPEND _gentest_new_sources "${_src}")
+                continue()
+            endif()
+            list(FIND _gentest_tu_source_entries "${_src}" _src_entry_idx)
+            if(NOT _src_entry_idx EQUAL -1)
                 continue()
             endif()
             set(_p "${_src}")

@@ -44,6 +44,8 @@ std::string normalize_path_key(const fs::path &path) {
         abs = path;
         ec.clear();
     }
+    fs::path canon = fs::weakly_canonical(abs, ec);
+    if (!ec) abs = canon;
     abs = abs.lexically_normal();
     std::string key = abs.generic_string();
 #if defined(_WIN32)

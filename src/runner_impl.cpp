@@ -4,10 +4,12 @@
 #include <array>
 #include <chrono>
 #include <cstdlib>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <fmt/color.h>
 #include <fmt/core.h>
+#include <functional>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -47,7 +49,11 @@ namespace gentest {
 const Case* get_cases() {
     auto& reg = case_registry();
     if (!reg.sorted) {
-        std::sort(reg.cases.begin(), reg.cases.end(), [](const Case& lhs, const Case& rhs) { return lhs.name < rhs.name; });
+        std::sort(reg.cases.begin(), reg.cases.end(), [](const Case& lhs, const Case& rhs) {
+            if (lhs.name != rhs.name) return lhs.name < rhs.name;
+            if (lhs.file != rhs.file) return lhs.file < rhs.file;
+            return lhs.line < rhs.line;
+        });
         reg.sorted = true;
     }
     return reg.cases.data();
