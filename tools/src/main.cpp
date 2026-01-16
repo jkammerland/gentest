@@ -211,8 +211,9 @@ int main(int argc, const char **argv) {
     const auto extra_args = options.clang_args;
 
     if (options.compilation_database) {
+        const std::string compdb_dir = options.compilation_database->string();
         tool.appendArgumentsAdjuster(
-            [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
+            [extra_args, compdb_dir](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
                     // Use compiler and flags from compilation database
@@ -230,6 +231,10 @@ int main(int argc, const char **argv) {
                 } else {
                     // No database entry found - create minimal synthetic command
                     // This shouldn't happen often, but is a fallback
+                    llvm::errs() << fmt::format(
+                        "gentest_codegen: warning: no compilation database entry for '{}'; using synthetic clang invocation "
+                        "(compdb: '{}')\n",
+                        file.str(), compdb_dir);
                     static constexpr std::string_view compiler = "clang++";
                     adjusted.emplace_back(compiler);
 #if defined(__linux__)
