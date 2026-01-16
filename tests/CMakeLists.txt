@@ -610,6 +610,22 @@ set_tests_properties(gentest_discover_tests_smoke PROPERTIES LABELS "cmake")
 
 unset(_gentest_discover_tests_config)
 
+add_test(NAME gentest_tu_wrapper_source_props
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
+        -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
+        -DGENERATOR=${CMAKE_GENERATOR}
+        -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+        -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
+        -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+        -DC_COMPILER=${CMAKE_C_COMPILER}
+        -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake)
+
+set_tests_properties(gentest_tu_wrapper_source_props PROPERTIES LABELS "cmake")
+
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
     set(_gentest_package_test_config "")
