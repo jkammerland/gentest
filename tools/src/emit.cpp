@@ -214,10 +214,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
         if (ec)
             rel = spath;
         std::string inc = rel.generic_string();
-        // Bazel note: when output_dir is under bazel-out, proximate may produce deep ../../.. paths;
-        // fallback to the original source path which is resolved by -I tests/include.
-        if (inc.find("..") != std::string::npos) inc = spath.generic_string();
-        includes += fmt::format("#include \"{}\"\n", inc);
+        includes += fmt::format("#include \"{}\"\n", render::escape_string(inc));
     }
     replace_all(output, "{{INCLUDE_SOURCES}}", includes);
 
@@ -299,8 +296,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
                 fs::path        rel = fs::proximate(source_path, opts.tu_output_dir, ec);
                 if (ec) rel = source_path;
                 std::string inc = rel.generic_string();
-                if (inc.find("..") != std::string::npos) inc = source_path.generic_string();
-                include_src = fmt::format("#include \"{}\"\n", inc);
+                include_src = fmt::format("#include \"{}\"\n", render::escape_string(inc));
             }
             replace_all(impl, "{{INCLUDE_SOURCE}}", include_src);
 
