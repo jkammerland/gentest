@@ -11,7 +11,7 @@ if(NOT DEFINED GENTEST_CODEGEN_TARGET)
 endif()
 
 function(gentest_attach_codegen target)
-    set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
+    set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG WRAP_ALL_TUS)
     set(one_value_args OUTPUT OUTPUT_DIR ENTRY)
     set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
@@ -20,12 +20,23 @@ function(gentest_attach_codegen target)
         set(GENTEST_ENTRY gentest::run_all_tests)
     endif()
 
+    # Mode selection:
+    # - If OUTPUT is provided, emit a single manifest TU (legacy).
+    # - Otherwise, emit a wrapper TU + header per translation unit and replace
+    #   the target sources (gtest/catch/doctest-like workflow).
+    set(_gentest_mode "tu")
+    if(GENTEST_OUTPUT)
+        set(_gentest_mode "manifest")
+    endif()
+
     string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
 
     # Scan sources: explicit SOURCES preferred, otherwise pull from target.
     set(_gentest_scan_sources "${GENTEST_SOURCES}")
+    set(_gentest_scan_from_target FALSE)
     if(NOT _gentest_scan_sources)
         get_target_property(_gentest_scan_sources ${target} SOURCES)
+        set(_gentest_scan_from_target TRUE)
     endif()
     if(NOT _gentest_scan_sources)
         message(FATAL_ERROR "gentest_attach_codegen(${target}): SOURCES not provided and target has no SOURCES property")
@@ -35,6 +46,25 @@ function(gentest_attach_codegen target)
     set(_gentest_tus "")
     set(_gentest_tu_source_entries "")
     set(_gentest_skipped_genex_sources "")
+    set(_gentest_skipped_unmarked_sources "")
+
+    # In TU wrapper mode, we only replace translation units that contain
+    # gentest annotations. This avoids replacing "support" sources that have
+    # no tests (e.g. a main/test_entry.cpp). Use WRAP_ALL_TUS to force wrapping
+    # everything (useful when tests live in included headers).
+    function(_gentest_source_has_markers out_var path)
+        if(NOT EXISTS "${path}")
+            set(${out_var} TRUE PARENT_SCOPE)
+            return()
+        endif()
+        file(READ "${path}" _content LIMIT 262144)
+        if("${_content}" MATCHES "\\[\\[using[ \t]+gentest" OR "${_content}" MATCHES "\\[\\[[^]]*gentest::")
+            set(${out_var} TRUE PARENT_SCOPE)
+        else()
+            set(${out_var} FALSE PARENT_SCOPE)
+        endif()
+    endfunction()
+
     foreach(_gentest_src IN LISTS _gentest_scan_sources)
         if("${_gentest_src}" MATCHES "\\$<")
             list(APPEND _gentest_skipped_genex_sources "${_gentest_src}")
@@ -47,6 +77,15 @@ function(gentest_attach_codegen target)
         set(_gentest_src_path "${_gentest_src}")
         cmake_path(ABSOLUTE_PATH _gentest_src_path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
                    OUTPUT_VARIABLE _gentest_src_abs)
+
+        if(_gentest_mode STREQUAL "tu" AND _gentest_scan_from_target AND NOT GENTEST_WRAP_ALL_TUS)
+            _gentest_source_has_markers(_gentest_has_markers "${_gentest_src_abs}")
+            if(NOT _gentest_has_markers)
+                list(APPEND _gentest_skipped_unmarked_sources "${_gentest_src}")
+                continue()
+            endif()
+        endif()
+
         list(APPEND _gentest_tu_source_entries "${_gentest_src}")
         list(APPEND _gentest_tus "${_gentest_src_abs}")
     endforeach()
@@ -58,17 +97,15 @@ function(gentest_attach_codegen target)
             "Pass concrete files via SOURCES=... if you need those scanned/wrapped.")
     endif()
 
-    if(NOT _gentest_tus)
-        message(FATAL_ERROR "gentest_attach_codegen(${target}): no C++ translation units found to scan")
+    if(_gentest_skipped_unmarked_sources)
+        list(LENGTH _gentest_skipped_unmarked_sources _gentest_skipped_unmarked_count)
+        message(STATUS
+            "gentest_attach_codegen(${target}): skipping ${_gentest_skipped_unmarked_count} unannotated translation unit(s) "
+            "(no gentest attributes found). Set WRAP_ALL_TUS to force wrapping them.")
     endif()
 
-    # Mode selection:
-    # - If OUTPUT is provided, emit a single manifest TU (legacy).
-    # - Otherwise, emit a wrapper TU + header per translation unit and replace
-    #   the target sources (gtest/catch/doctest-like workflow).
-    set(_gentest_mode "tu")
-    if(GENTEST_OUTPUT)
-        set(_gentest_mode "manifest")
+    if(NOT _gentest_tus)
+        message(FATAL_ERROR "gentest_attach_codegen(${target}): no C++ translation units found to scan")
     endif()
 
     if(_gentest_mode STREQUAL "manifest")
