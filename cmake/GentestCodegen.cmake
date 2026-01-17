@@ -134,7 +134,10 @@ function(gentest_attach_codegen target)
         endif()
     else()
         if(GENTEST_NO_INCLUDE_SOURCES)
-            message(FATAL_ERROR "gentest_attach_codegen(${target}): NO_INCLUDE_SOURCES is not supported in TU wrapper mode")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): NO_INCLUDE_SOURCES is not supported in TU wrapper mode, "
+                "because wrappers must include the original translation unit. "
+                "Use OUTPUT=... to switch to legacy manifest mode if you need NO_INCLUDE_SOURCES.")
         endif()
 
         if(GENTEST_OUTPUT_DIR)
