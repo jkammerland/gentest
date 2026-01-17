@@ -55,7 +55,8 @@ namespace {
 }
 } // namespace
 
-TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture) : out_(out), strict_fixture_(strict_fixture) {}
+TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes)
+    : out_(out), strict_fixture_(strict_fixture), allow_includes_(allow_includes) {}
 
 void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     const auto *func = result.Nodes.getNodeAs<FunctionDecl>("gentest.func");
@@ -65,6 +66,12 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
     const auto *sm   = result.SourceManager;
     const auto &lang = result.Context->getLangOpts();
+    std::string tu_filename;
+    {
+        const SourceLocation tu_loc = sm->getLocForStartOfFile(sm->getMainFileID());
+        const llvm::StringRef tu_file = sm->getFilename(tu_loc);
+        tu_filename = tu_file.str();
+    }
 
     // Allow templated functions; instantiation handled by codegen.
 
@@ -76,7 +83,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         loc = sm->getExpansionLoc(loc);
     }
 
-    if (!sm->isWrittenInMainFile(loc)) {
+    if (!sm->isWrittenInMainFile(loc) && !allow_includes_) {
         return;
     }
 
@@ -286,6 +293,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         TestCaseInfo info{};
         info.qualified_name = make_qualified(tpl_ordered);
         info.display_name   = make_display(final_base, tpl_ordered, call_args);
+        info.tu_filename    = tu_filename;
         info.filename       = filename.str();
         info.suite_name     = suite_path;
         info.line           = lnum;
@@ -683,6 +691,11 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
     TestCaseInfo info{};
     info.qualified_name = std::move(qualified);
     info.display_name   = std::move(display_base);
+    {
+        const SourceLocation tu_loc = sm.getLocForStartOfFile(sm.getMainFileID());
+        const llvm::StringRef tu_file = sm.getFilename(tu_loc);
+        info.tu_filename = tu_file.str();
+    }
     info.filename       = filename.str();
     info.suite_name     = suite_path;
     info.line           = line;

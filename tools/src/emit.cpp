@@ -63,6 +63,69 @@ std::string sanitize_stem(std::string value) {
     return value;
 }
 
+bool path_is_under(const fs::path &path, const fs::path &root) {
+    auto pit = path.begin();
+    auto rit = root.begin();
+    for (; rit != root.end(); ++rit, ++pit) {
+        if (pit == path.end() || *pit != *rit) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string normalize_case_file(const CollectorOptions &opts, std::string_view filename) {
+    if (!opts.source_root || opts.source_root->empty()) {
+        return std::string(filename);
+    }
+    fs::path file_path{std::string(filename)};
+    fs::path root_path{*opts.source_root};
+
+    std::error_code ec;
+    fs::path        abs_file = file_path.is_absolute() ? file_path : fs::absolute(file_path, ec);
+    ec.clear();
+    fs::path abs_root = root_path.is_absolute() ? root_path : fs::absolute(root_path, ec);
+
+    ec.clear();
+    if (auto canon = fs::weakly_canonical(abs_file, ec); !ec) abs_file = canon;
+    ec.clear();
+    if (auto canon = fs::weakly_canonical(abs_root, ec); !ec) abs_root = canon;
+
+    abs_file = abs_file.lexically_normal();
+    abs_root = abs_root.lexically_normal();
+
+    if (path_is_under(abs_file, abs_root)) {
+        fs::path rel = abs_file.lexically_relative(abs_root);
+        if (!rel.empty()) {
+            return rel.generic_string();
+        }
+    }
+    return file_path.generic_string();
+}
+
+std::optional<std::uint32_t> parse_tu_index(std::string_view filename) {
+    const auto pos = filename.find("tu_");
+    if (pos == std::string_view::npos) {
+        return std::nullopt;
+    }
+    std::size_t i = pos + 3;
+    std::uint32_t value = 0;
+    std::size_t digits = 0;
+    while (i < filename.size()) {
+        const char ch = filename[i];
+        if (ch < '0' || ch > '9') {
+            break;
+        }
+        value = value * 10u + static_cast<std::uint32_t>(ch - '0');
+        ++digits;
+        ++i;
+    }
+    if (digits == 0) {
+        return std::nullopt;
+    }
+    return value;
+}
+
 auto make_unique_tmp_path(const fs::path &path) -> fs::path {
     const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
                             .count();
@@ -226,6 +289,13 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
 }
 
 int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<MockClassInfo> &mocks) {
+    std::vector<TestCaseInfo> cases_for_render = cases;
+    if (opts.source_root && !opts.source_root->empty()) {
+        for (auto &c : cases_for_render) {
+            c.filename = normalize_case_file(opts, c.filename);
+        }
+    }
+
     if (opts.tu_output_dir.empty()) {
         fs::path out_path = opts.output_path;
         if (!ensure_parent_dir(out_path)) {
@@ -234,7 +304,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
 
         // Embedded template is used when no template path is provided.
 
-        const auto content = render_cases(opts, cases);
+        const auto content = render_cases(opts, cases_for_render);
         if (!content) {
             return 1;
         }
@@ -249,56 +319,35 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
 
         // Group discovered cases by their originating translation unit so we
         // can emit one wrapper TU per input source.
-        std::map<std::string, std::vector<TestCaseInfo>> cases_by_file;
-        for (const auto &c : cases) {
-            cases_by_file[normalize_path_key(fs::path(c.filename))].push_back(c);
+        std::map<std::string, std::vector<TestCaseInfo>> cases_by_tu;
+        for (const auto &c : cases_for_render) {
+            cases_by_tu[normalize_path_key(fs::path(c.tu_filename))].push_back(c);
         }
 
         for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
             const fs::path source_path = fs::path(opts.sources[idx]);
             const std::string key      = normalize_path_key(source_path);
-            auto it                    = cases_by_file.find(key);
+            auto it                    = cases_by_tu.find(key);
             std::vector<TestCaseInfo> tu_cases;
-            if (it != cases_by_file.end()) {
+            if (it != cases_by_tu.end()) {
                 tu_cases = it->second;
             }
 
             std::sort(tu_cases.begin(), tu_cases.end(),
                       [](const TestCaseInfo &lhs, const TestCaseInfo &rhs) { return lhs.display_name < rhs.display_name; });
 
-            const std::string stem       = sanitize_stem(source_path.stem().string());
-            const fs::path    header_out = opts.tu_output_dir / fmt::format("tu_{:04d}_{}.gentest.h", idx, stem);
-            const fs::path    cpp_out    = opts.tu_output_dir / fmt::format("tu_{:04d}_{}.gentest.cpp", idx, stem);
-
-            if (!ensure_parent_dir(header_out) || !ensure_parent_dir(cpp_out)) {
+            fs::path header_out = opts.tu_output_dir / source_path.filename();
+            header_out.replace_extension(".h");
+            if (!ensure_parent_dir(header_out)) {
                 return 1;
             }
 
-            const std::string register_fn = fmt::format("register_tu_{:04d}", idx);
+            const auto parsed_idx = parse_tu_index(source_path.filename().string());
+            const std::string register_fn =
+                fmt::format("register_tu_{:04d}", parsed_idx.has_value() ? *parsed_idx : static_cast<std::uint32_t>(idx));
 
-            // Header
-            std::string header_content = std::string(tpl::tu_header);
-            replace_all(header_content, "{{REGISTER_FN}}", register_fn);
-            if (!write_file_atomic_if_changed(header_out, header_content)) {
-                return 1;
-            }
-
-            // Wrapper implementation
-            std::string impl = std::string(tpl::tu_impl);
-
-            // Inject header include
-            replace_all(impl, "{{TU_HEADER}}", header_out.filename().generic_string());
-
-            // Compute include path for the original TU relative to the wrapper directory.
-            std::string include_src;
-            {
-                std::error_code ec;
-                fs::path        rel = fs::proximate(source_path, opts.tu_output_dir, ec);
-                if (ec) rel = source_path;
-                std::string inc = rel.generic_string();
-                include_src = fmt::format("#include \"{}\"\n", render::escape_string(inc));
-            }
-            replace_all(impl, "{{INCLUDE_SOURCE}}", include_src);
+            // Registration header (compiled via a CMake-generated shim TU).
+            std::string header_content = std::string(tpl::tu_registration_header);
 
             // Render test wrappers and cases for this TU
             const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
@@ -328,14 +377,14 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
                 case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
             }
 
-            replace_all(impl, "{{FORWARD_DECLS}}", forward_decl_block);
-            replace_all(impl, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
-            replace_all(impl, "{{TRAIT_DECLS}}", trait_declarations);
-            replace_all(impl, "{{WRAPPER_IMPLS}}", wrapper_impls);
-            replace_all(impl, "{{CASE_INITS}}", case_entries);
-            replace_all(impl, "{{REGISTER_FN}}", register_fn);
+            replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
+            replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
+            replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
+            replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
+            replace_all(header_content, "{{CASE_INITS}}", case_entries);
+            replace_all(header_content, "{{REGISTER_FN}}", register_fn);
 
-            if (!write_file_atomic_if_changed(cpp_out, impl)) {
+            if (!write_file_atomic_if_changed(header_out, header_content)) {
                 return 1;
             }
         }

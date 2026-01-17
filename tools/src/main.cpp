@@ -78,6 +78,11 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  source_root_option{
+        "source-root",
+        llvm::cl::desc("Source root used to emit stable relative paths in gentest::Case.file"),
+        llvm::cl::init(""),
+        llvm::cl::cat(category)};
     static llvm::cl::opt<bool>         no_include_sources_option{
         "no-include-sources",
         llvm::cl::desc("Do not emit #include directives for input sources (deprecated env: GENTEST_NO_INCLUDE_SOURCES)"),
@@ -161,6 +166,9 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     }
     if (!compdb_option.getValue().empty()) {
         opts.compilation_database = std::filesystem::path{compdb_option.getValue()};
+    }
+    if (!source_root_option.getValue().empty()) {
+        opts.source_root = std::filesystem::path{source_root_option.getValue()};
     }
     if (!template_option.getValue().empty()) {
         opts.template_path = std::filesystem::path{template_option.getValue()};
@@ -273,7 +281,8 @@ int main(int argc, const char **argv) {
     tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
 
     std::vector<TestCaseInfo>                    cases;
-    TestCaseCollector                            collector{cases, options.strict_fixture};
+    const bool                                   allow_includes = !options.tu_output_dir.empty();
+    TestCaseCollector                            collector{cases, options.strict_fixture, allow_includes};
     std::vector<gentest::codegen::MockClassInfo> mocks;
     MockUsageCollector                           mock_collector{mocks};
 

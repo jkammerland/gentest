@@ -15,7 +15,7 @@ namespace gentest::codegen {
 class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
     // out: vector to append discovered tests to.
-    explicit TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture);
+    explicit TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes);
 
     // Called by clang tooling; extracts a TestCaseInfo when the bound node is a function definition.
     void run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
@@ -31,6 +31,7 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
 
     std::vector<TestCaseInfo> &out_;
     bool                       strict_fixture_ = false;
+    bool                       allow_includes_ = false;
     // Dedup emitted test cases by a composite key (qualified + display + file:line)
     std::set<std::string>                                                           seen_;
     mutable bool                                                                    had_error_ = false;
