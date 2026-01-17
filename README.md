@@ -59,9 +59,25 @@ int main(int argc, char** argv) {
 include(CTest)
 enable_testing()
 
+# If installed: provides `gentest::gentest` and includes GentestCodegen.cmake.
+find_package(gentest CONFIG REQUIRED)
+#
+# Alternative (as a subproject):
+# add_subdirectory(path/to/gentest)
+
 add_executable(my_tests main.cpp cases.cpp)
 target_link_libraries(my_tests PRIVATE gentest::gentest)
-gentest_attach_codegen(my_tests)
+
+# Default (recommended): per-TU registration (gtest/catch/doctest-like).
+# NOTE: This mode requires a single-config generator/build dir (e.g. Ninja).
+gentest_attach_codegen(my_tests
+  CLANG_ARGS
+    -Wno-unknown-attributes
+    -Wno-attributes
+)
+#
+# Multi-config generators (Ninja Multi-Config / VS / Xcode):
+# gentest_attach_codegen(my_tests OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/my_tests_gentest.cpp")
 
 # Register each discovered case as its own CTest test (like gtest/catch/doctest).
 gentest_discover_tests(my_tests)

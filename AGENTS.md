@@ -2,9 +2,13 @@
 
 ## Project Structure & Module Organization
 - Public headers live in `include/gentest/` (`runner.h`, `attributes.h`) and are exposed via an interface library.
-- The sample executable builds from `src/`. Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits `test_impl.cpp`.
+- The sample executable builds from `src/`. Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources.
 - Helper macro wiring is in `cmake/GentestCodegen.cmake`.
-- Each suite under `tests/<suite>/` combines handwritten `cases.cpp`, generated `test_impl.cpp`, and `support/test_entry.cpp`.
+- `gentest_codegen` supports two output styles:
+  - Manifest mode (`gentest_attach_codegen(... OUTPUT ...)`): emits a single generated TU (legacy).
+  - Per-TU registration mode (default): emits per-TU registration headers (`tu_*.gentest.h`), and CMake generates shim TUs (`tu_*.gentest.cpp`) that include the original source and the generated header.
+- In per-TU registration mode, `gentest_attach_codegen()` replaces the original test TUs in the target with the generated shim TUs to avoid ODR issues.
+- Each suite under `tests/<suite>/` provides handwritten `cases.cpp` + `support/test_entry.cpp`; generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).
 
 ## Build, Test, and Development Commands
 - Preferred (system LLVM/Clang 20+):
@@ -55,6 +59,8 @@
 ## Tooling & Configuration Tips
 - Keep `CMAKE_EXPORT_COMPILE_COMMANDS=ON` so `gentest_codegen` reuses the active compilation database.
 - Let CMake manage dependencies via `vcpkg.json`; pin any new packages there.
+- Per-TU registration mode (default `gentest_attach_codegen()` with no `OUTPUT`) requires a single-config generator/build dir (e.g. Ninja). Multi-config generators (Ninja Multi-Config, VS, Xcode) should use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) or separate build dirs per config.
+- In per-TU registration mode, `OUTPUT_DIR` must be a concrete path (no generator expressions).
 - Cross-compiling (target = arm/riscv/etc, host runs codegen):
   - `GENTEST_BUILD_CODEGEN` defaults `OFF` when `CMAKE_CROSSCOMPILING=TRUE` (and also when `gentest_BUILD_TESTING=OFF`).
   - Build the host tool separately, then point the target build at it with `GENTEST_CODEGEN_EXECUTABLE`:
