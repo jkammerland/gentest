@@ -10,6 +10,7 @@
 #include "validate.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <clang/AST/Decl.h>
@@ -83,8 +84,22 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         loc = sm->getExpansionLoc(loc);
     }
 
-    if (!sm->isWrittenInMainFile(loc) && !allow_includes_) {
-        return;
+    const bool in_main_file = sm->isWrittenInMainFile(loc);
+    if (!in_main_file) {
+        if (!allow_includes_) {
+            return;
+        }
+        // TU shim mode: the shim includes a single original translation unit
+        // (*.cc/*.cpp/*.cxx). Avoid discovering tests in headers, since the
+        // build system does not yet track header deps for codegen.
+        const llvm::StringRef inc_file = sm->getFilename(loc);
+        std::string           lower    = inc_file.str();
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        const llvm::StringRef lower_ref{lower};
+        if (!(lower_ref.ends_with(".cc") || lower_ref.ends_with(".cpp") || lower_ref.ends_with(".cxx"))) {
+            return;
+        }
     }
 
     if (sm->isInSystemHeader(loc) || sm->isWrittenInBuiltinFile(loc)) {

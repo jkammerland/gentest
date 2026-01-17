@@ -143,29 +143,36 @@ function(gentest_attach_codegen target)
             set(_gentest_output_dir "${CMAKE_CURRENT_BINARY_DIR}/gentest/${_gentest_target_id}")
         endif()
 
-        # Configure-time collision checks for the output directory when a
-        # concrete path is provided (avoid clobbering among targets).
         if("${_gentest_output_dir}" MATCHES "\\$<")
-            message(WARNING "gentest_attach_codegen(${target}): OUTPUT_DIR contains generator expressions; collision checks skipped: '${_gentest_output_dir}'")
-        else()
-            set(_gentest_outdir_path "${_gentest_output_dir}")
-            cmake_path(ABSOLUTE_PATH _gentest_outdir_path BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" NORMALIZE
-                       OUTPUT_VARIABLE _gentest_outdir_abs)
-
-            set(_gentest_outdir_key "${_gentest_outdir_abs}")
-            if(WIN32)
-                string(TOLOWER "${_gentest_outdir_key}" _gentest_outdir_key)
-            endif()
-            string(MD5 _gentest_outdir_md5 "${_gentest_outdir_key}")
-
-            get_property(_gentest_prev_owner GLOBAL PROPERTY "GENTEST_CODEGEN_OUTDIR_OWNER_${_gentest_outdir_md5}")
-            if(_gentest_prev_owner AND NOT _gentest_prev_owner STREQUAL "${target}")
-                message(FATAL_ERROR
-                    "gentest_attach_codegen(${target}): OUTPUT_DIR '${_gentest_outdir_abs}' is already used by '${_gentest_prev_owner}'. "
-                    "Each target should have a unique OUTPUT_DIR to avoid generated file clobbering.")
-            endif()
-            set_property(GLOBAL PROPERTY "GENTEST_CODEGEN_OUTDIR_OWNER_${_gentest_outdir_md5}" "${target}")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): OUTPUT_DIR contains generator expressions, which is not supported in TU wrapper mode "
+                "(requires a concrete directory to generate shim translation units). "
+                "Pass a concrete OUTPUT_DIR, or use OUTPUT=... to switch to manifest mode.")
         endif()
+
+        # Normalize OUTPUT_DIR to an absolute path so wrapper file paths match
+        # compile_commands.json entries (avoids falling back to synthetic tool
+        # invocations).
+        set(_gentest_outdir_path "${_gentest_output_dir}")
+        cmake_path(ABSOLUTE_PATH _gentest_outdir_path BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" NORMALIZE
+                   OUTPUT_VARIABLE _gentest_outdir_abs)
+        set(_gentest_output_dir "${_gentest_outdir_abs}")
+
+        # Configure-time collision checks for the output directory (avoid
+        # clobbering among targets).
+        set(_gentest_outdir_key "${_gentest_outdir_abs}")
+        if(WIN32)
+            string(TOLOWER "${_gentest_outdir_key}" _gentest_outdir_key)
+        endif()
+        string(MD5 _gentest_outdir_md5 "${_gentest_outdir_key}")
+
+        get_property(_gentest_prev_owner GLOBAL PROPERTY "GENTEST_CODEGEN_OUTDIR_OWNER_${_gentest_outdir_md5}")
+        if(_gentest_prev_owner AND NOT _gentest_prev_owner STREQUAL "${target}")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): OUTPUT_DIR '${_gentest_outdir_abs}' is already used by '${_gentest_prev_owner}'. "
+                "Each target should have a unique OUTPUT_DIR to avoid generated file clobbering.")
+        endif()
+        set_property(GLOBAL PROPERTY "GENTEST_CODEGEN_OUTDIR_OWNER_${_gentest_outdir_md5}" "${target}")
     endif()
 
     set(_gentest_codegen_target "")

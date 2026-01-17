@@ -94,12 +94,31 @@ std::string normalize_case_file(const CollectorOptions &opts, std::string_view f
     abs_file = abs_file.lexically_normal();
     abs_root = abs_root.lexically_normal();
 
+    auto to_lower = [](std::string value) {
+#if defined(_WIN32)
+        for (auto &ch : value) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+#endif
+        return value;
+    };
+
+#if defined(_WIN32)
+    const fs::path abs_file_ci = fs::path(to_lower(abs_file.generic_string())).lexically_normal();
+    const fs::path abs_root_ci = fs::path(to_lower(abs_root.generic_string())).lexically_normal();
+    if (path_is_under(abs_file_ci, abs_root_ci)) {
+        fs::path rel = abs_file_ci.lexically_relative(abs_root_ci);
+        if (!rel.empty()) {
+            return rel.generic_string();
+        }
+    }
+#else
+    (void)to_lower;
     if (path_is_under(abs_file, abs_root)) {
         fs::path rel = abs_file.lexically_relative(abs_root);
         if (!rel.empty()) {
             return rel.generic_string();
         }
     }
+#endif
     return file_path.generic_string();
 }
 
