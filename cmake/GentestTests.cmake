@@ -47,6 +47,10 @@ function(gentest_add_suite suite)
         support/test_entry.cpp
         ${GENTEST_CASES})
 
+    if(TARGET gentest_test_suites)
+        add_dependencies(gentest_test_suites ${GENTEST_TARGET})
+    endif()
+
     target_link_libraries(${GENTEST_TARGET}
         PRIVATE
             ${PROJECT_NAME}

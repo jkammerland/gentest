@@ -1,5 +1,9 @@
 include(GentestTests)
 
+if(NOT TARGET gentest_test_suites)
+    add_custom_target(gentest_test_suites)
+endif()
+
 gentest_resolve_test_std(_gentest_test_std_feature _gentest_codegen_std_flag)
 unset(_gentest_test_std_feature)
 
@@ -687,32 +691,14 @@ if(GENTEST_VALGRIND_COMMAND)
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         USES_TERMINAL)
 
-    set(_gentest_valgrind_deps)
-    foreach(_target IN ITEMS
-        gentest_core_tests
-        gentest_codegen
-        gentest_unit_tests
-        gentest_integration_tests
-        gentest_failing_tests
-        gentest_skiponly_tests
-        gentest_fixtures_tests
-        gentest_templates_tests
-        gentest_mocking_tests
-        gentest_ctor_tests
-        gentest_benchmarks_tests
-        ${PROJECT_NAME}_concurrency_tests
-        ${PROJECT_NAME}_outcomes_tests)
-        if(TARGET ${_target})
-            list(APPEND _gentest_valgrind_deps ${_target})
-        endif()
-    endforeach()
-
-    if(_gentest_valgrind_deps)
-        add_dependencies(gentest_valgrind ${_gentest_valgrind_deps})
+    add_dependencies(gentest_valgrind gentest_test_suites)
+    if(TARGET gentest_core_tests)
+        add_dependencies(gentest_valgrind gentest_core_tests)
+    endif()
+    if(TARGET gentest_codegen)
+        add_dependencies(gentest_valgrind gentest_codegen)
     endif()
 
-    unset(_gentest_valgrind_deps)
     unset(_gentest_valgrind_cmd)
     unset(_gentest_valgrind_label_exclude_shell)
-    unset(_target)
 endif()
