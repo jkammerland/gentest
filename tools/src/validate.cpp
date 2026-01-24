@@ -16,7 +16,7 @@ namespace gentest::codegen {
 
 namespace {
 void add_unique(std::vector<std::string> &values, std::string value) {
-    if (std::find(values.begin(), values.end(), value) == values.end()) {
+    if (std::ranges::find(values, value) == values.end()) {
         values.push_back(std::move(value));
     }
 }
@@ -29,7 +29,7 @@ static std::string trim_copy(std::string s) {
     auto e = s.end();
     while (e != b && is_ws(static_cast<unsigned char>(*(e - 1))))
         --e;
-    return std::string(b, e);
+    return {b, e};
 }
 } // namespace
 
@@ -46,8 +46,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
 
     for (const auto &attr : parsed) {
         std::string lowered = attr.name;
-        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        std::ranges::transform(lowered, lowered.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 
         if (lowered == "test") {
             if (saw_test) {
@@ -205,7 +204,12 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             saw_case = true;
-            AttributeSummary::LinspaceSpec spec{attr.arguments[0], attr.arguments[1], attr.arguments[2], attr.arguments[3]};
+            AttributeSummary::LinspaceSpec spec{
+                .name = attr.arguments[0],
+                .start = attr.arguments[1],
+                .end = attr.arguments[2],
+                .count = attr.arguments[3],
+            };
             summary.parameter_linspaces.push_back(std::move(spec));
         } else if (lowered == "geom" || lowered == "geomspace" || lowered == "geospace") {
             if (attr.arguments.size() != 4) {
@@ -214,7 +218,12 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             saw_case = true;
-            AttributeSummary::GeomSpec spec{attr.arguments[0], attr.arguments[1], attr.arguments[2], attr.arguments[3]};
+            AttributeSummary::GeomSpec spec{
+                .name = attr.arguments[0],
+                .start = attr.arguments[1],
+                .factor = attr.arguments[2],
+                .count = attr.arguments[3],
+            };
             summary.parameter_geoms.push_back(std::move(spec));
         } else if (lowered == "logspace") {
             if (attr.arguments.size() != 4 && attr.arguments.size() != 5) {
@@ -283,11 +292,10 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                     }
                     if (ch == ',' && depth == 0) {
                         if (!cur.empty()) {
-                            std::string t = cur; // trim
-                            auto        l = t.find_first_not_of(" \t\n\r");
-                            auto        r = t.find_last_not_of(" \t\n\r");
+                            const auto l = cur.find_first_not_of(" \t\n\r");
+                            const auto r = cur.find_last_not_of(" \t\n\r");
                             if (l != std::string::npos)
-                                out.push_back(t.substr(l, r - l + 1));
+                                out.push_back(cur.substr(l, r - l + 1));
                         }
                         cur.clear();
                         continue;
@@ -295,11 +303,10 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                     cur.push_back(ch);
                 }
                 if (!cur.empty()) {
-                    std::string t = cur;
-                    auto        l = t.find_first_not_of(" \t\n\r");
-                    auto        r = t.find_last_not_of(" \t\n\r");
+                    const auto l = cur.find_first_not_of(" \t\n\r");
+                    const auto r = cur.find_last_not_of(" \t\n\r");
                     if (l != std::string::npos)
-                        out.push_back(t.substr(l, r - l + 1));
+                        out.push_back(cur.substr(l, r - l + 1));
                 }
             };
             AttributeSummary::ParamPack pack;
@@ -412,8 +419,7 @@ auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed, con
 
     for (const auto &attr : parsed) {
         std::string lowered = attr.name;
-        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        std::ranges::transform(lowered, lowered.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 
         if (gentest::detail::is_allowed_fixture_attribute(lowered)) {
             if (saw_fixture) {
@@ -429,8 +435,8 @@ auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed, con
             }
             std::string arg        = attr.arguments.front();
             std::string normalized = arg;
-            std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            std::ranges::transform(normalized, normalized.begin(),
+                                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
             if (normalized == "suite") {
                 summary.lifetime = FixtureLifetime::MemberSuite;
             } else if (normalized == "global") {
@@ -470,8 +476,7 @@ auto validate_namespace_attributes(const std::vector<ParsedAttribute> &parsed, c
 
     for (const auto &attr : parsed) {
         std::string lowered = attr.name;
-        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        std::ranges::transform(lowered, lowered.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 
         if (lowered == "suite") {
             if (saw_suite) {
