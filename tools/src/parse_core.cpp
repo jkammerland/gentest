@@ -189,7 +189,7 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
             }
         }
 
-        attributes.push_back(ParsedAttribute{std::move(name), std::move(args)});
+        attributes.push_back(ParsedAttribute{.name = std::move(name), .arguments = std::move(args)});
 
         while (index < list.size() && list[index] != ',') {
             if (!std::isspace(static_cast<unsigned char>(list[index]))) {
@@ -206,4 +206,3 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
 }
 
 } // namespace gentest::codegen
-
