@@ -15,7 +15,7 @@ std::string read_template_file(const std::filesystem::path &path) {
     std::ifstream file(path, std::ios::binary);
     if (!file)
         return {};
-    return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
 
 std::string escape_string(std::string_view value) {
@@ -42,6 +42,7 @@ std::string render_forward_decls(const std::vector<TestCaseInfo> & /*cases*/, co
     return {};
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static std::string format_sv_array(const std::string &name, const std::vector<std::string> &values, const std::string &tpl_empty,
                                    const std::string &tpl_nonempty) {
     if (values.empty()) {
@@ -150,13 +151,12 @@ static std::string make_invoke_for_member(const WrapperSpec &spec, const std::st
     return fmt::format("static_cast<void>({});", call_expr);
 }
 
-std::string render_wrapper(const WrapperSpec &spec, const std::string &tpl_free, const std::string &tpl_free_fixtures,
-                           const std::string &tpl_ephemeral, const std::string &tpl_stateful) {
+std::string render_wrapper(const WrapperSpec &spec, const WrapperTemplates &templates) {
     switch (spec.kind) {
     case WrapperKind::Free: {
         const auto call = format_call_args(spec.value_args);
         const auto invoke = make_invoke_for_free(spec, spec.callee, call);
-        return fmt::format(fmt::runtime(tpl_free), fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
+        return fmt::format(fmt::runtime(templates.free), fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
     }
     case WrapperKind::FreeWithFixtures: {
         const std::string decls    = build_fixture_decls(spec.fixtures);
@@ -167,21 +167,21 @@ std::string render_wrapper(const WrapperSpec &spec, const std::string &tpl_free,
             combined += combined.empty() ? spec.value_args : ", " + spec.value_args;
         const std::string call = fmt::format("({})", combined);
         const auto invoke = make_invoke_for_free(spec, spec.callee, call);
-        return fmt::format(fmt::runtime(tpl_free_fixtures), fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
+        return fmt::format(fmt::runtime(templates.free_fixtures), fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
                            fmt::arg("setup", setup), fmt::arg("teardown", teardown), fmt::arg("invoke", invoke));
     }
     case WrapperKind::MemberEphemeral: {
         const auto call = format_call_args(spec.value_args);
         const auto call_expr = fmt::format("fx_.{}{}", spec.method, call);
         const auto invoke    = make_invoke_for_member(spec, call_expr);
-        return fmt::format(fmt::runtime(tpl_ephemeral), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
+        return fmt::format(fmt::runtime(templates.ephemeral), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
                            fmt::arg("invoke", invoke));
     }
     case WrapperKind::MemberShared: {
         const auto call = format_call_args(spec.value_args);
         const auto call_expr = fmt::format("fx_->{}{}", spec.method, call);
         const auto invoke    = make_invoke_for_member(spec, call_expr);
-        return fmt::format(fmt::runtime(tpl_stateful), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
+        return fmt::format(fmt::runtime(templates.stateful), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
                            fmt::arg("invoke", invoke));
     }
     }
@@ -217,14 +217,13 @@ WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
 }
 } // namespace
 
-std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free, const std::string &tpl_free_fixtures,
-                            const std::string &tpl_ephemeral, const std::string &tpl_stateful) {
+std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const WrapperTemplates &templates) {
     std::string out;
     out.reserve(cases.size() * 160);
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test = cases[idx];
         const auto  spec = build_wrapper_spec(test, idx);
-        out += render_wrapper(spec, tpl_free, tpl_free_fixtures, tpl_ephemeral, tpl_stateful);
+        out += render_wrapper(spec, templates);
     }
     return out;
 }
@@ -239,7 +238,7 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
         const bool  has_fixture      = !test.fixture_qualified_name.empty();
         if (has_fixture) {
             const auto qualify_fixture = [&]() -> std::string {
-                if (test.fixture_qualified_name.rfind("::", 0) == 0) {
+                if (test.fixture_qualified_name.starts_with("::")) {
                     return test.fixture_qualified_name;
                 }
                 return std::string("::") + test.fixture_qualified_name;
