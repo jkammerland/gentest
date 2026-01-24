@@ -7,7 +7,6 @@
 
 #include <array>
 #include <mutex>
-#include <string_view>
 
 struct TERMINAL;
 
@@ -15,7 +14,7 @@ namespace {
 class TerminfoSymbolResolver {
 public:
     TerminfoSymbolResolver() {
-        static constexpr std::array<std::string_view, 5> kCandidates = {
+        static constexpr std::array<const char *, 5> kCandidates = {
             "libtinfo.so.5",
             "libtinfo.so.6",
             "libncursesw.so.6",
@@ -23,8 +22,8 @@ public:
             "libncurses.so.5"};
         handles_.fill(nullptr);
         std::size_t index = 0;
-        for (const auto &name : kCandidates) {
-            void *handle = dlopen(name.data(), RTLD_LAZY | RTLD_LOCAL);
+        for (const char *name : kCandidates) {
+            void *handle = dlopen(name, RTLD_LAZY | RTLD_LOCAL);
             handles_[index++] = handle;
         }
     }
