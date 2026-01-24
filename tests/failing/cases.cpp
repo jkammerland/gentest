@@ -43,4 +43,9 @@ void expect_throw_location() {
     EXPECT_THROW((void)0, std::runtime_error);
 }
 
+[[using gentest: test("exceptions/expect_no_throw_unknown")]]
+void expect_no_throw_unknown() {
+    EXPECT_NO_THROW(throw 123);
+}
+
 } // namespace failing

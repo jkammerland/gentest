@@ -241,7 +241,7 @@ gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_t
 gentest_add_check_counts(NAME integration_counts PROG $<TARGET_FILE:gentest_integration_tests> PASS 3 FAIL 0 SKIP 1)
 gentest_add_check_counts(NAME integration_list_counts PROG $<TARGET_FILE:gentest_integration_tests> LIST CASES 4)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 4 SKIP 0)
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 5 SKIP 0)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -423,6 +423,12 @@ gentest_add_check_death(
     PROG gentest_failing_tests
     EXPECT_SUBSTRING "EXPECT_THROW failed at tests/failing/cases.cpp:"
     ARGS --run-test=failing/exceptions/expect_throw_location)
+
+gentest_add_check_death(
+    NAME expect_no_throw_unknown_smoke
+    PROG gentest_failing_tests
+    EXPECT_SUBSTRING "EXPECT_NO_THROW failed at tests/failing/cases.cpp:"
+    ARGS --run-test=failing/exceptions/expect_no_throw_unknown)
 
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)

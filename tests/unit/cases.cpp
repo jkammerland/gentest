@@ -80,6 +80,7 @@ void default_name_free() {
 [[using gentest: test("exceptions/expect_throw")]]
 void expect_throw_simple() {
     EXPECT_THROW(throw_runtime_error(), std::runtime_error);
+    EXPECT_THROW(throw 123, int);
 }
 
 [[using gentest: test("exceptions/expect_no_throw")]]

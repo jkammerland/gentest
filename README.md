@@ -124,7 +124,24 @@ void add() {
 
 Exceptions:
 - If a test throws a `std::exception`, the runner records a failure like `unexpected std::exception: ...` and continues.
-- If you want to assert on exceptions, use normal C++ `try`/`catch` and `gentest::fail(...)`:
+- If you want to assert on exceptions, you can use the gtest-like macros (optional; can be disabled with `GENTEST_NO_THROW_MACROS`):
+
+```cpp
+#include "gentest/attributes.h"
+#include "gentest/runner.h"
+using namespace gentest::asserts;
+
+#include <stdexcept>
+
+[[using gentest: test("exceptions/macros")]]
+void macros() {
+    EXPECT_THROW(throw std::runtime_error("boom"), std::runtime_error);
+    EXPECT_THROW(throw 123, int);
+    EXPECT_NO_THROW((void)0);
+}
+```
+
+- For more detailed checks (e.g. matching `what()`), use normal C++ `try`/`catch` and `gentest::fail(...)`:
 
 ```cpp
 #include "gentest/attributes.h"
