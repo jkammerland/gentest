@@ -10,6 +10,11 @@ if(NOT DEFINED GENTEST_CODEGEN_TARGET)
         "CMake target name that produces a runnable gentest_codegen executable (alternative to GENTEST_CODEGEN_EXECUTABLE).")
 endif()
 
+if(NOT DEFINED GENTEST_CODEGEN_DEFAULT_CLANG_ARGS)
+    set(GENTEST_CODEGEN_DEFAULT_CLANG_ARGS "-Wno-unknown-attributes;-Wno-attributes" CACHE STRING
+        "Default extra clang arguments for gentest_codegen. Set empty to disable.")
+endif()
+
 function(gentest_attach_codegen target)
     set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
     set(one_value_args OUTPUT OUTPUT_DIR ENTRY)
@@ -365,6 +370,9 @@ function(gentest_attach_codegen target)
 
     list(APPEND _command --)
     list(APPEND _command -DGENTEST_CODEGEN=1)
+    if(GENTEST_CODEGEN_DEFAULT_CLANG_ARGS AND NOT GENTEST_CODEGEN_DEFAULT_CLANG_ARGS STREQUAL "")
+        list(APPEND _command ${GENTEST_CODEGEN_DEFAULT_CLANG_ARGS})
+    endif()
     if(GENTEST_CLANG_ARGS)
         list(APPEND _command ${GENTEST_CLANG_ARGS})
     endif()

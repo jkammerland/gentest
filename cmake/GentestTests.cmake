@@ -63,8 +63,6 @@ function(gentest_add_suite suite)
         OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${GENTEST_OUTPUT_DIR}
         CLANG_ARGS
             ${_gentest_codegen_std_arg}
-            -Wno-unknown-attributes
-            -Wno-attributes
             -I${PROJECT_SOURCE_DIR}/include
             -I${CMAKE_CURRENT_SOURCE_DIR})
     unset(_gentest_codegen_std_arg)

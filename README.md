@@ -70,11 +70,10 @@ target_link_libraries(my_tests PRIVATE gentest::gentest)
 
 # Default (recommended): per-TU registration (gtest/catch/doctest-like).
 # NOTE: This mode requires a single-config generator/build dir (e.g. Ninja).
-gentest_attach_codegen(my_tests
-  CLANG_ARGS
-    -Wno-unknown-attributes
-    -Wno-attributes
-)
+gentest_attach_codegen(my_tests)
+# Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via
+# `gentest_attach_codegen(... CLANG_ARGS ...)` or override
+# `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`.
 #
 # Multi-config generators (Ninja Multi-Config / VS / Xcode):
 # gentest_attach_codegen(my_tests OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/my_tests_gentest.cpp")

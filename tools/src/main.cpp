@@ -43,6 +43,14 @@ static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
 
 namespace {
 
+bool should_strip_compdb_arg(std::string_view arg) {
+    // CMake's experimental C++ modules support (and some GCC-based toolchains)
+    // can inject GCC-only module/dependency scanning flags into compile commands.
+    // Clang (which is embedded in our clang-tooling binary) rejects these.
+    return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg.starts_with("-fmodule-mapper=") ||
+        arg.starts_with("-fdeps-format=") || arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=");
+}
+
 std::optional<std::string> get_env_value(std::string_view name) {
     std::string name_str{name};
 #if defined(_WIN32)
@@ -233,10 +241,18 @@ int main(int argc, const char **argv) {
                     adjusted.emplace_back(command_line.front());
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                     // Copy remaining args, filtering out C++ module flags
+                    bool skip_next_arg = false;
                     for (std::size_t i = 1; i < command_line.size(); ++i) {
                         const auto &arg = command_line[i];
-                        if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
-                            arg == "-fmodule-header") {
+                        if (skip_next_arg) {
+                            skip_next_arg = false;
+                            continue;
+                        }
+                        if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target") {
+                            skip_next_arg = true;
+                            continue;
+                        }
+                        if (should_strip_compdb_arg(arg)) {
                             continue;
                         }
                         adjusted.push_back(arg);
@@ -270,10 +286,18 @@ int main(int argc, const char **argv) {
 #endif
                 adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                 if (!command_line.empty()) {
+                    bool skip_next_arg = false;
                     for (std::size_t i = 1; i < command_line.size(); ++i) {
                         const auto &arg = command_line[i];
-                        if (arg == "-fmodules-ts" || arg.rfind("-fmodule-mapper=", 0) == 0 || arg.rfind("-fdeps-format=", 0) == 0 ||
-                            arg == "-fmodule-header") {
+                        if (skip_next_arg) {
+                            skip_next_arg = false;
+                            continue;
+                        }
+                        if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target") {
+                            skip_next_arg = true;
+                            continue;
+                        }
+                        if (should_strip_compdb_arg(arg)) {
                             continue;
                         }
                         adjusted.push_back(arg);
