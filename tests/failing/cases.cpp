@@ -1,6 +1,8 @@
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
+#include <stdexcept>
+
 // Helper type for mocking checks in this suite (global to ease mock codegen)
 struct SingleArg {
     void call(int) {}
@@ -34,6 +36,11 @@ void logging_attachment() {
     gentest::log("world from log");
     using namespace gentest::asserts;
     EXPECT_TRUE(false, "trigger failure to capture logs");
+}
+
+[[using gentest: test("exceptions/expect_throw_location")]]
+void expect_throw_location() {
+    EXPECT_THROW((void)0, std::runtime_error);
 }
 
 } // namespace failing

@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <typeinfo>
 #include <utility>
 #include <vector>
@@ -209,6 +210,186 @@ inline void append_cmp_values(std::string &out, const L &lhs, const R &rhs, std:
     std::fputs(".\n", stderr);
     std::fflush(stderr);
     std::terminate();
+}
+
+template <class Expected, class Fn>
+inline void expect_throw(Fn&& fn, std::string_view expected_name, const std::source_location& loc) {
+#if !GENTEST_EXCEPTIONS_ENABLED
+    (void)fn;
+    std::string text;
+    ::gentest::detail::append_label(text, "EXPECT_THROW");
+    text.append(::gentest::detail::loc_to_string(loc));
+    text.append(": exceptions are disabled; cannot verify thrown exception");
+    ::gentest::detail::record_failure(std::move(text), loc);
+#else
+    try {
+        fn();
+    } catch (const gentest::detail::skip_exception&) {
+        throw;
+    } catch (const gentest::failure&) {
+        if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::failure>) {
+            return;
+        }
+        throw;
+    } catch (const gentest::assertion&) {
+        if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::assertion>) {
+            return;
+        }
+        throw;
+    } catch (const Expected&) {
+        return;
+    } catch (const std::exception& err) {
+        std::string text;
+        ::gentest::detail::append_label(text, "EXPECT_THROW");
+        text.append(::gentest::detail::loc_to_string(loc));
+        text.append(": expected ");
+        text.append(expected_name);
+        text.append(" but caught std::exception: ");
+        text.append(err.what());
+        ::gentest::detail::record_failure(std::move(text), loc);
+        return;
+    } catch (...) {
+        std::string text;
+        ::gentest::detail::append_label(text, "EXPECT_THROW");
+        text.append(::gentest::detail::loc_to_string(loc));
+        text.append(": expected ");
+        text.append(expected_name);
+        text.append(" but caught unknown exception");
+        ::gentest::detail::record_failure(std::move(text), loc);
+        return;
+    }
+
+    std::string text;
+    ::gentest::detail::append_label(text, "EXPECT_THROW");
+    text.append(::gentest::detail::loc_to_string(loc));
+    text.append(": expected ");
+    text.append(expected_name);
+    text.append(" but no exception was thrown");
+    ::gentest::detail::record_failure(std::move(text), loc);
+#endif
+}
+
+template <class Fn>
+inline void expect_no_throw(Fn&& fn, const std::source_location& loc) {
+#if !GENTEST_EXCEPTIONS_ENABLED
+    fn();
+    (void)loc;
+#else
+    try {
+        fn();
+    } catch (const gentest::detail::skip_exception&) {
+        throw;
+    } catch (const gentest::failure&) {
+        throw;
+    } catch (const gentest::assertion&) {
+        throw;
+    } catch (const std::exception& err) {
+        std::string text;
+        ::gentest::detail::append_label(text, "EXPECT_NO_THROW");
+        text.append(::gentest::detail::loc_to_string(loc));
+        text.append(": caught std::exception: ");
+        text.append(err.what());
+        ::gentest::detail::record_failure(std::move(text), loc);
+    } catch (...) {
+        std::string text;
+        ::gentest::detail::append_label(text, "EXPECT_NO_THROW");
+        text.append(::gentest::detail::loc_to_string(loc));
+        text.append(": caught unknown exception");
+        ::gentest::detail::record_failure(std::move(text), loc);
+    }
+#endif
+}
+
+template <class Expected, class Fn>
+inline void require_throw(Fn&& fn, std::string_view expected_name, const std::source_location& loc) {
+#if !GENTEST_EXCEPTIONS_ENABLED
+    (void)fn;
+    std::string text;
+    ::gentest::detail::append_label(text, "ASSERT_THROW");
+    text.append(::gentest::detail::loc_to_string(loc));
+    text.append(": exceptions are disabled; cannot verify thrown exception");
+    ::gentest::detail::record_failure(std::move(text), loc);
+    ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_throw");
+#else
+    try {
+        fn();
+    } catch (const gentest::detail::skip_exception&) {
+        throw;
+    } catch (const gentest::failure&) {
+        if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::failure>) {
+            return;
+        }
+        throw;
+    } catch (const gentest::assertion&) {
+        if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::assertion>) {
+            return;
+        }
+        throw;
+    } catch (const Expected&) {
+        return;
+    } catch (const std::exception& err) {
+        std::string text;
+        ::gentest::detail::append_label(text, "ASSERT_THROW");
+        text.append(::gentest::detail::loc_to_string(loc));
+        text.append(": expected ");
+        text.append(expected_name);
+        text.append(" but caught std::exception: ");
+        text.append(err.what());
+        ::gentest::detail::record_failure(std::move(text), loc);
+        throw gentest::assertion("ASSERT_THROW");
+    } catch (...) {
+        std::string text;
+        ::gentest::detail::append_label(text, "ASSERT_THROW");
+        text.append(::gentest::detail::loc_to_string(loc));
+        text.append(": expected ");
+        text.append(expected_name);
+        text.append(" but caught unknown exception");
+        ::gentest::detail::record_failure(std::move(text), loc);
+        throw gentest::assertion("ASSERT_THROW");
+    }
+
+    std::string text;
+    ::gentest::detail::append_label(text, "ASSERT_THROW");
+    text.append(::gentest::detail::loc_to_string(loc));
+    text.append(": expected ");
+    text.append(expected_name);
+    text.append(" but no exception was thrown");
+    ::gentest::detail::record_failure(std::move(text), loc);
+    throw gentest::assertion("ASSERT_THROW");
+#endif
+}
+
+template <class Fn>
+inline void require_no_throw(Fn&& fn, const std::source_location& loc) {
+#if !GENTEST_EXCEPTIONS_ENABLED
+    fn();
+    (void)loc;
+#else
+    try {
+        fn();
+    } catch (const gentest::detail::skip_exception&) {
+        throw;
+    } catch (const gentest::failure&) {
+        throw;
+    } catch (const gentest::assertion&) {
+        throw;
+    } catch (const std::exception& err) {
+        std::string text;
+        ::gentest::detail::append_label(text, "ASSERT_NO_THROW");
+        text.append(::gentest::detail::loc_to_string(loc));
+        text.append(": caught std::exception: ");
+        text.append(err.what());
+        ::gentest::detail::record_failure(std::move(text), loc);
+        throw gentest::assertion("ASSERT_NO_THROW");
+    } catch (...) {
+        std::string text;
+        ::gentest::detail::append_label(text, "ASSERT_NO_THROW");
+        text.append(::gentest::detail::loc_to_string(loc));
+        text.append(": caught unknown exception");
+        ::gentest::detail::record_failure(std::move(text), loc);
+        throw gentest::assertion("ASSERT_NO_THROW");
+    }
+#endif
 }
 } // namespace detail
 
@@ -565,3 +746,29 @@ inline void* acquire_global_fixture(std::string_view) {
 } // namespace detail
 
 } // namespace gentest
+
+// gtest-like exception macros (implemented on top of gentest's source_location-based reporting).
+// These are optional and can be disabled by defining GENTEST_NO_THROW_MACROS.
+#ifndef GENTEST_NO_THROW_MACROS
+
+#define EXPECT_THROW(statement, exception_type) \
+    do { \
+        ::gentest::detail::expect_throw<exception_type>([&] { statement; }, #exception_type, std::source_location::current()); \
+    } while (false)
+
+#define EXPECT_NO_THROW(statement) \
+    do { \
+        ::gentest::detail::expect_no_throw([&] { statement; }, std::source_location::current()); \
+    } while (false)
+
+#define ASSERT_THROW(statement, exception_type) \
+    do { \
+        ::gentest::detail::require_throw<exception_type>([&] { statement; }, #exception_type, std::source_location::current()); \
+    } while (false)
+
+#define ASSERT_NO_THROW(statement) \
+    do { \
+        ::gentest::detail::require_no_throw([&] { statement; }, std::source_location::current()); \
+    } while (false)
+
+#endif // GENTEST_NO_THROW_MACROS

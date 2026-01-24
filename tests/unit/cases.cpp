@@ -4,9 +4,13 @@ using namespace gentest::asserts;
 
 #include <array>
 #include <numeric>
+#include <stdexcept>
 #include <string>
 
 namespace unit {
+
+inline void throw_runtime_error() { throw std::runtime_error("boom"); }
+inline void no_throw() {}
 
 [[using gentest: test("arithmetic/sum"), fast]]
 void sum_is_computed() {
@@ -71,6 +75,28 @@ void negate_condition() {
 [[using gentest: fast]]
 void default_name_free() {
     EXPECT_TRUE(true);
+}
+
+[[using gentest: test("exceptions/expect_throw")]]
+void expect_throw_simple() {
+    EXPECT_THROW(throw_runtime_error(), std::runtime_error);
+}
+
+[[using gentest: test("exceptions/expect_no_throw")]]
+void expect_no_throw_simple() {
+    EXPECT_NO_THROW(no_throw());
+}
+
+[[using gentest: test("exceptions/assert_throw")]]
+void assert_throw_simple() {
+    ASSERT_THROW(throw_runtime_error(), std::runtime_error);
+    EXPECT_TRUE(true, "continues after ASSERT_THROW");
+}
+
+[[using gentest: test("exceptions/assert_no_throw")]]
+void assert_no_throw_simple() {
+    ASSERT_NO_THROW(no_throw());
+    EXPECT_TRUE(true, "continues after ASSERT_NO_THROW");
 }
 
 struct DefaultNameFixture {
