@@ -217,6 +217,19 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+# Label codegen/clang-tooling checks so valgrind workflows can exclude them by default.
+set_tests_properties(
+    gentest_codegen_check_valid
+    gentest_codegen_check_invalid
+    gentest_codegen_baseline_requires_bench
+    gentest_codegen_mock_incomplete_virtual_msg
+    gentest_codegen_mock_virtual_defined_in_cpp_msg
+    gentest_codegen_mock_anonymous_namespace_msg
+    gentest_codegen_mock_local_class_msg
+    gentest_codegen_fixture_suite_member_illegal
+    gentest_codegen_fixture_global_member_illegal
+    PROPERTIES LABELS "codegen")
+
 # End-to-end behavioral checks with robust counting
 gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 8 FAIL 0 SKIP 0)
 gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 8)
@@ -650,4 +663,56 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
             -P ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake)
 
     set_tests_properties(gentest_package_consumer PROPERTIES LABELS "package")
+endif()
+
+# Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
+#
+# Notes:
+# - This is *much* slower than running plain tests.
+# - We exclude some tests by label by default to keep runtime reasonable (override via cache var).
+find_program(GENTEST_VALGRIND_COMMAND valgrind)
+if(GENTEST_VALGRIND_COMMAND)
+    set(GENTEST_VALGRIND_LABEL_EXCLUDE_REGEX "cmake|package|codegen" CACHE STRING
+        "CTest label exclude regex for gentest_valgrind (ctest -LE <regex>). Set empty to include everything.")
+
+    set(_gentest_valgrind_cmd ${CMAKE_CTEST_COMMAND} -T MemCheck --output-on-failure)
+    if(NOT GENTEST_VALGRIND_LABEL_EXCLUDE_REGEX STREQUAL "")
+        # Escape pipes for the build-tool shell so ctest receives 'cmake|foo|bar' rather than interpreting as pipelines.
+        string(REPLACE "|" "\\|" _gentest_valgrind_label_exclude_shell "${GENTEST_VALGRIND_LABEL_EXCLUDE_REGEX}")
+        list(APPEND _gentest_valgrind_cmd -LE "${_gentest_valgrind_label_exclude_shell}")
+    endif()
+
+    add_custom_target(gentest_valgrind
+        COMMAND ${_gentest_valgrind_cmd}
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        USES_TERMINAL)
+
+    set(_gentest_valgrind_deps)
+    foreach(_target IN ITEMS
+        gentest_core_tests
+        gentest_codegen
+        gentest_unit_tests
+        gentest_integration_tests
+        gentest_failing_tests
+        gentest_skiponly_tests
+        gentest_fixtures_tests
+        gentest_templates_tests
+        gentest_mocking_tests
+        gentest_ctor_tests
+        gentest_benchmarks_tests
+        ${PROJECT_NAME}_concurrency_tests
+        ${PROJECT_NAME}_outcomes_tests)
+        if(TARGET ${_target})
+            list(APPEND _gentest_valgrind_deps ${_target})
+        endif()
+    endforeach()
+
+    if(_gentest_valgrind_deps)
+        add_dependencies(gentest_valgrind ${_gentest_valgrind_deps})
+    endif()
+
+    unset(_gentest_valgrind_deps)
+    unset(_gentest_valgrind_cmd)
+    unset(_gentest_valgrind_label_exclude_shell)
+    unset(_target)
 endif()

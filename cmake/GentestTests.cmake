@@ -139,6 +139,7 @@ function(gentest_add_cmake_script_test)
     list(APPEND _cmd_args ${_defines} -P "${GENTEST_SCRIPT}")
 
     add_test(NAME ${GENTEST_NAME} COMMAND ${CMAKE_COMMAND} ${_cmd_args})
+    set_property(TEST ${GENTEST_NAME} APPEND PROPERTY LABELS "cmake")
 endfunction()
 
 function(gentest_add_check_counts)

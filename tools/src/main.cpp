@@ -20,6 +20,7 @@
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/raw_ostream.h>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -205,16 +206,20 @@ int main(int argc, const char **argv) {
     clang::DiagnosticOptions diag_options;
 #endif
     clang::tooling::ClangTool tool{*database, options.sources};
+    std::unique_ptr<clang::DiagnosticConsumer> diag_consumer;
     if (options.quiet_clang) {
-        tool.setDiagnosticConsumer(new clang::IgnoringDiagConsumer());
+        diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
     } else {
 #if CLANG_VERSION_MAJOR >= 21
-        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), diag_options, /*OwnsOutputStream=*/false));
+        diag_consumer =
+            std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options, /*OwnsOutputStream=*/false);
 #else
         diag_options = new clang::DiagnosticOptions();
-        tool.setDiagnosticConsumer(new clang::TextDiagnosticPrinter(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false));
+        diag_consumer =
+            std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false);
 #endif
     }
+    tool.setDiagnosticConsumer(diag_consumer.get());
 
     const auto extra_args = options.clang_args;
 

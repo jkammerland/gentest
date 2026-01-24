@@ -15,6 +15,7 @@
     "- msan: MSan (uninitialized memory reads)",
     "- cfihwasan: CFI+HWASan (control flow hijacking and hardware memory safety)",
     "- fullsan: All compatible sanitizers (address errors, leaks, undefined behavior, bounds checking)",
+    "- valgrind: Valgrind MemCheck (dynamic analysis, slow, best-effort uninitialized/leak detection)",
     "",
     "Key Design Decisions:",
     "- Standard build types for everyday development",
@@ -34,6 +35,7 @@
     "cmake --workflow --preset=alsan      # Quick diagnostic workflow",
     "cmake --workflow --preset=alusan     # Deep diagnostic workflow (RECOMMENDED)",
     "cmake --workflow --preset=fullsan    # Full diagnostic suite",
+    "cmake --workflow --preset=valgrind   # Valgrind memcheck (slow)",
     ""
   ],
   "cmakeMinimumRequired": {
@@ -313,6 +315,22 @@
         "CMAKE_C_FLAGS": "-fprofile-use -O3",
         "CMAKE_EXE_LINKER_FLAGS": "-fprofile-use",
         "CMAKE_SHARED_LINKER_FLAGS": "-fprofile-use"
+      }
+    },
+    {
+      "name": "valgrind",
+      "inherits": "debug-system",
+      "displayName": "Valgrind MemCheck (system toolchain)",
+      "description": "Run CTest MemCheck under valgrind (slow; excludes package tests by default)",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "GENTEST_ENABLE_PACKAGE_TESTS": "OFF",
+        "GENTEST_VALGRIND_LABEL_EXCLUDE_REGEX": "cmake|package|codegen",
+        "MEMORYCHECK_COMMAND_OPTIONS": "--error-exitcode=1 --leak-check=full --show-leak-kinds=all"
       }
     },
     {
@@ -620,6 +638,22 @@
       "configurePreset": "pgo-use",
       "displayName": "PGO Optimized Build",
       "description": "Build using PGO profile data for optimization",
+      "jobs": 0
+    },
+    {
+      "name": "valgrind",
+      "inherits": "build-base",
+      "configurePreset": "valgrind",
+      "displayName": "Build + Run Valgrind MemCheck",
+      "description": "Build and run CTest MemCheck under valgrind (gentest_valgrind target)",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "targets": [
+        "gentest_valgrind"
+      ],
       "jobs": 0
     },
     {
@@ -1208,6 +1242,21 @@
         {
           "type": "build",
           "name": "pgo-generate"
+        }
+      ]
+    },
+    {
+      "name": "valgrind",
+      "displayName": "Valgrind MemCheck Workflow",
+      "description": "Configure and run valgrind memcheck via the gentest_valgrind target (slow)",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "valgrind"
+        },
+        {
+          "type": "build",
+          "name": "valgrind"
         }
       ]
     },
