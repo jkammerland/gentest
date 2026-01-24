@@ -2,6 +2,7 @@
 using namespace gentest::asserts;
 
 #include <thread>
+#include <stdexcept>
 
 namespace concurrency {
 
@@ -24,6 +25,17 @@ void child_expect_fail() {
         (void)tok;
         EXPECT_TRUE(false, "child thread EXPECT_TRUE(false)");
         EXPECT_EQ(1, 2, "child thread EXPECT_EQ(1,2)");
+    });
+    t.join();
+}
+
+[[using gentest: test("child_expect_throw_pass")]]
+void child_expect_throw_pass() {
+    auto        tok = gentest::ctx::current();
+    std::thread t([tok] {
+        gentest::ctx::Adopt guard(tok);
+        EXPECT_THROW(throw std::runtime_error("boom"), std::runtime_error);
+        EXPECT_THROW(throw 123, int);
     });
     t.join();
 }

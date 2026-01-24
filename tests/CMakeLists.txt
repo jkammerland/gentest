@@ -44,6 +44,14 @@ gentest_add_check_counts(
     SKIP 0
     ARGS --run-test=concurrency/child_expect_pass)
 
+gentest_add_check_counts(
+    NAME concurrency_pass_throw_single
+    PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run-test=concurrency/child_expect_throw_pass)
+
 gentest_add_check_death(
     NAME concurrency_fail_single_death
     PROG ${PROJECT_NAME}_concurrency_tests
