@@ -45,7 +45,7 @@ namespace {
     }
     if (parts.empty())
         return std::string{};
-    std::reverse(parts.begin(), parts.end());
+    std::ranges::reverse(parts);
     std::string out;
     for (std::size_t i = 0; i < parts.size(); ++i) {
         if (i)
@@ -94,8 +94,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         // build system does not yet track header deps for codegen.
         const llvm::StringRef inc_file = sm->getFilename(loc);
         std::string           lower    = inc_file.str();
-        std::transform(lower.begin(), lower.end(), lower.begin(),
-                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        std::ranges::transform(lower, lower.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
         const llvm::StringRef lower_ref{lower};
         if (!(lower_ref.ends_with(".cc") || lower_ref.ends_with(".cpp") || lower_ref.ends_with(".cxx"))) {
             return;
@@ -231,7 +230,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
     if (combined_tpl_combos.empty())
-        combined_tpl_combos.push_back({});
+        combined_tpl_combos.emplace_back();
 
     auto make_qualified = [&](const std::vector<std::string> &tpl_ordered) {
         if (tpl_ordered.empty())
@@ -325,12 +324,11 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         // Qualify fixture type names if unqualified, using the function's enclosing scope
         if (!summary.fixtures_types.empty()) {
             for (const auto &ty : summary.fixtures_types) {
-                if (ty.find("::") != std::string::npos)
-                    info.free_fixtures.push_back(ty);
-                else if (!enclosing_scope.empty())
-                    info.free_fixtures.push_back(enclosing_scope + "::" + ty);
-                else
-                    info.free_fixtures.push_back(ty);
+                std::string qualified = ty;
+                if (ty.find("::") == std::string::npos && !enclosing_scope.empty()) {
+                    qualified.assign(enclosing_scope).append("::").append(ty);
+                }
+                info.free_fixtures.push_back(std::move(qualified));
             }
         }
         if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
@@ -444,13 +442,65 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             scalar_axes.push_back(std::move(axis));
         }
         // Range-based generators expanded using declared parameter type
-        auto normalize = [](std::string s){ s.erase(std::remove_if(s.begin(), s.end(), [](unsigned char c){return std::isspace(c)!=0;}), s.end()); std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){return static_cast<char>(std::tolower(c));}); return s; };
-        auto is_integer_type = [&](const std::string& ty){ auto t=normalize(ty); if (t.find("bool")!=std::string::npos) return true; if (t.find("char")!=std::string::npos && t.find("char_t")==std::string::npos) return true; if (t.find("short")!=std::string::npos) return true; if (t.find("int")!=std::string::npos) return true; if (t.find("longlong")!=std::string::npos || t=="longlong" || t=="unsignedlonglong") return true; if (t.find("long")!=std::string::npos && t.find("longlong")==std::string::npos) return true; if (t.find("size_t")!=std::string::npos) return true; if (t.find("ptrdiff_t")!=std::string::npos) return true; return false; };
-        auto is_float_type = [&](const std::string& ty){ auto t=normalize(ty); return t.find("float")!=std::string::npos || t.find("double")!=std::string::npos; };
-        auto to_int = [](const std::string& s){ try { long long v = std::stoll(s); return v; } catch (...) { try { double d=std::stod(s); return static_cast<long long>(std::llround(d)); } catch (...) { return 0LL; } } };
-        auto to_double = [](const std::string& s){ try { return std::stod(s); } catch (...) { try { long long v = std::stoll(s); return static_cast<double>(v); } catch (...) { return 0.0; } } };
-        auto fmt_int = [](long long v){ return std::to_string(v); };
-        auto fmt_double = [](double v){ char buf[64]; std::snprintf(buf, sizeof(buf), "%.17g", v); return std::string(buf); };
+        auto normalize_type = [](std::string_view text) -> std::string {
+            std::string out(text);
+            std::erase_if(out, [](unsigned char c) { return std::isspace(c) != 0; });
+            std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return out;
+        };
+        auto is_integer_type = [&](std::string_view ty) -> bool {
+            const std::string t = normalize_type(ty);
+            if (t.find("bool") != std::string::npos)
+                return true;
+            if (t.find("char") != std::string::npos && t.find("char_t") == std::string::npos)
+                return true;
+            if (t.find("short") != std::string::npos)
+                return true;
+            if (t.find("int") != std::string::npos)
+                return true;
+            if (t.find("longlong") != std::string::npos || t == "longlong" || t == "unsignedlonglong")
+                return true;
+            if (t.find("long") != std::string::npos && t.find("longlong") == std::string::npos)
+                return true;
+            if (t.find("size_t") != std::string::npos)
+                return true;
+            if (t.find("ptrdiff_t") != std::string::npos)
+                return true;
+            return false;
+        };
+        auto is_float_type = [&](std::string_view ty) -> bool {
+            const std::string t = normalize_type(ty);
+            return t.find("float") != std::string::npos || t.find("double") != std::string::npos;
+        };
+        auto to_int = [](std::string_view s) -> long long {
+            try {
+                return std::stoll(std::string(s));
+            } catch (...) {
+                try {
+                    const double d = std::stod(std::string(s));
+                    return static_cast<long long>(std::llround(d));
+                } catch (...) {
+                    return 0LL;
+                }
+            }
+        };
+        auto to_double = [](std::string_view s) -> double {
+            try {
+                return std::stod(std::string(s));
+            } catch (...) {
+                try {
+                    return static_cast<double>(std::stoll(std::string(s)));
+                } catch (...) {
+                    return 0.0;
+                }
+            }
+        };
+        auto fmt_int = [](long long v) -> std::string { return std::to_string(v); };
+        auto fmt_double = [](double v) -> std::string {
+            char buf[64];
+            (void)std::snprintf(buf, sizeof(buf), "%.17g", v);
+            return {buf};
+        };
         for (const auto &rs : summary.parameter_ranges) {
             const std::string &ty = param_types[rs.name];
             std::vector<std::pair<std::string, std::string>> axis;
@@ -463,11 +513,34 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 if (st > 0) { for (long long v = a; v <= b; v += st) axis.emplace_back(rs.name, fmt_int(v)); }
                 else { for (long long v = a; v >= b; v += st) axis.emplace_back(rs.name, fmt_int(v)); }
             } else if (is_float_type(ty)) {
-                double a = to_double(rs.start), st = to_double(rs.step), b = to_double(rs.end);
-                if (st == 0.0) st = 1.0;
-                if ((st > 0.0 && a > b) || (st < 0.0 && a < b)) { had_error_ = true; report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name)); return; }
-                if (st > 0.0) { for (double v = a; v <= b + st*1e-12; v += st) axis.emplace_back(rs.name, fmt_double(v)); }
-                else { for (double v = a; v >= b - (-st)*1e-12; v += st) axis.emplace_back(rs.name, fmt_double(v)); }
+                const double a  = to_double(rs.start);
+                double       st = to_double(rs.step);
+                const double b  = to_double(rs.end);
+                if (st == 0.0)
+                    st = 1.0;
+                if ((st > 0.0 && a > b) || (st < 0.0 && a < b)) {
+                    had_error_ = true;
+                    report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name));
+                    return;
+                }
+
+                const double eps = std::abs(st) * 1e-12;
+                for (std::size_t i = 0;; ++i) {
+                    const double v = a + st * static_cast<double>(i);
+                    if (!std::isfinite(v)) {
+                        had_error_ = true;
+                        report(fmt::format("parameters_range for '{}' produced a non-finite value", rs.name));
+                        return;
+                    }
+                    if (st > 0.0) {
+                        if (v > b + eps)
+                            break;
+                    } else {
+                        if (v < b - eps)
+                            break;
+                    }
+                    axis.emplace_back(rs.name, fmt_double(v));
+                }
             } else {
                 had_error_ = true; report(fmt::format("parameters_range not supported for parameter type '{}'", ty)); return;
             }
@@ -476,59 +549,110 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         for (const auto &ls : summary.parameter_linspaces) {
             const std::string &ty = param_types[ls.name];
             std::vector<std::pair<std::string, std::string>> axis;
-            long long n = to_int(ls.count); if (n < 1) n = 1;
+            long long n = to_int(ls.count);
+            if (n < 1)
+                n = 1;
             if (is_integer_type(ty)) {
                 long long a = to_int(ls.start), b = to_int(ls.end);
-                if (n == 1) { axis.emplace_back(ls.name, fmt_int(a)); }
-                else { double step = static_cast<double>(b - a) / static_cast<double>(n - 1); for (long long i = 0; i < n; ++i) { double d = static_cast<double>(a) + step * static_cast<double>(i); axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(d)))); } }
+                if (n == 1) {
+                    axis.emplace_back(ls.name, fmt_int(a));
+                } else {
+                    const double step = static_cast<double>(b - a) / static_cast<double>(n - 1);
+                    for (long long i = 0; i < n; ++i) {
+                        const double d = static_cast<double>(a) + step * static_cast<double>(i);
+                        axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(d))));
+                    }
+                }
             } else if (is_float_type(ty)) {
                 double a = to_double(ls.start), b = to_double(ls.end);
-                if (n == 1) { axis.emplace_back(ls.name, fmt_double(a)); }
-                else { double step = (b - a) / static_cast<double>(n - 1); for (long long i = 0; i < n; ++i) { double d = a + step * static_cast<double>(i); axis.emplace_back(ls.name, fmt_double(d)); } }
-            } else { had_error_ = true; report(fmt::format("parameters_linspace not supported for parameter type '{}'", ty)); return; }
+                if (n == 1) {
+                    axis.emplace_back(ls.name, fmt_double(a));
+                } else {
+                    const double step = (b - a) / static_cast<double>(n - 1);
+                    for (long long i = 0; i < n; ++i) {
+                        const double d = a + step * static_cast<double>(i);
+                        axis.emplace_back(ls.name, fmt_double(d));
+                    }
+                }
+            } else {
+                had_error_ = true;
+                report(fmt::format("parameters_linspace not supported for parameter type '{}'", ty));
+                return;
+            }
             scalar_axes.push_back(std::move(axis));
         }
         for (const auto &gs : summary.parameter_geoms) {
             const std::string &ty = param_types[gs.name];
             std::vector<std::pair<std::string, std::string>> axis;
-            long long n = to_int(gs.count); if (n < 1) n = 1;
+            long long n = to_int(gs.count);
+            if (n < 1)
+                n = 1;
             if (is_integer_type(ty)) {
-                long long a = to_int(gs.start); double f = to_double(gs.factor); double v = static_cast<double>(a); for (long long i=0;i<n;++i){ axis.emplace_back(gs.name, fmt_int(static_cast<long long>(std::llround(v)))); v *= f; }
+                const long long a = to_int(gs.start);
+                const double    f = to_double(gs.factor);
+                auto            v = static_cast<double>(a);
+                for (long long i = 0; i < n; ++i) {
+                    axis.emplace_back(gs.name, fmt_int(static_cast<long long>(std::llround(v))));
+                    v *= f;
+                }
             } else if (is_float_type(ty)) {
-                double a = to_double(gs.start); double f = to_double(gs.factor); double v=a; for (long long i=0;i<n;++i){ axis.emplace_back(gs.name, fmt_double(v)); v *= f; }
-            } else { had_error_ = true; report(fmt::format("parameters_geom not supported for parameter type '{}'", ty)); return; }
+                const double a = to_double(gs.start);
+                const double f = to_double(gs.factor);
+                auto         v = a;
+                for (long long i = 0; i < n; ++i) {
+                    axis.emplace_back(gs.name, fmt_double(v));
+                    v *= f;
+                }
+            } else {
+                had_error_ = true;
+                report(fmt::format("parameters_geom not supported for parameter type '{}'", ty));
+                return;
+            }
             scalar_axes.push_back(std::move(axis));
         }
         for (const auto &ls : summary.parameter_logspaces) {
             const std::string &ty = param_types[ls.name];
             std::vector<std::pair<std::string, std::string>> axis;
-            long long n = to_int(ls.count); if (n < 1) n = 1;
-            double base = ls.base.empty() ? 10.0 : to_double(ls.base);
-            double aexp = to_double(ls.start_exp);
-            double bexp = to_double(ls.end_exp);
+            long long n = to_int(ls.count);
+            if (n < 1)
+                n = 1;
+            const double base = ls.base.empty() ? 10.0 : to_double(ls.base);
+            const double aexp = to_double(ls.start_exp);
+            const double bexp = to_double(ls.end_exp);
             if (n == 1) {
-                double val = std::pow(base, aexp);
-                if (is_integer_type(ty)) axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
-                else if (is_float_type(ty)) axis.emplace_back(ls.name, fmt_double(val));
-                else { had_error_ = true; report(fmt::format("logspace not supported for parameter type '{}'", ty)); return; }
+                const double val = std::pow(base, aexp);
+                if (is_integer_type(ty))
+                    axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
+                else if (is_float_type(ty))
+                    axis.emplace_back(ls.name, fmt_double(val));
+                else {
+                    had_error_ = true;
+                    report(fmt::format("logspace not supported for parameter type '{}'", ty));
+                    return;
+                }
             } else {
-                double step = (bexp - aexp) / static_cast<double>(n - 1);
+                const double step = (bexp - aexp) / static_cast<double>(n - 1);
                 for (long long i = 0; i < n; ++i) {
-                    double e = aexp + step * static_cast<double>(i);
-                    double val = std::pow(base, e);
-                    if (is_integer_type(ty)) axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
-                    else if (is_float_type(ty)) axis.emplace_back(ls.name, fmt_double(val));
-                    else { had_error_ = true; report(fmt::format("logspace not supported for parameter type '{}'", ty)); return; }
+                    const double e   = aexp + step * static_cast<double>(i);
+                    const double val = std::pow(base, e);
+                    if (is_integer_type(ty))
+                        axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
+                    else if (is_float_type(ty))
+                        axis.emplace_back(ls.name, fmt_double(val));
+                    else {
+                        had_error_ = true;
+                        report(fmt::format("logspace not supported for parameter type '{}'", ty));
+                        return;
+                    }
                 }
             }
             scalar_axes.push_back(std::move(axis));
         }
         std::vector<std::vector<std::pair<std::string, std::string>>> scalar_combos;
         if (scalar_axes.empty()) {
-            scalar_combos.push_back({});
+            scalar_combos.emplace_back();
         } else {
             // Build cartesian product of name-value pairs
-            std::vector<std::size_t> idx(scalar_axes.size(), 0);
             auto total = [&] {
                 std::size_t t = 1;
                 for (auto &ax : scalar_axes) t *= ax.size();
@@ -557,7 +681,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
             pack_maps = std::move(next);
         }
-        if (pack_maps.empty()) pack_maps.push_back(NameMap{});
+        if (pack_maps.empty())
+            pack_maps.emplace_back();
 
         for (const auto &tpl_combo : combined_tpl_combos) {
             for (const auto &pm : pack_maps) {
