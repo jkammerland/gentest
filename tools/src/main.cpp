@@ -48,7 +48,12 @@ bool should_strip_compdb_arg(std::string_view arg) {
     // can inject GCC-only module/dependency scanning flags into compile commands.
     // Clang (which is embedded in our clang-tooling binary) rejects these.
     return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg.starts_with("-fmodule-mapper=") ||
-        arg.starts_with("-fdeps-format=") || arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=");
+        arg.starts_with("-fdeps-format=") || arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=") ||
+        arg == "-fconcepts-diagnostics-depth" ||
+        arg.starts_with("-fconcepts-diagnostics-depth=") ||
+        // -Werror (and variants) are useful for real builds but make codegen brittle, because
+        // warnings (unknown attributes/options) would abort parsing.
+        arg == "-Werror" || arg.starts_with("-Werror=") || arg == "-pedantic-errors";
 }
 
 std::optional<std::string> get_env_value(std::string_view name) {
@@ -248,7 +253,8 @@ int main(int argc, const char **argv) {
                             skip_next_arg = false;
                             continue;
                         }
-                        if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target") {
+                        if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
+                            arg == "-fconcepts-diagnostics-depth") {
                             skip_next_arg = true;
                             continue;
                         }
@@ -293,7 +299,8 @@ int main(int argc, const char **argv) {
                             skip_next_arg = false;
                             continue;
                         }
-                        if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target") {
+                        if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
+                            arg == "-fconcepts-diagnostics-depth") {
                             skip_next_arg = true;
                             continue;
                         }

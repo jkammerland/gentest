@@ -11,7 +11,7 @@ if(NOT DEFINED GENTEST_CODEGEN_TARGET)
 endif()
 
 if(NOT DEFINED GENTEST_CODEGEN_DEFAULT_CLANG_ARGS)
-    set(GENTEST_CODEGEN_DEFAULT_CLANG_ARGS "-Wno-unknown-attributes;-Wno-attributes" CACHE STRING
+    set(GENTEST_CODEGEN_DEFAULT_CLANG_ARGS "-Wno-unknown-attributes;-Wno-attributes;-Wno-unknown-warning-option" CACHE STRING
         "Default extra clang arguments for gentest_codegen. Set empty to disable.")
 endif()
 
