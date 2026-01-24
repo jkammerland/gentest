@@ -37,7 +37,70 @@ endif()
 # Some LLVM builds export a Terminfo::terminfo dependency even when the host
 # toolchain lacks a proper CMake package. Provide a best-effort target before
 # loading the LLVM exports to keep configuration working on minimalist runners.
-option(GENTEST_USE_SYSTEM_TERMINFO "Link against the host-provided Terminfo package instead of the bundled shim" OFF)
+#
+# Default behavior (when not explicitly set by the user):
+# - Prefer the system terminfo library when the detected LLVM does not depend on
+#   libtinfo.so.5. This avoids loading two different tinfo ABIs via libedit.
+# - Fall back to the bundled shim otherwise (more compatible with prebuilt LLVM
+#   distributions that were built against libtinfo.so.5).
+if(NOT DEFINED GENTEST_USE_SYSTEM_TERMINFO)
+    set(_gentest_use_system_terminfo_default OFF)
+    if(UNIX AND NOT APPLE AND DEFINED _gentest_llvm_prefix)
+        set(_gentest_llvm_probe_dirs
+            "${_gentest_llvm_prefix}"
+            "${_gentest_llvm_prefix}/lib"
+            "${_gentest_llvm_prefix}/lib64"
+            "${_gentest_llvm_prefix}/lib/x86_64-linux-gnu")
+        list(REMOVE_DUPLICATES _gentest_llvm_probe_dirs)
+
+        set(_gentest_llvm_probe_candidates "")
+        foreach(_dir IN LISTS _gentest_llvm_probe_dirs)
+            file(GLOB _gentest_found
+                LIST_DIRECTORIES FALSE
+                "${_dir}/libLLVM*.so*" "${_dir}/libLLVM-*.so*")
+            list(APPEND _gentest_llvm_probe_candidates ${_gentest_found})
+        endforeach()
+        unset(_gentest_llvm_probe_dirs)
+        unset(_gentest_found)
+        unset(_dir)
+
+        if(_gentest_llvm_probe_candidates)
+            list(GET _gentest_llvm_probe_candidates 0 _gentest_llvm_probe)
+            find_program(_gentest_ldd ldd)
+            set(_gentest_needs_tinfo5 TRUE)
+            if(_gentest_ldd)
+                execute_process(
+                    COMMAND ${_gentest_ldd} "${_gentest_llvm_probe}"
+                    RESULT_VARIABLE _gentest_ldd_rc
+                    OUTPUT_VARIABLE _gentest_ldd_out
+                    ERROR_VARIABLE _gentest_ldd_err
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_STRIP_TRAILING_WHITESPACE)
+                if(_gentest_ldd_rc EQUAL 0)
+                    if(NOT _gentest_ldd_out MATCHES "libtinfo\\.so\\.5")
+                        set(_gentest_needs_tinfo5 FALSE)
+                    endif()
+                endif()
+            endif()
+            if(NOT _gentest_needs_tinfo5)
+                set(_gentest_use_system_terminfo_default ON)
+            endif()
+
+            unset(_gentest_needs_tinfo5)
+            unset(_gentest_ldd)
+            unset(_gentest_ldd_rc)
+            unset(_gentest_ldd_out)
+            unset(_gentest_ldd_err)
+            unset(_gentest_llvm_probe)
+        endif()
+        unset(_gentest_llvm_probe_candidates)
+    endif()
+
+    set(GENTEST_USE_SYSTEM_TERMINFO "${_gentest_use_system_terminfo_default}" CACHE BOOL
+        "Link against the host-provided Terminfo package instead of the bundled shim")
+    unset(_gentest_use_system_terminfo_default)
+endif()
+
 if(NOT TARGET Terminfo::terminfo)
     set(_gentest_terminfo_links "")
     set(_gentest_terminfo_includes "")
