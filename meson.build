@@ -22,6 +22,14 @@ libgentest_runtime = static_library(
   dependencies: runtime_deps,
 )
 
+libgentest_main = static_library(
+  'gentest_main',
+  ['src/gentest_main.cpp'],
+  include_directories: inc,
+  cpp_args: runtime_cargs,
+  dependencies: runtime_deps,
+)
+
 # Helper to attach code generation via an external generator binary.
 # Configure the generator path via the Meson option `-Dcodegen_path=...`.
 # Example:
@@ -35,7 +43,7 @@ elif not fs.is_absolute(codegen_opt)
 endif
 codegen = codegen_opt
 
-gen_args = ['--compdb', meson.current_build_dir(), '--']
+gen_args = ['--compdb', meson.current_build_dir()]
 clang_args = ['-std=c++20', '-I@SOURCE_ROOT@/include', '-I@SOURCE_ROOT@/tests']
 
 tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
@@ -46,15 +54,15 @@ foreach s : tests_suites
     'gen_@0@'.format(s),
     output: out_cpp,
     input: 'tests/@0@/cases.cpp'.format(s),
-    command: [codegen, '--output', '@OUTPUT@', gen_args, '@INPUT@', clang_args],
+    command: [codegen, '--output', '@OUTPUT@', gen_args, '@INPUT@', '--', clang_args],
     build_by_default: true
   )
 
   exe = executable(
     'gentest_@0@_meson'.format(s),
-    ['tests/support/test_entry.cpp', gen],
+    [gen],
     include_directories: inc,
-    link_with: libgentest_runtime,
+    link_with: [libgentest_main, libgentest_runtime],
     cpp_args: runtime_cargs,
     dependencies: runtime_deps
   )
