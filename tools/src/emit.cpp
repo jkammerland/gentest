@@ -298,11 +298,14 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     const fs::path out_dir = options.output_path.has_parent_path() ? options.output_path.parent_path() : fs::current_path();
     for (const auto &src : options.sources) {
         if (skip_includes) break;
-        fs::path        spath(src);
-        std::error_code ec;
-        fs::path        rel = fs::proximate(spath, out_dir, ec);
-        if (ec)
+        fs::path spath(src);
+        // Avoid `std::filesystem::proximate()` because it canonicalizes paths, which
+        // can resolve symlink forests (e.g. Bazel execroot) into host paths that
+        // don't exist in sandboxed builds.
+        fs::path rel = spath.lexically_relative(out_dir);
+        if (rel.empty()) {
             rel = spath;
+        }
         std::string inc = rel.generic_string();
         includes += fmt::format("#include \"{}\"\n", render::escape_string(inc));
     }
