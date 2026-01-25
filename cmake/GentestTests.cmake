@@ -44,7 +44,6 @@ function(gentest_add_suite suite)
     endif()
 
     add_executable(${GENTEST_TARGET}
-        support/test_entry.cpp
         ${GENTEST_CASES})
 
     if(TARGET gentest_test_suites)
@@ -53,8 +52,7 @@ function(gentest_add_suite suite)
 
     target_link_libraries(${GENTEST_TARGET}
         PRIVATE
-            ${PROJECT_NAME}
-            fmt::fmt)
+            gentest_main)
 
     gentest_resolve_test_std(_gentest_target_std_feature _gentest_codegen_std_arg)
     target_compile_features(${GENTEST_TARGET} PRIVATE ${_gentest_target_std_feature})

@@ -1,9 +1,29 @@
 load('//build_defs:gentest.bzl', 'gentest_suite')
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 # Build gentest_codegen via CMake inside Bazel
 genrule(
     name = 'gentest_codegen_build',
-    srcs = [],
+    # Best-effort dependency tracking: this genrule shells out to CMake and is not hermetic.
+    # Still, we want Bazel to rebuild `gentest_codegen` when the generator sources/config change.
+    srcs = glob(
+        [
+            "CMakeLists.txt",
+            "cmake/**",
+            "tools/**",
+            "include/**",
+            "vcpkg.json",
+            "vcpkg-configuration.json",
+        ],
+        exclude = [
+            "build/**",
+            "bazel-*/**",
+            ".git/**",
+        ],
+        allow_empty = False,
+    ),
     outs = ['gen_tools/gentest_codegen'],
     cmd = "set -e; rm -rf $(@D)/b && mkdir -p $(@D)/b && " +
           "cmake -S . -B $(@D)/b -DCMAKE_BUILD_TYPE=Release && " +
@@ -22,8 +42,24 @@ cc_library(
     name = 'gentest_runtime',
     srcs = ['src/runner_impl.cpp'],
     hdrs = glob(['include/gentest/*.h'], allow_empty = False),
-    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'],
+    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'] + select({
+        '@bazel_tools//src/conditions:windows': ['/wd5030'],
+        '//conditions:default': ['-Wno-attributes'],
+    }),
     includes = ['include'],
+    linkopts = ['-fuse-ld=bfd'],
+    visibility = ['//visibility:public'],
+)
+
+cc_library(
+    name = 'gentest_main',
+    srcs = ['src/gentest_main.cpp'],
+    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'] + select({
+        '@bazel_tools//src/conditions:windows': ['/wd5030'],
+        '//conditions:default': ['-Wno-attributes'],
+    }),
+    linkopts = ['-fuse-ld=bfd'],
+    deps = [':gentest_runtime'],
     visibility = ['//visibility:public'],
 )
 

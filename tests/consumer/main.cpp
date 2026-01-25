@@ -34,5 +34,3 @@ struct Registrar {
 [[maybe_unused]] const Registrar kRegistrar{};
 
 } // namespace
-
-int main(int argc, char **argv) { return gentest::run_all_tests(argc, argv); }

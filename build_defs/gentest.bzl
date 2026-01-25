@@ -1,5 +1,12 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+_gentest_warning_copts = select({
+    "@bazel_tools//src/conditions:windows": ["/wd5030"],
+    "//conditions:default": ["-Wno-attributes"],
+})
+
 def gentest_suite(name):
-    native.cc_library(
+    cc_library(
         name = '{}_cases_hdr'.format(name),
         hdrs = ['tests/{}/cases.cpp'.format(name)],
         includes = ['tests'],
@@ -11,13 +18,14 @@ def gentest_suite(name):
         outs = [gen_out],
         tools = [':gentest_codegen_build'],
         cmd = "mkdir -p $(@D) && " +
-              '"$(location :gentest_codegen_build)" --output $@ $(SRCS) -- -std=c++20 -Iinclude -Itests',
+              '"$(location :gentest_codegen_build)" --output $@ $(SRCS) -- -std=c++20 -DGENTEST_CODEGEN=1 -Wno-unknown-attributes ' +
+              '-Wno-attributes -Wno-unknown-warning-option -Iinclude -Itests',
         tags = ['no-sandbox'],
     )
 
-    native.cc_test(
+    cc_test(
         name = 'gentest_{}_bazel'.format(name),
-        srcs = ['tests/support/test_entry.cpp', gen_out],
-        copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'],
-        deps = [':gentest_runtime', ':{}_cases_hdr'.format(name)],
+        srcs = [gen_out],
+        copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'] + _gentest_warning_copts,
+        deps = [':gentest_main', ':{}_cases_hdr'.format(name)],
     )

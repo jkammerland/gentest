@@ -1,0 +1,14 @@
+###############################################################################
+# Bazel now uses Bzlmod by default to manage external dependencies.
+# Please consider migrating your external dependencies from WORKSPACE to MODULE.bazel.
+#
+# For more details, please check https://github.com/bazelbuild/bazel/issues/18958
+###############################################################################
+
+module(name = "gentest", version = "1.0.0")
+
+# Bazel 9+ moved core C++ rules into rules_cc.
+bazel_dep(name = "rules_cc", version = "0.2.14")
+
+# Bazel 9+ no longer ships built-in shell rules; use rules_shell for `sh_*`.
+bazel_dep(name = "rules_shell", version = "0.6.1")

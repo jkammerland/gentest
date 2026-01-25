@@ -58,6 +58,9 @@ if(${PROJECT_NAME}_INSTALL)
     target_install_package(gentest_runtime
         EXPORT_NAME ${PROJECT_NAME}
         PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
+    target_install_package(gentest_main
+        EXPORT_NAME ${PROJECT_NAME}
+        PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
     target_install_package(${PROJECT_NAME}
         EXPORT_NAME ${PROJECT_NAME}
         INCLUDE_ON_FIND_PACKAGE "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"

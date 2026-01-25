@@ -43,30 +43,20 @@ void basic() {
 } // namespace demo
 ```
 
-`main.cpp`:
-
-```cpp
-#include "gentest/runner.h"
-
-int main(int argc, char** argv) { 
-    return gentest::run_all_tests(argc, argv); 
-}
-```
-
 `CMakeLists.txt`:
 
 ```cmake
 include(CTest)
 enable_testing()
 
-# If installed: provides `gentest::gentest` and includes GentestCodegen.cmake.
+# Provides `gentest::gentest` / `gentest::gentest_main` and includes GentestCodegen.cmake.
 find_package(gentest CONFIG REQUIRED)
 #
 # Alternative (as a subproject):
 # add_subdirectory(path/to/gentest)
 
-add_executable(my_tests main.cpp cases.cpp)
-target_link_libraries(my_tests PRIVATE gentest::gentest)
+add_executable(my_tests cases.cpp)
+target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
 # Default (recommended): per-TU registration (gtest/catch/doctest-like).
 # NOTE: This mode requires a single-config generator/build dir (e.g. Ninja).

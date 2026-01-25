@@ -1,0 +1,255 @@
+name: buildsystems-linux
+
+'on':
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CCACHE_DISABLE: 1
+
+jobs:
+  bazel:
+    name: Bazel • ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04
+            container: ubuntu:24.04
+            pkg_manager: apt
+            clang_version: "20"
+          - name: Fedora 43
+            container: fedora:43
+            pkg_manager: dnf
+            clang_version: "20"
+    steps:
+      - &install_deps_apt
+        name: Install dependencies (apt)
+        if: ${{ matrix.pkg_manager == 'apt' }}
+        run: |
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git \
+            build-essential \
+            ninja-build \
+            python3 \
+            python3-pip \
+            pkg-config \
+            curl \
+            zip \
+            unzip \
+            tar \
+            ca-certificates \
+            libffi-dev \
+            libxml2-dev \
+            zlib1g-dev \
+            libzstd-dev \
+            libcurl4-openssl-dev \
+            libunwind-dev \
+            libfmt-dev \
+            clang-${{ matrix.clang_version }} \
+            clang-tools-${{ matrix.clang_version }} \
+            libclang-${{ matrix.clang_version }}-dev \
+            libclang-cpp${{ matrix.clang_version }}-dev \
+            llvm-${{ matrix.clang_version }}-dev \
+            meson
+          python3 -m pip install --break-system-packages --upgrade cmake
+          echo "/usr/lib/llvm-${{ matrix.clang_version }}/bin" >> "$GITHUB_PATH"
+      - &install_deps_dnf
+        name: Install dependencies (dnf)
+        if: ${{ matrix.pkg_manager == 'dnf' }}
+        run: |
+          set -euxo pipefail
+          dnf -y upgrade --refresh
+          dnf -y install \
+            git \
+            which \
+            tar \
+            xz \
+            ninja-build \
+            python3 \
+            python3-pip \
+            pkg-config \
+            curl \
+            zip \
+            unzip \
+            clang \
+            clang-libs \
+            clang-devel \
+            clang-tools-extra \
+            llvm-devel \
+            fmt-devel \
+            zlib-ng-compat-devel \
+            libunwind-devel \
+            libcurl-devel \
+            libffi-devel \
+            libxml2-devel \
+            gcc \
+            gcc-c++ \
+            make \
+            ca-certificates \
+            ncurses-compat-libs \
+            meson
+          python3 -m pip install --upgrade pip cmake
+
+      - &checkout
+        name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Bazelisk
+        run: |
+          set -euxo pipefail
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) bazelisk_arch="amd64" ;;
+            aarch64) bazelisk_arch="arm64" ;;
+            *) echo "Unsupported arch: $arch"; exit 1 ;;
+          esac
+
+          curl -L -o /usr/local/bin/bazelisk \
+            "https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-${bazelisk_arch}"
+          chmod +x /usr/local/bin/bazelisk
+          ln -sf /usr/local/bin/bazelisk /usr/local/bin/bazel
+          bazel --version
+
+      - name: Test
+        env:
+          BAZELISK_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          bazel test \
+            //:gentest_unit_bazel \
+            //:gentest_integration_bazel \
+            //:gentest_fixtures_bazel \
+            //:gentest_skiponly_bazel \
+            //:codegen_check_invalid \
+            --action_env=CCACHE_DISABLE=1 \
+            --host_action_env=CCACHE_DISABLE=1 \
+            --test_output=errors
+
+  meson:
+    name: Meson • ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04
+            container: ubuntu:24.04
+            pkg_manager: apt
+            clang_version: "20"
+            cc: clang-20
+            cxx: clang++-20
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+          - name: Fedora 43
+            container: fedora:43
+            pkg_manager: dnf
+            clang_version: "20"
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+    steps:
+      - *install_deps_apt
+      - *install_deps_dnf
+      - *checkout
+
+      - &build_host_codegen
+        name: Build host codegen (CMake preset)
+        run: |
+          set -euxo pipefail
+          cmake --preset=host-codegen \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DLLVM_DIR=${{ matrix.llvm_dir }} \
+            -DClang_DIR=${{ matrix.clang_dir }}
+          cmake --build --preset=host-codegen --parallel
+
+      - name: Configure/Build/Test
+        run: |
+          set -euxo pipefail
+          meson setup build/meson \
+            -Dcodegen_path=build/host-codegen/tools/gentest_codegen
+          meson compile -C build/meson
+          meson test -C build/meson --print-errorlogs
+
+  xmake:
+    name: Xmake • ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04
+            container: ubuntu:24.04
+            pkg_manager: apt
+            clang_version: "20"
+            cc: clang-20
+            cxx: clang++-20
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+          - name: Fedora 43
+            container: fedora:43
+            pkg_manager: dnf
+            clang_version: "20"
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+    steps:
+      - *install_deps_apt
+      - *install_deps_dnf
+      - *checkout
+      - *build_host_codegen
+      - name: Create CI user
+        run: |
+          set -euxo pipefail
+          if ! id -u ci >/dev/null 2>&1; then
+            useradd --create-home --shell /bin/bash ci
+          fi
+          chown -R ci:ci "${GITHUB_WORKSPACE}"
+
+      - name: Install xmake
+        run: |
+          set -euxo pipefail
+          su - ci -c "curl -fsSL https://xmake.io/shget.text | bash"
+          su - ci -c "/home/ci/.local/bin/xmake --version"
+
+      - name: Build
+        run: |
+          set -euxo pipefail
+          codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake f -c -m release"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake build"
+
+      - name: Test
+        run: |
+          set -euxo pipefail
+          codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_unit_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_integration_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_fixtures_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_skiponly_xmake"
