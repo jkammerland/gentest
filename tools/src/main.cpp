@@ -10,7 +10,6 @@
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
-#include <clang/Driver/Driver.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/CompilationDatabase.h>
@@ -21,6 +20,9 @@
 #include <fmt/core.h>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/Support/CommandLine.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/Process.h>
 #include <llvm/Support/Program.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
@@ -114,6 +116,58 @@ bool has_resource_dir_arg(const std::vector<std::string> &args) {
         }
     }
     return false;
+}
+
+std::string resolve_resource_dir(const std::string &compiler_path) {
+    if (compiler_path.empty()) {
+        return {};
+    }
+
+    auto resolved_path = llvm::sys::findProgramByName(compiler_path);
+    if (!resolved_path) {
+        // `compiler_path` can be a full path already (or just not on PATH).
+        // We'll still try to execute it and let ExecuteAndWait surface errors.
+        resolved_path = compiler_path;
+    }
+
+    llvm::SmallString<128> tmp_path;
+    int                    tmp_fd = -1;
+    if (const auto ec = llvm::sys::fs::createTemporaryFile("gentest_codegen_resource_dir", "txt", tmp_fd, tmp_path)) {
+        llvm::errs() << fmt::format("gentest_codegen: warning: failed to create temp file for resource-dir probe: {}\n",
+                                    ec.message());
+        return {};
+    }
+    (void)llvm::sys::Process::SafelyCloseFileDescriptor(tmp_fd);
+
+    std::string tmp_path_str = tmp_path.str().str();
+    llvm::StringRef tmp_path_ref{tmp_path_str};
+
+    std::array<llvm::StringRef, 2> clang_args = {llvm::StringRef(*resolved_path), llvm::StringRef("-print-resource-dir")};
+    std::array<std::optional<llvm::StringRef>, 3> redirects = {std::nullopt, tmp_path_ref, std::nullopt};
+
+    std::string err_msg;
+    const int   rc = llvm::sys::ExecuteAndWait(*resolved_path, clang_args, std::nullopt, redirects, 0, 0, &err_msg);
+    if (rc != 0) {
+        if (!err_msg.empty()) {
+            llvm::errs() << fmt::format("gentest_codegen: warning: failed to query clang resource dir: {}\n", err_msg);
+        }
+        (void)llvm::sys::fs::remove(tmp_path_str);
+        return {};
+    }
+
+    std::error_code io_ec;
+    auto            in = llvm::MemoryBuffer::getFile(tmp_path_str);
+    (void)llvm::sys::fs::remove(tmp_path_str);
+    if (!in) {
+        io_ec = in.getError();
+        llvm::errs() << fmt::format("gentest_codegen: warning: failed to read clang resource dir output: {}\n",
+                                    io_ec.message());
+        return {};
+    }
+
+    std::string resource_dir = (*in)->getBuffer().str();
+    auto        trimmed      = llvm::StringRef(resource_dir).trim();
+    return trimmed.str();
 }
 
 CollectorOptions parse_arguments(int argc, const char **argv) {
@@ -237,7 +291,6 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
 int main(int argc, const char **argv) {
     const auto options = parse_arguments(argc, argv);
     const auto compiler_path = resolve_default_compiler_path();
-    const auto resource_dir = clang::driver::Driver::GetResourcesPath(compiler_path);
 
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
     std::string                                          db_error;
@@ -275,6 +328,7 @@ int main(int argc, const char **argv) {
 
     const auto extra_args = options.clang_args;
     const bool need_resource_dir = !has_resource_dir_arg(extra_args);
+    const std::string resource_dir = need_resource_dir ? resolve_resource_dir(compiler_path) : std::string{};
 
     if (options.compilation_database) {
         const std::string compdb_dir = options.compilation_database->string();
