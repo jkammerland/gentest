@@ -15,6 +15,9 @@ Write tests using standard C++ attributes (`[[using gentest: ...]]`). The build 
 
 >[!IMPORTANT]
 > `gentest_codegen` consumes your build’s `compile_commands.json` (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`).
+>
+> By default, `gentest_codegen` is built with release-like flags even in Debug configs.
+> Disable with `-DGENTEST_CODEGEN_FORCE_RELEASE=OFF` if you need to debug the generator.
 
 ## Build & run this repo
 

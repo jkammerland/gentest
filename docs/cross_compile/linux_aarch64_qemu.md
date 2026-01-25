@@ -36,7 +36,7 @@ Run the full test set (can be slow under emulation):
 
 ```bash
 cmake -S . -B build/host-codegen -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_BUILD_TYPE=Release \
   -Dgentest_BUILD_TESTING=OFF \
   -DGENTEST_BUILD_CODEGEN=ON
 cmake --build build/host-codegen --target gentest_codegen

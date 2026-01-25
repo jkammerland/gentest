@@ -155,7 +155,7 @@
     },
     {
       "name": "host-codegen",
-      "inherits": "debug-system",
+      "inherits": "release-system",
       "displayName": "Host codegen (native)",
       "description": "Minimal host build that produces a runnable gentest_codegen (for cross-compiling)",
       "cacheVariables": {

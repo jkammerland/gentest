@@ -11,7 +11,8 @@ Linux/aarch64 and runs them under qemu-aarch64 (via CMake's cross emulator).
 Environment overrides:
   HOST_BUILD_DIR   (default: build/host-codegen)
   TARGET_BUILD_DIR (default: build/aarch64-qemu)
-  BUILD_TYPE       (default: Debug)
+  HOST_BUILD_TYPE  (default: Release)
+  BUILD_TYPE       (default: Debug; affects only the target build)
   SYSROOT          (default: compiler/runtime-detected; used for QEMU -L only)
 EOF
 }
@@ -40,6 +41,7 @@ if [[ -z "${root}" ]]; then
 fi
 host_build_dir="${HOST_BUILD_DIR:-$root/build/host-codegen}"
 target_build_dir="${TARGET_BUILD_DIR:-$root/build/aarch64-qemu}"
+host_build_type="${HOST_BUILD_TYPE:-Release}"
 build_type="${BUILD_TYPE:-Debug}"
 
 need_cmd() {
@@ -79,11 +81,12 @@ fi
 echo "Repo:            ${root}"
 echo "Host build:      ${host_build_dir}"
 echo "Target build:    ${target_build_dir}"
-echo "Build type:      ${build_type}"
+echo "Host build type: ${host_build_type}"
+echo "Target type:     ${build_type}"
 echo "QEMU -L root:    ${sysroot}"
 
 cmake -S "${root}" -B "${host_build_dir}" -G Ninja \
-  -DCMAKE_BUILD_TYPE="${build_type}" \
+  -DCMAKE_BUILD_TYPE="${host_build_type}" \
   -Dgentest_BUILD_TESTING=OFF \
   -DGENTEST_BUILD_CODEGEN=ON
 

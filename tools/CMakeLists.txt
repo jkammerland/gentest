@@ -317,6 +317,26 @@ add_executable(gentest_codegen
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_20)
 
+# Default: build the generator as "Release-like" even when the rest of the tree
+# is configured as Debug (common when using FetchContent for tests). This keeps
+# the host tool fast and avoids Debug-CRT mismatches with prebuilt LLVM/Clang on
+# some platforms.
+option(GENTEST_CODEGEN_FORCE_RELEASE
+    "Build gentest_codegen with release-like flags regardless of CMake build configuration"
+    ON)
+if(GENTEST_CODEGEN_FORCE_RELEASE)
+    # Optimization: override common debug defaults (-O0 / /Od).
+    # Note: tool still inherits sanitizer flags from global CMake settings.
+    if(MSVC)
+        target_compile_options(gentest_codegen PRIVATE "$<$<NOT:$<CONFIG:Release>>:/O2>")
+    else()
+        target_compile_options(gentest_codegen PRIVATE "$<$<NOT:$<CONFIG:Release>>:-O2>")
+    endif()
+
+    # Assertions: default Release defines NDEBUG; do the same here.
+    target_compile_definitions(gentest_codegen PRIVATE "$<$<NOT:$<CONFIG:Release>>:NDEBUG>")
+endif()
+
 if(WIN32)
     target_compile_definitions(gentest_codegen PRIVATE _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING)
 endif()
