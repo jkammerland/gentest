@@ -5,6 +5,14 @@ add_rules("mode.debug", "mode.release")
 
 local incdirs = {"include", "tests"}
 
+local gentest_common_defines = {"FMT_HEADER_ONLY"}
+local gentest_common_cxxflags = {}
+if is_plat("windows") then
+    gentest_common_cxxflags = {"/wd5030"}
+else
+    gentest_common_cxxflags = {"-Wno-attributes"}
+end
+
 -- Resolve gentest_codegen path.
 -- Prefer a prebuilt binary via $GENTEST_CODEGEN; otherwise fall back to a CMake build dir.
 local function resolve_codegen()
@@ -30,13 +38,15 @@ target("gentest_runtime")
     set_kind("static")
     add_files("src/runner_impl.cpp")
     add_includedirs(incdirs)
-    add_cxxflags("-DFMT_HEADER_ONLY")
+    add_defines(gentest_common_defines)
+    add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
 
 target("gentest_main")
     set_kind("static")
     add_files("src/gentest_main.cpp")
     add_includedirs(incdirs)
-    add_cxxflags("-DFMT_HEADER_ONLY")
+    add_defines(gentest_common_defines)
+    add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
     add_deps("gentest_runtime")
 
 local function gentest_suite(name)
@@ -45,7 +55,8 @@ local function gentest_suite(name)
     target("gentest_" .. name .. "_xmake")
         set_kind("binary")
         add_includedirs(incdirs)
-        add_defines("FMT_HEADER_ONLY")
+        add_defines(gentest_common_defines)
+        add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
         add_files(out, {always_added = true})
         add_deps("gentest_main")
         before_buildcmd(function (target, batchcmds)
@@ -65,8 +76,12 @@ local function gentest_suite(name)
             table.insert(args, path.join("tests", name, "cases.cpp"))
             table.insert(args, "--")
             table.insert(args, "-std=c++20")
-            table.insert(args, "-Iinclude")
-            table.insert(args, "-Itests")
+            table.insert(args, "-DGENTEST_CODEGEN=1")
+            table.insert(args, "-Wno-unknown-attributes")
+            table.insert(args, "-Wno-attributes")
+            table.insert(args, "-Wno-unknown-warning-option")
+            table.insert(args, "-I" .. path.join(os.projectdir(), "include"))
+            table.insert(args, "-I" .. path.join(os.projectdir(), "tests"))
             batchcmds:vrunv(codegen, args)
         end)
 end
