@@ -173,7 +173,8 @@ jobs:
       - *install_deps_dnf
       - *checkout
 
-      - name: Build host codegen (CMake preset)
+      - &build_host_codegen
+        name: Build host codegen (CMake preset)
         run: |
           set -euxo pipefail
           cmake --preset=host-codegen \
@@ -206,14 +207,23 @@ jobs:
             container: ubuntu:24.04
             pkg_manager: apt
             clang_version: "20"
+            cc: clang-20
+            cxx: clang++-20
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
           - name: Fedora 43
             container: fedora:43
             pkg_manager: dnf
             clang_version: "20"
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
     steps:
       - *install_deps_apt
       - *install_deps_dnf
       - *checkout
+      - *build_host_codegen
       - name: Create CI user
         run: |
           set -euxo pipefail
@@ -231,13 +241,15 @@ jobs:
       - name: Build
         run: |
           set -euxo pipefail
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake f -c -m release"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake build"
+          codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake f -c -m release"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake build"
 
       - name: Test
         run: |
           set -euxo pipefail
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake r gentest_unit_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake r gentest_integration_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake r gentest_fixtures_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake r gentest_skiponly_xmake"
+          codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_unit_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_integration_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_fixtures_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_skiponly_xmake"
