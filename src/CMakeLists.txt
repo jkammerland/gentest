@@ -10,6 +10,13 @@ endif()
 add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp)
 
+add_library(gentest_main STATIC
+    ${PROJECT_SOURCE_DIR}/src/gentest_main.cpp)
+
+target_link_libraries(gentest_main
+    PUBLIC
+        ${PROJECT_NAME})
+
 if(GENTEST_RUNTIME_SHARED)
     # Only set PIC for the shared case
     set_target_properties(gentest_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -61,3 +68,13 @@ target_compile_options(${PROJECT_NAME}
         $<$<COMPILE_LANG_AND_ID:CXX,AppleClang>:-Wno-unknown-attributes;-Wno-attributes>
         $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-attributes>
         $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/wd5030>)
+
+if(NOT TARGET gentest::gentest)
+    add_library(gentest::gentest ALIAS ${PROJECT_NAME})
+endif()
+if(NOT TARGET gentest::gentest_runtime)
+    add_library(gentest::gentest_runtime ALIAS gentest_runtime)
+endif()
+if(NOT TARGET gentest::gentest_main)
+    add_library(gentest::gentest_main ALIAS gentest_main)
+endif()
