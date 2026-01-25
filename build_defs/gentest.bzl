@@ -1,5 +1,7 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
 def gentest_suite(name):
-    native.cc_library(
+    cc_library(
         name = '{}_cases_hdr'.format(name),
         hdrs = ['tests/{}/cases.cpp'.format(name)],
         includes = ['tests'],
@@ -15,9 +17,9 @@ def gentest_suite(name):
         tags = ['no-sandbox'],
     )
 
-    native.cc_test(
+    cc_test(
         name = 'gentest_{}_bazel'.format(name),
-        srcs = ['tests/support/test_entry.cpp', gen_out],
+        srcs = [gen_out],
         copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'],
-        deps = [':gentest_runtime', ':{}_cases_hdr'.format(name)],
+        deps = [':gentest_main', ':{}_cases_hdr'.format(name)],
     )
