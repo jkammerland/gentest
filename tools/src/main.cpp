@@ -334,8 +334,7 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
-    std::sort(cases.begin(), cases.end(),
-              [](const TestCaseInfo &lhs, const TestCaseInfo &rhs) { return lhs.display_name < rhs.display_name; });
+    std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
 
     if (options.check_only) {
         return 0;

@@ -6,6 +6,7 @@
 #include "render_mocks.hpp"
 #include "templates.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -59,7 +60,8 @@ std::string sanitize_stem(std::string value) {
         const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
         if (!ok) ch = '_';
     }
-    if (value.empty()) return std::string("tu");
+    if (value.empty())
+        return {"tu"};
     return value;
 }
 
@@ -220,6 +222,7 @@ bool ensure_parent_dir(const fs::path &path) {
 
 } // namespace
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void replace_all(std::string &inout, std::string_view needle, std::string_view replacement) {
     const std::string target{needle};
     const std::string substitute{replacement};
@@ -260,8 +263,13 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     std::vector<std::string> tag_array_names         = std::move(traits.tag_names);
     std::vector<std::string> requirement_array_names = std::move(traits.req_names);
 
-    std::string wrapper_impls =
-        render::render_wrappers(cases, tpl_wrapper_free, tpl_wrapper_free_fix, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
+    const render::WrapperTemplates wrapper_templates{
+        .free = tpl_wrapper_free,
+        .free_fixtures = tpl_wrapper_free_fix,
+        .ephemeral = tpl_wrapper_ephemeral,
+        .stateful = tpl_wrapper_stateful,
+    };
+    std::string wrapper_impls = render::render_wrappers(cases, wrapper_templates);
 
     std::string case_entries;
     if (cases.empty()) {
@@ -352,8 +360,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
                 tu_cases = it->second;
             }
 
-            std::sort(tu_cases.begin(), tu_cases.end(),
-                      [](const TestCaseInfo &lhs, const TestCaseInfo &rhs) { return lhs.display_name < rhs.display_name; });
+            std::ranges::sort(tu_cases, {}, &TestCaseInfo::display_name);
 
             fs::path header_out = opts.tu_output_dir / source_path.filename();
             header_out.replace_extension(".h");
@@ -386,8 +393,13 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             std::vector<std::string> tag_array_names = std::move(traits.tag_names);
             std::vector<std::string> requirement_array_names = std::move(traits.req_names);
 
-            std::string wrapper_impls =
-                render::render_wrappers(tu_cases, tpl_wrapper_free, tpl_wrapper_free_fix, tpl_wrapper_ephemeral, tpl_wrapper_stateful);
+            const render::WrapperTemplates wrapper_templates{
+                .free = tpl_wrapper_free,
+                .free_fixtures = tpl_wrapper_free_fix,
+                .ephemeral = tpl_wrapper_ephemeral,
+                .stateful = tpl_wrapper_stateful,
+            };
+            std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
 
             std::string case_entries;
             if (tu_cases.empty()) {

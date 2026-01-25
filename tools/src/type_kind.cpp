@@ -33,8 +33,8 @@ std::string normalize_impl(std::string_view sv, PointerPolicy policy) {
         erase_all("*");
     }
 
-    s.erase(std::remove_if(s.begin(), s.end(), [](unsigned char c) { return std::isspace(c) != 0; }), s.end());
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::erase_if(s, [](unsigned char c) { return std::isspace(c) != 0; });
+    std::ranges::transform(s, s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
 }
 
@@ -91,6 +91,7 @@ TypeKind classify_type(std::string_view type_name) {
     return TypeKind::Other;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 std::string quote_for_type(TypeKind kind, std::string_view token, std::string_view type_name) {
     switch (kind) {
     case TypeKind::String: {

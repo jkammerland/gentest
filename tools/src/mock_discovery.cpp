@@ -414,8 +414,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     }
 
     // Stable order for deterministic output.
-    std::sort(info.methods.begin(), info.methods.end(),
-              [](const MockMethodInfo &lhs, const MockMethodInfo &rhs) { return lhs.qualified_name < rhs.qualified_name; });
+    std::ranges::sort(info.methods, {}, &MockMethodInfo::qualified_name);
 
     out_.push_back(std::move(info));
 }

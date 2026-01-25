@@ -26,13 +26,19 @@ struct TraitArrays {
     std::vector<std::string> req_names;
 };
 
+struct WrapperTemplates {
+    const std::string &free;
+    const std::string &free_fixtures;
+    const std::string &ephemeral;
+    const std::string &stateful;
+};
+
 // Render constexpr string_view arrays for tags and requirements for each case.
 TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const std::string &tpl_array_empty,
                                 const std::string &tpl_array_nonempty);
 
 // Render per-test invocation wrappers for free/member tests.
-std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const std::string &tpl_free, const std::string &tpl_free_fixtures,
-                            const std::string &tpl_ephemeral, const std::string &tpl_stateful);
+std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const WrapperTemplates &templates);
 
 // Render kCases initializer entries from discovered tests and trait arrays.
 std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const std::vector<std::string> &tag_names,

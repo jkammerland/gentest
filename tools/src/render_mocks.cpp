@@ -468,8 +468,7 @@ std::optional<MockOutputs> render_mocks(const CollectorOptions &options, const s
     }
 
     std::vector<MockClassInfo> classes = mocks;
-    std::sort(classes.begin(), classes.end(),
-              [](const MockClassInfo &lhs, const MockClassInfo &rhs) { return lhs.qualified_name < rhs.qualified_name; });
+    std::ranges::sort(classes, {}, &MockClassInfo::qualified_name);
 
     MockOutputs out;
     std::string header;
