@@ -137,7 +137,13 @@ static inline std::size_t parse_szt_c(const char* s, std::size_t defv) {
     return n;
 }
 static inline double parse_double_c(const char* s, double defv) {
-    if (!s) return defv; try { return std::stod(std::string(s)); } catch (...) { return defv; }
+    if (!s)
+        return defv;
+    try {
+        return std::stod(std::string(s));
+    } catch (...) {
+        return defv;
+    }
 }
 
 struct BenchResult { std::size_t epochs = 0; std::size_t iters_per_epoch = 0; double best_ns = 0; double median_ns = 0; double mean_ns = 0; };
@@ -145,11 +151,24 @@ struct BenchResult { std::size_t epochs = 0; std::size_t iters_per_epoch = 0; do
 static inline double ns_from_s(double s) { return s * 1e9; }
 
 static inline double median_of(std::vector<double>& v) {
-    if (v.empty()) return 0.0; std::sort(v.begin(), v.end()); const std::size_t n=v.size(); if (n%2) return v[n/2]; return 0.5*(v[n/2-1]+v[n/2]);
+    if (v.empty())
+        return 0.0;
+
+    std::sort(v.begin(), v.end());
+    const std::size_t n = v.size();
+    if (n % 2)
+        return v[n / 2];
+    return 0.5 * (v[n / 2 - 1] + v[n / 2]);
 }
 
 static inline double mean_of(const std::vector<double>& v) {
-    if (v.empty()) return 0.0; double s=0; for (double x : v) s+=x; return s / static_cast<double>(v.size());
+    if (v.empty())
+        return 0.0;
+
+    double s = 0;
+    for (double x : v)
+        s += x;
+    return s / static_cast<double>(v.size());
 }
 
 static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters, std::size_t& iterations_done, bool& had_assert_fail) {
