@@ -8,6 +8,7 @@ inc = include_directories('include', 'tests')
 
 # Build the runtime as a static library (compiled, not header-only)
 runtime_cargs = ['-DFMT_HEADER_ONLY']
+runtime_cargs += cpp.get_supported_arguments(['-Wno-attributes'])
 if fmt_dep.found()
   runtime_deps = [fmt_dep]
 else
@@ -44,7 +45,15 @@ endif
 codegen = codegen_opt
 
 gen_args = ['--compdb', meson.current_build_dir()]
-clang_args = ['-std=c++20', '-I@SOURCE_ROOT@/include', '-I@SOURCE_ROOT@/tests']
+clang_args = [
+  '-std=c++20',
+  '-DGENTEST_CODEGEN=1',
+  '-Wno-unknown-attributes',
+  '-Wno-attributes',
+  '-Wno-unknown-warning-option',
+  '-I@SOURCE_ROOT@/include',
+  '-I@SOURCE_ROOT@/tests',
+]
 
 tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 
