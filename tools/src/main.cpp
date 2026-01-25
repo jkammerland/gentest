@@ -5,10 +5,12 @@
 #include "tooling_support.hpp"
 
 #include <algorithm>
+#include <array>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
+#include <clang/Driver/Driver.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/CompilationDatabase.h>
@@ -19,6 +21,7 @@
 #include <fmt/core.h>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/Support/CommandLine.h>
+#include <llvm/Support/Program.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
 #include <optional>
@@ -77,6 +80,40 @@ std::optional<std::string> get_env_value(std::string_view name) {
     }
     return std::string{env_value};
 #endif
+}
+
+std::string resolve_default_compiler_path() {
+    static constexpr std::string_view kDefault = "clang++";
+#if defined(_WIN32)
+    static constexpr std::array<std::string_view, 2> kCandidates = {"clang++.exe", "clang++"};
+#else
+    const std::string versioned = std::string("clang++-") + std::to_string(CLANG_VERSION_MAJOR);
+    const std::array<std::string, 2> kCandidates = {versioned, std::string(kDefault)};
+#endif
+    for (const auto &candidate : kCandidates) {
+        auto path = llvm::sys::findProgramByName(candidate);
+        if (path) {
+            return *path;
+        }
+    }
+    return std::string{kDefault};
+}
+
+bool has_resource_dir_arg(const std::vector<std::string> &args) {
+    bool next_is_value = false;
+    for (const auto &arg : args) {
+        if (next_is_value) {
+            return true;
+        }
+        if (arg == "-resource-dir") {
+            next_is_value = true;
+            continue;
+        }
+        if (arg.starts_with("-resource-dir=")) {
+            return true;
+        }
+    }
+    return false;
 }
 
 CollectorOptions parse_arguments(int argc, const char **argv) {
@@ -199,6 +236,8 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
 
 int main(int argc, const char **argv) {
     const auto options = parse_arguments(argc, argv);
+    const auto compiler_path = resolve_default_compiler_path();
+    const auto resource_dir = clang::driver::Driver::GetResourcesPath(compiler_path);
 
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
     std::string                                          db_error;
@@ -235,15 +274,20 @@ int main(int argc, const char **argv) {
     tool.setDiagnosticConsumer(diag_consumer.get());
 
     const auto extra_args = options.clang_args;
+    const bool need_resource_dir = !has_resource_dir_arg(extra_args);
 
     if (options.compilation_database) {
         const std::string compdb_dir = options.compilation_database->string();
         tool.appendArgumentsAdjuster(
-            [extra_args, compdb_dir](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
+            [compiler_path, resource_dir, need_resource_dir, extra_args, compdb_dir](
+                const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
                     // Use compiler and flags from compilation database
                     adjusted.emplace_back(command_line.front());
+                    if (need_resource_dir && !resource_dir.empty()) {
+                        adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+                    }
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                     // Copy remaining args, filtering out C++ module flags
                     bool skip_next_arg = false;
@@ -270,11 +314,13 @@ int main(int argc, const char **argv) {
                         "gentest_codegen: warning: no compilation database entry for '{}'; using synthetic clang invocation "
                         "(compdb: '{}')\n",
                         file.str(), compdb_dir);
-                    static constexpr std::string_view compiler = "clang++";
-                    adjusted.emplace_back(compiler);
+                    adjusted.emplace_back(compiler_path);
 #if defined(__linux__)
                     adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
+                    if (need_resource_dir && !resource_dir.empty()) {
+                        adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+                    }
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                 }
                 return adjusted;
@@ -283,13 +329,16 @@ int main(int argc, const char **argv) {
         // No compilation database - use minimal synthetic command
         // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
         tool.appendArgumentsAdjuster(
-            [extra_args](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
+            [compiler_path, resource_dir, need_resource_dir, extra_args](const clang::tooling::CommandLineArguments &command_line,
+                                                                        llvm::StringRef) {
                 clang::tooling::CommandLineArguments adjusted;
-                static constexpr std::string_view    compiler = "clang++";
-                adjusted.emplace_back(compiler);
+                adjusted.emplace_back(compiler_path);
 #if defined(__linux__)
                 adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
+                if (need_resource_dir && !resource_dir.empty()) {
+                    adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+                }
                 adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                 if (!command_line.empty()) {
                     bool skip_next_arg = false;
