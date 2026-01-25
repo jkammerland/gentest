@@ -219,20 +219,26 @@ jobs:
         run: |
           set -euxo pipefail
           curl -fsSL https://xmake.io/shget.text | bash
+          set +u
           source "${HOME}/.xmake/profile"
+          set -u
           xmake --version
 
       - name: Build
         run: |
           set -euxo pipefail
+          set +u
           source "${HOME}/.xmake/profile"
+          set -u
           xmake f -c -m release
           xmake build
 
       - name: Test
         run: |
           set -euxo pipefail
+          set +u
           source "${HOME}/.xmake/profile"
+          set -u
           xmake r gentest_unit_xmake
           xmake r gentest_integration_xmake
           xmake r gentest_fixtures_xmake
