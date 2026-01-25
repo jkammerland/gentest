@@ -214,32 +214,30 @@ jobs:
       - *install_deps_apt
       - *install_deps_dnf
       - *checkout
+      - name: Create CI user
+        run: |
+          set -euxo pipefail
+          if ! id -u ci >/dev/null 2>&1; then
+            useradd --create-home --shell /bin/bash ci
+          fi
+          chown -R ci:ci "${GITHUB_WORKSPACE}"
 
       - name: Install xmake
         run: |
           set -euxo pipefail
-          curl -fsSL https://xmake.io/shget.text | bash
-          set +u
-          source "${HOME}/.xmake/profile"
-          set -u
-          xmake --version
+          su - ci -c "curl -fsSL https://xmake.io/shget.text | bash"
+          su - ci -c "/home/ci/.local/bin/xmake --version"
 
       - name: Build
         run: |
           set -euxo pipefail
-          set +u
-          source "${HOME}/.xmake/profile"
-          set -u
-          xmake f -c -m release
-          xmake build
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake f -c -m release"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake build"
 
       - name: Test
         run: |
           set -euxo pipefail
-          set +u
-          source "${HOME}/.xmake/profile"
-          set -u
-          xmake r gentest_unit_xmake
-          xmake r gentest_integration_xmake
-          xmake r gentest_fixtures_xmake
-          xmake r gentest_skiponly_xmake
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake r gentest_unit_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake r gentest_integration_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake r gentest_fixtures_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && /home/ci/.local/bin/xmake r gentest_skiponly_xmake"
