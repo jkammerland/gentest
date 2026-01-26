@@ -426,7 +426,7 @@ int main(int argc, const char **argv) {
     MockUsageCollector                           mock_collector{mocks};
 
     MatchFinder finder;
-    finder.addMatcher(functionDecl(isDefinition()).bind("gentest.func"), &collector);
+    finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
     register_mock_matchers(finder, mock_collector);
 
     const int status = tool.run(newFrontendActionFactory(&finder).get());
