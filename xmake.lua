@@ -51,6 +51,7 @@ target("gentest_main")
 
 local function gentest_suite(name)
     local out = path.join("build", "gen", name, "test_impl.cpp")
+    local dependfile = out .. ".d"
 
     target("gentest_" .. name .. "_xmake")
         set_kind("binary")
@@ -60,29 +61,67 @@ local function gentest_suite(name)
         add_files(out, {always_added = true})
         add_deps("gentest_main")
         before_buildcmd(function (target, batchcmds)
+            local depend = import("core.project.depend")
             local codegen, compdb_dir, cmake_build_dir = resolve_codegen()
-            if cmake_build_dir and not os.isfile(codegen) then
-                batchcmds:vrunv("cmake", {"-S", os.projectdir(), "-B", cmake_build_dir, "-DCMAKE_BUILD_TYPE=Release",
-                                         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"})
-                batchcmds:vrunv("cmake", {"--build", cmake_build_dir, "--target", "gentest_codegen", "-j", "1"})
-                compdb_dir = cmake_build_dir
+            local compdb_file = nil
+            if compdb_dir then
+                compdb_file = path.join(compdb_dir, "compile_commands.json")
+            elseif cmake_build_dir then
+                compdb_file = path.join(cmake_build_dir, "compile_commands.json")
             end
 
-            local args = {"--output", out}
-            if compdb_dir then
-                table.insert(args, "--compdb")
-                table.insert(args, compdb_dir)
+            if cmake_build_dir and (not os.isfile(codegen) or (compdb_file and not os.isfile(compdb_file))) then
+                batchcmds:vrunv("cmake", {"-S", os.projectdir(), "-B", cmake_build_dir, "-DCMAKE_BUILD_TYPE=Release",
+                                         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"})
+
+                if not os.isfile(codegen) then
+                    batchcmds:vrunv("cmake", {"--build", cmake_build_dir, "--target", "gentest_codegen", "-j", "1"})
+                end
+
+                compdb_file = path.join(cmake_build_dir, "compile_commands.json")
+                if os.isfile(compdb_file) then
+                    compdb_dir = cmake_build_dir
+                end
             end
-            table.insert(args, path.join("tests", name, "cases.cpp"))
-            table.insert(args, "--")
-            table.insert(args, "-std=c++20")
-            table.insert(args, "-DGENTEST_CODEGEN=1")
-            table.insert(args, "-Wno-unknown-attributes")
-            table.insert(args, "-Wno-attributes")
-            table.insert(args, "-Wno-unknown-warning-option")
-            table.insert(args, "-I" .. path.join(os.projectdir(), "include"))
-            table.insert(args, "-I" .. path.join(os.projectdir(), "tests"))
-            batchcmds:vrunv(codegen, args)
+
+            if not os.isfile(out) then
+                os.tryrm(dependfile)
+            end
+
+            local dep_files = {
+                os.projectfile(),
+                codegen,
+                path.join(os.projectdir(), "tests", name, "cases.cpp"),
+            }
+            if compdb_file and os.isfile(compdb_file) then
+                table.insert(dep_files, compdb_file)
+            end
+
+            depend.on_changed(function ()
+                local args = {"--output", out}
+                if compdb_dir then
+                    table.insert(args, "--compdb")
+                    table.insert(args, compdb_dir)
+                end
+                table.insert(args, path.join("tests", name, "cases.cpp"))
+                table.insert(args, "--")
+                table.insert(args, "-std=c++20")
+                table.insert(args, "-DGENTEST_CODEGEN=1")
+                table.insert(args, "-Wno-unknown-attributes")
+                table.insert(args, "-Wno-attributes")
+                table.insert(args, "-Wno-unknown-warning-option")
+                table.insert(args, "-I" .. path.join(os.projectdir(), "include"))
+                table.insert(args, "-I" .. path.join(os.projectdir(), "tests"))
+                batchcmds:vrunv(codegen, args)
+            end, {
+                dependfile = dependfile,
+                files = dep_files,
+                values = {
+                    out,
+                    compdb_dir or "",
+                    codegen,
+                }
+            })
         end)
 end
 
