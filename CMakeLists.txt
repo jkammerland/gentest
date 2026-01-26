@@ -93,6 +93,7 @@ if(${PROJECT_NAME}_BUILD_TESTING)
     endif()
 
     add_subdirectory(tools/core_tests)
+    add_custom_target(gentest_codegen_all)
     add_subdirectory(tests)
 
     # Compile time benchmark targets

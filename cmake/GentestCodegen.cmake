@@ -470,6 +470,9 @@ function(gentest_attach_codegen target)
         # Ensure code generation happens before compiling wrapper shims that
         # include the generated headers.
         add_custom_target(gentest_codegen_${_gentest_target_id} DEPENDS ${_gentest_codegen_outputs})
+        if(TARGET gentest_codegen_all)
+            add_dependencies(gentest_codegen_all gentest_codegen_${_gentest_target_id})
+        endif()
         add_dependencies(${target} gentest_codegen_${_gentest_target_id})
     endif()
 

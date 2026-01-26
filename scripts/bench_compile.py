@@ -15,6 +15,7 @@ Options:
   --config      Multi-config setting (e.g., Debug, Release) when using MSVC/Xcode
   --jobs        Parallel jobs to pass to cmake --build (default: 1 for stability)
   --no-clean    Do not pass --clean-first for each timed build
+  --codegen-only  Only time codegen commands (skip building test targets)
   --targets     Explicit targets to time (comma-separated). If omitted, targets
                 are discovered from `cmake --build --target help` and filtered
                 to names ending in `_tests`, plus `gentest_concurrency_tests`.
@@ -83,6 +84,7 @@ def main():
     ap.add_argument("--config", default=None)
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--no-clean", action="store_true")
+    ap.add_argument("--codegen-only", action="store_true")
     ap.add_argument("--targets", default=None, help="Comma-separated target names to build and time")
     args = ap.parse_args()
 
@@ -126,6 +128,7 @@ def main():
         "config": args.config,
         "jobs": args.jobs,
         "clean_first": not args.no_clean,
+        "codegen_only": args.codegen_only,
         "generator": {"target": "gentest_codegen", "elapsed_s": gen_time},
         "generation": {"targets": [], "total_elapsed_s": 0.0},
         "targets": [],
@@ -134,24 +137,39 @@ def main():
 
     # Stage 2: time code generation by executing the exact gentest_codegen commands from build.ninja
     def parse_generation_commands(bdir: Path):
-        buildfile = (bdir / "build.ninja") if bdir else (Path("build")/args.preset/"build.ninja")
+        buildfile = (bdir / "build.ninja") if bdir else (Path("build") / args.preset / "build.ninja")
         if not buildfile.exists():
             return {}
-        text = buildfile.read_text()
-        # Map: target -> command string
+        lines = buildfile.read_text().splitlines()
         mapping = {}
-        # Find blocks by DESC lines
-        for m in re.finditer(r"^\s*DESC\s*=\s*Generating\s+(.+?/tests/[^/]+/test_impl\\.cpp)\s+for\s+target\s+([\w_]+)\s*$", text, re.MULTILINE):
-            test_impl_path = m.group(1)
-            target_name = m.group(2)
-            # Walk backwards to find the preceding COMMAND line in this block
-            block_start = text.rfind("\n", 0, m.start())
-            block = text[text.rfind("\n\n", 0, m.start())+1:m.start()] if text.rfind("\n\n", 0, m.start()) != -1 else text[:m.start()]
-            cmd_match = re.search(r"^\s*COMMAND\s*=\s*(.+)$", block, re.MULTILINE)
-            if not cmd_match:
+        current_cmd = None
+        current_impl = None
+        running_re = re.compile(r"^\s*DESC\s*=\s*Running gentest_codegen for target\s+([\w_]+)\s*$")
+        legacy_re = re.compile(r"^\s*DESC\s*=\s*Generating\s+(.+?/tests/[^/]+/test_impl\\.cpp)\s+for\s+target\s+([\w_]+)\s*$")
+        cmd_re = re.compile(r"^\s*COMMAND\s*=\s*(.+)$")
+
+        for line in lines:
+            if line.startswith("build "):
+                current_cmd = None
+                current_impl = None
                 continue
-            command = cmd_match.group(1)
-            mapping[target_name] = {"impl": test_impl_path, "command": command}
+            cmd_match = cmd_re.match(line)
+            if cmd_match:
+                current_cmd = cmd_match.group(1)
+                continue
+            legacy_match = legacy_re.match(line)
+            if legacy_match:
+                current_impl = legacy_match.group(1)
+                target_name = legacy_match.group(2)
+                if current_cmd:
+                    mapping[target_name] = {"impl": current_impl, "command": current_cmd}
+                continue
+            running_match = running_re.match(line)
+            if running_match:
+                target_name = running_match.group(1)
+                if current_cmd:
+                    mapping[target_name] = {"impl": current_impl, "command": current_cmd}
+                continue
         return mapping
 
     gen_cmds = parse_generation_commands(Path(args.build_dir) if args.build_dir else None)
@@ -172,12 +190,15 @@ def main():
 
     # Stage 3: compile tests (no clean so we don't re-run generation)
     total = 0.0
-    for t in targets:
-        print(f"[bench] Building {t} ...")
-        elapsed, _ = cmake_build(build_dir, target=t, jobs=args.jobs, clean_first=False if gen_cmds else (not args.no_clean), config=args.config, preset=args.preset)
-        print(f"[bench] {t}: {elapsed:.3f}s")
-        results["targets"].append({"target": t, "elapsed_s": elapsed})
-        total += elapsed
+    if args.codegen_only:
+        print("[bench] Skipping test target builds (--codegen-only).")
+    else:
+        for t in targets:
+            print(f"[bench] Building {t} ...")
+            elapsed, _ = cmake_build(build_dir, target=t, jobs=args.jobs, clean_first=False if gen_cmds else (not args.no_clean), config=args.config, preset=args.preset)
+            print(f"[bench] {t}: {elapsed:.3f}s")
+            results["targets"].append({"target": t, "elapsed_s": elapsed})
+            total += elapsed
 
     results["total_elapsed_s"] = total
     out_dir = Path(args.build_dir) if args.build_dir else Path("build")/args.preset
@@ -196,9 +217,12 @@ def main():
     print(f"Clean:     {not args.no_clean}")
     print(f"Generator compile:       {gen_time:.3f}s")
     print(f"Codegen (sum):           {gen_total:.3f}s")
-    for entry in results["targets"]:
-        print(f"{entry['target']:<32} {entry['elapsed_s']:.3f}s")
-    print(f"Total (targets):         {total:.3f}s")
+    if args.codegen_only:
+        print("Total (targets):         skipped (--codegen-only)")
+    else:
+        for entry in results["targets"]:
+            print(f"{entry['target']:<32} {entry['elapsed_s']:.3f}s")
+        print(f"Total (targets):         {total:.3f}s")
 
     return 0
 
