@@ -326,93 +326,92 @@ target_compile_features(gentest_codegen PRIVATE cxx_std_20)
 option(GENTEST_CODEGEN_FORCE_RELEASE
     "Build gentest_codegen with release-like flags even in Debug configs"
     ON)
-if(GENTEST_CODEGEN_FORCE_RELEASE)
-    if(MSVC)
-        # MSVC Debug defaults include /RTC1, which is incompatible with /O2.
-        # Instead of trying to partially override flags (which still leaves /RTC1
-        # on the command line), build a separate Release host tool and use that
-        # for codegen invocations by default.
-        if((NOT DEFINED GENTEST_CODEGEN_EXECUTABLE OR GENTEST_CODEGEN_EXECUTABLE STREQUAL "")
-            AND (NOT DEFINED GENTEST_CODEGEN_TARGET OR GENTEST_CODEGEN_TARGET STREQUAL ""))
-            set(_gentest_host_codegen_build_dir "${CMAKE_BINARY_DIR}/host-codegen")
-            if(CMAKE_CONFIGURATION_TYPES)
-                set(_gentest_host_codegen_exe "${_gentest_host_codegen_build_dir}/tools/Release/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}")
-            else()
-                set(_gentest_host_codegen_exe "${_gentest_host_codegen_build_dir}/tools/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}")
-            endif()
 
-            set(_gentest_host_codegen_generator_args -G "${CMAKE_GENERATOR}")
-            if(CMAKE_GENERATOR_PLATFORM)
-                list(APPEND _gentest_host_codegen_generator_args -A "${CMAKE_GENERATOR_PLATFORM}")
-            endif()
-            if(CMAKE_GENERATOR_TOOLSET)
-                list(APPEND _gentest_host_codegen_generator_args -T "${CMAKE_GENERATOR_TOOLSET}")
-            endif()
-
-            set(_gentest_host_codegen_cmake_args
-                "-Dgentest_BUILD_TESTING=OFF"
-                "-DGENTEST_BUILD_CODEGEN=ON"
-                "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF"
-                "-DGENTEST_CODEGEN_FORCE_RELEASE=OFF")
-            if(NOT CMAKE_CONFIGURATION_TYPES)
-                list(APPEND _gentest_host_codegen_cmake_args "-DCMAKE_BUILD_TYPE=Release")
-            endif()
-
-            foreach(_var IN ITEMS
-                CMAKE_C_COMPILER
-                CMAKE_CXX_COMPILER
-                CMAKE_MAKE_PROGRAM
-                CMAKE_TOOLCHAIN_FILE
-                LLVM_DIR
-                Clang_DIR)
-                if(DEFINED ${_var} AND NOT "${${_var}}" STREQUAL "")
-                    list(APPEND _gentest_host_codegen_cmake_args "-D${_var}=${${_var}}")
-                endif()
-            endforeach()
-
-            add_custom_command(
-                OUTPUT "${_gentest_host_codegen_exe}"
-                COMMAND ${CMAKE_COMMAND} -E make_directory "${_gentest_host_codegen_build_dir}"
-                COMMAND ${CMAKE_COMMAND} -S "${PROJECT_SOURCE_DIR}" -B "${_gentest_host_codegen_build_dir}"
-                        ${_gentest_host_codegen_generator_args}
-                        ${_gentest_host_codegen_cmake_args}
-                COMMAND ${CMAKE_COMMAND} --build "${_gentest_host_codegen_build_dir}"
-                        --config Release
-                        --target gentest_codegen
-                DEPENDS
-                    "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
-                    "${CMAKE_CURRENT_LIST_FILE}"
-                    ${_gentest_codegen_sources}
-                COMMENT "Building host gentest_codegen (Release)"
-                VERBATIM)
-            add_custom_target(gentest_codegen_host_build DEPENDS "${_gentest_host_codegen_exe}")
-
-            set(GENTEST_CODEGEN_EXECUTABLE "${_gentest_host_codegen_exe}" CACHE FILEPATH
-                "Path to a release-built gentest_codegen executable used for code generation (auto-populated on MSVC Debug builds)." FORCE)
-            set(GENTEST_CODEGEN_BUILD_TARGET gentest_codegen_host_build CACHE STRING
-                "Build target that produces GENTEST_CODEGEN_EXECUTABLE (auto-populated)." FORCE)
-
-            # Avoid building the Debug gentest_codegen by default when a Release
-            # host tool is used for code generation. Build it explicitly if
-            # you need to debug the generator.
-            set_property(TARGET gentest_codegen PROPERTY EXCLUDE_FROM_ALL TRUE)
-
-            unset(_gentest_host_codegen_build_dir)
-            unset(_gentest_host_codegen_exe)
-            unset(_gentest_host_codegen_generator_args)
-            unset(_gentest_host_codegen_cmake_args)
-            unset(_var)
-        endif()
-    else()
-        # Optimization: override common debug defaults (-O0). For non-Debug
-        # configs CMake already uses optimized flags, so only touch Debug here.
-        # Note: tool still inherits sanitizer flags from global CMake settings.
-        target_compile_options(gentest_codegen PRIVATE "$<$<CONFIG:Debug>:-O2>")
-
-        # Assertions: default Release defines NDEBUG; do the same here.
-        target_compile_definitions(gentest_codegen PRIVATE "$<$<CONFIG:Debug>:NDEBUG>")
-    endif()
+set(_gentest_codegen_use_host_release_tool FALSE)
+if(GENTEST_CODEGEN_FORCE_RELEASE
+    AND NOT CMAKE_CROSSCOMPILING
+    AND (NOT DEFINED GENTEST_CODEGEN_EXECUTABLE OR GENTEST_CODEGEN_EXECUTABLE STREQUAL "")
+    AND (NOT DEFINED GENTEST_CODEGEN_TARGET OR GENTEST_CODEGEN_TARGET STREQUAL "")
+    AND NOT (CMAKE_BUILD_TYPE STREQUAL "Release"))
+    set(_gentest_codegen_use_host_release_tool TRUE)
 endif()
+
+if(_gentest_codegen_use_host_release_tool)
+    # Build a separate Release host tool and use that for codegen invocations by
+    # default. This keeps the generator fast and (on MSVC) avoids Debug-only
+    # flags like /RTC1 which are incompatible with /O2.
+    set(_gentest_host_codegen_build_dir "${PROJECT_BINARY_DIR}/host-codegen")
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(_gentest_host_codegen_exe "${_gentest_host_codegen_build_dir}/tools/Release/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}")
+    else()
+        set(_gentest_host_codegen_exe "${_gentest_host_codegen_build_dir}/tools/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}")
+    endif()
+
+    set(_gentest_host_codegen_generator_args -G "${CMAKE_GENERATOR}")
+    if(CMAKE_GENERATOR_PLATFORM)
+        list(APPEND _gentest_host_codegen_generator_args -A "${CMAKE_GENERATOR_PLATFORM}")
+    endif()
+    if(CMAKE_GENERATOR_TOOLSET)
+        list(APPEND _gentest_host_codegen_generator_args -T "${CMAKE_GENERATOR_TOOLSET}")
+    endif()
+
+    set(_gentest_host_codegen_cmake_args
+        "-Dgentest_BUILD_TESTING=OFF"
+        "-DGENTEST_BUILD_CODEGEN=ON"
+        "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF"
+        "-DGENTEST_CODEGEN_FORCE_RELEASE=OFF")
+    if(NOT CMAKE_CONFIGURATION_TYPES)
+        list(APPEND _gentest_host_codegen_cmake_args "-DCMAKE_BUILD_TYPE=Release")
+    endif()
+
+    foreach(_var IN ITEMS
+        CMAKE_C_COMPILER
+        CMAKE_CXX_COMPILER
+        CMAKE_C_COMPILER_LAUNCHER
+        CMAKE_CXX_COMPILER_LAUNCHER
+        CMAKE_MAKE_PROGRAM
+        CMAKE_TOOLCHAIN_FILE
+        LLVM_DIR
+        Clang_DIR)
+        if(DEFINED ${_var} AND NOT "${${_var}}" STREQUAL "")
+            list(APPEND _gentest_host_codegen_cmake_args "-D${_var}=${${_var}}")
+        endif()
+    endforeach()
+
+    add_custom_command(
+        OUTPUT "${_gentest_host_codegen_exe}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_gentest_host_codegen_build_dir}"
+        COMMAND ${CMAKE_COMMAND} -S "${PROJECT_SOURCE_DIR}" -B "${_gentest_host_codegen_build_dir}"
+                ${_gentest_host_codegen_generator_args}
+                ${_gentest_host_codegen_cmake_args}
+        COMMAND ${CMAKE_COMMAND} --build "${_gentest_host_codegen_build_dir}"
+                --config Release
+                --target gentest_codegen
+        DEPENDS
+            "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
+            "${CMAKE_CURRENT_LIST_FILE}"
+            ${_gentest_codegen_sources}
+        COMMENT "Building host gentest_codegen (Release)"
+        VERBATIM)
+    add_custom_target(gentest_codegen_host_build DEPENDS "${_gentest_host_codegen_exe}")
+
+    set(GENTEST_CODEGEN_EXECUTABLE "${_gentest_host_codegen_exe}" CACHE FILEPATH
+        "Path to a release-built gentest_codegen executable used for code generation (auto-populated)." FORCE)
+    set(GENTEST_CODEGEN_BUILD_TARGET gentest_codegen_host_build CACHE STRING
+        "Build target that produces GENTEST_CODEGEN_EXECUTABLE (auto-populated)." FORCE)
+
+    # Avoid building the non-Release gentest_codegen by default when a Release
+    # host tool is used for code generation. Build it explicitly if you need to
+    # debug the generator.
+    set_property(TARGET gentest_codegen PROPERTY EXCLUDE_FROM_ALL TRUE)
+
+    unset(_gentest_host_codegen_build_dir)
+    unset(_gentest_host_codegen_exe)
+    unset(_gentest_host_codegen_generator_args)
+    unset(_gentest_host_codegen_cmake_args)
+    unset(_var)
+endif()
+unset(_gentest_codegen_use_host_release_tool)
 
 if(WIN32)
     target_compile_definitions(gentest_codegen PRIVATE _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING)
