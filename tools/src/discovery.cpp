@@ -32,6 +32,24 @@ using gentest::codegen::TypeKind;
 namespace gentest::codegen {
 
 namespace {
+bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
+    if (text.size() < suffix.size()) {
+        return false;
+    }
+    llvm::StringRef tail = text.take_back(suffix.size());
+    for (std::size_t i = 0; i < suffix.size(); ++i) {
+        const auto to_lower = [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); };
+        if (to_lower(static_cast<unsigned char>(tail[i])) != to_lower(static_cast<unsigned char>(suffix[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool has_cpp_extension(llvm::StringRef path) {
+    return ends_with_ci(path, ".cc") || ends_with_ci(path, ".cpp") || ends_with_ci(path, ".cxx");
+}
+
 [[nodiscard]] std::string derive_namespace_path(const DeclContext *ctx) {
     std::vector<std::string> parts;
     const DeclContext       *current = ctx;
@@ -66,13 +84,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     }
 
     const auto *sm   = result.SourceManager;
-    const auto &lang = result.Context->getLangOpts();
-    std::string tu_filename;
-    {
-        const SourceLocation tu_loc = sm->getLocForStartOfFile(sm->getMainFileID());
-        const llvm::StringRef tu_file = sm->getFilename(tu_loc);
-        tu_filename = tu_file.str();
-    }
 
     // Allow templated functions; instantiation handled by codegen.
 
@@ -93,10 +104,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         // (*.cc/*.cpp/*.cxx). Avoid discovering tests in headers, since the
         // build system does not yet track header deps for codegen.
         const llvm::StringRef inc_file = sm->getFilename(loc);
-        std::string           lower    = inc_file.str();
-        std::ranges::transform(lower, lower.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-        const llvm::StringRef lower_ref{lower};
-        if (!(lower_ref.ends_with(".cc") || lower_ref.ends_with(".cpp") || lower_ref.ends_with(".cxx"))) {
+        if (!has_cpp_extension(inc_file)) {
             return;
         }
     }
@@ -301,6 +309,13 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                                         it_base->second);
             return; // do not emit duplicates
         }
+    }
+
+    std::string tu_filename;
+    {
+        const SourceLocation  tu_loc  = sm->getLocForStartOfFile(sm->getMainFileID());
+        const llvm::StringRef tu_file = sm->getFilename(tu_loc);
+        tu_filename = tu_file.str();
     }
 
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &call_args) {
