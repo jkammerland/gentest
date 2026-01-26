@@ -322,6 +322,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         TestCaseInfo info{};
         info.qualified_name = make_qualified(tpl_ordered);
         info.display_name   = make_display(final_base, tpl_ordered, call_args);
+        info.base_name      = final_base;
         info.tu_filename    = tu_filename;
         info.filename       = filename.str();
         info.suite_name     = suite_path;

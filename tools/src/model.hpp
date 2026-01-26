@@ -68,6 +68,8 @@ struct CollectorOptions {
 struct TestCaseInfo {
     std::string qualified_name;
     std::string display_name;
+    // Base name (suite/name) used for uniqueness checks across translation units.
+    std::string base_name;
     // Translation unit (main file) that produced this case (used for TU-mode grouping).
     std::string tu_filename;
     std::string filename;

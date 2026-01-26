@@ -2,10 +2,12 @@
 #include "emit.hpp"
 #include "mock_discovery.hpp"
 #include "model.hpp"
+#include "parallel_for.hpp"
 #include "tooling_support.hpp"
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
@@ -18,6 +20,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fmt/core.h>
+#include <iterator>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
@@ -29,6 +32,9 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -47,6 +53,65 @@ using gentest::codegen::register_mock_matchers;
 static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
 
 namespace {
+
+bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
+    if (cases.empty()) {
+        return true;
+    }
+
+    std::vector<std::size_t> order(cases.size());
+    for (std::size_t i = 0; i < cases.size(); ++i) {
+        order[i] = i;
+    }
+    std::ranges::sort(order, [&](std::size_t lhs, std::size_t rhs) {
+        const auto &a = cases[lhs];
+        const auto &b = cases[rhs];
+        return std::tie(a.base_name, a.filename, a.line, a.display_name, a.qualified_name) <
+            std::tie(b.base_name, b.filename, b.line, b.display_name, b.qualified_name);
+    });
+
+    std::unordered_map<std::string, std::string> first_location;
+    std::unordered_set<std::string>              reported;
+    std::vector<bool>                            keep(cases.size(), true);
+    bool                                         ok = true;
+
+    for (const auto idx : order) {
+        const auto &c = cases[idx];
+        if (c.base_name.empty()) {
+            continue;
+        }
+        const std::string here = fmt::format("{}:{}", c.filename, c.line);
+        auto              it   = first_location.find(c.base_name);
+        if (it == first_location.end()) {
+            first_location.emplace(c.base_name, here);
+            continue;
+        }
+        if (it->second == here) {
+            continue; // template instantiations from the same declaration
+        }
+        ok = false;
+        keep[idx] = false;
+
+        const std::string report_key = fmt::format("{}\n{}", c.base_name, here);
+        if (reported.insert(report_key).second) {
+            llvm::errs() << fmt::format("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", c.base_name, here,
+                                        it->second);
+        }
+    }
+
+    if (!ok) {
+        std::vector<TestCaseInfo> filtered;
+        filtered.reserve(cases.size());
+        for (std::size_t i = 0; i < cases.size(); ++i) {
+            if (keep[i]) {
+                filtered.push_back(std::move(cases[i]));
+            }
+        }
+        cases = std::move(filtered);
+    }
+
+    return ok;
+}
 
 bool should_strip_compdb_arg(std::string_view arg) {
     // CMake's experimental C++ modules support (and some GCC-based toolchains)
@@ -310,7 +375,6 @@ int main(int argc, const char **argv) {
 #else
     clang::DiagnosticOptions diag_options;
 #endif
-    clang::tooling::ClangTool tool{*database, options.sources};
     std::unique_ptr<clang::DiagnosticConsumer> diag_consumer;
     if (options.quiet_clang) {
         diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
@@ -324,17 +388,20 @@ int main(int argc, const char **argv) {
             std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false);
 #endif
     }
-    tool.setDiagnosticConsumer(diag_consumer.get());
 
     const auto extra_args = options.clang_args;
     const bool need_resource_dir = !has_resource_dir_arg(extra_args);
     const std::string resource_dir = need_resource_dir ? resolve_resource_dir(compiler_path) : std::string{};
 
-    if (options.compilation_database) {
-        const std::string compdb_dir = options.compilation_database->string();
-        tool.appendArgumentsAdjuster(
-            [compiler_path, resource_dir, need_resource_dir, extra_args, compdb_dir](
-                const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
+    std::vector<TestCaseInfo>                    cases;
+    const bool                                   allow_includes = !options.tu_output_dir.empty();
+    std::vector<gentest::codegen::MockClassInfo> mocks;
+
+    const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
+        if (options.compilation_database) {
+            const std::string compdb_dir = options.compilation_database->string();
+            return [compiler_path, resource_dir, need_resource_dir, extra_args, compdb_dir](
+                       const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
                     // Use compiler and flags from compilation database
@@ -378,63 +445,144 @@ int main(int argc, const char **argv) {
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                 }
                 return adjusted;
-            });
-    } else {
+            };
+        }
+
         // No compilation database - use minimal synthetic command
         // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
-        tool.appendArgumentsAdjuster(
-            [compiler_path, resource_dir, need_resource_dir, extra_args](const clang::tooling::CommandLineArguments &command_line,
-                                                                        llvm::StringRef) {
-                clang::tooling::CommandLineArguments adjusted;
-                adjusted.emplace_back(compiler_path);
+        return [compiler_path, resource_dir, need_resource_dir, extra_args](const clang::tooling::CommandLineArguments &command_line,
+                                                                           llvm::StringRef) {
+            clang::tooling::CommandLineArguments adjusted;
+            adjusted.emplace_back(compiler_path);
 #if defined(__linux__)
-                adjusted.emplace_back("--gcc-toolchain=/usr");
+            adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
-                if (need_resource_dir && !resource_dir.empty()) {
-                    adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
-                }
-                adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                if (!command_line.empty()) {
-                    bool skip_next_arg = false;
-                    for (std::size_t i = 1; i < command_line.size(); ++i) {
-                        const auto &arg = command_line[i];
-                        if (skip_next_arg) {
-                            skip_next_arg = false;
-                            continue;
-                        }
-                        if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
-                            arg == "-fconcepts-diagnostics-depth") {
-                            skip_next_arg = true;
-                            continue;
-                        }
-                        if (should_strip_compdb_arg(arg)) {
-                            continue;
-                        }
-                        adjusted.push_back(arg);
+            if (need_resource_dir && !resource_dir.empty()) {
+                adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+            }
+            adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+            if (!command_line.empty()) {
+                bool skip_next_arg = false;
+                for (std::size_t i = 1; i < command_line.size(); ++i) {
+                    const auto &arg = command_line[i];
+                    if (skip_next_arg) {
+                        skip_next_arg = false;
+                        continue;
                     }
+                    if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
+                        arg == "-fconcepts-diagnostics-depth") {
+                        skip_next_arg = true;
+                        continue;
+                    }
+                    if (should_strip_compdb_arg(arg)) {
+                        continue;
+                    }
+                    adjusted.push_back(arg);
                 }
-                return adjusted;
-            });
+            }
+            return adjusted;
+        };
+    }();
+
+    const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
+
+    struct ParseResult {
+        int                                 status = 0;
+        bool                                had_test_errors = false;
+        bool                                had_mock_errors = false;
+        std::vector<TestCaseInfo>           cases;
+        std::vector<gentest::codegen::MockClassInfo> mocks;
+    };
+
+    if (allow_includes && options.sources.size() > 1) {
+        const std::size_t jobs = gentest::codegen::default_concurrency(options.sources.size());
+        std::vector<ParseResult> results(options.sources.size());
+
+        gentest::codegen::parallel_for(options.sources.size(), jobs, [&](std::size_t idx) {
+#if CLANG_VERSION_MAJOR < 21
+            llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> tu_diag_options;
+#else
+            clang::DiagnosticOptions tu_diag_options;
+#endif
+            std::unique_ptr<clang::DiagnosticConsumer> tu_diag_consumer;
+            if (options.quiet_clang) {
+                tu_diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
+            } else {
+#if CLANG_VERSION_MAJOR >= 21
+                tu_diag_consumer =
+                    std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), tu_diag_options, /*OwnsOutputStream=*/false);
+#else
+                tu_diag_options = new clang::DiagnosticOptions();
+                tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), tu_diag_options.get(),
+                                                                                  /*OwnsOutputStream=*/false);
+#endif
+            }
+
+            clang::tooling::ClangTool tool{*database, std::vector<std::string>{options.sources[idx]}};
+            tool.setDiagnosticConsumer(tu_diag_consumer.get());
+            tool.appendArgumentsAdjuster(args_adjuster);
+            tool.appendArgumentsAdjuster(syntax_only_adjuster);
+
+            std::vector<TestCaseInfo> local_cases;
+            TestCaseCollector         collector{local_cases, options.strict_fixture, allow_includes};
+            std::vector<gentest::codegen::MockClassInfo> local_mocks;
+            MockUsageCollector                            mock_collector{local_mocks};
+
+            MatchFinder finder;
+            finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
+            register_mock_matchers(finder, mock_collector);
+
+            ParseResult result;
+            result.status = tool.run(newFrontendActionFactory(&finder).get());
+            result.had_test_errors = collector.has_errors();
+            result.had_mock_errors = mock_collector.has_errors();
+            result.cases = std::move(local_cases);
+            result.mocks = std::move(local_mocks);
+            results[idx] = std::move(result);
+        });
+
+        int  status = 0;
+        bool had_errors = false;
+        for (auto &r : results) {
+            if (status == 0 && r.status != 0) {
+                status = r.status;
+            }
+            had_errors = had_errors || r.had_test_errors || r.had_mock_errors;
+            cases.insert(cases.end(), std::make_move_iterator(r.cases.begin()), std::make_move_iterator(r.cases.end()));
+            mocks.insert(mocks.end(), std::make_move_iterator(r.mocks.begin()), std::make_move_iterator(r.mocks.end()));
+        }
+        if (status != 0) {
+            return status;
+        }
+        if (had_errors) {
+            return 1;
+        }
+    } else {
+        clang::tooling::ClangTool tool{*database, options.sources};
+        tool.setDiagnosticConsumer(diag_consumer.get());
+        tool.appendArgumentsAdjuster(args_adjuster);
+        tool.appendArgumentsAdjuster(syntax_only_adjuster);
+
+        TestCaseCollector  collector{cases, options.strict_fixture, allow_includes};
+        MockUsageCollector mock_collector{mocks};
+
+        MatchFinder finder;
+        finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
+        register_mock_matchers(finder, mock_collector);
+
+        const int status = tool.run(newFrontendActionFactory(&finder).get());
+        if (status != 0) {
+            return status;
+        }
+        if (collector.has_errors() || mock_collector.has_errors()) {
+            return 1;
+        }
     }
 
-    tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
-
-    std::vector<TestCaseInfo>                    cases;
-    const bool                                   allow_includes = !options.tu_output_dir.empty();
-    TestCaseCollector                            collector{cases, options.strict_fixture, allow_includes};
-    std::vector<gentest::codegen::MockClassInfo> mocks;
-    MockUsageCollector                           mock_collector{mocks};
-
-    MatchFinder finder;
-    finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
-    register_mock_matchers(finder, mock_collector);
-
-    const int status = tool.run(newFrontendActionFactory(&finder).get());
-    if (status != 0) {
-        return status;
-    }
-    if (collector.has_errors() || mock_collector.has_errors()) {
-        return 1;
+    if (allow_includes) {
+        if (!enforce_unique_base_names(cases)) {
+            return 1;
+        }
     }
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);

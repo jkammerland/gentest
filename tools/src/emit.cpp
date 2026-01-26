@@ -2,6 +2,7 @@
 
 #include "emit.hpp"
 
+#include "parallel_for.hpp"
 #include "render.hpp"
 #include "render_mocks.hpp"
 #include "templates.hpp"
@@ -354,7 +355,26 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             cases_by_tu[normalize_path_key(fs::path(c.tu_filename))].push_back(c);
         }
 
-        for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+        const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
+        const auto tpl_wrapper_free_fix  = std::string(tpl::wrapper_free_fixtures);
+        const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
+        const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
+        const auto tpl_case_entry        = std::string(tpl::case_entry);
+        const auto tpl_array_empty       = std::string(tpl::array_decl_empty);
+        const auto tpl_array_nonempty    = std::string(tpl::array_decl_nonempty);
+        const auto tpl_fwd_line          = std::string(tpl::forward_decl_line);
+        const auto tpl_fwd_ns            = std::string(tpl::forward_decl_ns);
+
+        const render::WrapperTemplates wrapper_templates{
+            .free = tpl_wrapper_free,
+            .free_fixtures = tpl_wrapper_free_fix,
+            .ephemeral = tpl_wrapper_ephemeral,
+            .stateful = tpl_wrapper_stateful,
+        };
+
+        const std::size_t jobs = default_concurrency(opts.sources.size());
+        std::vector<int>  statuses(opts.sources.size(), 0);
+        parallel_for(opts.sources.size(), jobs, [&](std::size_t idx) {
             const fs::path source_path = fs::path(opts.sources[idx]);
             const std::string key      = normalize_path_key(source_path);
             auto it                    = cases_by_tu.find(key);
@@ -368,7 +388,8 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             fs::path header_out = opts.tu_output_dir / source_path.filename();
             header_out.replace_extension(".h");
             if (!ensure_parent_dir(header_out)) {
-                return 1;
+                statuses[idx] = 1;
+                return;
             }
 
             const auto parsed_idx = parse_tu_index(source_path.filename().string());
@@ -378,17 +399,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             // Registration header (compiled via a CMake-generated shim TU).
             std::string header_content = std::string(tpl::tu_registration_header);
 
-            // Render test wrappers and cases for this TU
-            const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
-            const auto tpl_wrapper_free_fix  = std::string(tpl::wrapper_free_fixtures);
-            const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
-            const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
-            const auto tpl_case_entry        = std::string(tpl::case_entry);
-            const auto tpl_array_empty       = std::string(tpl::array_decl_empty);
-            const auto tpl_array_nonempty    = std::string(tpl::array_decl_nonempty);
-            const auto tpl_fwd_line          = std::string(tpl::forward_decl_line);
-            const auto tpl_fwd_ns            = std::string(tpl::forward_decl_ns);
-
+            // Render test wrappers and cases for this TU.
             std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
 
             auto                     traits = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
@@ -396,12 +407,6 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             std::vector<std::string> tag_array_names = std::move(traits.tag_names);
             std::vector<std::string> requirement_array_names = std::move(traits.req_names);
 
-            const render::WrapperTemplates wrapper_templates{
-                .free = tpl_wrapper_free,
-                .free_fixtures = tpl_wrapper_free_fix,
-                .ephemeral = tpl_wrapper_ephemeral,
-                .stateful = tpl_wrapper_stateful,
-            };
             std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
 
             std::string case_entries;
@@ -419,8 +424,12 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             replace_all(header_content, "{{REGISTER_FN}}", register_fn);
 
             if (!write_file_atomic_if_changed(header_out, header_content)) {
-                return 1;
+                statuses[idx] = 1;
             }
+        });
+
+        if (std::ranges::any_of(statuses, [](int st) { return st != 0; })) {
+            return 1;
         }
     }
 
