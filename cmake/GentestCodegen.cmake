@@ -10,6 +10,11 @@ if(NOT DEFINED GENTEST_CODEGEN_TARGET)
         "CMake target name that produces a runnable gentest_codegen executable (alternative to GENTEST_CODEGEN_EXECUTABLE).")
 endif()
 
+if(NOT DEFINED GENTEST_CODEGEN_BUILD_TARGET)
+    set(GENTEST_CODEGEN_BUILD_TARGET "" CACHE STRING
+        "Optional CMake target that must be built before running gentest_codegen (useful when GENTEST_CODEGEN_EXECUTABLE is produced out-of-tree).")
+endif()
+
 if(NOT DEFINED GENTEST_CODEGEN_DEFAULT_CLANG_ARGS)
     set(GENTEST_CODEGEN_DEFAULT_CLANG_ARGS "-Wno-unknown-attributes;-Wno-attributes;-Wno-unknown-warning-option" CACHE STRING
         "Default extra clang arguments for gentest_codegen. Set empty to disable.")
@@ -393,6 +398,12 @@ function(gentest_attach_codegen target)
     set(_gentest_codegen_deps "")
     if(_gentest_codegen_target)
         list(APPEND _gentest_codegen_deps ${_gentest_codegen_target})
+    endif()
+    if(GENTEST_CODEGEN_BUILD_TARGET)
+        if(NOT TARGET ${GENTEST_CODEGEN_BUILD_TARGET})
+            message(FATAL_ERROR "gentest_attach_codegen: GENTEST_CODEGEN_BUILD_TARGET='${GENTEST_CODEGEN_BUILD_TARGET}' does not exist")
+        endif()
+        list(APPEND _gentest_codegen_deps ${GENTEST_CODEGEN_BUILD_TARGET})
     endif()
 
     cmake_policy(PUSH)
