@@ -317,6 +317,13 @@ add_executable(gentest_codegen
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_20)
 
+set(_gentest_codegen_pch_default OFF)
+option(GENTEST_CODEGEN_PCH "Enable precompiled headers for gentest_codegen" ${_gentest_codegen_pch_default})
+if(GENTEST_CODEGEN_PCH)
+    target_precompile_headers(gentest_codegen PRIVATE src/pch.hpp)
+endif()
+unset(_gentest_codegen_pch_default)
+
 if(WIN32)
     target_compile_definitions(gentest_codegen PRIVATE _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING)
 endif()
