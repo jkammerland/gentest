@@ -16,6 +16,16 @@ namespace gentest::codegen {
     return jobs;
 }
 
+[[nodiscard]] inline std::size_t resolve_concurrency(std::size_t task_count, std::size_t requested_jobs) {
+    if (task_count == 0) {
+        return 0;
+    }
+    if (requested_jobs == 0) {
+        return default_concurrency(task_count);
+    }
+    return std::max<std::size_t>(1, std::min(requested_jobs, task_count));
+}
+
 template <typename Func>
 void parallel_for(std::size_t task_count, std::size_t jobs, Func &&func) {
     if (task_count == 0) {
@@ -49,4 +59,3 @@ void parallel_for(std::size_t task_count, std::size_t jobs, Func &&func) {
 }
 
 } // namespace gentest::codegen
-

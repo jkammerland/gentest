@@ -14,6 +14,7 @@ Options:
   --build-dir   Path to an existing CMake build tree (any preset/config)
   --config      Multi-config setting (e.g., Debug, Release) when using MSVC/Xcode
   --jobs        Parallel jobs to pass to cmake --build (default: 1 for stability)
+  --codegen-jobs  Set GENTEST_CODEGEN_JOBS for gentest_codegen execution (0=auto)
   --no-clean    Do not pass --clean-first for each timed build
   --codegen-only  Only time codegen commands (skip building test targets)
   --targets     Explicit targets to time (comma-separated). If omitted, targets
@@ -83,6 +84,7 @@ def main():
     ap.add_argument("--preset", default=None, help="CMake preset name to build/time")
     ap.add_argument("--config", default=None)
     ap.add_argument("--jobs", type=int, default=1)
+    ap.add_argument("--codegen-jobs", type=int, default=None, help="Override gentest_codegen --jobs via GENTEST_CODEGEN_JOBS")
     ap.add_argument("--no-clean", action="store_true")
     ap.add_argument("--codegen-only", action="store_true")
     ap.add_argument("--targets", default=None, help="Comma-separated target names to build and time")
@@ -127,6 +129,7 @@ def main():
         "build_dir": str(build_dir),
         "config": args.config,
         "jobs": args.jobs,
+        "codegen_jobs": args.codegen_jobs,
         "clean_first": not args.no_clean,
         "codegen_only": args.codegen_only,
         "generator": {"target": "gentest_codegen", "elapsed_s": gen_time},
@@ -174,6 +177,9 @@ def main():
 
     gen_cmds = parse_generation_commands(Path(args.build_dir) if args.build_dir else None)
     gen_total = 0.0
+    gen_env = os.environ.copy()
+    if args.codegen_jobs is not None:
+        gen_env["GENTEST_CODEGEN_JOBS"] = str(args.codegen_jobs)
     for t in targets:
         info = gen_cmds.get(t)
         if not info:
@@ -181,7 +187,7 @@ def main():
         print(f"[bench] Generating sources for {t} ...")
         start = time.perf_counter()
         # Run the command in a shell to honor && and quoting
-        subprocess.run(info["command"], shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(info["command"], shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=gen_env)
         elapsed = time.perf_counter() - start
         print(f"[bench] gen[{t}]: {elapsed:.3f}s")
         results["generation"]["targets"].append({"target": t, "elapsed_s": elapsed})

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <charconv>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
@@ -32,6 +33,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -147,6 +149,24 @@ std::optional<std::string> get_env_value(std::string_view name) {
     }
     return std::string{env_value};
 #endif
+}
+
+std::optional<std::size_t> parse_jobs_string(std::string_view raw_value) {
+    llvm::StringRef value{raw_value.data(), raw_value.size()};
+    value = value.trim();
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    if (value.equals_insensitive("auto")) {
+        return 0;
+    }
+
+    std::size_t out = 0;
+    const auto  result = std::from_chars(value.begin(), value.end(), out);
+    if (result.ec != std::errc{} || result.ptr != value.end()) {
+        return std::nullopt;
+    }
+    return out;
 }
 
 std::string resolve_default_compiler_path() {
@@ -268,6 +288,11 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         llvm::cl::desc("Suppress clang diagnostics"),
         llvm::cl::init(false),
         llvm::cl::cat(category)};
+    static llvm::cl::opt<unsigned>     jobs_option{
+        "jobs",
+        llvm::cl::desc("Max concurrency for TU wrapper mode parsing/emission (0=auto)"),
+        llvm::cl::init(0),
+        llvm::cl::cat(category)};
     static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::OneOrMore,
                                                      llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  template_option{"template", llvm::cl::desc("Path to the template file used for code generation"),
@@ -328,6 +353,18 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         const bool skip_env   = (no_inc_env && *no_inc_env != "0");
         return !skip_env;
     }();
+    opts.jobs = static_cast<std::size_t>(jobs_option.getValue());
+    if (opts.jobs == 0) {
+        const auto jobs_env = get_env_value("GENTEST_CODEGEN_JOBS");
+        if (jobs_env) {
+            const auto parsed = parse_jobs_string(*jobs_env);
+            if (!parsed) {
+                llvm::errs() << fmt::format("gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_JOBS='{}'\n", *jobs_env);
+            } else {
+                opts.jobs = *parsed;
+            }
+        }
+    }
     if (!mock_registry_option.getValue().empty()) {
         opts.mock_registry_path = std::filesystem::path{mock_registry_option.getValue()};
     }
@@ -494,11 +531,11 @@ int main(int argc, const char **argv) {
         std::vector<gentest::codegen::MockClassInfo> mocks;
     };
 
-    if (allow_includes && options.sources.size() > 1) {
-        const std::size_t jobs = gentest::codegen::default_concurrency(options.sources.size());
+    const std::size_t parse_jobs = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
+    if (allow_includes && options.sources.size() > 1 && parse_jobs > 1) {
         std::vector<ParseResult> results(options.sources.size());
 
-        gentest::codegen::parallel_for(options.sources.size(), jobs, [&](std::size_t idx) {
+        gentest::codegen::parallel_for(options.sources.size(), parse_jobs, [&](std::size_t idx) {
 #if CLANG_VERSION_MAJOR < 21
             llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> tu_diag_options;
 #else

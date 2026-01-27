@@ -372,7 +372,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             .stateful = tpl_wrapper_stateful,
         };
 
-        const std::size_t jobs = default_concurrency(opts.sources.size());
+        const std::size_t jobs = resolve_concurrency(opts.sources.size(), opts.jobs);
         std::vector<int>  statuses(opts.sources.size(), 0);
         parallel_for(opts.sources.size(), jobs, [&](std::size_t idx) {
             const fs::path source_path = fs::path(opts.sources[idx]);
