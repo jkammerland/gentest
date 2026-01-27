@@ -220,6 +220,7 @@ def main():
     if args.config:
         print(f"Config:    {args.config}")
     print(f"Jobs:      {args.jobs}")
+    print(f"Codegen jobs: {args.codegen_jobs if args.codegen_jobs is not None else '(default)'}")
     print(f"Clean:     {not args.no_clean}")
     print(f"Generator compile:       {gen_time:.3f}s")
     print(f"Codegen (sum):           {gen_total:.3f}s")
