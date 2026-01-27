@@ -1,11 +1,15 @@
 #include "discovery.hpp"
 #include "emit.hpp"
+#include "log.hpp"
 #include "mock_discovery.hpp"
 #include "model.hpp"
+#include "parallel_for.hpp"
 #include "tooling_support.hpp"
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <charconv>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
@@ -18,6 +22,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fmt/core.h>
+#include <iterator>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
@@ -29,6 +34,10 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -47,6 +56,65 @@ using gentest::codegen::register_mock_matchers;
 static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
 
 namespace {
+
+bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
+    if (cases.empty()) {
+        return true;
+    }
+
+    std::vector<std::size_t> order(cases.size());
+    for (std::size_t i = 0; i < cases.size(); ++i) {
+        order[i] = i;
+    }
+    std::ranges::sort(order, [&](std::size_t lhs, std::size_t rhs) {
+        const auto &a = cases[lhs];
+        const auto &b = cases[rhs];
+        return std::tie(a.base_name, a.filename, a.line, a.display_name, a.qualified_name) <
+            std::tie(b.base_name, b.filename, b.line, b.display_name, b.qualified_name);
+    });
+
+    std::unordered_map<std::string, std::string> first_location;
+    std::unordered_set<std::string>              reported;
+    std::vector<bool>                            keep(cases.size(), true);
+    bool                                         ok = true;
+
+    for (const auto idx : order) {
+        const auto &c = cases[idx];
+        if (c.base_name.empty()) {
+            continue;
+        }
+        const std::string here = fmt::format("{}:{}", c.filename, c.line);
+        auto              it   = first_location.find(c.base_name);
+        if (it == first_location.end()) {
+            first_location.emplace(c.base_name, here);
+            continue;
+        }
+        if (it->second == here) {
+            continue; // template instantiations from the same declaration
+        }
+        ok = false;
+        keep[idx] = false;
+
+        const std::string report_key = fmt::format("{}\n{}", c.base_name, here);
+        if (reported.insert(report_key).second) {
+            gentest::codegen::log_err("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", c.base_name, here,
+                                      it->second);
+        }
+    }
+
+    if (!ok) {
+        std::vector<TestCaseInfo> filtered;
+        filtered.reserve(cases.size());
+        for (std::size_t i = 0; i < cases.size(); ++i) {
+            if (keep[i]) {
+                filtered.push_back(std::move(cases[i]));
+            }
+        }
+        cases = std::move(filtered);
+    }
+
+    return ok;
+}
 
 bool should_strip_compdb_arg(std::string_view arg) {
     // CMake's experimental C++ modules support (and some GCC-based toolchains)
@@ -82,6 +150,24 @@ std::optional<std::string> get_env_value(std::string_view name) {
     }
     return std::string{env_value};
 #endif
+}
+
+std::optional<std::size_t> parse_jobs_string(std::string_view raw_value) {
+    llvm::StringRef value{raw_value.data(), raw_value.size()};
+    value = value.trim();
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    if (value.equals_insensitive("auto")) {
+        return 0;
+    }
+
+    std::size_t out = 0;
+    const auto  result = std::from_chars(value.begin(), value.end(), out);
+    if (result.ec != std::errc{} || result.ptr != value.end()) {
+        return std::nullopt;
+    }
+    return out;
 }
 
 std::string resolve_default_compiler_path() {
@@ -133,8 +219,7 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
     llvm::SmallString<128> tmp_path;
     int                    tmp_fd = -1;
     if (const auto ec = llvm::sys::fs::createTemporaryFile("gentest_codegen_resource_dir", "txt", tmp_fd, tmp_path)) {
-        llvm::errs() << fmt::format("gentest_codegen: warning: failed to create temp file for resource-dir probe: {}\n",
-                                    ec.message());
+        gentest::codegen::log_err("gentest_codegen: warning: failed to create temp file for resource-dir probe: {}\n", ec.message());
         return {};
     }
     (void)llvm::sys::Process::SafelyCloseFileDescriptor(tmp_fd);
@@ -149,7 +234,7 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
     const int   rc = llvm::sys::ExecuteAndWait(*resolved_path, clang_args, std::nullopt, redirects, 0, 0, &err_msg);
     if (rc != 0) {
         if (!err_msg.empty()) {
-            llvm::errs() << fmt::format("gentest_codegen: warning: failed to query clang resource dir: {}\n", err_msg);
+            gentest::codegen::log_err("gentest_codegen: warning: failed to query clang resource dir: {}\n", err_msg);
         }
         (void)llvm::sys::fs::remove(tmp_path_str);
         return {};
@@ -160,8 +245,7 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
     (void)llvm::sys::fs::remove(tmp_path_str);
     if (!in) {
         io_ec = in.getError();
-        llvm::errs() << fmt::format("gentest_codegen: warning: failed to read clang resource dir output: {}\n",
-                                    io_ec.message());
+        gentest::codegen::log_err("gentest_codegen: warning: failed to read clang resource dir output: {}\n", io_ec.message());
         return {};
     }
 
@@ -202,6 +286,11 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         "quiet-clang",
         llvm::cl::desc("Suppress clang diagnostics"),
         llvm::cl::init(false),
+        llvm::cl::cat(category)};
+    static llvm::cl::opt<unsigned>     jobs_option{
+        "jobs",
+        llvm::cl::desc("Max concurrency for TU wrapper mode parsing/emission (0=auto)"),
+        llvm::cl::init(0),
         llvm::cl::cat(category)};
     static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::OneOrMore,
                                                      llvm::cl::cat(category)};
@@ -263,6 +352,18 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         const bool skip_env   = (no_inc_env && *no_inc_env != "0");
         return !skip_env;
     }();
+    opts.jobs = static_cast<std::size_t>(jobs_option.getValue());
+    if (jobs_option.getNumOccurrences() == 0) {
+        const auto jobs_env = get_env_value("GENTEST_CODEGEN_JOBS");
+        if (jobs_env) {
+            const auto parsed = parse_jobs_string(*jobs_env);
+            if (!parsed) {
+                gentest::codegen::log_err("gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_JOBS='{}'\n", *jobs_env);
+            } else {
+                opts.jobs = *parsed;
+            }
+        }
+    }
     if (!mock_registry_option.getValue().empty()) {
         opts.mock_registry_path = std::filesystem::path{mock_registry_option.getValue()};
     }
@@ -281,7 +382,7 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
     if (!opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
-        llvm::errs() << "gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n";
+        gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
     }
     return opts;
 }
@@ -297,8 +398,8 @@ int main(int argc, const char **argv) {
     if (options.compilation_database) {
         database = clang::tooling::CompilationDatabase::loadFromDirectory(options.compilation_database->string(), db_error);
         if (!database) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to load compilation database at '{}': {}\n",
-                                        options.compilation_database->string(), db_error);
+            gentest::codegen::log_err("gentest_codegen: failed to load compilation database at '{}': {}\n",
+                                      options.compilation_database->string(), db_error);
             return 1;
         }
     } else {
@@ -310,7 +411,6 @@ int main(int argc, const char **argv) {
 #else
     clang::DiagnosticOptions diag_options;
 #endif
-    clang::tooling::ClangTool tool{*database, options.sources};
     std::unique_ptr<clang::DiagnosticConsumer> diag_consumer;
     if (options.quiet_clang) {
         diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
@@ -324,17 +424,20 @@ int main(int argc, const char **argv) {
             std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false);
 #endif
     }
-    tool.setDiagnosticConsumer(diag_consumer.get());
 
     const auto extra_args = options.clang_args;
     const bool need_resource_dir = !has_resource_dir_arg(extra_args);
     const std::string resource_dir = need_resource_dir ? resolve_resource_dir(compiler_path) : std::string{};
 
-    if (options.compilation_database) {
-        const std::string compdb_dir = options.compilation_database->string();
-        tool.appendArgumentsAdjuster(
-            [compiler_path, resource_dir, need_resource_dir, extra_args, compdb_dir](
-                const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
+    std::vector<TestCaseInfo>                    cases;
+    const bool                                   allow_includes = !options.tu_output_dir.empty();
+    std::vector<gentest::codegen::MockClassInfo> mocks;
+
+    const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
+        if (options.compilation_database) {
+            const std::string compdb_dir = options.compilation_database->string();
+            return [compiler_path, resource_dir, need_resource_dir, extra_args, compdb_dir](
+                       const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
                     // Use compiler and flags from compilation database
@@ -364,7 +467,7 @@ int main(int argc, const char **argv) {
                 } else {
                     // No database entry found - create minimal synthetic command
                     // This shouldn't happen often, but is a fallback
-                    llvm::errs() << fmt::format(
+                    gentest::codegen::log_err(
                         "gentest_codegen: warning: no compilation database entry for '{}'; using synthetic clang invocation "
                         "(compdb: '{}')\n",
                         file.str(), compdb_dir);
@@ -378,63 +481,213 @@ int main(int argc, const char **argv) {
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                 }
                 return adjusted;
-            });
-    } else {
+            };
+        }
+
         // No compilation database - use minimal synthetic command
         // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
-        tool.appendArgumentsAdjuster(
-            [compiler_path, resource_dir, need_resource_dir, extra_args](const clang::tooling::CommandLineArguments &command_line,
-                                                                        llvm::StringRef) {
-                clang::tooling::CommandLineArguments adjusted;
-                adjusted.emplace_back(compiler_path);
+        return [compiler_path, resource_dir, need_resource_dir, extra_args](const clang::tooling::CommandLineArguments &command_line,
+                                                                           llvm::StringRef) {
+            clang::tooling::CommandLineArguments adjusted;
+            adjusted.emplace_back(compiler_path);
 #if defined(__linux__)
-                adjusted.emplace_back("--gcc-toolchain=/usr");
+            adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
-                if (need_resource_dir && !resource_dir.empty()) {
-                    adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
-                }
-                adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                if (!command_line.empty()) {
-                    bool skip_next_arg = false;
-                    for (std::size_t i = 1; i < command_line.size(); ++i) {
-                        const auto &arg = command_line[i];
-                        if (skip_next_arg) {
-                            skip_next_arg = false;
-                            continue;
-                        }
-                        if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
-                            arg == "-fconcepts-diagnostics-depth") {
-                            skip_next_arg = true;
-                            continue;
-                        }
-                        if (should_strip_compdb_arg(arg)) {
-                            continue;
-                        }
-                        adjusted.push_back(arg);
+            if (need_resource_dir && !resource_dir.empty()) {
+                adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+            }
+            adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+            if (!command_line.empty()) {
+                bool skip_next_arg = false;
+                for (std::size_t i = 1; i < command_line.size(); ++i) {
+                    const auto &arg = command_line[i];
+                    if (skip_next_arg) {
+                        skip_next_arg = false;
+                        continue;
                     }
+                    if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
+                        arg == "-fconcepts-diagnostics-depth") {
+                        skip_next_arg = true;
+                        continue;
+                    }
+                    if (should_strip_compdb_arg(arg)) {
+                        continue;
+                    }
+                    adjusted.push_back(arg);
                 }
-                return adjusted;
+            }
+            return adjusted;
+        };
+    }();
+
+    const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
+
+    struct ParseResult {
+        int                                 status = 0;
+        bool                                had_test_errors = false;
+        bool                                had_mock_errors = false;
+        std::vector<TestCaseInfo>           cases;
+        std::vector<gentest::codegen::MockClassInfo> mocks;
+    };
+
+    const std::size_t parse_jobs = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
+    const bool        multi_tu   = allow_includes && options.sources.size() > 1;
+    if (multi_tu) {
+        // clang::tooling::JSONCompilationDatabase lazily builds internal maps. Accessing
+        // it concurrently triggers TSAN reports (and is generally not guaranteed to be
+        // thread-safe). Snapshot per-file compile commands up front so each worker can
+        // run with an immutable database view.
+        std::vector<std::vector<clang::tooling::CompileCommand>> compile_commands(options.sources.size());
+        for (std::size_t i = 0; i < options.sources.size(); ++i) {
+            compile_commands[i] = database->getCompileCommands(options.sources[i]);
+        }
+
+        class SingleFileCompilationDatabase final : public clang::tooling::CompilationDatabase {
+        public:
+            SingleFileCompilationDatabase(llvm::StringRef file, const std::vector<clang::tooling::CompileCommand> &commands)
+                : file_(file), commands_(commands) {}
+
+            std::vector<clang::tooling::CompileCommand> getCompileCommands(llvm::StringRef file_path) const override {
+                if (file_path != file_) {
+                    return {};
+                }
+                return commands_;
+            }
+
+        private:
+            llvm::StringRef                                          file_;
+            const std::vector<clang::tooling::CompileCommand> &commands_;
+        };
+
+        std::vector<ParseResult> results(options.sources.size());
+        std::vector<std::string> diag_texts(options.sources.size());
+
+        const auto parse_one = [&](std::size_t idx) {
+#if CLANG_VERSION_MAJOR < 21
+            llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> tu_diag_options;
+#else
+            clang::DiagnosticOptions tu_diag_options;
+#endif
+            std::string             diag_buffer;
+            llvm::raw_string_ostream diag_stream(diag_buffer);
+            std::unique_ptr<clang::DiagnosticConsumer> tu_diag_consumer;
+            if (options.quiet_clang) {
+                tu_diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
+            } else {
+#if CLANG_VERSION_MAJOR >= 21
+                tu_diag_consumer =
+                    std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options, /*OwnsOutputStream=*/false);
+#else
+                tu_diag_options = new clang::DiagnosticOptions();
+                tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options.get(),
+                                                                                  /*OwnsOutputStream=*/false);
+#endif
+            }
+
+            const SingleFileCompilationDatabase file_database{options.sources[idx], compile_commands[idx]};
+
+            // Use a per-tool physical filesystem instance. llvm::vfs::getRealFileSystem()
+            // shares process working directory state and is documented as thread-hostile.
+            auto physical_fs_unique = llvm::vfs::createPhysicalFileSystem();
+            llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> base_fs;
+            if (physical_fs_unique) {
+                base_fs = llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(physical_fs_unique.release());
+            } else {
+                base_fs = llvm::vfs::getRealFileSystem();
+            }
+
+            clang::tooling::ClangTool tool{
+                file_database,
+                std::vector<std::string>{options.sources[idx]},
+                std::make_shared<clang::PCHContainerOperations>(),
+                base_fs,
+            };
+            tool.setDiagnosticConsumer(tu_diag_consumer.get());
+            tool.appendArgumentsAdjuster(args_adjuster);
+            tool.appendArgumentsAdjuster(syntax_only_adjuster);
+
+            std::vector<TestCaseInfo> local_cases;
+            TestCaseCollector         collector{local_cases, options.strict_fixture, allow_includes};
+            std::vector<gentest::codegen::MockClassInfo> local_mocks;
+            MockUsageCollector                            mock_collector{local_mocks};
+
+            MatchFinder finder;
+            finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
+            register_mock_matchers(finder, mock_collector);
+
+            ParseResult result;
+            result.status = tool.run(newFrontendActionFactory(&finder).get());
+            result.had_test_errors = collector.has_errors();
+            result.had_mock_errors = mock_collector.has_errors();
+            result.cases = std::move(local_cases);
+            result.mocks = std::move(local_mocks);
+            results[idx] = std::move(result);
+
+            diag_stream.flush();
+            diag_texts[idx] = std::move(diag_buffer);
+        };
+
+        // Some system LLVM/Clang builds are not TSAN-clean for first-use global
+        // initialization. Run one TU serially to warm up internal singletons
+        // before fanning out across worker threads.
+        if (parse_jobs > 1) {
+            parse_one(0);
+            gentest::codegen::parallel_for(options.sources.size() - 1, parse_jobs, [&](std::size_t local_idx) {
+                parse_one(local_idx + 1);
             });
+        } else {
+            for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+                parse_one(idx);
+            }
+        }
+
+        int  status = 0;
+        bool had_errors = false;
+        for (const auto &text : diag_texts) {
+            if (!text.empty()) {
+                gentest::codegen::log_err_raw(text);
+            }
+        }
+        for (auto &r : results) {
+            if (status == 0 && r.status != 0) {
+                status = r.status;
+            }
+            had_errors = had_errors || r.had_test_errors || r.had_mock_errors;
+            cases.insert(cases.end(), std::make_move_iterator(r.cases.begin()), std::make_move_iterator(r.cases.end()));
+            mocks.insert(mocks.end(), std::make_move_iterator(r.mocks.begin()), std::make_move_iterator(r.mocks.end()));
+        }
+        if (status != 0) {
+            return status;
+        }
+        if (had_errors) {
+            return 1;
+        }
+    } else {
+        clang::tooling::ClangTool tool{*database, options.sources};
+        tool.setDiagnosticConsumer(diag_consumer.get());
+        tool.appendArgumentsAdjuster(args_adjuster);
+        tool.appendArgumentsAdjuster(syntax_only_adjuster);
+
+        TestCaseCollector  collector{cases, options.strict_fixture, allow_includes};
+        MockUsageCollector mock_collector{mocks};
+
+        MatchFinder finder;
+        finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
+        register_mock_matchers(finder, mock_collector);
+
+        const int status = tool.run(newFrontendActionFactory(&finder).get());
+        if (status != 0) {
+            return status;
+        }
+        if (collector.has_errors() || mock_collector.has_errors()) {
+            return 1;
+        }
     }
 
-    tool.appendArgumentsAdjuster(clang::tooling::getClangSyntaxOnlyAdjuster());
-
-    std::vector<TestCaseInfo>                    cases;
-    const bool                                   allow_includes = !options.tu_output_dir.empty();
-    TestCaseCollector                            collector{cases, options.strict_fixture, allow_includes};
-    std::vector<gentest::codegen::MockClassInfo> mocks;
-    MockUsageCollector                           mock_collector{mocks};
-
-    MatchFinder finder;
-    finder.addMatcher(functionDecl(isDefinition()).bind("gentest.func"), &collector);
-    register_mock_matchers(finder, mock_collector);
-
-    const int status = tool.run(newFrontendActionFactory(&finder).get());
-    if (status != 0) {
-        return status;
-    }
-    if (collector.has_errors() || mock_collector.has_errors()) {
-        return 1;
+    if (allow_includes) {
+        if (!enforce_unique_base_names(cases)) {
+            return 1;
+        }
     }
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
@@ -443,7 +696,7 @@ int main(int argc, const char **argv) {
         return 0;
     }
     if (options.output_path.empty() && options.tu_output_dir.empty()) {
-        llvm::errs() << fmt::format("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
+        gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
         return 1;
     }
 

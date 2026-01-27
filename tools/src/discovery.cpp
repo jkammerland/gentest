@@ -4,6 +4,7 @@
 
 #include "axis_expander.hpp"
 #include "discovery_utils.hpp"
+#include "log.hpp"
 #include "parse.hpp"
 #include "render.hpp"
 #include "type_kind.hpp"
@@ -17,7 +18,6 @@
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
 #include <fmt/core.h>
-#include <llvm/Support/raw_ostream.h>
 #include <optional>
 #include <set>
 #include <string>
@@ -32,6 +32,24 @@ using gentest::codegen::TypeKind;
 namespace gentest::codegen {
 
 namespace {
+bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
+    if (text.size() < suffix.size()) {
+        return false;
+    }
+    llvm::StringRef tail = text.take_back(suffix.size());
+    for (std::size_t i = 0; i < suffix.size(); ++i) {
+        const auto to_lower = [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); };
+        if (to_lower(static_cast<unsigned char>(tail[i])) != to_lower(static_cast<unsigned char>(suffix[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool has_cpp_extension(llvm::StringRef path) {
+    return ends_with_ci(path, ".cc") || ends_with_ci(path, ".cpp") || ends_with_ci(path, ".cxx");
+}
+
 [[nodiscard]] std::string derive_namespace_path(const DeclContext *ctx) {
     std::vector<std::string> parts;
     const DeclContext       *current = ctx;
@@ -66,13 +84,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     }
 
     const auto *sm   = result.SourceManager;
-    const auto &lang = result.Context->getLangOpts();
-    std::string tu_filename;
-    {
-        const SourceLocation tu_loc = sm->getLocForStartOfFile(sm->getMainFileID());
-        const llvm::StringRef tu_file = sm->getFilename(tu_loc);
-        tu_filename = tu_file.str();
-    }
 
     // Allow templated functions; instantiation handled by codegen.
 
@@ -93,10 +104,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         // (*.cc/*.cpp/*.cxx). Avoid discovering tests in headers, since the
         // build system does not yet track header deps for codegen.
         const llvm::StringRef inc_file = sm->getFilename(loc);
-        std::string           lower    = inc_file.str();
-        std::ranges::transform(lower, lower.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-        const llvm::StringRef lower_ref{lower};
-        if (!(lower_ref.ends_with(".cc") || lower_ref.ends_with(".cpp") || lower_ref.ends_with(".cxx"))) {
+        if (!has_cpp_extension(inc_file)) {
             return;
         }
     }
@@ -115,7 +123,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         const std::string     subject = func->getQualifiedNameAsString();
         const std::string     locpfx  = !file.empty() ? fmt::format("{}:{}: ", file.str(), lnum) : std::string{};
         const std::string     subj    = !subject.empty() ? fmt::format(" ({})", subject) : std::string{};
-        llvm::errs() << fmt::format("gentest_codegen: {}{}{}\n", locpfx, message, subj);
+        log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
     for (const auto &message : collected.other_namespaces) {
         report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
@@ -142,7 +150,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             name = "(anonymous namespace)";
         const std::string locpfx = !file.empty() ? fmt::format("{}:{}: ", file.str(), line) : std::string{};
         const std::string subj   = !name.empty() ? fmt::format(" (namespace {})", name) : std::string{};
-        llvm::errs() << fmt::format("gentest_codegen: {}{}{}\n", locpfx, message, subj);
+        log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
 
     auto find_suite = [&](const DeclContext *ctx) -> std::optional<std::string> {
@@ -183,7 +191,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (qualified.empty())
         qualified = func->getNameAsString();
     if (qualified.find("(anonymous namespace)") != std::string::npos) {
-        llvm::errs() << fmt::format("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
+        log_err("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
         return;
     }
     auto file_loc = sm->getFileLoc(func->getLocation());
@@ -297,16 +305,23 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             unique_base_locations_.emplace(final_base, here);
         } else {
             had_error_ = true;
-            llvm::errs() << fmt::format("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", final_base, here,
-                                        it_base->second);
+            log_err("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", final_base, here, it_base->second);
             return; // do not emit duplicates
         }
+    }
+
+    std::string tu_filename;
+    {
+        const SourceLocation  tu_loc  = sm->getLocForStartOfFile(sm->getMainFileID());
+        const llvm::StringRef tu_file = sm->getFilename(tu_loc);
+        tu_filename = tu_file.str();
     }
 
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &call_args) {
         TestCaseInfo info{};
         info.qualified_name = make_qualified(tpl_ordered);
         info.display_name   = make_display(final_base, tpl_ordered, call_args);
+        info.base_name      = final_base;
         info.tu_filename    = tu_filename;
         info.filename       = filename.str();
         info.suite_name     = suite_path;
@@ -728,7 +743,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         const std::string     subject = func.getQualifiedNameAsString();
         const std::string     locpfx  = !file.empty() ? fmt::format("{}:{}: ", file.str(), line) : std::string{};
         const std::string     subj    = !subject.empty() ? fmt::format(" ({})", subject) : std::string{};
-        llvm::errs() << fmt::format("gentest_codegen: {}{}{}\n", locpfx, message, subj);
+        log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
 
     for (const auto &message : collected.other_namespaces) {
@@ -757,7 +772,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         qualified = func.getNameAsString();
     }
     if (qualified.find("(anonymous namespace)") != std::string::npos) {
-        llvm::errs() << fmt::format("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
+        log_err("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
         return std::nullopt;
     }
 
@@ -780,7 +795,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
             name = "(anonymous namespace)";
         const std::string locpfx = !file.empty() ? fmt::format("{}:{}: ", file.str(), lnum) : std::string{};
         const std::string subj   = !name.empty() ? fmt::format(" (namespace {})", name) : std::string{};
-        llvm::errs() << fmt::format("gentest_codegen: {}{}{}\n", locpfx, message, subj);
+        log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
 
     const auto suite_override = [&]() -> std::optional<std::string> {

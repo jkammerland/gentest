@@ -858,7 +858,7 @@ template <typename... M> struct AllOfFactory {
 template <typename... M> inline auto AllOf(M &&...m) { return AllOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)}; }
 } // namespace match
 
-#ifdef GENTEST_MOCK_REGISTRY_PATH
+#if defined(GENTEST_MOCK_REGISTRY_PATH) && !defined(GENTEST_CODEGEN)
 #define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x
 #define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)
 #define GENTEST_MOCK_REGISTRY_HEADER GENTEST_DETAIL_MOCK_STRINGIFY(GENTEST_MOCK_REGISTRY_PATH)
@@ -873,7 +873,7 @@ template <typename... M> inline auto AllOf(M &&...m) { return AllOfFactory<std::
 // Include generated mock inline implementations at global scope, so fully
 // qualified definitions like `inline auto gentest::mock<T>::method(...)` are
 // declared in the correct namespace context.
-#ifdef GENTEST_MOCK_IMPL_PATH
+#if defined(GENTEST_MOCK_IMPL_PATH) && !defined(GENTEST_CODEGEN)
 #ifndef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
 #define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x
 #define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)

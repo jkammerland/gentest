@@ -4,6 +4,7 @@
 // components to describe parsed attributes and tests.
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -52,6 +53,9 @@ struct CollectorOptions {
     std::vector<std::string>             clang_args;
     std::optional<std::filesystem::path> compilation_database;
     std::optional<std::filesystem::path> source_root;
+    // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
+    // 0 selects std::thread::hardware_concurrency().
+    std::size_t                          jobs = 0;
     bool                                 include_sources = true;
     bool                                 strict_fixture  = false;
     bool                                 quiet_clang     = false;
@@ -68,6 +72,8 @@ struct CollectorOptions {
 struct TestCaseInfo {
     std::string qualified_name;
     std::string display_name;
+    // Base name (suite/name) used for uniqueness checks across translation units.
+    std::string base_name;
     // Translation unit (main file) that produced this case (used for TU-mode grouping).
     std::string tu_filename;
     std::string filename;

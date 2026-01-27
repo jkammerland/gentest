@@ -1,5 +1,7 @@
 #include "mock_discovery.hpp"
 
+#include "log.hpp"
+
 #include <algorithm>
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Attr.h>
@@ -10,7 +12,6 @@
 #include <clang/Basic/SourceManager.h>
 #include <fmt/core.h>
 #include <llvm/ADT/SmallPtrSet.h>
-#include <llvm/Support/raw_ostream.h>
 #include <string>
 
 using namespace clang;
@@ -101,16 +102,16 @@ MockUsageCollector::MockUsageCollector(std::vector<MockClassInfo> &out) : out_(o
 
 void MockUsageCollector::report(const SourceManager &sm, SourceLocation loc, std::string_view message) const {
     if (loc.isInvalid()) {
-        llvm::errs() << fmt::format("gentest_codegen: {}\n", message);
+        log_err("gentest_codegen: {}\n", message);
         return;
     }
     const SourceLocation  spelling = sm.getSpellingLoc(loc);
     const llvm::StringRef file     = sm.getFilename(spelling);
     const unsigned        line     = sm.getSpellingLineNumber(spelling);
     if (!file.empty()) {
-        llvm::errs() << fmt::format("gentest_codegen: {}:{}: {}\n", file.str(), line, message);
+        log_err("gentest_codegen: {}:{}: {}\n", file.str(), line, message);
     } else {
-        llvm::errs() << fmt::format("gentest_codegen: {}\n", message);
+        log_err("gentest_codegen: {}\n", message);
     }
 }
 

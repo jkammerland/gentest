@@ -2,6 +2,8 @@
 
 #include "emit.hpp"
 
+#include "log.hpp"
+#include "parallel_for.hpp"
 #include "render.hpp"
 #include "render_mocks.hpp"
 #include "templates.hpp"
@@ -14,12 +16,12 @@
 #include <fmt/core.h>
 #include <fstream>
 #include <iterator>
-#include <llvm/Support/raw_ostream.h>
 #include <map>
 #include <random>
 #include <set>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace gentest::codegen {
@@ -32,7 +34,7 @@ bool ensure_dir(const fs::path &dir) {
     std::error_code ec;
     fs::create_directories(dir, ec);
     if (ec) {
-        llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", dir.string(), ec.message());
+        log_err("gentest_codegen: failed to create directory '{}': {}\n", dir.string(), ec.message());
         return false;
     }
     return true;
@@ -178,13 +180,13 @@ bool write_file_atomic_if_changed(const fs::path &path, std::string_view content
     {
         std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
         if (!out) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to open output file '{}'\n", tmp_path.string());
+            log_err("gentest_codegen: failed to open output file '{}'\n", tmp_path.string());
             return false;
         }
         out.write(content.data(), static_cast<std::streamsize>(content.size()));
         out.close();
         if (!out) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to write output file '{}'\n", tmp_path.string());
+            log_err("gentest_codegen: failed to write output file '{}'\n", tmp_path.string());
             return false;
         }
     }
@@ -197,7 +199,7 @@ bool write_file_atomic_if_changed(const fs::path &path, std::string_view content
         ec.clear();
         fs::rename(tmp_path, path, ec);
         if (ec) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to replace output file '{}': {}\n", path.string(), ec.message());
+            log_err("gentest_codegen: failed to replace output file '{}': {}\n", path.string(), ec.message());
             std::error_code cleanup_ec;
             fs::remove(tmp_path, cleanup_ec);
             return false;
@@ -214,7 +216,7 @@ bool ensure_parent_dir(const fs::path &path) {
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
     if (ec) {
-        llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", path.parent_path().string(), ec.message());
+        log_err("gentest_codegen: failed to create directory '{}': {}\n", path.parent_path().string(), ec.message());
         return false;
     }
     return true;
@@ -238,8 +240,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     if (!options.template_path.empty()) {
         template_content = render::read_template_file(options.template_path);
         if (template_content.empty()) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to load template file '{}', using built-in template.\n",
-                                        options.template_path.string());
+            log_err("gentest_codegen: failed to load template file '{}', using built-in template.\n", options.template_path.string());
         }
     }
     if (template_content.empty())
@@ -354,7 +355,41 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             cases_by_tu[normalize_path_key(fs::path(c.tu_filename))].push_back(c);
         }
 
-        for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+        const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
+        const auto tpl_wrapper_free_fix  = std::string(tpl::wrapper_free_fixtures);
+        const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
+        const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
+        const auto tpl_case_entry        = std::string(tpl::case_entry);
+        const auto tpl_array_empty       = std::string(tpl::array_decl_empty);
+        const auto tpl_array_nonempty    = std::string(tpl::array_decl_nonempty);
+        const auto tpl_fwd_line          = std::string(tpl::forward_decl_line);
+        const auto tpl_fwd_ns            = std::string(tpl::forward_decl_ns);
+
+        const render::WrapperTemplates wrapper_templates{
+            .free = tpl_wrapper_free,
+            .free_fixtures = tpl_wrapper_free_fix,
+            .ephemeral = tpl_wrapper_ephemeral,
+            .stateful = tpl_wrapper_stateful,
+        };
+
+        // Guard against multiple input sources mapping to the same output header
+        // name (would be nondeterministic under parallel emission).
+        std::unordered_map<std::string, std::string> header_owner;
+        header_owner.reserve(opts.sources.size());
+        for (const auto &src : opts.sources) {
+            fs::path header_out = opts.tu_output_dir / fs::path(src).filename();
+            header_out.replace_extension(".h");
+            const std::string key = header_out.generic_string();
+            auto              [it, inserted] = header_owner.emplace(key, src);
+            if (!inserted) {
+                log_err("gentest_codegen: multiple sources map to the same TU output header '{}': '{}' and '{}'\n", key, it->second, src);
+                return 1;
+            }
+        }
+
+        const std::size_t jobs = resolve_concurrency(opts.sources.size(), opts.jobs);
+        std::vector<int>  statuses(opts.sources.size(), 0);
+        parallel_for(opts.sources.size(), jobs, [&](std::size_t idx) {
             const fs::path source_path = fs::path(opts.sources[idx]);
             const std::string key      = normalize_path_key(source_path);
             auto it                    = cases_by_tu.find(key);
@@ -368,7 +403,8 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             fs::path header_out = opts.tu_output_dir / source_path.filename();
             header_out.replace_extension(".h");
             if (!ensure_parent_dir(header_out)) {
-                return 1;
+                statuses[idx] = 1;
+                return;
             }
 
             const auto parsed_idx = parse_tu_index(source_path.filename().string());
@@ -378,17 +414,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             // Registration header (compiled via a CMake-generated shim TU).
             std::string header_content = std::string(tpl::tu_registration_header);
 
-            // Render test wrappers and cases for this TU
-            const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
-            const auto tpl_wrapper_free_fix  = std::string(tpl::wrapper_free_fixtures);
-            const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
-            const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
-            const auto tpl_case_entry        = std::string(tpl::case_entry);
-            const auto tpl_array_empty       = std::string(tpl::array_decl_empty);
-            const auto tpl_array_nonempty    = std::string(tpl::array_decl_nonempty);
-            const auto tpl_fwd_line          = std::string(tpl::forward_decl_line);
-            const auto tpl_fwd_ns            = std::string(tpl::forward_decl_ns);
-
+            // Render test wrappers and cases for this TU.
             std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
 
             auto                     traits = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
@@ -396,12 +422,6 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             std::vector<std::string> tag_array_names = std::move(traits.tag_names);
             std::vector<std::string> requirement_array_names = std::move(traits.req_names);
 
-            const render::WrapperTemplates wrapper_templates{
-                .free = tpl_wrapper_free,
-                .free_fixtures = tpl_wrapper_free_fix,
-                .ephemeral = tpl_wrapper_ephemeral,
-                .stateful = tpl_wrapper_stateful,
-            };
             std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
 
             std::string case_entries;
@@ -419,15 +439,19 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             replace_all(header_content, "{{REGISTER_FN}}", register_fn);
 
             if (!write_file_atomic_if_changed(header_out, header_content)) {
-                return 1;
+                statuses[idx] = 1;
             }
+        });
+
+        if (std::ranges::any_of(statuses, [](int st) { return st != 0; })) {
+            return 1;
         }
     }
 
     const bool have_mock_paths = !opts.mock_registry_path.empty() && !opts.mock_impl_path.empty();
     if (!mocks.empty() || have_mock_paths) {
         if (!have_mock_paths) {
-            llvm::errs() << "gentest_codegen: mock outputs requested but --mock-registry/--mock-impl paths were not provided\n";
+            log_err_raw("gentest_codegen: mock outputs requested but --mock-registry/--mock-impl paths were not provided\n");
             return 1;
         }
         auto                rendered = render::render_mocks(opts, mocks);

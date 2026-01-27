@@ -35,6 +35,55 @@ gentest_add_suite(concurrency TARGET ${PROJECT_NAME}_concurrency_tests NO_CTEST)
 # Outcome semantics target (no default add_test; contains deliberate FAIL/XPASS cases)
 gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
 
+# Benchmark-only target: collect all suite translation units into one target so
+# gentest_codegen sees many wrapper sources in a single invocation (useful for
+# profiling/benchmarking internal codegen parallelism).
+#
+# Note: This target is *not* meant to be compiled/linked as a single binary,
+# because mock registry generation is per-target and requires all mocked types
+# to be visible before including `gentest/mock.h` in each TU. Suites may define
+# mocked types in different TUs, which breaks compilation when merged.
+#
+# Build `gentest_codegen_parallel_bench` (custom target below) to run only the
+# codegen step.
+add_library(gentest_codegen_parallel_bench_obj OBJECT EXCLUDE_FROM_ALL
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/integration/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/failing/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/skiponly/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/templates/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/mocking/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ctor/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/concurrency/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/outcomes/cases.cpp)
+if(GENTEST_WITH_LIBASSERT)
+    target_sources(gentest_codegen_parallel_bench_obj PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libassert/cases.cpp)
+endif()
+
+target_link_libraries(gentest_codegen_parallel_bench_obj PRIVATE gentest_main)
+
+gentest_resolve_test_std(_gentest_parallel_bench_std_feature _gentest_parallel_bench_codegen_std_arg)
+target_compile_features(gentest_codegen_parallel_bench_obj PRIVATE ${_gentest_parallel_bench_std_feature})
+target_include_directories(gentest_codegen_parallel_bench_obj PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_attach_codegen(gentest_codegen_parallel_bench_obj
+    OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/codegen_parallel_bench
+    CLANG_ARGS
+        ${_gentest_parallel_bench_codegen_std_arg}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+unset(_gentest_parallel_bench_codegen_std_arg)
+unset(_gentest_parallel_bench_std_feature)
+
+# User-facing benchmark target: run only the code generation step for the
+# multi-TU bench.
+add_custom_target(gentest_codegen_parallel_bench
+    DEPENDS gentest_codegen_gentest_codegen_parallel_bench_obj)
+
 # Focused checks: ensure pass-only selection passes, and failing selection returns non-zero
 gentest_add_check_counts(
     NAME concurrency_pass_single

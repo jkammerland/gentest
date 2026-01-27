@@ -14,14 +14,14 @@ namespace {
 
 bool is_identifier_char(char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == '-'; }
 
-std::string trim_copy(std::string_view text) {
+std::string_view trim_view(std::string_view text) {
     while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
         text.remove_prefix(1);
     }
     while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0) {
         text.remove_suffix(1);
     }
-    return std::string(text);
+    return text;
 }
 
 void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buffer, std::size_t start_offset) {
@@ -47,9 +47,8 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
             break;
         }
 
-        const std::string attribute_text = buffer.slice(open, close_marker + 2).str();
-
-        std::string_view view(attribute_text);
+        const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
+        std::string_view      view(attribute_text.data(), attribute_text.size());
         if (!view.starts_with("[[")) {
             cursor = open;
             continue;
@@ -70,7 +69,7 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
         while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
             ++ns_len;
         }
-        std::string namespace_name(view.substr(0, ns_len));
+        std::string_view namespace_name(view.substr(0, ns_len));
         view.remove_prefix(ns_len);
         while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
             view.remove_prefix(1);
@@ -86,10 +85,10 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
             cursor = open;
             continue;
         }
-        std::string args_text = trim_copy(view.substr(0, args_end));
+        std::string_view args_text = trim_view(view.substr(0, args_end));
 
         if (namespace_name != "gentest") {
-            collected.other_namespaces.push_back(attribute_text);
+            collected.other_namespaces.push_back(attribute_text.str());
             cursor = open;
             continue;
         }
@@ -230,9 +229,8 @@ auto collect_gentest_attributes_for(const NamespaceDecl &ns, const SourceManager
             if (close_marker == llvm::StringRef::npos) {
                 break;
             }
-            const std::string attribute_text = buffer.slice(open, close_marker + 2).str();
-
-            std::string_view view(attribute_text);
+            const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
+            std::string_view      view(attribute_text.data(), attribute_text.size());
             if (!view.starts_with("[[")) {
                 cursor = static_cast<unsigned>(open);
                 continue;
@@ -253,7 +251,7 @@ auto collect_gentest_attributes_for(const NamespaceDecl &ns, const SourceManager
             while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
                 ++ns_len;
             }
-            std::string namespace_name(view.substr(0, ns_len));
+            std::string_view namespace_name(view.substr(0, ns_len));
             view.remove_prefix(ns_len);
             while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
                 view.remove_prefix(1);
@@ -269,10 +267,10 @@ auto collect_gentest_attributes_for(const NamespaceDecl &ns, const SourceManager
                 cursor = static_cast<unsigned>(open);
                 continue;
             }
-            std::string args_text = trim_copy(view.substr(0, args_end));
+            std::string_view args_text = trim_view(view.substr(0, args_end));
 
             if (namespace_name != "gentest") {
-                collected.other_namespaces.push_back(attribute_text);
+                collected.other_namespaces.push_back(attribute_text.str());
                 cursor = static_cast<unsigned>(open);
                 continue;
             }

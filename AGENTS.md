@@ -74,3 +74,50 @@
   - LLVM 20 Windows packages may reference a non-existent `diaguids.lib` path; `tools/CMakeLists.txt` patches `LLVMDebugInfoPDB` to use an installed Visual Studio DIA SDK when found.
   - The `debug-system`/`release-system` presets enable `GENTEST_ENABLE_PACKAGE_TESTS` by default; disable with `-DGENTEST_ENABLE_PACKAGE_TESTS=OFF` if you want faster local runs.
   - Some Windows Debug CI environments hang on the two concurrency "death" tests; the CI sets `-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON` (only disables `concurrency_fail_single_death` and `concurrency_multi_noadopt_death` in `Debug` on `WIN32`).
+
+## `gentest_codegen` parallelism (TU wrapper mode)
+- Applies only when `gentest_codegen` is invoked once with **multiple** `tu_*.gentest.cpp` wrapper inputs (TU mode / `--tu-out-dir`).
+- A “codegen job” is a **worker thread inside a single `gentest_codegen` process** (not a CMake/Ninja job).
+- Controls:
+  - `gentest_codegen --jobs=<N>` (0 = auto / `std::thread::hardware_concurrency()`)
+  - `GENTEST_CODEGEN_JOBS=<N>` (default when `--jobs` is not passed; same semantics; used by `scripts/bench_compile.py --codegen-jobs`)
+  - Precedence: `--jobs` overrides `GENTEST_CODEGEN_JOBS` (including `--jobs=0`).
+- High-level flow (one `gentest_codegen` invocation):
+
+  ```
+  Ninja / CMake target build
+    |
+    +-- runs: gentest_codegen  (1 process)
+         inputs: [tu_0000.gentest.cpp, tu_0001.gentest.cpp, ...]
+         jobs:   K   (from --jobs or GENTEST_CODEGEN_JOBS; 0=auto)
+
+         PARSE PHASE  (parallel when K>1 and inputs>1)
+           warm-up: parse TU[0] serially (initializes LLVM/Clang singletons)
+           tasks = indices 1..N-1 for the remaining input TU list
+           shared atomic "next_index" over the remaining indices
+           K worker threads:
+              loop:
+                idx = next_index++   (maps to TU[1 + idx])
+                if idx >= N-1: exit
+                parse TU[1 + idx] with its own clang-tooling objects
+                store ParseResult[1 + idx]
+
+         MERGE PHASE  (single thread)
+           concatenate all ParseResult[*] cases/mocks
+           enforce cross-TU name uniqueness
+           sort cases
+
+         EMIT PHASE (per-TU headers, parallel when K>1 and inputs>1)
+           tasks = indices 0..N-1 for the same TU list
+           shared atomic "next_index"
+           K worker threads:
+              loop:
+                idx = next_index++
+                if idx >= N: exit
+                render + write tu_XXXX_*.gentest.h
+
+         MOCK OUTPUTS (single thread)
+           render + write <target>_mock_registry.hpp + <target>_mock_impl.hpp
+  ```
+
+- Design notes + verification tooling live in `docs/stories/005_codegen_parallelism_jobs.md`.
