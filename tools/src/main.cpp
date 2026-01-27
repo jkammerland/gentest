@@ -533,10 +533,36 @@ int main(int argc, const char **argv) {
     const std::size_t parse_jobs = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
     const bool        multi_tu   = allow_includes && options.sources.size() > 1;
     if (multi_tu) {
+        // clang::tooling::JSONCompilationDatabase lazily builds internal maps. Accessing
+        // it concurrently triggers TSAN reports (and is generally not guaranteed to be
+        // thread-safe). Snapshot per-file compile commands up front so each worker can
+        // run with an immutable database view.
+        std::vector<std::vector<clang::tooling::CompileCommand>> compile_commands(options.sources.size());
+        for (std::size_t i = 0; i < options.sources.size(); ++i) {
+            compile_commands[i] = database->getCompileCommands(options.sources[i]);
+        }
+
+        class SingleFileCompilationDatabase final : public clang::tooling::CompilationDatabase {
+        public:
+            SingleFileCompilationDatabase(llvm::StringRef file, const std::vector<clang::tooling::CompileCommand> &commands)
+                : file_(file), commands_(commands) {}
+
+            std::vector<clang::tooling::CompileCommand> getCompileCommands(llvm::StringRef file_path) const override {
+                if (file_path != file_) {
+                    return {};
+                }
+                return commands_;
+            }
+
+        private:
+            llvm::StringRef                                          file_;
+            const std::vector<clang::tooling::CompileCommand> &commands_;
+        };
+
         std::vector<ParseResult> results(options.sources.size());
         std::vector<std::string> diag_texts(options.sources.size());
 
-        gentest::codegen::parallel_for(options.sources.size(), parse_jobs, [&](std::size_t idx) {
+        const auto parse_one = [&](std::size_t idx) {
 #if CLANG_VERSION_MAJOR < 21
             llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> tu_diag_options;
 #else
@@ -558,7 +584,24 @@ int main(int argc, const char **argv) {
 #endif
             }
 
-            clang::tooling::ClangTool tool{*database, std::vector<std::string>{options.sources[idx]}};
+            const SingleFileCompilationDatabase file_database{options.sources[idx], compile_commands[idx]};
+
+            // Use a per-tool physical filesystem instance. llvm::vfs::getRealFileSystem()
+            // shares process working directory state and is documented as thread-hostile.
+            auto physical_fs_unique = llvm::vfs::createPhysicalFileSystem();
+            llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> base_fs;
+            if (physical_fs_unique) {
+                base_fs = llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(physical_fs_unique.release());
+            } else {
+                base_fs = llvm::vfs::getRealFileSystem();
+            }
+
+            clang::tooling::ClangTool tool{
+                file_database,
+                std::vector<std::string>{options.sources[idx]},
+                std::make_shared<clang::PCHContainerOperations>(),
+                base_fs,
+            };
             tool.setDiagnosticConsumer(tu_diag_consumer.get());
             tool.appendArgumentsAdjuster(args_adjuster);
             tool.appendArgumentsAdjuster(syntax_only_adjuster);
@@ -582,7 +625,21 @@ int main(int argc, const char **argv) {
 
             diag_stream.flush();
             diag_texts[idx] = std::move(diag_buffer);
-        });
+        };
+
+        // Some system LLVM/Clang builds are not TSAN-clean for first-use global
+        // initialization. Run one TU serially to warm up internal singletons
+        // before fanning out across worker threads.
+        if (parse_jobs > 1) {
+            parse_one(0);
+            gentest::codegen::parallel_for(options.sources.size() - 1, parse_jobs, [&](std::size_t local_idx) {
+                parse_one(local_idx + 1);
+            });
+        } else {
+            for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+                parse_one(idx);
+            }
+        }
 
         int  status = 0;
         bool had_errors = false;

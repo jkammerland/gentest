@@ -46,14 +46,15 @@ Ninja / CMake target build
        jobs:   K   (from --jobs or GENTEST_CODEGEN_JOBS; 0=auto)
 
        PARSE PHASE  (parallel when K>1 and inputs>1)
-         tasks = indices 0..N-1 for the input TU list
-         shared atomic "next_index"
+         warm-up: parse TU[0] serially (initializes LLVM/Clang singletons)
+         tasks = indices 1..N-1 for the remaining input TU list
+         shared atomic "next_index" over the remaining indices
          K worker threads:
             loop:
-              idx = next_index++
-              if idx >= N: exit
-              parse TU[idx] with its own clang-tooling objects
-              store ParseResult[idx]
+              idx = next_index++   (maps to TU[1 + idx])
+              if idx >= N-1: exit
+              parse TU[1 + idx] with its own clang-tooling objects
+              store ParseResult[1 + idx]
 
        MERGE PHASE  (single thread)
          concatenate all ParseResult[*] cases/mocks
@@ -80,6 +81,10 @@ So yes: wrapper TUs are effectively “pushed to a queue”, implemented as an a
 - **Thread isolation during parsing**
   - Each worker creates its own `clang::tooling::ClangTool`, `MatchFinder`, and collectors, and writes only to its per-index `ParseResult`.
   - Results are merged after all workers join.
+
+- **Warm-up parse to avoid TSAN first-use races**
+  - When `jobs > 1`, `gentest_codegen` parses one TU serially before spawning worker threads.
+  - Some system LLVM/Clang builds can report TSAN data races during first-use singleton initialization when many TUs start parsing concurrently.
 
 - **Deterministic output**
   - After merge, cases are sorted by `display_name` before emission.

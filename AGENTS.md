@@ -92,14 +92,15 @@
          jobs:   K   (from --jobs or GENTEST_CODEGEN_JOBS; 0=auto)
 
          PARSE PHASE  (parallel when K>1 and inputs>1)
-           tasks = indices 0..N-1 for the input TU list
-           shared atomic "next_index"
+           warm-up: parse TU[0] serially (initializes LLVM/Clang singletons)
+           tasks = indices 1..N-1 for the remaining input TU list
+           shared atomic "next_index" over the remaining indices
            K worker threads:
               loop:
-                idx = next_index++
-                if idx >= N: exit
-                parse TU[idx] with its own clang-tooling objects
-                store ParseResult[idx]
+                idx = next_index++   (maps to TU[1 + idx])
+                if idx >= N-1: exit
+                parse TU[1 + idx] with its own clang-tooling objects
+                store ParseResult[1 + idx]
 
          MERGE PHASE  (single thread)
            concatenate all ParseResult[*] cases/mocks
