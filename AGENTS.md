@@ -80,7 +80,8 @@
 - A “codegen job” is a **worker thread inside a single `gentest_codegen` process** (not a CMake/Ninja job).
 - Controls:
   - `gentest_codegen --jobs=<N>` (0 = auto / `std::thread::hardware_concurrency()`)
-  - `GENTEST_CODEGEN_JOBS=<N>` (same semantics; used by `scripts/bench_compile.py --codegen-jobs`)
+  - `GENTEST_CODEGEN_JOBS=<N>` (default when `--jobs` is not passed; same semantics; used by `scripts/bench_compile.py --codegen-jobs`)
+  - Precedence: `--jobs` overrides `GENTEST_CODEGEN_JOBS` (including `--jobs=0`).
 - High-level flow (one `gentest_codegen` invocation):
 
   ```

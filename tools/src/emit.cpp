@@ -2,6 +2,7 @@
 
 #include "emit.hpp"
 
+#include "log.hpp"
 #include "parallel_for.hpp"
 #include "render.hpp"
 #include "render_mocks.hpp"
@@ -15,12 +16,12 @@
 #include <fmt/core.h>
 #include <fstream>
 #include <iterator>
-#include <llvm/Support/raw_ostream.h>
 #include <map>
 #include <random>
 #include <set>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace gentest::codegen {
@@ -33,7 +34,7 @@ bool ensure_dir(const fs::path &dir) {
     std::error_code ec;
     fs::create_directories(dir, ec);
     if (ec) {
-        llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", dir.string(), ec.message());
+        log_err("gentest_codegen: failed to create directory '{}': {}\n", dir.string(), ec.message());
         return false;
     }
     return true;
@@ -179,13 +180,13 @@ bool write_file_atomic_if_changed(const fs::path &path, std::string_view content
     {
         std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
         if (!out) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to open output file '{}'\n", tmp_path.string());
+            log_err("gentest_codegen: failed to open output file '{}'\n", tmp_path.string());
             return false;
         }
         out.write(content.data(), static_cast<std::streamsize>(content.size()));
         out.close();
         if (!out) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to write output file '{}'\n", tmp_path.string());
+            log_err("gentest_codegen: failed to write output file '{}'\n", tmp_path.string());
             return false;
         }
     }
@@ -198,7 +199,7 @@ bool write_file_atomic_if_changed(const fs::path &path, std::string_view content
         ec.clear();
         fs::rename(tmp_path, path, ec);
         if (ec) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to replace output file '{}': {}\n", path.string(), ec.message());
+            log_err("gentest_codegen: failed to replace output file '{}': {}\n", path.string(), ec.message());
             std::error_code cleanup_ec;
             fs::remove(tmp_path, cleanup_ec);
             return false;
@@ -215,7 +216,7 @@ bool ensure_parent_dir(const fs::path &path) {
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
     if (ec) {
-        llvm::errs() << fmt::format("gentest_codegen: failed to create directory '{}': {}\n", path.parent_path().string(), ec.message());
+        log_err("gentest_codegen: failed to create directory '{}': {}\n", path.parent_path().string(), ec.message());
         return false;
     }
     return true;
@@ -239,8 +240,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     if (!options.template_path.empty()) {
         template_content = render::read_template_file(options.template_path);
         if (template_content.empty()) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to load template file '{}', using built-in template.\n",
-                                        options.template_path.string());
+            log_err("gentest_codegen: failed to load template file '{}', using built-in template.\n", options.template_path.string());
         }
     }
     if (template_content.empty())
@@ -372,6 +372,21 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             .stateful = tpl_wrapper_stateful,
         };
 
+        // Guard against multiple input sources mapping to the same output header
+        // name (would be nondeterministic under parallel emission).
+        std::unordered_map<std::string, std::string> header_owner;
+        header_owner.reserve(opts.sources.size());
+        for (const auto &src : opts.sources) {
+            fs::path header_out = opts.tu_output_dir / fs::path(src).filename();
+            header_out.replace_extension(".h");
+            const std::string key = header_out.generic_string();
+            auto              [it, inserted] = header_owner.emplace(key, src);
+            if (!inserted) {
+                log_err("gentest_codegen: multiple sources map to the same TU output header '{}': '{}' and '{}'\n", key, it->second, src);
+                return 1;
+            }
+        }
+
         const std::size_t jobs = resolve_concurrency(opts.sources.size(), opts.jobs);
         std::vector<int>  statuses(opts.sources.size(), 0);
         parallel_for(opts.sources.size(), jobs, [&](std::size_t idx) {
@@ -436,7 +451,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
     const bool have_mock_paths = !opts.mock_registry_path.empty() && !opts.mock_impl_path.empty();
     if (!mocks.empty() || have_mock_paths) {
         if (!have_mock_paths) {
-            llvm::errs() << "gentest_codegen: mock outputs requested but --mock-registry/--mock-impl paths were not provided\n";
+            log_err_raw("gentest_codegen: mock outputs requested but --mock-registry/--mock-impl paths were not provided\n");
             return 1;
         }
         auto                rendered = render::render_mocks(opts, mocks);

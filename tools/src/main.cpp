@@ -1,5 +1,6 @@
 #include "discovery.hpp"
 #include "emit.hpp"
+#include "log.hpp"
 #include "mock_discovery.hpp"
 #include "model.hpp"
 #include "parallel_for.hpp"
@@ -96,8 +97,8 @@ bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
 
         const std::string report_key = fmt::format("{}\n{}", c.base_name, here);
         if (reported.insert(report_key).second) {
-            llvm::errs() << fmt::format("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", c.base_name, here,
-                                        it->second);
+            gentest::codegen::log_err("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", c.base_name, here,
+                                      it->second);
         }
     }
 
@@ -218,8 +219,7 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
     llvm::SmallString<128> tmp_path;
     int                    tmp_fd = -1;
     if (const auto ec = llvm::sys::fs::createTemporaryFile("gentest_codegen_resource_dir", "txt", tmp_fd, tmp_path)) {
-        llvm::errs() << fmt::format("gentest_codegen: warning: failed to create temp file for resource-dir probe: {}\n",
-                                    ec.message());
+        gentest::codegen::log_err("gentest_codegen: warning: failed to create temp file for resource-dir probe: {}\n", ec.message());
         return {};
     }
     (void)llvm::sys::Process::SafelyCloseFileDescriptor(tmp_fd);
@@ -234,7 +234,7 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
     const int   rc = llvm::sys::ExecuteAndWait(*resolved_path, clang_args, std::nullopt, redirects, 0, 0, &err_msg);
     if (rc != 0) {
         if (!err_msg.empty()) {
-            llvm::errs() << fmt::format("gentest_codegen: warning: failed to query clang resource dir: {}\n", err_msg);
+            gentest::codegen::log_err("gentest_codegen: warning: failed to query clang resource dir: {}\n", err_msg);
         }
         (void)llvm::sys::fs::remove(tmp_path_str);
         return {};
@@ -245,8 +245,7 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
     (void)llvm::sys::fs::remove(tmp_path_str);
     if (!in) {
         io_ec = in.getError();
-        llvm::errs() << fmt::format("gentest_codegen: warning: failed to read clang resource dir output: {}\n",
-                                    io_ec.message());
+        gentest::codegen::log_err("gentest_codegen: warning: failed to read clang resource dir output: {}\n", io_ec.message());
         return {};
     }
 
@@ -354,12 +353,12 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         return !skip_env;
     }();
     opts.jobs = static_cast<std::size_t>(jobs_option.getValue());
-    if (opts.jobs == 0) {
+    if (jobs_option.getNumOccurrences() == 0) {
         const auto jobs_env = get_env_value("GENTEST_CODEGEN_JOBS");
         if (jobs_env) {
             const auto parsed = parse_jobs_string(*jobs_env);
             if (!parsed) {
-                llvm::errs() << fmt::format("gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_JOBS='{}'\n", *jobs_env);
+                gentest::codegen::log_err("gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_JOBS='{}'\n", *jobs_env);
             } else {
                 opts.jobs = *parsed;
             }
@@ -383,7 +382,7 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
     if (!opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
-        llvm::errs() << "gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n";
+        gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
     }
     return opts;
 }
@@ -399,8 +398,8 @@ int main(int argc, const char **argv) {
     if (options.compilation_database) {
         database = clang::tooling::CompilationDatabase::loadFromDirectory(options.compilation_database->string(), db_error);
         if (!database) {
-            llvm::errs() << fmt::format("gentest_codegen: failed to load compilation database at '{}': {}\n",
-                                        options.compilation_database->string(), db_error);
+            gentest::codegen::log_err("gentest_codegen: failed to load compilation database at '{}': {}\n",
+                                      options.compilation_database->string(), db_error);
             return 1;
         }
     } else {
@@ -468,7 +467,7 @@ int main(int argc, const char **argv) {
                 } else {
                     // No database entry found - create minimal synthetic command
                     // This shouldn't happen often, but is a fallback
-                    llvm::errs() << fmt::format(
+                    gentest::codegen::log_err(
                         "gentest_codegen: warning: no compilation database entry for '{}'; using synthetic clang invocation "
                         "(compdb: '{}')\n",
                         file.str(), compdb_dir);
@@ -532,8 +531,10 @@ int main(int argc, const char **argv) {
     };
 
     const std::size_t parse_jobs = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
-    if (allow_includes && options.sources.size() > 1 && parse_jobs > 1) {
+    const bool        multi_tu   = allow_includes && options.sources.size() > 1;
+    if (multi_tu) {
         std::vector<ParseResult> results(options.sources.size());
+        std::vector<std::string> diag_texts(options.sources.size());
 
         gentest::codegen::parallel_for(options.sources.size(), parse_jobs, [&](std::size_t idx) {
 #if CLANG_VERSION_MAJOR < 21
@@ -541,16 +542,18 @@ int main(int argc, const char **argv) {
 #else
             clang::DiagnosticOptions tu_diag_options;
 #endif
+            std::string             diag_buffer;
+            llvm::raw_string_ostream diag_stream(diag_buffer);
             std::unique_ptr<clang::DiagnosticConsumer> tu_diag_consumer;
             if (options.quiet_clang) {
                 tu_diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
             } else {
 #if CLANG_VERSION_MAJOR >= 21
                 tu_diag_consumer =
-                    std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), tu_diag_options, /*OwnsOutputStream=*/false);
+                    std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options, /*OwnsOutputStream=*/false);
 #else
                 tu_diag_options = new clang::DiagnosticOptions();
-                tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), tu_diag_options.get(),
+                tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options.get(),
                                                                                   /*OwnsOutputStream=*/false);
 #endif
             }
@@ -576,10 +579,18 @@ int main(int argc, const char **argv) {
             result.cases = std::move(local_cases);
             result.mocks = std::move(local_mocks);
             results[idx] = std::move(result);
+
+            diag_stream.flush();
+            diag_texts[idx] = std::move(diag_buffer);
         });
 
         int  status = 0;
         bool had_errors = false;
+        for (const auto &text : diag_texts) {
+            if (!text.empty()) {
+                gentest::codegen::log_err_raw(text);
+            }
+        }
         for (auto &r : results) {
             if (status == 0 && r.status != 0) {
                 status = r.status;
@@ -628,7 +639,7 @@ int main(int argc, const char **argv) {
         return 0;
     }
     if (options.output_path.empty() && options.tu_output_dir.empty()) {
-        llvm::errs() << fmt::format("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
+        gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
         return 1;
     }
 

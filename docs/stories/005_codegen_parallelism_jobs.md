@@ -12,12 +12,19 @@ Important: this is independent of `cmake --build -j` / Ninja scheduling, which c
 
 ## Controls
 
-Parallelism is capped by:
+Parallelism is controlled by:
 
 - `gentest_codegen --jobs=<N>` (0 = auto)
 - `GENTEST_CODEGEN_JOBS=<N>` (same semantics; convenient for benchmarks/scripts)
 
-Auto mode (`0`) uses `std::thread::hardware_concurrency()` (clamped to the number of wrapper TUs).
+Precedence:
+
+- If `--jobs` is passed (including `--jobs=0`), it overrides `GENTEST_CODEGEN_JOBS`.
+- If `--jobs` is not passed, `GENTEST_CODEGEN_JOBS` (when set) supplies the default.
+
+Auto mode (`0`) uses `std::thread::hardware_concurrency()` (clamped to the number of wrapper TUs, with a fallback to 1 if the runtime reports 0).
+
+`GENTEST_CODEGEN_JOBS` also accepts `auto` (case-insensitive) as a synonym for `0`.
 
 ## When parallelism is used
 
