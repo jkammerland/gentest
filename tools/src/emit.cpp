@@ -350,6 +350,34 @@ auto render_fuzz(const CollectorOptions &options, const std::vector<FuzzTargetIn
 
         return out;
     };
+    auto join = [](const std::vector<std::string> &items, std::string_view sep) -> std::string {
+        std::string out;
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            if (i) {
+                out.append(sep);
+            }
+            out.append(items[i]);
+        }
+        return out;
+    };
+    auto render_seed_provider = [&](const FuzzTargetInfo &target) -> std::string {
+        std::vector<std::string> decayed_types;
+        decayed_types.reserve(target.parameter_types.size());
+        for (const auto &param_type : target.parameter_types) {
+            decayed_types.push_back(fmt::format("std::decay_t<{}>", param_type));
+        }
+        const std::string seed_tuple_type = fmt::format("std::tuple<{}>", join(decayed_types, ", "));
+        std::string       out;
+        out += "[] {\n";
+        out += fmt::format("             using SeedTuple = {};\n", seed_tuple_type);
+        out += "             return std::vector<SeedTuple>{\n";
+        for (const auto &seed : target.seed_tuples) {
+            out += fmt::format("                 SeedTuple{{{}}},\n", join(seed, ", "));
+        }
+        out += "             };\n";
+        out += "         }()";
+        return out;
+    };
 
     std::string output;
     if (options.fuzz_backend == FuzzBackend::FuzzTest) {
@@ -472,6 +500,11 @@ auto render_fuzz(const CollectorOptions &options, const std::vector<FuzzTargetIn
                 fmt::arg("suite", suite_name),
                 fmt::arg("test", registered_test_name),
                 fmt::arg("wrapper", wrapper_name));
+            if (target.has_custom_domains) {
+                registration_expr += fmt::format(".WithDomains({})", join(target.domain_expressions, ", "));
+            }
+            if (!target.seed_tuples.empty()) {
+                registration_expr += fmt::format(".WithSeeds({})", render_seed_provider(target));
             }
             registrations += fmt::format(
                 "[[maybe_unused]] const bool fuzztest_reg_{wrapper} =\n"

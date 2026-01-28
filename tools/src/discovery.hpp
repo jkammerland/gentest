@@ -41,7 +41,6 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
     mutable std::unordered_map<const clang::NamespaceDecl *, SuiteAttributeSummary> suite_cache_;
     // Enforce unique final base names (suite_path/base), before decorations
     mutable std::unordered_map<std::string, std::string> unique_base_locations_;
-    mutable std::unordered_map<std::string, std::string> unique_fuzz_locations_;
 };
 
 } // namespace gentest::codegen

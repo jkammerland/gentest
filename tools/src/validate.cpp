@@ -42,6 +42,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     bool                       saw_bench = false;
     bool                       saw_jitter = false;
     bool                       saw_fuzz = false;
+    bool                       saw_domains = false;
     std::set<std::string>      seen_flags;
     std::optional<std::string> seen_owner;
 
@@ -138,6 +139,35 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             summary.case_name = attr.arguments.front();
             summary.is_fuzz   = true;
+        } else if (lowered == "domains") {
+            saw_case = true;
+            if (saw_domains) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'domains'");
+                continue;
+            }
+            saw_domains = true;
+            if (attr.arguments.empty()) {
+                summary.had_error = true;
+                report("'domains' requires at least one domain entry");
+                continue;
+            }
+            summary.fuzz_domains = attr.arguments;
+        } else if (lowered == "seed") {
+            saw_case = true;
+            if (attr.arguments.empty()) {
+                summary.had_error = true;
+                report("'seed' requires at least one argument");
+                continue;
+            }
+            AttributeSummary::FuzzSeed seed;
+            seed.values = attr.arguments;
+            if (!attr.raw_arguments.empty()) {
+                seed.raw_values = attr.raw_arguments;
+            } else {
+                seed.raw_values = attr.arguments;
+            }
+            summary.fuzz_seeds.push_back(std::move(seed));
         } else if (lowered == "req" || lowered == "requires") {
             if (attr.arguments.empty()) {
                 summary.had_error = true;

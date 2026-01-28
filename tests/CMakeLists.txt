@@ -210,6 +210,15 @@ add_test(NAME gentest_codegen_check_fuzz_invalid
            -I${PROJECT_SOURCE_DIR}/include
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
+add_test(NAME gentest_codegen_check_fuzz_config
+    COMMAND ${_gentest_codegen_prog}
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/fuzz_config.cpp
+        -- ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
 set_tests_properties(gentest_codegen_check_fuzz_invalid PROPERTIES WILL_FAIL TRUE)
 
 # Generator positive test: emit a fuzz TU and check it contains the expected FuzzTest registration call.
@@ -253,6 +262,41 @@ add_test(NAME gentest_codegen_emit_fuzz_contains_add_failure
         -DFILE=${_gentest_codegen_fuzz_emit_file}
         -DEXPECT_SUBSTRING=${_gentest_codegen_fuzz_emit_expect_failure}
         -DARGS=${_gentest_codegen_fuzz_emit_args_escaped}
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+# Generator positive test: fuzz config emits WithDomains/WithSeeds calls.
+set(_gentest_codegen_fuzz_config_emit_file "${CMAKE_BINARY_DIR}/gentest_codegen_fuzz_config_emit.cpp")
+set(_gentest_codegen_fuzz_config_emit_args
+    --fuzz-output
+    ${_gentest_codegen_fuzz_config_emit_file}
+    --fuzz-backend
+    fuzztest
+    --compdb
+    ${CMAKE_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/smoke/fuzz_config.cpp
+    --
+    ${_gentest_codegen_std_flag}
+    -I${PROJECT_SOURCE_DIR}/include
+    -I${CMAKE_CURRENT_SOURCE_DIR})
+string(JOIN "\\;" _gentest_codegen_fuzz_config_emit_args_escaped ${_gentest_codegen_fuzz_config_emit_args})
+set(_gentest_codegen_fuzz_config_emit_expect_domains
+    [=[WithDomains(fuzztest::Positive<std::decay_t<int>>(), fuzztest::AsciiString(), fuzztest::InRange(0, 10))]=])
+set(_gentest_codegen_fuzz_config_emit_expect_seeds [=[SeedTuple{1, "alpha", 2}]=])
+
+add_test(NAME gentest_codegen_emit_fuzz_contains_domains
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=${_gentest_codegen_prog}
+        -DFILE=${_gentest_codegen_fuzz_config_emit_file}
+        -DEXPECT_SUBSTRING=${_gentest_codegen_fuzz_config_emit_expect_domains}
+        -DARGS=${_gentest_codegen_fuzz_config_emit_args_escaped}
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+add_test(NAME gentest_codegen_emit_fuzz_contains_seeds
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=${_gentest_codegen_prog}
+        -DFILE=${_gentest_codegen_fuzz_config_emit_file}
+        -DEXPECT_SUBSTRING=${_gentest_codegen_fuzz_config_emit_expect_seeds}
+        -DARGS=${_gentest_codegen_fuzz_config_emit_args_escaped}
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
 
 # Generator negative tests for mocks: robust diagnostics
@@ -357,9 +401,12 @@ set_tests_properties(
     gentest_public_headers_no_fuzztest
     gentest_codegen_check_fuzz_valid
     gentest_codegen_check_fuzz_invalid
+    gentest_codegen_check_fuzz_config
     gentest_codegen_emit_fuzz_contains_register_fuzz_test
     gentest_codegen_emit_fuzz_contains_ctx_adopt
     gentest_codegen_emit_fuzz_contains_add_failure
+    gentest_codegen_emit_fuzz_contains_domains
+    gentest_codegen_emit_fuzz_contains_seeds
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
     gentest_codegen_mock_anonymous_namespace_msg

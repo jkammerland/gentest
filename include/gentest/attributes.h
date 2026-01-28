@@ -46,6 +46,14 @@
 //   - v1 supported signatures:
 //     - typed: `void f(T1, T2, ...)` (no raw pointers; no non-const refs)
 //     - bytes: `void f(std::span<const std::uint8_t>)` or `void f(const std::uint8_t*, std::size_t)`
+//   - Optional fuzz configuration (gentest-owned attributes):
+//     [[using gentest : fuzz("suite/name"), domains(positive, ascii_string), seed(1, "hi"), seed(2, "bye")]]
+//     - `domains(...)` requires one entry per parameter:
+//       - `arbitrary` (default)
+//       - `ascii_string` -> backend domain `AsciiString()`
+//       - `in_range(min,max)` -> backend domain `InRange(min,max)`
+//       - `positive` -> backend domain `Positive<std::decay_t<T>>()`
+//     - `seed(...)` may repeat; each seed supplies a full argument tuple. Only numeric or string literals are supported.
 //
 // Parameter generators (global convenience):
 //   [[using gentest : range(i, 1, 2, 9)]]                 // 1,3,5,7,9 (integers)

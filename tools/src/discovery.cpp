@@ -23,6 +23,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 
 using namespace clang;
@@ -50,6 +51,193 @@ bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
 
 bool has_cpp_extension(llvm::StringRef path) {
     return ends_with_ci(path, ".cc") || ends_with_ci(path, ".cpp") || ends_with_ci(path, ".cxx");
+}
+
+std::string_view trim_view(std::string_view text) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
+        text.remove_prefix(1);
+    }
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0) {
+        text.remove_suffix(1);
+    }
+    return text;
+}
+
+std::string trim_copy(std::string_view text) { return std::string(trim_view(text)); }
+
+bool is_string_literal_token(std::string_view token) {
+    token = trim_view(token);
+    if (token.size() < 2) {
+        return false;
+    }
+    const auto first_quote = token.find('"');
+    if (first_quote == std::string_view::npos || token.back() != '"') {
+        return false;
+    }
+    if (first_quote == 0) {
+        return true;
+    }
+    const std::string_view prefix = token.substr(0, first_quote);
+    return prefix == "L" || prefix == "u" || prefix == "U" || prefix == "u8" || prefix == "R" || prefix == "uR" || prefix == "UR" ||
+           prefix == "LR" || prefix == "u8R";
+}
+
+bool is_numeric_literal_token(std::string_view token) {
+    token = trim_view(token);
+    if (token.empty()) {
+        return false;
+    }
+    if (token.front() == '\'' || token.front() == '"' || token.front() == 'R') {
+        return false;
+    }
+    if (token.front() == '+' || token.front() == '-') {
+        token.remove_prefix(1);
+        token = trim_view(token);
+        if (token.empty()) {
+            return false;
+        }
+    }
+    const char first = token.front();
+    if (!(std::isdigit(static_cast<unsigned char>(first)) != 0 || first == '.')) {
+        return false;
+    }
+    for (char ch : token) {
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (std::isdigit(uch) != 0) {
+            continue;
+        }
+        if ((uch >= 'a' && uch <= 'f') || (uch >= 'A' && uch <= 'F')) {
+            continue;
+        }
+        switch (ch) {
+        case '.':
+        case '+':
+        case '-':
+        case '\'':
+        case '_':
+        case 'x':
+        case 'X':
+        case 'b':
+        case 'B':
+        case 'p':
+        case 'P':
+        case 'e':
+        case 'E':
+        case 'u':
+        case 'U':
+        case 'l':
+        case 'L':
+        case 'f':
+        case 'F': continue;
+        default: return false;
+        }
+    }
+    return true;
+}
+
+bool is_string_like_type(std::string_view type_name) {
+    return classify_type(type_name) == TypeKind::String;
+}
+
+struct DomainSpec {
+    enum class Kind { Arbitrary, AsciiString, InRange, Positive };
+    Kind        kind = Kind::Arbitrary;
+    std::string min;
+    std::string max;
+};
+
+std::vector<std::string> split_domain_args(std::string_view text) {
+    std::vector<std::string> parts;
+    std::string              current;
+    int                      depth       = 0;
+    bool                     in_string   = false;
+    bool                     escape_next = false;
+
+    for (char ch : text) {
+        if (in_string) {
+            current.push_back(ch);
+            if (escape_next) {
+                escape_next = false;
+            } else if (ch == '\\') {
+                escape_next = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        switch (ch) {
+        case '"':
+            in_string = true;
+            current.push_back(ch);
+            break;
+        case '(':
+        case '[':
+        case '{':
+            ++depth;
+            current.push_back(ch);
+            break;
+        case ')':
+        case ']':
+        case '}':
+            if (depth > 0) {
+                --depth;
+            }
+            current.push_back(ch);
+            break;
+        case ',':
+            if (depth == 0) {
+                auto token = trim_copy(current);
+                if (!token.empty()) {
+                    parts.push_back(std::move(token));
+                }
+                current.clear();
+                break;
+            }
+            [[fallthrough]];
+        default: current.push_back(ch); break;
+        }
+    }
+
+    auto token = trim_copy(current);
+    if (!token.empty()) {
+        parts.push_back(std::move(token));
+    }
+    return parts;
+}
+
+template <typename Report>
+std::optional<DomainSpec> parse_domain_spec(std::string_view token, Report &&report) {
+    const std::string trimmed = trim_copy(token);
+    if (trimmed == "arbitrary") {
+        return DomainSpec{.kind = DomainSpec::Kind::Arbitrary};
+    }
+    if (trimmed == "ascii_string") {
+        return DomainSpec{.kind = DomainSpec::Kind::AsciiString};
+    }
+    if (trimmed == "positive") {
+        return DomainSpec{.kind = DomainSpec::Kind::Positive};
+    }
+    if (trimmed.rfind("in_range", 0) == 0) {
+        const auto lparen = trimmed.find('(');
+        const auto rparen = trimmed.rfind(')');
+        if (lparen == std::string::npos || rparen == std::string::npos || rparen <= lparen + 1 || rparen != trimmed.size() - 1) {
+            report("fuzz domain 'in_range' requires exactly two arguments");
+            return std::nullopt;
+        }
+        const auto inside = std::string_view(trimmed).substr(lparen + 1, rparen - lparen - 1);
+        auto       args   = split_domain_args(inside);
+        if (args.size() != 2) {
+            report("fuzz domain 'in_range' requires exactly two arguments");
+            return std::nullopt;
+        }
+        DomainSpec spec;
+        spec.kind = DomainSpec::Kind::InRange;
+        spec.min  = std::move(args[0]);
+        spec.max  = std::move(args[1]);
+        return spec;
+    }
+    report(fmt::format("unknown fuzz domain '{}'", trimmed));
+    return std::nullopt;
 }
 
 [[nodiscard]] std::string derive_namespace_path(const DeclContext *ctx) {
@@ -262,6 +450,11 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         return;
     if (!func->doesThisDeclarationHaveABody())
         return;
+    if (!summary.is_fuzz && (summary.fuzz_domains.has_value() || !summary.fuzz_seeds.empty())) {
+        had_error_ = true;
+        report("fuzz configuration attributes require 'fuzz(...)' on the same declaration");
+        return;
+    }
 
     auto report_namespace = [&](const NamespaceDecl &ns, std::string_view message) {
         SourceLocation loc = sm->getSpellingLoc(ns.getBeginLoc());
@@ -343,9 +536,105 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             return;
         }
 
+        const unsigned param_count = func->getNumParams();
         const auto signature_kind = classify_fuzz_signature(*func, *result.Context, report_error);
         if (!signature_kind.has_value()) {
             return;
+        }
+        if (*signature_kind != FuzzTargetSignatureKind::Typed &&
+            (summary.fuzz_domains.has_value() || !summary.fuzz_seeds.empty())) {
+            report_error("fuzz domains/seeds are only supported for typed fuzz targets");
+            return;
+        }
+
+        std::vector<std::string> param_types;
+        std::vector<bool>        param_is_numeric;
+        std::vector<bool>        param_is_string;
+        {
+            auto policy = PrintingPolicy(result.Context->getLangOpts());
+            policy.adjustForCPlusPlus();
+            policy.SuppressScope          = false;
+            policy.FullyQualifiedName     = true;
+            policy.SuppressUnwrittenScope = false;
+            for (unsigned i = 0; i < param_count; ++i) {
+                const QualType param_type = func->getParamDecl(i)->getType();
+                param_types.push_back(param_type.getAsString(policy));
+                param_is_numeric.push_back(!param_type.isNull() &&
+                                           (param_type->isArithmeticType() || param_type->isEnumeralType()));
+                param_is_string.push_back(is_string_like_type(param_types.back()));
+            }
+        }
+
+        std::vector<std::string>        domain_expressions;
+        bool                            has_custom_domains = false;
+        if (summary.fuzz_domains.has_value()) {
+            if (summary.fuzz_domains->size() != param_count) {
+                report_error(fmt::format("'domains' requires {} entries (one per parameter)", param_count));
+                return;
+            }
+            domain_expressions.reserve(param_count);
+            for (std::size_t i = 0; i < summary.fuzz_domains->size(); ++i) {
+                auto spec = parse_domain_spec((*summary.fuzz_domains)[i], report_error);
+                if (!spec.has_value()) {
+                    return;
+                }
+                switch (spec->kind) {
+                case DomainSpec::Kind::Arbitrary:
+                    domain_expressions.push_back(
+                        fmt::format("fuzztest::Arbitrary<std::decay_t<{}>>()", param_types[i]));
+                    break;
+                case DomainSpec::Kind::AsciiString:
+                    domain_expressions.push_back("fuzztest::AsciiString()");
+                    has_custom_domains = true;
+                    break;
+                case DomainSpec::Kind::InRange:
+                    domain_expressions.push_back(
+                        fmt::format("fuzztest::InRange({}, {})", spec->min, spec->max));
+                    has_custom_domains = true;
+                    break;
+                case DomainSpec::Kind::Positive:
+                    domain_expressions.push_back(
+                        fmt::format("fuzztest::Positive<std::decay_t<{}>>()", param_types[i]));
+                    has_custom_domains = true;
+                    break;
+                }
+            }
+        }
+
+        std::vector<std::vector<std::string>> seed_tuples;
+        if (!summary.fuzz_seeds.empty()) {
+            seed_tuples.reserve(summary.fuzz_seeds.size());
+            for (const auto &seed : summary.fuzz_seeds) {
+                if (seed.values.size() != param_count) {
+                    report_error(fmt::format("'seed' requires {} arguments to match fuzz target parameters", param_count));
+                    return;
+                }
+                std::vector<std::string> tuple_values;
+                tuple_values.reserve(param_count);
+                for (std::size_t i = 0; i < param_count; ++i) {
+                    const std::string raw = i < seed.raw_values.size() ? seed.raw_values[i] : seed.values[i];
+                    const std::string trimmed = trim_copy(raw);
+                    if (is_string_literal_token(raw)) {
+                        if (!param_is_string[i]) {
+                            report_error("fuzz seed string literals are only supported for string-like parameters");
+                            return;
+                        }
+                        tuple_values.push_back(trimmed);
+                        continue;
+                    }
+                    if (is_numeric_literal_token(raw)) {
+                        if (!param_is_numeric[i]) {
+                            report_error("fuzz seed numeric literals are only supported for arithmetic parameters");
+                            return;
+                        }
+                        tuple_values.push_back(trimmed);
+                        continue;
+                    }
+                    report_error("fuzz seed values must be numeric or string literals");
+                    return;
+                }
+                seed_tuples.push_back(std::move(tuple_values));
+            }
         }
 
         const auto  suite_override = find_suite(func->getDeclContext());
@@ -353,34 +642,16 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         std::string base_case_name = summary.case_name.value_or(func->getNameAsString());
         std::string final_base     = suite_path.empty() ? base_case_name : (suite_path + "/" + base_case_name);
 
-        {
-            const std::string here    = fmt::format("{}:{}", filename.str(), lnum);
-            auto              it_base = unique_fuzz_locations_.find(final_base);
-            if (it_base == unique_fuzz_locations_.end()) {
-                unique_fuzz_locations_.emplace(final_base, here);
-            } else {
-                had_error_ = true;
-                log_err("gentest_codegen: duplicate fuzz target name '{}' at {} (previously declared at {})\n", final_base, here, it_base->second);
-                return;
-            }
-        }
-
         FuzzTargetInfo info{};
         info.qualified_name = qualified;
         info.display_name   = final_base;
         info.filename       = filename.str();
         info.line           = lnum;
         info.signature_kind = *signature_kind;
-        {
-            auto policy = PrintingPolicy(result.Context->getLangOpts());
-            policy.adjustForCPlusPlus();
-            policy.SuppressScope          = false;
-            policy.FullyQualifiedName     = true;
-            policy.SuppressUnwrittenScope = false;
-            for (unsigned i = 0; i < func->getNumParams(); ++i) {
-                info.parameter_types.push_back(func->getParamDecl(i)->getType().getAsString(policy));
-            }
-        }
+        info.parameter_types   = std::move(param_types);
+        info.has_custom_domains = has_custom_domains;
+        info.domain_expressions = std::move(domain_expressions);
+        info.seed_tuples        = std::move(seed_tuples);
         fuzz_out_.push_back(std::move(info));
         return;
     }

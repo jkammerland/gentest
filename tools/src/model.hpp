@@ -29,6 +29,7 @@ enum class FuzzBackend {
 struct ParsedAttribute {
     std::string              name;
     std::vector<std::string> arguments;
+    std::vector<std::string> raw_arguments;
 };
 
 // Gathered attributes split by namespace context for a declaration.
@@ -129,6 +130,9 @@ struct FuzzTargetInfo {
     unsigned                line = 0;
     FuzzTargetSignatureKind signature_kind = FuzzTargetSignatureKind::Typed;
     std::vector<std::string> parameter_types;
+    bool                    has_custom_domains = false;
+    std::vector<std::string> domain_expressions;
+    std::vector<std::vector<std::string>> seed_tuples;
 };
 
 // Parameter metadata for mocked member functions.

@@ -118,64 +118,6 @@ bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
     return ok;
 }
 
-bool enforce_unique_fuzz_names(std::vector<FuzzTargetInfo> &targets) {
-    if (targets.empty()) {
-        return true;
-    }
-
-    std::vector<std::size_t> order(targets.size());
-    for (std::size_t i = 0; i < targets.size(); ++i) {
-        order[i] = i;
-    }
-    std::ranges::sort(order, [&](std::size_t lhs, std::size_t rhs) {
-        const auto &a = targets[lhs];
-        const auto &b = targets[rhs];
-        return std::tie(a.display_name, a.filename, a.line, a.qualified_name) < std::tie(b.display_name, b.filename, b.line, b.qualified_name);
-    });
-
-    std::unordered_map<std::string, std::string> first_location;
-    std::unordered_set<std::string>              reported;
-    std::vector<bool>                            keep(targets.size(), true);
-    bool                                         ok = true;
-
-    for (const auto idx : order) {
-        const auto &t = targets[idx];
-        if (t.display_name.empty()) {
-            continue;
-        }
-        const std::string here = fmt::format("{}:{}", t.filename, t.line);
-        auto              it   = first_location.find(t.display_name);
-        if (it == first_location.end()) {
-            first_location.emplace(t.display_name, here);
-            continue;
-        }
-        if (it->second == here) {
-            continue;
-        }
-        ok = false;
-        keep[idx] = false;
-
-        const std::string report_key = fmt::format("{}\n{}", t.display_name, here);
-        if (reported.insert(report_key).second) {
-            gentest::codegen::log_err("gentest_codegen: duplicate fuzz target name '{}' at {} (previously declared at {})\n", t.display_name, here,
-                                      it->second);
-        }
-    }
-
-    if (!ok) {
-        std::vector<FuzzTargetInfo> filtered;
-        filtered.reserve(targets.size());
-        for (std::size_t i = 0; i < targets.size(); ++i) {
-            if (keep[i]) {
-                filtered.push_back(std::move(targets[i]));
-            }
-        }
-        targets = std::move(filtered);
-    }
-
-    return ok;
-}
-
 bool should_strip_compdb_arg(std::string_view arg) {
     // CMake's experimental C++ modules support (and some GCC-based toolchains)
     // can inject GCC-only module/dependency scanning flags into compile commands.
@@ -765,13 +707,13 @@ int main(int argc, const char **argv) {
         if (!enforce_unique_base_names(cases)) {
             return 1;
         }
-        if (!enforce_unique_fuzz_names(fuzz_targets)) {
-            return 1;
-        }
     }
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
-    std::ranges::sort(fuzz_targets, {}, &FuzzTargetInfo::display_name);
+    std::ranges::sort(fuzz_targets, [](const auto &a, const auto &b) {
+        return std::tie(a.display_name, a.filename, a.line, a.qualified_name) <
+            std::tie(b.display_name, b.filename, b.line, b.qualified_name);
+    });
 
     if (options.check_only) {
         return 0;

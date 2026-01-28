@@ -55,7 +55,7 @@ std::string unquote(std::string_view value) {
     return trimmed;
 }
 
-std::vector<std::string> split_arguments(std::string_view arguments) {
+std::vector<std::string> split_arguments_raw(std::string_view arguments) {
     std::vector<std::string> parts;
     std::string              current;
     int                      depth       = 0;
@@ -98,7 +98,7 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
             if (depth == 0) {
                 auto token = trim_copy(current);
                 if (!token.empty()) {
-                    parts.push_back(unquote(token));
+                    parts.push_back(std::move(token));
                 }
                 current.clear();
                 break;
@@ -110,6 +110,16 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
 
     auto token = trim_copy(current);
     if (!token.empty()) {
+        parts.push_back(std::move(token));
+    }
+    return parts;
+}
+
+std::vector<std::string> split_arguments(std::string_view arguments) {
+    auto                    raw_parts = split_arguments_raw(arguments);
+    std::vector<std::string> parts;
+    parts.reserve(raw_parts.size());
+    for (const auto &token : raw_parts) {
         parts.push_back(unquote(token));
     }
     return parts;
@@ -151,6 +161,7 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
         skip_whitespace(index);
 
         std::vector<std::string> args;
+        std::vector<std::string> raw_args;
         if (index < list.size() && list[index] == '(') {
             ++index;
             const std::size_t args_start = index;
@@ -181,7 +192,11 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
                     --depth;
                     if (depth == 0) {
                         auto inside = list.substr(args_start, index - args_start);
-                        args        = split_arguments(inside);
+                        raw_args    = split_arguments_raw(inside);
+                        args.reserve(raw_args.size());
+                        for (const auto &token : raw_args) {
+                            args.push_back(unquote(token));
+                        }
                         ++index; // consume ')'
                         break;
                     }
@@ -189,7 +204,7 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
             }
         }
 
-        attributes.push_back(ParsedAttribute{.name = std::move(name), .arguments = std::move(args)});
+        attributes.push_back(ParsedAttribute{.name = std::move(name), .arguments = std::move(args), .raw_arguments = std::move(raw_args)});
 
         while (index < list.size() && list[index] != ',') {
             if (!std::isspace(static_cast<unsigned char>(list[index]))) {

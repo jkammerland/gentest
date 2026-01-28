@@ -4,8 +4,8 @@
 //   [[using gentest: ...]] into ParsedAttribute items.
 //
 // Returns: a vector of ParsedAttribute with attribute names and argument
-// strings (raw, unescaped) in order of appearance. Unknown syntax segments are
-// ignored; higher layers validate.
+// strings (raw + unescaped) in order of appearance. Unknown syntax segments
+// are ignored; higher layers validate.
 #pragma once
 
 #include "model.hpp"

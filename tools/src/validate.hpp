@@ -54,6 +54,13 @@ struct AttributeSummary {
     std::vector<ParamPack> param_packs;
     // Free-function fixtures declared via fixtures(A, B, ...)
     std::vector<std::string> fixtures_types;
+    // Fuzz configuration attributes.
+    struct FuzzSeed {
+        std::vector<std::string> values;
+        std::vector<std::string> raw_values;
+    };
+    std::optional<std::vector<std::string>> fuzz_domains;
+    std::vector<FuzzSeed> fuzz_seeds;
 };
 
 // Summary of class/struct-level attributes after validation.
