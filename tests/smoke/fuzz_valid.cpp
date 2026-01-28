@@ -5,10 +5,12 @@
 #include <span>
 #include <string>
 
+#include <gentest/runner.h>
+
 [[using gentest: fuzz("smoke/typed_string")]]
 void fuzz_typed_string(int value, const std::string &text) {
-    (void)value;
-    (void)text;
+    gentest::expect(value == value, "value is stable");
+    gentest::expect_eq(text.size(), text.size(), "text size is stable");
 }
 
 [[using gentest: fuzz("smoke/bytes_span")]]
@@ -20,3 +22,5 @@ void fuzz_bytes_ptr_size(const std::uint8_t *data, std::size_t size) {
     (void)size;
 }
 
+[[using gentest: fuzz("parser/csv/roundtrip")]]
+void fuzz_parser_csv_roundtrip(int value) { (void)value; }

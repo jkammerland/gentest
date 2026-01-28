@@ -13,7 +13,7 @@
 //     {{RUN_GROUPS}}, {{ENTRY_FUNCTION}}
 //   The emitter uses simple string replacement for these.
 // - Main file (fuzz backends):
-//     {{INCLUDE_SOURCES}}, {{FUZZ_WRAPPERS}}, {{FUZZ_REGISTRATIONS}}
+//     {{INCLUDE_SOURCES}}, {{FUZZ_WRAPPERS}}, {{FUZZ_REGISTRATIONS}} (RegisterFuzzTest calls)
 // - Partials (formatted with fmt::format):
 //   wrapper_free:     {w}, {fn}
 //   wrapper_free_fixtures: {w}, {fn}, {decls}, {setup}, {teardown}, {call}
@@ -156,10 +156,13 @@ inline constexpr std::string_view fuzztest_impl = R"CPP(// This file is auto-gen
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <tuple>
+#include <type_traits>
 #include <vector>
 
-#include <fuzztest/internal/registration.h>
-#include <fuzztest/internal/registry.h>
+#include <gentest/runner.h>
+#include <gtest/gtest.h>
+#include <fuzztest/fuzztest.h>
 
 // Include fuzz target sources so target functions are visible.
 {{INCLUDE_SOURCES}}

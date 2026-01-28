@@ -366,12 +366,39 @@ auto render_fuzz(const CollectorOptions &options, const std::vector<FuzzTargetIn
 
     std::string wrappers;
     std::string registrations;
+    std::unordered_map<std::string, std::size_t> wrapper_counts;
+    std::unordered_map<std::string, std::size_t> registered_counts;
     if (fuzz_targets.empty()) {
         registrations = "    // No fuzz targets discovered during code generation.\n";
     } else {
         for (std::size_t idx = 0; idx < fuzz_targets.size(); ++idx) {
             const auto &target       = fuzz_targets[idx];
-            const auto  wrapper_name = fmt::format("gentest_fuzz_invoke_{}", idx);
+
+            std::string_view full_name = target.display_name;
+            std::string_view suite_raw;
+            std::string_view test_raw;
+            const auto       split = full_name.rfind('/');
+            if (split == std::string_view::npos) {
+                suite_raw = "gentest";
+                test_raw  = full_name;
+            } else {
+                suite_raw = full_name.substr(0, split);
+                test_raw  = full_name.substr(split + 1);
+            }
+
+            const std::string suite_name = sanitize_gtest_name(suite_raw, "gentest", "gentest_");
+            const std::string test_base_name  = sanitize_gtest_name(test_raw, "fuzz", "t_");
+            const std::string registered_key = fmt::format("{}::{}", suite_name, test_base_name);
+            auto &            registered_count = registered_counts[registered_key];
+            const std::string registered_test_name =
+                (registered_count == 0) ? test_base_name : fmt::format("{}_{}", test_base_name, registered_count);
+            ++registered_count;
+
+            const std::string wrapper_base = fmt::format("gentest_fuzz_{}_{}", suite_name, test_base_name);
+            auto &            wrapper_count = wrapper_counts[wrapper_base];
+            const std::string wrapper_name =
+                (wrapper_count == 0) ? wrapper_base : fmt::format("{}_{}", wrapper_base, wrapper_count);
+            ++wrapper_count;
 
             std::string param_list;
             std::string arg_list;
@@ -387,48 +414,72 @@ auto render_fuzz(const CollectorOptions &options, const std::vector<FuzzTargetIn
                 arg_list += std::to_string(i);
             }
 
+            auto render_wrapper = [&](std::string_view wrapper, std::string_view params, std::string_view invoke) {
+                return fmt::format(
+                    R"FMT(static void {wrapper}({params}) {{
+    auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
+    ctxinfo->display_name = "{display}";
+    ctxinfo->active = true;
+    gentest::ctx::Adopt guard(ctxinfo);
+    try {{
+        {invoke}
+    }} catch (const gentest::detail::skip_exception&) {{
+    }} catch (const gentest::failure& err) {{
+        ctxinfo->failures.push_back(std::string("FAIL() :: ") + err.what());
+    }} catch (const gentest::assertion& err) {{
+        if (ctxinfo->failures.empty()) {{
+            ctxinfo->failures.push_back(std::string("assertion: ") + err.message());
+        }}
+    }} catch (const std::exception& err) {{
+        ctxinfo->failures.push_back(std::string("unexpected std::exception: ") + err.what());
+    }} catch (...) {{
+        ctxinfo->failures.push_back("unknown exception");
+    }}
+    ctxinfo->active = false;
+    for (const auto &failure : ctxinfo->failures) {{
+        ADD_FAILURE() << failure;
+    }}
+}}
+
+)FMT",
+                    fmt::arg("wrapper", wrapper),
+                    fmt::arg("params", params),
+                    fmt::arg("invoke", invoke),
+                    fmt::arg("display", render::escape_string(target.display_name)));
+            };
+
             if (target.signature_kind == FuzzTargetSignatureKind::BytesSpan) {
-                wrappers += fmt::format("static void {}(std::vector<std::uint8_t> data) {{\n"
-                                        "    const std::span<const std::uint8_t> span{{data.data(), data.size()}};\n"
-                                        "    {}(span);\n"
-                                        "}}\n\n",
-                                        wrapper_name, target.qualified_name);
+                wrappers += render_wrapper(
+                    wrapper_name,
+                    "std::vector<std::uint8_t> data",
+                    fmt::format("const std::span<const std::uint8_t> span{{data.data(), data.size()}};\n"
+                                "        {}(span);",
+                                target.qualified_name));
             } else if (target.signature_kind == FuzzTargetSignatureKind::BytesPtrSize) {
-                wrappers += fmt::format("static void {}(std::vector<std::uint8_t> data) {{\n"
-                                        "    {}(data.data(), data.size());\n"
-                                        "}}\n\n",
-                                        wrapper_name, target.qualified_name);
+                wrappers += render_wrapper(
+                    wrapper_name,
+                    "std::vector<std::uint8_t> data",
+                    fmt::format("{}(data.data(), data.size());", target.qualified_name));
             } else {
-                wrappers += fmt::format("static void {}({}) {{\n"
-                                        "    {}({});\n"
-                                        "}}\n\n",
-                                        wrapper_name, param_list, target.qualified_name, arg_list);
+                wrappers += render_wrapper(wrapper_name, param_list, fmt::format("{}({});", target.qualified_name, arg_list));
             }
 
-            std::string_view full_name = target.display_name;
-            std::string_view suite_raw;
-            std::string_view test_raw;
-            const auto       split = full_name.rfind('/');
-            if (split == std::string_view::npos) {
-                suite_raw = "gentest";
-                test_raw  = full_name;
-            } else {
-                suite_raw = full_name.substr(0, split);
-                test_raw  = full_name.substr(split + 1);
+            const std::size_t line_number = target.line > 0 ? target.line : 1;
+            std::string registration_expr = fmt::format(
+                "fuzztest::GetRegistration<decltype(+{wrapper})>(\"{suite}\", \"{test}\", \"{file}\", {line}, +{wrapper})",
+                fmt::arg("line", line_number),
+                fmt::arg("file", render::escape_string(target.filename)),
+                fmt::arg("suite", suite_name),
+                fmt::arg("test", registered_test_name),
+                fmt::arg("wrapper", wrapper_name));
             }
-
-            const std::string suite_name = sanitize_gtest_name(suite_raw, "gentest", "gentest_");
-            const std::string test_name  = sanitize_gtest_name(test_raw, "fuzz", "t_");
-
             registrations += fmt::format(
-                "[[maybe_unused]] static int gentest_fuzz_reg_{idx} = [] {{\n"
-                "    ::fuzztest::RegisterFuzzTest(\n"
-                "        ::fuzztest::GetRegistration<decltype(+{wrapper})>(\"{suite}\", \"{test}\", \"{file}\", {line}, +{wrapper}));\n"
-                "    return 0;\n"
-                "}}();\n\n",
-                fmt::arg("idx", idx), fmt::arg("wrapper", wrapper_name), fmt::arg("suite", render::escape_string(suite_name)),
-                fmt::arg("test", render::escape_string(test_name)), fmt::arg("file", render::escape_string(target.filename)),
-                fmt::arg("line", target.line));
+                "[[maybe_unused]] const bool fuzztest_reg_{wrapper} =\n"
+                "    (fuzztest::RegisterFuzzTest(\n"
+                "         {registration}),\n"
+                "     true);\n\n",
+                fmt::arg("registration", registration_expr),
+                fmt::arg("wrapper", wrapper_name));
         }
     }
 
@@ -567,12 +618,6 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
     }
 
     if (!opts.fuzz_output_path.empty()) {
-        if (opts.fuzz_backend == FuzzBackend::None && !fuzz_targets.empty()) {
-            log_err_raw(
-                "gentest_codegen: fuzz targets discovered but --fuzz-backend=none; enable a backend (e.g. --fuzz-backend=fuzztest)\n");
-            return 1;
-        }
-
         fs::path fuzz_path = opts.fuzz_output_path;
         if (!ensure_parent_dir(fuzz_path)) {
             return 1;

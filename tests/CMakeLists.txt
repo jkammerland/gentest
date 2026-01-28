@@ -212,7 +212,7 @@ add_test(NAME gentest_codegen_check_fuzz_invalid
 
 set_tests_properties(gentest_codegen_check_fuzz_invalid PROPERTIES WILL_FAIL TRUE)
 
-# Generator positive test: emit a fuzz TU and check it contains the expected registration call.
+# Generator positive test: emit a fuzz TU and check it contains the expected FuzzTest registration call.
 set(_gentest_codegen_fuzz_emit_file "${CMAKE_BINARY_DIR}/gentest_codegen_fuzz_emit.cpp")
 set(_gentest_codegen_fuzz_emit_args
     --fuzz-output
@@ -227,12 +227,31 @@ set(_gentest_codegen_fuzz_emit_args
     -I${PROJECT_SOURCE_DIR}/include
     -I${CMAKE_CURRENT_SOURCE_DIR})
 string(JOIN "\\;" _gentest_codegen_fuzz_emit_args_escaped ${_gentest_codegen_fuzz_emit_args})
+set(_gentest_codegen_fuzz_emit_expect [=[("parser_csv", "roundtrip",]=])
+set(_gentest_codegen_fuzz_emit_expect_ctx "gentest::ctx::Adopt")
+set(_gentest_codegen_fuzz_emit_expect_failure "ADD_FAILURE")
 
-add_test(NAME gentest_codegen_emit_fuzz_contains_register
+add_test(NAME gentest_codegen_emit_fuzz_contains_register_fuzz_test
     COMMAND ${CMAKE_COMMAND}
         -DPROG=${_gentest_codegen_prog}
         -DFILE=${_gentest_codegen_fuzz_emit_file}
-        -DEXPECT_SUBSTRING=RegisterFuzzTest
+        -DEXPECT_SUBSTRING=${_gentest_codegen_fuzz_emit_expect}
+        -DARGS=${_gentest_codegen_fuzz_emit_args_escaped}
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+add_test(NAME gentest_codegen_emit_fuzz_contains_ctx_adopt
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=${_gentest_codegen_prog}
+        -DFILE=${_gentest_codegen_fuzz_emit_file}
+        -DEXPECT_SUBSTRING=${_gentest_codegen_fuzz_emit_expect_ctx}
+        -DARGS=${_gentest_codegen_fuzz_emit_args_escaped}
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
+
+add_test(NAME gentest_codegen_emit_fuzz_contains_add_failure
+    COMMAND ${CMAKE_COMMAND}
+        -DPROG=${_gentest_codegen_prog}
+        -DFILE=${_gentest_codegen_fuzz_emit_file}
+        -DEXPECT_SUBSTRING=${_gentest_codegen_fuzz_emit_expect_failure}
         -DARGS=${_gentest_codegen_fuzz_emit_args_escaped}
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake)
 
@@ -338,7 +357,9 @@ set_tests_properties(
     gentest_public_headers_no_fuzztest
     gentest_codegen_check_fuzz_valid
     gentest_codegen_check_fuzz_invalid
-    gentest_codegen_emit_fuzz_contains_register
+    gentest_codegen_emit_fuzz_contains_register_fuzz_test
+    gentest_codegen_emit_fuzz_contains_ctx_adopt
+    gentest_codegen_emit_fuzz_contains_add_failure
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
     gentest_codegen_mock_anonymous_namespace_msg
