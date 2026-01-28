@@ -15,6 +15,17 @@ if(NOT DEFINED GENTEST_CODEGEN_DEFAULT_CLANG_ARGS)
         "Default extra clang arguments for gentest_codegen. Set empty to disable.")
 endif()
 
+if(NOT DEFINED GENTEST_ENABLE_FUZZTEST)
+    set(GENTEST_ENABLE_FUZZTEST "AUTO" CACHE STRING "Enable fuzztest integration for gentest fuzz codegen (AUTO, ON, OFF).")
+endif()
+set_property(CACHE GENTEST_ENABLE_FUZZTEST PROPERTY STRINGS AUTO ON OFF)
+if(NOT GENTEST_ENABLE_FUZZTEST STREQUAL "AUTO"
+        AND NOT GENTEST_ENABLE_FUZZTEST STREQUAL "ON"
+        AND NOT GENTEST_ENABLE_FUZZTEST STREQUAL "OFF")
+    message(FATAL_ERROR
+        "GENTEST_ENABLE_FUZZTEST must be AUTO, ON, or OFF (got '${GENTEST_ENABLE_FUZZTEST}').")
+endif()
+
 function(gentest_attach_codegen target)
     set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
     set(one_value_args OUTPUT OUTPUT_DIR ENTRY)
@@ -588,9 +599,28 @@ function(gentest_attach_fuzztest_codegen target)
             ${_gentest_codegen_executable})
     endif()
 
+    set(_gentest_use_fuzztest FALSE)
+    set(_gentest_fuzz_backend "none")
+    if(GENTEST_ENABLE_FUZZTEST STREQUAL "ON")
+        find_package(fuzztest CONFIG)
+        if(NOT fuzztest_FOUND)
+            message(FATAL_ERROR
+                "gentest_attach_fuzztest_codegen(${target}): fuzztest was not found. "
+                "Install fuzztest and set fuzztest_DIR (or provide it via your toolchain/prefix).")
+        endif()
+        set(_gentest_use_fuzztest TRUE)
+        set(_gentest_fuzz_backend "fuzztest")
+    elseif(GENTEST_ENABLE_FUZZTEST STREQUAL "AUTO")
+        find_package(fuzztest CONFIG QUIET)
+        if(fuzztest_FOUND)
+            set(_gentest_use_fuzztest TRUE)
+            set(_gentest_fuzz_backend "fuzztest")
+        endif()
+    endif()
+
     set(_command ${_command_launcher}
         --fuzz-output ${GENTEST_OUTPUT}
-        --fuzz-backend fuzztest
+        --fuzz-backend ${_gentest_fuzz_backend}
         --compdb ${CMAKE_BINARY_DIR})
 
     if(GENTEST_NO_INCLUDE_SOURCES)
@@ -647,23 +677,25 @@ function(gentest_attach_fuzztest_codegen target)
 
     target_sources(${target} PRIVATE ${GENTEST_OUTPUT})
 
-    find_package(fuzztest CONFIG QUIET)
-    if(NOT fuzztest_FOUND)
-        message(FATAL_ERROR
-            "gentest_attach_fuzztest_codegen(${target}): fuzztest was not found. "
-            "Install fuzztest and set fuzztest_DIR (or provide it via your toolchain/prefix).")
-    endif()
-
-    if(NOT TARGET fuzztest::fuzztest)
-        message(FATAL_ERROR "gentest_attach_fuzztest_codegen(${target}): fuzztest package found but target 'fuzztest::fuzztest' is missing")
-    endif()
-
-    if(TARGET fuzztest::fuzztest_gtest_main)
-        target_link_libraries(${target} PRIVATE fuzztest::fuzztest fuzztest::fuzztest_gtest_main)
-    else()
-        message(FATAL_ERROR
-            "gentest_attach_fuzztest_codegen(${target}): fuzztest target 'fuzztest::fuzztest_gtest_main' is missing. "
-            "Upgrade fuzztest or adjust the integration to match your fuzztest package exports.")
+    if(_gentest_use_fuzztest)
+        if(TARGET fuzztest::fuzztest_gtest_main)
+            target_link_libraries(${target} PRIVATE fuzztest::fuzztest_gtest_main)
+        elseif(TARGET fuzztest::fuzztest_main)
+            target_link_libraries(${target} PRIVATE fuzztest::fuzztest_main)
+        else()
+            find_package(GTest QUIET)
+            if(TARGET GTest::gtest_main)
+                if(NOT TARGET fuzztest::fuzztest)
+                    message(FATAL_ERROR
+                        "gentest_attach_fuzztest_codegen(${target}): fuzztest package found but target 'fuzztest::fuzztest' is missing")
+                endif()
+                target_link_libraries(${target} PRIVATE fuzztest::fuzztest GTest::gtest_main)
+            else()
+                message(FATAL_ERROR
+                    "gentest_attach_fuzztest_codegen(${target}): no suitable fuzztest main target found. "
+                    "Expected fuzztest::fuzztest_gtest_main, fuzztest::fuzztest_main, or GTest::gtest_main.")
+            endif()
+        endif()
     endif()
 
     if(_gentest_codegen_target)

@@ -733,6 +733,24 @@ if(CMAKE_CONFIGURATION_TYPES)
     set(_gentest_discover_tests_config "Debug")
 endif()
 
+add_test(NAME gentest_fuzztest_optional_auto
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/fuzztest_optional
+        -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
+        -DGENERATOR=${CMAKE_GENERATOR}
+        -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+        -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
+        -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+        -DC_COMPILER=${CMAKE_C_COMPILER}
+        -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DBUILD_CONFIG=${_gentest_discover_tests_config}
+        -DGENTEST_CODEGEN_EXECUTABLE=${_gentest_codegen_prog}
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFuzztestOptional.cmake)
+
+set_tests_properties(gentest_fuzztest_optional_auto PROPERTIES LABELS "codegen")
+
 add_test(NAME gentest_discover_tests_smoke
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/discover_tests
