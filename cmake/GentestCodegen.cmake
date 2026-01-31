@@ -501,8 +501,10 @@ function(_gentest_write_discover_tests_script out_script)
     file(MAKE_DIRECTORY "${_gentest_script_dir}")
 
     set(_gentest_add_tests_script "${_gentest_script_dir}/GentestAddTests.cmake")
-    file(WRITE "${_gentest_add_tests_script}" [====[
+    set(_gentest_script_content [====[
 cmake_minimum_required(VERSION 3.31)
+
+set(_gentest_cmake_command "@CMAKE_COMMAND@")
 
 function(_gentest_add_command name test_name)
   set(args "")
@@ -563,6 +565,79 @@ function(_gentest_wildcard_to_regex out_var pat)
   set(${out_var} "^${_s}$" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_ensure_check_death_script out_var)
+  set(_script_dir "${CMAKE_CURRENT_LIST_DIR}")
+  file(MAKE_DIRECTORY "${_script_dir}")
+  set(_script "${_script_dir}/GentestCheckDeath.cmake")
+  file(WRITE "${_script}" [==[
+# Requires:
+#  -DPROG=<path to test binary>
+#  -DARGS=<optional CLI args>
+#  -DENV_VARS=<optional env vars (list of KEY=VALUE)>
+#  -DEXPECT_SUBSTRING=<substring expected in combined output>
+
+if(NOT DEFINED PROG)
+  message(FATAL_ERROR "CheckDeath.cmake: PROG not set")
+endif()
+
+set(_emu)
+if(DEFINED EMU)
+  if(EMU MATCHES ";")
+    set(_emu ${EMU}) # already a list
+  else()
+    separate_arguments(_emu NATIVE_COMMAND "${EMU}") # string
+  endif()
+endif()
+
+set(_args)
+if(DEFINED ARGS)
+  if(ARGS MATCHES ";")
+    set(_args ${ARGS})
+  else()
+    separate_arguments(_args NATIVE_COMMAND "${ARGS}")
+  endif()
+endif()
+
+set(_command ${_emu} "${PROG}" ${_args})
+if(DEFINED ENV_VARS)
+  set(_env)
+  foreach(kv IN LISTS ENV_VARS)
+    list(APPEND _env "${kv}")
+  endforeach()
+  set(_command ${CMAKE_COMMAND} -E env ${_env} ${_emu} "${PROG}" ${_args})
+endif()
+
+execute_process(
+  COMMAND ${_command}
+  RESULT_VARIABLE _rc
+  OUTPUT_VARIABLE _out
+  ERROR_VARIABLE _err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+
+set(_all "${_out}\n${_err}")
+
+if(_all MATCHES "Test not found:")
+  message(STATUS "[ SKIP ] Death test not present in this build configuration")
+  return()
+endif()
+
+if(_rc EQUAL 0)
+  message(FATAL_ERROR "Expected process to abort/exit non-zero, but exit code was 0. Output:\n${_all}")
+endif()
+
+if(DEFINED EXPECT_SUBSTRING)
+  string(FIND "${_all}" "${EXPECT_SUBSTRING}" _pos)
+  if(_pos EQUAL -1)
+    message(FATAL_ERROR "Expected substring not found in output: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
+  endif()
+endif()
+
+message(STATUS "Death test passed (non-zero exit and expected output present)")
+]==])
+  set(${out_var} "${_script}" PARENT_SCOPE)
+endfunction()
+
 function(gentest_discover_tests_impl)
   set(options "")
   set(oneValueArgs
@@ -580,12 +655,23 @@ function(gentest_discover_tests_impl)
     TEST_DISCOVERY_EXTRA_ARGS
     TEST_PROPERTIES
     TEST_EXECUTOR
+    DEATH_TAGS
+    DEATH_TEST_PREFIX
+    DEATH_TEST_SUFFIX
+    DEATH_EXPECT_SUBSTRING
   )
   set(multiValueArgs "")
   cmake_parse_arguments(PARSE_ARGV 0 arg "${options}" "${oneValueArgs}" "${multiValueArgs}")
 
   set(prefix "${arg_TEST_PREFIX}")
   set(suffix "${arg_TEST_SUFFIX}")
+  set(death_prefix "${arg_DEATH_TEST_PREFIX}")
+  set(death_suffix "${arg_DEATH_TEST_SUFFIX}")
+  set(use_meta FALSE)
+  if(arg_DEATH_TAGS)
+    set(use_meta TRUE)
+    _gentest_ensure_check_death_script(_gentest_check_death_script)
+  endif()
   set(script)
   set(tests)
   set(file_write_mode WRITE)
@@ -610,9 +696,14 @@ function(gentest_discover_tests_impl)
     set(arg_TEST_DISCOVERY_TIMEOUT 5)
   endif()
 
+  set(_gentest_list_arg "--list-tests")
+  if(use_meta)
+    set(_gentest_list_arg "--list")
+  endif()
+
   cmake_language(EVAL CODE
     "execute_process(
-      COMMAND ${launcher_args} [==[${arg_TEST_EXECUTABLE}]==] --list-tests ${discovery_extra_args}
+      COMMAND ${launcher_args} [==[${arg_TEST_EXECUTABLE}]==] ${_gentest_list_arg} ${discovery_extra_args}
       WORKING_DIRECTORY [==[${arg_TEST_WORKING_DIR}]==]
       TIMEOUT ${arg_TEST_DISCOVERY_TIMEOUT}
       OUTPUT_VARIABLE output
@@ -658,47 +749,148 @@ function(gentest_discover_tests_impl)
       continue()
     endif()
 
-    set(case_id "${case_name_raw}")
+    set(case_line "${case_name_raw}")
     if(open_sb)
-      string(REPLACE "${open_sb}" "[" case_id "${case_id}")
+      string(REPLACE "${open_sb}" "[" case_line "${case_line}")
     endif()
     if(close_sb)
-      string(REPLACE "${close_sb}" "]" case_id "${case_id}")
+      string(REPLACE "${close_sb}" "]" case_line "${case_line}")
+    endif()
+    # Restore escaped semicolons now that we're processing a single line.
+    string(REPLACE "\\;" ";" case_line "${case_line}")
+
+    set(case_id "${case_line}")
+    set(case_tags "")
+    if(use_meta)
+      string(REGEX REPLACE " \\([^\\)]*\\)$" "" case_no_loc "${case_line}")
+      set(case_id "${case_no_loc}")
+      string(FIND "${case_no_loc}" " [" meta_pos REVERSE)
+      if(meta_pos GREATER_EQUAL 0 AND case_no_loc MATCHES "\\]$")
+        string(SUBSTRING "${case_no_loc}" 0 ${meta_pos} case_id)
+        math(EXPR meta_start "${meta_pos}+2")
+        string(SUBSTRING "${case_no_loc}" ${meta_start} -1 meta)
+        string(REGEX REPLACE "\\]$" "" meta "${meta}")
+        string(FIND "${meta}" "tags=" tags_pos)
+        if(tags_pos GREATER_EQUAL 0)
+          math(EXPR tags_start "${tags_pos}+5")
+          string(SUBSTRING "${meta}" ${tags_start} -1 tags_sub)
+          string(FIND "${tags_sub}" ";" tags_sep)
+          if(tags_sep GREATER_EQUAL 0)
+            string(SUBSTRING "${tags_sub}" 0 ${tags_sep} case_tags)
+          else()
+            set(case_tags "${tags_sub}")
+          endif()
+        endif()
+      endif()
     endif()
 
     if(filter_regex AND NOT case_id MATCHES "${filter_regex}")
       continue()
     endif()
 
-    set(testname "${prefix}${case_id}${suffix}")
+    set(is_death FALSE)
+    if(use_meta AND arg_DEATH_TAGS AND case_tags)
+      string(REPLACE "," ";" case_tags_list "${case_tags}")
+      foreach(tag IN LISTS case_tags_list)
+        string(TOLOWER "${tag}" tag_lc)
+        foreach(death_tag IN LISTS arg_DEATH_TAGS)
+          string(TOLOWER "${death_tag}" death_lc)
+          if(tag_lc STREQUAL death_lc)
+            set(is_death TRUE)
+          else()
+            string(FIND "${tag_lc}" "${death_lc}=" _pos)
+            if(_pos EQUAL 0)
+              set(is_death TRUE)
+            endif()
+          endif()
+        endforeach()
+      endforeach()
+    endif()
+
+    if(is_death)
+      set(testname "${prefix}${death_prefix}${case_id}${death_suffix}${suffix}")
+    else()
+      set(testname "${prefix}${case_id}${suffix}")
+    endif()
 
     set(guarded_testname "${open_guard}${testname}${close_guard}")
 
-    # Preserve empty arguments in TEST_EXECUTOR and EXTRA_ARGS by forwarding them as a bracket-quoted list.
-    string(APPEND script "add_test(${guarded_testname} ${launcher_args}")
-    foreach(arg IN ITEMS
-      "${arg_TEST_EXECUTABLE}"
-      "--run-test=${case_id}"
-      )
-      if(arg MATCHES "[^-./:a-zA-Z0-9_]")
-        string(APPEND script " [==[${arg}]==]")
-      else()
-        string(APPEND script " ${arg}")
+    if(is_death)
+      set(death_args_list "--include-death" "--run-test=${case_id}")
+      if(arg_TEST_EXTRA_ARGS)
+        list(APPEND death_args_list ${arg_TEST_EXTRA_ARGS})
       endif()
-    endforeach()
-    if(arg_TEST_EXTRA_ARGS)
-      list(JOIN arg_TEST_EXTRA_ARGS "]==] [==[" extra_args)
-      string(APPEND script " [==[${extra_args}]==]")
-    endif()
-    string(APPEND script ")\n")
+      string(JOIN ";" death_args_joined ${death_args_list})
+      string(REPLACE ";" "\\;" death_args_escaped "${death_args_joined}")
+      set(death_args_def "-DARGS=${death_args_escaped}")
 
-    _gentest_add_command(set_tests_properties
-      "${guarded_testname}"
-      PROPERTIES
-      WORKING_DIRECTORY "${arg_TEST_WORKING_DIR}"
-      SKIP_REGULAR_EXPRESSION "\\[ SKIP \\]"
-      ${arg_TEST_PROPERTIES}
-    )
+      set(emu_def "")
+      if(NOT "${arg_TEST_EXECUTOR}" STREQUAL "")
+        string(JOIN ";" emu_joined ${arg_TEST_EXECUTOR})
+        string(REPLACE ";" "\\;" emu_escaped "${emu_joined}")
+        set(emu_def "-DEMU=${emu_escaped}")
+      endif()
+
+      set(expect_def "")
+      if(NOT "${arg_DEATH_EXPECT_SUBSTRING}" STREQUAL "")
+        set(expect_def "-DEXPECT_SUBSTRING=${arg_DEATH_EXPECT_SUBSTRING}")
+      endif()
+
+      string(APPEND script "add_test(${guarded_testname}")
+      foreach(arg IN ITEMS
+        "${_gentest_cmake_command}"
+        "${emu_def}"
+        "-DPROG=${arg_TEST_EXECUTABLE}"
+        "${death_args_def}"
+        "${expect_def}"
+        "-P"
+        "${_gentest_check_death_script}"
+        )
+        if(arg STREQUAL "")
+          continue()
+        endif()
+        if(arg MATCHES "[^-./:a-zA-Z0-9_]")
+          string(APPEND script " [==[${arg}]==]")
+        else()
+          string(APPEND script " ${arg}")
+        endif()
+      endforeach()
+      string(APPEND script ")\n")
+
+      _gentest_add_command(set_tests_properties
+        "${guarded_testname}"
+        PROPERTIES
+        WORKING_DIRECTORY "${arg_TEST_WORKING_DIR}"
+        SKIP_REGULAR_EXPRESSION "\\[ SKIP \\]"
+        ${arg_TEST_PROPERTIES}
+      )
+    else()
+      # Preserve empty arguments in TEST_EXECUTOR and EXTRA_ARGS by forwarding them as a bracket-quoted list.
+      string(APPEND script "add_test(${guarded_testname} ${launcher_args}")
+      foreach(arg IN ITEMS
+        "${arg_TEST_EXECUTABLE}"
+        "--run-test=${case_id}"
+        )
+        if(arg MATCHES "[^-./:a-zA-Z0-9_]")
+          string(APPEND script " [==[${arg}]==]")
+        else()
+          string(APPEND script " ${arg}")
+        endif()
+      endforeach()
+      if(arg_TEST_EXTRA_ARGS)
+        list(JOIN arg_TEST_EXTRA_ARGS "]==] [==[" extra_args)
+        string(APPEND script " [==[${extra_args}]==]")
+      endif()
+      string(APPEND script ")\n")
+
+      _gentest_add_command(set_tests_properties
+        "${guarded_testname}"
+        PROPERTIES
+        WORKING_DIRECTORY "${arg_TEST_WORKING_DIR}"
+        SKIP_REGULAR_EXPRESSION "\\[ SKIP \\]"
+        ${arg_TEST_PROPERTIES}
+      )
+    endif()
 
     string(REPLACE [[;]] [[\\;]] _testname_escaped "${testname}")
     list(APPEND tests "${_testname_escaped}")
@@ -730,9 +922,15 @@ if(CMAKE_SCRIPT_MODE_FILE)
     TEST_EXTRA_ARGS "${TEST_EXTRA_ARGS}"
     TEST_DISCOVERY_EXTRA_ARGS "${TEST_DISCOVERY_EXTRA_ARGS}"
     TEST_PROPERTIES "${TEST_PROPERTIES}"
+    DEATH_TAGS [==[${DEATH_TAGS}]==]
+    DEATH_TEST_PREFIX ${DEATH_TEST_PREFIX}
+    DEATH_TEST_SUFFIX ${DEATH_TEST_SUFFIX}
+    DEATH_EXPECT_SUBSTRING ${DEATH_EXPECT_SUBSTRING}
   )
 endif()
 ]====])
+    string(CONFIGURE "${_gentest_script_content}" _gentest_script_content @ONLY)
+    file(WRITE "${_gentest_add_tests_script}" "${_gentest_script_content}")
 
     set(${out_script} "${_gentest_add_tests_script}" PARENT_SCOPE)
 endfunction()
@@ -746,8 +944,11 @@ function(gentest_discover_tests target)
         WORKING_DIRECTORY
         TEST_LIST
         DISCOVERY_TIMEOUT
-        DISCOVERY_MODE)
-    set(multi_value_args EXTRA_ARGS DISCOVERY_EXTRA_ARGS PROPERTIES)
+        DISCOVERY_MODE
+        DEATH_TEST_PREFIX
+        DEATH_TEST_SUFFIX
+        DEATH_EXPECT_SUBSTRING)
+    set(multi_value_args EXTRA_ARGS DISCOVERY_EXTRA_ARGS PROPERTIES DEATH_TAGS)
     cmake_parse_arguments(PARSE_ARGV 1 GENTEST "${options}" "${one_value_args}" "${multi_value_args}")
 
     if(NOT TARGET ${target})
@@ -773,6 +974,15 @@ function(gentest_discover_tests target)
             set(CMAKE_GENTEST_DISCOVER_TESTS_DISCOVERY_MODE "POST_BUILD")
         endif()
         set(GENTEST_DISCOVERY_MODE ${CMAKE_GENTEST_DISCOVER_TESTS_DISCOVERY_MODE})
+    endif()
+    if(NOT GENTEST_DEATH_TAGS AND DEFINED CMAKE_GENTEST_DISCOVER_TESTS_DEATH_TAGS)
+        set(GENTEST_DEATH_TAGS ${CMAKE_GENTEST_DISCOVER_TESTS_DEATH_TAGS})
+    endif()
+    set(_gentest_death_tags_def "")
+    if(GENTEST_DEATH_TAGS)
+        string(JOIN ";" _gentest_death_tags_joined ${GENTEST_DEATH_TAGS})
+        string(REPLACE ";" "\\;" _gentest_death_tags_escaped "${_gentest_death_tags_joined}")
+        set(_gentest_death_tags_def "${_gentest_death_tags_escaped}")
     endif()
 
     get_property(_gentest_has_counter TARGET ${target} PROPERTY GENTEST_DISCOVERED_TEST_COUNTER SET)
@@ -819,6 +1029,10 @@ function(gentest_discover_tests target)
                 -D "CTEST_FILE=${_gentest_ctest_tests_file}"
                 -D "TEST_DISCOVERY_TIMEOUT=${GENTEST_DISCOVERY_TIMEOUT}"
                 -D "TEST_DISCOVERY_EXTRA_ARGS=${GENTEST_DISCOVERY_EXTRA_ARGS}"
+                -D "DEATH_TAGS=${_gentest_death_tags_def}"
+                -D "DEATH_TEST_PREFIX=${GENTEST_DEATH_TEST_PREFIX}"
+                -D "DEATH_TEST_SUFFIX=${GENTEST_DEATH_TEST_SUFFIX}"
+                -D "DEATH_EXPECT_SUBSTRING=${GENTEST_DEATH_EXPECT_SUBSTRING}"
                 -P "${_gentest_add_tests_script}"
             VERBATIM
         )
@@ -855,6 +1069,10 @@ function(gentest_discover_tests target)
             "      CTEST_FILE [==[${_gentest_ctest_tests_file}]==]" "\n"
             "      TEST_DISCOVERY_TIMEOUT [==[${GENTEST_DISCOVERY_TIMEOUT}]==]" "\n"
             "      TEST_DISCOVERY_EXTRA_ARGS [==[${GENTEST_DISCOVERY_EXTRA_ARGS}]==]" "\n"
+            "      DEATH_TAGS [==[${GENTEST_DEATH_TAGS}]==]" "\n"
+            "      DEATH_TEST_PREFIX [==[${GENTEST_DEATH_TEST_PREFIX}]==]" "\n"
+            "      DEATH_TEST_SUFFIX [==[${GENTEST_DEATH_TEST_SUFFIX}]==]" "\n"
+            "      DEATH_EXPECT_SUBSTRING [==[${GENTEST_DEATH_EXPECT_SUBSTRING}]==]" "\n"
             "    )" "\n"
             "  endif()" "\n"
             "  include(\"${_gentest_ctest_tests_file}\")" "\n"

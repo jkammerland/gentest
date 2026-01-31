@@ -70,6 +70,12 @@ gentest_attach_codegen(my_tests)
 
 # Register each discovered case as its own CTest test (like gtest/catch/doctest).
 gentest_discover_tests(my_tests)
+# Tag death tests and let discovery wire a death-test harness:
+# gentest_discover_tests(my_tests DEATH_TAGS death DEATH_TEST_PREFIX "death/" DEATH_EXPECT_SUBSTRING "fatal path")
+#
+# More gentest_attach_codegen options:
+#  OUTPUT / OUTPUT_DIR / SOURCES / DEPENDS / ENTRY / NO_INCLUDE_SOURCES / STRICT_FIXTURE / QUIET_CLANG
+# Cross-builds: set GENTEST_CODEGEN_EXECUTABLE or GENTEST_CODEGEN_TARGET before gentest_attach_codegen().
 
 # Alternative: run everything in a single process.
 # add_test(NAME my_tests COMMAND my_tests)
@@ -81,7 +87,13 @@ Run:
 ./my_tests --list-tests
 ./my_tests --list
 ./my_tests --run-test=<exact-name>
+./my_tests --filter=unit/*
+./my_tests --include-death --run-test=death/fatal_path
+./my_tests --death-tags=death,crash
+./my_tests --fail-fast --repeat=2
 ./my_tests --shuffle --seed 123
+./my_tests --no-color
+./my_tests --github-annotations
 ./my_tests
 ```
 
@@ -89,6 +101,13 @@ Naming:
 - Any gentest function-level attribute marks the declaration as a case.
 - `test("...")` is optional; if omitted, the base name defaults to the C++ function name (or `FixtureType/method` for member tests).
 - Use `test("...")` to disambiguate overloads and keep names stable across refactors.
+
+Tags/metadata:
+- Flag attributes are collected as tags: `fast`, `slow`, `linux`, `windows`, `death`.
+- Value attributes attach metadata: `req("BUG-123")`, `owner("team-runtime")`, `skip("reason")`.
+- `death`-tagged tests are excluded from the default run; pass `--include-death` to execute them.
+- Override the death tag set with `--death-tags=tag1,tag2` or `GENTEST_DEATH_TAGS=tag1,tag2`.
+- The death-test harness treats any non-zero exit as success; set `DEATH_EXPECT_SUBSTRING` to assert output.
 
 ## Feature examples
 
@@ -167,12 +186,27 @@ target_compile_options(my_tests PRIVATE -fno-exceptions)
 target_compile_definitions(my_tests PRIVATE FMT_EXCEPTIONS=0) # and on MSVC STL: _HAS_EXCEPTIONS=0
 ```
 
-To test these “death” paths, run the case in its own process (e.g. via CTest):
+To test these “death” paths, tag them and run them in their own process:
+
+```cpp
+[[using gentest: test("death/fatal_path"), death]]
+void fatal_path();
+```
 
 ```cmake
-add_test(NAME my_death_case COMMAND my_tests --run-test=death/fatal_path)
-set_tests_properties(my_death_case PROPERTIES WILL_FAIL TRUE)
+gentest_discover_tests(my_tests
+  DEATH_TAGS death
+  DEATH_TEST_PREFIX "death/")
 ```
+
+Manual run:
+
+```bash
+./my_tests --run-test=death/fatal_path --include-death
+```
+
+Note: if a death test is compiled out in a configuration (e.g. wrapped in `#ifndef NDEBUG`), the
+CTest death harness reports it as skipped for that config.
 
 ### Outcomes (skip / xfail)
 
@@ -379,7 +413,10 @@ CLI:
 ```bash
 ./my_tests --list-benches
 ./my_tests --run-bench=bench/concat
+./my_tests --bench-filter=bench/* --bench-table
+./my_tests --bench-min-epoch-time-s=0.02 --bench-epochs=8 --bench-warmup=2 --bench-max-total-time-s=5
 ./my_tests --run-jitter=bench/sin --jitter-bins=20
+./my_tests --jitter-filter=bench/* --jitter-bins=20
 ```
 
 ### Reporting (JUnit / Allure / GitHub annotations)

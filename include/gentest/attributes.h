@@ -12,7 +12,8 @@
 //   [[using gentest : bench("suite/bench_name")]]
 //   void my_benchmark();
 //   - Run via --run-bench= or --bench-filter=, list via --list-benches.
-//   - Optional flags: --bench-min-epoch-time-s, --bench-epochs, --bench-warmup, --bench-max-total-time-s
+//   - Optional flags: --bench-table, --bench-min-epoch-time-s, --bench-epochs, --bench-warmup, --bench-max-total-time-s
+//   - Jitter runs via --run-jitter= or --jitter-filter=; use --jitter-bins to control histogram bins.
 //
 // Fixture composition for free functions:
 //   [[using gentest : test("suite/free"), fixtures(A, B, C)]]
@@ -33,6 +34,14 @@
 // while attributes such as `req("BUG-123")` or `skip("reason")` attach
 // requirements or skipping instructions. All information is extracted by the
 // code generator—no macros or compiler-specific annotations required.
+//
+// Death tests:
+//   [[using gentest : test("suite/crash_on_x"), death]]
+//   - Tagged tests are excluded from the default "run all" execution to avoid
+//     aborting the full test run.
+//   - Run explicitly via --run-test=... with --include-death, or wire them into
+//     CTest using a death-test harness (see GentestCodegen.cmake helpers).
+//   - Override the death tag set via --death-tags=... or GENTEST_DEATH_TAGS=...
 
 // Benchmarking:
 //   [[using gentest : bench("suite/name")]]

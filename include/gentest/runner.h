@@ -34,10 +34,31 @@ namespace gentest {
 // generator invokes it by name (configurable via `--entry`). It consumes the
 // standard command-line arguments (or their span variant) and supports at
 // least:
-//   --list                 List discovered cases and their metadata
-//   --shuffle             Shuffle tests (respects fixture/grouping). Order within
-//                        each group is shuffled; groups remain contiguous.
-//   --seed N               Seed used to initialize internal RNG for shuffling
+//   --help                  Show usage
+//   --list-tests            List test names only
+//   --list                  List tests with metadata
+//   --list-benches          List benchmark names only
+//   --run-test=<name>       Run a single test by exact name
+//   --filter=<pattern>      Run tests matching wildcard pattern
+//   --include-death         Allow running tests tagged as death tests
+//   --death-tags=<list>     Comma/semicolon-separated tags treated as death tests
+//   --shuffle / --seed N    Shuffle tests (order within each group is shuffled)
+//   --fail-fast             Stop after the first failing test
+//   --repeat=N              Repeat selected tests N times
+//   --no-color              Disable colorized output (or set NO_COLOR/GENTEST_NO_COLOR)
+//   --github-annotations    Emit GitHub Actions annotations on failures
+//   --junit=<file>          Write JUnit XML report
+//   --allure-dir=<dir>      Write Allure JSON results
+//   --run-bench=<name>      Run a single benchmark
+//   --bench-filter=<pat>    Run benchmarks matching wildcard pattern
+//   --bench-table           Print a summary table per suite
+//   --bench-min-epoch-time-s=<sec>  Minimum epoch time
+//   --bench-epochs=<N>      Measurement epochs (default 12)
+//   --bench-warmup=<N>      Warmup epochs (default 1)
+//   --bench-max-total-time-s=<sec>  Max total time per benchmark
+//   --run-jitter=<name>     Run a single jitter benchmark and print histogram
+//   --jitter-filter=<pat>   Run jitter benchmarks matching wildcard pattern
+//   --jitter-bins=<N>       Histogram bins (default 10)
 
 class failure : public std::runtime_error {
   public:

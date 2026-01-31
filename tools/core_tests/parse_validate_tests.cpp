@@ -84,6 +84,14 @@ int main() {
         t.expect(summary.had_error, "unknown gentest flag errors");
     }
 
+    {
+        auto attrs = parse_attribute_list(R"(test("x"), not_allowed("value"))");
+        std::vector<std::string> diags;
+        auto summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "unknown gentest value attribute errors");
+        t.expect(!diags.empty(), "unknown value attribute reports a diagnostic");
+    }
+
     if (t.failures) {
         std::cerr << "Total failures: " << t.failures << "\n";
         return 1;
