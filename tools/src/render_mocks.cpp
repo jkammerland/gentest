@@ -203,16 +203,25 @@ std::string forward_original_declaration(const MockClassInfo &cls) {
 }
 
 std::string argument_expr(const MockParamInfo &param) {
-    // If the parameter is an rvalue reference or passed by value, forward as std::move
-    if (param.type.find("&&") != std::string::npos || param.type.find('&') == std::string::npos) {
+    if (param.is_forwarding_ref) {
         std::string out;
-        out.reserve(param.name.size() + 10);
-        out += "std::move(";
+        out.reserve(param.name.size() * 2 + 26);
+        out += "std::forward<decltype(";
+        out += param.name;
+        out += ")>(";
         out += param.name;
         out += ')';
         return out;
     }
-    return param.name;
+    if (param.is_lvalue_ref) {
+        return param.name;
+    }
+    std::string out;
+    out.reserve(param.name.size() + 10);
+    out += "std::move(";
+    out += param.name;
+    out += ')';
+    return out;
 }
 
 std::string build_method_declaration(const MockClassInfo &cls, const MockMethodInfo &method) {

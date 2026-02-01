@@ -20,6 +20,12 @@ using namespace clang::ast_matchers;
 namespace gentest::codegen {
 namespace {
 
+struct ParamRefFlags {
+    bool is_lvalue_ref = false;
+    bool is_rvalue_ref = false;
+    bool is_forwarding_ref = false;
+};
+
 [[nodiscard]] bool is_supported_access(AccessSpecifier access) {
     return access == AS_public || access == AS_protected || access == AS_none;
 }
@@ -58,6 +64,25 @@ namespace {
     case RQ_None: break;
     }
     return {};
+}
+
+[[nodiscard]] ParamRefFlags classify_param_ref(const ParmVarDecl &param) {
+    ParamRefFlags flags;
+    const QualType type = param.getType();
+    flags.is_lvalue_ref = type->isLValueReferenceType();
+    flags.is_rvalue_ref = type->isRValueReferenceType();
+    if (flags.is_rvalue_ref) {
+        const QualType pointee = type->getPointeeType();
+        const bool     unqualified = !pointee.isConstQualified() && !pointee.isVolatileQualified();
+        if (unqualified) {
+            if (pointee->getAs<TemplateTypeParmType>() != nullptr) {
+                flags.is_forwarding_ref = true;
+            } else if (const auto *auto_type = pointee->getAs<AutoType>()) {
+                flags.is_forwarding_ref = !auto_type->isDecltypeAuto();
+            }
+        }
+    }
+    return flags;
 }
 
 [[nodiscard]] bool has_accessible_default_ctor(const CXXRecordDecl &record) {
@@ -294,6 +319,10 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         for (const auto *param : ctor->parameters()) {
             MockParamInfo param_info;
             param_info.type = is_template ? print_type_as_written(param->getType(), ctx) : print_type(param->getType(), ctx);
+            const auto ref_flags = classify_param_ref(*param);
+            param_info.is_lvalue_ref = ref_flags.is_lvalue_ref;
+            param_info.is_rvalue_ref = ref_flags.is_rvalue_ref;
+            param_info.is_forwarding_ref = ref_flags.is_forwarding_ref;
             if (!param->getNameAsString().empty()) {
                 param_info.name = param->getNameAsString();
             } else {
@@ -389,6 +418,10 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
             MockParamInfo param_info;
             param_info.type = is_template ? print_type_as_written(param->getType(), ctx)
                                          : print_type(param->getType(), ctx);
+            const auto ref_flags = classify_param_ref(*param);
+            param_info.is_lvalue_ref = ref_flags.is_lvalue_ref;
+            param_info.is_rvalue_ref = ref_flags.is_rvalue_ref;
+            param_info.is_forwarding_ref = ref_flags.is_forwarding_ref;
             if (!param->getNameAsString().empty()) {
                 param_info.name = param->getNameAsString();
             } else {

@@ -61,6 +61,20 @@ struct MOConsumer {
     void accept(MoveOnly) {}
 };
 
+template <typename T>
+struct RefWrap {
+    RefWrap() = default;
+    RefWrap(RefWrap&&) = default;
+    RefWrap& operator=(RefWrap&&) = default;
+    RefWrap(const RefWrap&) = delete;
+    RefWrap& operator=(const RefWrap&) = delete;
+    friend bool operator==(const RefWrap&, const RefWrap&) { return true; }
+};
+
+struct RefWrapConsumer {
+    void take(RefWrap<int&>) {}
+};
+
 struct Stringer {
     void put(std::string s) { (void)s; }
 };

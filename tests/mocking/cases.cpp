@@ -247,6 +247,15 @@ void move_only_with_eq() {
     EXPECT_EQ(hits, 1);
 }
 
+[[using gentest: test("mocking/move_only/refwrap_by_value")]]
+void move_only_refwrap_by_value() {
+    gentest::mock<RefWrapConsumer> mock_wrap;
+    EXPECT_CALL(mock_wrap, take).times(1);
+
+    mock_wrap.take(RefWrap<int &>{});
+    EXPECT_TRUE(true);
+}
+
 [[using gentest: test("mocking/matchers/str_contains")]]
 void matchers_str_contains() {
     using namespace gentest::match;
