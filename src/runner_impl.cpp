@@ -1162,8 +1162,8 @@ auto run_all_tests(std::span<const char*> args) -> int {
     }
 
     if (state.record_results) write_reports(state, opt.junit_path, opt.allure_dir);
-    fmt::print("Executed {} test(s).\n", counters.executed);
-    fmt::print("Passed {}/{} test(s). Skipped {}.\n", counters.passed, counters.total, counters.skipped);
+    fmt::print("Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n",
+               counters.passed, counters.total, counters.failed, counters.skipped, counters.xfail, counters.xpass);
     if (!state.failure_items.empty()) {
         std::map<std::string, std::vector<std::string>> grouped;
         for (const auto& item : state.failure_items) {
