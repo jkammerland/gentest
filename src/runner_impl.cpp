@@ -117,12 +117,20 @@ struct ReportItem {
     std::vector<std::string> requirements;
 };
 
+struct FailureSummary {
+    std::string              name;
+    std::vector<std::string> issues;
+};
+
 struct RunnerState {
     bool                  color_output = true;
     bool                  github_annotations = false;
     bool                  record_results = false;
     std::vector<ReportItem> report_items;
+    std::vector<FailureSummary> failure_items;
 };
+
+static void record_failure_summary(RunnerState& state, std::string_view name, std::vector<std::string> issues);
 
 struct BenchConfig {
     double      min_epoch_time_s = 0.01; // 10 ms
@@ -513,7 +521,7 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
     return true;
 }
 
-RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Counters& c) {
+RunResult execute_one(RunnerState& state, const Case& test, void* ctx, Counters& c) {
     RunResult rr;
     if (test.should_skip) {
         ++c.total;
@@ -638,6 +646,8 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
             else fmt::print(stderr, "[ XPASS ] {} ({} ms)\n", test.name, dur_ms);
         }
         fmt::print(stderr, "{}\n\n", rr.failures.front());
+        std::string xpass_issue = rr.xfail_reason.empty() ? "XPASS" : std::string("XPASS: ") + rr.xfail_reason;
+        record_failure_summary(state, test.name, std::vector<std::string>{std::move(xpass_issue)});
         if (state.github_annotations) {
             fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, gha_escape(std::string(test.name)),
                        gha_escape(rr.failures.front()));
@@ -659,11 +669,13 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
             fmt::print(stderr, "[ FAIL ] {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
         }
         std::size_t failure_printed = 0;
+        std::vector<std::string> failure_lines;
         for (std::size_t i = 0; i < ctxinfo->event_lines.size(); ++i) {
             const char kind = (i < ctxinfo->event_kinds.size() ? ctxinfo->event_kinds[i] : 'L');
             const auto& ln = ctxinfo->event_lines[i];
             if (kind == 'F') {
                 fmt::print(stderr, "{}\n", ln);
+                failure_lines.push_back(ln);
                 if (state.github_annotations) {
                     std::string_view file = test.file;
                     unsigned line_no = test.line;
@@ -680,6 +692,8 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
             }
         }
         fmt::print(stderr, "\n");
+        if (failure_lines.empty() && !ctxinfo->failures.empty()) failure_lines.push_back(ctxinfo->failures.front());
+        record_failure_summary(state, test.name, std::move(failure_lines));
     } else if (!threw_non_skip) {
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
@@ -702,6 +716,7 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
             fmt::print(stderr, "[ FAIL ] {} ({} ms)\n", test.name, dur_ms);
         }
         fmt::print(stderr, "\n");
+        record_failure_summary(state, test.name, std::vector<std::string>{"fatal assertion or exception (no message)"});
     }
     return rr;
 }
@@ -817,6 +832,11 @@ static void write_reports(const RunnerState& state, const char* junit_path, cons
 #endif
 }
 
+static void record_failure_summary(RunnerState& state, std::string_view name, std::vector<std::string> issues) {
+    if (issues.empty()) issues.emplace_back("failure (no details)");
+    state.failure_items.push_back(FailureSummary{std::string(name), std::move(issues)});
+}
+
 } // namespace
 
 static void print_fail_header(const RunnerState& state, const Case& test, long long dur_ms) {
@@ -839,6 +859,7 @@ static void record_synthetic_failure(RunnerState& state, const Case& test, std::
     if (state.github_annotations) {
         fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, test.name, message);
     }
+    record_failure_summary(state, test.name, std::vector<std::string>{message});
     if (!state.record_results) return;
     ReportItem item;
     item.suite = std::string(test.suite);
@@ -1143,6 +1164,24 @@ auto run_all_tests(std::span<const char*> args) -> int {
     if (state.record_results) write_reports(state, opt.junit_path, opt.allure_dir);
     fmt::print("Executed {} test(s).\n", counters.executed);
     fmt::print("Passed {}/{} test(s). Skipped {}.\n", counters.passed, counters.total, counters.skipped);
+    if (!state.failure_items.empty()) {
+        std::map<std::string, std::vector<std::string>> grouped;
+        for (const auto& item : state.failure_items) {
+            auto& issues = grouped[item.name];
+            for (const auto& issue : item.issues) {
+                if (std::find(issues.begin(), issues.end(), issue) == issues.end()) {
+                    issues.push_back(issue);
+                }
+            }
+        }
+        fmt::print("Failed tests:\n");
+        for (const auto& [name, issues] : grouped) {
+            fmt::print("  {}:\n", name);
+            for (const auto& issue : issues) {
+                fmt::print("    {}\n", issue);
+            }
+        }
+    }
     return counters.failures == 0 ? 0 : 1;
 }
 

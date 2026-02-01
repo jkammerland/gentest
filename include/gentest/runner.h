@@ -148,7 +148,7 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
     ctx->event_kinds.push_back('F');
 }
 inline void append_label(std::string& out, std::string_view label) {
-    static constexpr std::size_t kWidth = 11; // longest of EXPECT_TRUE/ASSERT_TRUE
+    static constexpr std::size_t kWidth = 12; // longest of EXPECT_FALSE/ASSERT_FALSE
     out.append(label);
     if (label.size() < kWidth) out.append(kWidth - label.size(), ' ');
     out.append(" failed at ");
@@ -523,6 +523,17 @@ inline void expect(bool condition, std::string_view message = {}, const std::sou
     }
 }
 
+// Record a non-fatal failure if `condition` is true; execution continues.
+inline void expect_false(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
+    if (condition) {
+        std::string text;
+        ::gentest::detail::append_label(text, "EXPECT_FALSE");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+    }
+}
+
 // Record a non-fatal failure if `lhs == rhs` does not hold; execution continues.
 inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
@@ -549,6 +560,58 @@ inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
     }
 }
 
+// Record a non-fatal failure if `lhs < rhs` does not hold; execution continues.
+inline void expect_lt(auto &&lhs, auto &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    if (!(lhs < rhs)) {
+        std::string text;
+        ::gentest::detail::append_label(text, "EXPECT_LT");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+    }
+}
+
+// Record a non-fatal failure if `lhs <= rhs` does not hold; execution continues.
+inline void expect_le(auto &&lhs, auto &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    if (!(lhs <= rhs)) {
+        std::string text;
+        ::gentest::detail::append_label(text, "EXPECT_LE");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+    }
+}
+
+// Record a non-fatal failure if `lhs > rhs` does not hold; execution continues.
+inline void expect_gt(auto &&lhs, auto &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    if (!(lhs > rhs)) {
+        std::string text;
+        ::gentest::detail::append_label(text, "EXPECT_GT");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+    }
+}
+
+// Record a non-fatal failure if `lhs >= rhs` does not hold; execution continues.
+inline void expect_ge(auto &&lhs, auto &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    if (!(lhs >= rhs)) {
+        std::string text;
+        ::gentest::detail::append_label(text, "EXPECT_GE");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+    }
+}
+
 // Record a failure if `condition` is false and abort the current test.
 // - Exceptions enabled: throws `gentest::assertion`
 // - Exceptions disabled: terminates via `std::terminate()`
@@ -563,6 +626,24 @@ inline void require(bool condition, std::string_view message = {}, const std::so
         throw assertion("ASSERT_TRUE");
 #else
         ::gentest::detail::terminate_no_exceptions_fatal("gentest::require");
+#endif
+    }
+}
+
+// Record a failure if `condition` is true and abort the current test.
+// - Exceptions enabled: throws `gentest::assertion`
+// - Exceptions disabled: terminates via `std::terminate()`
+inline void require_false(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
+    if (condition) {
+        std::string text;
+        ::gentest::detail::append_label(text, "ASSERT_FALSE");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+#if GENTEST_EXCEPTIONS_ENABLED
+        throw assertion("ASSERT_FALSE");
+#else
+        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_false");
 #endif
     }
 }
@@ -607,11 +688,95 @@ inline void require_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
     }
 }
 
+// Record a failure if `lhs < rhs` does not hold and abort the current test.
+// - Exceptions enabled: throws `gentest::assertion`
+// - Exceptions disabled: terminates via `std::terminate()`
+inline void require_lt(auto &&lhs, auto &&rhs, std::string_view message = {},
+                       const std::source_location &loc = std::source_location::current()) {
+    if (!(lhs < rhs)) {
+        std::string text;
+        ::gentest::detail::append_label(text, "ASSERT_LT");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+#if GENTEST_EXCEPTIONS_ENABLED
+        throw assertion("ASSERT_LT");
+#else
+        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_lt");
+#endif
+    }
+}
+
+// Record a failure if `lhs <= rhs` does not hold and abort the current test.
+// - Exceptions enabled: throws `gentest::assertion`
+// - Exceptions disabled: terminates via `std::terminate()`
+inline void require_le(auto &&lhs, auto &&rhs, std::string_view message = {},
+                       const std::source_location &loc = std::source_location::current()) {
+    if (!(lhs <= rhs)) {
+        std::string text;
+        ::gentest::detail::append_label(text, "ASSERT_LE");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+#if GENTEST_EXCEPTIONS_ENABLED
+        throw assertion("ASSERT_LE");
+#else
+        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_le");
+#endif
+    }
+}
+
+// Record a failure if `lhs > rhs` does not hold and abort the current test.
+// - Exceptions enabled: throws `gentest::assertion`
+// - Exceptions disabled: terminates via `std::terminate()`
+inline void require_gt(auto &&lhs, auto &&rhs, std::string_view message = {},
+                       const std::source_location &loc = std::source_location::current()) {
+    if (!(lhs > rhs)) {
+        std::string text;
+        ::gentest::detail::append_label(text, "ASSERT_GT");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+#if GENTEST_EXCEPTIONS_ENABLED
+        throw assertion("ASSERT_GT");
+#else
+        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_gt");
+#endif
+    }
+}
+
+// Record a failure if `lhs >= rhs` does not hold and abort the current test.
+// - Exceptions enabled: throws `gentest::assertion`
+// - Exceptions disabled: terminates via `std::terminate()`
+inline void require_ge(auto &&lhs, auto &&rhs, std::string_view message = {},
+                       const std::source_location &loc = std::source_location::current()) {
+    if (!(lhs >= rhs)) {
+        std::string text;
+        ::gentest::detail::append_label(text, "ASSERT_GE");
+        text.append(::gentest::detail::loc_to_string(loc));
+        ::gentest::detail::append_message(text, message);
+        ::gentest::detail::append_cmp_values(text, lhs, rhs, message);
+        ::gentest::detail::record_failure(std::move(text), loc);
+#if GENTEST_EXCEPTIONS_ENABLED
+        throw assertion("ASSERT_GE");
+#else
+        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_ge");
+#endif
+    }
+}
+
 // Optional: alias-like helpers to align with requested naming without macro pitfalls.
 // Prefer `require`/`require_eq` in portable code; `assert_true`/`assert_eq` are synonyms.
 inline void assert_true(bool condition, std::string_view message,
                         const std::source_location &loc = std::source_location::current()) {
     require(condition, message, loc);
+}
+inline void assert_false(bool condition, std::string_view message,
+                         const std::source_location &loc = std::source_location::current()) {
+    require_false(condition, message, loc);
 }
 inline void assert_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
@@ -625,6 +790,10 @@ inline void EXPECT_TRUE(bool condition, std::string_view message = {},
                         const std::source_location &loc = std::source_location::current()) {
     expect(condition, message, loc);
 }
+inline void EXPECT_FALSE(bool condition, std::string_view message = {},
+                         const std::source_location &loc = std::source_location::current()) {
+    expect_false(condition, message, loc);
+}
 template <class L, class R>
 inline void EXPECT_EQ(L &&lhs, R &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
@@ -635,10 +804,34 @@ inline void EXPECT_NE(L &&lhs, R &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
     expect_ne(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
 }
+template <class L, class R>
+inline void EXPECT_LT(L &&lhs, R &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    expect_lt(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
+}
+template <class L, class R>
+inline void EXPECT_LE(L &&lhs, R &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    expect_le(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
+}
+template <class L, class R>
+inline void EXPECT_GT(L &&lhs, R &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    expect_gt(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
+}
+template <class L, class R>
+inline void EXPECT_GE(L &&lhs, R &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    expect_ge(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
+}
 
 inline void ASSERT_TRUE(bool condition, std::string_view message = {},
                         const std::source_location &loc = std::source_location::current()) {
     require(condition, message, loc);
+}
+inline void ASSERT_FALSE(bool condition, std::string_view message = {},
+                         const std::source_location &loc = std::source_location::current()) {
+    require_false(condition, message, loc);
 }
 template <class L, class R>
 inline void ASSERT_EQ(L &&lhs, R &&rhs, std::string_view message = {},
@@ -649,6 +842,26 @@ template <class L, class R>
 inline void ASSERT_NE(L &&lhs, R &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
     require_ne(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
+}
+template <class L, class R>
+inline void ASSERT_LT(L &&lhs, R &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    require_lt(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
+}
+template <class L, class R>
+inline void ASSERT_LE(L &&lhs, R &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    require_le(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
+}
+template <class L, class R>
+inline void ASSERT_GT(L &&lhs, R &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    require_gt(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
+}
+template <class L, class R>
+inline void ASSERT_GE(L &&lhs, R &&rhs, std::string_view message = {},
+                      const std::source_location &loc = std::source_location::current()) {
+    require_ge(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
 }
 } // namespace asserts
 
