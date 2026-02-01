@@ -17,7 +17,8 @@
 #include <clang/AST/Decl.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
-#include <fmt/core.h>
+#include <fmt/format.h>
+#include <iterator>
 #include <optional>
 #include <set>
 #include <string>
@@ -121,8 +122,16 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         const llvm::StringRef file    = sm->getFilename(sloc);
         const unsigned        lnum    = sm->getSpellingLineNumber(sloc);
         const std::string     subject = func->getQualifiedNameAsString();
-        const std::string     locpfx  = !file.empty() ? fmt::format("{}:{}: ", file.str(), lnum) : std::string{};
-        const std::string     subj    = !subject.empty() ? fmt::format(" ({})", subject) : std::string{};
+        std::string           locpfx;
+        if (!file.empty()) {
+            locpfx.reserve(file.size() + 24);
+            fmt::format_to(std::back_inserter(locpfx), "{}:{}: ", file.str(), lnum);
+        }
+        std::string subj;
+        if (!subject.empty()) {
+            subj.reserve(subject.size() + 4);
+            fmt::format_to(std::back_inserter(subj), " ({})", subject);
+        }
         log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
     for (const auto &message : collected.other_namespaces) {
@@ -148,8 +157,16 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         std::string           name = ns.getQualifiedNameAsString();
         if (name.empty() && ns.isAnonymousNamespace())
             name = "(anonymous namespace)";
-        const std::string locpfx = !file.empty() ? fmt::format("{}:{}: ", file.str(), line) : std::string{};
-        const std::string subj   = !name.empty() ? fmt::format(" (namespace {})", name) : std::string{};
+        std::string locpfx;
+        if (!file.empty()) {
+            locpfx.reserve(file.size() + 24);
+            fmt::format_to(std::back_inserter(locpfx), "{}:{}: ", file.str(), line);
+        }
+        std::string subj;
+        if (!name.empty()) {
+            subj.reserve(name.size() + 16);
+            fmt::format_to(std::back_inserter(subj), " (namespace {})", name);
+        }
         log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
 
