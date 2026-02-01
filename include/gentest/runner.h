@@ -37,11 +37,11 @@ namespace gentest {
 //   --help                  Show usage
 //   --list-tests            List test names only
 //   --list                  List tests with metadata
+//   --list-death            List death test names only
 //   --list-benches          List benchmark names only
 //   --run-test=<name>       Run a single test by exact name
 //   --filter=<pattern>      Run tests matching wildcard pattern
-//   --include-death         Allow running tests tagged as death tests
-//   --death-tags=<list>     Comma/semicolon-separated tags treated as death tests
+//   --include-death         Allow running tests tagged `death`
 //   --shuffle / --seed N    Shuffle tests (order within each group is shuffled)
 //   --fail-fast             Stop after the first failing test
 //   --repeat=N              Repeat selected tests N times

@@ -70,8 +70,11 @@ gentest_attach_codegen(my_tests)
 
 # Register each discovered case as its own CTest test (like gtest/catch/doctest).
 gentest_discover_tests(my_tests)
-# Tag death tests and let discovery wire a death-test harness:
-# gentest_discover_tests(my_tests DEATH_TAGS death DEATH_TEST_PREFIX "death/" DEATH_EXPECT_SUBSTRING "fatal path")
+# Death tests (tagged `death`) are auto-registered as CTest tests with a `death/` prefix.
+# Optional: EXPECT_SUBSTRING enforces a substring in the death harness output
+# (for normal tests, use PASS_REGULAR_EXPRESSION via PROPERTIES).
+# See docs/death_tests.md for death-test details and docs/discover_tests.md for full options.
+# gentest_discover_tests(my_tests EXPECT_SUBSTRING "fatal path")
 #
 # More gentest_attach_codegen options:
 #  OUTPUT / OUTPUT_DIR / SOURCES / DEPENDS / ENTRY / NO_INCLUDE_SOURCES / STRICT_FIXTURE / QUIET_CLANG
@@ -86,10 +89,10 @@ Run:
 ```bash
 ./my_tests --list-tests
 ./my_tests --list
+./my_tests --list-death
 ./my_tests --run-test=<exact-name>
 ./my_tests --filter=unit/*
 ./my_tests --include-death --run-test=death/fatal_path
-./my_tests --death-tags=death,crash
 ./my_tests --fail-fast --repeat=2
 ./my_tests --shuffle --seed 123
 ./my_tests --no-color
@@ -106,8 +109,8 @@ Tags/metadata:
 - Flag attributes are collected as tags: `fast`, `slow`, `linux`, `windows`, `death`.
 - Value attributes attach metadata: `req("BUG-123")`, `owner("team-runtime")`, `skip("reason")`.
 - `death`-tagged tests are excluded from the default run; pass `--include-death` to execute them.
-- Override the death tag set with `--death-tags=tag1,tag2` or `GENTEST_DEATH_TAGS=tag1,tag2`.
-- The death-test harness treats any non-zero exit as success; set `DEATH_EXPECT_SUBSTRING` to assert output.
+- The death-test harness treats non-zero exit as success (and fails on normal test failures); set `EXPECT_SUBSTRING` to assert output.
+- Full death-test docs: `docs/death_tests.md`.
 
 ## Feature examples
 
@@ -195,8 +198,9 @@ void fatal_path();
 
 ```cmake
 gentest_discover_tests(my_tests
-  DEATH_TAGS death
-  DEATH_TEST_PREFIX "death/")
+  # Optional: enforce expected output substring for death tests
+  # EXPECT_SUBSTRING "fatal path"
+)
 ```
 
 Manual run:
@@ -205,8 +209,8 @@ Manual run:
 ./my_tests --run-test=death/fatal_path --include-death
 ```
 
-Note: if a death test is compiled out in a configuration (e.g. wrapped in `#ifndef NDEBUG`), the
-CTest death harness reports it as skipped for that config.
+Note: if a death test is compiled out in a configuration (e.g. wrapped in `#ifndef NDEBUG`), it won't
+appear in `--list-death`, so no CTest entry is created for that config.
 
 ### Outcomes (skip / xfail)
 

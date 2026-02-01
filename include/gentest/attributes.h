@@ -41,7 +41,6 @@
 //     aborting the full test run.
 //   - Run explicitly via --run-test=... with --include-death, or wire them into
 //     CTest using a death-test harness (see GentestCodegen.cmake helpers).
-//   - Override the death tag set via --death-tags=... or GENTEST_DEATH_TAGS=...
 
 // Benchmarking:
 //   [[using gentest : bench("suite/name")]]

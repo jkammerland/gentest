@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <cctype>
 #include <cstdlib>
 #include <cstdint>
 #include <exception>
@@ -15,7 +14,6 @@
 #include <limits>
 #include <map>
 #include <memory>
-#include <optional>
 #include <mutex>
 #include <random>
 #include <span>
@@ -239,11 +237,11 @@ static bool iequals(std::string_view lhs, std::string_view rhs) {
     return true;
 }
 
-static bool tag_matches_ci(std::string_view tag, std::string_view death_tag) {
-    if (iequals(tag, death_tag)) return true;
-    if (tag.size() <= death_tag.size()) return false;
-    if (tag[death_tag.size()] != '=') return false;
-    return iequals(tag.substr(0, death_tag.size()), death_tag);
+static bool has_tag_ci(const Case& test, std::string_view tag) {
+    for (auto t : test.tags) {
+        if (iequals(t, tag)) return true;
+    }
+    return false;
 }
 
 std::string join_span(std::span<const std::string_view> items, char sep) {
@@ -253,35 +251,6 @@ std::string join_span(std::span<const std::string_view> items, char sep) {
         out.append(items[i]);
     }
     return out;
-}
-
-static std::string_view trim_view(std::string_view s) {
-    auto is_space = [](unsigned char ch) { return std::isspace(ch) != 0; };
-    while (!s.empty() && is_space(static_cast<unsigned char>(s.front()))) s.remove_prefix(1);
-    while (!s.empty() && is_space(static_cast<unsigned char>(s.back()))) s.remove_suffix(1);
-    return s;
-}
-
-static void append_tag(std::vector<std::string>& out, std::string_view tag) {
-    tag = trim_view(tag);
-    if (tag.empty()) return;
-    std::string lowered;
-    lowered.reserve(tag.size());
-    for (char ch : tag) {
-        if (ch >= 'A' && ch <= 'Z') lowered.push_back(static_cast<char>(ch - 'A' + 'a'));
-        else lowered.push_back(ch);
-    }
-    out.push_back(std::move(lowered));
-}
-
-static void parse_tag_list(std::string_view input, std::vector<std::string>& out) {
-    std::size_t start = 0;
-    for (std::size_t i = 0; i <= input.size(); ++i) {
-        if (i == input.size() || input[i] == ',' || input[i] == ';') {
-            append_tag(out, input.substr(start, i - start));
-            start = i + 1;
-        }
-    }
 }
 
 static bool env_has_value(const char* name) {
@@ -295,22 +264,6 @@ static bool env_has_value(const char* name) {
 #else
     const char* value = std::getenv(name);
     return value != nullptr && value[0] != '\0';
-#endif
-}
-
-static std::optional<std::string> env_value(const char* name) {
-#if defined(_WIN32) && defined(_MSC_VER)
-    char*  value = nullptr;
-    size_t len = 0;
-    if (_dupenv_s(&value, &len, name) != 0 || value == nullptr) return std::nullopt;
-    std::string out{value};
-    std::free(value);
-    if (out.empty()) return std::nullopt;
-    return out;
-#else
-    const char* value = std::getenv(name);
-    if (value == nullptr || value[0] == '\0') return std::nullopt;
-    return std::string{value};
 #endif
 }
 
@@ -339,6 +292,7 @@ enum class Mode {
     Help,
     ListTests,
     ListMeta,
+    ListDeath,
     ListBenches,
     RunBenches,
     RunJitter,
@@ -354,7 +308,6 @@ struct CliOptions {
     bool shuffle = false;
     std::size_t repeat_n = 1;
     bool include_death = false;
-    std::vector<std::string> death_tags;
 
     bool seed_provided = false;
     std::uint64_t seed_value = 0;   // exact value from --seed
@@ -428,10 +381,10 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
     bool wants_help = false;
     bool wants_list_tests = false;
     bool wants_list_meta = false;
+    bool wants_list_death = false;
     bool wants_list_benches = false;
     bool no_color_flag = false;
     bool github_annotations_flag = false;
-    bool death_tags_set = false;
 
     bool seen_repeat = false;
     bool seen_bench_min_epoch_time = false;
@@ -448,29 +401,13 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
         if (s == "--help") { wants_help = true; continue; }
         if (s == "--list-tests") { wants_list_tests = true; continue; }
         if (s == "--list") { wants_list_meta = true; continue; }
+        if (s == "--list-death") { wants_list_death = true; continue; }
         if (s == "--list-benches") { wants_list_benches = true; continue; }
         if (s == "--no-color") { no_color_flag = true; continue; }
         if (s == "--github-annotations") { github_annotations_flag = true; continue; }
         if (s == "--fail-fast") { opt.fail_fast = true; continue; }
         if (s == "--shuffle") { opt.shuffle = true; continue; }
         if (s == "--include-death") { opt.include_death = true; continue; }
-        if (s == "--death-tags") {
-            if (i + 1 >= args.size() || !args[i + 1]) {
-                fmt::print(stderr, "error: --death-tags requires a comma/semicolon-separated list\n");
-                return false;
-            }
-            opt.death_tags.clear();
-            parse_tag_list(args[i + 1], opt.death_tags);
-            death_tags_set = true;
-            ++i;
-            continue;
-        }
-        if (s.rfind("--death-tags=", 0) == 0) {
-            opt.death_tags.clear();
-            parse_tag_list(s.substr(std::string_view("--death-tags=").size()), opt.death_tags);
-            death_tags_set = true;
-            continue;
-        }
         if (s == "--bench-table") { opt.bench_table = true; continue; }
 
         if (s == "--seed") {
@@ -555,23 +492,13 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
     if (wants_help) opt.mode = Mode::Help;
     else if (wants_list_tests) opt.mode = Mode::ListTests;
     else if (wants_list_meta) opt.mode = Mode::ListMeta;
+    else if (wants_list_death) opt.mode = Mode::ListDeath;
     else if (wants_list_benches) opt.mode = Mode::ListBenches;
     else if (wants_run_benches) opt.mode = Mode::RunBenches;
     else if (wants_run_jitter) opt.mode = Mode::RunJitter;
     else opt.mode = Mode::Tests;
 
     if (opt.shuffle) opt.shuffle_seed = opt.seed_provided ? opt.seed_value : make_random_seed();
-
-    if (!death_tags_set) {
-        if (auto env_tags = env_value("GENTEST_DEATH_TAGS")) {
-            opt.death_tags.clear();
-            parse_tag_list(*env_tags, opt.death_tags);
-            death_tags_set = true;
-        }
-    }
-    if (!death_tags_set) {
-        opt.death_tags.emplace_back("death");
-    }
 
     out_opt = opt;
     return true;
@@ -1015,10 +942,10 @@ auto run_all_tests(std::span<const char*> args) -> int {
         fmt::print("  --help                Show this help\n");
         fmt::print("  --list-tests          List test names (one per line)\n");
         fmt::print("  --list                List tests with metadata\n");
+        fmt::print("  --list-death          List death test names (one per line)\n");
         fmt::print("  --run-test=<name>     Run a single test by exact name\n");
         fmt::print("  --filter=<pattern>    Run tests matching wildcard pattern (*, ?)\n");
-        fmt::print("  --include-death       Allow running tests tagged as death tests\n");
-        fmt::print("  --death-tags=<list>   Comma/semicolon-separated tags treated as death tests\n");
+        fmt::print("  --include-death       Allow running tests tagged 'death'\n");
         fmt::print("  --no-color            Disable colorized output (or set NO_COLOR/GENTEST_NO_COLOR)\n");
         fmt::print("  --github-annotations  Emit GitHub Actions annotations (::error ...) on failures\n");
         fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
@@ -1070,6 +997,13 @@ auto run_all_tests(std::span<const char*> args) -> int {
                 sections.push_back(']');
             }
             fmt::print("{}{} ({}:{})\n", test.name, sections, test.file, test.line);
+        }
+        return 0;
+    case Mode::ListDeath:
+        for (const auto& test : kCases) {
+            if (has_tag_ci(test, "death") && !test.should_skip) {
+                fmt::print("{}\n", test.name);
+            }
         }
         return 0;
     case Mode::ListBenches:
@@ -1145,22 +1079,12 @@ auto run_all_tests(std::span<const char*> args) -> int {
         for (std::size_t i = 0; i < kCases.size(); ++i) idxs[i] = i;
     }
 
-    auto is_death_case = [&opt](const Case& c) {
-        if (opt.death_tags.empty()) return false;
-        for (auto tag : c.tags) {
-            for (const auto& death_tag : opt.death_tags) {
-                if (tag_matches_ci(tag, death_tag)) return true;
-            }
-        }
-        return false;
-    };
-
-    if (!opt.include_death && !opt.death_tags.empty()) {
+    if (!opt.include_death) {
         std::size_t filtered_death = 0;
         std::vector<std::size_t> kept;
         kept.reserve(idxs.size());
         for (auto idx : idxs) {
-            if (is_death_case(kCases[idx])) {
+            if (has_tag_ci(kCases[idx], "death")) {
                 ++filtered_death;
                 continue;
             }

@@ -111,15 +111,19 @@ foreach(_name IN ITEMS "demo/a" "demo/b" "demo/skip" "demo/has [bracket]" "death
   endif()
 endforeach()
 
+if(_list_out MATCHES "(^|\\n)[ \t]*Test #[0-9]+: demo/death([ \t]*$)")
+  message(FATAL_ERROR "Death test should not be registered as a normal test: 'demo/death'. ctest -N output:\n${_list_out}")
+endif()
+
 message(STATUS "Run discovered tests...")
 run_or_fail(COMMAND "${_ctest_cmd}" ${_ctest_common_args} -R "^demo/" WORKING_DIRECTORY "${_build_dir}")
 
 message(STATUS "Run discovered death tests...")
 run_or_fail(COMMAND "${_ctest_cmd}" -V ${_ctest_common_args} -R "^death/" WORKING_DIRECTORY "${_build_dir}")
 set(_death_out "${_run_or_fail_out}")
-string(FIND "${_death_out}" "EXPECT_SUBSTRING" _pos)
+string(FIND "${_death_out}" "Death test passed" _pos)
 if(_pos EQUAL -1)
-  message(FATAL_ERROR "Expected death harness to pass EXPECT_SUBSTRING. Output:\n${_death_out}")
+  message(FATAL_ERROR "Expected death harness success message. Output:\n${_death_out}")
 endif()
 
 message(STATUS "gentest_discover_tests fixture passed")

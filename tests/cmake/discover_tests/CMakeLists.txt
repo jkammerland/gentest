@@ -48,6 +48,10 @@ int main(int argc, char** argv) {
             list_meta();
             return 0;
         }
+        if (arg == "--list-death") {
+            std::cout << "demo/death\n";
+            return 0;
+        }
         constexpr std::string_view kRun = "--run-test=";
         if (arg.rfind(kRun, 0) == 0) {
             return run_one(arg.substr(kRun.size()));
@@ -68,6 +72,4 @@ target_compile_features(demo_tests PRIVATE cxx_std_20)
 gentest_discover_tests(demo_tests
   DISCOVERY_MODE PRE_TEST
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  DEATH_TAGS death
-  DEATH_EXPECT_SUBSTRING "fatal path"
-  DEATH_TEST_PREFIX "death/")
+  EXPECT_SUBSTRING "fatal path")
