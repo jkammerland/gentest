@@ -1,7 +1,7 @@
 // Thread-safe stderr logging for gentest_codegen.
 #pragma once
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <llvm/Support/raw_ostream.h>
 
 #include <mutex>
@@ -18,7 +18,10 @@ inline std::mutex &errs_mutex() {
 template <typename... Args>
 void log_err(fmt::format_string<Args...> format_string, Args &&...args) {
     std::lock_guard<std::mutex> lock(errs_mutex());
-    llvm::errs() << fmt::format(format_string, std::forward<Args>(args)...);
+    fmt::memory_buffer buffer;
+    buffer.reserve(256);
+    fmt::format_to(std::back_inserter(buffer), format_string, std::forward<Args>(args)...);
+    llvm::errs() << fmt::to_string(buffer);
 }
 
 inline void log_err_raw(std::string_view message) {

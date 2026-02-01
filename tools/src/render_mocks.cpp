@@ -36,6 +36,7 @@ std::string argument_list(const MockMethodInfo &method);
 
 std::string join_parameter_list(const std::vector<MockParamInfo> &params) {
     std::string out;
+    out.reserve(params.size() * 16);
     for (std::size_t i = 0; i < params.size(); ++i) {
         if (i != 0)
             out += ", ";
@@ -50,6 +51,7 @@ std::string join_parameter_list(const std::vector<MockParamInfo> &params) {
 
 std::string join_type_list(const std::vector<MockParamInfo> &params) {
     std::string out;
+    out.reserve(params.size() * 12);
     for (std::size_t i = 0; i < params.size(); ++i) {
         if (i != 0)
             out += ", ";

@@ -13,7 +13,7 @@
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -295,6 +295,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
 
     // Include sources in the generated file so fixture types are visible
     std::string    includes;
+    includes.reserve(options.sources.size() * 32);
     const bool     skip_includes = !options.include_sources;
     const fs::path out_dir = options.output_path.has_parent_path() ? options.output_path.parent_path() : fs::current_path();
     for (const auto &src : options.sources) {
@@ -308,7 +309,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
             rel = spath;
         }
         std::string inc = rel.generic_string();
-        includes += fmt::format("#include \"{}\"\n", render::escape_string(inc));
+        fmt::format_to(std::back_inserter(includes), "#include \"{}\"\n", render::escape_string(inc));
     }
     replace_all(output, "{{INCLUDE_SOURCES}}", includes);
 

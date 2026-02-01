@@ -3,8 +3,9 @@
 #include "render.hpp"
 
 #include <algorithm>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <string>
@@ -42,17 +43,37 @@ std::string render_forward_decls(const std::vector<TestCaseInfo> & /*cases*/, co
     return {};
 }
 
+namespace {
+template <typename... Args>
+inline void append_format(std::string &out, fmt::format_string<Args...> format_string, Args &&...args) {
+    fmt::format_to(std::back_inserter(out), format_string, std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+inline void append_format_runtime(std::string &out, const std::string &format_string, Args &&...args) {
+    fmt::format_to(std::back_inserter(out), fmt::runtime(format_string), std::forward<Args>(args)...);
+}
+} // namespace
+
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static std::string format_sv_array(const std::string &name, const std::vector<std::string> &values, const std::string &tpl_empty,
                                    const std::string &tpl_nonempty) {
     if (values.empty()) {
-        return fmt::format(fmt::runtime(tpl_empty), fmt::arg("name", name)) + std::string("\n");
+        std::string out;
+        out.reserve(tpl_empty.size() + name.size() + 4);
+        append_format_runtime(out, tpl_empty, fmt::arg("name", name));
+        out.push_back('\n');
+        return out;
     }
     std::string body;
+    body.reserve(values.size() * 16);
     for (const auto &v : values)
-        body += fmt::format("    \"{}\",\n", escape_string(v));
-    return fmt::format(fmt::runtime(tpl_nonempty), fmt::arg("count", values.size()), fmt::arg("name", name), fmt::arg("body", body)) +
-           std::string("\n");
+        append_format(body, "    \"{}\",\n", escape_string(v));
+    std::string out;
+    out.reserve(tpl_nonempty.size() + body.size() + 32);
+    append_format_runtime(out, tpl_nonempty, fmt::arg("count", values.size()), fmt::arg("name", name), fmt::arg("body", body));
+    out.push_back('\n');
+    return out;
 }
 
 TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const std::string &tpl_array_empty,
@@ -95,8 +116,9 @@ struct WrapperSpec {
 };
 std::string build_fixture_decls(const std::vector<std::string> &types) {
     std::string decls;
+    decls.reserve(types.size() * 24);
     for (std::size_t i = 0; i < types.size(); ++i) {
-        decls += fmt::format("    {} fx{}_{{}};\n", types[i], i);
+        append_format(decls, "    {} fx{}_{{}};\n", types[i], i);
     }
     return decls;
 }
@@ -104,25 +126,28 @@ std::string build_fixture_decls(const std::vector<std::string> &types) {
 std::string build_fixture_setup(const std::vector<std::string> &types) {
     (void)types;
     std::string setup;
+    setup.reserve(types.size() * 28);
     for (std::size_t i = 0; i < types.size(); ++i)
-        setup += fmt::format("    gentest_maybe_setup(fx{}_);\n", i);
+        append_format(setup, "    gentest_maybe_setup(fx{}_);\n", i);
     return setup;
 }
 
 std::string build_fixture_teardown(const std::vector<std::string> &types) {
     (void)types;
     std::string td;
+    td.reserve(types.size() * 30);
     for (std::size_t i = types.size(); i-- > 0;)
-        td += fmt::format("    gentest_maybe_teardown(fx{}_);\n", i);
+        append_format(td, "    gentest_maybe_teardown(fx{}_);\n", i);
     return td;
 }
 
 std::string build_fixture_arg_list(std::size_t count) {
     std::string args;
+    args.reserve(count * 6);
     for (std::size_t i = 0; i < count; ++i) {
         if (i)
             args += ", ";
-        args += fmt::format("fx{}_", i);
+        append_format(args, "fx{}_", i);
     }
     return args;
 }
@@ -134,7 +159,14 @@ std::string extract_method_name(std::string qualified) {
 }
 
 std::string format_call_args(const std::string &value_args) {
-    return value_args.empty() ? std::string("()") : fmt::format("({})", value_args);
+    if (value_args.empty())
+        return std::string("()");
+    std::string out;
+    out.reserve(value_args.size() + 2);
+    out.push_back('(');
+    out.append(value_args);
+    out.push_back(')');
+    return out;
 }
 
 static std::string make_invoke_for_free(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
@@ -151,12 +183,13 @@ static std::string make_invoke_for_member(const WrapperSpec &spec, const std::st
     return fmt::format("static_cast<void>({});", call_expr);
 }
 
-std::string render_wrapper(const WrapperSpec &spec, const WrapperTemplates &templates) {
+static void append_wrapper(std::string &out, const WrapperSpec &spec, const WrapperTemplates &templates) {
     switch (spec.kind) {
     case WrapperKind::Free: {
         const auto call = format_call_args(spec.value_args);
         const auto invoke = make_invoke_for_free(spec, spec.callee, call);
-        return fmt::format(fmt::runtime(templates.free), fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
+        append_format_runtime(out, templates.free, fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
+        return;
     }
     case WrapperKind::FreeWithFixtures: {
         const std::string decls    = build_fixture_decls(spec.fixtures);
@@ -167,25 +200,27 @@ std::string render_wrapper(const WrapperSpec &spec, const WrapperTemplates &temp
             combined += combined.empty() ? spec.value_args : ", " + spec.value_args;
         const std::string call = fmt::format("({})", combined);
         const auto invoke = make_invoke_for_free(spec, spec.callee, call);
-        return fmt::format(fmt::runtime(templates.free_fixtures), fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
-                           fmt::arg("setup", setup), fmt::arg("teardown", teardown), fmt::arg("invoke", invoke));
+        append_format_runtime(out, templates.free_fixtures, fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
+                              fmt::arg("setup", setup), fmt::arg("teardown", teardown), fmt::arg("invoke", invoke));
+        return;
     }
     case WrapperKind::MemberEphemeral: {
         const auto call = format_call_args(spec.value_args);
         const auto call_expr = fmt::format("fx_.{}{}", spec.method, call);
         const auto invoke    = make_invoke_for_member(spec, call_expr);
-        return fmt::format(fmt::runtime(templates.ephemeral), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
-                           fmt::arg("invoke", invoke));
+        append_format_runtime(out, templates.ephemeral, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
+                              fmt::arg("invoke", invoke));
+        return;
     }
     case WrapperKind::MemberShared: {
         const auto call = format_call_args(spec.value_args);
         const auto call_expr = fmt::format("fx_->{}{}", spec.method, call);
         const auto invoke    = make_invoke_for_member(spec, call_expr);
-        return fmt::format(fmt::runtime(templates.stateful), fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
-                           fmt::arg("invoke", invoke));
+        append_format_runtime(out, templates.stateful, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
+                              fmt::arg("invoke", invoke));
+        return;
     }
     }
-    return {};
 }
 
 WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
@@ -223,7 +258,7 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const Wrappe
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test = cases[idx];
         const auto  spec = build_wrapper_spec(test, idx);
-        out += render_wrapper(spec, templates);
+        append_wrapper(out, spec, templates);
     }
     return out;
 }
@@ -231,7 +266,7 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const Wrappe
 std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const std::vector<std::string> &tag_names,
                                 const std::vector<std::string> &req_names, const std::string &tpl_case_entry) {
     std::string out;
-    out.reserve(cases.size() * 128);
+    out.reserve(cases.size() * 160);
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test             = cases[idx];
         std::string accessor_literal = "nullptr";
@@ -256,10 +291,12 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
             }
         }
 
-        out += fmt::format(
-            fmt::runtime(tpl_case_entry), fmt::arg("name", escape_string(test.display_name)),
+        append_format_runtime(
+            out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)),
             fmt::arg("wrapper", std::string("kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
-            fmt::arg("line", test.line), fmt::arg("is_bench", test.is_benchmark ? "true" : "false"), fmt::arg("is_jitter", test.is_jitter ? "true" : "false"), fmt::arg("is_baseline", test.is_baseline ? "true" : "false"), fmt::arg("tags", tag_names[idx]), fmt::arg("reqs", req_names[idx]),
+            fmt::arg("line", test.line), fmt::arg("is_bench", test.is_benchmark ? "true" : "false"),
+            fmt::arg("is_jitter", test.is_jitter ? "true" : "false"), fmt::arg("is_baseline", test.is_baseline ? "true" : "false"),
+            fmt::arg("tags", tag_names[idx]), fmt::arg("reqs", req_names[idx]),
             fmt::arg("skip_reason",
                      !test.skip_reason.empty() ? "\"" + escape_string(test.skip_reason) + "\"" : std::string("std::string_view{}")),
             fmt::arg("should_skip", test.should_skip ? "true" : "false"),

@@ -8,9 +8,10 @@
 #include <exception>
 #include <filesystem>
 #include <fmt/color.h>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <functional>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -1162,8 +1163,11 @@ auto run_all_tests(std::span<const char*> args) -> int {
     }
 
     if (state.record_results) write_reports(state, opt.junit_path, opt.allure_dir);
-    fmt::print("Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n",
-               counters.passed, counters.total, counters.failed, counters.skipped, counters.xfail, counters.xpass);
+    std::string summary;
+    summary.reserve(128 + state.failure_items.size() * 64);
+    fmt::format_to(std::back_inserter(summary),
+                   "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n",
+                   counters.passed, counters.total, counters.failed, counters.skipped, counters.xfail, counters.xpass);
     if (!state.failure_items.empty()) {
         std::map<std::string, std::vector<std::string>> grouped;
         for (const auto& item : state.failure_items) {
@@ -1174,14 +1178,15 @@ auto run_all_tests(std::span<const char*> args) -> int {
                 }
             }
         }
-        fmt::print("Failed tests:\n");
+        summary.append("Failed tests:\n");
         for (const auto& [name, issues] : grouped) {
-            fmt::print("  {}:\n", name);
+            fmt::format_to(std::back_inserter(summary), "  {}:\n", name);
             for (const auto& issue : issues) {
-                fmt::print("    {}\n", issue);
+                fmt::format_to(std::back_inserter(summary), "    {}\n", issue);
             }
         }
     }
+    fmt::print("{}", summary);
     return counters.failures == 0 ? 0 : 1;
 }
 

@@ -72,6 +72,22 @@ void negate_condition() {
     EXPECT_EQ(flag, false, "double negation");
 }
 
+[[using gentest: test("conditions/false_and_relations")]]
+void false_and_relations() {
+    EXPECT_FALSE(false);
+    ASSERT_FALSE(false, "still false");
+
+    EXPECT_LT(1, 2);
+    EXPECT_LE(2, 2);
+    EXPECT_GT(2, 1);
+    EXPECT_GE(2, 2);
+
+    ASSERT_LT(1, 2);
+    ASSERT_LE(2, 2);
+    ASSERT_GT(2, 1);
+    ASSERT_GE(2, 2);
+}
+
 [[using gentest: fast]]
 void default_name_free() {
     EXPECT_TRUE(true);
