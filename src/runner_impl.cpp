@@ -73,7 +73,16 @@ std::size_t get_case_count() {
 namespace gentest {
 namespace {
 
-struct Counters { std::size_t executed = 0; int failures = 0; };
+struct Counters {
+    std::size_t total = 0;
+    std::size_t executed = 0;
+    std::size_t passed = 0;
+    std::size_t skipped = 0;
+    std::size_t xfail = 0;
+    std::size_t xpass = 0;
+    std::size_t failed = 0;
+    int         failures = 0;
+};
 
 enum class Outcome {
     Pass,
@@ -507,6 +516,8 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
 RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Counters& c) {
     RunResult rr;
     if (test.should_skip) {
+        ++c.total;
+        ++c.skipped;
         rr.skipped = true;
         rr.outcome = Outcome::Skip;
         rr.skip_reason = std::string(test.skip_reason);
@@ -521,6 +532,7 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
         }
         return rr;
     }
+    ++c.total;
     ++c.executed;
     auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
     ctxinfo->display_name = std::string(test.name);
@@ -576,6 +588,7 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
     const bool has_failures = !ctxinfo->failures.empty();
 
     if (should_skip && !has_failures && !threw_non_skip) {
+        ++c.skipped;
         rr.skipped = true;
         rr.outcome = Outcome::Skip;
         rr.skip_reason = std::move(runtime_skip_reason);
@@ -594,6 +607,8 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
     if (is_xfail && !should_skip) {
         rr.xfail_reason = std::move(xfail_reason);
         if (has_failures || threw_non_skip) {
+            ++c.xfail;
+            ++c.skipped;
             rr.outcome = Outcome::XFail;
             rr.skipped = true;
             rr.skip_reason = rr.xfail_reason.empty() ? "xfail" : std::string("xfail: ") + rr.xfail_reason;
@@ -610,6 +625,8 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
         }
         rr.outcome = Outcome::XPass;
         rr.failures.push_back(rr.xfail_reason.empty() ? "xpass" : std::string("xpass: ") + rr.xfail_reason);
+        ++c.xpass;
+        ++c.failed;
         ++c.failures;
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
@@ -632,6 +649,7 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
 
     if (!ctxinfo->failures.empty()) {
         rr.outcome = Outcome::Fail;
+        ++c.failed;
         ++c.failures;
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
@@ -671,8 +689,10 @@ RunResult execute_one(const RunnerState& state, const Case& test, void* ctx, Cou
             fmt::print("[ PASS ] {} ({} ms)\n", test.name, dur_ms);
         }
         rr.outcome = Outcome::Pass;
+        ++c.passed;
     } else {
         rr.outcome = Outcome::Fail;
+        ++c.failed;
         ++c.failures;
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
@@ -809,6 +829,9 @@ static void print_fail_header(const RunnerState& state, const Case& test, long l
 }
 
 static void record_synthetic_failure(RunnerState& state, const Case& test, std::string message, Counters& c) {
+    ++c.total;
+    ++c.executed;
+    ++c.failed;
     ++c.failures;
     const long long dur_ms = 0LL;
     print_fail_header(state, test, dur_ms);
@@ -1119,6 +1142,7 @@ auto run_all_tests(std::span<const char*> args) -> int {
 
     if (state.record_results) write_reports(state, opt.junit_path, opt.allure_dir);
     fmt::print("Executed {} test(s).\n", counters.executed);
+    fmt::print("Passed {}/{} test(s). Skipped {}.\n", counters.passed, counters.total, counters.skipped);
     return counters.failures == 0 ? 0 : 1;
 }
 
