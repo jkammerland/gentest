@@ -6,7 +6,7 @@ Guidelines
 - Default tests per item: `cmake --build --preset=debug-system --target gentest_unit_tests` then `ctest --preset=debug-system --output-on-failure`.
 
 Simplify
-- [ ] Replace `MockParamInfo` 3-boolean ref flags with a compact enum / pass-style to reduce branching.  
+- [x] Replace `MockParamInfo` 3-boolean ref flags with a compact enum / pass-style to reduce branching.  
   Tests: default. Commit: isolated to model/discovery/render.
 - [ ] Extract shared param-info builder for ctor/method parameter extraction to remove duplicated type/name/ref handling.  
   Tests: default. Commit: discovery-only change.

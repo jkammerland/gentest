@@ -203,7 +203,8 @@ std::string forward_original_declaration(const MockClassInfo &cls) {
 }
 
 std::string argument_expr(const MockParamInfo &param) {
-    if (param.is_forwarding_ref) {
+    switch (param.pass_style) {
+    case MockParamInfo::PassStyle::ForwardingRef: {
         std::string out;
         out.reserve(param.name.size() * 2 + 26);
         out += "std::forward<decltype(";
@@ -213,8 +214,11 @@ std::string argument_expr(const MockParamInfo &param) {
         out += ')';
         return out;
     }
-    if (param.is_lvalue_ref) {
+    case MockParamInfo::PassStyle::LValueRef:
         return param.name;
+    case MockParamInfo::PassStyle::RValueRef:
+    case MockParamInfo::PassStyle::Value:
+        break;
     }
     std::string out;
     out.reserve(param.name.size() + 10);

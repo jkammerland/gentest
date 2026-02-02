@@ -108,9 +108,13 @@ struct TestCaseInfo {
 struct MockParamInfo {
     std::string type;     // canonical spelling used in generated signature
     std::string name;     // argument name (auto-assigned when empty)
-    bool        is_lvalue_ref = false;
-    bool        is_rvalue_ref = false;
-    bool        is_forwarding_ref = false;
+    enum class PassStyle {
+        Value,
+        LValueRef,
+        RValueRef,
+        ForwardingRef,
+    };
+    PassStyle pass_style = PassStyle::Value;
 };
 
 // Parameter metadata for mocked constructors.
