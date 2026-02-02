@@ -166,6 +166,19 @@ void concrete_template_member_expect_int() {
     EXPECT_EQ(sum, 10);
 }
 
+[[using gentest: test("mocking/template/forwarding_alias")]]
+void template_forwarding_alias() {
+    gentest::mock<ForwardingAlias> mock_alias;
+    TrackedMove                    value;
+    int                            calls = 0;
+    EXPECT_CALL(mock_alias, take<TrackedMove&>).times(1).invokes([&](const TrackedMove &) { ++calls; });
+
+    mock_alias.template take<TrackedMove&>(value);
+
+    EXPECT_EQ(calls, 1);
+    EXPECT_FALSE(value.moved);
+}
+
 [[using gentest: test("mocking/crtp/bridge")]]
 void crtp_bridge() {
     gentest::mock<DerivedRunner> mock_runner;

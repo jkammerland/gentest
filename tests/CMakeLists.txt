@@ -315,8 +315,8 @@ gentest_add_check_counts(NAME fixtures_list_counts PROG $<TARGET_FILE:gentest_fi
 gentest_add_check_counts(NAME templates_counts PROG $<TARGET_FILE:gentest_templates_tests> PASS 93 FAIL 0 SKIP 0)
 gentest_add_check_lines(NAME templates_list_tests_lines PROG $<TARGET_FILE:gentest_templates_tests> LINES 93 ARGS --list-tests)
 
-gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_tests> PASS 25 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 25)
+gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_tests> PASS 26 FAIL 0 SKIP 0)
+gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 26)
 
 # Runtime skip/xfail/XPASS outcome checks
 gentest_add_check_counts(
