@@ -18,7 +18,7 @@ Simplify
   Tests: default. Commit: render_mocks only.
 
 Performance
-- [ ] Stream parameter combinations in discovery (avoid full cartesian materialization + std::map copies).  
+- [x] Stream parameter combinations in discovery (avoid full cartesian materialization + std::map copies).  
   Tests: default. Commit: discovery-only; note perf rationale.
 - [x] Cache per-record fixture/attribute validation outside `add_case` to avoid repeated AST scans.  
   Tests: default. Commit: discovery-only; keep behavior identical.

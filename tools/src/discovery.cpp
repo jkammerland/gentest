@@ -694,65 +694,88 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
             scalar_axes.push_back(std::move(axis));
         }
-        std::vector<std::vector<std::pair<std::string, std::string>>> scalar_combos;
-        if (scalar_axes.empty()) {
-            scalar_combos.emplace_back();
-        } else {
-            // Build cartesian product of name-value pairs
-            auto total = [&] {
-                std::size_t t = 1;
-                for (auto &ax : scalar_axes) t *= ax.size();
-                return t;
-            }();
-            scalar_combos.reserve(total);
-            std::vector<std::pair<std::string, std::string>> cur;
-            std::function<void(std::size_t)> dfs = [&](std::size_t i) {
-                if (i == scalar_axes.size()) { scalar_combos.push_back(cur); return; }
-                for (const auto &nv : scalar_axes[i]) { cur.push_back(nv); dfs(i + 1); cur.pop_back(); }
-            };
-            dfs(0);
-        }
-        // Combine pack rows across multiple packs into maps name->value
         using NameMap = std::map<std::string, std::string>;
-        std::vector<NameMap> pack_maps{{}};
-        for (const auto &pp : summary.param_packs) {
-            std::vector<NameMap> next;
-            for (const auto &partial : pack_maps) {
-                for (const auto &row : pp.rows) {
-                    NameMap nm = partial;
-                    for (std::size_t i = 0; i < pp.names.size(); ++i)
-                        nm[pp.names[i]] = row[i];
-                    next.push_back(std::move(nm));
-                }
+        NameMap current;
+
+        auto set_value = [&](const std::string &name, const std::string &value) -> std::optional<std::string> {
+            auto it = current.find(name);
+            if (it == current.end()) {
+                current.emplace(name, value);
+                return std::nullopt;
             }
-            pack_maps = std::move(next);
-        }
-        if (pack_maps.empty())
-            pack_maps.emplace_back();
+            std::string prev = it->second;
+            it->second       = value;
+            return prev;
+        };
+        auto restore_value = [&](const std::string &name, const std::optional<std::string> &prev) {
+            if (prev.has_value())
+                current[name] = *prev;
+            else
+                current.erase(name);
+        };
+
+        auto emit_case = [&](const std::vector<std::string> &tpl_combo) {
+            std::string call;
+            for (std::size_t i = 0; i < param_order.size(); ++i) {
+                if (i) call += ", ";
+                const auto &pname = param_order[i];
+                auto        it    = current.find(pname);
+                if (it == current.end()) {
+                    had_error_ = true;
+                    report(fmt::format("missing value for function parameter '{}' in parameters(...) or parameters_pack(...)", pname));
+                    return;
+                }
+                const std::string &ty   = param_types[pname];
+                auto               kind = classify_type(ty);
+                call += quote_for_type(kind, it->second, ty);
+            }
+            add_case(tpl_combo, call);
+        };
+
+        std::function<void(std::size_t, const std::vector<std::string> &)> visit_scalars =
+            [&](std::size_t idx, const std::vector<std::string> &tpl_combo) {
+                if (idx == scalar_axes.size()) {
+                    emit_case(tpl_combo);
+                    return;
+                }
+                for (const auto &nv : scalar_axes[idx]) {
+                    const auto prev = set_value(nv.first, nv.second);
+                    visit_scalars(idx + 1, tpl_combo);
+                    restore_value(nv.first, prev);
+                }
+            };
+
+        std::function<void(std::size_t, const std::vector<std::string> &)> visit_packs =
+            [&](std::size_t idx, const std::vector<std::string> &tpl_combo) {
+                if (idx == summary.param_packs.size()) {
+                    if (scalar_axes.empty())
+                        emit_case(tpl_combo);
+                    else
+                        visit_scalars(0, tpl_combo);
+                    return;
+                }
+                const auto &pp = summary.param_packs[idx];
+                for (const auto &row : pp.rows) {
+                    std::vector<std::pair<std::string, std::optional<std::string>>> prev;
+                    prev.reserve(pp.names.size());
+                    for (std::size_t i = 0; i < pp.names.size(); ++i) {
+                        prev.emplace_back(pp.names[i], set_value(pp.names[i], row[i]));
+                    }
+                    visit_packs(idx + 1, tpl_combo);
+                    for (auto it = prev.rbegin(); it != prev.rend(); ++it) {
+                        restore_value(it->first, it->second);
+                    }
+                }
+            };
 
         for (const auto &tpl_combo : combined_tpl_combos) {
-            for (const auto &pm : pack_maps) {
-                for (const auto &sc : scalar_combos) {
-                    // Build combined map name->value
-                    NameMap combined = pm;
-                    for (const auto &nv : sc) combined[nv.first] = nv.second;
-                    // Build call by function parameter order; require all named
-                    std::string call;
-                    for (std::size_t i = 0; i < param_order.size(); ++i) {
-                        if (i) call += ", ";
-                        const auto &pname = param_order[i];
-                        auto        it    = combined.find(pname);
-                        if (it == combined.end()) {
-                            had_error_ = true;
-                            report(fmt::format("missing value for function parameter '{}' in parameters(...) or parameters_pack(...)", pname));
-                            return;
-                        }
-                        const std::string &ty   = param_types[pname];
-                        auto               kind = classify_type(ty);
-                        call += quote_for_type(kind, it->second, ty);
-                    }
-                    add_case(tpl_combo, call);
-                }
+            if (summary.param_packs.empty()) {
+                if (scalar_axes.empty())
+                    emit_case(tpl_combo);
+                else
+                    visit_scalars(0, tpl_combo);
+            } else {
+                visit_packs(0, tpl_combo);
             }
         }
     } else {
