@@ -14,7 +14,7 @@ Simplify
   Tests: default. Commit: render_mocks only.
 - [x] Refactor `pointer_type_for` to reuse `qualifiers_for` instead of reformatting cv/ref/noexcept.  
   Tests: default. Commit: render_mocks helpers only.
-- [ ] Factor out shared dispatch emission between `build_method_declaration` and `method_definition`.  
+- [x] Factor out shared dispatch emission between `build_method_declaration` and `method_definition`.  
   Tests: default. Commit: render_mocks only.
 
 Performance

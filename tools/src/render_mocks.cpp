@@ -72,6 +72,29 @@ std::string ensure_global_qualifiers(std::string value) {
 // Forward declarations
 std::string argument_list(const MockMethodInfo &method);
 
+std::string dispatch_block(const std::string &indent, const MockMethodInfo &method, const std::string &fq_type,
+                           const std::string &tpl_usage) {
+    std::string block;
+    append_format(block, "{0}auto token = this->__gentest_state_.identify(&{1}::{2}{3});\n", indent, fq_type, method.method_name,
+                  tpl_usage);
+    const std::string return_type   = ensure_global_qualifiers(method.return_type);
+    const std::string args          = argument_list(method);
+    const bool        returns_value = method.return_type != "void";
+    std::string       fq_method;
+    fq_method.reserve(method.qualified_name.size() + 2);
+    fq_method += "::";
+    fq_method += method.qualified_name;
+    std::string dispatch_args;
+    if (!args.empty()) {
+        dispatch_args.reserve(args.size() + 2);
+        dispatch_args += ", ";
+        dispatch_args += args;
+    }
+    append_format(block, "{0}{1}this->__gentest_state_.template dispatch<{2}>(token, \"{3}\"{4});\n", indent,
+                  returns_value ? "return " : "", return_type, fq_method, dispatch_args);
+    return block;
+}
+
 std::string join_parameter_list(const std::vector<MockParamInfo> &params) {
     std::string out;
     out.reserve(params.size() * 16);
@@ -240,7 +263,6 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
         fq_type.reserve(cls.qualified_name.size() + 2);
         fq_type += "::";
         fq_type += cls.qualified_name;
-        const std::string args    = argument_list(method);
         const std::string tpl_use = [&]() {
             if (method.template_param_names.empty()) return std::string{};
             std::string out = "<";
@@ -252,22 +274,7 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
             return out;
         }();
         decl += " {\n";
-        append_format(decl, "        auto token = this->__gentest_state_.identify(&{}::{}{});\n", fq_type, method.method_name,
-                      tpl_use);
-        const bool        returns_value = method.return_type != "void";
-        const std::string return_type   = ensure_global_qualifiers(method.return_type);
-        std::string       fq_method;
-        fq_method.reserve(method.qualified_name.size() + 2);
-        fq_method += "::";
-        fq_method += method.qualified_name;
-        std::string dispatch_args;
-        if (!args.empty()) {
-            dispatch_args.reserve(args.size() + 2);
-            dispatch_args += ", ";
-            dispatch_args += args;
-        }
-        append_format(decl, "        {}this->__gentest_state_.template dispatch<{}>(token, \"{}\"{});\n",
-                      returns_value ? "return " : "", return_type, fq_method, dispatch_args);
+        decl += dispatch_block("        ", method, fq_type, tpl_use);
         decl += "    }";
     } else {
         decl += ';';
@@ -438,22 +445,7 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
         out += ">";
         return out;
     }();
-    append_format(def, "    auto token = this->__gentest_state_.identify(&{}::{}{});\n", fq_type, method.method_name, tpl_usage);
-    const std::string return_type   = ensure_global_qualifiers(method.return_type);
-    const std::string args          = argument_list(method);
-    const bool        returns_value = method.return_type != "void";
-    std::string       fq_method;
-    fq_method.reserve(method.qualified_name.size() + 2);
-    fq_method += "::";
-    fq_method += method.qualified_name;
-    std::string dispatch_args;
-    if (!args.empty()) {
-        dispatch_args.reserve(args.size() + 2);
-        dispatch_args += ", ";
-        dispatch_args += args;
-    }
-    append_format(def, "    {}this->__gentest_state_.template dispatch<{}>(token, \"{}\"{});\n",
-                  returns_value ? "return " : "", return_type, fq_method, dispatch_args);
+    def += dispatch_block("    ", method, fq_type, tpl_usage);
     def += "}\n";
     return def;
 }
