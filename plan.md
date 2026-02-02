@@ -12,7 +12,7 @@ Simplify
   Tests: default. Commit: discovery-only change.
 - [x] Normalize `ensure_global_qualifiers` usage to a single pass (avoid double-qualification in callers).  
   Tests: default. Commit: render_mocks only.
-- [ ] Refactor `pointer_type_for` to reuse `qualifiers_for` instead of reformatting cv/ref/noexcept.  
+- [x] Refactor `pointer_type_for` to reuse `qualifiers_for` instead of reformatting cv/ref/noexcept.  
   Tests: default. Commit: render_mocks helpers only.
 - [ ] Factor out shared dispatch emission between `build_method_declaration` and `method_definition`.  
   Tests: default. Commit: render_mocks only.

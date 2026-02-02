@@ -113,8 +113,7 @@ std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &met
         ptr += " (*)(";
         ptr += join_type_list(method.parameters);
         ptr += ')';
-        if (method.is_noexcept)
-            ptr += " noexcept";
+        ptr += qualifiers_for(method);
         return ptr;
     }
     ptr += ensure_global_qualifiers(method.return_type);
@@ -124,16 +123,7 @@ std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &met
     ptr += "::*)(";
     ptr += join_type_list(method.parameters);
     ptr += ')';
-    if (method.is_const)
-        ptr += " const";
-    if (method.is_volatile)
-        ptr += " volatile";
-    if (!method.ref_qualifier.empty()) {
-        ptr += ' ';
-        ptr += method.ref_qualifier;
-    }
-    if (method.is_noexcept)
-        ptr += " noexcept";
+    ptr += qualifiers_for(method);
     return ptr;
 }
 
