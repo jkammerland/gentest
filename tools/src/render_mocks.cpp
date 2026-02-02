@@ -211,30 +211,66 @@ std::string forward_original_declaration(const MockClassInfo &cls) {
     return out;
 }
 
-std::string argument_expr(const MockParamInfo &param) {
-    switch (param.pass_style) {
-    case MockParamInfo::PassStyle::ForwardingRef: {
+enum class ForwardingMode {
+    Borrow,
+    Copy,
+    Forward,
+    Move,
+};
+
+struct ForwardingPolicy {
+    enum class ValuePassPolicy {
+        Copy,
+        Move,
+    };
+
+    // Default policy keeps current behavior (move from by-value params).
+    static constexpr ValuePassPolicy value_pass_policy = ValuePassPolicy::Move;
+
+    [[nodiscard]] ForwardingMode mode_for(const MockParamInfo &param) const {
+        switch (param.pass_style) {
+        case MockParamInfo::PassStyle::ForwardingRef:
+            return ForwardingMode::Forward;
+        case MockParamInfo::PassStyle::LValueRef:
+            return ForwardingMode::Borrow;
+        case MockParamInfo::PassStyle::RValueRef:
+            return ForwardingMode::Move;
+        case MockParamInfo::PassStyle::Value:
+            return value_pass_policy == ValuePassPolicy::Copy ? ForwardingMode::Copy : ForwardingMode::Move;
+        }
+        return ForwardingMode::Move;
+    }
+
+    [[nodiscard]] std::string expr_for(const MockParamInfo &param) const {
+        switch (mode_for(param)) {
+        case ForwardingMode::Forward: {
+            std::string out;
+            out.reserve(param.name.size() * 2 + 26);
+            out += "std::forward<decltype(";
+            out += param.name;
+            out += ")>(";
+            out += param.name;
+            out += ')';
+            return out;
+        }
+        case ForwardingMode::Borrow:
+        case ForwardingMode::Copy:
+            return param.name;
+        case ForwardingMode::Move:
+            break;
+        }
         std::string out;
-        out.reserve(param.name.size() * 2 + 26);
-        out += "std::forward<decltype(";
-        out += param.name;
-        out += ")>(";
+        out.reserve(param.name.size() + 10);
+        out += "std::move(";
         out += param.name;
         out += ')';
         return out;
     }
-    case MockParamInfo::PassStyle::LValueRef:
-        return param.name;
-    case MockParamInfo::PassStyle::RValueRef:
-    case MockParamInfo::PassStyle::Value:
-        break;
-    }
-    std::string out;
-    out.reserve(param.name.size() + 10);
-    out += "std::move(";
-    out += param.name;
-    out += ')';
-    return out;
+};
+
+std::string argument_expr(const MockParamInfo &param) {
+    static const ForwardingPolicy policy{};
+    return policy.expr_for(param);
 }
 
 std::string build_method_declaration(const MockClassInfo &cls, const MockMethodInfo &method) {

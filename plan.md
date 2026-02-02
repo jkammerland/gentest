@@ -34,13 +34,13 @@ Performance
   Tests: default. Commit: tools/src/log.hpp only.
 
 Extensibility
-- [ ] Centralize forwarding policy (single helper owns move/forward/copy decision) to avoid split logic between discovery/render.  
-  Tests: default. Commit: render+discovery; keep helper in one place.
+- [x] Centralize forwarding policy (single helper owns move/forward/copy decision) to avoid split logic between discovery/render.  
+  Tests: default. Commit: render_mocks; shared with value policy hook.
 - [ ] Unify constructor forwarding with method argument forwarding (avoid separate hard-coded path).  
   Tests: default. Commit: render_mocks only unless policy helper changes.
 - [x] Expand `MockParamInfo` to carry cv/value-category metadata for future policies.  
   Tests: default. Commit: model+discovery+render update.
 - [x] Broaden forwarding-ref detection beyond bare `TemplateTypeParmType`/`auto` (handle aliases/substituted template types).  
   Tests: default. Commit: discovery-only; add focused tests if behavior changes.
-- [ ] Add explicit policy hook for by-value parameters (copy vs move) in argument emission.  
-  Tests: default. Commit: render_mocks only; document default policy.
+- [x] Add explicit policy hook for by-value parameters (copy vs move) in argument emission.  
+  Tests: default. Commit: render_mocks; shared with forwarding policy helper.
