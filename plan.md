@@ -28,7 +28,7 @@ Performance
   Tests: default. Commit: may overlap with Simplify/qualifier pass; cross-reference.
 - [x] Simplify `close_namespaces` to compute component count once.  
   Tests: default. Commit: render_mocks only.
-- [ ] Avoid copying mocks vector just to sort (sort indices or move if allowed).  
+- [x] Avoid copying mocks vector just to sort (sort indices or move if allowed).  
   Tests: default. Commit: render_mocks only.
 - [ ] Reduce logging allocations by writing fmt buffer directly to `llvm::errs()` (skip to_string).  
   Tests: default. Commit: tools/src/log.hpp only.
