@@ -534,7 +534,7 @@ std::string generate_implementation_header(const std::vector<const MockClassInfo
                     if (i != 0)
                         impl += ", ";
                     const auto &p = ctor.parameters[i];
-                    append_format(impl, "std::forward<decltype({0})>({0})", p.name);
+                    append_format(impl, "{}", argument_expr(p));
                 }
                 impl += ')';
                 impl += " {}\n";
