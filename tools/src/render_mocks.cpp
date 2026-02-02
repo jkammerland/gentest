@@ -177,17 +177,13 @@ std::string open_namespaces(const std::string &ns) {
 std::string close_namespaces(const std::string &ns) {
     std::string code;
     if (ns.empty()) return code;
-    std::size_t count = 1;
-    for (std::size_t pos = 0; pos != std::string::npos; ) {
-        pos = ns.find("::", pos == 0 ? 0 : pos + 2);
+    std::size_t count = 0;
+    std::size_t pos   = 0;
+    while (true) {
         ++count;
-    }
-    // count is approximate; simpler: count number of components
-    count = 0;
-    for (std::size_t i = 0, j; i < ns.size(); i = j + 2) {
-        j = ns.find("::", i);
-        if (j == std::string::npos) { ++count; break; }
-        ++count;
+        pos = ns.find("::", pos);
+        if (pos == std::string::npos) break;
+        pos += 2;
     }
     for (std::size_t i = 0; i < count; ++i) code += "}\n";
     return code;

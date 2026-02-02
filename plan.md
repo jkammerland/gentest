@@ -26,7 +26,7 @@ Performance
   Tests: default. Commit: discovery-only.
 - [ ] Remove double `ensure_global_qualifiers` passes in render paths (join_* vs outer callers).  
   Tests: default. Commit: may overlap with Simplify/qualifier pass; cross-reference.
-- [ ] Simplify `close_namespaces` to compute component count once.  
+- [x] Simplify `close_namespaces` to compute component count once.  
   Tests: default. Commit: render_mocks only.
 - [ ] Avoid copying mocks vector just to sort (sort indices or move if allowed).  
   Tests: default. Commit: render_mocks only.
