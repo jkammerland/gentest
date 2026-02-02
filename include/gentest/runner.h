@@ -19,6 +19,8 @@
 #include <vector>
 #include <filesystem>
 
+#include "gentest/fixture.h"
+
 namespace gentest {
 
 // Lightweight assertion and test-runner interfaces used by generated code.
@@ -961,21 +963,21 @@ template <typename Fixture>
 inline void* acquire_suite_fixture(std::string_view suite_) {
     struct Entry {
         std::string_view           key;
-        std::unique_ptr<Fixture>   instance;
+        FixtureHandle<Fixture> instance;
     };
     static std::vector<Entry> fixtures_;
     for (auto& entry : fixtures_) {
         if (entry.key == suite_) return entry.instance.get();
     }
-    fixtures_.push_back(Entry{.key = suite_, .instance = std::make_unique<Fixture>()});
+    fixtures_.push_back(Entry{.key = suite_, .instance = FixtureHandle<Fixture>{}});
     return fixtures_.back().instance.get();
 }
 
 // Global fixtures: one process-wide instance.
 template <typename Fixture>
 inline void* acquire_global_fixture(std::string_view) {
-    static Fixture fx_;
-    return &fx_;
+    static FixtureHandle<Fixture> fx_;
+    return fx_.get();
 }
 } // namespace detail
 

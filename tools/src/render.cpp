@@ -118,7 +118,7 @@ std::string build_fixture_decls(const std::vector<std::string> &types) {
     std::string decls;
     decls.reserve(types.size() * 24);
     for (std::size_t i = 0; i < types.size(); ++i) {
-        append_format(decls, "    {} fx{}_{{}};\n", types[i], i);
+        append_format(decls, "    ::gentest::detail::FixtureHandle<{}> fx{}_{{}};\n", types[i], i);
     }
     return decls;
 }
@@ -128,7 +128,7 @@ std::string build_fixture_setup(const std::vector<std::string> &types) {
     std::string setup;
     setup.reserve(types.size() * 28);
     for (std::size_t i = 0; i < types.size(); ++i)
-        append_format(setup, "    gentest_maybe_setup(fx{}_);\n", i);
+        append_format(setup, "    gentest_maybe_setup(fx{}_.ref());\n", i);
     return setup;
 }
 
@@ -137,7 +137,7 @@ std::string build_fixture_teardown(const std::vector<std::string> &types) {
     std::string td;
     td.reserve(types.size() * 30);
     for (std::size_t i = types.size(); i-- > 0;)
-        append_format(td, "    gentest_maybe_teardown(fx{}_);\n", i);
+        append_format(td, "    gentest_maybe_teardown(fx{}_.ref());\n", i);
     return td;
 }
 
@@ -206,7 +206,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
     }
     case WrapperKind::MemberEphemeral: {
         const auto call = format_call_args(spec.value_args);
-        const auto call_expr = fmt::format("fx_.{}{}", spec.method, call);
+        const auto call_expr = fmt::format("fx_.ref().{}{}", spec.method, call);
         const auto invoke    = make_invoke_for_member(spec, call_expr);
         append_format_runtime(out, templates.ephemeral, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
                               fmt::arg("invoke", invoke));

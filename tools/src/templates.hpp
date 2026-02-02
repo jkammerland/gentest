@@ -155,10 +155,10 @@ inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static void {w}(
 
 inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void* ctx_) {{
     (void)ctx_;
-    {fixture} fx_;
-    gentest_maybe_setup(fx_);
+    ::gentest::detail::FixtureHandle<{fixture}> fx_;
+    gentest_maybe_setup(fx_.ref());
     {invoke}
-    gentest_maybe_teardown(fx_);
+    gentest_maybe_teardown(fx_.ref());
 }}
 
 )FMT";
