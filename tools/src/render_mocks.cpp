@@ -101,7 +101,7 @@ std::string join_type_list(const std::vector<MockParamInfo> &params) {
 std::string signature_from(const MockMethodInfo &method) {
     std::string sig = ensure_global_qualifiers(method.return_type);
     sig += '(';
-    sig += ensure_global_qualifiers(join_type_list(method.parameters));
+    sig += join_type_list(method.parameters);
     sig += ')';
     return sig;
 }
@@ -111,7 +111,7 @@ std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &met
     if (method.is_static) {
         ptr += ensure_global_qualifiers(method.return_type);
         ptr += " (*)(";
-        ptr += ensure_global_qualifiers(join_type_list(method.parameters));
+        ptr += join_type_list(method.parameters);
         ptr += ')';
         if (method.is_noexcept)
             ptr += " noexcept";
@@ -122,7 +122,7 @@ std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &met
     ptr += "::";
     ptr += cls.qualified_name;
     ptr += "::*)(";
-    ptr += ensure_global_qualifiers(join_type_list(method.parameters));
+    ptr += join_type_list(method.parameters);
     ptr += ')';
     if (method.is_const)
         ptr += " const";
@@ -434,7 +434,7 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
     def += ">::";
     def += method.method_name;
     def += '(';
-    def += ensure_global_qualifiers(join_parameter_list(method.parameters));
+    def += join_parameter_list(method.parameters);
     def += ')';
     def += qualifiers_for(method);
     def += " {\n";
@@ -507,7 +507,7 @@ std::string generate_implementation_header(const std::vector<MockClassInfo> &moc
                 impl += '\n';
             }
             append_format(impl, "inline mock<{0}>::mock(", fq_type);
-            impl += ensure_global_qualifiers(join_parameter_list(ctor.parameters));
+            impl += join_parameter_list(ctor.parameters);
             impl += ')';
             if (ctor.is_noexcept) {
                 impl += " noexcept";

@@ -10,7 +10,7 @@ Simplify
   Tests: default. Commit: isolated to model/discovery/render.
 - [x] Extract shared param-info builder for ctor/method parameter extraction to remove duplicated type/name/ref handling.  
   Tests: default. Commit: discovery-only change.
-- [ ] Normalize `ensure_global_qualifiers` usage to a single pass (avoid double-qualification in callers).  
+- [x] Normalize `ensure_global_qualifiers` usage to a single pass (avoid double-qualification in callers).  
   Tests: default. Commit: render_mocks only.
 - [ ] Refactor `pointer_type_for` to reuse `qualifiers_for` instead of reformatting cv/ref/noexcept.  
   Tests: default. Commit: render_mocks helpers only.
