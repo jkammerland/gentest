@@ -334,6 +334,43 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         tu_filename = tu_file.str();
     }
 
+    struct FixtureContext {
+        std::string    qualified_name;
+        FixtureLifetime lifetime = FixtureLifetime::MemberEphemeral;
+    };
+    std::optional<FixtureContext> fixture_ctx;
+    if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
+        if (const auto *record = method->getParent()) {
+            const auto class_attrs = collect_gentest_attributes_for(*record, *sm);
+            for (const auto &message : class_attrs.other_namespaces)
+                report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
+            auto fixture_summary = validate_fixture_attributes(class_attrs.gentest, [&](const std::string &m) {
+                had_error_ = true;
+                report(m);
+            });
+            FixtureContext ctx;
+            ctx.qualified_name = record->getQualifiedNameAsString();
+            if (fixture_summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
+                had_error_  = true;
+                report("'fixture(suite)' requires an enclosing named namespace to derive a suite path");
+                ctx.lifetime = FixtureLifetime::MemberEphemeral;
+            } else {
+                ctx.lifetime = fixture_summary.lifetime;
+            }
+            if (ctx.lifetime == FixtureLifetime::MemberSuite || ctx.lifetime == FixtureLifetime::MemberGlobal) {
+                if (strict_fixture_) {
+                    had_error_ = true;
+                    if (ctx.lifetime == FixtureLifetime::MemberSuite) {
+                        report("suite fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
+                    } else {
+                        report("global fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
+                    }
+                }
+            }
+            fixture_ctx = std::move(ctx);
+        }
+    }
+
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &call_args) {
         TestCaseInfo info{};
         info.qualified_name = make_qualified(tpl_ordered);
@@ -363,36 +400,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 info.free_fixtures.push_back(std::move(qualified));
             }
         }
-        if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
-            if (const auto *record = method->getParent()) {
-                const auto class_attrs = collect_gentest_attributes_for(*record, *sm);
-                for (const auto &message : class_attrs.other_namespaces)
-                    report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
-                auto fixture_summary        = validate_fixture_attributes(class_attrs.gentest, [&](const std::string &m) {
-                    had_error_ = true;
-                    report(m);
-                });
-                info.fixture_qualified_name = record->getQualifiedNameAsString();
-                if (fixture_summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
-                    had_error_            = true;
-                    report("'fixture(suite)' requires an enclosing named namespace to derive a suite path");
-                    info.fixture_lifetime = FixtureLifetime::MemberEphemeral;
-                } else {
-                    info.fixture_lifetime = fixture_summary.lifetime;
-                }
-
-                // Optional strict mode: disallow member tests on suite/global fixtures
-                if (info.fixture_lifetime == FixtureLifetime::MemberSuite || info.fixture_lifetime == FixtureLifetime::MemberGlobal) {
-                    if (strict_fixture_) {
-                        had_error_ = true;
-                        if (info.fixture_lifetime == FixtureLifetime::MemberSuite) {
-                            report("suite fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
-                        } else {
-                            report("global fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
-                        }
-                    }
-                }
-            }
+        if (fixture_ctx) {
+            info.fixture_qualified_name = fixture_ctx->qualified_name;
+            info.fixture_lifetime       = fixture_ctx->lifetime;
         }
         std::string key = info.qualified_name + "#" + info.display_name + "@" + info.filename + ":" + std::to_string(info.line);
         if (seen_.insert(key).second)

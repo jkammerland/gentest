@@ -20,7 +20,7 @@ Simplify
 Performance
 - [ ] Stream parameter combinations in discovery (avoid full cartesian materialization + std::map copies).  
   Tests: default. Commit: discovery-only; note perf rationale.
-- [ ] Cache per-record fixture/attribute validation outside `add_case` to avoid repeated AST scans.  
+- [x] Cache per-record fixture/attribute validation outside `add_case` to avoid repeated AST scans.  
   Tests: default. Commit: discovery-only; keep behavior identical.
 - [ ] Precompute normalized type strings for parameter ranges to avoid per-value string rebuilds.  
   Tests: default. Commit: discovery-only.
