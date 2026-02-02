@@ -85,6 +85,18 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return ParamPassStyle::Value;
 }
 
+[[nodiscard]] MockParamInfo build_param_info(const ParmVarDecl &param, const ASTContext &ctx, bool is_template, unsigned index) {
+    MockParamInfo info;
+    info.type = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
+    info.pass_style = classify_param_pass_style(param);
+    if (!param.getNameAsString().empty()) {
+        info.name = param.getNameAsString();
+    } else {
+        info.name = fmt::format("arg{}", index);
+    }
+    return info;
+}
+
 [[nodiscard]] bool has_accessible_default_ctor(const CXXRecordDecl &record) {
     if (!record.hasDefinition())
         return false;
@@ -317,15 +329,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         const bool is_template = ctor->getDescribedFunctionTemplate() != nullptr;
         unsigned arg_index = 0;
         for (const auto *param : ctor->parameters()) {
-            MockParamInfo param_info;
-            param_info.type = is_template ? print_type_as_written(param->getType(), ctx) : print_type(param->getType(), ctx);
-            param_info.pass_style = classify_param_pass_style(*param);
-            if (!param->getNameAsString().empty()) {
-                param_info.name = param->getNameAsString();
-            } else {
-                param_info.name = fmt::format("arg{}", arg_index);
-            }
-            ctor_info.parameters.push_back(std::move(param_info));
+            ctor_info.parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
             ++arg_index;
         }
 
@@ -412,16 +416,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
 
         unsigned arg_index = 0;
         for (const auto *param : method->parameters()) {
-            MockParamInfo param_info;
-            param_info.type = is_template ? print_type_as_written(param->getType(), ctx)
-                                         : print_type(param->getType(), ctx);
-            param_info.pass_style = classify_param_pass_style(*param);
-            if (!param->getNameAsString().empty()) {
-                param_info.name = param->getNameAsString();
-            } else {
-                param_info.name = fmt::format("arg{}", arg_index);
-            }
-            method_info.parameters.push_back(std::move(param_info));
+            method_info.parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
             ++arg_index;
         }
 

@@ -8,7 +8,7 @@ Guidelines
 Simplify
 - [x] Replace `MockParamInfo` 3-boolean ref flags with a compact enum / pass-style to reduce branching.  
   Tests: default. Commit: isolated to model/discovery/render.
-- [ ] Extract shared param-info builder for ctor/method parameter extraction to remove duplicated type/name/ref handling.  
+- [x] Extract shared param-info builder for ctor/method parameter extraction to remove duplicated type/name/ref handling.  
   Tests: default. Commit: discovery-only change.
 - [ ] Normalize `ensure_global_qualifiers` usage to a single pass (avoid double-qualification in callers).  
   Tests: default. Commit: render_mocks only.
