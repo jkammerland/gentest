@@ -22,6 +22,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 using namespace clang;
@@ -490,8 +491,12 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             return out;
         };
-        auto is_integer_type = [&](std::string_view ty) -> bool {
-            const std::string t = normalize_type(ty);
+        std::unordered_map<std::string, std::string> param_types_norm;
+        param_types_norm.reserve(param_types.size());
+        for (const auto &[name, ty] : param_types) {
+            param_types_norm.emplace(name, normalize_type(ty));
+        }
+        auto is_integer_type = [&](const std::string &t) -> bool {
             if (t.find("bool") != std::string::npos)
                 return true;
             if (t.find("char") != std::string::npos && t.find("char_t") == std::string::npos)
@@ -510,8 +515,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 return true;
             return false;
         };
-        auto is_float_type = [&](std::string_view ty) -> bool {
-            const std::string t = normalize_type(ty);
+        auto is_float_type = [&](const std::string &t) -> bool {
             return t.find("float") != std::string::npos || t.find("double") != std::string::npos;
         };
         auto to_int = [](std::string_view s) -> long long {
@@ -544,7 +548,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             return {buf};
         };
         for (const auto &rs : summary.parameter_ranges) {
-            const std::string &ty = param_types[rs.name];
+            const std::string &ty = param_types_norm.at(rs.name);
             std::vector<std::pair<std::string, std::string>> axis;
             if (is_integer_type(ty)) {
                 long long a = to_int(rs.start), st = to_int(rs.step), b = to_int(rs.end);
@@ -589,7 +593,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             scalar_axes.push_back(std::move(axis));
         }
         for (const auto &ls : summary.parameter_linspaces) {
-            const std::string &ty = param_types[ls.name];
+            const std::string &ty = param_types_norm.at(ls.name);
             std::vector<std::pair<std::string, std::string>> axis;
             long long n = to_int(ls.count);
             if (n < 1)
@@ -624,7 +628,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             scalar_axes.push_back(std::move(axis));
         }
         for (const auto &gs : summary.parameter_geoms) {
-            const std::string &ty = param_types[gs.name];
+            const std::string &ty = param_types_norm.at(gs.name);
             std::vector<std::pair<std::string, std::string>> axis;
             long long n = to_int(gs.count);
             if (n < 1)
@@ -653,7 +657,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             scalar_axes.push_back(std::move(axis));
         }
         for (const auto &ls : summary.parameter_logspaces) {
-            const std::string &ty = param_types[ls.name];
+            const std::string &ty = param_types_norm.at(ls.name);
             std::vector<std::pair<std::string, std::string>> axis;
             long long n = to_int(ls.count);
             if (n < 1)

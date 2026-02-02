@@ -22,7 +22,7 @@ Performance
   Tests: default. Commit: discovery-only; note perf rationale.
 - [x] Cache per-record fixture/attribute validation outside `add_case` to avoid repeated AST scans.  
   Tests: default. Commit: discovery-only; keep behavior identical.
-- [ ] Precompute normalized type strings for parameter ranges to avoid per-value string rebuilds.  
+- [x] Precompute normalized type strings for parameter ranges to avoid per-value string rebuilds.  
   Tests: default. Commit: discovery-only.
 - [x] Remove double `ensure_global_qualifiers` passes in render paths (join_* vs outer callers).  
   Tests: default. Commit: may overlap with Simplify/qualifier pass; cross-reference.
