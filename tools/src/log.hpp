@@ -21,7 +21,7 @@ void log_err(fmt::format_string<Args...> format_string, Args &&...args) {
     fmt::memory_buffer buffer;
     buffer.reserve(256);
     fmt::format_to(std::back_inserter(buffer), format_string, std::forward<Args>(args)...);
-    llvm::errs() << fmt::to_string(buffer);
+    llvm::errs().write(buffer.data(), buffer.size());
 }
 
 inline void log_err_raw(std::string_view message) {
