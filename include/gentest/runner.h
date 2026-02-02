@@ -969,14 +969,17 @@ inline void* acquire_suite_fixture(std::string_view suite_) {
     for (auto& entry : fixtures_) {
         if (entry.key == suite_) return entry.instance.get();
     }
-    fixtures_.push_back(Entry{.key = suite_, .instance = FixtureHandle<Fixture>{}});
-    return fixtures_.back().instance.get();
+    FixtureHandle<Fixture> instance = FixtureHandle<Fixture>::empty();
+    const bool ok = instance.init(suite_);
+    fixtures_.push_back(Entry{.key = suite_, .instance = std::move(instance)});
+    return ok ? fixtures_.back().instance.get() : nullptr;
 }
 
 // Global fixtures: one process-wide instance.
 template <typename Fixture>
 inline void* acquire_global_fixture(std::string_view) {
     static FixtureHandle<Fixture> fx_;
+    if (!fx_.valid()) return nullptr;
     return fx_.get();
 }
 } // namespace detail

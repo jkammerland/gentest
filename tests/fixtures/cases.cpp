@@ -3,6 +3,7 @@
 #include "gentest/runner.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 #include <stdexcept>
 
@@ -40,15 +41,18 @@ struct AllocEphemeral {
 
 struct [[using gentest: fixture(suite)]] Counter /* optionally implement setup/teardown later */ {
     int x = 0;
+    static inline Counter* last = nullptr;
 
     [[using gentest: test("stateful/a_set_flag")]]
     void set_flag() {
         x = 1;
+        last = this;
     }
 
     [[using gentest: test("stateful/b_check_flag")]]
     void check_flag() {
         gentest::expect_eq(x, 1, "state preserved across methods");
+        gentest::expect_eq(this, last, "suite fixture instance reused");
     }
 };
 
@@ -74,23 +78,53 @@ struct [[using gentest: fixture(suite)]] SuiteAlloc {
     }
 };
 
+struct [[using gentest: fixture(suite)]] SuiteHook {
+    static inline int allocations = 0;
+    static inline std::string seen_suite;
+    static inline SuiteHook* first = nullptr;
+
+    static std::unique_ptr<SuiteHook> gentest_allocate(std::string_view suite) {
+        ++allocations;
+        seen_suite = std::string(suite);
+        return std::make_unique<SuiteHook>();
+    }
+
+    [[using gentest: test("suite_hook/a_allocate")]]
+    void allocate() {
+        if (!first) first = this;
+        gentest::expect_eq(allocations, 1, "suite fixture allocated once");
+        gentest::expect_eq(seen_suite, "fixtures", "suite name passed to allocation hook");
+    }
+
+    [[using gentest: test("suite_hook/b_shared")]]
+    void shared() {
+        gentest::expect_eq(this, first, "suite fixture instance reused");
+        gentest::expect_eq(allocations, 1, "suite fixture allocated once");
+        gentest::expect_eq(seen_suite, "fixtures", "suite name passed to allocation hook");
+    }
+};
+
 struct [[using gentest: fixture(global)]] GlobalCounter {
     int hits = 0;
+    static inline GlobalCounter* last = nullptr;
 
     [[using gentest: test("global/increment")]]
     void increment() {
         ++hits;
+        last = this;
         gentest::expect_eq(hits, 1, "first increment sets global state");
     }
 
     [[using gentest: test("global/observe")]]
     void observe() {
         gentest::expect_eq(hits, 1, "global fixture persists across tests");
+        gentest::expect_eq(this, last, "global fixture instance reused");
     }
 };
 
 struct [[using gentest: fixture(global)]] GlobalAlloc {
     static inline int allocations = 0;
+    static inline GlobalAlloc* last = nullptr;
     static std::shared_ptr<GlobalAlloc> gentest_allocate() {
         ++allocations;
         return std::make_shared<GlobalAlloc>();
@@ -101,12 +135,14 @@ struct [[using gentest: fixture(global)]] GlobalAlloc {
     [[using gentest: test("global_alloc/a_increment")]]
     void increment() {
         ++hits;
+        last = this;
         gentest::expect_eq(allocations, 1, "global fixture allocated once");
     }
 
     [[using gentest: test("global_alloc/b_observe")]]
     void observe() {
         gentest::expect_eq(hits, 1, "global fixture persists across tests");
+        gentest::expect_eq(this, last, "global fixture instance reused");
         gentest::expect_eq(allocations, 1, "global fixture allocated once");
     }
 };
@@ -159,6 +195,34 @@ struct SharedFixture {
         return std::make_shared<SharedFixture>();
     }
     int value = 4;
+};
+
+struct CustomDeleterFixture {
+    struct Deleter {
+        void operator()(CustomDeleterFixture* ptr) const {
+            ++CustomDeleterFixture::deletes;
+            delete ptr;
+        }
+    };
+    static inline int deletes = 0;
+    static std::unique_ptr<CustomDeleterFixture, Deleter> gentest_allocate() {
+        return std::unique_ptr<CustomDeleterFixture, Deleter>(new CustomDeleterFixture(), Deleter{});
+    }
+
+    [[using gentest: test("custom_deleter/a_use")]]
+    void use() {
+        gentest::expect_eq(deletes, 0, "deleter not called before first test");
+    }
+
+    [[using gentest: test("custom_deleter/b_after_first")]]
+    void after_first() {
+        gentest::expect_eq(deletes, 1, "deleter ran after first test");
+    }
+
+    [[using gentest: test("custom_deleter/c_after_second")]]
+    void after_second() {
+        gentest::expect_eq(deletes, 2, "deleter ran after second test");
+    }
 };
 
 [[using gentest: test("free/basic"), fixtures(A, B<int>, C)]]

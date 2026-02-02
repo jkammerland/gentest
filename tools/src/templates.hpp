@@ -65,6 +65,28 @@ template <typename T>
 inline void gentest_maybe_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) t.tearDown();
 }
+
+inline void gentest_record_fixture_failure(std::string_view fixture, std::string_view reason) {
+    std::string msg;
+    msg.reserve(fixture.size() + reason.size() + 40);
+    msg.append("fixture allocation failed for '");
+    msg.append(fixture);
+    msg.push_back('\'');
+    if (!reason.empty()) {
+        msg.append(": ");
+        msg.append(reason);
+    }
+    gentest::detail::record_failure(std::move(msg));
+}
+
+template <typename Handle>
+inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
+    if (!handle.init()) {
+        gentest_record_fixture_failure(fixture, "returned null");
+        return false;
+    }
+    return true;
+}
 {{WRAPPER_IMPLS}}
 
 constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
@@ -120,6 +142,28 @@ template <typename T>
 inline void gentest_maybe_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) t.tearDown();
 }
+
+inline void gentest_record_fixture_failure(std::string_view fixture, std::string_view reason) {
+    std::string msg;
+    msg.reserve(fixture.size() + reason.size() + 40);
+    msg.append("fixture allocation failed for '");
+    msg.append(fixture);
+    msg.push_back('\'');
+    if (!reason.empty()) {
+        msg.append(": ");
+        msg.append(reason);
+    }
+    gentest::detail::record_failure(std::move(msg));
+}
+
+template <typename Handle>
+inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
+    if (!handle.init()) {
+        gentest_record_fixture_failure(fixture, "returned null");
+        return false;
+    }
+    return true;
+}
 {{WRAPPER_IMPLS}}
 
 constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
@@ -148,14 +192,15 @@ inline constexpr std::string_view wrapper_free = R"FMT(static void {w}(void* ctx
 
 inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static void {w}(void* ctx_) {{
     (void)ctx_;
-{decls}{setup}    {invoke}
+{decls}{inits}{setup}    {invoke}
 {teardown}}}
 
 )FMT";
 
 inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void* ctx_) {{
     (void)ctx_;
-    ::gentest::detail::FixtureHandle<{fixture}> fx_;
+    auto fx_ = ::gentest::detail::FixtureHandle<{fixture}>::empty();
+    if (!gentest_init_fixture(fx_, "{fixture}")) return;
     gentest_maybe_setup(fx_.ref());
     {invoke}
     gentest_maybe_teardown(fx_.ref());
@@ -165,6 +210,10 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
 
 inline constexpr std::string_view wrapper_stateful = R"FMT(static void {w}(void* ctx_) {{
     auto* fx_ = static_cast<{fixture}*>(ctx_);
+    if (!fx_) {{
+        gentest_record_fixture_failure("{fixture}", "instance missing");
+        return;
+    }}
     gentest_maybe_setup(*fx_);
     {invoke}
     gentest_maybe_teardown(*fx_);

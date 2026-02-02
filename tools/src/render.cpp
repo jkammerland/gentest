@@ -118,9 +118,18 @@ std::string build_fixture_decls(const std::vector<std::string> &types) {
     std::string decls;
     decls.reserve(types.size() * 24);
     for (std::size_t i = 0; i < types.size(); ++i) {
-        append_format(decls, "    ::gentest::detail::FixtureHandle<{}> fx{}_{{}};\n", types[i], i);
+        append_format(decls, "    auto fx{}_ = ::gentest::detail::FixtureHandle<{}>::empty();\n", i, types[i]);
     }
     return decls;
+}
+
+std::string build_fixture_inits(const std::vector<std::string> &types) {
+    std::string inits;
+    inits.reserve(types.size() * 48);
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        append_format(inits, "    if (!gentest_init_fixture(fx{}_, \"{}\")) return;\n", i, escape_string(types[i]));
+    }
+    return inits;
 }
 
 std::string build_fixture_setup(const std::vector<std::string> &types) {
@@ -193,6 +202,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
     }
     case WrapperKind::FreeWithFixtures: {
         const std::string decls    = build_fixture_decls(spec.fixtures);
+        const std::string inits    = build_fixture_inits(spec.fixtures);
         const std::string setup    = build_fixture_setup(spec.fixtures);
         const std::string teardown = build_fixture_teardown(spec.fixtures);
         std::string       combined = build_fixture_arg_list(spec.fixtures.size());
@@ -201,7 +211,8 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string call = fmt::format("({})", combined);
         const auto invoke = make_invoke_for_free(spec, spec.callee, call);
         append_format_runtime(out, templates.free_fixtures, fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
-                              fmt::arg("setup", setup), fmt::arg("teardown", teardown), fmt::arg("invoke", invoke));
+                              fmt::arg("inits", inits), fmt::arg("setup", setup), fmt::arg("teardown", teardown),
+                              fmt::arg("invoke", invoke));
         return;
     }
     case WrapperKind::MemberEphemeral: {

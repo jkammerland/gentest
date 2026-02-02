@@ -14,14 +14,21 @@ Define a static method on your fixture:
 
 ```
 static auto gentest_allocate();
+// Optional: suite-aware allocation for suite fixtures
+static auto gentest_allocate(std::string_view suite);
 ```
 
 Supported return types:
-- `std::unique_ptr<Fixture>`
+- `std::unique_ptr<Fixture>` (custom deleters supported)
 - `std::shared_ptr<Fixture>`
 - `Fixture*` (adopted into a `std::unique_ptr`)
 
 If the hook is not present, gentest falls back to `std::make_unique<Fixture>()`.
+If you only provide the suite-aware overload, non-suite fixtures pass an empty
+`std::string_view` so you can reuse the same hook for all lifetimes.
+
+Returning a null pointer (empty `unique_ptr` / `shared_ptr` or `nullptr`) causes
+the test to fail with a fixture-allocation failure message.
 
 ## How arguments are provided
 
@@ -73,6 +80,31 @@ void free_shared(std::shared_ptr<SharedFx> fx) {
 }
 ```
 
+### Unique allocation with custom deleter
+
+```cpp
+struct CustomFx {
+    struct Deleter {
+        void operator()(CustomFx* ptr) const { delete ptr; }
+    };
+
+    static std::unique_ptr<CustomFx, Deleter> gentest_allocate() {
+        return std::unique_ptr<CustomFx, Deleter>(new CustomFx(), Deleter{});
+    }
+};
+```
+
+### Suite-aware allocation
+
+```cpp
+struct [[using gentest: fixture(suite)]] SuiteFx {
+    static std::unique_ptr<SuiteFx> gentest_allocate(std::string_view suite) {
+        // suite is the prefix in test names (e.g. "suite_fx")
+        return std::make_unique<SuiteFx>();
+    }
+};
+```
+
 ### Raw pointer allocation (adopted)
 
 ```cpp
@@ -91,6 +123,9 @@ void free_pointer(RawFx* fx) {
 ## Notes and constraints
 
 - `gentest_allocate()` must be `static` and callable without arguments.
+- If both overloads exist, suite fixtures use the suite-aware hook while global
+  and ephemeral fixtures use the no-arg hook. If only the suite-aware overload
+  exists, other lifetimes call it with an empty string.
 - If you return `Fixture*`, it must be heap allocated. Gentest adopts it and
   deletes it via `std::unique_ptr`.
 - `std::shared_ptr<T>` arguments promote the unique ownership into shared

@@ -954,6 +954,11 @@ static bool run_tests_once(RunnerState& state, std::span<const Case> cases, std:
                         if (fail_fast && counters.failures > 0) return true;
                         continue;
                     }
+                    if (!ctx) {
+                        record_synthetic_failure(state, t, "fixture allocation returned null", counters);
+                        if (fail_fast && counters.failures > 0) return true;
+                        continue;
+                    }
                     execute_and_record(state, t, ctx, counters);
                     if (fail_fast && counters.failures > 0) return true;
                 }
