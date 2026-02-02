@@ -143,6 +143,15 @@ struct PtrFixture {
     int value = 3;
 };
 
+struct RawFixture {
+    static inline int allocations = 0;
+    static RawFixture* gentest_allocate() {
+        ++allocations;
+        return new RawFixture();
+    }
+    int value = 5;
+};
+
 struct SharedFixture {
     static inline int allocations = 0;
     static std::shared_ptr<SharedFixture> gentest_allocate() {
@@ -167,6 +176,13 @@ void free_pointer(PtrFixture *fx) {
     gentest::expect(fx != nullptr, "fixture pointer is valid");
     gentest::expect_eq(fx->value, 3, "fixture state available");
     gentest::expect_eq(PtrFixture::allocations, 1, "allocation hook runs for pointer fixture");
+}
+
+[[using gentest: test("free/raw_pointer"), fixtures(RawFixture)]]
+void free_raw_pointer(RawFixture *fx) {
+    gentest::expect(fx != nullptr, "fixture pointer is valid");
+    gentest::expect_eq(fx->value, 5, "fixture state available");
+    gentest::expect_eq(RawFixture::allocations, 1, "allocation hook runs for raw pointer fixture");
 }
 
 [[using gentest: test("free/shared_ptr"), fixtures(SharedFixture)]]
