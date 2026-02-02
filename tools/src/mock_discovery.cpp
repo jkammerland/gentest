@@ -71,7 +71,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
         const QualType pointee = type->getPointeeType();
         const bool     unqualified = !pointee.isConstQualified() && !pointee.isVolatileQualified();
         if (unqualified) {
-            if (pointee->getAs<TemplateTypeParmType>() != nullptr) {
+            if (pointee->getAs<TemplateTypeParmType>() != nullptr || pointee->getAs<SubstTemplateTypeParmType>() != nullptr) {
                 return ParamPassStyle::ForwardingRef;
             }
             if (const auto *auto_type = pointee->getAs<AutoType>()) {

@@ -40,7 +40,7 @@ Extensibility
   Tests: default. Commit: render_mocks only unless policy helper changes.
 - [x] Expand `MockParamInfo` to carry cv/value-category metadata for future policies.  
   Tests: default. Commit: model+discovery+render update.
-- [ ] Broaden forwarding-ref detection beyond bare `TemplateTypeParmType`/`auto` (handle aliases/substituted template types).  
+- [x] Broaden forwarding-ref detection beyond bare `TemplateTypeParmType`/`auto` (handle aliases/substituted template types).  
   Tests: default. Commit: discovery-only; add focused tests if behavior changes.
 - [ ] Add explicit policy hook for by-value parameters (copy vs move) in argument emission.  
   Tests: default. Commit: render_mocks only; document default policy.
