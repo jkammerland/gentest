@@ -38,7 +38,7 @@ Extensibility
   Tests: default. Commit: render+discovery; keep helper in one place.
 - [ ] Unify constructor forwarding with method argument forwarding (avoid separate hard-coded path).  
   Tests: default. Commit: render_mocks only unless policy helper changes.
-- [ ] Expand `MockParamInfo` to carry cv/value-category metadata for future policies.  
+- [x] Expand `MockParamInfo` to carry cv/value-category metadata for future policies.  
   Tests: default. Commit: model+discovery+render update.
 - [ ] Broaden forwarding-ref detection beyond bare `TemplateTypeParmType`/`auto` (handle aliases/substituted template types).  
   Tests: default. Commit: discovery-only; add focused tests if behavior changes.

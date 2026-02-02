@@ -115,6 +115,8 @@ struct MockParamInfo {
         ForwardingRef,
     };
     PassStyle pass_style = PassStyle::Value;
+    bool      is_const = false;
+    bool      is_volatile = false;
 };
 
 // Parameter metadata for mocked constructors.

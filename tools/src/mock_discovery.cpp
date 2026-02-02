@@ -89,6 +89,9 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     MockParamInfo info;
     info.type = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
     info.pass_style = classify_param_pass_style(param);
+    const QualType base_type = param.getType().getNonReferenceType();
+    info.is_const = base_type.isConstQualified();
+    info.is_volatile = base_type.isVolatileQualified();
     if (!param.getNameAsString().empty()) {
         info.name = param.getNameAsString();
     } else {
