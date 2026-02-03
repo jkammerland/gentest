@@ -324,7 +324,7 @@ class InstanceState {
                 return;
             }
         }
-        using ExpectationT = Expectation<R(std::decay_t<Args>...)>;
+        using ExpectationT = Expectation<R(Args...)>;
         auto expectation     = std::static_pointer_cast<ExpectationT>(it->second.queue.front());
         if constexpr (std::is_void_v<R>) {
             expectation->invoke(method_name, std::forward<Args>(args)...);

@@ -235,7 +235,8 @@ void replace_all(std::string &inout, std::string_view needle, std::string_view r
     }
 }
 
-auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases) -> std::optional<std::string> {
+auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases,
+                  const std::vector<FixtureDeclInfo> &fixtures) -> std::optional<std::string> {
     std::string template_content;
     if (!options.template_path.empty()) {
         template_content = render::read_template_file(options.template_path);
@@ -279,12 +280,15 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
         case_entries = render::render_case_entries(cases, tag_array_names, requirement_array_names, tpl_case_entry);
     }
 
+    std::string fixture_registrations = render::render_fixture_registrations(fixtures);
+
     std::string output = template_content;
     replace_all(output, "{{FORWARD_DECLS}}", forward_decl_block);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(cases.size()));
     replace_all(output, "{{TRAIT_DECLS}}", trait_declarations);
     replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
     replace_all(output, "{{CASE_INITS}}", case_entries);
+    replace_all(output, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
     replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
     // Version for --help
 #if defined(GENTEST_VERSION_STR)
@@ -320,11 +324,18 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     return output;
 }
 
-int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<MockClassInfo> &mocks) {
+int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
+         const std::vector<FixtureDeclInfo> &fixtures, const std::vector<MockClassInfo> &mocks) {
     std::vector<TestCaseInfo> cases_for_render = cases;
     if (opts.source_root && !opts.source_root->empty()) {
         for (auto &c : cases_for_render) {
             c.filename = normalize_case_file(opts, c.filename);
+        }
+    }
+    std::vector<FixtureDeclInfo> fixtures_for_render = fixtures;
+    if (opts.source_root && !opts.source_root->empty()) {
+        for (auto &f : fixtures_for_render) {
+            f.filename = normalize_case_file(opts, f.filename);
         }
     }
 
@@ -336,7 +347,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
 
         // Embedded template is used when no template path is provided.
 
-        const auto content = render_cases(opts, cases_for_render);
+        const auto content = render_cases(opts, cases_for_render, fixtures_for_render);
         if (!content) {
             return 1;
         }
@@ -354,6 +365,10 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         std::map<std::string, std::vector<TestCaseInfo>> cases_by_tu;
         for (const auto &c : cases_for_render) {
             cases_by_tu[normalize_path_key(fs::path(c.tu_filename))].push_back(c);
+        }
+        std::map<std::string, std::vector<FixtureDeclInfo>> fixtures_by_tu;
+        for (const auto &f : fixtures_for_render) {
+            fixtures_by_tu[normalize_path_key(fs::path(f.tu_filename))].push_back(f);
         }
 
         const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
@@ -398,6 +413,11 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             if (it != cases_by_tu.end()) {
                 tu_cases = it->second;
             }
+            std::vector<FixtureDeclInfo> tu_fixtures;
+            auto fit = fixtures_by_tu.find(key);
+            if (fit != fixtures_by_tu.end()) {
+                tu_fixtures = fit->second;
+            }
 
             std::ranges::sort(tu_cases, {}, &TestCaseInfo::display_name);
 
@@ -431,12 +451,14 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             } else {
                 case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
             }
+            std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
 
             replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
             replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
             replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
             replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
             replace_all(header_content, "{{CASE_INITS}}", case_entries);
+            replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
             replace_all(header_content, "{{REGISTER_FN}}", register_fn);
 
             if (!write_file_atomic_if_changed(header_out, header_content)) {

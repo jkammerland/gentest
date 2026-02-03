@@ -106,50 +106,118 @@ std::string fixture_lifetime_literal(FixtureLifetime lt) {
 enum class WrapperKind { Free, FreeWithFixtures, MemberEphemeral, MemberShared };
 
 struct WrapperSpec {
-    WrapperKind              kind;
-    std::string              wrapper_name; // kCaseInvoke_N
-    std::string              callee;       // free function (qualified) or fixture type (qualified)
-    std::string              method;       // member method name (unqualified)
-    std::vector<std::string> fixtures;     // for FreeWithFixtures
-    std::string              value_args;   // comma-separated value args (may be empty)
-    bool                     returns_value = false; // whether to capture result
+    WrapperKind                 kind;
+    std::string                 wrapper_name; // kCaseInvoke_N
+    std::string                 callee;       // free function (qualified) or fixture type (qualified)
+    std::string                 method;       // member method name (unqualified)
+    std::vector<FreeFixtureUse> fixtures;     // for FreeWithFixtures
+    std::string                 value_args;   // comma-separated value args (may be empty)
+    bool                        returns_value = false; // whether to capture result
 };
-std::string build_fixture_decls(const std::vector<std::string> &types) {
+
+std::string build_fixture_decls(const std::vector<FreeFixtureUse> &types) {
     std::string decls;
     decls.reserve(types.size() * 24);
     for (std::size_t i = 0; i < types.size(); ++i) {
-        append_format(decls, "    {} fx{}_{{}};\n", types[i], i);
+        append_format(decls, "    auto fx{}_ = ::gentest::detail::FixtureHandle<{}>::empty();\n", i, types[i].type_name);
     }
     return decls;
 }
 
-std::string build_fixture_setup(const std::vector<std::string> &types) {
+std::string build_fixture_inits(const std::vector<FreeFixtureUse> &types) {
+    std::string inits;
+    inits.reserve(types.size() * 48);
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        const auto &fx = types[i];
+        if (fx.scope == FixtureScope::Local) {
+            append_format(inits, "    if (!gentest_init_fixture(fx{}_, \"{}\")) return;\n", i, escape_string(fx.type_name));
+            continue;
+        }
+        const char *scope_literal = (fx.scope == FixtureScope::Suite)
+                                        ? "::gentest::detail::SharedFixtureScope::Suite"
+                                        : "::gentest::detail::SharedFixtureScope::Global";
+        const std::string suite_literal =
+            (fx.scope == FixtureScope::Suite) ? ("\"" + escape_string(fx.suite_name) + "\"") : std::string("std::string_view{}");
+        append_format(inits,
+                      "    if (!gentest_init_shared_fixture(fx{}_, {}, {}, \"{}\")) return;\n",
+                      i,
+                      scope_literal,
+                      suite_literal,
+                      escape_string(fx.type_name));
+    }
+    return inits;
+}
+
+std::string build_fixture_setup(const std::vector<FreeFixtureUse> &types, std::string_view prefix = {}) {
     (void)types;
     std::string setup;
     setup.reserve(types.size() * 28);
-    for (std::size_t i = 0; i < types.size(); ++i)
-        append_format(setup, "    gentest_maybe_setup(fx{}_);\n", i);
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        if (types[i].scope != FixtureScope::Local) {
+            continue;
+        }
+        append_format(setup, "    gentest_maybe_setup({}fx{}_.ref());\n", prefix, i);
+    }
     return setup;
 }
 
-std::string build_fixture_teardown(const std::vector<std::string> &types) {
+std::string build_fixture_teardown(const std::vector<FreeFixtureUse> &types, std::string_view prefix = {}) {
     (void)types;
     std::string td;
     td.reserve(types.size() * 30);
-    for (std::size_t i = types.size(); i-- > 0;)
-        append_format(td, "    gentest_maybe_teardown(fx{}_);\n", i);
+    for (std::size_t i = types.size(); i-- > 0;) {
+        if (types[i].scope != FixtureScope::Local) {
+            continue;
+        }
+        append_format(td, "    gentest_maybe_teardown({}fx{}_.ref());\n", prefix, i);
+    }
     return td;
 }
 
-std::string build_fixture_arg_list(std::size_t count) {
+std::string build_fixture_arg_list(std::size_t count, std::string_view prefix = {}) {
     std::string args;
     args.reserve(count * 6);
     for (std::size_t i = 0; i < count; ++i) {
         if (i)
             args += ", ";
-        append_format(args, "fx{}_", i);
+        append_format(args, "{}fx{}_", prefix, i);
     }
     return args;
+}
+
+std::string build_fixture_state_decls(const std::vector<FreeFixtureUse> &types) {
+    std::string decls;
+    decls.reserve(types.size() * 48);
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        append_format(decls, "        ::gentest::detail::FixtureHandle<{}> fx{}_{{::gentest::detail::FixtureHandle<{}>::empty()}};\n",
+                      types[i].type_name, i, types[i].type_name);
+    }
+    return decls;
+}
+
+std::string build_fixture_bench_inits(const std::vector<FreeFixtureUse> &types) {
+    std::string inits;
+    inits.reserve(types.size() * 56);
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        const auto &fx = types[i];
+        if (fx.scope == FixtureScope::Local) {
+            append_format(inits, "            if (!gentest_init_fixture(bench_state.fx{}_, \"{}\")) return;\n",
+                          i, escape_string(fx.type_name));
+            continue;
+        }
+        const char *scope_literal = (fx.scope == FixtureScope::Suite)
+                                        ? "::gentest::detail::SharedFixtureScope::Suite"
+                                        : "::gentest::detail::SharedFixtureScope::Global";
+        const std::string suite_literal =
+            (fx.scope == FixtureScope::Suite) ? ("\"" + escape_string(fx.suite_name) + "\"") : std::string("std::string_view{}");
+        append_format(inits,
+                      "            if (!gentest_init_shared_fixture(bench_state.fx{}_, {}, {}, \"{}\")) return;\n",
+                      i,
+                      scope_literal,
+                      suite_literal,
+                      escape_string(fx.type_name));
+    }
+    return inits;
 }
 
 std::string extract_method_name(std::string qualified) {
@@ -193,6 +261,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
     }
     case WrapperKind::FreeWithFixtures: {
         const std::string decls    = build_fixture_decls(spec.fixtures);
+        const std::string inits    = build_fixture_inits(spec.fixtures);
         const std::string setup    = build_fixture_setup(spec.fixtures);
         const std::string teardown = build_fixture_teardown(spec.fixtures);
         std::string       combined = build_fixture_arg_list(spec.fixtures.size());
@@ -200,16 +269,30 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
             combined += combined.empty() ? spec.value_args : ", " + spec.value_args;
         const std::string call = fmt::format("({})", combined);
         const auto invoke = make_invoke_for_free(spec, spec.callee, call);
+        const std::string bench_decls    = build_fixture_state_decls(spec.fixtures);
+        const std::string bench_inits    = build_fixture_bench_inits(spec.fixtures);
+        const std::string bench_setup    = build_fixture_setup(spec.fixtures, "bench_state.");
+        const std::string bench_teardown = build_fixture_teardown(spec.fixtures, "bench_state.");
+        std::string       bench_args     = build_fixture_arg_list(spec.fixtures.size(), "bench_state.");
+        if (!spec.value_args.empty())
+            bench_args += bench_args.empty() ? spec.value_args : ", " + spec.value_args;
+        const std::string bench_call  = fmt::format("({})", bench_args);
+        const auto        bench_invoke = make_invoke_for_free(spec, spec.callee, bench_call);
         append_format_runtime(out, templates.free_fixtures, fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
-                              fmt::arg("setup", setup), fmt::arg("teardown", teardown), fmt::arg("invoke", invoke));
+                              fmt::arg("inits", inits), fmt::arg("setup", setup), fmt::arg("teardown", teardown),
+                              fmt::arg("invoke", invoke), fmt::arg("bench_decls", bench_decls),
+                              fmt::arg("bench_inits", bench_inits), fmt::arg("bench_setup", bench_setup),
+                              fmt::arg("bench_teardown", bench_teardown), fmt::arg("bench_invoke", bench_invoke));
         return;
     }
     case WrapperKind::MemberEphemeral: {
         const auto call = format_call_args(spec.value_args);
-        const auto call_expr = fmt::format("fx_.{}{}", spec.method, call);
+        const auto call_expr = fmt::format("fx_.ref().{}{}", spec.method, call);
         const auto invoke    = make_invoke_for_member(spec, call_expr);
+        const auto bench_call_expr = fmt::format("bench_state.fx_.ref().{}{}", spec.method, call);
+        const auto bench_invoke    = make_invoke_for_member(spec, bench_call_expr);
         append_format_runtime(out, templates.ephemeral, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
-                              fmt::arg("invoke", invoke));
+                              fmt::arg("invoke", invoke), fmt::arg("bench_invoke", bench_invoke));
         return;
     }
     case WrapperKind::MemberShared: {
@@ -269,28 +352,7 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
     out.reserve(cases.size() * 160);
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test             = cases[idx];
-        std::string accessor_literal = "nullptr";
         const bool  has_fixture      = !test.fixture_qualified_name.empty();
-        if (has_fixture) {
-            const auto qualify_fixture = [&]() -> std::string {
-                if (test.fixture_qualified_name.starts_with("::")) {
-                    return test.fixture_qualified_name;
-                }
-                return std::string("::") + test.fixture_qualified_name;
-            };
-            switch (test.fixture_lifetime) {
-            case FixtureLifetime::MemberSuite:
-                accessor_literal = fmt::format("&::gentest::detail::acquire_suite_fixture<{}>", qualify_fixture());
-                break;
-            case FixtureLifetime::MemberGlobal:
-                accessor_literal = fmt::format("&::gentest::detail::acquire_global_fixture<{}>", qualify_fixture());
-                break;
-            case FixtureLifetime::MemberEphemeral:
-            case FixtureLifetime::None:
-            default: accessor_literal = "nullptr"; break;
-            }
-        }
-
         append_format_runtime(
             out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)),
             fmt::arg("wrapper", std::string("kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
@@ -303,8 +365,33 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
             fmt::arg("fixture", !test.fixture_qualified_name.empty() ? "\"" + escape_string(test.fixture_qualified_name) + "\""
                                                                      : std::string("std::string_view{}")),
             fmt::arg("lifetime", fixture_lifetime_literal(test.fixture_lifetime)),
-            fmt::arg("suite", !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}")),
-            fmt::arg("acquire", accessor_literal));
+            fmt::arg("suite", !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}")));
+    }
+    return out;
+}
+
+std::string render_fixture_registrations(const std::vector<FixtureDeclInfo> &fixtures) {
+    std::string out;
+    for (const auto &fx : fixtures) {
+        if (fx.scope == FixtureScope::Local) {
+            continue;
+        }
+        std::string type_name = fx.qualified_name;
+        if (!type_name.starts_with("::")) {
+            type_name.insert(type_name.begin(), ':');
+            type_name.insert(type_name.begin(), ':');
+        }
+        const char *scope_literal = (fx.scope == FixtureScope::Suite)
+                                        ? "::gentest::detail::SharedFixtureScope::Suite"
+                                        : "::gentest::detail::SharedFixtureScope::Global";
+        const std::string suite_literal =
+            (fx.scope == FixtureScope::Suite) ? ("\"" + escape_string(fx.suite_name) + "\"") : std::string("std::string_view{}");
+        append_format(out,
+                      "        ::gentest::detail::register_shared_fixture<{}>({}, {}, \"{}\");\n",
+                      type_name,
+                      scope_literal,
+                      suite_literal,
+                      escape_string(fx.qualified_name));
     }
     return out;
 }

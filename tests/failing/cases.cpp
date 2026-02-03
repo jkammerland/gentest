@@ -1,6 +1,7 @@
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
+#include <memory>
 #include <stdexcept>
 
 // Helper type for mocking checks in this suite (global to ease mock codegen)
@@ -11,6 +12,23 @@ struct SingleArg {
 #include "gentest/mock.h"
 
 namespace failing {
+
+struct NullFreeFixture {
+    static std::unique_ptr<NullFreeFixture> gentest_allocate() { return {}; }
+};
+
+[[using gentest: test("alloc/free_null"), fixtures(NullFreeFixture)]]
+void free_null_fixture(NullFreeFixture&) {}
+
+struct [[using gentest: fixture(suite)]] NullSuiteFixture {
+    static std::unique_ptr<NullSuiteFixture> gentest_allocate() { return {}; }
+    [[using gentest: test("alloc/suite_null")]] void t() {}
+};
+
+struct [[using gentest: fixture(global)]] NullGlobalFixture {
+    static std::unique_ptr<NullGlobalFixture> gentest_allocate() { return {}; }
+    [[using gentest: test("alloc/global_null")]] void t() {}
+};
 
 [[using gentest: test("single")]]
 void will_fail() {

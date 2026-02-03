@@ -38,6 +38,29 @@ auto case_registry() -> CaseRegistry& {
     static CaseRegistry reg;
     return reg;
 }
+
+struct SharedFixtureEntry {
+    std::string                         fixture_name;
+    std::string                         suite;
+    gentest::detail::SharedFixtureScope scope;
+    std::shared_ptr<void>               instance;
+    bool                                initialized = false;
+    bool                                failed = false;
+    std::string                         error;
+    std::shared_ptr<void>               (*create)(std::string_view suite, std::string& error) = nullptr;
+    void                                (*setup)(void* instance, std::string& error) = nullptr;
+    void                                (*teardown)(void* instance, std::string& error) = nullptr;
+};
+
+struct SharedFixtureRegistry {
+    std::vector<SharedFixtureEntry> entries;
+    std::mutex                      mtx;
+};
+
+auto shared_fixture_registry() -> SharedFixtureRegistry& {
+    static SharedFixtureRegistry reg;
+    return reg;
+}
 } // namespace
 
 namespace gentest::detail {
@@ -46,6 +69,182 @@ void register_cases(std::span<const Case> cases) {
     std::lock_guard<std::mutex> lk(reg.mtx);
     reg.cases.insert(reg.cases.end(), cases.begin(), cases.end());
     reg.sorted = false;
+}
+
+void register_shared_fixture(const SharedFixtureRegistration& registration) {
+    auto& reg = shared_fixture_registry();
+    std::lock_guard<std::mutex> lk(reg.mtx);
+    for (const auto& entry : reg.entries) {
+        if (entry.fixture_name == registration.fixture_name && entry.suite == registration.suite && entry.scope == registration.scope) {
+            return;
+        }
+        if (entry.fixture_name == registration.fixture_name && entry.scope != registration.scope) {
+            fmt::print(stderr, "gentest: fixture '{}' registered with conflicting scopes.\n", entry.fixture_name);
+        }
+    }
+    SharedFixtureEntry entry;
+    entry.fixture_name = std::string(registration.fixture_name);
+    entry.suite         = std::string(registration.suite);
+    entry.scope         = registration.scope;
+    entry.create        = registration.create;
+    entry.setup         = registration.setup;
+    entry.teardown      = registration.teardown;
+    reg.entries.push_back(std::move(entry));
+}
+
+namespace {
+struct FixtureContextGuard {
+    std::shared_ptr<gentest::detail::TestContextInfo> ctx;
+    explicit FixtureContextGuard(std::string_view name) {
+        ctx = std::make_shared<gentest::detail::TestContextInfo>();
+        ctx->display_name = std::string(name);
+        ctx->active = true;
+        gentest::detail::set_current_test(ctx);
+    }
+    ~FixtureContextGuard() {
+        if (ctx) {
+            ctx->active = false;
+            gentest::detail::set_current_test(nullptr);
+        }
+    }
+};
+
+bool run_fixture_phase(std::string_view label, const std::function<void(std::string&)>& fn, std::string& error_out) {
+    error_out.clear();
+    gentest::detail::clear_bench_error();
+    FixtureContextGuard guard(label);
+    fn(error_out);
+    if (!error_out.empty()) {
+        return false;
+    }
+    if (gentest::detail::has_bench_error()) {
+        error_out = gentest::detail::take_bench_error();
+        return false;
+    }
+    if (!guard.ctx->failures.empty()) {
+        error_out = guard.ctx->failures.front();
+        return false;
+    }
+    return true;
+}
+
+std::string format_fixture_error(std::string_view stage, std::string_view detail) {
+    if (detail.empty()) {
+        return fmt::format("fixture {} failed", stage);
+    }
+    if (stage == "allocation" && detail == "returned null") {
+        return "fixture allocation returned null";
+    }
+    if (stage == "allocation" && detail.starts_with("std::exception:")) {
+        return fmt::format("fixture construction threw {}", detail);
+    }
+    if (stage == "allocation" && detail == "unknown exception") {
+        return "fixture construction threw unknown exception";
+    }
+    return fmt::format("fixture {} failed: {}", stage, detail);
+}
+} // namespace
+
+bool setup_shared_fixtures() {
+    auto& reg = shared_fixture_registry();
+    std::lock_guard<std::mutex> lk(reg.mtx);
+    bool ok = true;
+    for (auto& entry : reg.entries) {
+        if (entry.initialized || entry.failed) {
+            continue;
+        }
+        std::string error;
+        if (!entry.create) {
+            entry.failed = true;
+            entry.error = "fixture allocation failed: missing factory";
+            ok = false;
+            continue;
+        }
+        entry.instance = entry.create(entry.suite, error);
+        if (!entry.instance) {
+            entry.failed = true;
+            entry.error = format_fixture_error("allocation", error);
+            fmt::print(stderr, "gentest: fixture '{}' {}", entry.fixture_name, entry.error);
+            fmt::print(stderr, "\n");
+            ok = false;
+            continue;
+        }
+        if (entry.setup) {
+            const std::string label = fmt::format("fixture setup {}", entry.fixture_name);
+            if (!run_fixture_phase(label, [&](std::string& err) { entry.setup(entry.instance.get(), err); }, error)) {
+                entry.failed = true;
+                entry.error = format_fixture_error("setup", error);
+                fmt::print(stderr, "gentest: fixture '{}' {}\n", entry.fixture_name, entry.error);
+                entry.instance.reset();
+                ok = false;
+                continue;
+            }
+        }
+        entry.initialized = true;
+    }
+    return ok;
+}
+
+void teardown_shared_fixtures() {
+    auto& reg = shared_fixture_registry();
+    std::lock_guard<std::mutex> lk(reg.mtx);
+    for (auto& entry : reg.entries) {
+        if (!entry.initialized || entry.failed) {
+            entry.instance.reset();
+            entry.initialized = false;
+            continue;
+        }
+        if (entry.teardown) {
+            std::string error;
+            const std::string label = fmt::format("fixture teardown {}", entry.fixture_name);
+            if (!run_fixture_phase(label, [&](std::string& err) { entry.teardown(entry.instance.get(), err); }, error)) {
+                fmt::print(stderr, "gentest: fixture teardown failed for {}: {}\n", entry.fixture_name, error);
+            }
+        }
+        entry.instance.reset();
+        entry.initialized = false;
+    }
+}
+
+std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite,
+                                         std::string_view fixture_name, std::string& error) {
+    {
+        auto& reg = shared_fixture_registry();
+        std::lock_guard<std::mutex> lk(reg.mtx);
+        for (auto& entry : reg.entries) {
+            if (entry.scope != scope) continue;
+            if (entry.fixture_name != fixture_name) continue;
+            if (scope == SharedFixtureScope::Suite && entry.suite != suite) continue;
+            if (entry.failed) {
+                error = entry.error;
+                return {};
+            }
+            if (entry.initialized) {
+                return entry.instance;
+            }
+            break;
+        }
+    }
+    // Attempt lazy initialization if setup has not run yet.
+    (void)setup_shared_fixtures();
+    auto& reg = shared_fixture_registry();
+    std::lock_guard<std::mutex> lk(reg.mtx);
+    for (auto& entry : reg.entries) {
+        if (entry.scope != scope) continue;
+        if (entry.fixture_name != fixture_name) continue;
+        if (scope == SharedFixtureScope::Suite && entry.suite != suite) continue;
+        if (entry.failed) {
+            error = entry.error;
+            return {};
+        }
+        if (!entry.instance) {
+            error = "fixture allocation returned null";
+            return {};
+        }
+        return entry.instance;
+    }
+    error = "fixture not registered";
+    return {};
 }
 } // namespace gentest::detail
 
@@ -83,6 +282,12 @@ struct Counters {
     std::size_t xpass = 0;
     std::size_t failed = 0;
     int         failures = 0;
+};
+
+struct SharedFixtureRunGuard {
+    bool ok = true;
+    SharedFixtureRunGuard() { ok = gentest::detail::setup_shared_fixtures(); }
+    ~SharedFixtureRunGuard() { gentest::detail::teardown_shared_fixtures(); }
 };
 
 enum class Outcome {
@@ -164,7 +369,13 @@ static inline double parse_double_c(const char* s, double defv) {
     }
 }
 
-struct BenchResult { std::size_t epochs = 0; std::size_t iters_per_epoch = 0; double best_ns = 0; double median_ns = 0; double mean_ns = 0; };
+struct BenchResult {
+    std::size_t epochs = 0;
+    std::size_t iters_per_epoch = 0;
+    double      best_ns = 0;
+    double      median_ns = 0;
+    double      mean_ns = 0;
+};
 
 static inline double ns_from_s(double s) { return s * 1e9; }
 
@@ -195,6 +406,7 @@ static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters
     ctxinfo->display_name = std::string(c.name);
     ctxinfo->active = true;
     gentest::detail::set_current_test(ctxinfo);
+    gentest::detail::BenchPhaseScope bench_scope(gentest::detail::BenchPhase::Call);
     auto start = clock::now();
     had_assert_fail = false; iterations_done = 0;
     for (std::size_t i = 0; i < iters; ++i) {
@@ -204,6 +416,64 @@ static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters
     auto end = clock::now();
     ctxinfo->active = false; gentest::detail::set_current_test(nullptr);
     return std::chrono::duration<double>(end - start).count();
+}
+
+static bool run_measurement_phase(const Case& c,
+                                  void* ctx,
+                                  gentest::detail::BenchPhase phase,
+                                  std::string& error,
+                                  bool& allocation_failure) {
+    error.clear();
+    allocation_failure = false;
+    gentest::detail::clear_bench_error();
+    auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
+    ctxinfo->display_name = std::string(c.name);
+    ctxinfo->active = true;
+    gentest::detail::set_current_test(ctxinfo);
+    {
+        gentest::detail::BenchPhaseScope bench_scope(phase);
+        try {
+            c.fn(ctx);
+        } catch (const gentest::assertion& e) {
+            error = e.message();
+        } catch (const std::exception& e) {
+            error = std::string("std::exception: ") + e.what();
+        } catch (...) {
+            error = "unknown exception";
+        }
+    }
+    ctxinfo->active = false;
+    gentest::detail::set_current_test(nullptr);
+    if (!error.empty())
+        return false;
+    if (gentest::detail::has_bench_error()) {
+        error = gentest::detail::take_bench_error();
+        allocation_failure = true;
+        return false;
+    }
+    return true;
+}
+
+static bool acquire_case_fixture(const Case& c, void*& ctx, std::string& reason) {
+    ctx = nullptr;
+    if (c.fixture_lifetime == FixtureLifetime::None || c.fixture_lifetime == FixtureLifetime::MemberEphemeral)
+        return true;
+    if (c.fixture.empty()) {
+        reason = "fixture allocation returned null";
+        return false;
+    }
+    const auto scope =
+        (c.fixture_lifetime == FixtureLifetime::MemberSuite) ? gentest::detail::SharedFixtureScope::Suite
+                                                             : gentest::detail::SharedFixtureScope::Global;
+    auto shared = gentest::detail::get_shared_fixture(scope, c.suite, c.fixture, reason);
+    if (!shared) {
+        if (reason.empty()) {
+            reason = "fixture allocation returned null";
+        }
+        return false;
+    }
+    ctx = shared.get();
+    return true;
 }
 
 static BenchResult run_bench(const Case& c, void* ctx, const BenchConfig& cfg) {
@@ -943,14 +1213,10 @@ static bool run_tests_once(RunnerState& state, std::span<const Case> cases, std:
                 for (auto i : g.idxs) {
                     const auto& t = cases[i];
                     void*       ctx = nullptr;
-                    try {
-                        ctx = t.acquire_fixture ? t.acquire_fixture(t.suite) : nullptr;
-                    } catch (const std::exception& e) {
-                        record_synthetic_failure(state, t, std::string("fixture construction threw std::exception: ") + e.what(), counters);
-                        if (fail_fast && counters.failures > 0) return true;
-                        continue;
-                    } catch (...) {
-                        record_synthetic_failure(state, t, "fixture construction threw unknown exception", counters);
+                    std::string reason;
+                    if (!acquire_case_fixture(t, ctx, reason)) {
+                        const std::string msg = reason.empty() ? std::string("fixture allocation returned null") : reason;
+                        record_synthetic_failure(state, t, msg, counters);
                         if (fail_fast && counters.failures > 0) return true;
                         continue;
                     }
@@ -1055,6 +1321,7 @@ auto run_all_tests(std::span<const char*> args) -> int {
         for (const auto& t : kCases) if (t.is_benchmark || t.is_jitter) fmt::print("{}\n", t.name);
         return 0;
     case Mode::RunBenches: {
+        SharedFixtureRunGuard fixture_guard;
         std::vector<std::size_t> idxs;
         if (opt.run_bench) {
             for (std::size_t i = 0; i < kCases.size(); ++i) {
@@ -1067,21 +1334,63 @@ auto run_all_tests(std::span<const char*> args) -> int {
             if (idxs.empty()) { fmt::print("Executed 0 benchmark(s).\n"); return 0; }
         }
         if (opt.bench_table) fmt::print("Summary ({})\n", (idxs.empty() ? "" : std::string(kCases[idxs.front()].suite)));
+        bool had_fixture_failure = false;
+        const auto report_fixture_failure = [&](const Case& c,
+                                                std::string_view reason,
+                                                bool allocation_failure,
+                                                std::string_view phase) {
+            if (allocation_failure) {
+                if (!c.fixture.empty()) {
+                    fmt::print(stderr, "benchmark fixture allocation failed for {} ({}): {}\n", c.name, c.fixture, reason);
+                } else {
+                    fmt::print(stderr, "benchmark fixture allocation failed for {}: {}\n", c.name, reason);
+                }
+            } else {
+                if (!c.fixture.empty()) {
+                    fmt::print(stderr, "benchmark {} failed for {} ({}): {}\n", phase, c.name, c.fixture, reason);
+                } else {
+                    fmt::print(stderr, "benchmark {} failed for {}: {}\n", phase, c.name, reason);
+                }
+            }
+            had_fixture_failure = true;
+        };
         for (auto i : idxs) {
             const auto& c = kCases[i];
             void* ctx = nullptr;
-            if (c.fixture_lifetime != FixtureLifetime::None) {
-                try { ctx = c.acquire_fixture ? c.acquire_fixture(c.suite) : nullptr; } catch (...) {}
+            std::string reason;
+            if (!acquire_case_fixture(c, ctx, reason)) {
+                report_fixture_failure(c, reason, true, "allocation");
+                continue;
+            }
+            bool allocation_failure = false;
+            if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure)) {
+                report_fixture_failure(c, reason, allocation_failure, "setup");
+                continue;
             }
             BenchResult br = run_bench(c, ctx, opt.bench_cfg);
+            std::string call_error;
+            bool call_alloc_failure = false;
+            if (gentest::detail::has_bench_error()) {
+                call_error = gentest::detail::take_bench_error();
+                call_alloc_failure = true;
+            }
+            if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure)) {
+                report_fixture_failure(c, reason, allocation_failure, "teardown");
+                continue;
+            }
+            if (!call_error.empty()) {
+                report_fixture_failure(c, call_error, call_alloc_failure, "call");
+                continue;
+            }
             if (!opt.bench_table) {
                 fmt::print("{}: epochs={}, iters/epoch={}, best={:.0f} ns, median={:.0f} ns, mean={:.0f} ns\n", c.name, br.epochs,
                            br.iters_per_epoch, br.best_ns, br.median_ns, br.mean_ns);
             }
         }
-        return 0;
+        return (had_fixture_failure || !fixture_guard.ok) ? 1 : 0;
     }
     case Mode::RunJitter: {
+        SharedFixtureRunGuard fixture_guard;
         const int bins = opt.jitter_bins;
         std::vector<std::size_t> idxs;
         if (opt.run_jitter) {
@@ -1096,7 +1405,58 @@ auto run_all_tests(std::span<const char*> args) -> int {
             if (idxs.empty()) { fmt::print("Executed 0 jitter benchmark(s).\n"); return 0; }
             fmt::print("Jitter ({})\n", (idxs.empty() ? "" : std::string(kCases[idxs.front()].suite)));
         }
-        return 0;
+        bool had_fixture_failure = false;
+        const auto report_fixture_failure = [&](const Case& c,
+                                                std::string_view reason,
+                                                bool allocation_failure,
+                                                std::string_view phase) {
+            if (allocation_failure) {
+                if (!c.fixture.empty()) {
+                    fmt::print(stderr, "jitter fixture allocation failed for {} ({}): {}\n", c.name, c.fixture, reason);
+                } else {
+                    fmt::print(stderr, "jitter fixture allocation failed for {}: {}\n", c.name, reason);
+                }
+            } else {
+                if (!c.fixture.empty()) {
+                    fmt::print(stderr, "jitter {} failed for {} ({}): {}\n", phase, c.name, c.fixture, reason);
+                } else {
+                    fmt::print(stderr, "jitter {} failed for {}: {}\n", phase, c.name, reason);
+                }
+            }
+            had_fixture_failure = true;
+        };
+        for (auto i : idxs) {
+            const auto& c = kCases[i];
+            void* ctx = nullptr;
+            std::string reason;
+            if (!acquire_case_fixture(c, ctx, reason)) {
+                report_fixture_failure(c, reason, true, "allocation");
+                continue;
+            }
+            bool allocation_failure = false;
+            if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure)) {
+                report_fixture_failure(c, reason, allocation_failure, "setup");
+                continue;
+            }
+            std::size_t done = 0;
+            bool had_assert = false;
+            (void)run_epoch_calls(c, ctx, 1, done, had_assert);
+            std::string call_error;
+            bool call_alloc_failure = false;
+            if (gentest::detail::has_bench_error()) {
+                call_error = gentest::detail::take_bench_error();
+                call_alloc_failure = true;
+            }
+            if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure)) {
+                report_fixture_failure(c, reason, allocation_failure, "teardown");
+                continue;
+            }
+            if (!call_error.empty()) {
+                report_fixture_failure(c, call_error, call_alloc_failure, "call");
+                continue;
+            }
+        }
+        return (had_fixture_failure || !fixture_guard.ok) ? 1 : 0;
     }
     case Mode::Tests:
         break;
@@ -1107,6 +1467,7 @@ auto run_all_tests(std::span<const char*> args) -> int {
     state.github_annotations = opt.github_annotations;
     state.record_results = (opt.junit_path != nullptr) || (opt.allure_dir != nullptr);
 
+    SharedFixtureRunGuard fixture_guard;
     Counters counters;
 
     std::vector<std::size_t> idxs;
@@ -1187,7 +1548,7 @@ auto run_all_tests(std::span<const char*> args) -> int {
         }
     }
     fmt::print("{}", summary);
-    return counters.failures == 0 ? 0 : 1;
+    return (counters.failures == 0 && fixture_guard.ok) ? 0 : 1;
 }
 
 auto run_all_tests(int argc, char **argv) -> int {

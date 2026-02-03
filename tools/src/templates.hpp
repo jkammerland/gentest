@@ -10,12 +10,13 @@
 // - Main file (test_impl):
 //     {{INCLUDE_SOURCES}}, {{FORWARD_DECLS}}, {{TRAIT_DECLS}},
 //     {{WRAPPER_IMPLS}}, {{CASE_INITS}}, {{GROUP_RUNNERS}},
-//     {{RUN_GROUPS}}, {{ENTRY_FUNCTION}}
+//     {{RUN_GROUPS}}, {{ENTRY_FUNCTION}}, {{FIXTURE_REGISTRATIONS}}
 //   The emitter uses simple string replacement for these.
 // - Partials (formatted with fmt::format):
 //   wrapper_free:     {w}, {fn}
-//   wrapper_free_fixtures: {w}, {fn}, {decls}, {setup}, {teardown}, {call}
-//   wrapper_ephemeral:{w}, {fixture}, {method}
+//   wrapper_free_fixtures: {w}, {fn}, {decls}, {setup}, {teardown}, {call},
+//                          {bench_decls}, {bench_inits}, {bench_setup}, {bench_teardown}, {bench_invoke}
+//   wrapper_ephemeral:{w}, {fixture}, {method}, {bench_invoke}
 //   wrapper_stateful: {w}, {fixture}, {method}
 //   case_entry:       {name}, {wrapper}, {file}, {line}, {tags}, {reqs},
 //                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite}
@@ -65,6 +66,50 @@ template <typename T>
 inline void gentest_maybe_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) t.tearDown();
 }
+
+inline void gentest_record_fixture_failure(std::string_view fixture, std::string_view reason) {
+    std::string msg;
+    msg.reserve(fixture.size() + reason.size() + 40);
+    msg.append("fixture allocation failed for '");
+    msg.append(fixture);
+    msg.push_back('\'');
+    if (!reason.empty()) {
+        msg.append(": ");
+        msg.append(reason);
+    }
+    if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
+        ::gentest::detail::record_bench_error(std::move(msg));
+        return;
+    }
+    gentest::detail::record_failure(std::move(msg));
+}
+
+template <typename Handle>
+inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
+    if (!handle.init()) {
+        gentest_record_fixture_failure(fixture, "returned null");
+        return false;
+    }
+    return true;
+}
+
+template <typename T>
+inline bool gentest_init_shared_fixture(::gentest::detail::FixtureHandle<T>& handle,
+                                        ::gentest::detail::SharedFixtureScope scope,
+                                        std::string_view suite,
+                                        std::string_view fixture) {
+    std::string reason;
+    auto shared = ::gentest::detail::get_shared_fixture_typed<T>(scope, suite, fixture, reason);
+    if (!shared) {
+        gentest_record_fixture_failure(fixture, reason);
+        return false;
+    }
+    if (!handle.init_shared(std::move(shared))) {
+        gentest_record_fixture_failure(fixture, "returned null");
+        return false;
+    }
+    return true;
+}
 {{WRAPPER_IMPLS}}
 
 constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
@@ -72,7 +117,9 @@ constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
 };
 
 struct GentestRegistrar {
-    GentestRegistrar() { gentest::detail::register_cases(std::span{kCases}); }
+    GentestRegistrar() {
+{{FIXTURE_REGISTRATIONS}}        gentest::detail::register_cases(std::span{kCases});
+    }
 };
 
 [[maybe_unused]] const GentestRegistrar kGentestRegistrar{};
@@ -120,6 +167,50 @@ template <typename T>
 inline void gentest_maybe_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) t.tearDown();
 }
+
+inline void gentest_record_fixture_failure(std::string_view fixture, std::string_view reason) {
+    std::string msg;
+    msg.reserve(fixture.size() + reason.size() + 40);
+    msg.append("fixture allocation failed for '");
+    msg.append(fixture);
+    msg.push_back('\'');
+    if (!reason.empty()) {
+        msg.append(": ");
+        msg.append(reason);
+    }
+    if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
+        ::gentest::detail::record_bench_error(std::move(msg));
+        return;
+    }
+    gentest::detail::record_failure(std::move(msg));
+}
+
+template <typename Handle>
+inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
+    if (!handle.init()) {
+        gentest_record_fixture_failure(fixture, "returned null");
+        return false;
+    }
+    return true;
+}
+
+template <typename T>
+inline bool gentest_init_shared_fixture(::gentest::detail::FixtureHandle<T>& handle,
+                                        ::gentest::detail::SharedFixtureScope scope,
+                                        std::string_view suite,
+                                        std::string_view fixture) {
+    std::string reason;
+    auto shared = ::gentest::detail::get_shared_fixture_typed<T>(scope, suite, fixture, reason);
+    if (!shared) {
+        gentest_record_fixture_failure(fixture, reason);
+        return false;
+    }
+    if (!handle.init_shared(std::move(shared))) {
+        gentest_record_fixture_failure(fixture, "returned null");
+        return false;
+    }
+    return true;
+}
 {{WRAPPER_IMPLS}}
 
 constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
@@ -133,7 +224,9 @@ inline void {{REGISTER_FN}}() { gentest::detail::register_cases(std::span{kCases
 
 namespace {
 struct GentestRegistrar {
-    GentestRegistrar() { gentest::generated::{{REGISTER_FN}}(); }
+    GentestRegistrar() {
+{{FIXTURE_REGISTRATIONS}}        gentest::generated::{{REGISTER_FN}}();
+    }
 };
 [[maybe_unused]] const GentestRegistrar kGentestRegistrar{};
 } // namespace
@@ -141,6 +234,13 @@ struct GentestRegistrar {
 
 inline constexpr std::string_view wrapper_free = R"FMT(static void {w}(void* ctx_) {{
     (void)ctx_;
+    const auto phase = ::gentest::detail::bench_phase();
+    if (phase != ::gentest::detail::BenchPhase::None) {{
+        if (phase == ::gentest::detail::BenchPhase::Call) {{
+            {invoke}
+        }}
+        return;
+    }}
     {invoke}
 }}
 
@@ -148,26 +248,93 @@ inline constexpr std::string_view wrapper_free = R"FMT(static void {w}(void* ctx
 
 inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static void {w}(void* ctx_) {{
     (void)ctx_;
-{decls}{setup}    {invoke}
+    const auto phase = ::gentest::detail::bench_phase();
+    if (phase != ::gentest::detail::BenchPhase::None) {{
+        struct BenchState {{
+{bench_decls}        bool ready = false;
+        }};
+        static thread_local BenchState bench_state{{}};
+        if (phase == ::gentest::detail::BenchPhase::Setup) {{
+            bench_state = BenchState{{}};
+{bench_inits}{bench_setup}            bench_state.ready = true;
+            return;
+        }}
+        if (phase == ::gentest::detail::BenchPhase::Teardown) {{
+            if (bench_state.ready) {{
+{bench_teardown}            }}
+            bench_state = BenchState{{}};
+            return;
+        }}
+        if (phase == ::gentest::detail::BenchPhase::Call) {{
+            if (!bench_state.ready) return;
+            {bench_invoke}
+            return;
+        }}
+        return;
+    }}
+{decls}{inits}{setup}    {invoke}
 {teardown}}}
 
 )FMT";
 
 inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void* ctx_) {{
     (void)ctx_;
-    {fixture} fx_;
-    gentest_maybe_setup(fx_);
+    const auto phase = ::gentest::detail::bench_phase();
+    if (phase != ::gentest::detail::BenchPhase::None) {{
+        struct BenchState {{
+            ::gentest::detail::FixtureHandle<{fixture}> fx_{{::gentest::detail::FixtureHandle<{fixture}>::empty()}};
+            bool ready = false;
+        }};
+        static thread_local BenchState bench_state{{}};
+        if (phase == ::gentest::detail::BenchPhase::Setup) {{
+            bench_state = BenchState{{}};
+            if (!gentest_init_fixture(bench_state.fx_, "{fixture}")) return;
+            gentest_maybe_setup(bench_state.fx_.ref());
+            bench_state.ready = true;
+            return;
+        }}
+        if (phase == ::gentest::detail::BenchPhase::Teardown) {{
+            if (bench_state.ready) gentest_maybe_teardown(bench_state.fx_.ref());
+            bench_state = BenchState{{}};
+            return;
+        }}
+        if (phase == ::gentest::detail::BenchPhase::Call) {{
+            if (!bench_state.ready) return;
+            {bench_invoke}
+            return;
+        }}
+        return;
+    }}
+    auto fx_ = ::gentest::detail::FixtureHandle<{fixture}>::empty();
+    if (!gentest_init_fixture(fx_, "{fixture}")) return;
+    gentest_maybe_setup(fx_.ref());
     {invoke}
-    gentest_maybe_teardown(fx_);
+    gentest_maybe_teardown(fx_.ref());
 }}
 
 )FMT";
 
 inline constexpr std::string_view wrapper_stateful = R"FMT(static void {w}(void* ctx_) {{
     auto* fx_ = static_cast<{fixture}*>(ctx_);
-    gentest_maybe_setup(*fx_);
+    if (!fx_) {{
+        gentest_record_fixture_failure("{fixture}", "instance missing");
+        return;
+    }}
+    const auto phase = ::gentest::detail::bench_phase();
+    if (phase != ::gentest::detail::BenchPhase::None) {{
+        if (phase == ::gentest::detail::BenchPhase::Setup) {{
+            return;
+        }}
+        if (phase == ::gentest::detail::BenchPhase::Teardown) {{
+            return;
+        }}
+        if (phase == ::gentest::detail::BenchPhase::Call) {{
+            {invoke}
+            return;
+        }}
+        return;
+    }}
     {invoke}
-    gentest_maybe_teardown(*fx_);
 }}
 
 )FMT";
@@ -186,8 +353,7 @@ inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
         .should_skip = {should_skip},
         .fixture = {fixture},
         .fixture_lifetime = {lifetime},
-        .suite = {suite},
-        .acquire_fixture = {acquire}
+        .suite = {suite}
     }},
 
 )FMT";

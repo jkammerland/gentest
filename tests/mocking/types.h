@@ -62,6 +62,30 @@ struct MOConsumer {
 };
 
 template <typename T>
+using Alias = T;
+
+struct TrackedMove {
+    bool moved = false;
+    TrackedMove() = default;
+    TrackedMove(const TrackedMove&) = default;
+    TrackedMove& operator=(const TrackedMove&) = default;
+    TrackedMove(TrackedMove&& other) noexcept : moved(other.moved) { other.moved = true; }
+    TrackedMove& operator=(TrackedMove&& other) noexcept {
+        if (this != &other) {
+            moved = other.moved;
+            other.moved = true;
+        }
+        return *this;
+    }
+    friend bool operator==(const TrackedMove& lhs, const TrackedMove& rhs) { return lhs.moved == rhs.moved; }
+};
+
+struct ForwardingAlias {
+    template <typename T>
+    void take(::mocking::Alias<T>&& value) { (void)value; }
+};
+
+template <typename T>
 struct RefWrap {
     RefWrap() = default;
     RefWrap(RefWrap&&) = default;

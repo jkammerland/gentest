@@ -72,6 +72,29 @@ std::string ensure_global_qualifiers(std::string value) {
 // Forward declarations
 std::string argument_list(const MockMethodInfo &method);
 
+std::string dispatch_block(const std::string &indent, const MockMethodInfo &method, const std::string &fq_type,
+                           const std::string &tpl_usage) {
+    std::string block;
+    append_format(block, "{0}auto token = this->__gentest_state_.identify(&{1}::{2}{3});\n", indent, fq_type, method.method_name,
+                  tpl_usage);
+    const std::string return_type   = ensure_global_qualifiers(method.return_type);
+    const std::string args          = argument_list(method);
+    const bool        returns_value = method.return_type != "void";
+    std::string       fq_method;
+    fq_method.reserve(method.qualified_name.size() + 2);
+    fq_method += "::";
+    fq_method += method.qualified_name;
+    std::string dispatch_args;
+    if (!args.empty()) {
+        dispatch_args.reserve(args.size() + 2);
+        dispatch_args += ", ";
+        dispatch_args += args;
+    }
+    append_format(block, "{0}{1}this->__gentest_state_.template dispatch<{2}>(token, \"{3}\"{4});\n", indent,
+                  returns_value ? "return " : "", return_type, fq_method, dispatch_args);
+    return block;
+}
+
 std::string join_parameter_list(const std::vector<MockParamInfo> &params) {
     std::string out;
     out.reserve(params.size() * 16);
@@ -101,7 +124,7 @@ std::string join_type_list(const std::vector<MockParamInfo> &params) {
 std::string signature_from(const MockMethodInfo &method) {
     std::string sig = ensure_global_qualifiers(method.return_type);
     sig += '(';
-    sig += ensure_global_qualifiers(join_type_list(method.parameters));
+    sig += join_type_list(method.parameters);
     sig += ')';
     return sig;
 }
@@ -111,10 +134,9 @@ std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &met
     if (method.is_static) {
         ptr += ensure_global_qualifiers(method.return_type);
         ptr += " (*)(";
-        ptr += ensure_global_qualifiers(join_type_list(method.parameters));
+        ptr += join_type_list(method.parameters);
         ptr += ')';
-        if (method.is_noexcept)
-            ptr += " noexcept";
+        ptr += qualifiers_for(method);
         return ptr;
     }
     ptr += ensure_global_qualifiers(method.return_type);
@@ -122,18 +144,9 @@ std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &met
     ptr += "::";
     ptr += cls.qualified_name;
     ptr += "::*)(";
-    ptr += ensure_global_qualifiers(join_type_list(method.parameters));
+    ptr += join_type_list(method.parameters);
     ptr += ')';
-    if (method.is_const)
-        ptr += " const";
-    if (method.is_volatile)
-        ptr += " volatile";
-    if (!method.ref_qualifier.empty()) {
-        ptr += ' ';
-        ptr += method.ref_qualifier;
-    }
-    if (method.is_noexcept)
-        ptr += " noexcept";
+    ptr += qualifiers_for(method);
     return ptr;
 }
 
@@ -164,17 +177,13 @@ std::string open_namespaces(const std::string &ns) {
 std::string close_namespaces(const std::string &ns) {
     std::string code;
     if (ns.empty()) return code;
-    std::size_t count = 1;
-    for (std::size_t pos = 0; pos != std::string::npos; ) {
-        pos = ns.find("::", pos == 0 ? 0 : pos + 2);
+    std::size_t count = 0;
+    std::size_t pos   = 0;
+    while (true) {
         ++count;
-    }
-    // count is approximate; simpler: count number of components
-    count = 0;
-    for (std::size_t i = 0, j; i < ns.size(); i = j + 2) {
-        j = ns.find("::", i);
-        if (j == std::string::npos) { ++count; break; }
-        ++count;
+        pos = ns.find("::", pos);
+        if (pos == std::string::npos) break;
+        pos += 2;
     }
     for (std::size_t i = 0; i < count; ++i) code += "}\n";
     return code;
@@ -202,26 +211,66 @@ std::string forward_original_declaration(const MockClassInfo &cls) {
     return out;
 }
 
-std::string argument_expr(const MockParamInfo &param) {
-    if (param.is_forwarding_ref) {
+enum class ForwardingMode {
+    Borrow,
+    Copy,
+    Forward,
+    Move,
+};
+
+struct ForwardingPolicy {
+    enum class ValuePassPolicy {
+        Copy,
+        Move,
+    };
+
+    // Default policy keeps current behavior (move from by-value params).
+    static constexpr ValuePassPolicy value_pass_policy = ValuePassPolicy::Move;
+
+    [[nodiscard]] ForwardingMode mode_for(const MockParamInfo &param) const {
+        switch (param.pass_style) {
+        case MockParamInfo::PassStyle::ForwardingRef:
+            return ForwardingMode::Forward;
+        case MockParamInfo::PassStyle::LValueRef:
+            return ForwardingMode::Borrow;
+        case MockParamInfo::PassStyle::RValueRef:
+            return ForwardingMode::Move;
+        case MockParamInfo::PassStyle::Value:
+            return value_pass_policy == ValuePassPolicy::Copy ? ForwardingMode::Copy : ForwardingMode::Move;
+        }
+        return ForwardingMode::Move;
+    }
+
+    [[nodiscard]] std::string expr_for(const MockParamInfo &param) const {
+        switch (mode_for(param)) {
+        case ForwardingMode::Forward: {
+            std::string out;
+            out.reserve(param.name.size() * 2 + 26);
+            out += "std::forward<decltype(";
+            out += param.name;
+            out += ")>(";
+            out += param.name;
+            out += ')';
+            return out;
+        }
+        case ForwardingMode::Borrow:
+        case ForwardingMode::Copy:
+            return param.name;
+        case ForwardingMode::Move:
+            break;
+        }
         std::string out;
-        out.reserve(param.name.size() * 2 + 26);
-        out += "std::forward<decltype(";
-        out += param.name;
-        out += ")>(";
+        out.reserve(param.name.size() + 10);
+        out += "std::move(";
         out += param.name;
         out += ')';
         return out;
     }
-    if (param.is_lvalue_ref) {
-        return param.name;
-    }
-    std::string out;
-    out.reserve(param.name.size() + 10);
-    out += "std::move(";
-    out += param.name;
-    out += ')';
-    return out;
+};
+
+std::string argument_expr(const MockParamInfo &param) {
+    static const ForwardingPolicy policy{};
+    return policy.expr_for(param);
 }
 
 std::string build_method_declaration(const MockClassInfo &cls, const MockMethodInfo &method) {
@@ -246,7 +295,6 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
         fq_type.reserve(cls.qualified_name.size() + 2);
         fq_type += "::";
         fq_type += cls.qualified_name;
-        const std::string args    = argument_list(method);
         const std::string tpl_use = [&]() {
             if (method.template_param_names.empty()) return std::string{};
             std::string out = "<";
@@ -258,22 +306,7 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
             return out;
         }();
         decl += " {\n";
-        append_format(decl, "        auto token = this->__gentest_state_.identify(&{}::{}{});\n", fq_type, method.method_name,
-                      tpl_use);
-        const bool        returns_value = method.return_type != "void";
-        const std::string return_type   = ensure_global_qualifiers(method.return_type);
-        std::string       fq_method;
-        fq_method.reserve(method.qualified_name.size() + 2);
-        fq_method += "::";
-        fq_method += method.qualified_name;
-        std::string dispatch_args;
-        if (!args.empty()) {
-            dispatch_args.reserve(args.size() + 2);
-            dispatch_args += ", ";
-            dispatch_args += args;
-        }
-        append_format(decl, "        {}this->__gentest_state_.template dispatch<{}>(token, \"{}\"{});\n",
-                      returns_value ? "return " : "", return_type, fq_method, dispatch_args);
+        decl += dispatch_block("        ", method, fq_type, tpl_use);
         decl += "    }";
     } else {
         decl += ';';
@@ -430,7 +463,7 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
     def += ">::";
     def += method.method_name;
     def += '(';
-    def += ensure_global_qualifiers(join_parameter_list(method.parameters));
+    def += join_parameter_list(method.parameters);
     def += ')';
     def += qualifiers_for(method);
     def += " {\n";
@@ -444,22 +477,7 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
         out += ">";
         return out;
     }();
-    append_format(def, "    auto token = this->__gentest_state_.identify(&{}::{}{});\n", fq_type, method.method_name, tpl_usage);
-    const std::string return_type   = ensure_global_qualifiers(method.return_type);
-    const std::string args          = argument_list(method);
-    const bool        returns_value = method.return_type != "void";
-    std::string       fq_method;
-    fq_method.reserve(method.qualified_name.size() + 2);
-    fq_method += "::";
-    fq_method += method.qualified_name;
-    std::string dispatch_args;
-    if (!args.empty()) {
-        dispatch_args.reserve(args.size() + 2);
-        dispatch_args += ", ";
-        dispatch_args += args;
-    }
-    append_format(def, "    {}this->__gentest_state_.template dispatch<{}>(token, \"{}\"{});\n",
-                  returns_value ? "return " : "", return_type, fq_method, dispatch_args);
+    def += dispatch_block("    ", method, fq_type, tpl_usage);
     def += "}\n";
     return def;
 }
@@ -479,7 +497,7 @@ std::string include_sources_block(const CollectorOptions &options, const std::fi
     return includes;
 }
 
-std::string generate_implementation_header(const std::vector<MockClassInfo> &mocks) {
+std::string generate_implementation_header(const std::vector<const MockClassInfo *> &mocks) {
     std::string impl;
     impl.reserve(mocks.size() * 256);
     impl += "// This file is auto-generated by gentest_codegen.\n// Do not edit manually.\n\n";
@@ -490,25 +508,25 @@ std::string generate_implementation_header(const std::vector<MockClassInfo> &moc
     // including gentest/mock.h in the including TU.
     impl += "namespace gentest {\n\n";
 
-    for (const auto &cls : mocks) {
+    for (const auto *cls : mocks) {
         std::string fq_type;
-        fq_type.reserve(cls.qualified_name.size() + 2);
-        append_format(fq_type, "::{}", cls.qualified_name);
-        if (cls.has_accessible_default_ctor) {
-            append_format(impl, "inline mock<{0}>::mock() = default;\n", cls.qualified_name);
+        fq_type.reserve(cls->qualified_name.size() + 2);
+        append_format(fq_type, "::{}", cls->qualified_name);
+        if (cls->has_accessible_default_ctor) {
+            append_format(impl, "inline mock<{0}>::mock() = default;\n", cls->qualified_name);
         }
-        for (const auto &ctor : cls.constructors) {
+        for (const auto &ctor : cls->constructors) {
             if (!ctor.template_prefix.empty()) {
                 impl += ctor.template_prefix;
                 impl += '\n';
             }
             append_format(impl, "inline mock<{0}>::mock(", fq_type);
-            impl += ensure_global_qualifiers(join_parameter_list(ctor.parameters));
+            impl += join_parameter_list(ctor.parameters);
             impl += ')';
             if (ctor.is_noexcept) {
                 impl += " noexcept";
             }
-            if (cls.derive_for_virtual) {
+            if (cls->derive_for_virtual) {
                 impl += " : ";
                 impl += fq_type;
                 impl += '(';
@@ -516,7 +534,7 @@ std::string generate_implementation_header(const std::vector<MockClassInfo> &moc
                     if (i != 0)
                         impl += ", ";
                     const auto &p = ctor.parameters[i];
-                    append_format(impl, "std::forward<decltype({0})>({0})", p.name);
+                    append_format(impl, "{}", argument_expr(p));
                 }
                 impl += ')';
                 impl += " {}\n";
@@ -529,10 +547,10 @@ std::string generate_implementation_header(const std::vector<MockClassInfo> &moc
             }
             impl += '\n';
         }
-        append_format(impl, "inline mock<{0}>::~mock() {{ this->__gentest_state_.verify_all(); }}\n\n", cls.qualified_name);
-        for (const auto &method : cls.methods) {
+        append_format(impl, "inline mock<{0}>::~mock() {{ this->__gentest_state_.verify_all(); }}\n\n", cls->qualified_name);
+        for (const auto &method : cls->methods) {
             if (!method.template_prefix.empty()) continue; // defined inline in class declaration
-            std::string def = method_definition(cls, method);
+            std::string def = method_definition(*cls, method);
             // Prefix with inline to be ODR-safe if included in multiple TUs
             def.insert(0, "inline ");
             impl += def;
@@ -552,8 +570,12 @@ std::optional<MockOutputs> render_mocks(const CollectorOptions &options, const s
         return std::nullopt;
     }
 
-    std::vector<MockClassInfo> classes = mocks;
-    std::ranges::sort(classes, {}, &MockClassInfo::qualified_name);
+    std::vector<const MockClassInfo *> classes;
+    classes.reserve(mocks.size());
+    for (const auto &cls : mocks) {
+        classes.push_back(&cls);
+    }
+    std::ranges::sort(classes, {}, [](const MockClassInfo *cls) { return cls->qualified_name; });
 
     MockOutputs out;
     std::string header;
@@ -567,12 +589,12 @@ std::optional<MockOutputs> render_mocks(const CollectorOptions &options, const s
     // included. The generated test TU ensures this by including project sources
     // first, then gentest/mock.h. For other TUs, users must include their
     // interfaces before including gentest/mock.h as well.
-    for (const auto &cls : classes) {
-        header += build_class_declaration(cls);
+    for (const auto *cls : classes) {
+        header += build_class_declaration(*cls);
     }
     header += "namespace detail {\n\n";
-    for (const auto &cls : classes) {
-        header += build_mock_access(cls);
+    for (const auto *cls : classes) {
+        header += build_mock_access(*cls);
     }
     header += "} // namespace detail\n";
 

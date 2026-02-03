@@ -1,12 +1,63 @@
 #include "gentest/attributes.h"
 
+#include <atomic>
 #include <cmath>
+#include <complex>
+#include <cstdlib>
+#include <memory>
 #include <string>
 #include <vector>
-#include <complex>
 #include "gentest/bench_util.h"
+#include "gentest/runner.h"
 
 namespace benchmarks {
+
+namespace {
+inline void record_bench_issue(std::string_view label, std::string_view issue) {
+    std::string msg;
+    msg.reserve(label.size() + issue.size() + 3);
+    msg.append(label);
+    msg.append(": ");
+    msg.append(issue);
+    gentest::detail::record_bench_error(std::move(msg));
+}
+
+template <typename T>
+struct BenchFixtureState {
+    static inline std::atomic<int> setups{0};
+    static inline std::atomic<int> teardowns{0};
+    static inline std::atomic<const T*> first{nullptr};
+
+    static void on_setup(std::string_view label) {
+        if (setups.fetch_add(1, std::memory_order_relaxed) != 0) {
+            record_bench_issue(label, "setup called more than once");
+        }
+    }
+
+    static void on_teardown(std::string_view label) {
+        if (teardowns.fetch_add(1, std::memory_order_relaxed) != 0) {
+            record_bench_issue(label, "teardown called more than once");
+        }
+    }
+
+    static void on_call(std::string_view label, const T* self) {
+        const T* seen = first.load(std::memory_order_relaxed);
+        if (!seen) {
+            first.store(self, std::memory_order_relaxed);
+            seen = self;
+        }
+        if (seen != self) {
+            record_bench_issue(label, "fixture instance changed");
+        }
+        if (setups.load(std::memory_order_relaxed) != 1) {
+            record_bench_issue(label, "setup count != 1");
+        }
+        if (teardowns.load(std::memory_order_relaxed) != 0) {
+            record_bench_issue(label, "teardown ran before call");
+        }
+    }
+};
+} // namespace
 
 [[using gentest: bench("string/concat_small")]]
 void bench_concat_small() {
@@ -49,6 +100,78 @@ void bench_struct_params(demo::Blob p) {
 void bench_complex(std::complex<double> z) {
     auto m = std::norm(z);
     gentest::doNotOptimizeAway(m);
+}
+
+struct [[using gentest: fixture(suite)]] NullBenchFixture {
+    static std::unique_ptr<NullBenchFixture> gentest_allocate() {
+        if (std::getenv("GENTEST_BENCH_NULL_FIXTURE")) return {};
+        return std::make_unique<NullBenchFixture>();
+    }
+};
+
+struct [[using gentest: fixture(suite)]] NullJitterFixture {
+    static std::unique_ptr<NullJitterFixture> gentest_allocate() {
+        if (std::getenv("GENTEST_JITTER_NULL_FIXTURE")) return {};
+        return std::make_unique<NullJitterFixture>();
+    }
+};
+
+[[using gentest: bench("fixture/null"), fixtures(NullBenchFixture)]]
+void bench_null(NullBenchFixture&) {}
+
+[[using gentest: jitter("fixture/jitter_null"), fixtures(NullJitterFixture)]]
+void jitter_null(NullJitterFixture&) {}
+
+struct LocalBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() { BenchFixtureState<LocalBenchFixture>::on_setup("benchmarks/fixture/local"); }
+    void tearDown() { BenchFixtureState<LocalBenchFixture>::on_teardown("benchmarks/fixture/local"); }
+};
+
+struct LocalJitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() { BenchFixtureState<LocalJitterFixture>::on_setup("benchmarks/fixture/local_jitter"); }
+    void tearDown() { BenchFixtureState<LocalJitterFixture>::on_teardown("benchmarks/fixture/local_jitter"); }
+};
+
+[[using gentest: bench("fixture/local"), fixtures(LocalBenchFixture)]]
+void bench_local(LocalBenchFixture& fx) {
+    BenchFixtureState<LocalBenchFixture>::on_call("benchmarks/fixture/local", &fx);
+}
+
+[[using gentest: jitter("fixture/local_jitter"), fixtures(LocalJitterFixture)]]
+void jitter_local(LocalJitterFixture& fx) {
+    BenchFixtureState<LocalJitterFixture>::on_call("benchmarks/fixture/local_jitter", &fx);
+}
+
+struct [[using gentest: fixture(suite)]] SuiteBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() { BenchFixtureState<SuiteBenchFixture>::on_setup("benchmarks/fixture/free_suite_global/suite"); }
+    void tearDown() { BenchFixtureState<SuiteBenchFixture>::on_teardown("benchmarks/fixture/free_suite_global/suite"); }
+};
+
+struct [[using gentest: fixture(global)]] GlobalBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() { BenchFixtureState<GlobalBenchFixture>::on_setup("benchmarks/fixture/free_suite_global/global"); }
+    void tearDown() { BenchFixtureState<GlobalBenchFixture>::on_teardown("benchmarks/fixture/free_suite_global/global"); }
+};
+
+struct [[using gentest: fixture(suite)]] SuiteJitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() { BenchFixtureState<SuiteJitterFixture>::on_setup("benchmarks/fixture/free_suite_global_jitter/suite"); }
+    void tearDown() { BenchFixtureState<SuiteJitterFixture>::on_teardown("benchmarks/fixture/free_suite_global_jitter/suite"); }
+};
+
+struct [[using gentest: fixture(global)]] GlobalJitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() { BenchFixtureState<GlobalJitterFixture>::on_setup("benchmarks/fixture/free_suite_global_jitter/global"); }
+    void tearDown() { BenchFixtureState<GlobalJitterFixture>::on_teardown("benchmarks/fixture/free_suite_global_jitter/global"); }
+};
+
+[[using gentest: bench("fixture/free_suite_global"), fixtures(SuiteBenchFixture, GlobalBenchFixture)]]
+void bench_free_suite_global(SuiteBenchFixture& suite_fx, GlobalBenchFixture& global_fx) {
+    BenchFixtureState<SuiteBenchFixture>::on_call("benchmarks/fixture/free_suite_global/suite", &suite_fx);
+    BenchFixtureState<GlobalBenchFixture>::on_call("benchmarks/fixture/free_suite_global/global", &global_fx);
+}
+
+[[using gentest: jitter("fixture/free_suite_global_jitter"), fixtures(SuiteJitterFixture, GlobalJitterFixture)]]
+void jitter_free_suite_global(SuiteJitterFixture& suite_fx, GlobalJitterFixture& global_fx) {
+    BenchFixtureState<SuiteJitterFixture>::on_call("benchmarks/fixture/free_suite_global_jitter/suite", &suite_fx);
+    BenchFixtureState<GlobalJitterFixture>::on_call("benchmarks/fixture/free_suite_global_jitter/global", &global_fx);
 }
 
 } // namespace benchmarks

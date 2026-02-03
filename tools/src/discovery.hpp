@@ -40,4 +40,25 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
     mutable std::unordered_map<std::string, std::string> unique_base_locations_;
 };
 
+// AST matcher callback that collects suite/global fixture declarations.
+class FixtureDeclCollector : public clang::ast_matchers::MatchFinder::MatchCallback {
+  public:
+    explicit FixtureDeclCollector(std::vector<FixtureDeclInfo> &out);
+
+    void run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
+
+    [[nodiscard]] bool has_errors() const;
+
+  private:
+    void report(const clang::CXXRecordDecl &decl, const clang::SourceManager &sm, std::string_view message) const;
+
+    std::vector<FixtureDeclInfo> &out_;
+    mutable bool                  had_error_ = false;
+    mutable std::unordered_map<const clang::NamespaceDecl *, SuiteAttributeSummary> suite_cache_;
+};
+
+// Resolve free-function fixture uses against discovered fixture declarations.
+// Returns false on validation error.
+bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures);
+
 } // namespace gentest::codegen

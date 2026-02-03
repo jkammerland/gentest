@@ -2,6 +2,8 @@
 #include "gentest/fixture.h"
 #include "gentest/runner.h"
 
+#include <memory>
+#include <string>
 #include <vector>
 #include <stdexcept>
 
@@ -24,32 +26,124 @@ struct StackFixture {
     }
 };
 
+struct AllocEphemeral {
+    static inline int allocations = 0;
+    static std::unique_ptr<AllocEphemeral> gentest_allocate() {
+        ++allocations;
+        return std::make_unique<AllocEphemeral>();
+    }
+
+    [[using gentest: test("ephemeral/alloc_hook")]]
+    void alloc_hook() {
+        gentest::expect_eq(allocations, 1, "allocation hook runs for ephemeral fixtures");
+    }
+};
+
 struct [[using gentest: fixture(suite)]] Counter /* optionally implement setup/teardown later */ {
     int x = 0;
+    static inline Counter* last = nullptr;
 
     [[using gentest: test("stateful/a_set_flag")]]
     void set_flag() {
         x = 1;
+        last = this;
     }
 
     [[using gentest: test("stateful/b_check_flag")]]
     void check_flag() {
         gentest::expect_eq(x, 1, "state preserved across methods");
+        gentest::expect_eq(this, last, "suite fixture instance reused");
+    }
+};
+
+struct [[using gentest: fixture(suite)]] SuiteAlloc {
+    static inline int allocations = 0;
+    static std::unique_ptr<SuiteAlloc> gentest_allocate() {
+        ++allocations;
+        return std::make_unique<SuiteAlloc>();
+    }
+
+    int value = 0;
+
+    [[using gentest: test("stateful_alloc/a_set_value")]]
+    void set_value() {
+        value = 5;
+        gentest::expect_eq(allocations, 1, "suite fixture allocated once");
+    }
+
+    [[using gentest: test("stateful_alloc/b_check_value")]]
+    void check_value() {
+        gentest::expect_eq(value, 5, "suite fixture state persists");
+        gentest::expect_eq(allocations, 1, "suite fixture allocated once");
+    }
+};
+
+struct [[using gentest: fixture(suite)]] SuiteHook {
+    static inline int allocations = 0;
+    static inline std::string seen_suite;
+    static inline SuiteHook* first = nullptr;
+
+    static std::unique_ptr<SuiteHook> gentest_allocate(std::string_view suite) {
+        ++allocations;
+        seen_suite = std::string(suite);
+        return std::make_unique<SuiteHook>();
+    }
+
+    [[using gentest: test("suite_hook/a_allocate")]]
+    void allocate() {
+        if (!first) first = this;
+        gentest::expect_eq(allocations, 1, "suite fixture allocated once");
+        gentest::expect_eq(seen_suite, "fixtures", "suite name passed to allocation hook");
+    }
+
+    [[using gentest: test("suite_hook/b_shared")]]
+    void shared() {
+        gentest::expect_eq(this, first, "suite fixture instance reused");
+        gentest::expect_eq(allocations, 1, "suite fixture allocated once");
+        gentest::expect_eq(seen_suite, "fixtures", "suite name passed to allocation hook");
     }
 };
 
 struct [[using gentest: fixture(global)]] GlobalCounter {
     int hits = 0;
+    static inline GlobalCounter* last = nullptr;
 
     [[using gentest: test("global/increment")]]
     void increment() {
         ++hits;
+        last = this;
         gentest::expect_eq(hits, 1, "first increment sets global state");
     }
 
     [[using gentest: test("global/observe")]]
     void observe() {
         gentest::expect_eq(hits, 1, "global fixture persists across tests");
+        gentest::expect_eq(this, last, "global fixture instance reused");
+    }
+};
+
+struct [[using gentest: fixture(global)]] GlobalAlloc {
+    static inline int allocations = 0;
+    static inline GlobalAlloc* last = nullptr;
+    static std::shared_ptr<GlobalAlloc> gentest_allocate() {
+        ++allocations;
+        return std::make_shared<GlobalAlloc>();
+    }
+
+    int hits = 0;
+
+    [[using gentest: test("global_alloc/a_increment")]]
+    void increment() {
+        ++hits;
+        last = this;
+        gentest::expect_eq(allocations, 1, "global fixture allocated once");
+    }
+
+    [[using gentest: test("global_alloc/b_observe")]]
+    void observe() {
+        gentest::expect_eq(hits, 1, "global fixture persists across tests");
+        gentest::expect_eq(this, last, "global fixture instance reused");
+        gentest::expect_eq(allocations, 1, "global fixture allocated once");
     }
 };
 
@@ -76,6 +170,61 @@ class C {
     int v = 7;
 };
 
+struct PtrFixture {
+    static inline int allocations = 0;
+    static std::unique_ptr<PtrFixture> gentest_allocate() {
+        ++allocations;
+        return std::make_unique<PtrFixture>();
+    }
+    int value = 3;
+};
+
+struct RawFixture {
+    static inline int allocations = 0;
+    static RawFixture* gentest_allocate() {
+        ++allocations;
+        return new RawFixture();
+    }
+    int value = 5;
+};
+
+struct SharedFixture {
+    static inline int allocations = 0;
+    static std::shared_ptr<SharedFixture> gentest_allocate() {
+        ++allocations;
+        return std::make_shared<SharedFixture>();
+    }
+    int value = 4;
+};
+
+struct CustomDeleterFixture {
+    struct Deleter {
+        void operator()(CustomDeleterFixture* ptr) const {
+            ++CustomDeleterFixture::deletes;
+            delete ptr;
+        }
+    };
+    static inline int deletes = 0;
+    static std::unique_ptr<CustomDeleterFixture, Deleter> gentest_allocate() {
+        return std::unique_ptr<CustomDeleterFixture, Deleter>(new CustomDeleterFixture(), Deleter{});
+    }
+
+    [[using gentest: test("custom_deleter/a_use")]]
+    void use() {
+        gentest::expect_eq(deletes, 0, "deleter not called before first test");
+    }
+
+    [[using gentest: test("custom_deleter/b_after_first")]]
+    void after_first() {
+        gentest::expect_eq(deletes, 1, "deleter ran after first test");
+    }
+
+    [[using gentest: test("custom_deleter/c_after_second")]]
+    void after_second() {
+        gentest::expect_eq(deletes, 2, "deleter ran after second test");
+    }
+};
+
 [[using gentest: test("free/basic"), fixtures(A, B<int>, C)]]
 void free_basic(A &a, B<int> &b, C &c) {
     // setUp must have run for A
@@ -85,5 +234,180 @@ void free_basic(A &a, B<int> &b, C &c) {
     gentest::expect(std::string(b.msg) == "ok", "B default value");
     gentest::expect_eq(c.v, 7, "C default value");
 }
+
+[[using gentest: test("free/pointer"), fixtures(PtrFixture)]]
+void free_pointer(PtrFixture *fx) {
+    gentest::expect(fx != nullptr, "fixture pointer is valid");
+    gentest::expect_eq(fx->value, 3, "fixture state available");
+    gentest::expect_eq(PtrFixture::allocations, 1, "allocation hook runs for pointer fixture");
+}
+
+[[using gentest: test("free/raw_pointer"), fixtures(RawFixture)]]
+void free_raw_pointer(RawFixture *fx) {
+    gentest::expect(fx != nullptr, "fixture pointer is valid");
+    gentest::expect_eq(fx->value, 5, "fixture state available");
+    gentest::expect_eq(RawFixture::allocations, 1, "allocation hook runs for raw pointer fixture");
+}
+
+[[using gentest: test("free/shared_ptr"), fixtures(SharedFixture)]]
+void free_shared_ptr(std::shared_ptr<SharedFixture> fx) {
+    gentest::expect(static_cast<bool>(fx), "shared fixture pointer is valid");
+    gentest::expect_eq(fx->value, 4, "fixture state available");
+    gentest::expect_eq(SharedFixture::allocations, 1, "allocation hook runs for shared fixture");
+}
+
+namespace suite_shared {
+struct [[using gentest: fixture(suite)]] SharedSuiteFx : gentest::FixtureSetup, gentest::FixtureTearDown {
+    static inline int setups = 0;
+    static inline int teardowns = 0;
+    static inline SharedSuiteFx* first = nullptr;
+    static inline bool saw_test = false;
+    int value = 0;
+
+    void setUp() override { ++setups; }
+    void tearDown() override {
+        ++teardowns;
+        gentest::expect_eq(teardowns, 1, "suite fixture tearDown runs once");
+        gentest::expect(saw_test, "suite fixture tearDown runs after tests");
+    }
+};
+
+namespace inner_a {
+[[using gentest: test("suite_shared/inner_a/set"), fixtures(SharedSuiteFx)]]
+void set(SharedSuiteFx& fx) {
+    if (!SharedSuiteFx::first) SharedSuiteFx::first = &fx;
+    SharedSuiteFx::saw_test = true;
+    gentest::expect_eq(SharedSuiteFx::setups, 1, "suite fixture setUp runs once");
+    gentest::expect_eq(SharedSuiteFx::teardowns, 0, "suite fixture tearDown not yet run");
+    fx.value = 99;
+}
+} // namespace inner_a
+
+namespace inner_b {
+[[using gentest: test("suite_shared/inner_b/check"), fixtures(SharedSuiteFx)]]
+void check(SharedSuiteFx& fx) {
+    SharedSuiteFx::saw_test = true;
+    gentest::expect_eq(&fx, SharedSuiteFx::first, "suite fixture instance reused across namespaces");
+    gentest::expect_eq(SharedSuiteFx::setups, 1, "suite fixture setUp runs once");
+    gentest::expect_eq(fx.value, 99, "suite fixture state persists");
+}
+} // namespace inner_b
+} // namespace suite_shared
+
+namespace global_shared {
+struct [[using gentest: fixture(global)]] SharedGlobalFx : gentest::FixtureSetup, gentest::FixtureTearDown {
+    static inline int setups = 0;
+    static inline int teardowns = 0;
+    static inline SharedGlobalFx* first = nullptr;
+    static inline bool saw_test = false;
+    int hits = 0;
+
+    void setUp() override { ++setups; }
+    void tearDown() override {
+        ++teardowns;
+        gentest::expect_eq(teardowns, 1, "global fixture tearDown runs once");
+        gentest::expect(saw_test, "global fixture tearDown runs after tests");
+    }
+};
+
+namespace inner_a {
+[[using gentest: test("global_shared/inner_a/hit"), fixtures(SharedGlobalFx)]]
+void hit(SharedGlobalFx& fx) {
+    if (!SharedGlobalFx::first) SharedGlobalFx::first = &fx;
+    SharedGlobalFx::saw_test = true;
+    ++fx.hits;
+    gentest::expect_eq(SharedGlobalFx::setups, 1, "global fixture setUp runs once");
+}
+} // namespace inner_a
+
+namespace inner_b {
+[[using gentest: test("global_shared/inner_b/check"), fixtures(SharedGlobalFx)]]
+void check(std::shared_ptr<SharedGlobalFx> fx) {
+    SharedGlobalFx::saw_test = true;
+    gentest::expect(static_cast<bool>(fx), "shared pointer provided");
+    gentest::expect_eq(fx.get(), SharedGlobalFx::first, "global fixture instance reused");
+    gentest::expect_eq(fx->hits, 1, "global fixture state persists");
+}
+} // namespace inner_b
+
+namespace inner_c {
+[[using gentest: test("global_shared/inner_c/pointer"), fixtures(SharedGlobalFx)]]
+void pointer(SharedGlobalFx* fx) {
+    SharedGlobalFx::saw_test = true;
+    gentest::expect(fx != nullptr, "pointer fixture provided");
+    gentest::expect_eq(fx, SharedGlobalFx::first, "pointer refers to shared instance");
+}
+} // namespace inner_c
+} // namespace global_shared
+
+namespace mixed_suite {
+struct LocalMix : gentest::FixtureSetup, gentest::FixtureTearDown {
+    static inline int setups = 0;
+    static inline int teardowns = 0;
+    int value = 0;
+
+    void setUp() override { ++setups; }
+    void tearDown() override { ++teardowns; }
+};
+
+struct [[using gentest: fixture(suite)]] SuiteMix : gentest::FixtureSetup {
+    static inline int setups = 0;
+    static inline SuiteMix* first = nullptr;
+    static inline bool initialized = false;
+    int value = 0;
+
+    void setUp() override { ++setups; }
+};
+
+struct [[using gentest: fixture(global)]] GlobalMix : gentest::FixtureSetup {
+    static inline int setups = 0;
+    static inline GlobalMix* first = nullptr;
+    static inline bool initialized = false;
+    int value = 0;
+
+    void setUp() override { ++setups; }
+};
+
+[[using gentest: test("mixed/one"), fixtures(LocalMix, SuiteMix, GlobalMix)]]
+void mixed_one(LocalMix& local, SuiteMix& suite, GlobalMix& global) {
+    if (!SuiteMix::first) SuiteMix::first = &suite;
+    if (!SuiteMix::initialized) {
+        suite.value = 42;
+        SuiteMix::initialized = true;
+    }
+    gentest::expect_eq(SuiteMix::setups, 1, "suite fixture setUp runs once");
+    gentest::expect_eq(&suite, SuiteMix::first, "suite fixture instance reused");
+    gentest::expect_eq(suite.value, 42, "suite fixture state persists");
+
+    if (!GlobalMix::first) GlobalMix::first = &global;
+    if (!GlobalMix::initialized) {
+        global.value = 24;
+        GlobalMix::initialized = true;
+    }
+    gentest::expect_eq(GlobalMix::setups, 1, "global fixture setUp runs once");
+    gentest::expect_eq(&global, GlobalMix::first, "global fixture instance reused");
+    gentest::expect_eq(global.value, 24, "global fixture state persists");
+
+    gentest::expect_eq(LocalMix::setups, LocalMix::teardowns + 1, "local fixture setup/teardown per test");
+    gentest::expect_eq(local.value, 0, "local fixture starts fresh");
+    local.value = 7;
+}
+
+[[using gentest: test("mixed/two"), fixtures(LocalMix, SuiteMix, GlobalMix)]]
+void mixed_two(LocalMix& local, SuiteMix& suite, std::shared_ptr<GlobalMix> global) {
+    gentest::expect_eq(SuiteMix::setups, 1, "suite fixture setUp runs once");
+    gentest::expect_eq(&suite, SuiteMix::first, "suite fixture instance reused");
+    gentest::expect_eq(suite.value, 42, "suite fixture state persists");
+
+    gentest::expect(static_cast<bool>(global), "global fixture shared pointer provided");
+    gentest::expect_eq(GlobalMix::setups, 1, "global fixture setUp runs once");
+    gentest::expect_eq(global.get(), GlobalMix::first, "global fixture instance reused");
+    gentest::expect_eq(global->value, 24, "global fixture state persists");
+
+    gentest::expect_eq(LocalMix::setups, LocalMix::teardowns + 1, "local fixture setup/teardown per test");
+    gentest::expect_eq(local.value, 0, "local fixture starts fresh");
+    local.value = 9;
+}
+} // namespace mixed_suite
 
 } // namespace fixtures

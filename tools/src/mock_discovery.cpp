@@ -20,11 +20,7 @@ using namespace clang::ast_matchers;
 namespace gentest::codegen {
 namespace {
 
-struct ParamRefFlags {
-    bool is_lvalue_ref = false;
-    bool is_rvalue_ref = false;
-    bool is_forwarding_ref = false;
-};
+using ParamPassStyle = MockParamInfo::PassStyle;
 
 [[nodiscard]] bool is_supported_access(AccessSpecifier access) {
     return access == AS_public || access == AS_protected || access == AS_none;
@@ -66,23 +62,42 @@ struct ParamRefFlags {
     return {};
 }
 
-[[nodiscard]] ParamRefFlags classify_param_ref(const ParmVarDecl &param) {
-    ParamRefFlags flags;
+[[nodiscard]] ParamPassStyle classify_param_pass_style(const ParmVarDecl &param) {
     const QualType type = param.getType();
-    flags.is_lvalue_ref = type->isLValueReferenceType();
-    flags.is_rvalue_ref = type->isRValueReferenceType();
-    if (flags.is_rvalue_ref) {
+    if (type->isLValueReferenceType()) {
+        return ParamPassStyle::LValueRef;
+    }
+    if (type->isRValueReferenceType()) {
         const QualType pointee = type->getPointeeType();
         const bool     unqualified = !pointee.isConstQualified() && !pointee.isVolatileQualified();
         if (unqualified) {
-            if (pointee->getAs<TemplateTypeParmType>() != nullptr) {
-                flags.is_forwarding_ref = true;
-            } else if (const auto *auto_type = pointee->getAs<AutoType>()) {
-                flags.is_forwarding_ref = !auto_type->isDecltypeAuto();
+            if (pointee->getAs<TemplateTypeParmType>() != nullptr || pointee->getAs<SubstTemplateTypeParmType>() != nullptr) {
+                return ParamPassStyle::ForwardingRef;
+            }
+            if (const auto *auto_type = pointee->getAs<AutoType>()) {
+                if (!auto_type->isDecltypeAuto()) {
+                    return ParamPassStyle::ForwardingRef;
+                }
             }
         }
+        return ParamPassStyle::RValueRef;
     }
-    return flags;
+    return ParamPassStyle::Value;
+}
+
+[[nodiscard]] MockParamInfo build_param_info(const ParmVarDecl &param, const ASTContext &ctx, bool is_template, unsigned index) {
+    MockParamInfo info;
+    info.type = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
+    info.pass_style = classify_param_pass_style(param);
+    const QualType base_type = param.getType().getNonReferenceType();
+    info.is_const = base_type.isConstQualified();
+    info.is_volatile = base_type.isVolatileQualified();
+    if (!param.getNameAsString().empty()) {
+        info.name = param.getNameAsString();
+    } else {
+        info.name = fmt::format("arg{}", index);
+    }
+    return info;
 }
 
 [[nodiscard]] bool has_accessible_default_ctor(const CXXRecordDecl &record) {
@@ -317,18 +332,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         const bool is_template = ctor->getDescribedFunctionTemplate() != nullptr;
         unsigned arg_index = 0;
         for (const auto *param : ctor->parameters()) {
-            MockParamInfo param_info;
-            param_info.type = is_template ? print_type_as_written(param->getType(), ctx) : print_type(param->getType(), ctx);
-            const auto ref_flags = classify_param_ref(*param);
-            param_info.is_lvalue_ref = ref_flags.is_lvalue_ref;
-            param_info.is_rvalue_ref = ref_flags.is_rvalue_ref;
-            param_info.is_forwarding_ref = ref_flags.is_forwarding_ref;
-            if (!param->getNameAsString().empty()) {
-                param_info.name = param->getNameAsString();
-            } else {
-                param_info.name = fmt::format("arg{}", arg_index);
-            }
-            ctor_info.parameters.push_back(std::move(param_info));
+            ctor_info.parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
             ++arg_index;
         }
 
@@ -415,19 +419,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
 
         unsigned arg_index = 0;
         for (const auto *param : method->parameters()) {
-            MockParamInfo param_info;
-            param_info.type = is_template ? print_type_as_written(param->getType(), ctx)
-                                         : print_type(param->getType(), ctx);
-            const auto ref_flags = classify_param_ref(*param);
-            param_info.is_lvalue_ref = ref_flags.is_lvalue_ref;
-            param_info.is_rvalue_ref = ref_flags.is_rvalue_ref;
-            param_info.is_forwarding_ref = ref_flags.is_forwarding_ref;
-            if (!param->getNameAsString().empty()) {
-                param_info.name = param->getNameAsString();
-            } else {
-                param_info.name = fmt::format("arg{}", arg_index);
-            }
-            method_info.parameters.push_back(std::move(param_info));
+            method_info.parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
             ++arg_index;
         }
 

@@ -45,10 +45,13 @@ using namespace clang;
 using namespace clang::tooling;
 using namespace clang::ast_matchers;
 using gentest::codegen::CollectorOptions;
+using gentest::codegen::FixtureDeclCollector;
+using gentest::codegen::FixtureDeclInfo;
 using gentest::codegen::TestCaseCollector;
 using gentest::codegen::TestCaseInfo;
 using gentest::codegen::MockUsageCollector;
 using gentest::codegen::register_mock_matchers;
+using gentest::codegen::resolve_free_fixtures;
 
 #ifndef GENTEST_TEMPLATE_DIR
 #define GENTEST_TEMPLATE_DIR ""
@@ -430,6 +433,7 @@ int main(int argc, const char **argv) {
     const std::string resource_dir = need_resource_dir ? resolve_resource_dir(compiler_path) : std::string{};
 
     std::vector<TestCaseInfo>                    cases;
+    std::vector<FixtureDeclInfo>                 fixtures;
     const bool                                   allow_includes = !options.tu_output_dir.empty();
     std::vector<gentest::codegen::MockClassInfo> mocks;
 
@@ -525,8 +529,10 @@ int main(int argc, const char **argv) {
     struct ParseResult {
         int                                 status = 0;
         bool                                had_test_errors = false;
+        bool                                had_fixture_errors = false;
         bool                                had_mock_errors = false;
         std::vector<TestCaseInfo>           cases;
+        std::vector<FixtureDeclInfo>        fixtures;
         std::vector<gentest::codegen::MockClassInfo> mocks;
     };
 
@@ -608,18 +614,23 @@ int main(int argc, const char **argv) {
 
             std::vector<TestCaseInfo> local_cases;
             TestCaseCollector         collector{local_cases, options.strict_fixture, allow_includes};
+            std::vector<FixtureDeclInfo> local_fixtures;
+            FixtureDeclCollector         fixture_collector{local_fixtures};
             std::vector<gentest::codegen::MockClassInfo> local_mocks;
             MockUsageCollector                            mock_collector{local_mocks};
 
             MatchFinder finder;
             finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
+            finder.addMatcher(cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("gentest.fixture"), &fixture_collector);
             register_mock_matchers(finder, mock_collector);
 
             ParseResult result;
             result.status = tool.run(newFrontendActionFactory(&finder).get());
             result.had_test_errors = collector.has_errors();
+            result.had_fixture_errors = fixture_collector.has_errors();
             result.had_mock_errors = mock_collector.has_errors();
             result.cases = std::move(local_cases);
+            result.fixtures = std::move(local_fixtures);
             result.mocks = std::move(local_mocks);
             results[idx] = std::move(result);
 
@@ -652,8 +663,9 @@ int main(int argc, const char **argv) {
             if (status == 0 && r.status != 0) {
                 status = r.status;
             }
-            had_errors = had_errors || r.had_test_errors || r.had_mock_errors;
+            had_errors = had_errors || r.had_test_errors || r.had_fixture_errors || r.had_mock_errors;
             cases.insert(cases.end(), std::make_move_iterator(r.cases.begin()), std::make_move_iterator(r.cases.end()));
+            fixtures.insert(fixtures.end(), std::make_move_iterator(r.fixtures.begin()), std::make_move_iterator(r.fixtures.end()));
             mocks.insert(mocks.end(), std::make_move_iterator(r.mocks.begin()), std::make_move_iterator(r.mocks.end()));
         }
         if (status != 0) {
@@ -669,17 +681,19 @@ int main(int argc, const char **argv) {
         tool.appendArgumentsAdjuster(syntax_only_adjuster);
 
         TestCaseCollector  collector{cases, options.strict_fixture, allow_includes};
+        FixtureDeclCollector fixture_collector{fixtures};
         MockUsageCollector mock_collector{mocks};
 
         MatchFinder finder;
         finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
+        finder.addMatcher(cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("gentest.fixture"), &fixture_collector);
         register_mock_matchers(finder, mock_collector);
 
         const int status = tool.run(newFrontendActionFactory(&finder).get());
         if (status != 0) {
             return status;
         }
-        if (collector.has_errors() || mock_collector.has_errors()) {
+        if (collector.has_errors() || fixture_collector.has_errors() || mock_collector.has_errors()) {
             return 1;
         }
     }
@@ -688,6 +702,10 @@ int main(int argc, const char **argv) {
         if (!enforce_unique_base_names(cases)) {
             return 1;
         }
+    }
+
+    if (!resolve_free_fixtures(cases, fixtures)) {
+        return 1;
     }
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
@@ -700,5 +718,5 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
-    return gentest::codegen::emit(options, cases, mocks);
+    return gentest::codegen::emit(options, cases, fixtures, mocks);
 }
