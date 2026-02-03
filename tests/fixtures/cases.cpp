@@ -340,4 +340,74 @@ void pointer(SharedGlobalFx* fx) {
 } // namespace inner_c
 } // namespace global_shared
 
+namespace mixed_suite {
+struct LocalMix : gentest::FixtureSetup, gentest::FixtureTearDown {
+    static inline int setups = 0;
+    static inline int teardowns = 0;
+    int value = 0;
+
+    void setUp() override { ++setups; }
+    void tearDown() override { ++teardowns; }
+};
+
+struct [[using gentest: fixture(suite)]] SuiteMix : gentest::FixtureSetup {
+    static inline int setups = 0;
+    static inline SuiteMix* first = nullptr;
+    static inline bool initialized = false;
+    int value = 0;
+
+    void setUp() override { ++setups; }
+};
+
+struct [[using gentest: fixture(global)]] GlobalMix : gentest::FixtureSetup {
+    static inline int setups = 0;
+    static inline GlobalMix* first = nullptr;
+    static inline bool initialized = false;
+    int value = 0;
+
+    void setUp() override { ++setups; }
+};
+
+[[using gentest: test("mixed/one"), fixtures(LocalMix, SuiteMix, GlobalMix)]]
+void mixed_one(LocalMix& local, SuiteMix& suite, GlobalMix& global) {
+    if (!SuiteMix::first) SuiteMix::first = &suite;
+    if (!SuiteMix::initialized) {
+        suite.value = 42;
+        SuiteMix::initialized = true;
+    }
+    gentest::expect_eq(SuiteMix::setups, 1, "suite fixture setUp runs once");
+    gentest::expect_eq(&suite, SuiteMix::first, "suite fixture instance reused");
+    gentest::expect_eq(suite.value, 42, "suite fixture state persists");
+
+    if (!GlobalMix::first) GlobalMix::first = &global;
+    if (!GlobalMix::initialized) {
+        global.value = 24;
+        GlobalMix::initialized = true;
+    }
+    gentest::expect_eq(GlobalMix::setups, 1, "global fixture setUp runs once");
+    gentest::expect_eq(&global, GlobalMix::first, "global fixture instance reused");
+    gentest::expect_eq(global.value, 24, "global fixture state persists");
+
+    gentest::expect_eq(LocalMix::setups, LocalMix::teardowns + 1, "local fixture setup/teardown per test");
+    gentest::expect_eq(local.value, 0, "local fixture starts fresh");
+    local.value = 7;
+}
+
+[[using gentest: test("mixed/two"), fixtures(LocalMix, SuiteMix, GlobalMix)]]
+void mixed_two(LocalMix& local, SuiteMix& suite, std::shared_ptr<GlobalMix> global) {
+    gentest::expect_eq(SuiteMix::setups, 1, "suite fixture setUp runs once");
+    gentest::expect_eq(&suite, SuiteMix::first, "suite fixture instance reused");
+    gentest::expect_eq(suite.value, 42, "suite fixture state persists");
+
+    gentest::expect(static_cast<bool>(global), "global fixture shared pointer provided");
+    gentest::expect_eq(GlobalMix::setups, 1, "global fixture setUp runs once");
+    gentest::expect_eq(global.get(), GlobalMix::first, "global fixture instance reused");
+    gentest::expect_eq(global->value, 24, "global fixture state persists");
+
+    gentest::expect_eq(LocalMix::setups, LocalMix::teardowns + 1, "local fixture setup/teardown per test");
+    gentest::expect_eq(local.value, 0, "local fixture starts fresh");
+    local.value = 9;
+}
+} // namespace mixed_suite
+
 } // namespace fixtures

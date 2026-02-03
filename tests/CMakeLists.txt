@@ -325,8 +325,8 @@ set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
 gentest_add_check_counts(NAME skiponly_counts PROG $<TARGET_FILE:gentest_skiponly_tests> PASS 0 FAIL 0 SKIP 2)
 gentest_add_check_counts(NAME skiponly_list_counts PROG $<TARGET_FILE:gentest_skiponly_tests> LIST CASES 2)
 
-gentest_add_check_counts(NAME fixtures_counts PROG $<TARGET_FILE:gentest_fixtures_tests> PASS 25 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME fixtures_list_counts PROG $<TARGET_FILE:gentest_fixtures_tests> LIST CASES 25)
+gentest_add_check_counts(NAME fixtures_counts PROG $<TARGET_FILE:gentest_fixtures_tests> PASS 27 FAIL 0 SKIP 0)
+gentest_add_check_counts(NAME fixtures_list_counts PROG $<TARGET_FILE:gentest_fixtures_tests> LIST CASES 27)
 
 gentest_add_check_counts(NAME templates_counts PROG $<TARGET_FILE:gentest_templates_tests> PASS 93 FAIL 0 SKIP 0)
 gentest_add_check_lines(NAME templates_list_tests_lines PROG $<TARGET_FILE:gentest_templates_tests> LINES 93 ARGS --list-tests)
@@ -548,7 +548,7 @@ gentest_add_check_counts(
     SKIP 0
     ARGS --filter=*strings*)
 
-gentest_add_check_lines(NAME fixtures_list_tests_lines PROG $<TARGET_FILE:gentest_fixtures_tests> LINES 25 ARGS --list-tests)
+gentest_add_check_lines(NAME fixtures_list_tests_lines PROG $<TARGET_FILE:gentest_fixtures_tests> LINES 27 ARGS --list-tests)
 
 # JUnit XML smoke test: generate and validate basic content
 gentest_add_check_file_contains(
