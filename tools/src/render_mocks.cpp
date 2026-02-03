@@ -1,4 +1,5 @@
 #include "render_mocks.hpp"
+#include "templates_mocks.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -10,10 +11,22 @@
 #include <utility>
 
 namespace {
-template <typename... Args>
-inline void append_format(std::string &out, fmt::format_string<Args...> format_string, Args &&...args) {
-    fmt::format_to(std::back_inserter(out), format_string, std::forward<Args>(args)...);
-}
+class RenderBuffer {
+public:
+    void reserve(std::size_t size) { buffer_.reserve(size); }
+
+    void append_raw(std::string_view text) { buffer_.append(text.begin(), text.end()); }
+
+    template <typename... Args>
+    void append(fmt::format_string<Args...> format_string, Args &&...args) {
+        fmt::format_to(std::back_inserter(buffer_), format_string, std::forward<Args>(args)...);
+    }
+
+    std::string str() const { return fmt::to_string(buffer_); }
+
+private:
+    fmt::memory_buffer buffer_;
+};
 } // namespace
 
 namespace gentest::codegen::render {
@@ -74,25 +87,17 @@ std::string argument_list(const MockMethodInfo &method);
 
 std::string dispatch_block(const std::string &indent, const MockMethodInfo &method, const std::string &fq_type,
                            const std::string &tpl_usage) {
-    std::string block;
-    append_format(block, "{0}auto token = this->__gentest_state_.identify(&{1}::{2}{3});\n", indent, fq_type, method.method_name,
-                  tpl_usage);
+    RenderBuffer block;
+    block.append("{0}auto token = this->__gentest_state_.identify(&{1}::{2}{3});\n", indent, fq_type, method.method_name,
+                 tpl_usage);
     const std::string return_type   = ensure_global_qualifiers(method.return_type);
     const std::string args          = argument_list(method);
     const bool        returns_value = method.return_type != "void";
-    std::string       fq_method;
-    fq_method.reserve(method.qualified_name.size() + 2);
-    fq_method += "::";
-    fq_method += method.qualified_name;
-    std::string dispatch_args;
-    if (!args.empty()) {
-        dispatch_args.reserve(args.size() + 2);
-        dispatch_args += ", ";
-        dispatch_args += args;
-    }
-    append_format(block, "{0}{1}this->__gentest_state_.template dispatch<{2}>(token, \"{3}\"{4});\n", indent,
-                  returns_value ? "return " : "", return_type, fq_method, dispatch_args);
-    return block;
+    const std::string fq_method     = fmt::format("::{}", method.qualified_name);
+    const std::string dispatch_args = args.empty() ? std::string{} : fmt::format(", {}", args);
+    block.append("{0}{1}this->__gentest_state_.template dispatch<{2}>(token, \"{3}\"{4});\n", indent,
+                 returns_value ? "return " : "", return_type, fq_method, dispatch_args);
+    return block.str();
 }
 
 std::string join_parameter_list(const std::vector<MockParamInfo> &params) {
@@ -192,23 +197,24 @@ std::string close_namespaces(const std::string &ns) {
 std::string forward_original_declaration(const MockClassInfo &cls) {
     std::string type_name;
     const std::string ns = split_namespace_and_type(cls.qualified_name, type_name);
-    std::string out;
-    out += open_namespaces(ns);
-    out += "struct " + type_name + " {\n";
+    RenderBuffer out;
+    out.append_raw(open_namespaces(ns));
+    out.append("struct {} {{\n", type_name);
     if (cls.has_virtual_destructor) {
-        out += "    virtual ~" + type_name + "() {}\n";
+        out.append("    virtual ~{}() {{}}\n", type_name);
     }
     for (const auto &m : cls.methods) {
         if (!m.template_prefix.empty()) {
-            out += "    " + m.template_prefix + "\n";
+            out.append("    {}\n", m.template_prefix);
         }
-        std::string virt = m.is_virtual ? std::string("virtual ") : std::string();
-        out += "    " + virt + ensure_global_qualifiers(m.return_type) + " " + m.method_name + "(" + join_parameter_list(m.parameters) + ")" + qualifiers_for(m) + ";\n";
+        const char *virt = m.is_virtual ? "virtual " : "";
+        out.append("    {0}{1} {2}({3}){4};\n", virt, ensure_global_qualifiers(m.return_type), m.method_name,
+                   join_parameter_list(m.parameters), qualifiers_for(m));
     }
-    out += "};\n";
-    out += close_namespaces(ns);
-    out += "\n";
-    return out;
+    out.append_raw("};\n");
+    out.append_raw(close_namespaces(ns));
+    out.append_raw("\n");
+    return out.str();
 }
 
 enum class ForwardingMode {
@@ -274,27 +280,18 @@ std::string argument_expr(const MockParamInfo &param) {
 }
 
 std::string build_method_declaration(const MockClassInfo &cls, const MockMethodInfo &method) {
-    std::string decl;
+    RenderBuffer decl;
     if (!method.template_prefix.empty()) {
-        decl += method.template_prefix;
-        decl += '\n';
+        decl.append("{}\n", method.template_prefix);
     }
-    decl += method.return_type;
-    decl += ' ';
-    decl += method.method_name;
-    decl += '(';
-    decl += join_parameter_list(method.parameters);
-    decl += ')';
-    decl += qualifiers_for(method);
+    decl.append("{} {}({}){}", method.return_type, method.method_name, join_parameter_list(method.parameters),
+                qualifiers_for(method));
     if (cls.derive_for_virtual && method.is_virtual) {
-        decl += " override";
+        decl.append_raw(" override");
     }
     if (!method.template_prefix.empty()) {
         // Inline definition for template methods (must be visible to callers)
-        std::string fq_type;
-        fq_type.reserve(cls.qualified_name.size() + 2);
-        fq_type += "::";
-        fq_type += cls.qualified_name;
+        const std::string fq_type = fmt::format("::{}", cls.qualified_name);
         const std::string tpl_use = [&]() {
             if (method.template_param_names.empty()) return std::string{};
             std::string out = "<";
@@ -305,13 +302,13 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
             out += ">";
             return out;
         }();
-        decl += " {\n";
-        decl += dispatch_block("        ", method, fq_type, tpl_use);
-        decl += "    }";
+        decl.append_raw(" {\n");
+        decl.append_raw(dispatch_block("        ", method, fq_type, tpl_use));
+        decl.append_raw("    }");
     } else {
-        decl += ';';
+        decl.append_raw(";");
     }
-    return decl;
+    return decl.str();
 }
 
 std::string argument_list(const MockMethodInfo &method) {
@@ -325,86 +322,75 @@ std::string argument_list(const MockMethodInfo &method) {
 }
 
 std::string constructors_block(const MockClassInfo &cls) {
-    std::string block;
+    RenderBuffer block;
     if (cls.has_accessible_default_ctor) {
-        block += "    mock();\n";
+        block.append_raw("    mock();\n");
     }
 
     for (const auto &ctor : cls.constructors) {
         if (!ctor.template_prefix.empty()) {
-            block += "    ";
-            block += ctor.template_prefix;
-            block += "\n";
+            block.append("    {}\n", ctor.template_prefix);
         }
-        block += "    ";
         if (ctor.is_explicit) {
-            block += "explicit ";
+            block.append_raw("    explicit mock(");
+        } else {
+            block.append_raw("    mock(");
         }
-        block += "mock(";
-        block += join_parameter_list(ctor.parameters);
-        block += ')';
+        block.append("{}", join_parameter_list(ctor.parameters));
+        block.append_raw(")");
         if (ctor.is_noexcept) {
-            block += " noexcept";
+            block.append_raw(" noexcept");
         }
-        block += ";\n";
+        block.append_raw(";\n");
     }
 
-    block += "    ~mock()";
+    block.append_raw("    ~mock()");
     if (cls.has_virtual_destructor && cls.derive_for_virtual) {
-        block += " override";
+        block.append_raw(" override");
     }
-    block += ";\n";
-    return block;
+    block.append_raw(";\n");
+    return block.str();
 }
 
 std::string method_declarations_block(const MockClassInfo &cls) {
-    std::string block;
+    RenderBuffer block;
     for (const auto &method : cls.methods) {
-        block += "    ";
-        block += build_method_declaration(cls, method);
-        block += "\n";
+        block.append_raw("    ");
+        block.append_raw(build_method_declaration(cls, method));
+        block.append_raw("\n");
     }
-    return block;
+    return block.str();
 }
 
 std::string build_class_declaration(const MockClassInfo &cls) {
-    std::string header;
-    std::string fq_type;
-    fq_type.reserve(cls.qualified_name.size() + 2);
-    fq_type += "::";
-    fq_type += cls.qualified_name;
-    header += "template <>\nstruct mock<";
-    header += fq_type;
-    header += '>';
+    RenderBuffer header;
+    const std::string fq_type = fmt::format("::{}", cls.qualified_name);
+    header.append("template <>\nstruct mock<{}>", fq_type);
     if (cls.derive_for_virtual) {
-        header += " final : public ";
-        header += fq_type;
+        header.append(" final : public {}", fq_type);
     }
-    header += " {\n";
-    append_format(header, "    using GentestTarget = {};\n", fq_type);
-    header += constructors_block(cls);
+    header.append_raw(" {\n");
+    header.append("    using GentestTarget = {};\n", fq_type);
+    header.append_raw(constructors_block(cls));
     if (!cls.methods.empty()) {
-        header += method_declarations_block(cls);
+        header.append_raw(method_declarations_block(cls));
     }
-    header += "\n";
-    header += "  private:\n";
-    append_format(header, "    friend struct detail::MockAccess<mock<{}>>;\n", fq_type);
-    header += "    mutable detail::mocking::InstanceState __gentest_state_;\n";
-    header += "};\n\n";
-    return header;
+    header.append_raw("\n");
+    header.append_raw("  private:\n");
+    header.append("    friend struct detail::MockAccess<mock<{}>>;\n", fq_type);
+    header.append_raw("    mutable detail::mocking::InstanceState __gentest_state_;\n");
+    header.append_raw("};\n\n");
+    return header.str();
 }
 
 std::string build_mock_access(const MockClassInfo &cls) {
-    std::string body;
-    std::string fq_type;
-    fq_type.reserve(cls.qualified_name.size() + 2);
-    fq_type += "::";
-    fq_type += cls.qualified_name;
-    append_format(body, "template <>\nstruct MockAccess<mock<{}>> {{\n", fq_type);
-    body += "    template <class MethodPtr>\n";
-    append_format(body, "    static auto expect(mock<{0}> &instance, MethodPtr method) {{\n", fq_type);
-    body += "        using ::gentest::detail::mocking::ExpectationHandle;\n";
-    body += "        using ::gentest::detail::mocking::MethodTraits;\n";
+    RenderBuffer body;
+    const std::string fq_type = fmt::format("::{}", cls.qualified_name);
+    body.append("template <>\nstruct MockAccess<mock<{}>> {{\n", fq_type);
+    body.append_raw("    template <class MethodPtr>\n");
+    body.append("    static auto expect(mock<{0}> &instance, MethodPtr method) {{\n", fq_type);
+    body.append_raw("        using ::gentest::detail::mocking::ExpectationHandle;\n");
+    body.append_raw("        using ::gentest::detail::mocking::MethodTraits;\n");
     bool first_branch = true;
     for (const auto &method : cls.methods) {
         if (!method.template_prefix.empty()) {
@@ -420,53 +406,38 @@ std::string build_mock_access(const MockClassInfo &cls) {
             }
             return args;
         }();
-        std::string fq_method;
-        fq_method.reserve(method.qualified_name.size() + 2);
-        fq_method += "::";
-        fq_method += method.qualified_name;
+        const std::string fq_method    = fmt::format("::{}", method.qualified_name);
         const std::string branch_intro = first_branch ? "        if constexpr" : "        else if constexpr";
         first_branch                   = false;
-        append_format(body, "{0} (std::is_same_v<MethodPtr, {1}>) {{\n", branch_intro, pointer_type);
-        append_format(body, "            if (method == static_cast<MethodPtr>(&{0}::{1})) {{\n", fq_type, method.method_name);
-        append_format(body,
-                      "                auto token = instance.__gentest_state_.identify(&{0}::{1});\n"
-                      "                auto expectation = instance.__gentest_state_.template push_expectation<{2}>(token, \"{3}\");\n"
-                      "                return ExpectationHandle<{4}>{{expectation, \"{3}\"}};\n",
-                      fq_type, method.method_name, push_args, fq_method, signature);
-        body += "            }\n";
-        body += "        }\n";
+        body.append("{0} (std::is_same_v<MethodPtr, {1}>) {{\n", branch_intro, pointer_type);
+        body.append("            if (method == static_cast<MethodPtr>(&{0}::{1})) {{\n", fq_type, method.method_name);
+        body.append("                auto token = instance.__gentest_state_.identify(&{0}::{1});\n"
+                    "                auto expectation = instance.__gentest_state_.template push_expectation<{2}>(token, \"{3}\");\n"
+                    "                return ExpectationHandle<{4}>{{expectation, \"{3}\"}};\n",
+                    fq_type, method.method_name, push_args, fq_method, signature);
+        body.append_raw("            }\n");
+        body.append_raw("        }\n");
     }
-    body += "        using Signature = typename MethodTraits<MethodPtr>::Signature;\n";
-    body += "        auto token = instance.__gentest_state_.identify(method);\n";
-    body += "        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, token, \"(mock method)\");\n";
-    body += "        return ExpectationHandle<Signature>{expectation, \"(mock method)\"};\n";
-    body += "    }\n";
-    body += "\n";
-    append_format(body, "    static void set_nice(mock<{0}> &instance, bool v) {{ instance.__gentest_state_.set_nice(v); }}\n", fq_type);
-    body += "};\n\n";
-    return body;
+    body.append_raw("        using Signature = typename MethodTraits<MethodPtr>::Signature;\n");
+    body.append_raw("        auto token = instance.__gentest_state_.identify(method);\n");
+    body.append_raw(
+        "        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, token, \"(mock method)\");\n");
+    body.append_raw("        return ExpectationHandle<Signature>{expectation, \"(mock method)\"};\n");
+    body.append_raw("    }\n");
+    body.append_raw("\n");
+    body.append("    static void set_nice(mock<{0}> &instance, bool v) {{ instance.__gentest_state_.set_nice(v); }}\n", fq_type);
+    body.append_raw("};\n\n");
+    return body.str();
 }
 
 std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &method) {
-    std::string def;
-    std::string fq_type;
-    fq_type.reserve(cls.qualified_name.size() + 2);
-    fq_type += "::";
-    fq_type += cls.qualified_name;
+    RenderBuffer def;
+    const std::string fq_type = fmt::format("::{}", cls.qualified_name);
     if (!method.template_prefix.empty()) {
-        def += method.template_prefix;
-        def += '\n';
+        def.append("{}\n", method.template_prefix);
     }
-    def += ensure_global_qualifiers(method.return_type);
-    def += " gentest::mock<";
-    def += fq_type;
-    def += ">::";
-    def += method.method_name;
-    def += '(';
-    def += join_parameter_list(method.parameters);
-    def += ')';
-    def += qualifiers_for(method);
-    def += " {\n";
+    def.append("{} gentest::mock<{}>::{}({}){} {{\n", ensure_global_qualifiers(method.return_type), fq_type,
+               method.method_name, join_parameter_list(method.parameters), qualifiers_for(method));
     const std::string tpl_usage = [&]() -> std::string {
         if (method.template_param_names.empty()) return std::string{};
         std::string out = "<";
@@ -477,14 +448,14 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
         out += ">";
         return out;
     }();
-    def += dispatch_block("    ", method, fq_type, tpl_usage);
-    def += "}\n";
-    return def;
+    def.append_raw(dispatch_block("    ", method, fq_type, tpl_usage));
+    def.append_raw("}\n");
+    return def.str();
 }
 
 std::string include_sources_block(const CollectorOptions &options, const std::filesystem::path &base_dir) {
     namespace fs = std::filesystem;
-    std::string includes;
+    RenderBuffer includes;
     includes.reserve(options.sources.size() * 32);
     for (const auto &src : options.sources) {
         fs::path        spath(src);
@@ -492,75 +463,69 @@ std::string include_sources_block(const CollectorOptions &options, const std::fi
         fs::path        rel = fs::proximate(spath, base_dir, ec);
         if (ec)
             rel = spath;
-        append_format(includes, "#include \"{}\"\n", rel.generic_string());
+        includes.append("#include \"{}\"\n", rel.generic_string());
     }
-    return includes;
+    return includes.str();
 }
 
 std::string generate_implementation_header(const std::vector<const MockClassInfo *> &mocks) {
-    std::string impl;
+    RenderBuffer impl;
     impl.reserve(mocks.size() * 256);
-    impl += "// This file is auto-generated by gentest_codegen.\n// Do not edit manually.\n\n";
-    impl += "#pragma once\n\n";
-    impl += "#include <utility>\n\n";
+    impl.append_raw(tpl::mocks::impl_preamble);
     // Note: Include order matters. This header is intended to be included
     // after the test sources (so original types are complete) and after
     // including gentest/mock.h in the including TU.
-    impl += "namespace gentest {\n\n";
 
     for (const auto *cls : mocks) {
-        std::string fq_type;
-        fq_type.reserve(cls->qualified_name.size() + 2);
-        append_format(fq_type, "::{}", cls->qualified_name);
+        const std::string fq_type = fmt::format("::{}", cls->qualified_name);
         if (cls->has_accessible_default_ctor) {
-            append_format(impl, "inline mock<{0}>::mock() = default;\n", cls->qualified_name);
+            impl.append("inline mock<{0}>::mock() = default;\n", cls->qualified_name);
         }
         for (const auto &ctor : cls->constructors) {
             if (!ctor.template_prefix.empty()) {
-                impl += ctor.template_prefix;
-                impl += '\n';
+                impl.append("{}\n", ctor.template_prefix);
             }
-            append_format(impl, "inline mock<{0}>::mock(", fq_type);
-            impl += join_parameter_list(ctor.parameters);
-            impl += ')';
+            impl.append("inline mock<{0}>::mock(", fq_type);
+            impl.append("{}", join_parameter_list(ctor.parameters));
+            impl.append_raw(")");
             if (ctor.is_noexcept) {
-                impl += " noexcept";
+                impl.append_raw(" noexcept");
             }
             if (cls->derive_for_virtual) {
-                impl += " : ";
-                impl += fq_type;
-                impl += '(';
+                impl.append_raw(" : ");
+                impl.append("{}", fq_type);
+                impl.append_raw("(");
                 for (std::size_t i = 0; i < ctor.parameters.size(); ++i) {
                     if (i != 0)
-                        impl += ", ";
+                        impl.append_raw(", ");
                     const auto &p = ctor.parameters[i];
-                    append_format(impl, "{}", argument_expr(p));
+                    impl.append("{}", argument_expr(p));
                 }
-                impl += ')';
-                impl += " {}\n";
+                impl.append_raw(")");
+                impl.append_raw(" {}\n");
             } else {
-                impl += " {\n";
+                impl.append_raw(" {\n");
                 for (const auto &p : ctor.parameters) {
-                    append_format(impl, "    (void){};\n", p.name);
+                    impl.append("    (void){};\n", p.name);
                 }
-                impl += "}\n";
+                impl.append_raw("}\n");
             }
-            impl += '\n';
+            impl.append_raw("\n");
         }
-        append_format(impl, "inline mock<{0}>::~mock() {{ this->__gentest_state_.verify_all(); }}\n\n", cls->qualified_name);
+        impl.append("inline mock<{0}>::~mock() {{ this->__gentest_state_.verify_all(); }}\n\n", cls->qualified_name);
         for (const auto &method : cls->methods) {
             if (!method.template_prefix.empty()) continue; // defined inline in class declaration
             std::string def = method_definition(*cls, method);
             // Prefix with inline to be ODR-safe if included in multiple TUs
             def.insert(0, "inline ");
-            impl += def;
-            impl += '\n';
+            impl.append_raw(def);
+            impl.append_raw("\n");
         }
-        impl += '\n';
+        impl.append_raw("\n");
     }
 
-    impl += "} // namespace gentest\n";
-    return impl;
+    impl.append_raw(tpl::mocks::impl_footer);
+    return impl.str();
 }
 
 } // namespace
@@ -578,27 +543,24 @@ std::optional<MockOutputs> render_mocks(const CollectorOptions &options, const s
     std::ranges::sort(classes, {}, [](const MockClassInfo *cls) { return cls->qualified_name; });
 
     MockOutputs out;
-    std::string header;
+    RenderBuffer header;
     header.reserve(classes.size() * 256);
-    header += "// This file is auto-generated by gentest_codegen.\n// Do not edit manually.\n\n";
-    header += "#pragma once\n\n";
-    header += "#include <type_traits>\n\n";
-    header += "// This header is included while inside namespace gentest\n\n";
+    header.append_raw(tpl::mocks::registry_preamble);
 
     // Note: We require all mocked types to be complete before this registry is
     // included. The generated test TU ensures this by including project sources
     // first, then gentest/mock.h. For other TUs, users must include their
     // interfaces before including gentest/mock.h as well.
     for (const auto *cls : classes) {
-        header += build_class_declaration(*cls);
+        header.append_raw(build_class_declaration(*cls));
     }
-    header += "namespace detail {\n\n";
+    header.append_raw("namespace detail {\n\n");
     for (const auto *cls : classes) {
-        header += build_mock_access(*cls);
+        header.append_raw(build_mock_access(*cls));
     }
-    header += "} // namespace detail\n";
+    header.append_raw("} // namespace detail\n");
 
-    out.registry_header     = std::move(header);
+    out.registry_header     = header.str();
     out.implementation_unit = generate_implementation_header(classes);
     return out;
 }
