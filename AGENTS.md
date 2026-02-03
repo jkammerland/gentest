@@ -2,13 +2,35 @@
 
 ## Project Structure & Module Organization
 - Public headers live in `include/gentest/` (`runner.h`, `attributes.h`) and are exposed via an interface library.
-- The sample executable builds from `src/`. Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources.
+- Runtime execution lives in `src/` (notably `src/runner_impl.cpp`). Fixture allocation and ownership live in `include/gentest/fixture.h`.
+- Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources. Codegen templates live in `tools/src/templates.hpp`.
 - Helper macro wiring is in `cmake/GentestCodegen.cmake`.
 - `gentest_codegen` supports two output styles:
   - Manifest mode (`gentest_attach_codegen(... OUTPUT ...)`): emits a single generated TU (legacy).
   - Per-TU registration mode (default): emits per-TU registration headers (`tu_*.gentest.h`), and CMake generates shim TUs (`tu_*.gentest.cpp`) that include the original source and the generated header.
 - In per-TU registration mode, `gentest_attach_codegen()` replaces the original test TUs in the target with the generated shim TUs to avoid ODR issues.
 - Each suite under `tests/<suite>/` provides handwritten `cases.cpp` + `support/test_entry.cpp`; generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).
+
+## Architecture & Execution Model
+- Source annotations (`[[using gentest: ...]]`) are discovered by `gentest_codegen`; it emits wrappers and a `gentest::Case` table per target.
+- The runtime (`run_all_tests`) consumes the case table, groups by suite and fixture lifetime, runs setup/teardown, then executes test/bench/jitter wrappers.
+- Suite/group identity comes from namespace path (or explicit suite attribute) and is used for ordering and fixture scoping.
+
+## Fixture Model (Style + Semantics)
+- Fixture lifetimes: local (per test/bench/jitter), suite (per namespace group), global (per run).
+- Suite/global fixtures are registered at startup and set up once at the start of the run; teardown happens once at the end.
+- Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace for all tests that use them.
+- Prefer free-function tests/benches/jitters with `fixtures(...)`. Member tests are deprecated; they are treated as suite-level fixtures and should be avoided in new code.
+- Allocation hook: optional `static gentest_allocate()` or `static gentest_allocate(std::string_view suite)`. Supported returns: `unique_ptr` (custom deleter), `shared_ptr`, or raw pointer (adopted).
+- Allocation failures (null/exception) are treated as test failures and reported.
+
+## Bench/Jitter Model
+- Bench/jitter wrappers run in three phases: setup → call (timed loop) → teardown.
+- Fixture setup/teardown must happen outside timing loops; call phase should only invoke the benchmark.
+
+## Shuffle Semantics
+- Shuffling respects fixture grouping: within a suite, free/local tests are shuffled together, then each suite-fixture group, then each global-fixture group.
+- There is no interleaving across fixture groups.
 
 ## Build, Test, and Development Commands
 - Preferred (system LLVM/Clang 20+):
@@ -53,6 +75,7 @@
 - Executables return non‑zero on any `gentest::failure`; always run `ctest` before pushing.
 - Prefer free-function tests/benches/jitters with `fixtures(...)`. Member tests are deprecated; they are treated as suite-level fixtures (shared instance across methods) and should be avoided in new code.
 - Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace that owns the tests.
+- If you add tests, update `tests/CMakeLists.txt` counts (`*_counts`, `*_list_counts`, `*_list_tests_lines`) accordingly.
 
 ## Commit & Pull Request Guidelines
 - Commits: short, imperative subject (e.g., “Implement clang codegen attach helper”); add context in the body when needed; use trailers like `Refs: #123`.
