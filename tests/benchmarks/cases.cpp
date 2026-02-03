@@ -1,9 +1,11 @@
 #include "gentest/attributes.h"
 
 #include <cmath>
+#include <complex>
+#include <cstdlib>
+#include <memory>
 #include <string>
 #include <vector>
-#include <complex>
 #include "gentest/bench_util.h"
 
 namespace benchmarks {
@@ -50,5 +52,15 @@ void bench_complex(std::complex<double> z) {
     auto m = std::norm(z);
     gentest::doNotOptimizeAway(m);
 }
+
+struct [[using gentest: fixture(suite)]] NullBenchFixture {
+    static std::unique_ptr<NullBenchFixture> gentest_allocate() {
+        if (std::getenv("GENTEST_BENCH_NULL_FIXTURE")) return {};
+        return std::make_unique<NullBenchFixture>();
+    }
+
+    [[using gentest: bench("fixture/null")]]
+    void bench_null() {}
+};
 
 } // namespace benchmarks

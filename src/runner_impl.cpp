@@ -1072,11 +1072,32 @@ auto run_all_tests(std::span<const char*> args) -> int {
             if (idxs.empty()) { fmt::print("Executed 0 benchmark(s).\n"); return 0; }
         }
         if (opt.bench_table) fmt::print("Summary ({})\n", (idxs.empty() ? "" : std::string(kCases[idxs.front()].suite)));
+        bool had_fixture_failure = false;
+        const auto report_fixture_failure = [&](const Case& c, std::string_view reason) {
+            if (!c.fixture.empty()) {
+                fmt::print(stderr, "benchmark fixture allocation failed for {} ({}): {}\n", c.name, c.fixture, reason);
+            } else {
+                fmt::print(stderr, "benchmark fixture allocation failed for {}: {}\n", c.name, reason);
+            }
+            had_fixture_failure = true;
+        };
         for (auto i : idxs) {
             const auto& c = kCases[i];
             void* ctx = nullptr;
             if (c.fixture_lifetime != FixtureLifetime::None) {
-                try { ctx = c.acquire_fixture ? c.acquire_fixture(c.suite) : nullptr; } catch (...) {}
+                try {
+                    ctx = c.acquire_fixture ? c.acquire_fixture(c.suite) : nullptr;
+                } catch (const std::exception& e) {
+                    report_fixture_failure(c, std::string("std::exception: ") + e.what());
+                    continue;
+                } catch (...) {
+                    report_fixture_failure(c, "unknown exception");
+                    continue;
+                }
+                if (!ctx) {
+                    report_fixture_failure(c, "returned null");
+                    continue;
+                }
             }
             BenchResult br = run_bench(c, ctx, opt.bench_cfg);
             if (!opt.bench_table) {
@@ -1084,7 +1105,7 @@ auto run_all_tests(std::span<const char*> args) -> int {
                            br.iters_per_epoch, br.best_ns, br.median_ns, br.mean_ns);
             }
         }
-        return 0;
+        return had_fixture_failure ? 1 : 0;
     }
     case Mode::RunJitter: {
         const int bins = opt.jitter_bins;

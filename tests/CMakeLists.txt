@@ -645,6 +645,13 @@ gentest_add_check_contains(
     EXPECT_SUBSTRING benchmarks/string/concat_small
     ARGS --list)
 
+gentest_add_check_death(
+    NAME benches_fixture_alloc_null
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    EXPECT_SUBSTRING "benchmark fixture allocation failed for benchmarks/fixture/null"
+    ENV_VARS GENTEST_BENCH_NULL_FIXTURE=1
+    ARGS --run-bench=benchmarks/fixture/null)
+
 # Jitter: histogram header and suite table header
 gentest_add_check_contains(
     NAME jitter_hist_header
