@@ -76,6 +76,7 @@
 - Prefer free-function tests/benches/jitters with `fixtures(...)`. Member tests are deprecated; they are treated as suite-level fixtures (shared instance across methods) and should be avoided in new code.
 - Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace that owns the tests.
 - If you add tests, update `tests/CMakeLists.txt` counts (`*_counts`, `*_list_counts`, `*_list_tests_lines`) accordingly.
+- Always run tests for your changes before reporting back.
 
 ## Commit & Pull Request Guidelines
 - Commits: short, imperative subject (e.g., “Implement clang codegen attach helper”); add context in the body when needed; use trailers like `Refs: #123`.
