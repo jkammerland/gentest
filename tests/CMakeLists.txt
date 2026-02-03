@@ -308,8 +308,8 @@ set_tests_properties(
     PROPERTIES LABELS "codegen")
 
 # End-to-end behavioral checks with robust counting
-gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 13 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 13)
+gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 19 FAIL 0 SKIP 0)
+gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 19)
 
 gentest_add_check_counts(NAME integration_counts PROG $<TARGET_FILE:gentest_integration_tests> PASS 3 FAIL 0 SKIP 1)
 gentest_add_check_counts(NAME integration_list_counts PROG $<TARGET_FILE:gentest_integration_tests> LIST CASES 4)
@@ -505,7 +505,7 @@ gentest_add_check_death(
 
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
-gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 13 ARGS --list-tests)
+gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 19 ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "tags=fast" ARGS --list)
 gentest_add_check_lines(NAME integration_list_tests_lines PROG $<TARGET_FILE:gentest_integration_tests> LINES 4 ARGS --list-tests)
 gentest_add_check_contains(NAME integration_list_tags_owner PROG $<TARGET_FILE:gentest_integration_tests> EXPECT_SUBSTRING "owner=team-runtime" ARGS --list)
@@ -565,7 +565,7 @@ gentest_add_check_file_contains(
     EXPECT_SUBSTRING "<property name=\"requirement\" value=\"#42\""
     ARGS --junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml)
 
-gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 26 FAIL 0 SKIP 0 ARGS --repeat=2)
+gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 38 FAIL 0 SKIP 0 ARGS --repeat=2)
 
 gentest_add_check_counts(NAME failing_fail_fast PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 1 SKIP 0 ARGS --fail-fast)
 

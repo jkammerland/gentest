@@ -8,7 +8,8 @@ if(GENTEST_RUNTIME_SHARED)
 endif()
 
 add_library(gentest_runtime ${_gentest_runtime_libtype}
-    ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp)
+    ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp
+    ${PROJECT_SOURCE_DIR}/src/process.cpp)
 
 add_library(gentest_main STATIC
     ${PROJECT_SOURCE_DIR}/src/gentest_main.cpp)

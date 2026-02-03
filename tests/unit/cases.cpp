@@ -1,16 +1,39 @@
 #include "gentest/attributes.h"
+#include "gentest/process.h"
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
 #include <array>
+#include <chrono>
+#include <cstdlib>
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 namespace unit {
 
 inline void throw_runtime_error() { throw std::runtime_error("boom"); }
 inline void no_throw() {}
+
+namespace {
+constexpr const char *kChildEnv = "GENTEST_SUBPROCESS_CHILD";
+
+bool is_child_process() {
+    const char *value = std::getenv(kChildEnv);
+    return value != nullptr && value[0] != '\0';
+}
+
+bool build_child_options(std::string_view name, gentest::process::SubprocessOptions &options) {
+    std::string executable = gentest::process::current_executable_path();
+    if (executable.empty()) {
+        return false;
+    }
+    options.argv = {std::move(executable), std::string("--run-test=unit/") + std::string(name)};
+    options.env.push_back({kChildEnv, "1"});
+    return true;
+}
+} // namespace
 
 [[using gentest: test("arithmetic/sum"), fast]]
 void sum_is_computed() {
@@ -122,5 +145,67 @@ struct DefaultNameFixture {
         EXPECT_TRUE(true);
     }
 };
+
+[[using gentest: test("process/child_pass")]]
+void process_child_pass() {
+    if (!is_child_process()) {
+        EXPECT_TRUE(true);
+        return;
+    }
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("process/child_fail")]]
+void process_child_fail() {
+    if (!is_child_process()) {
+        EXPECT_TRUE(true);
+        return;
+    }
+    EXPECT_TRUE(false, "intentional failure");
+}
+
+[[using gentest: test("process/child_sleep")]]
+void process_child_sleep() {
+    if (!is_child_process()) {
+        EXPECT_TRUE(true);
+        return;
+    }
+    using namespace std::chrono_literals;
+    std::this_thread::sleep_for(200ms);
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("process/spawn_pass")]]
+void process_spawn_pass() {
+    gentest::process::SubprocessOptions options;
+    ASSERT_TRUE(build_child_options("process/child_pass", options), "missing current executable");
+    const auto result = gentest::process::run_subprocess(options);
+    EXPECT_TRUE(result.started);
+    EXPECT_FALSE(result.timed_out);
+    EXPECT_TRUE(result.error.empty());
+    EXPECT_EQ(result.exit_code, 0);
+}
+
+[[using gentest: test("process/spawn_fail")]]
+void process_spawn_fail() {
+    gentest::process::SubprocessOptions options;
+    ASSERT_TRUE(build_child_options("process/child_fail", options), "missing current executable");
+    const auto result = gentest::process::run_subprocess(options);
+    EXPECT_TRUE(result.started);
+    EXPECT_FALSE(result.timed_out);
+    EXPECT_TRUE(result.error.empty());
+    EXPECT_TRUE(result.exit_code != 0);
+}
+
+[[using gentest: test("process/spawn_timeout")]]
+void process_spawn_timeout() {
+    using namespace std::chrono_literals;
+    gentest::process::SubprocessOptions options;
+    ASSERT_TRUE(build_child_options("process/child_sleep", options), "missing current executable");
+    options.timeout = 50ms;
+    const auto result = gentest::process::run_subprocess(options);
+    EXPECT_TRUE(result.started);
+    EXPECT_TRUE(result.timed_out);
+}
 
 } // namespace unit
