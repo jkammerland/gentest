@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - Public headers live in `include/gentest/` (`runner.h`, `attributes.h`) and are exposed via an interface library.
 - Runtime execution lives in `src/` (notably `src/runner_impl.cpp`). Fixture allocation and ownership live in `include/gentest/fixture.h`.
-- Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources. Codegen templates live in `tools/src/templates.hpp`.
+- Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources. Codegen templates live in `tools/src/templates.hpp` and `tools/src/templates_mocks.hpp`.
 - Helper macro wiring is in `cmake/GentestCodegen.cmake`.
 - `gentest_codegen` supports two output styles:
   - Manifest mode (`gentest_attach_codegen(... OUTPUT ...)`): emits a single generated TU (legacy).

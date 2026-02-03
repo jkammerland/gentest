@@ -15,7 +15,7 @@ class RenderBuffer {
 public:
     void reserve(std::size_t size) { buffer_.reserve(size); }
 
-    void append_raw(std::string_view text) { buffer_.append(text.begin(), text.end()); }
+    void append_raw(std::string_view text) { buffer_.append(text.data(), text.data() + text.size()); }
 
     template <typename... Args>
     void append(fmt::format_string<Args...> format_string, Args &&...args) {
