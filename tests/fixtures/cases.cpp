@@ -261,16 +261,22 @@ struct [[using gentest: fixture(suite)]] SharedSuiteFx : gentest::FixtureSetup, 
     static inline int setups = 0;
     static inline int teardowns = 0;
     static inline SharedSuiteFx* first = nullptr;
+    static inline bool saw_test = false;
     int value = 0;
 
     void setUp() override { ++setups; }
-    void tearDown() override { ++teardowns; }
+    void tearDown() override {
+        ++teardowns;
+        gentest::expect_eq(teardowns, 1, "suite fixture tearDown runs once");
+        gentest::expect(saw_test, "suite fixture tearDown runs after tests");
+    }
 };
 
 namespace inner_a {
 [[using gentest: test("suite_shared/inner_a/set"), fixtures(SharedSuiteFx)]]
 void set(SharedSuiteFx& fx) {
     if (!SharedSuiteFx::first) SharedSuiteFx::first = &fx;
+    SharedSuiteFx::saw_test = true;
     gentest::expect_eq(SharedSuiteFx::setups, 1, "suite fixture setUp runs once");
     gentest::expect_eq(SharedSuiteFx::teardowns, 0, "suite fixture tearDown not yet run");
     fx.value = 99;
@@ -280,6 +286,7 @@ void set(SharedSuiteFx& fx) {
 namespace inner_b {
 [[using gentest: test("suite_shared/inner_b/check"), fixtures(SharedSuiteFx)]]
 void check(SharedSuiteFx& fx) {
+    SharedSuiteFx::saw_test = true;
     gentest::expect_eq(&fx, SharedSuiteFx::first, "suite fixture instance reused across namespaces");
     gentest::expect_eq(SharedSuiteFx::setups, 1, "suite fixture setUp runs once");
     gentest::expect_eq(fx.value, 99, "suite fixture state persists");
@@ -292,16 +299,22 @@ struct [[using gentest: fixture(global)]] SharedGlobalFx : gentest::FixtureSetup
     static inline int setups = 0;
     static inline int teardowns = 0;
     static inline SharedGlobalFx* first = nullptr;
+    static inline bool saw_test = false;
     int hits = 0;
 
     void setUp() override { ++setups; }
-    void tearDown() override { ++teardowns; }
+    void tearDown() override {
+        ++teardowns;
+        gentest::expect_eq(teardowns, 1, "global fixture tearDown runs once");
+        gentest::expect(saw_test, "global fixture tearDown runs after tests");
+    }
 };
 
 namespace inner_a {
 [[using gentest: test("global_shared/inner_a/hit"), fixtures(SharedGlobalFx)]]
 void hit(SharedGlobalFx& fx) {
     if (!SharedGlobalFx::first) SharedGlobalFx::first = &fx;
+    SharedGlobalFx::saw_test = true;
     ++fx.hits;
     gentest::expect_eq(SharedGlobalFx::setups, 1, "global fixture setUp runs once");
 }
@@ -310,6 +323,7 @@ void hit(SharedGlobalFx& fx) {
 namespace inner_b {
 [[using gentest: test("global_shared/inner_b/check"), fixtures(SharedGlobalFx)]]
 void check(std::shared_ptr<SharedGlobalFx> fx) {
+    SharedGlobalFx::saw_test = true;
     gentest::expect(static_cast<bool>(fx), "shared pointer provided");
     gentest::expect_eq(fx.get(), SharedGlobalFx::first, "global fixture instance reused");
     gentest::expect_eq(fx->hits, 1, "global fixture state persists");
@@ -319,6 +333,7 @@ void check(std::shared_ptr<SharedGlobalFx> fx) {
 namespace inner_c {
 [[using gentest: test("global_shared/inner_c/pointer"), fixtures(SharedGlobalFx)]]
 void pointer(SharedGlobalFx* fx) {
+    SharedGlobalFx::saw_test = true;
     gentest::expect(fx != nullptr, "pointer fixture provided");
     gentest::expect_eq(fx, SharedGlobalFx::first, "pointer refers to shared instance");
 }

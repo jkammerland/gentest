@@ -122,6 +122,26 @@ void bench_null(NullBenchFixture&) {}
 [[using gentest: jitter("fixture/jitter_null"), fixtures(NullJitterFixture)]]
 void jitter_null(NullJitterFixture&) {}
 
+struct LocalBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() { BenchFixtureState<LocalBenchFixture>::on_setup("benchmarks/fixture/local"); }
+    void tearDown() { BenchFixtureState<LocalBenchFixture>::on_teardown("benchmarks/fixture/local"); }
+};
+
+struct LocalJitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() { BenchFixtureState<LocalJitterFixture>::on_setup("benchmarks/fixture/local_jitter"); }
+    void tearDown() { BenchFixtureState<LocalJitterFixture>::on_teardown("benchmarks/fixture/local_jitter"); }
+};
+
+[[using gentest: bench("fixture/local"), fixtures(LocalBenchFixture)]]
+void bench_local(LocalBenchFixture& fx) {
+    BenchFixtureState<LocalBenchFixture>::on_call("benchmarks/fixture/local", &fx);
+}
+
+[[using gentest: jitter("fixture/local_jitter"), fixtures(LocalJitterFixture)]]
+void jitter_local(LocalJitterFixture& fx) {
+    BenchFixtureState<LocalJitterFixture>::on_call("benchmarks/fixture/local_jitter", &fx);
+}
+
 struct [[using gentest: fixture(suite)]] SuiteBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() { BenchFixtureState<SuiteBenchFixture>::on_setup("benchmarks/fixture/free_suite_global/suite"); }
     void tearDown() { BenchFixtureState<SuiteBenchFixture>::on_teardown("benchmarks/fixture/free_suite_global/suite"); }

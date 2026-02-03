@@ -106,10 +106,10 @@ void assign_allocation(FixtureAllocation<T>& out, Result&& result) {
     using ResultT = std::decay_t<Result>;
     if constexpr (IsUniquePtr<ResultT>::value) {
         out.unique = adopt_unique<T>(std::forward<Result>(result));
-    } else if constexpr (std::is_constructible_v<std::shared_ptr<T>, ResultT>) {
-        out.shared = std::shared_ptr<T>(std::forward<Result>(result));
     } else if constexpr (std::is_pointer_v<ResultT> && std::is_convertible_v<ResultT, T*>) {
         out.unique = typename FixtureAllocation<T>::UniquePtr(static_cast<T*>(result));
+    } else if constexpr (std::is_constructible_v<std::shared_ptr<T>, ResultT>) {
+        out.shared = std::shared_ptr<T>(std::forward<Result>(result));
     } else {
         static_assert(kAlwaysFalse<ResultT>,
                       "gentest_allocate must return std::unique_ptr<T, D>, std::shared_ptr<T>, or T*");
