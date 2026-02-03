@@ -131,4 +131,5 @@ void free_pointer(RawFx* fx) {
 - `std::shared_ptr<T>` arguments promote the unique ownership into shared
   ownership on first use.
 - Suite/global fixtures are constructed once (per suite or per process) and
-  reused across tests.
+  reused across tests. Their `setUp`/`tearDown` hooks run once at the start/end
+  of the test run, not per test.

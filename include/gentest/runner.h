@@ -170,6 +170,38 @@ inline std::string loc_to_string(const std::source_location &loc) {
     return s;
 }
 
+enum class BenchPhase {
+    None,
+    Setup,
+    Call,
+    Teardown,
+};
+
+inline thread_local BenchPhase g_bench_phase = BenchPhase::None;
+inline thread_local std::string g_bench_error;
+
+struct BenchPhaseScope {
+    BenchPhase prev;
+    explicit BenchPhaseScope(BenchPhase next) : prev(g_bench_phase) { g_bench_phase = next; }
+    ~BenchPhaseScope() { g_bench_phase = prev; }
+};
+
+inline BenchPhase bench_phase() { return g_bench_phase; }
+
+inline void record_bench_error(std::string msg) {
+    if (g_bench_error.empty()) g_bench_error = std::move(msg);
+}
+
+inline void clear_bench_error() { g_bench_error.clear(); }
+
+inline bool has_bench_error() { return !g_bench_error.empty(); }
+
+inline std::string take_bench_error() {
+    std::string out = std::move(g_bench_error);
+    g_bench_error.clear();
+    return out;
+}
+
 template <typename T>
 concept Ostreamable = requires(std::ostream &os, const T &v) {
     os << v;
@@ -928,8 +960,6 @@ enum class FixtureLifetime {
     MemberGlobal,
 };
 
-using FixtureAccessor = void* (*)(std::string_view);
-
 struct Case {
     std::string_view                  name;
     void (*fn)(void*);
@@ -945,7 +975,6 @@ struct Case {
     std::string_view                  fixture;        // empty for free tests
     FixtureLifetime                   fixture_lifetime;
     std::string_view                  suite;
-    FixtureAccessor                   acquire_fixture;
 };
 
 // Provided by the runtime registry; populated by generated translation units.
@@ -957,30 +986,110 @@ namespace detail {
 // direct use in test code.
 void register_cases(std::span<const Case> cases);
 
-// Fixture acquisition helpers used by generated `Case` entries.
-// Suite fixtures: one instance per suite string.
+enum class SharedFixtureScope {
+    Suite,
+    Global,
+};
+
+struct SharedFixtureRegistration {
+    std::string_view               fixture_name;
+    std::string_view               suite;
+    SharedFixtureScope             scope;
+    std::shared_ptr<void>          (*create)(std::string_view suite, std::string& error);
+    void                           (*setup)(void* instance, std::string& error);
+    void                           (*teardown)(void* instance, std::string& error);
+};
+
+// Runtime registry for suite/global fixtures. Generated code calls
+// register_shared_fixture during static initialization.
+void register_shared_fixture(const SharedFixtureRegistration& registration);
+
+// Setup/teardown shared fixtures before/after the test run. Returns false if any
+// fixture failed to allocate or set up.
+bool setup_shared_fixtures();
+void teardown_shared_fixtures();
+
+// Lookup shared fixture instance by scope/suite/name. Returns nullptr and fills
+// error if the fixture could not be created or set up.
+std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite,
+                                         std::string_view fixture_name, std::string& error);
+
+namespace detail_internal {
 template <typename Fixture>
-inline void* acquire_suite_fixture(std::string_view suite_) {
-    struct Entry {
-        std::string_view           key;
-        FixtureHandle<Fixture> instance;
-    };
-    static std::vector<Entry> fixtures_;
-    for (auto& entry : fixtures_) {
-        if (entry.key == suite_) return entry.instance.get();
+inline std::shared_ptr<void> shared_fixture_create(std::string_view suite, std::string& error) {
+    try {
+        auto handle = FixtureHandle<Fixture>::empty();
+        if (!handle.init(suite)) {
+            error = "returned null";
+            return {};
+        }
+        return handle.shared();
+    } catch (const std::exception& e) {
+        error = std::string("std::exception: ") + e.what();
+        return {};
+    } catch (...) {
+        error = "unknown exception";
+        return {};
     }
-    FixtureHandle<Fixture> instance = FixtureHandle<Fixture>::empty();
-    const bool ok = instance.init(suite_);
-    fixtures_.push_back(Entry{.key = suite_, .instance = std::move(instance)});
-    return ok ? fixtures_.back().instance.get() : nullptr;
 }
 
-// Global fixtures: one process-wide instance.
 template <typename Fixture>
-inline void* acquire_global_fixture(std::string_view) {
-    static FixtureHandle<Fixture> fx_;
-    if (!fx_.valid()) return nullptr;
-    return fx_.get();
+inline void shared_fixture_setup(void* instance, std::string& error) {
+    if constexpr (std::is_base_of_v<gentest::FixtureSetup, Fixture>) {
+        if (!instance) {
+            error = "instance missing";
+            return;
+        }
+        try {
+            static_cast<Fixture*>(instance)->setUp();
+        } catch (const gentest::assertion& e) {
+            error = e.message();
+        } catch (const std::exception& e) {
+            error = std::string("std::exception: ") + e.what();
+        } catch (...) {
+            error = "unknown exception";
+        }
+    }
+}
+
+template <typename Fixture>
+inline void shared_fixture_teardown(void* instance, std::string& error) {
+    if constexpr (std::is_base_of_v<gentest::FixtureTearDown, Fixture>) {
+        if (!instance) {
+            error = "instance missing";
+            return;
+        }
+        try {
+            static_cast<Fixture*>(instance)->tearDown();
+        } catch (const gentest::assertion& e) {
+            error = e.message();
+        } catch (const std::exception& e) {
+            error = std::string("std::exception: ") + e.what();
+        } catch (...) {
+            error = "unknown exception";
+        }
+    }
+}
+} // namespace detail_internal
+
+template <typename Fixture>
+inline void register_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name) {
+    SharedFixtureRegistration reg{
+        .fixture_name = fixture_name,
+        .suite = suite,
+        .scope = scope,
+        .create = &detail_internal::shared_fixture_create<Fixture>,
+        .setup = &detail_internal::shared_fixture_setup<Fixture>,
+        .teardown = &detail_internal::shared_fixture_teardown<Fixture>,
+    };
+    register_shared_fixture(reg);
+}
+
+template <typename Fixture>
+inline std::shared_ptr<Fixture> get_shared_fixture_typed(SharedFixtureScope scope, std::string_view suite,
+                                                         std::string_view fixture_name, std::string& error) {
+    auto raw = get_shared_fixture(scope, suite, fixture_name, error);
+    return std::static_pointer_cast<Fixture>(raw);
 }
 } // namespace detail
 

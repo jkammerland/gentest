@@ -20,6 +20,29 @@ enum class FixtureLifetime {
     MemberGlobal,
 };
 
+enum class FixtureScope {
+    Local,
+    Suite,
+    Global,
+};
+
+struct FreeFixtureUse {
+    std::string   type_name;  // fully qualified (no leading ::)
+    FixtureScope  scope = FixtureScope::Local;
+    std::string   suite_name; // only for suite fixtures
+};
+
+struct FixtureDeclInfo {
+    std::string              qualified_name;
+    std::string              base_name;
+    std::vector<std::string> namespace_parts;
+    std::string              suite_name;
+    FixtureScope             scope = FixtureScope::Local;
+    std::string              tu_filename;
+    std::string              filename;
+    unsigned                 line = 0;
+};
+
 // Parsed attribute name with its argument strings as written in source.
 struct ParsedAttribute {
     std::string              name;
@@ -99,9 +122,12 @@ struct TestCaseInfo {
     // Call-time arguments for free/member tests (e.g., parameterized value list joined by ',').
     std::string call_arguments;
     // Free-function fixtures declared via [[using gentest: fixtures(A, B, ...)]].
-    // These are constructed ephemerally in the wrapper and passed by reference
-    // to the test function in declaration order.
-    std::vector<std::string> free_fixtures;
+    // Raw fixture tokens as spelled in the attribute; resolved after discovery.
+    std::vector<std::string> free_fixture_types;
+    // Resolved fixture uses with scope/suite metadata.
+    std::vector<FreeFixtureUse> free_fixtures;
+    // Namespace parts for this test (used for fixture resolution).
+    std::vector<std::string> namespace_parts;
 };
 
 // Parameter metadata for mocked member functions.

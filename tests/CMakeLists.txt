@@ -278,6 +278,21 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+gentest_add_check_death(
+    NAME gentest_codegen_fixture_namespace_scope
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "fixture 'SharedFx' is not in an ancestor namespace"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/namespace_scope.cpp
+        --
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
 # Label codegen/clang-tooling checks so valgrind workflows can exclude them by default.
 set_tests_properties(
     gentest_codegen_check_valid
@@ -289,6 +304,7 @@ set_tests_properties(
     gentest_codegen_mock_local_class_msg
     gentest_codegen_fixture_suite_member_illegal
     gentest_codegen_fixture_global_member_illegal
+    gentest_codegen_fixture_namespace_scope
     PROPERTIES LABELS "codegen")
 
 # End-to-end behavioral checks with robust counting
@@ -309,8 +325,8 @@ set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
 gentest_add_check_counts(NAME skiponly_counts PROG $<TARGET_FILE:gentest_skiponly_tests> PASS 0 FAIL 0 SKIP 2)
 gentest_add_check_counts(NAME skiponly_list_counts PROG $<TARGET_FILE:gentest_skiponly_tests> LIST CASES 2)
 
-gentest_add_check_counts(NAME fixtures_counts PROG $<TARGET_FILE:gentest_fixtures_tests> PASS 20 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME fixtures_list_counts PROG $<TARGET_FILE:gentest_fixtures_tests> LIST CASES 20)
+gentest_add_check_counts(NAME fixtures_counts PROG $<TARGET_FILE:gentest_fixtures_tests> PASS 25 FAIL 0 SKIP 0)
+gentest_add_check_counts(NAME fixtures_list_counts PROG $<TARGET_FILE:gentest_fixtures_tests> LIST CASES 25)
 
 gentest_add_check_counts(NAME templates_counts PROG $<TARGET_FILE:gentest_templates_tests> PASS 93 FAIL 0 SKIP 0)
 gentest_add_check_lines(NAME templates_list_tests_lines PROG $<TARGET_FILE:gentest_templates_tests> LINES 93 ARGS --list-tests)
@@ -532,7 +548,7 @@ gentest_add_check_counts(
     SKIP 0
     ARGS --filter=*strings*)
 
-gentest_add_check_lines(NAME fixtures_list_tests_lines PROG $<TARGET_FILE:gentest_fixtures_tests> LINES 20 ARGS --list-tests)
+gentest_add_check_lines(NAME fixtures_list_tests_lines PROG $<TARGET_FILE:gentest_fixtures_tests> LINES 25 ARGS --list-tests)
 
 # JUnit XML smoke test: generate and validate basic content
 gentest_add_check_file_contains(
@@ -651,6 +667,25 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "benchmark fixture allocation failed for benchmarks/fixture/null"
     ENV_VARS GENTEST_BENCH_NULL_FIXTURE=1
     ARGS --run-bench=benchmarks/fixture/null)
+
+gentest_add_check_exit_code(
+    NAME benches_fixture_free_suite_global
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    EXPECT_RC 0
+    ARGS --run-bench=benchmarks/fixture/free_suite_global)
+
+gentest_add_check_death(
+    NAME jitter_fixture_alloc_null
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    EXPECT_SUBSTRING "jitter fixture allocation failed for benchmarks/fixture/jitter_null"
+    ENV_VARS GENTEST_JITTER_NULL_FIXTURE=1
+    ARGS --run-jitter=benchmarks/fixture/jitter_null)
+
+gentest_add_check_exit_code(
+    NAME jitter_fixture_free_suite_global
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    EXPECT_RC 0
+    ARGS --run-jitter=benchmarks/fixture/free_suite_global_jitter)
 
 # Jitter: histogram header and suite table header
 gentest_add_check_contains(

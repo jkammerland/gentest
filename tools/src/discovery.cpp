@@ -74,6 +74,24 @@ bool has_cpp_extension(llvm::StringRef path) {
     }
     return out;
 }
+
+[[nodiscard]] std::vector<std::string> collect_namespace_parts(const DeclContext *ctx) {
+    std::vector<std::string> parts;
+    const DeclContext *current = ctx;
+    while (current != nullptr) {
+        if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
+            if (!ns->isAnonymousNamespace()) {
+                parts.push_back(ns->getNameAsString());
+            }
+        }
+        current = current->getParent();
+    }
+    if (parts.empty()) {
+        return parts;
+    }
+    std::ranges::reverse(parts);
+    return parts;
+}
 } // namespace
 
 TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes)
@@ -289,10 +307,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         return nm;
     };
-    // Determine the enclosing scope for qualifying unqualified fixture types
-    std::string enclosing_scope;
-    if (auto p = qualified.rfind("::"); p != std::string::npos)
-        enclosing_scope = qualified.substr(0, p);
+    const std::vector<std::string> namespace_parts = collect_namespace_parts(func->getDeclContext());
 
     const auto  suite_override = find_suite(func->getDeclContext());
     std::string suite_path     = suite_override.value_or(derive_namespace_path(func->getDeclContext()));
@@ -391,14 +406,11 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.template_args  = tpl_ordered;
         info.call_arguments = call_args;
         info.returns_value  = !func->getReturnType()->isVoidType();
-        // Qualify fixture type names if unqualified, using the function's enclosing scope
+        info.namespace_parts = namespace_parts;
+        // Preserve raw fixture type tokens for resolution after discovery.
         if (!summary.fixtures_types.empty()) {
             for (const auto &ty : summary.fixtures_types) {
-                std::string qualified = ty;
-                if (ty.find("::") == std::string::npos && !enclosing_scope.empty()) {
-                    qualified.assign(enclosing_scope).append("::").append(ty);
-                }
-                info.free_fixtures.push_back(std::move(qualified));
+                info.free_fixture_types.push_back(ty);
             }
         }
         if (fixture_ctx) {
@@ -916,6 +928,13 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
     info.is_jitter      = summary.is_jitter;
     info.is_baseline    = summary.is_baseline;
     info.returns_value  = !func.getReturnType()->isVoidType();
+    info.namespace_parts = collect_namespace_parts(func.getDeclContext());
+
+    if (!summary.fixtures_types.empty()) {
+        for (const auto &ty : summary.fixtures_types) {
+            info.free_fixture_types.push_back(ty);
+        }
+    }
 
     // If this is a method, collect fixture attributes from the parent class/struct.
     if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {
@@ -954,5 +973,304 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
 }
 
 bool TestCaseCollector::has_errors() const { return had_error_; }
+
+FixtureDeclCollector::FixtureDeclCollector(std::vector<FixtureDeclInfo> &out)
+    : out_(out) {}
+
+void FixtureDeclCollector::report(const clang::CXXRecordDecl &decl, const clang::SourceManager &sm, std::string_view message) const {
+    const SourceLocation  loc     = sm.getSpellingLoc(decl.getBeginLoc());
+    const llvm::StringRef file    = sm.getFilename(loc);
+    const unsigned        line    = sm.getSpellingLineNumber(loc);
+    const std::string     subject = decl.getQualifiedNameAsString();
+    const std::string     locpfx  = !file.empty() ? fmt::format("{}:{}: ", file.str(), line) : std::string{};
+    const std::string     subj    = !subject.empty() ? fmt::format(" ({})", subject) : std::string{};
+    log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
+}
+
+void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
+    const auto *record = result.Nodes.getNodeAs<CXXRecordDecl>("gentest.fixture");
+    if (record == nullptr) {
+        return;
+    }
+    if (!record->isThisDeclarationADefinition()) {
+        return;
+    }
+    const auto *sm = result.SourceManager;
+    auto loc = record->getBeginLoc();
+    if (loc.isInvalid()) {
+        return;
+    }
+    if (loc.isMacroID()) {
+        loc = sm->getExpansionLoc(loc);
+    }
+    if (sm->isInSystemHeader(loc) || sm->isWrittenInBuiltinFile(loc)) {
+        return;
+    }
+
+    const auto attrs = collect_gentest_attributes_for(*record, *sm);
+    for (const auto &message : attrs.other_namespaces) {
+        report(*record, *sm, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
+    }
+    auto summary = validate_fixture_attributes(attrs.gentest, [&](const std::string &m) {
+        had_error_ = true;
+        report(*record, *sm, m);
+    });
+
+    if (summary.had_error) {
+        had_error_ = true;
+        return;
+    }
+
+    if (summary.lifetime != FixtureLifetime::MemberSuite && summary.lifetime != FixtureLifetime::MemberGlobal) {
+        return; // not a shared fixture declaration
+    }
+
+    auto report_namespace = [&](const NamespaceDecl &ns, std::string_view message) {
+        SourceLocation loc = sm->getSpellingLoc(ns.getBeginLoc());
+        if (loc.isInvalid())
+            loc = sm->getSpellingLoc(ns.getLocation());
+        const llvm::StringRef file = sm->getFilename(loc);
+        const unsigned        lnum = sm->getSpellingLineNumber(loc);
+        std::string           name = ns.getQualifiedNameAsString();
+        if (name.empty() && ns.isAnonymousNamespace())
+            name = "(anonymous namespace)";
+        const std::string locpfx = !file.empty() ? fmt::format("{}:{}: ", file.str(), lnum) : std::string{};
+        const std::string subj   = !name.empty() ? fmt::format(" (namespace {})", name) : std::string{};
+        log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
+    };
+
+    const auto suite_override = [&]() -> std::optional<std::string> {
+        const DeclContext *current = record->getDeclContext();
+        while (current != nullptr) {
+            if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
+                auto it = suite_cache_.find(ns);
+                if (it == suite_cache_.end()) {
+                    auto ns_attrs = collect_gentest_attributes_for(*ns, *sm);
+                    for (const auto &msg : ns_attrs.other_namespaces) {
+                        report_namespace(*ns, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", msg));
+                    }
+                    auto summary_ns = validate_namespace_attributes(ns_attrs.gentest, [&](const std::string &m) {
+                        had_error_ = true;
+                        report_namespace(*ns, m);
+                    });
+                    it = suite_cache_.emplace(ns, std::move(summary_ns)).first;
+                }
+                if (it->second.suite_name) {
+                    return it->second.suite_name;
+                }
+            }
+            current = current->getParent();
+        }
+        return std::nullopt;
+    }();
+
+    const std::string suite_path = suite_override.value_or(derive_namespace_path(record->getDeclContext()));
+    if (summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
+        had_error_ = true;
+        report(*record, *sm, "'fixture(suite)' requires an enclosing named namespace to derive a suite path");
+        return;
+    }
+
+    FixtureDeclInfo info{};
+    info.qualified_name  = record->getQualifiedNameAsString();
+    info.base_name       = record->getNameAsString();
+    info.namespace_parts = collect_namespace_parts(record->getDeclContext());
+    info.suite_name      = suite_path;
+    info.scope           = (summary.lifetime == FixtureLifetime::MemberSuite) ? FixtureScope::Suite : FixtureScope::Global;
+    {
+        const SourceLocation tu_loc = sm->getLocForStartOfFile(sm->getMainFileID());
+        const llvm::StringRef tu_file = sm->getFilename(tu_loc);
+        info.tu_filename = tu_file.str();
+    }
+    {
+        const SourceLocation file_loc = sm->getFileLoc(record->getLocation());
+        const llvm::StringRef file = sm->getFilename(file_loc);
+        info.filename = file.str();
+        info.line = sm->getSpellingLineNumber(file_loc);
+    }
+    out_.push_back(std::move(info));
+}
+
+bool FixtureDeclCollector::has_errors() const { return had_error_; }
+
+namespace {
+struct ParsedFixtureType {
+    std::string base;
+    std::string suffix;
+    std::string full;
+    bool        qualified = false;
+};
+
+std::string trim_copy(std::string_view text) {
+    std::size_t start = 0;
+    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start]))) {
+        ++start;
+    }
+    std::size_t end = text.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(text[end - 1]))) {
+        --end;
+    }
+    return std::string(text.substr(start, end - start));
+}
+
+ParsedFixtureType parse_fixture_type(std::string_view text) {
+    ParsedFixtureType out{};
+    out.full = trim_copy(text);
+    int depth = 0;
+    std::size_t split = std::string::npos;
+    for (std::size_t i = 0; i < out.full.size(); ++i) {
+        char ch = out.full[i];
+        if (ch == '<') {
+            if (depth == 0) {
+                split = i;
+                break;
+            }
+            ++depth;
+        } else if (ch == '>') {
+            if (depth > 0) {
+                --depth;
+            }
+        }
+    }
+    if (split == std::string::npos) {
+        out.base = trim_copy(out.full);
+    } else {
+        out.base = trim_copy(out.full.substr(0, split));
+        out.suffix = out.full.substr(split);
+    }
+    out.qualified = out.base.find("::") != std::string::npos;
+    return out;
+}
+
+std::string strip_leading_colons(std::string_view text) {
+    if (text.starts_with("::")) {
+        return std::string(text.substr(2));
+    }
+    return std::string(text);
+}
+
+bool is_prefix(const std::vector<std::string> &prefix, const std::vector<std::string> &value) {
+    if (prefix.size() > value.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < prefix.size(); ++i) {
+        if (prefix[i] != value[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string join_namespace(const std::vector<std::string> &parts) {
+    std::string out;
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        if (i) out.append("::");
+        out.append(parts[i]);
+    }
+    return out;
+}
+} // namespace
+
+bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures) {
+    struct FixtureLookup {
+        std::unordered_map<std::string, std::vector<const FixtureDeclInfo*>> by_base;
+        std::unordered_map<std::string, const FixtureDeclInfo*> by_qualified;
+    };
+
+    std::unordered_map<std::string, FixtureLookup> lookups;
+    for (const auto &fixture : fixtures) {
+        auto &lookup = lookups[fixture.tu_filename];
+        lookup.by_base[fixture.base_name].push_back(&fixture);
+        if (!fixture.qualified_name.empty()) {
+            lookup.by_qualified[fixture.qualified_name] = &fixture;
+        }
+    }
+
+    bool ok = true;
+    const auto report = [&](const TestCaseInfo &test, const std::string &message) {
+        ok = false;
+        log_err("gentest_codegen: {}:{}: {} (test {})\n", test.filename, test.line, message, test.display_name);
+    };
+
+    for (auto &test : cases) {
+        if (test.free_fixture_types.empty()) {
+            continue;
+        }
+        test.free_fixtures.clear();
+        const auto it = lookups.find(test.tu_filename);
+        const FixtureLookup *lookup = (it == lookups.end()) ? nullptr : &it->second;
+        for (const auto &raw_type : test.free_fixture_types) {
+            ParsedFixtureType parsed = parse_fixture_type(raw_type);
+            if (parsed.base.empty()) {
+                report(test, "empty fixture type in fixtures(...)");
+                continue;
+            }
+            const std::string base_no_colons = strip_leading_colons(parsed.base);
+            const auto emit_local = [&](const std::string &qualified_name) {
+                FreeFixtureUse use{};
+                use.type_name = qualified_name;
+                use.scope = FixtureScope::Local;
+                test.free_fixtures.push_back(std::move(use));
+            };
+
+            if (lookup) {
+                if (parsed.qualified) {
+                    const auto qit = lookup->by_qualified.find(base_no_colons);
+                    if (qit != lookup->by_qualified.end()) {
+                        const FixtureDeclInfo *decl = qit->second;
+                        if (!is_prefix(decl->namespace_parts, test.namespace_parts)) {
+                            report(test, fmt::format("fixture '{}' is not in an ancestor namespace of this test", base_no_colons));
+                            continue;
+                        }
+                        FreeFixtureUse use{};
+                        use.type_name  = decl->qualified_name + parsed.suffix;
+                        use.scope      = decl->scope;
+                        use.suite_name = decl->suite_name;
+                        test.free_fixtures.push_back(std::move(use));
+                        continue;
+                    }
+                    emit_local(parsed.full);
+                    continue;
+                }
+
+                const auto bit = lookup->by_base.find(parsed.base);
+                const FixtureDeclInfo *best = nullptr;
+                if (bit != lookup->by_base.end()) {
+                    for (const auto *decl : bit->second) {
+                        if (!is_prefix(decl->namespace_parts, test.namespace_parts)) {
+                            continue;
+                        }
+                        if (!best || decl->namespace_parts.size() > best->namespace_parts.size()) {
+                            best = decl;
+                        }
+                    }
+                    if (!best) {
+                        report(test, fmt::format("fixture '{}' is not in an ancestor namespace of this test", parsed.base));
+                        continue;
+                    }
+                    FreeFixtureUse use{};
+                    use.type_name  = best->qualified_name + parsed.suffix;
+                    use.scope      = best->scope;
+                    use.suite_name = best->suite_name;
+                    test.free_fixtures.push_back(std::move(use));
+                    continue;
+                }
+            }
+
+            if (parsed.qualified) {
+                emit_local(parsed.full);
+                continue;
+            }
+            const std::string ns_prefix = join_namespace(test.namespace_parts);
+            if (ns_prefix.empty()) {
+                emit_local(parsed.base + parsed.suffix);
+            } else {
+                emit_local(ns_prefix + "::" + parsed.base + parsed.suffix);
+            }
+        }
+    }
+
+    return ok;
+}
 
 } // namespace gentest::codegen

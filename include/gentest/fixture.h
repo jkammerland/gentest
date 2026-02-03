@@ -11,9 +11,9 @@ namespace gentest {
 //
 // Implement these in your fixture type if you need explicit hooks that may
 // fail (avoid throwing from destructors). The generated runner detects these
-// interfaces at compile-time and invokes them around each member test call
-// (ephemeral fixtures) or around each call on the shared instance when using
-// suite/global fixture lifetimes.
+// interfaces at compile-time and invokes them around each local fixture use
+// (ephemeral fixtures) or once for suite/global fixtures at the start/end of
+// the test run.
 struct FixtureSetup {
     virtual ~FixtureSetup() = default;
     virtual void setUp()    = 0;
@@ -148,6 +148,8 @@ FixtureAllocation<T> allocate_fixture(std::string_view suite) {
 template <typename T>
 class FixtureHandle {
   public:
+    using element_type = T;
+
     FixtureHandle() : storage_(allocate_fixture<T>()) {}
     explicit FixtureHandle(std::string_view suite) : storage_(allocate_fixture<T>(suite)) {}
 
@@ -160,6 +162,12 @@ class FixtureHandle {
 
     bool init(std::string_view suite) {
         storage_ = allocate_fixture<T>(suite);
+        return storage_.valid();
+    }
+
+    bool init_shared(std::shared_ptr<T> shared) {
+        storage_.shared = std::move(shared);
+        storage_.unique = typename FixtureAllocation<T>::UniquePtr{};
         return storage_.valid();
     }
 

@@ -44,6 +44,9 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const Wrappe
 std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const std::vector<std::string> &tag_names,
                                 const std::vector<std::string> &req_names, const std::string &tpl_case_entry);
 
+// Render fixture registration statements for suite/global fixtures.
+std::string render_fixture_registrations(const std::vector<FixtureDeclInfo> &fixtures);
+
 // Utility for escaping string literals in generated C++.
 std::string escape_string(std::string_view value);
 

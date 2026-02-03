@@ -51,6 +51,8 @@
 - Author cases in `tests/<suite>/cases.cpp` and annotate with `[[using gentest : test("suite/name"), ...]]` so the generator discovers them.
 - Attach codegen in `tests/CMakeLists.txt` with `gentest_attach_codegen(TARGET <target>)`.
 - Executables return non‑zero on any `gentest::failure`; always run `ctest` before pushing.
+- Prefer free-function tests/benches/jitters with `fixtures(...)`. Member tests are deprecated; they are treated as suite-level fixtures (shared instance across methods) and should be avoided in new code.
+- Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace that owns the tests.
 
 ## Commit & Pull Request Guidelines
 - Commits: short, imperative subject (e.g., “Implement clang codegen attach helper”); add context in the body when needed; use trailers like `Refs: #123`.

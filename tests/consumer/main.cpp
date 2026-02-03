@@ -24,7 +24,6 @@ constexpr gentest::Case kCases[] = {
         .fixture = std::string_view{},
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite = "consumer",
-        .acquire_fixture = nullptr,
     },
 };
 
