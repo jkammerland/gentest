@@ -8,7 +8,6 @@
     "zstd",
     "libxml2",
     "tl-expected",
-    "openssl",
     "nlohmann-json"
   ]
 }
