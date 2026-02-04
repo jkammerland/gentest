@@ -1,5 +1,6 @@
 add_library(coord STATIC
     src/codec.cpp
+    src/tls_backend.cpp
     src/transport.cpp)
 
 target_include_directories(coord
@@ -16,10 +17,16 @@ target_link_libraries(coord
         Threads::Threads)
 
 if(COORD_ENABLE_TLS)
-    target_link_libraries(coord PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-    target_compile_definitions(coord PUBLIC COORD_ENABLE_TLS=1)
+    if(COORD_TLS_BACKEND STREQUAL "openssl")
+        target_link_libraries(coord PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+        target_compile_definitions(coord PRIVATE COORD_TLS_BACKEND_OPENSSL=1)
+    elseif(COORD_TLS_BACKEND STREQUAL "wolfssl")
+        target_link_libraries(coord PUBLIC wolfssl::wolfssl)
+        target_compile_definitions(coord PRIVATE COORD_TLS_BACKEND_WOLFSSL=1)
+    endif()
+    target_compile_definitions(coord PRIVATE COORD_ENABLE_TLS=1)
 else()
-    target_compile_definitions(coord PUBLIC COORD_ENABLE_TLS=0)
+    target_compile_definitions(coord PRIVATE COORD_ENABLE_TLS=0)
 endif()
 
 if(COORD_ENABLE_JSON)
