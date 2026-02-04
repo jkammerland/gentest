@@ -344,8 +344,8 @@ gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_
 gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 26)
 
 if(TARGET gentest_coord_tests)
-    gentest_add_check_counts(NAME coord_counts PROG $<TARGET_FILE:gentest_coord_tests> PASS 2 FAIL 0 SKIP 0)
-    gentest_add_check_counts(NAME coord_list_counts PROG $<TARGET_FILE:gentest_coord_tests> LIST CASES 2)
+    gentest_add_check_counts(NAME coord_counts PROG $<TARGET_FILE:gentest_coord_tests> PASS 7 FAIL 0 SKIP 0)
+    gentest_add_check_counts(NAME coord_list_counts PROG $<TARGET_FILE:gentest_coord_tests> LIST CASES 7)
 endif()
 
 # Runtime skip/xfail/XPASS outcome checks
