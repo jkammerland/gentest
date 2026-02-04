@@ -6,6 +6,9 @@
     "fmt",
     "zlib",
     "zstd",
-    "libxml2"
+    "libxml2",
+    "tl-expected",
+    "openssl",
+    "nlohmann-json"
   ]
 }
