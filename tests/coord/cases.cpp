@@ -1,11 +1,17 @@
 #include "coord/codec.h"
 #include "coord/json.h"
+#include "coord/transport.h"
 #include "coord/types.h"
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 
 #include <filesystem>
 #include <fstream>
+#include <vector>
+
+#if COORD_ENABLE_JSON
+#include <nlohmann/json.hpp>
+#endif
 
 using namespace gentest::asserts;
 
@@ -57,6 +63,84 @@ void cbor_roundtrip() {
     EXPECT_EQ(decoded_spec.network.ports[0].protocol, spec.network.ports[0].protocol);
 }
 
+[[using gentest: test("coord/cbor_manifest_status")]]
+void cbor_manifest_status() {
+    coord::SessionManifest manifest{};
+    manifest.session_id = "s1";
+    manifest.group = "g";
+    manifest.mode = coord::ExecMode::A;
+    manifest.result = coord::ResultCode::Failed;
+    manifest.fail_reason = "boom";
+    coord::InstanceInfo info{};
+    info.node = "node";
+    info.index = 0;
+    info.exit_code = 12;
+    info.term_signal = 0;
+    info.log_path = "stdout.log";
+    info.err_path = "stderr.log";
+    info.addr = "127.0.0.1";
+    coord::PortAssignment pa{};
+    pa.name = "tcp";
+    pa.protocol = coord::Protocol::Tcp;
+    pa.ports = {1234, 5678};
+    info.ports.push_back(pa);
+    manifest.instances.push_back(info);
+
+    coord::Message msg{2, coord::MsgSessionManifest{manifest}};
+    std::string error;
+    auto encoded = coord::encode_message(msg, &error);
+    ASSERT_FALSE(encoded.empty(), error);
+    auto decoded = coord::decode_message(encoded);
+    ASSERT_TRUE(decoded.ok, decoded.error);
+    ASSERT_TRUE(std::holds_alternative<coord::MsgSessionManifest>(decoded.message.payload));
+
+    coord::SessionStatus status{};
+    status.session_id = "s1";
+    status.result = coord::ResultCode::Timeout;
+    status.complete = true;
+    coord::Message status_msg{3, coord::MsgSessionStatus{status}};
+    encoded = coord::encode_message(status_msg, &error);
+    ASSERT_FALSE(encoded.empty(), error);
+    decoded = coord::decode_message(encoded);
+    ASSERT_TRUE(decoded.ok, decoded.error);
+    ASSERT_TRUE(std::holds_alternative<coord::MsgSessionStatus>(decoded.message.payload));
+}
+
+[[using gentest: test("coord/codec_decode_error")]]
+void codec_decode_error() {
+    std::vector<std::byte> empty;
+    auto decoded = coord::decode_message(empty);
+    EXPECT_FALSE(decoded.ok);
+    EXPECT_FALSE(decoded.error.empty());
+}
+
+[[using gentest: test("coord/endpoint_parse")]]
+void endpoint_parse() {
+    std::string error;
+    auto ep = coord::parse_endpoint("unix:///tmp/coord.sock", &error);
+    EXPECT_TRUE(error.empty());
+    EXPECT_EQ(ep.kind, coord::Endpoint::Kind::Unix);
+    EXPECT_EQ(ep.path, "/tmp/coord.sock");
+
+    ep = coord::parse_endpoint("/tmp/raw.sock", &error);
+    EXPECT_EQ(ep.kind, coord::Endpoint::Kind::Unix);
+    EXPECT_EQ(ep.path, "/tmp/raw.sock");
+
+    ep = coord::parse_endpoint("tcp://127.0.0.1:5555", &error);
+    EXPECT_EQ(ep.kind, coord::Endpoint::Kind::Tcp);
+    EXPECT_EQ(ep.host, "127.0.0.1");
+    EXPECT_EQ(ep.port, 5555);
+
+    ep = coord::parse_endpoint("localhost:1234", &error);
+    EXPECT_EQ(ep.kind, coord::Endpoint::Kind::Tcp);
+    EXPECT_EQ(ep.host, "localhost");
+    EXPECT_EQ(ep.port, 1234);
+
+    error.clear();
+    ep = coord::parse_endpoint("bad_endpoint", &error);
+    EXPECT_FALSE(error.empty());
+}
+
 #if COORD_ENABLE_JSON
 [[using gentest: test("coord/json_parse")]]
 void json_parse() {
@@ -86,6 +170,111 @@ void json_parse() {
     EXPECT_EQ(spec.network.ports[0].protocol, coord::Protocol::Udp);
 
     std::filesystem::remove(tmp);
+}
+
+[[using gentest: test("coord/json_errors")]]
+void json_errors() {
+    const auto base = std::filesystem::temp_directory_path();
+    std::string error;
+
+    {
+        auto path = base / "coord_invalid_mode.json";
+        std::ofstream out(path);
+        out << R"JSON({ "group": "g", "mode": "Z", "nodes": [] })JSON";
+        out.close();
+        coord::SessionSpec spec{};
+        EXPECT_FALSE(coord::load_session_spec_json(path.string(), spec, &error));
+        EXPECT_EQ(error, "invalid mode");
+        std::filesystem::remove(path);
+    }
+
+    {
+        auto path = base / "coord_missing_nodes.json";
+        std::ofstream out(path);
+        out << R"JSON({ "group": "g", "mode": "A" })JSON";
+        out.close();
+        coord::SessionSpec spec{};
+        error.clear();
+        EXPECT_FALSE(coord::load_session_spec_json(path.string(), spec, &error));
+        EXPECT_EQ(error, "spec missing nodes");
+        std::filesystem::remove(path);
+    }
+
+    {
+        auto path = base / "coord_bad_protocol.json";
+        std::ofstream out(path);
+        out << R"JSON({
+  "group": "g",
+  "mode": "A",
+  "network": { "ports": [ { "name": "p", "protocol": "icmp" } ] },
+  "nodes": [ { "name": "n", "exec": "x" } ]
+})JSON";
+        out.close();
+        coord::SessionSpec spec{};
+        error.clear();
+        EXPECT_FALSE(coord::load_session_spec_json(path.string(), spec, &error));
+        EXPECT_EQ(error, "invalid protocol");
+        std::filesystem::remove(path);
+    }
+
+    {
+        auto path = base / "coord_bad_readiness.json";
+        std::ofstream out(path);
+        out << R"JSON({
+  "group": "g",
+  "mode": "A",
+  "nodes": [ { "name": "n", "exec": "x", "readiness": { "type": "bogus" } } ]
+})JSON";
+        out.close();
+        coord::SessionSpec spec{};
+        error.clear();
+        EXPECT_FALSE(coord::load_session_spec_json(path.string(), spec, &error));
+        EXPECT_EQ(error, "invalid readiness");
+        std::filesystem::remove(path);
+    }
+}
+
+[[using gentest: test("coord/manifest_write")]]
+void manifest_write() {
+    coord::SessionManifest manifest{};
+    manifest.session_id = "manifest_session";
+    manifest.group = "group";
+    manifest.mode = coord::ExecMode::A;
+    manifest.result = coord::ResultCode::Success;
+    manifest.start_ms = 100;
+    manifest.end_ms = 200;
+    manifest.diagnostics = {"note"};
+
+    coord::InstanceInfo info{};
+    info.node = "node";
+    info.index = 1;
+    info.pid = 123;
+    info.exit_code = 0;
+    info.term_signal = 0;
+    info.log_path = "stdout.log";
+    info.err_path = "stderr.log";
+    info.addr = "127.0.0.1";
+    coord::PortAssignment pa{};
+    pa.name = "svc";
+    pa.protocol = coord::Protocol::Udp;
+    pa.ports = {1111};
+    info.ports.push_back(pa);
+    manifest.instances.push_back(info);
+
+    auto path = std::filesystem::temp_directory_path() / "coord_manifest.json";
+    std::string error;
+    ASSERT_TRUE(coord::write_manifest_json(manifest, path.string(), &error), error);
+
+    std::ifstream in(path);
+    nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
+    ASSERT_FALSE(j.is_discarded());
+    EXPECT_EQ(j["session_id"], "manifest_session");
+    EXPECT_EQ(j["group"], "group");
+    EXPECT_EQ(j["instances"].size(), std::size_t{1});
+    EXPECT_EQ(j["instances"][0]["node"], "node");
+    EXPECT_EQ(j["instances"][0]["ports"][0]["protocol"], "udp");
+
+    std::filesystem::remove(path);
 }
 #endif
 
