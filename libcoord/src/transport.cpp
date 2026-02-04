@@ -1,4 +1,5 @@
 #include "coord/transport.h"
+#include "tls_backend.h"
 
 #include <cerrno>
 #include <cstring>
@@ -15,11 +16,6 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
-#endif
-
-#if COORD_ENABLE_TLS
-#include <openssl/err.h>
-#include <openssl/ssl.h>
 #endif
 
 namespace coord {
@@ -64,16 +60,8 @@ Endpoint parse_endpoint(const std::string &value, std::string *error) {
 }
 
 Connection::~Connection() {
-    if (ssl_) {
-#if COORD_ENABLE_TLS
-        SSL_shutdown(reinterpret_cast<SSL *>(ssl_));
-        SSL_free(reinterpret_cast<SSL *>(ssl_));
-#endif
-    }
-    if (ssl_ctx_) {
-#if COORD_ENABLE_TLS
-        SSL_CTX_free(reinterpret_cast<SSL_CTX *>(ssl_ctx_));
-#endif
+    if (tls_) {
+        tls_backend::shutdown(ssl_ctx_, ssl_);
     }
     if (fd_ >= 0) {
 #ifdef _WIN32
@@ -120,7 +108,7 @@ bool Connection::read_frame(std::vector<std::byte> &out, std::string *error) {
             int rc = 0;
 #if COORD_ENABLE_TLS
             if (tls_) {
-                rc = SSL_read(reinterpret_cast<SSL *>(ssl_), dst + got, static_cast<int>(len - got));
+                rc = tls_backend::read(ssl_, dst + got, len - got, err);
             } else {
 #else
             if (tls_) {
@@ -137,7 +125,9 @@ bool Connection::read_frame(std::vector<std::byte> &out, std::string *error) {
             if (rc <= 0) {
                 if (err) {
                     if (tls_) {
-                        *err = "SSL_read failed";
+                        if (err->empty()) {
+                            *err = "TLS read failed";
+                        }
                     } else {
                         *err = std::string("read failed: ") + std::strerror(errno);
                     }
@@ -169,7 +159,7 @@ bool Connection::write_frame(std::span<const std::byte> data, std::string *error
             int rc = 0;
 #if COORD_ENABLE_TLS
             if (tls_) {
-                rc = SSL_write(reinterpret_cast<SSL *>(ssl_), src + sent, static_cast<int>(len - sent));
+                rc = tls_backend::write(ssl_, src + sent, len - sent, err);
             } else {
 #else
             if (tls_) {
@@ -186,7 +176,9 @@ bool Connection::write_frame(std::span<const std::byte> data, std::string *error
             if (rc <= 0) {
                 if (err) {
                     if (tls_) {
-                        *err = "SSL_write failed";
+                        if (err->empty()) {
+                            *err = "TLS write failed";
+                        }
                     } else {
                         *err = std::string("write failed: ") + std::strerror(errno);
                     }
@@ -208,71 +200,13 @@ bool Connection::write_frame(std::span<const std::byte> data, std::string *error
     return write_exact(data.data(), data.size(), error);
 }
 
-#if COORD_ENABLE_TLS
-static bool init_tls_ctx(SSL_CTX *ctx, const TlsConfig &cfg, bool is_server, std::string *error) {
-    if (!cfg.ca_file.empty()) {
-        if (SSL_CTX_load_verify_locations(ctx, cfg.ca_file.c_str(), nullptr) != 1) {
-            if (error) *error = "failed to load CA";
-            return false;
-        }
-    }
-    if (!cfg.cert_file.empty()) {
-        if (SSL_CTX_use_certificate_file(ctx, cfg.cert_file.c_str(), SSL_FILETYPE_PEM) != 1) {
-            if (error) *error = "failed to load certificate";
-            return false;
-        }
-    }
-    if (!cfg.key_file.empty()) {
-        if (SSL_CTX_use_PrivateKey_file(ctx, cfg.key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
-            if (error) *error = "failed to load private key";
-            return false;
-        }
-    }
-    if (cfg.verify_peer) {
-        int mode = SSL_VERIFY_PEER;
-        if (is_server) {
-            mode |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
-        }
-        SSL_CTX_set_verify(ctx, mode, nullptr);
-    }
-    return true;
-}
-
 Connection wrap_tls(Connection conn, const TlsConfig &cfg, bool is_server, std::string *error) {
-    SSL_CTX *ctx = SSL_CTX_new(is_server ? TLS_server_method() : TLS_client_method());
-    if (!ctx) {
-        if (error) *error = "SSL_CTX_new failed";
+    if (!tls_backend::init(conn.ssl_ctx_, conn.ssl_, conn.fd_, cfg, is_server, error)) {
         return Connection{};
     }
-    if (!init_tls_ctx(ctx, cfg, is_server, error)) {
-        SSL_CTX_free(ctx);
-        return Connection{};
-    }
-    SSL *ssl = SSL_new(ctx);
-    if (!ssl) {
-        SSL_CTX_free(ctx);
-        if (error) *error = "SSL_new failed";
-        return Connection{};
-    }
-    SSL_set_fd(ssl, conn.fd_);
-    int rc = is_server ? SSL_accept(ssl) : SSL_connect(ssl);
-    if (rc != 1) {
-        SSL_free(ssl);
-        SSL_CTX_free(ctx);
-        if (error) *error = "TLS handshake failed";
-        return Connection{};
-    }
-    conn.ssl_ = ssl;
-    conn.ssl_ctx_ = ctx;
     conn.tls_ = true;
     return conn;
 }
-#else
-Connection wrap_tls(Connection conn, const TlsConfig &, bool, std::string *error) {
-    if (error) *error = "TLS disabled in this build";
-    return Connection{};
-}
-#endif
 
 int listen_endpoint(const Endpoint &endpoint, std::string *error) {
 #ifdef _WIN32
