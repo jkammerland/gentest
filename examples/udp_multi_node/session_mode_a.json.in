@@ -1,0 +1,31 @@
+{
+  "group": "udp_multi_node",
+  "mode": "A",
+  "artifact_dir": "udp_multi_node",
+  "timeouts": {
+    "startup_ms": 5000,
+    "session_ms": 10000,
+    "shutdown_ms": 2000
+  },
+  "network": {
+    "isolated": false,
+    "ports": [
+      { "name": "udp_server", "count": 1, "protocol": "udp" }
+    ]
+  },
+  "nodes": [
+    {
+      "name": "udp_server",
+      "exec": "@UDP_SERVER_EXE@",
+      "args": [],
+      "instances": 1,
+      "readiness": { "type": "stdout", "value": "SERVER_READY" }
+    },
+    {
+      "name": "udp_client",
+      "exec": "@UDP_CLIENT_EXE@",
+      "args": [],
+      "instances": 3
+    }
+  ]
+}
