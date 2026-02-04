@@ -5,6 +5,7 @@
 #include <complex>
 #include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include "gentest/bench_util.h"
@@ -59,6 +60,24 @@ struct BenchFixtureState {
 };
 } // namespace
 
+namespace spacing {
+struct DummyMutex {
+    void lock() noexcept {}
+    void unlock() noexcept {}
+};
+
+template <typename Mutex>
+void lock_guard_small() {
+    Mutex         m{};
+    std::uint64_t sink = 0;
+    for (int i = 0; i < 64; ++i) {
+        std::lock_guard<Mutex> lock(m);
+        sink += static_cast<std::uint64_t>(i);
+    }
+    gentest::doNotOptimizeAway(sink);
+}
+} // namespace spacing
+
 [[using gentest: bench("string/concat_small")]]
 void bench_concat_small() {
     // Minimal work; harness repeats this function many times
@@ -82,6 +101,28 @@ void jitter_sin() {
     volatile double x = 1.2345;
     volatile double y = std::sin(x);
     (void)y;
+}
+
+template <typename Mutex>
+// clang-format off
+[[using gentest: bench("spacing/lock_guard_small")]]
+[[using gentest: template(Mutex, benchmarks::spacing::DummyMutex, std::mutex)]]
+// clang-format on
+// Spacing regression: comment between attributes and declaration.
+void bench_lock_guard_small() {
+    spacing::lock_guard_small<Mutex>();
+}
+
+template <typename T>
+// clang-format off
+[[using gentest: jitter("spacing/jitter_template_params")]]
+[[using gentest: template(T, int, long)]]
+[[using gentest: parameters(v, 1, 2)]]
+// clang-format on
+// Spacing regression: comment between attributes and declaration.
+void jitter_template_params(int v) {
+    gentest::doNotOptimizeAway(v);
+    gentest::doNotOptimizeAway(sizeof(T));
 }
 
 // Struct and complex parameterization smoke for benches

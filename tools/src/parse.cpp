@@ -25,12 +25,92 @@ std::string_view trim_view(std::string_view text) {
 }
 
 void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buffer, std::size_t start_offset) {
+    auto find_line_comment = [](std::string_view line) -> std::size_t {
+        bool in_string = false;
+        bool in_char   = false;
+        bool escape    = false;
+        for (std::size_t i = 0; i + 1 < line.size(); ++i) {
+            const char ch = line[i];
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            if (in_string) {
+                if (ch == '\\') {
+                    escape = true;
+                } else if (ch == '"') {
+                    in_string = false;
+                }
+                continue;
+            }
+            if (in_char) {
+                if (ch == '\\') {
+                    escape = true;
+                } else if (ch == '\'') {
+                    in_char = false;
+                }
+                continue;
+            }
+            if (ch == '"') {
+                in_string = true;
+                continue;
+            }
+            if (ch == '\'') {
+                in_char = true;
+                continue;
+            }
+            if (ch == '/' && line[i + 1] == '/') {
+                return i;
+            }
+        }
+        return std::string_view::npos;
+    };
+
+    auto skip_ws_and_comments = [&](std::size_t &cursor) {
+        bool progressed = true;
+        while (progressed && cursor > 0) {
+            progressed = false;
+            while (cursor > 0 && std::isspace(static_cast<unsigned char>(buffer[cursor - 1])) != 0) {
+                --cursor;
+                progressed = true;
+            }
+            if (cursor < 2) {
+                return;
+            }
+
+            // Skip trailing block comments.
+            if (buffer[cursor - 1] == '/' && buffer[cursor - 2] == '*') {
+                cursor -= 2;
+                while (cursor >= 2) {
+                    if (buffer[cursor - 2] == '/' && buffer[cursor - 1] == '*') {
+                        cursor -= 2;
+                        break;
+                    }
+                    --cursor;
+                }
+                progressed = true;
+                continue;
+            }
+
+            // Skip trailing line comments on the current line.
+            std::size_t line_start = cursor;
+            while (line_start > 0 && buffer[line_start - 1] != '\n' && buffer[line_start - 1] != '\r') {
+                --line_start;
+            }
+            const llvm::StringRef line = buffer.slice(line_start, cursor);
+            const auto            pos  = find_line_comment(std::string_view(line.data(), line.size()));
+            if (pos != std::string_view::npos) {
+                cursor = line_start + pos;
+                progressed = true;
+                continue;
+            }
+        }
+    };
+
     std::size_t cursor = start_offset <= static_cast<std::size_t>(buffer.size()) ? start_offset : buffer.size();
     while (cursor > 0) {
         std::size_t position = cursor;
-        while (position > 0 && std::isspace(static_cast<unsigned char>(buffer[position - 1])) != 0) {
-            --position;
-        }
+        skip_ws_and_comments(position);
 
         if (position < 2 || buffer[position - 1] != ']' || buffer[position - 2] != ']') {
             break;

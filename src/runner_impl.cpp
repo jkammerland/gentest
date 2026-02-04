@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <exception>
@@ -344,30 +345,6 @@ struct BenchConfig {
     std::size_t warmup_epochs    = 1;
     std::size_t measure_epochs   = 12;
 };
-static inline std::size_t parse_szt_c(const char* s, std::size_t defv) {
-    if (!s)
-        return defv;
-    std::size_t n = 0;
-    const std::size_t maxv = std::numeric_limits<std::size_t>::max();
-    for (char ch : std::string_view(s)) {
-        if (ch < '0' || ch > '9')
-            return defv;
-        const std::size_t digit = static_cast<std::size_t>(ch - '0');
-        if (n > (maxv - digit) / 10)
-            return defv;
-        n = (n * 10) + digit;
-    }
-    return n;
-}
-static inline double parse_double_c(const char* s, double defv) {
-    if (!s)
-        return defv;
-    try {
-        return std::stod(std::string(s));
-    } catch (...) {
-        return defv;
-    }
-}
 
 struct BenchResult {
     std::size_t epochs = 0;
@@ -618,16 +595,6 @@ struct CliOptions {
     int         jitter_bins = 10;
 };
 
-static std::size_t parse_repeat_value(std::string_view s) {
-    std::size_t n = 0;
-    for (const char ch : s) {
-        if (ch < '0' || ch > '9') return 1;
-        n = n * 10 + static_cast<std::size_t>(ch - '0');
-        if (n > 1000000) { n = 1000000; break; }
-    }
-    return n == 0 ? 1 : n;
-}
-
 enum class ParseU64DecimalStatus {
     Ok,
     Empty,
@@ -681,7 +648,72 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
     bool seen_bench_epochs = false;
     bool seen_jitter_bins = false;
 
-    for (std::size_t i = 0; i < args.size(); ++i) {
+    enum class ValueMatch { No, Yes, Error };
+    auto match_value = [&](std::size_t& i, std::string_view s, std::string_view opt_name, std::string_view& value) -> ValueMatch {
+        if (s == opt_name) {
+            if (i + 1 >= args.size() || !args[i + 1]) {
+                fmt::print(stderr, "error: {} requires a value\n", opt_name);
+                return ValueMatch::Error;
+            }
+            value = std::string_view(args[i + 1]);
+            if (value.empty()) {
+                fmt::print(stderr, "error: {} requires a non-empty value\n", opt_name);
+                return ValueMatch::Error;
+            }
+            ++i;
+            return ValueMatch::Yes;
+        }
+        if (s.rfind(opt_name, 0) == 0 && s.size() > opt_name.size() && s[opt_name.size()] == '=') {
+            value = s.substr(opt_name.size() + 1);
+            if (value.empty()) {
+                fmt::print(stderr, "error: {} requires a non-empty value\n", opt_name);
+                return ValueMatch::Error;
+            }
+            return ValueMatch::Yes;
+        }
+        return ValueMatch::No;
+    };
+
+    auto parse_u64_option = [&](std::string_view opt_name, std::string_view value, std::uint64_t& out) -> bool {
+        const ParseU64DecimalResult parsed = parse_u64_decimal_strict(value);
+        if (parsed.status != ParseU64DecimalStatus::Ok) {
+            if (parsed.status == ParseU64DecimalStatus::Empty) {
+                fmt::print(stderr, "error: {} requires a value\n", opt_name);
+            } else if (parsed.status == ParseU64DecimalStatus::Overflow) {
+                fmt::print(stderr, "error: {} value is out of range for uint64: '{}'\n", opt_name, value);
+            } else {
+                fmt::print(stderr, "error: {} must be a non-negative decimal integer, got: '{}'\n", opt_name, value);
+            }
+            return false;
+        }
+        out = parsed.value;
+        return true;
+    };
+
+    auto parse_double_option = [&](std::string_view opt_name, std::string_view value, double& out) -> bool {
+        if (value.empty()) {
+            fmt::print(stderr, "error: {} requires a value\n", opt_name);
+            return false;
+        }
+        std::size_t idx = 0;
+        try {
+            out = std::stod(std::string(value), &idx);
+        } catch (...) {
+            fmt::print(stderr, "error: {} must be a floating-point value, got: '{}'\n", opt_name, value);
+            return false;
+        }
+        if (idx != value.size() || !std::isfinite(out)) {
+            fmt::print(stderr, "error: {} must be a finite floating-point value, got: '{}'\n", opt_name, value);
+            return false;
+        }
+        return true;
+    };
+
+    std::size_t start = 0;
+    if (!args.empty() && args[0] && args[0][0] != '-') {
+        start = 1; // Skip argv[0] (program name) when present.
+    }
+    for (std::size_t i = start; i < args.size(); ++i) {
         const char* arg = args[i];
         if (!arg) continue;
         const std::string_view s(arg);
@@ -698,75 +730,222 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
         if (s == "--include-death") { opt.include_death = true; continue; }
         if (s == "--bench-table") { opt.bench_table = true; continue; }
 
-        if (s == "--seed") {
-            if (i + 1 >= args.size() || !args[i + 1]) {
-                fmt::print(stderr, "error: --seed requires a decimal value\n");
-                return false;
-            }
-
-            const std::string_view seed_arg(args[i + 1]);
-            const ParseU64DecimalResult parsed = parse_u64_decimal_strict(seed_arg);
-            if (parsed.status != ParseU64DecimalStatus::Ok) {
-                if (parsed.status == ParseU64DecimalStatus::Overflow) {
-                    fmt::print(stderr, "error: --seed value is out of range for uint64: '{}'\n", seed_arg);
-                } else {
-                    fmt::print(stderr, "error: --seed must be a non-negative decimal integer, got: '{}'\n", seed_arg);
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--seed", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes: {
+                std::uint64_t seed_value = 0;
+                if (!parse_u64_option("--seed", value, seed_value)) return false;
+                if (!opt.seed_provided) {
+                    opt.seed_provided = true;
+                    opt.seed_value = seed_value;
                 }
-                return false;
+                continue;
             }
-
-            if (!opt.seed_provided) {
-                opt.seed_provided = true;
-                opt.seed_value = parsed.value;
+            case ValueMatch::No: break;
             }
-            ++i;
-            continue;
         }
 
-        if (!seen_repeat && s.rfind("--repeat=", 0) == 0) {
-            opt.repeat_n = parse_repeat_value(s.substr(std::string_view("--repeat=").size()));
-            seen_repeat = true;
-            continue;
+        if (!seen_repeat) {
+            std::string_view value;
+            switch (match_value(i, s, "--repeat", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes: {
+                std::uint64_t rep = 0;
+                if (!parse_u64_option("--repeat", value, rep)) return false;
+                if (rep == 0) rep = 1;
+                if (rep > 1000000) rep = 1000000;
+                opt.repeat_n = static_cast<std::size_t>(rep);
+                seen_repeat = true;
+                continue;
+            }
+            case ValueMatch::No: break;
+            }
         }
 
-        if (!opt.run_exact && s.rfind("--run-test=", 0) == 0) { opt.run_exact = arg + std::string_view("--run-test=").size(); continue; }
-        if (!opt.filter_pat && s.rfind("--filter=", 0) == 0) { opt.filter_pat = arg + std::string_view("--filter=").size(); continue; }
-        if (!opt.junit_path && s.rfind("--junit=", 0) == 0) { opt.junit_path = arg + std::string_view("--junit=").size(); continue; }
-        if (!opt.allure_dir && s.rfind("--allure-dir=", 0) == 0) { opt.allure_dir = arg + std::string_view("--allure-dir=").size(); continue; }
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--run-test", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (opt.run_exact) { fmt::print(stderr, "error: duplicate --run-test\n"); return false; }
+                opt.run_exact = value.data();
+                continue;
+            case ValueMatch::No: break;
+            }
+        }
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--filter", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (opt.filter_pat) { fmt::print(stderr, "error: duplicate --filter\n"); return false; }
+                opt.filter_pat = value.data();
+                continue;
+            case ValueMatch::No: break;
+            }
+        }
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--junit", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (opt.junit_path) { fmt::print(stderr, "error: duplicate --junit\n"); return false; }
+                opt.junit_path = value.data();
+                continue;
+            case ValueMatch::No: break;
+            }
+        }
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--allure-dir", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (opt.allure_dir) { fmt::print(stderr, "error: duplicate --allure-dir\n"); return false; }
+                opt.allure_dir = value.data();
+                continue;
+            case ValueMatch::No: break;
+            }
+        }
 
-        if (!opt.run_bench && s.rfind("--run-bench=", 0) == 0) { opt.run_bench = arg + std::string_view("--run-bench=").size(); continue; }
-        if (!opt.bench_filter && s.rfind("--bench-filter=", 0) == 0) { opt.bench_filter = arg + std::string_view("--bench-filter=").size(); continue; }
-
-        if (!seen_bench_min_epoch_time && s.rfind("--bench-min-epoch-time-s=", 0) == 0) {
-            opt.bench_cfg.min_epoch_time_s =
-                parse_double_c(arg + std::string_view("--bench-min-epoch-time-s=").size(), opt.bench_cfg.min_epoch_time_s);
-            seen_bench_min_epoch_time = true;
-            continue;
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--run-bench", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (opt.run_bench) { fmt::print(stderr, "error: duplicate --run-bench\n"); return false; }
+                opt.run_bench = value.data();
+                continue;
+            case ValueMatch::No: break;
+            }
         }
-        if (!seen_bench_max_total_time && s.rfind("--bench-max-total-time-s=", 0) == 0) {
-            opt.bench_cfg.max_total_time_s =
-                parse_double_c(arg + std::string_view("--bench-max-total-time-s=").size(), opt.bench_cfg.max_total_time_s);
-            seen_bench_max_total_time = true;
-            continue;
-        }
-        if (!seen_bench_warmup && s.rfind("--bench-warmup=", 0) == 0) {
-            opt.bench_cfg.warmup_epochs = parse_szt_c(arg + std::string_view("--bench-warmup=").size(), opt.bench_cfg.warmup_epochs);
-            seen_bench_warmup = true;
-            continue;
-        }
-        if (!seen_bench_epochs && s.rfind("--bench-epochs=", 0) == 0) {
-            opt.bench_cfg.measure_epochs = parse_szt_c(arg + std::string_view("--bench-epochs=").size(), opt.bench_cfg.measure_epochs);
-            seen_bench_epochs = true;
-            continue;
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--bench-filter", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (opt.bench_filter) { fmt::print(stderr, "error: duplicate --bench-filter\n"); return false; }
+                opt.bench_filter = value.data();
+                continue;
+            case ValueMatch::No: break;
+            }
         }
 
-        if (!opt.run_jitter && s.rfind("--run-jitter=", 0) == 0) { opt.run_jitter = arg + std::string_view("--run-jitter=").size(); continue; }
-        if (!opt.jitter_filter && s.rfind("--jitter-filter=", 0) == 0) { opt.jitter_filter = arg + std::string_view("--jitter-filter=").size(); continue; }
-        if (!seen_jitter_bins && s.rfind("--jitter-bins=", 0) == 0) {
-            opt.jitter_bins = static_cast<int>(parse_szt_c(arg + std::string_view("--jitter-bins=").size(), 10));
-            seen_jitter_bins = true;
-            continue;
+        if (!seen_bench_min_epoch_time) {
+            std::string_view value;
+            switch (match_value(i, s, "--bench-min-epoch-time-s", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (!parse_double_option("--bench-min-epoch-time-s", value, opt.bench_cfg.min_epoch_time_s)) return false;
+                if (opt.bench_cfg.min_epoch_time_s < 0.0) {
+                    fmt::print(stderr, "error: --bench-min-epoch-time-s must be non-negative\n");
+                    return false;
+                }
+                seen_bench_min_epoch_time = true;
+                continue;
+            case ValueMatch::No: break;
+            }
         }
+        if (!seen_bench_max_total_time) {
+            std::string_view value;
+            switch (match_value(i, s, "--bench-max-total-time-s", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (!parse_double_option("--bench-max-total-time-s", value, opt.bench_cfg.max_total_time_s)) return false;
+                if (opt.bench_cfg.max_total_time_s < 0.0) {
+                    fmt::print(stderr, "error: --bench-max-total-time-s must be non-negative\n");
+                    return false;
+                }
+                seen_bench_max_total_time = true;
+                continue;
+            case ValueMatch::No: break;
+            }
+        }
+        if (!seen_bench_warmup) {
+            std::string_view value;
+            switch (match_value(i, s, "--bench-warmup", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes: {
+                std::uint64_t warmup = 0;
+                if (!parse_u64_option("--bench-warmup", value, warmup)) return false;
+                if (warmup > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                    fmt::print(stderr, "error: --bench-warmup is out of range\n");
+                    return false;
+                }
+                opt.bench_cfg.warmup_epochs = static_cast<std::size_t>(warmup);
+                seen_bench_warmup = true;
+                continue;
+            }
+            case ValueMatch::No: break;
+            }
+        }
+        if (!seen_bench_epochs) {
+            std::string_view value;
+            switch (match_value(i, s, "--bench-epochs", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes: {
+                std::uint64_t epochs = 0;
+                if (!parse_u64_option("--bench-epochs", value, epochs)) return false;
+                if (epochs > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                    fmt::print(stderr, "error: --bench-epochs is out of range\n");
+                    return false;
+                }
+                opt.bench_cfg.measure_epochs = static_cast<std::size_t>(epochs);
+                seen_bench_epochs = true;
+                continue;
+            }
+            case ValueMatch::No: break;
+            }
+        }
+
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--run-jitter", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (opt.run_jitter) { fmt::print(stderr, "error: duplicate --run-jitter\n"); return false; }
+                opt.run_jitter = value.data();
+                continue;
+            case ValueMatch::No: break;
+            }
+        }
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--jitter-filter", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (opt.jitter_filter) { fmt::print(stderr, "error: duplicate --jitter-filter\n"); return false; }
+                opt.jitter_filter = value.data();
+                continue;
+            case ValueMatch::No: break;
+            }
+        }
+        if (!seen_jitter_bins) {
+            std::string_view value;
+            switch (match_value(i, s, "--jitter-bins", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes: {
+                std::uint64_t bins = 0;
+                if (!parse_u64_option("--jitter-bins", value, bins)) return false;
+                if (bins == 0 || bins > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
+                    fmt::print(stderr, "error: --jitter-bins must be a positive integer\n");
+                    return false;
+                }
+                opt.jitter_bins = static_cast<int>(bins);
+                seen_jitter_bins = true;
+                continue;
+            }
+            case ValueMatch::No: break;
+            }
+        }
+
+        if (s.starts_with("-")) {
+            fmt::print(stderr, "error: unknown option '{}'\n", s);
+            return false;
+        }
+        fmt::print(stderr, "error: unexpected argument '{}'\n", s);
+        return false;
     }
 
     opt.color_output = !no_color_flag && !env_no_color();
@@ -1331,7 +1510,11 @@ auto run_all_tests(std::span<const char*> args) -> int {
         } else {
             const char* pat = opt.bench_filter;
             for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_benchmark && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
-            if (idxs.empty()) { fmt::print("Executed 0 benchmark(s).\n"); return 0; }
+            if (idxs.empty()) {
+                fmt::print(stderr, "benchmark filter matched 0 benchmarks: {}\n", pat);
+                fmt::print(stderr, "hint: use --list-benches to see available names\n");
+                return 1;
+            }
         }
         if (opt.bench_table) fmt::print("Summary ({})\n", (idxs.empty() ? "" : std::string(kCases[idxs.front()].suite)));
         bool had_fixture_failure = false;
@@ -1402,7 +1585,11 @@ auto run_all_tests(std::span<const char*> args) -> int {
         } else {
             const char* pat = opt.jitter_filter;
             for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_jitter && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
-            if (idxs.empty()) { fmt::print("Executed 0 jitter benchmark(s).\n"); return 0; }
+            if (idxs.empty()) {
+                fmt::print(stderr, "jitter filter matched 0 benchmarks: {}\n", pat);
+                fmt::print(stderr, "hint: use --list-benches to see available names\n");
+                return 1;
+            }
             fmt::print("Jitter ({})\n", (idxs.empty() ? "" : std::string(kCases[idxs.front()].suite)));
         }
         bool had_fixture_failure = false;
