@@ -661,6 +661,24 @@ gentest_add_check_contains(
     EXPECT_SUBSTRING benchmarks/string/concat_small
     ARGS --list)
 
+gentest_add_check_contains(
+    NAME benches_filter_space
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    EXPECT_SUBSTRING "benchmarks/spacing/lock_guard_small<"
+    ARGS --bench-filter benchmarks/spacing/*)
+
+gentest_add_check_death(
+    NAME benches_filter_no_match
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    EXPECT_SUBSTRING "benchmark filter matched 0 benchmarks"
+    ARGS --bench-filter=benchmarks/spacing/nope*)
+
+gentest_add_check_death(
+    NAME benches_filter_missing_arg
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    EXPECT_SUBSTRING "error: --bench-filter requires a value"
+    ARGS --bench-filter)
+
 gentest_add_check_death(
     NAME benches_fixture_alloc_null
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
@@ -699,6 +717,12 @@ gentest_add_check_contains(
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     EXPECT_SUBSTRING benchmarks/math/sin_jitter
     ARGS --list)
+
+gentest_add_check_death(
+    NAME cli_unknown_option
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    EXPECT_SUBSTRING "error: unknown option"
+    ARGS --this-option-does-not-exist)
 
 add_test(NAME gentest_codegen_output_collision
     COMMAND ${CMAKE_COMMAND}
