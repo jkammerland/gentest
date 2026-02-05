@@ -254,12 +254,14 @@ jobs:
           choco install openssl.light --no-progress
 
           $roots = New-Object System.Collections.Generic.List[string]
-          $roots.AddRange(@(
+          foreach ($candidate in @(
             "$env:ProgramFiles\\OpenSSL-Win64",
             "$env:ProgramFiles\\OpenSSL",
             "$env:ProgramFiles(x86)\\OpenSSL-Win32",
             "$env:ProgramFiles(x86)\\OpenSSL"
-          ))
+          )) {
+            if ($candidate) { $roots.Add($candidate) }
+          }
 
           $regKeys = @(
             "HKLM:\\SOFTWARE\\OpenSSL-Win64",
@@ -406,12 +408,14 @@ jobs:
           choco install openssl.light --no-progress
 
           $roots = New-Object System.Collections.Generic.List[string]
-          $roots.AddRange(@(
+          foreach ($candidate in @(
             "$env:ProgramFiles\\OpenSSL-Win64",
             "$env:ProgramFiles\\OpenSSL",
             "$env:ProgramFiles(x86)\\OpenSSL-Win32",
             "$env:ProgramFiles(x86)\\OpenSSL"
-          ))
+          )) {
+            if ($candidate) { $roots.Add($candidate) }
+          }
 
           $regKeys = @(
             "HKLM:\\SOFTWARE\\OpenSSL-Win64",
