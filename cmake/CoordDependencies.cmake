@@ -18,7 +18,7 @@ function(coord_fetch_dependencies)
         FetchContent_Declare(
             cbor_tags
             GIT_REPOSITORY https://github.com/jkammerland/cbor_tags.git
-            GIT_TAG 5ff03ae)
+            GIT_TAG v0.9.5)
     endif()
 
     FetchContent_MakeAvailable(cbor_tags)
