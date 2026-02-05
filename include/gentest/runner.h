@@ -53,7 +53,7 @@ namespace gentest {
 //   --allure-dir=<dir>      Write Allure JSON results
 //   --run-bench=<name>      Run a single benchmark
 //   --bench-filter=<pat>    Run benchmarks matching wildcard pattern
-//   --bench-table           Print a summary table per suite
+//   --bench-table           Print a summary table per suite (runs benches)
 //   --bench-min-epoch-time-s=<sec>  Minimum epoch time
 //   --bench-epochs=<N>      Measurement epochs (default 12)
 //   --bench-warmup=<N>      Warmup epochs (default 1)

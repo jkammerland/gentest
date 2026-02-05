@@ -29,6 +29,10 @@ endif()
 target_link_libraries(gentest_runtime
     PUBLIC fmt::fmt)
 
+target_include_directories(gentest_runtime
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/third_party/include)
+
 target_compile_features(gentest_runtime PUBLIC cxx_std_20)
 
 # For LLVM 21+ with libc++, explicitly link LLVM's libc++ to avoid ABI issues
