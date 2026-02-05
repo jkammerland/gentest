@@ -5,9 +5,17 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 
+#include <array>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 #include <vector>
+
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <unistd.h>
+#endif
 
 #if COORD_ENABLE_JSON
 #include <nlohmann/json.hpp>
@@ -16,6 +24,16 @@
 using namespace gentest::asserts;
 
 namespace coord_tests {
+
+#ifndef _WIN32
+static std::filesystem::path make_socket_path(const char *tag) {
+    auto base = std::filesystem::temp_directory_path();
+    auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    auto pid = static_cast<unsigned long>(::getpid());
+    std::string name = "coord_" + std::to_string(pid) + "_" + std::to_string(stamp) + "_" + std::string(tag) + ".sock";
+    return base / name;
+}
+#endif
 
 [[using gentest: test("coord/cbor_roundtrip")]]
 void cbor_roundtrip() {
@@ -140,6 +158,120 @@ void endpoint_parse() {
     ep = coord::parse_endpoint("bad_endpoint", &error);
     EXPECT_FALSE(error.empty());
 }
+
+#ifndef _WIN32
+[[using gentest: test("coord/transport_frame_roundtrip")]]
+void transport_frame_roundtrip() {
+    auto path = make_socket_path("roundtrip");
+    coord::Endpoint ep{};
+    ep.kind = coord::Endpoint::Kind::Unix;
+    ep.path = path.string();
+
+    std::string error;
+    int listener = coord::listen_endpoint(ep, &error);
+    ASSERT_TRUE(listener >= 0, error);
+
+    coord::Connection client = coord::connect_endpoint(ep, {}, &error);
+    bool client_ok = client.is_valid();
+
+    std::vector<std::byte> server_payload;
+    std::string server_error;
+    std::thread server;
+    if (client_ok) {
+        server = std::thread([&]() {
+            coord::Connection conn = coord::accept_connection(listener, {}, &server_error);
+            if (!conn.is_valid()) {
+                if (server_error.empty()) {
+                    server_error = "accept failed";
+                }
+                return;
+            }
+            std::vector<std::byte> data;
+            if (!conn.read_frame(data, &server_error)) {
+                return;
+            }
+            server_payload = data;
+            if (!conn.write_frame(data, &server_error)) {
+                return;
+            }
+        });
+    }
+
+    std::vector<std::byte> payload{std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
+    std::vector<std::byte> reply;
+    if (client_ok) {
+        client_ok = client.write_frame(payload, &error);
+    }
+    if (client_ok) {
+        client_ok = client.read_frame(reply, &error);
+    }
+
+    if (server.joinable()) {
+        server.join();
+    }
+    ::close(listener);
+    std::filesystem::remove(path);
+
+    ASSERT_TRUE(server_error.empty(), server_error);
+    EXPECT_TRUE(client_ok, error);
+    if (client_ok) {
+        EXPECT_EQ(server_payload, payload);
+        EXPECT_EQ(reply, payload);
+    }
+}
+
+[[using gentest: test("coord/transport_frame_errors")]]
+void transport_frame_errors() {
+    auto path = make_socket_path("errors");
+    coord::Endpoint ep{};
+    ep.kind = coord::Endpoint::Kind::Unix;
+    ep.path = path.string();
+
+    std::string error;
+    int listener = coord::listen_endpoint(ep, &error);
+    ASSERT_TRUE(listener >= 0, error);
+
+    coord::Connection client = coord::connect_endpoint(ep, {}, &error);
+    bool client_ok = client.is_valid();
+    bool server_read_ok = false;
+    std::string server_error;
+    std::thread server;
+    if (client_ok) {
+        server = std::thread([&]() {
+            coord::Connection conn = coord::accept_connection(listener, {}, &server_error);
+            if (!conn.is_valid()) {
+                if (server_error.empty()) {
+                    server_error = "accept failed";
+                }
+                return;
+            }
+            std::vector<std::byte> data;
+            server_read_ok = conn.read_frame(data, &server_error);
+        });
+    }
+    if (client_ok) {
+        std::uint32_t len_be = htonl(8);
+        auto len_rc = ::write(client.fd(), &len_be, sizeof(len_be));
+        client_ok = (len_rc > 0);
+    }
+    if (client_ok) {
+        std::array<std::byte, 4> partial{std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}, std::byte{0xdd}};
+        auto data_rc = ::write(client.fd(), partial.data(), partial.size());
+        client_ok = (data_rc > 0);
+    }
+    client = coord::Connection{};
+
+    if (server.joinable()) {
+        server.join();
+    }
+    ::close(listener);
+    std::filesystem::remove(path);
+
+    EXPECT_TRUE(client_ok, error);
+    EXPECT_FALSE(server_read_ok);
+    EXPECT_FALSE(server_error.empty());
+}
+#endif
 
 #if COORD_ENABLE_JSON
 [[using gentest: test("coord/json_parse")]]
