@@ -41,6 +41,7 @@ jobs:
             unzip \
             tar \
             ca-certificates \
+            libssl-dev \
             clang-20 \
             clang-tools-20 \
             libclang-20-dev \

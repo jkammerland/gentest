@@ -56,6 +56,7 @@ jobs:
             ca-certificates \
             libffi-dev \
             libxml2-dev \
+            libssl-dev \
             zlib1g-dev \
             libzstd-dev \
             libcurl4-openssl-dev \
@@ -98,6 +99,7 @@ jobs:
             libcurl-devel \
             libffi-devel \
             libxml2-devel \
+            openssl-devel \
             gcc \
             gcc-c++ \
             make \
