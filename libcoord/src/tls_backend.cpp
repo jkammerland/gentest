@@ -1,5 +1,7 @@
 #include "tls_backend.h"
 
+#include <cerrno>
+#include <cstring>
 #include <mutex>
 
 namespace coord::tls_backend {
@@ -11,6 +13,7 @@ namespace coord::tls_backend {
 #elif COORD_TLS_BACKEND_WOLFSSL
 #include <wolfssl/options.h>
 #include <wolfssl/openssl/ssl.h>
+#include <wolfssl/openssl/err.h>
 #else
 #error "COORD_ENABLE_TLS requires COORD_TLS_BACKEND_OPENSSL or COORD_TLS_BACKEND_WOLFSSL"
 #endif
@@ -20,6 +23,50 @@ static void tls_global_init() {
     std::call_once(init_flag, []() {
         OPENSSL_init_ssl(0, nullptr);
     });
+}
+
+static const char *ssl_error_name(int err) {
+    switch (err) {
+        case SSL_ERROR_NONE:
+            return "none";
+        case SSL_ERROR_ZERO_RETURN:
+            return "zero_return";
+        case SSL_ERROR_WANT_READ:
+            return "want_read";
+        case SSL_ERROR_WANT_WRITE:
+            return "want_write";
+        case SSL_ERROR_WANT_CONNECT:
+            return "want_connect";
+        case SSL_ERROR_WANT_ACCEPT:
+            return "want_accept";
+        case SSL_ERROR_WANT_X509_LOOKUP:
+            return "want_x509_lookup";
+        case SSL_ERROR_SYSCALL:
+            return "syscall";
+        case SSL_ERROR_SSL:
+            return "ssl";
+        default:
+            return "unknown";
+    }
+}
+
+static std::string format_tls_error(const char *context, SSL *ssl, int rc) {
+    int err = SSL_get_error(ssl, rc);
+    std::string msg = context;
+    msg += " (";
+    msg += ssl_error_name(err);
+    msg += ")";
+    unsigned long lib_err = ERR_get_error();
+    if (lib_err != 0) {
+        char buf[256];
+        ERR_error_string_n(lib_err, buf, sizeof(buf));
+        msg += ": ";
+        msg += buf;
+    } else if (err == SSL_ERROR_SYSCALL && errno != 0) {
+        msg += ": ";
+        msg += std::strerror(errno);
+    }
+    return msg;
 }
 
 static bool init_tls_ctx(SSL_CTX *ctx, const TlsConfig &cfg, bool is_server, std::string *error) {
@@ -38,6 +85,12 @@ static bool init_tls_ctx(SSL_CTX *ctx, const TlsConfig &cfg, bool is_server, std
     if (!cfg.key_file.empty()) {
         if (SSL_CTX_use_PrivateKey_file(ctx, cfg.key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
             if (error) *error = "failed to load private key";
+            return false;
+        }
+    }
+    if (!cfg.cert_file.empty() && !cfg.key_file.empty()) {
+        if (SSL_CTX_check_private_key(ctx) != 1) {
+            if (error) *error = "private key does not match certificate";
             return false;
         }
     }
@@ -68,12 +121,25 @@ bool init(void *&ctx_out, void *&ssl_out, int fd, const TlsConfig &cfg, bool is_
         if (error) *error = "TLS_new failed";
         return false;
     }
-    SSL_set_fd(ssl, fd);
-    int rc = is_server ? SSL_accept(ssl) : SSL_connect(ssl);
-    if (rc != 1) {
+    if (SSL_set_fd(ssl, fd) != 1) {
         SSL_free(ssl);
         SSL_CTX_free(ctx);
-        if (error) *error = "TLS handshake failed";
+        if (error) *error = "TLS_set_fd failed";
+        return false;
+    }
+    for (;;) {
+        ERR_clear_error();
+        int rc = is_server ? SSL_accept(ssl) : SSL_connect(ssl);
+        if (rc == 1) {
+            break;
+        }
+        int err = SSL_get_error(ssl, rc);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            continue;
+        }
+        if (error) *error = format_tls_error("TLS handshake failed", ssl, rc);
+        SSL_free(ssl);
+        SSL_CTX_free(ctx);
         return false;
     }
     ctx_out = ctx;
@@ -94,19 +160,55 @@ void shutdown(void *&ctx, void *&ssl) {
 }
 
 int read(void *ssl, void *buf, std::size_t len, std::string *error) {
-    int rc = SSL_read(reinterpret_cast<SSL *>(ssl), buf, static_cast<int>(len));
-    if (rc <= 0 && error) {
-        *error = "TLS read failed";
+    SSL *ssl_ptr = reinterpret_cast<SSL *>(ssl);
+    for (;;) {
+        ERR_clear_error();
+        int rc = SSL_read(ssl_ptr, buf, static_cast<int>(len));
+        if (rc > 0) {
+            return rc;
+        }
+        int err = SSL_get_error(ssl_ptr, rc);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            continue;
+        }
+        if (err == SSL_ERROR_SYSCALL && errno == EINTR) {
+            continue;
+        }
+        if (err == SSL_ERROR_ZERO_RETURN) {
+            if (error) *error = "TLS peer closed";
+            return 0;
+        }
+        if (error) {
+            *error = format_tls_error("TLS read failed", ssl_ptr, rc);
+        }
+        return -1;
     }
-    return rc;
 }
 
 int write(void *ssl, const void *buf, std::size_t len, std::string *error) {
-    int rc = SSL_write(reinterpret_cast<SSL *>(ssl), buf, static_cast<int>(len));
-    if (rc <= 0 && error) {
-        *error = "TLS write failed";
+    SSL *ssl_ptr = reinterpret_cast<SSL *>(ssl);
+    for (;;) {
+        ERR_clear_error();
+        int rc = SSL_write(ssl_ptr, buf, static_cast<int>(len));
+        if (rc > 0) {
+            return rc;
+        }
+        int err = SSL_get_error(ssl_ptr, rc);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            continue;
+        }
+        if (err == SSL_ERROR_SYSCALL && errno == EINTR) {
+            continue;
+        }
+        if (err == SSL_ERROR_ZERO_RETURN) {
+            if (error) *error = "TLS peer closed";
+            return 0;
+        }
+        if (error) {
+            *error = format_tls_error("TLS write failed", ssl_ptr, rc);
+        }
+        return -1;
     }
-    return rc;
 }
 #else
 bool init(void *&, void *&, int, const TlsConfig &, bool, std::string *error) {

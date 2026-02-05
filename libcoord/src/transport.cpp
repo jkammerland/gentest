@@ -20,6 +20,31 @@
 
 namespace coord {
 
+struct Connection::Impl {
+    int fd{-1};
+    void *ssl{nullptr};
+    void *ssl_ctx{nullptr};
+    bool tls{false};
+
+    ~Impl() {
+        if (tls) {
+            tls_backend::shutdown(ssl_ctx, ssl);
+        }
+        if (fd >= 0) {
+#ifdef _WIN32
+            closesocket(fd);
+#else
+            ::close(fd);
+#endif
+        }
+    }
+};
+
+Connection::Connection() = default;
+Connection::~Connection() = default;
+Connection::Connection(Connection &&) noexcept = default;
+Connection &Connection::operator=(Connection &&) noexcept = default;
+
 static bool starts_with(std::string_view value, std::string_view prefix) {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
 }
@@ -59,78 +84,63 @@ Endpoint parse_endpoint(const std::string &value, std::string *error) {
     return out;
 }
 
-Connection::~Connection() {
-    if (tls_) {
-        tls_backend::shutdown(ssl_ctx_, ssl_);
-    }
-    if (fd_ >= 0) {
-#ifdef _WIN32
-        closesocket(fd_);
-#else
-        ::close(fd_);
-#endif
-    }
-}
+bool Connection::is_valid() const { return impl_ && impl_->fd >= 0; }
 
-Connection::Connection(Connection &&other) noexcept {
-    fd_ = other.fd_;
-    ssl_ = other.ssl_;
-    ssl_ctx_ = other.ssl_ctx_;
-    tls_ = other.tls_;
-    other.fd_ = -1;
-    other.ssl_ = nullptr;
-    other.ssl_ctx_ = nullptr;
-    other.tls_ = false;
-}
-
-Connection &Connection::operator=(Connection &&other) noexcept {
-    if (this != &other) {
-        this->~Connection();
-        fd_ = other.fd_;
-        ssl_ = other.ssl_;
-        ssl_ctx_ = other.ssl_ctx_;
-        tls_ = other.tls_;
-        other.fd_ = -1;
-        other.ssl_ = nullptr;
-        other.ssl_ctx_ = nullptr;
-        other.tls_ = false;
-    }
-    return *this;
-}
-
-bool Connection::is_valid() const { return fd_ >= 0; }
+int Connection::fd() const { return impl_ ? impl_->fd : -1; }
 
 bool Connection::read_frame(std::vector<std::byte> &out, std::string *error) {
     auto read_exact = [this](void *buf, std::size_t len, std::string *err) -> bool {
+        if (!impl_ || impl_->fd < 0) {
+            if (err) *err = "invalid connection";
+            return false;
+        }
         std::byte *dst = static_cast<std::byte *>(buf);
         std::size_t got = 0;
         while (got < len) {
             int rc = 0;
 #if COORD_ENABLE_TLS
-            if (tls_) {
-                rc = tls_backend::read(ssl_, dst + got, len - got, err);
+            if (impl_->tls) {
+                rc = tls_backend::read(impl_->ssl, dst + got, len - got, err);
             } else {
 #else
-            if (tls_) {
+            if (impl_->tls) {
                 if (err) *err = "TLS disabled in this build";
                 return false;
             } else {
 #endif
 #ifdef _WIN32
-                rc = recv(fd_, reinterpret_cast<char *>(dst + got), static_cast<int>(len - got), 0);
+                rc = recv(impl_->fd, reinterpret_cast<char *>(dst + got), static_cast<int>(len - got), 0);
+                if (rc == SOCKET_ERROR) {
+                    rc = -1;
+                }
 #else
-                rc = static_cast<int>(::read(fd_, dst + got, len - got));
+                rc = static_cast<int>(::read(impl_->fd, dst + got, len - got));
 #endif
             }
-            if (rc <= 0) {
+            if (rc < 0) {
+#ifndef _WIN32
+                if (!impl_->tls && errno == EINTR) {
+                    continue;
+                }
+#endif
                 if (err) {
-                    if (tls_) {
+                    if (impl_->tls) {
                         if (err->empty()) {
                             *err = "TLS read failed";
                         }
                     } else {
+#ifdef _WIN32
+                        *err = "read failed";
+#else
                         *err = std::string("read failed: ") + std::strerror(errno);
+#endif
                     }
+                }
+                return false;
+            }
+            if (rc == 0) {
+                if (err && err->empty()) {
+                    *err = impl_->tls ? "TLS connection closed" : "connection closed";
                 }
                 return false;
             }
@@ -153,35 +163,57 @@ bool Connection::read_frame(std::vector<std::byte> &out, std::string *error) {
 
 bool Connection::write_frame(std::span<const std::byte> data, std::string *error) {
     auto write_exact = [this](const void *buf, std::size_t len, std::string *err) -> bool {
+        if (!impl_ || impl_->fd < 0) {
+            if (err) *err = "invalid connection";
+            return false;
+        }
         const std::byte *src = static_cast<const std::byte *>(buf);
         std::size_t sent = 0;
         while (sent < len) {
             int rc = 0;
 #if COORD_ENABLE_TLS
-            if (tls_) {
-                rc = tls_backend::write(ssl_, src + sent, len - sent, err);
+            if (impl_->tls) {
+                rc = tls_backend::write(impl_->ssl, src + sent, len - sent, err);
             } else {
 #else
-            if (tls_) {
+            if (impl_->tls) {
                 if (err) *err = "TLS disabled in this build";
                 return false;
             } else {
 #endif
 #ifdef _WIN32
-                rc = send(fd_, reinterpret_cast<const char *>(src + sent), static_cast<int>(len - sent), 0);
+                rc = send(impl_->fd, reinterpret_cast<const char *>(src + sent), static_cast<int>(len - sent), 0);
+                if (rc == SOCKET_ERROR) {
+                    rc = -1;
+                }
 #else
-                rc = static_cast<int>(::write(fd_, src + sent, len - sent));
+                rc = static_cast<int>(::write(impl_->fd, src + sent, len - sent));
 #endif
             }
-            if (rc <= 0) {
+            if (rc < 0) {
+#ifndef _WIN32
+                if (!impl_->tls && errno == EINTR) {
+                    continue;
+                }
+#endif
                 if (err) {
-                    if (tls_) {
+                    if (impl_->tls) {
                         if (err->empty()) {
                             *err = "TLS write failed";
                         }
                     } else {
+#ifdef _WIN32
+                        *err = "write failed";
+#else
                         *err = std::string("write failed: ") + std::strerror(errno);
+#endif
                     }
+                }
+                return false;
+            }
+            if (rc == 0) {
+                if (err && err->empty()) {
+                    *err = impl_->tls ? "TLS connection closed" : "connection closed";
                 }
                 return false;
             }
@@ -198,14 +230,6 @@ bool Connection::write_frame(std::span<const std::byte> data, std::string *error
         return true;
     }
     return write_exact(data.data(), data.size(), error);
-}
-
-Connection wrap_tls(Connection conn, const TlsConfig &cfg, bool is_server, std::string *error) {
-    if (!tls_backend::init(conn.ssl_ctx_, conn.ssl_, conn.fd_, cfg, is_server, error)) {
-        return Connection{};
-    }
-    conn.tls_ = true;
-    return conn;
 }
 
 int listen_endpoint(const Endpoint &endpoint, std::string *error) {
@@ -287,9 +311,13 @@ Connection accept_connection(int listener_fd, const TlsConfig &tls, std::string 
         return Connection{};
     }
     Connection conn{};
-    conn.fd_ = fd;
+    conn.impl_ = std::make_unique<Connection::Impl>();
+    conn.impl_->fd = fd;
     if (tls.enabled) {
-        return wrap_tls(std::move(conn), tls, true, error);
+        if (!tls_backend::init(conn.impl_->ssl_ctx, conn.impl_->ssl, conn.impl_->fd, tls, true, error)) {
+            return Connection{};
+        }
+        conn.impl_->tls = true;
     }
     return conn;
 }
@@ -317,7 +345,8 @@ Connection connect_endpoint(const Endpoint &endpoint, const TlsConfig &tls, std:
             return Connection{};
         }
         Connection conn{};
-        conn.fd_ = fd;
+        conn.impl_ = std::make_unique<Connection::Impl>();
+        conn.impl_->fd = fd;
         return conn;
 #else
         return Connection{};
@@ -353,9 +382,13 @@ Connection connect_endpoint(const Endpoint &endpoint, const TlsConfig &tls, std:
         return Connection{};
     }
     Connection conn{};
-    conn.fd_ = fd;
+    conn.impl_ = std::make_unique<Connection::Impl>();
+    conn.impl_->fd = fd;
     if (tls.enabled) {
-        return wrap_tls(std::move(conn), tls, false, error);
+        if (!tls_backend::init(conn.impl_->ssl_ctx, conn.impl_->ssl, conn.impl_->fd, tls, false, error)) {
+            return Connection{};
+        }
+        conn.impl_->tls = true;
     }
     return conn;
 }

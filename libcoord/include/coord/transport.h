@@ -28,11 +28,10 @@ struct TlsConfig {
 class Connection;
 
 Endpoint parse_endpoint(const std::string &value, std::string *error = nullptr);
-Connection wrap_tls(Connection conn, const TlsConfig &cfg, bool is_server, std::string *error);
 
 class Connection {
 public:
-    Connection() = default;
+    Connection();
     ~Connection();
     Connection(const Connection &) = delete;
     Connection &operator=(const Connection &) = delete;
@@ -44,17 +43,14 @@ public:
     bool read_frame(std::vector<std::byte> &out, std::string *error = nullptr);
     bool write_frame(std::span<const std::byte> data, std::string *error = nullptr);
 
-    int fd() const { return fd_; }
+    int fd() const;
 
 private:
     friend Connection connect_endpoint(const Endpoint &, const TlsConfig &, std::string *);
     friend Connection accept_connection(int listener_fd, const TlsConfig &, std::string *);
-    friend Connection wrap_tls(Connection, const TlsConfig &, bool, std::string *);
 
-    int fd_{-1};
-    void *ssl_{nullptr};
-    void *ssl_ctx_{nullptr};
-    bool tls_{false};
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 int listen_endpoint(const Endpoint &endpoint, std::string *error = nullptr);
