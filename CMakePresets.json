@@ -177,6 +177,7 @@
       "toolchainFile": "${sourceDir}/cmake/toolchains/aarch64-linux-gnu.cmake",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": null,
+        "COORD_ENABLE_TLS": "OFF",
         "GENTEST_BUILD_CODEGEN": "OFF",
         "GENTEST_CODEGEN_EXECUTABLE": "${sourceDir}/build/host-codegen/tools/gentest_codegen",
         "GENTEST_ENABLE_PACKAGE_TESTS": "OFF"

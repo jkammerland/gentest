@@ -16,6 +16,16 @@ target_link_libraries(coord
         cbor::tags
         Threads::Threads)
 
+# For LLVM 21+ with libc++, explicitly link LLVM's libc++ to avoid ABI issues
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE)
+    get_filename_component(_coord_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_coord_llvm_prefix "${_coord_compiler_dir}/.." ABSOLUTE)
+    if(EXISTS "${_coord_llvm_prefix}/lib/c++/libc++.dylib")
+        target_link_libraries(coord PUBLIC "${_coord_llvm_prefix}/lib/c++/libc++.dylib")
+        message(STATUS "coord: linking LLVM libc++: ${_coord_llvm_prefix}/lib/c++/libc++.dylib")
+    endif()
+endif()
+
 if(COORD_ENABLE_TLS)
     if(COORD_TLS_BACKEND STREQUAL "openssl")
         target_link_libraries(coord PUBLIC OpenSSL::SSL OpenSSL::Crypto)
