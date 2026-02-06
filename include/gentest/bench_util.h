@@ -43,14 +43,16 @@ inline void clobberMemory() { _ReadWriteBarrier(); }
 
 template <class T>
 inline void doNotOptimizeAway(T const& value) {
-    // Tell the compiler that value is an input to an imaginary asm stmt.
-    asm volatile("" : : "g"(value) : "memory");
+    // Keep value live while allowing either register or memory constraints.
+    // Avoid "+g" style tied operands that are rejected by some clang targets.
+    asm volatile("" : : "r,m"(value) : "memory");
 }
 
 template <class T>
 inline void doNotOptimizeAway(T& value) {
-    // Mark value as both read and written to be maximally conservative.
-    asm volatile("" : "+g"(value) : : "memory");
+    // Match const-overload constraints; a memory clobber is sufficient for our
+    // benchmark harness and is accepted across clang/gcc targets.
+    asm volatile("" : : "r,m"(value) : "memory");
 }
 
 inline void clobberMemory() { asm volatile("" : : : "memory"); }
@@ -75,4 +77,3 @@ inline void clobberMemory() { (void)0; }
 #endif
 
 } // namespace gentest
-
