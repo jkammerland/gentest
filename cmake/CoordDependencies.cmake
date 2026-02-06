@@ -22,6 +22,24 @@ function(coord_fetch_dependencies)
     endif()
 
     FetchContent_MakeAvailable(cbor_tags)
+    if(APPLE)
+        # libc++ does not provide std::char_traits<std::byte>, but cbor_tags
+        # declares std::basic_string_view<std::byte>. Patch to span for CI.
+        set(_coord_cbor_decoder_header "${cbor_tags_SOURCE_DIR}/include/cbor_tags/cbor_decoder.h")
+        if(EXISTS "${_coord_cbor_decoder_header}")
+            file(READ "${_coord_cbor_decoder_header}" _coord_cbor_decoder_text)
+            set(_coord_cbor_decoder_original "${_coord_cbor_decoder_text}")
+            string(REPLACE "std::basic_string_view<std::byte>" "std::span<const std::byte>" _coord_cbor_decoder_text
+                           "${_coord_cbor_decoder_text}")
+            if(NOT _coord_cbor_decoder_text STREQUAL _coord_cbor_decoder_original)
+                file(WRITE "${_coord_cbor_decoder_header}" "${_coord_cbor_decoder_text}")
+                message(STATUS "coord: patched cbor_tags byte-string view for libc++ compatibility")
+            endif()
+            unset(_coord_cbor_decoder_original)
+            unset(_coord_cbor_decoder_text)
+        endif()
+        unset(_coord_cbor_decoder_header)
+    endif()
 
     if(COORD_ENABLE_TLS)
         if(COORD_TLS_BACKEND STREQUAL "openssl")
@@ -51,6 +69,8 @@ function(coord_fetch_dependencies)
                     _coord_openssl_lib_suffixes
                     "lib"
                     "lib64"
+                    "lib64/VC"
+                    "lib64/VC/x64"
                     "lib/VC"
                     "lib/VC/x64"
                     "lib/VC/x64/MD"
@@ -58,7 +78,11 @@ function(coord_fetch_dependencies)
                     "lib/VC/x64/MDd"
                     "lib/VC/x64/MTd"
                     "lib/VC/static"
-                    "lib/VC/x64/static")
+                    "lib/VC/x64/static"
+                    "build/lib")
+
+                set(_coord_ssl_names libssl ssl libssl-3 libssl-3-x64)
+                set(_coord_crypto_names libcrypto crypto libcrypto-3 libcrypto-3-x64)
 
                 foreach(_root IN LISTS _coord_openssl_roots)
                     if(NOT EXISTS "${_root}/include/openssl/ssl.h")
@@ -68,8 +92,8 @@ function(coord_fetch_dependencies)
                     set(_coord_ssl_lib "")
                     set(_coord_crypto_lib "")
                     foreach(_suffix IN LISTS _coord_openssl_lib_suffixes)
-                        find_library(_coord_ssl_candidate NAMES libssl ssl PATHS "${_root}/${_suffix}" NO_DEFAULT_PATH)
-                        find_library(_coord_crypto_candidate NAMES libcrypto crypto PATHS "${_root}/${_suffix}" NO_DEFAULT_PATH)
+                        find_library(_coord_ssl_candidate NAMES ${_coord_ssl_names} PATHS "${_root}/${_suffix}" NO_DEFAULT_PATH)
+                        find_library(_coord_crypto_candidate NAMES ${_coord_crypto_names} PATHS "${_root}/${_suffix}" NO_DEFAULT_PATH)
                         if(_coord_ssl_candidate AND _coord_crypto_candidate)
                             set(_coord_ssl_lib "${_coord_ssl_candidate}")
                             set(_coord_crypto_lib "${_coord_crypto_candidate}")
@@ -77,9 +101,28 @@ function(coord_fetch_dependencies)
                         endif()
                     endforeach()
 
+                    if(NOT _coord_ssl_lib OR NOT _coord_crypto_lib)
+                        file(GLOB_RECURSE _coord_openssl_libs LIST_DIRECTORIES FALSE "${_root}/*.lib")
+                        foreach(_lib IN LISTS _coord_openssl_libs)
+                            get_filename_component(_lib_name "${_lib}" NAME_WE)
+                            string(TOLOWER "${_lib_name}" _lib_name_lower)
+                            if(NOT _coord_ssl_lib AND (_lib_name_lower STREQUAL "ssl" OR _lib_name_lower MATCHES "^libssl([_-].*)?$"))
+                                set(_coord_ssl_lib "${_lib}")
+                            endif()
+                            if(NOT _coord_crypto_lib
+                               AND (_lib_name_lower STREQUAL "crypto" OR _lib_name_lower MATCHES "^libcrypto([_-].*)?$"))
+                                set(_coord_crypto_lib "${_lib}")
+                            endif()
+                            if(_coord_ssl_lib AND _coord_crypto_lib)
+                                break()
+                            endif()
+                        endforeach()
+                    endif()
+
                     if(_coord_ssl_lib AND _coord_crypto_lib)
                         set(OPENSSL_ROOT_DIR "${_root}" CACHE PATH "OpenSSL root directory" FORCE)
                         set(OPENSSL_DIR "${_root}" CACHE PATH "OpenSSL root directory" FORCE)
+                        set(OPENSSL_INCLUDE_DIR "${_root}/include" CACHE PATH "OpenSSL include directory" FORCE)
                         set(OPENSSL_SSL_LIBRARY "${_coord_ssl_lib}" CACHE FILEPATH "OpenSSL SSL library" FORCE)
                         set(OPENSSL_CRYPTO_LIBRARY "${_coord_crypto_lib}" CACHE FILEPATH "OpenSSL crypto library" FORCE)
                         break()
@@ -92,6 +135,12 @@ function(coord_fetch_dependencies)
                 unset(_coord_crypto_lib)
                 unset(_coord_ssl_candidate)
                 unset(_coord_crypto_candidate)
+                unset(_coord_ssl_names)
+                unset(_coord_crypto_names)
+                unset(_coord_openssl_libs)
+                unset(_lib)
+                unset(_lib_name)
+                unset(_lib_name_lower)
                 unset(_candidate)
                 unset(_candidate_norm)
                 unset(_root)
