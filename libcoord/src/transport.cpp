@@ -3,6 +3,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <mutex>
 #include <string_view>
 
 #ifdef _WIN32
@@ -48,6 +49,26 @@ Connection &Connection::operator=(Connection &&) noexcept = default;
 static bool starts_with(std::string_view value, std::string_view prefix) {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
 }
+
+#ifdef _WIN32
+static bool ensure_winsock_initialized(std::string *error) {
+    static std::once_flag init_once;
+    static int init_result = WSASYSNOTREADY;
+
+    std::call_once(init_once, [] {
+        WSADATA data{};
+        init_result = WSAStartup(MAKEWORD(2, 2), &data);
+    });
+
+    if (init_result != 0) {
+        if (error) {
+            *error = "WSAStartup failed";
+        }
+        return false;
+    }
+    return true;
+}
+#endif
 
 Endpoint parse_endpoint(const std::string &value, std::string *error) {
     Endpoint out{};
@@ -238,6 +259,9 @@ int listen_endpoint(const Endpoint &endpoint, std::string *error) {
         if (error) *error = "unix sockets unsupported on Windows in coordd";
         return -1;
     }
+    if (!ensure_winsock_initialized(error)) {
+        return -1;
+    }
 #endif
     if (endpoint.kind == Endpoint::Kind::Unix) {
 #ifndef _WIN32
@@ -303,6 +327,12 @@ int listen_endpoint(const Endpoint &endpoint, std::string *error) {
 }
 
 Connection accept_connection(int listener_fd, const TlsConfig &tls, std::string *error) {
+#ifdef _WIN32
+    if (!ensure_winsock_initialized(error)) {
+        return Connection{};
+    }
+#endif
+
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
     int fd = ::accept(listener_fd, reinterpret_cast<sockaddr *>(&addr), &len);
@@ -326,6 +356,9 @@ Connection connect_endpoint(const Endpoint &endpoint, const TlsConfig &tls, std:
 #ifdef _WIN32
     if (endpoint.kind == Endpoint::Kind::Unix) {
         if (error) *error = "unix sockets unsupported on Windows in coordctl";
+        return Connection{};
+    }
+    if (!ensure_winsock_initialized(error)) {
         return Connection{};
     }
 #endif

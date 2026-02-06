@@ -3,6 +3,10 @@ add_executable(udp_client udp_client.cpp)
 
 target_compile_features(udp_server PRIVATE cxx_std_20)
 target_compile_features(udp_client PRIVATE cxx_std_20)
+if(WIN32)
+    target_link_libraries(udp_server PRIVATE ws2_32)
+    target_link_libraries(udp_client PRIVATE ws2_32)
+endif()
 
 set(_coord_socket "${CMAKE_CURRENT_BINARY_DIR}/coordd.sock")
 set(_coord_root "${CMAKE_CURRENT_BINARY_DIR}/coordd_root")

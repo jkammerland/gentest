@@ -3,13 +3,14 @@
 #include "coord/types.h"
 
 #include <atomic>
+#include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
-#include <cctype>
-#include <cerrno>
+#include <cstring>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -22,7 +23,14 @@
 #include <vector>
 
 #ifdef _WIN32
+#include <fcntl.h>
 #include <io.h>
+// clang-format off
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+// clang-format on
 #endif
 
 #ifndef _WIN32
@@ -43,36 +51,39 @@ using namespace coord;
 namespace fs = std::filesystem;
 
 struct ServerConfig {
-    Endpoint listen;
+    Endpoint                 listen;
     std::vector<std::string> peers;
-    std::string root_dir;
-    TlsConfig tls;
-    bool daemonize{false};
-    std::string pid_file;
-    std::string ready_file;
-    std::string shutdown_token;
+    std::string              root_dir;
+    TlsConfig                tls;
+    bool                     daemonize{false};
+    std::string              pid_file;
+    std::string              ready_file;
+    std::string              shutdown_token;
 };
 
 struct SessionState {
-    SessionManifest manifest;
-    bool complete{false};
-    std::mutex mutex;
+    SessionManifest         manifest;
+    bool                    complete{false};
+    std::mutex              mutex;
     std::condition_variable cv;
 };
 
 struct OutputWatcher {
-    std::thread thread;
-    std::mutex mutex;
+    std::thread             thread;
+    std::mutex              mutex;
     std::condition_variable cv;
-    bool token_found{false};
-    bool done{false};
-    std::string token;
+    bool                    token_found{false};
+    bool                    done{false};
+    std::string             token;
 };
 
 struct ProcessInstance {
     InstanceInfo info;
-    int stdout_fd{-1};
-    int stderr_fd{-1};
+    int          stdout_fd{-1};
+    int          stderr_fd{-1};
+#ifdef _WIN32
+    HANDLE process_handle{nullptr};
+#endif
     OutputWatcher stdout_watch;
     OutputWatcher stderr_watch;
     ReadinessSpec readiness{};
@@ -103,12 +114,139 @@ static std::string join_paths(const std::string &a, const std::string &b) {
     return p.string();
 }
 
+#ifdef _WIN32
+static std::string win32_error_message(const char *context, DWORD code) {
+    char        buffer[512]{};
+    DWORD       len     = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, code,
+                                         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buffer, static_cast<DWORD>(sizeof(buffer)), nullptr);
+    std::string message = len > 0 ? std::string(buffer, len) : "unknown error";
+    while (!message.empty() && (message.back() == '\r' || message.back() == '\n' || message.back() == ' ' || message.back() == '\t')) {
+        message.pop_back();
+    }
+    return std::string(context) + ": " + message + " (" + std::to_string(code) + ")";
+}
+
+static bool ensure_winsock_initialized(std::string *error) {
+    static std::once_flag init_once;
+    static int            init_result = WSASYSNOTREADY;
+
+    std::call_once(init_once, [] {
+        WSADATA data{};
+        init_result = WSAStartup(MAKEWORD(2, 2), &data);
+    });
+
+    if (init_result != 0) {
+        if (error) {
+            *error = "WSAStartup failed";
+        }
+        return false;
+    }
+    return true;
+}
+
+static std::string quote_windows_arg(const std::string &arg) {
+    if (arg.empty()) {
+        return "\"\"";
+    }
+    bool need_quotes = arg.find_first_of(" \t\"") != std::string::npos;
+    if (!need_quotes) {
+        return arg;
+    }
+    std::string out = "\"";
+    for (char ch : arg) {
+        if (ch == '"') {
+            out += "\\\"";
+        } else {
+            out += ch;
+        }
+    }
+    out += "\"";
+    return out;
+}
+
+static void set_env_value(std::vector<std::string> &env_entries, const std::string &key, const std::string &value) {
+    std::string replacement = key + "=" + value;
+    for (auto &entry : env_entries) {
+        auto sep = entry.find('=');
+        if (sep == std::string::npos) {
+            continue;
+        }
+        std::string entry_key = entry.substr(0, sep);
+        if (_stricmp(entry_key.c_str(), key.c_str()) == 0) {
+            entry = replacement;
+            return;
+        }
+    }
+    env_entries.push_back(std::move(replacement));
+}
+
+static std::vector<char> build_windows_env_block(const SessionSpec &spec, const NodeDef &node, std::uint32_t index,
+                                                 const std::vector<PortAssignment>                  &ports,
+                                                 const std::unordered_map<std::string, std::string> &node_addrs, std::string &error) {
+    std::vector<std::string> env_entries;
+    LPCH                     inherited = GetEnvironmentStringsA();
+    if (!inherited) {
+        error = win32_error_message("GetEnvironmentStringsA failed", GetLastError());
+        return {};
+    }
+    for (const char *cursor = inherited; *cursor != '\0'; cursor += std::strlen(cursor) + 1) {
+        env_entries.emplace_back(cursor);
+    }
+    FreeEnvironmentStringsA(inherited);
+
+    set_env_value(env_entries, "COORD_SESSION_ID", spec.session_id);
+    set_env_value(env_entries, "COORD_GROUP", spec.group);
+    set_env_value(env_entries, "COORD_NODE_NAME", node.name);
+    set_env_value(env_entries, "COORD_NODE_INDEX", std::to_string(index));
+
+    for (const auto &addr : node_addrs) {
+        set_env_value(env_entries, "COORD_NODE_ADDR_" + sanitize_env_key(addr.first), addr.second);
+    }
+
+    for (const auto &pa : ports) {
+        std::string base = "COORD_PORT_" + sanitize_env_key(pa.name);
+        if (pa.ports.size() == 1) {
+            set_env_value(env_entries, base, std::to_string(pa.ports[0]));
+        }
+        for (std::size_t i = 0; i < pa.ports.size(); ++i) {
+            set_env_value(env_entries, base + "_" + std::to_string(i), std::to_string(pa.ports[i]));
+        }
+    }
+
+    for (const auto &env : node.env) {
+        set_env_value(env_entries, env.key, env.value);
+    }
+
+    std::vector<char> block;
+    std::size_t       total = 1;
+    for (const auto &entry : env_entries) {
+        total += entry.size() + 1;
+    }
+    block.reserve(total);
+    for (const auto &entry : env_entries) {
+        block.insert(block.end(), entry.begin(), entry.end());
+        block.push_back('\0');
+    }
+    block.push_back('\0');
+    return block;
+}
+
+static std::string build_windows_command_line(const NodeDef &node) {
+    std::string cmdline = quote_windows_arg(node.exec);
+    for (const auto &arg : node.args) {
+        cmdline.push_back(' ');
+        cmdline += quote_windows_arg(arg);
+    }
+    return cmdline;
+}
+#endif
+
 static std::vector<PortAssignment> allocate_ports(const NetworkSpec &network, std::vector<std::string> &diagnostics) {
     std::vector<PortAssignment> out;
 #ifndef _WIN32
     for (const auto &req : network.ports) {
         PortAssignment pa;
-        pa.name = req.name;
+        pa.name     = req.name;
         pa.protocol = req.protocol;
         for (std::uint32_t i = 0; i < req.count; ++i) {
             int fd = ::socket(AF_INET, req.protocol == Protocol::Udp ? SOCK_DGRAM : SOCK_STREAM, 0);
@@ -117,9 +255,9 @@ static std::vector<PortAssignment> allocate_ports(const NetworkSpec &network, st
                 continue;
             }
             sockaddr_in addr{};
-            addr.sin_family = AF_INET;
+            addr.sin_family      = AF_INET;
             addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-            addr.sin_port = 0;
+            addr.sin_port        = 0;
             if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
                 diagnostics.push_back("port allocation failed: bind() error");
                 ::close(fd);
@@ -134,8 +272,42 @@ static std::vector<PortAssignment> allocate_ports(const NetworkSpec &network, st
         out.push_back(std::move(pa));
     }
 #else
-    (void)network;
-    diagnostics.push_back("port allocation not implemented on Windows");
+    std::string wsa_error;
+    if (!ensure_winsock_initialized(&wsa_error)) {
+        diagnostics.push_back("port allocation failed: " + wsa_error);
+        return out;
+    }
+
+    for (const auto &req : network.ports) {
+        PortAssignment pa;
+        pa.name     = req.name;
+        pa.protocol = req.protocol;
+        for (std::uint32_t i = 0; i < req.count; ++i) {
+            SOCKET fd = ::socket(AF_INET, req.protocol == Protocol::Udp ? SOCK_DGRAM : SOCK_STREAM, 0);
+            if (fd == INVALID_SOCKET) {
+                diagnostics.push_back("port allocation failed: socket() error");
+                continue;
+            }
+            sockaddr_in addr{};
+            addr.sin_family      = AF_INET;
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            addr.sin_port        = 0;
+            if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == SOCKET_ERROR) {
+                diagnostics.push_back("port allocation failed: bind() error");
+                ::closesocket(fd);
+                continue;
+            }
+            int len = sizeof(addr);
+            if (::getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len) == SOCKET_ERROR) {
+                diagnostics.push_back("port allocation failed: getsockname() error");
+                ::closesocket(fd);
+                continue;
+            }
+            pa.ports.push_back(ntohs(addr.sin_port));
+            ::closesocket(fd);
+        }
+        out.push_back(std::move(pa));
+    }
 #endif
     return out;
 }
@@ -219,22 +391,25 @@ static bool wait_for_readiness(const ReadinessSpec &spec, OutputWatcher *stdout_
         std::string port = spec.value.substr(pos + 1);
         while (now_ms() < deadline_ms) {
             addrinfo hints{};
-            hints.ai_family = AF_UNSPEC;
+            hints.ai_family   = AF_UNSPEC;
             hints.ai_socktype = SOCK_STREAM;
-            addrinfo *res = nullptr;
+            addrinfo *res     = nullptr;
             if (getaddrinfo(host.c_str(), port.c_str(), &hints, &res) == 0) {
                 bool ok = false;
                 for (addrinfo *it = res; it; it = it->ai_next) {
                     int fd = ::socket(it->ai_family, it->ai_socktype, it->ai_protocol);
-                    if (fd < 0) continue;
+                    if (fd < 0)
+                        continue;
                     if (::connect(fd, it->ai_addr, it->ai_addrlen) == 0) {
                         ok = true;
                     }
                     ::close(fd);
-                    if (ok) break;
+                    if (ok)
+                        break;
                 }
                 freeaddrinfo(res);
-                if (ok) return true;
+                if (ok)
+                    return true;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
@@ -273,21 +448,192 @@ static void terminate_all(const std::deque<ProcessInstance> &instances, std::uin
             ::kill(static_cast<pid_t>(inst.info.pid), SIGKILL);
         }
     }
+#else
+    for (const auto &inst : instances) {
+        if (inst.process_handle) {
+            ::TerminateProcess(inst.process_handle, 1);
+        }
+    }
+    auto deadline = now_ms() + shutdown_ms;
+    while (now_ms() < deadline) {
+        bool any_alive = false;
+        for (const auto &inst : instances) {
+            if (!inst.process_handle) {
+                continue;
+            }
+            DWORD wait_result = ::WaitForSingleObject(inst.process_handle, 0);
+            if (wait_result == WAIT_TIMEOUT) {
+                any_alive = true;
+                break;
+            }
+        }
+        if (!any_alive) {
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    for (const auto &inst : instances) {
+        if (inst.process_handle) {
+            ::TerminateProcess(inst.process_handle, 1);
+        }
+    }
 #endif
 }
 
-static bool spawn_instance(const SessionSpec &spec,
-                           const NodeDef &node,
-                           std::uint32_t index,
-                           const std::string &session_dir,
-                           const std::vector<PortAssignment> &ports,
-                           const std::unordered_map<std::string, std::string> &node_addrs,
-                           ProcessInstance &out,
-                           std::string &error) {
+static void join_watcher_threads(std::deque<ProcessInstance> &instances) {
+    for (auto &inst : instances) {
+        if (inst.stdout_watch.thread.joinable())
+            inst.stdout_watch.thread.join();
+        if (inst.stderr_watch.thread.joinable())
+            inst.stderr_watch.thread.join();
+    }
+}
+
 #ifdef _WIN32
-    (void)spec; (void)node; (void)index; (void)session_dir; (void)ports; (void)node_addrs;
-    error = "process spawning not implemented on Windows";
-    return false;
+static void close_process_handles(std::deque<ProcessInstance> &instances) {
+    for (auto &inst : instances) {
+        if (inst.process_handle) {
+            ::CloseHandle(inst.process_handle);
+            inst.process_handle = nullptr;
+        }
+    }
+}
+#endif
+
+static bool spawn_instance(const SessionSpec &spec, const NodeDef &node, std::uint32_t index, const std::string &session_dir,
+                           const std::vector<PortAssignment> &ports, const std::unordered_map<std::string, std::string> &node_addrs,
+                           ProcessInstance &out, std::string &error) {
+#ifdef _WIN32
+    if (node.exec.empty()) {
+        error = "node executable path is empty";
+        return false;
+    }
+
+    fs::path inst_dir = fs::path(session_dir) / node.name / ("inst" + std::to_string(index));
+    fs::create_directories(inst_dir);
+    std::string stdout_path = (inst_dir / "stdout.log").string();
+    std::string stderr_path = (inst_dir / "stderr.log").string();
+
+    HANDLE              stdout_read  = nullptr;
+    HANDLE              stdout_write = nullptr;
+    HANDLE              stderr_read  = nullptr;
+    HANDLE              stderr_write = nullptr;
+    PROCESS_INFORMATION pi{};
+    int                 stdout_fd = -1;
+    int                 stderr_fd = -1;
+
+    auto close_handle = [](HANDLE &h) {
+        if (h) {
+            ::CloseHandle(h);
+            h = nullptr;
+        }
+    };
+    auto cleanup_failed_spawn = [&] {
+        if (stdout_fd >= 0) {
+            ::_close(stdout_fd);
+            stdout_fd = -1;
+        }
+        if (stderr_fd >= 0) {
+            ::_close(stderr_fd);
+            stderr_fd = -1;
+        }
+        close_handle(stdout_read);
+        close_handle(stdout_write);
+        close_handle(stderr_read);
+        close_handle(stderr_write);
+        close_handle(pi.hThread);
+        close_handle(pi.hProcess);
+    };
+
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength              = sizeof(sa);
+    sa.lpSecurityDescriptor = nullptr;
+    sa.bInheritHandle       = TRUE;
+
+    if (!::CreatePipe(&stdout_read, &stdout_write, &sa, 0)) {
+        error = win32_error_message("CreatePipe(stdout) failed", GetLastError());
+        cleanup_failed_spawn();
+        return false;
+    }
+    if (!::SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0)) {
+        error = win32_error_message("SetHandleInformation(stdout_read) failed", GetLastError());
+        cleanup_failed_spawn();
+        return false;
+    }
+    if (!::CreatePipe(&stderr_read, &stderr_write, &sa, 0)) {
+        error = win32_error_message("CreatePipe(stderr) failed", GetLastError());
+        cleanup_failed_spawn();
+        return false;
+    }
+    if (!::SetHandleInformation(stderr_read, HANDLE_FLAG_INHERIT, 0)) {
+        error = win32_error_message("SetHandleInformation(stderr_read) failed", GetLastError());
+        cleanup_failed_spawn();
+        return false;
+    }
+
+    std::string env_error;
+    auto        env_block = build_windows_env_block(spec, node, index, ports, node_addrs, env_error);
+    if (env_block.empty()) {
+        error = env_error.empty() ? "failed to build environment block" : env_error;
+        cleanup_failed_spawn();
+        return false;
+    }
+
+    std::string       cmdline = build_windows_command_line(node);
+    std::vector<char> cmdline_storage(cmdline.begin(), cmdline.end());
+    cmdline_storage.push_back('\0');
+
+    STARTUPINFOA si{};
+    si.cb         = sizeof(si);
+    si.dwFlags    = STARTF_USESTDHANDLES;
+    si.hStdInput  = ::GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = stdout_write;
+    si.hStdError  = stderr_write;
+
+    const char *cwd = node.cwd.empty() ? nullptr : node.cwd.c_str();
+    if (!::CreateProcessA(nullptr, cmdline_storage.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, env_block.data(), cwd, &si, &pi)) {
+        error = win32_error_message("CreateProcessA failed", GetLastError());
+        cleanup_failed_spawn();
+        return false;
+    }
+
+    close_handle(pi.hThread);
+    close_handle(stdout_write);
+    close_handle(stderr_write);
+
+    stdout_fd = ::_open_osfhandle(reinterpret_cast<intptr_t>(stdout_read), _O_RDONLY | _O_BINARY);
+    if (stdout_fd < 0) {
+        error = "_open_osfhandle failed for stdout";
+        ::TerminateProcess(pi.hProcess, 1);
+        cleanup_failed_spawn();
+        return false;
+    }
+    stdout_read = nullptr;
+
+    stderr_fd = ::_open_osfhandle(reinterpret_cast<intptr_t>(stderr_read), _O_RDONLY | _O_BINARY);
+    if (stderr_fd < 0) {
+        error = "_open_osfhandle failed for stderr";
+        ::TerminateProcess(pi.hProcess, 1);
+        cleanup_failed_spawn();
+        return false;
+    }
+    stderr_read = nullptr;
+
+    out.info.node          = node.name;
+    out.info.index         = index;
+    out.info.pid           = static_cast<std::int64_t>(pi.dwProcessId);
+    out.info.log_path      = stdout_path;
+    out.info.err_path      = stderr_path;
+    out.info.start_ms      = now_ms();
+    out.stdout_fd          = stdout_fd;
+    out.stderr_fd          = stderr_fd;
+    out.process_handle     = pi.hProcess;
+    out.stdout_watch.token = node.readiness.kind == ReadinessKind::StdoutToken ? node.readiness.value : "";
+    out.readiness          = node.readiness;
+
+    out.stdout_watch.thread = std::thread(watch_pipe_to_file, out.stdout_fd, stdout_path, &out.stdout_watch);
+    out.stderr_watch.thread = std::thread(watch_pipe_to_file, out.stderr_fd, stderr_path, &out.stderr_watch);
+    return true;
 #else
     fs::path inst_dir = fs::path(session_dir) / node.name / ("inst" + std::to_string(index));
     fs::create_directories(inst_dir);
@@ -369,16 +715,16 @@ static bool spawn_instance(const SessionSpec &spec,
     ::close(stdout_pipe[1]);
     ::close(stderr_pipe[1]);
 
-    out.info.node = node.name;
-    out.info.index = index;
-    out.info.pid = pid;
-    out.info.log_path = stdout_path;
-    out.info.err_path = stderr_path;
-    out.info.start_ms = now_ms();
-    out.stdout_fd = stdout_pipe[0];
-    out.stderr_fd = stderr_pipe[0];
+    out.info.node          = node.name;
+    out.info.index         = index;
+    out.info.pid           = pid;
+    out.info.log_path      = stdout_path;
+    out.info.err_path      = stderr_path;
+    out.info.start_ms      = now_ms();
+    out.stdout_fd          = stdout_pipe[0];
+    out.stderr_fd          = stderr_pipe[0];
     out.stdout_watch.token = node.readiness.kind == ReadinessKind::StdoutToken ? node.readiness.value : "";
-    out.readiness = node.readiness;
+    out.readiness          = node.readiness;
 
     out.stdout_watch.thread = std::thread(watch_pipe_to_file, out.stdout_fd, stdout_path, &out.stdout_watch);
     out.stderr_watch.thread = std::thread(watch_pipe_to_file, out.stderr_fd, stderr_path, &out.stderr_watch);
@@ -389,19 +735,19 @@ static bool spawn_instance(const SessionSpec &spec,
 static SessionManifest run_session(const SessionSpec &spec, const std::string &root_dir) {
     SessionManifest manifest{};
     manifest.session_id = spec.session_id;
-    manifest.group = spec.group;
-    manifest.mode = spec.mode;
-    manifest.result = ResultCode::Error;
-    manifest.start_ms = now_ms();
+    manifest.group      = spec.group;
+    manifest.mode       = spec.mode;
+    manifest.result     = ResultCode::Error;
+    manifest.start_ms   = now_ms();
 
     if (spec.mode != ExecMode::A) {
         manifest.fail_reason = "execution mode not implemented in this build";
-        manifest.end_ms = now_ms();
+        manifest.end_ms      = now_ms();
         return manifest;
     }
     if (spec.nodes.empty()) {
         manifest.fail_reason = "session spec has no nodes";
-        manifest.end_ms = now_ms();
+        manifest.end_ms      = now_ms();
         return manifest;
     }
 
@@ -419,7 +765,7 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
     fs::create_directories(session_dir);
 
     std::vector<std::string> diagnostics;
-    auto ports = allocate_ports(spec.network, diagnostics);
+    auto                     ports = allocate_ports(spec.network, diagnostics);
 
     std::unordered_map<std::string, std::string> node_addrs;
     for (const auto &node : spec.nodes) {
@@ -427,11 +773,11 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
     }
 
     std::deque<ProcessInstance> instances;
-    std::string error;
+    std::string                 error;
 
-    auto startup_deadline = now_ms() + spec.timeouts.startup_ms;
-    bool aborted = false;
-    std::uint64_t abort_deadline = 0;
+    auto          startup_deadline = now_ms() + spec.timeouts.startup_ms;
+    bool          aborted          = false;
+    std::uint64_t abort_deadline   = 0;
 
     for (const auto &node : spec.nodes) {
         std::size_t start_index = instances.size();
@@ -441,15 +787,15 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
             if (!spawn_instance(spec, node, idx, session_dir.string(), ports, node_addrs, inst, error)) {
                 instances.pop_back();
                 manifest.fail_reason = error;
-                manifest.result = ResultCode::Error;
+                manifest.result      = ResultCode::Error;
                 terminate_all(instances, spec.timeouts.shutdown_ms);
-                for (auto &running : instances) {
-                    if (running.stdout_watch.thread.joinable()) running.stdout_watch.thread.join();
-                    if (running.stderr_watch.thread.joinable()) running.stderr_watch.thread.join();
-                }
+                join_watcher_threads(instances);
+#ifdef _WIN32
+                close_process_handles(instances);
+#endif
                 manifest.diagnostics = diagnostics;
                 for (auto &running : instances) {
-                    running.info.addr = "127.0.0.1";
+                    running.info.addr  = "127.0.0.1";
                     running.info.ports = ports;
                     manifest.instances.push_back(running.info);
                 }
@@ -463,9 +809,9 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
             auto &inst = instances[i];
             if (!wait_for_readiness(inst.readiness, &inst.stdout_watch, startup_deadline)) {
                 manifest.fail_reason = "startup readiness timeout";
-                manifest.result = ResultCode::Failed;
+                manifest.result      = ResultCode::Failed;
                 terminate_all(instances, spec.timeouts.shutdown_ms);
-                aborted = true;
+                aborted        = true;
                 abort_deadline = now_ms() + spec.timeouts.shutdown_ms;
                 break;
             }
@@ -475,15 +821,14 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
         }
     }
 
-#ifndef _WIN32
-    auto session_deadline = now_ms() + spec.timeouts.session_ms;
-    std::size_t remaining = instances.size();
+    auto        session_deadline = now_ms() + spec.timeouts.session_ms;
+    std::size_t remaining        = instances.size();
     while (remaining > 0) {
         if (!aborted && spec.timeouts.session_ms > 0 && now_ms() > session_deadline) {
             manifest.fail_reason = "session timeout";
-            manifest.result = ResultCode::Timeout;
+            manifest.result      = ResultCode::Timeout;
             terminate_all(instances, spec.timeouts.shutdown_ms);
-            aborted = true;
+            aborted        = true;
             abort_deadline = now_ms() + spec.timeouts.shutdown_ms;
         }
 
@@ -492,16 +837,17 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
             if (inst.info.end_ms != 0 || inst.info.pid <= 0) {
                 continue;
             }
-            int status = 0;
-            pid_t pid = ::waitpid(static_cast<pid_t>(inst.info.pid), &status, WNOHANG);
+#ifndef _WIN32
+            int   status = 0;
+            pid_t pid    = ::waitpid(static_cast<pid_t>(inst.info.pid), &status, WNOHANG);
             if (pid == 0) {
                 continue;
             }
             if (pid < 0) {
                 if (errno == ECHILD) {
                     inst.info.failure_reason = "child reaped elsewhere";
-                    inst.info.end_ms = now_ms();
-                    manifest.result = ResultCode::Failed;
+                    inst.info.end_ms         = now_ms();
+                    manifest.result          = ResultCode::Failed;
                     remaining--;
                     progress = true;
                 }
@@ -518,6 +864,41 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
             }
             remaining--;
             progress = true;
+#else
+            if (!inst.process_handle) {
+                inst.info.failure_reason = "missing process handle";
+                inst.info.end_ms         = now_ms();
+                manifest.result          = ResultCode::Failed;
+                remaining--;
+                progress = true;
+                continue;
+            }
+            DWORD wait_result = ::WaitForSingleObject(inst.process_handle, 0);
+            if (wait_result == WAIT_TIMEOUT) {
+                continue;
+            }
+            if (wait_result == WAIT_FAILED) {
+                inst.info.failure_reason = win32_error_message("WaitForSingleObject failed", GetLastError());
+                inst.info.end_ms         = now_ms();
+                manifest.result          = ResultCode::Failed;
+                remaining--;
+                progress = true;
+                continue;
+            }
+            DWORD exit_code = 0;
+            if (!::GetExitCodeProcess(inst.process_handle, &exit_code)) {
+                inst.info.failure_reason = win32_error_message("GetExitCodeProcess failed", GetLastError());
+                manifest.result          = ResultCode::Failed;
+            } else if (exit_code != STILL_ACTIVE) {
+                inst.info.exit_code = static_cast<std::int32_t>(exit_code);
+            }
+            inst.info.end_ms = now_ms();
+            if (inst.info.exit_code != 0 || inst.info.term_signal != 0 || !inst.info.failure_reason.empty()) {
+                manifest.result = ResultCode::Failed;
+            }
+            remaining--;
+            progress = true;
+#endif
         }
 
         if (remaining == 0) {
@@ -530,19 +911,15 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }
-#else
-    (void)instances;
-    manifest.fail_reason = "not implemented on Windows";
-#endif
 
-    for (auto &inst : instances) {
-        if (inst.stdout_watch.thread.joinable()) inst.stdout_watch.thread.join();
-        if (inst.stderr_watch.thread.joinable()) inst.stderr_watch.thread.join();
-    }
+    join_watcher_threads(instances);
+#ifdef _WIN32
+    close_process_handles(instances);
+#endif
 
     manifest.instances.clear();
     for (auto &inst : instances) {
-        inst.info.addr = "127.0.0.1";
+        inst.info.addr  = "127.0.0.1";
         inst.info.ports = ports;
         manifest.instances.push_back(inst.info);
     }
@@ -558,19 +935,18 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
 }
 
 class SessionManager {
-public:
-    SessionManager(std::string root, TlsConfig tls)
-        : root_dir_(std::move(root)), tls_(std::move(tls)) {}
+  public:
+    SessionManager(std::string root, TlsConfig tls) : root_dir_(std::move(root)), tls_(std::move(tls)) {}
 
     std::string submit(const SessionSpec &spec, const std::string &peer) {
-        std::string id = spec.session_id.empty() ? generate_session_id() : spec.session_id;
-        auto state = std::make_shared<SessionState>();
+        std::string id    = spec.session_id.empty() ? generate_session_id() : spec.session_id;
+        auto        state = std::make_shared<SessionState>();
         {
             std::lock_guard<std::mutex> lock(mutex_);
             sessions_[id] = state;
         }
         SessionSpec spec_copy = spec;
-        spec_copy.session_id = id;
+        spec_copy.session_id  = id;
         std::thread([this, state, spec_copy, peer]() {
             if (!peer.empty()) {
                 state->manifest = run_remote(spec_copy, peer);
@@ -590,11 +966,11 @@ public:
         std::shared_ptr<SessionState> state;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            auto it = sessions_.find(id);
+            auto                        it = sessions_.find(id);
             if (it == sessions_.end()) {
                 SessionManifest man{};
-                man.session_id = id;
-                man.result = ResultCode::Error;
+                man.session_id  = id;
+                man.result      = ResultCode::Error;
                 man.fail_reason = "unknown session id";
                 return man;
             }
@@ -611,9 +987,9 @@ public:
         std::shared_ptr<SessionState> state;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            auto it = sessions_.find(id);
+            auto                        it = sessions_.find(id);
             if (it == sessions_.end()) {
-                st.result = ResultCode::Error;
+                st.result   = ResultCode::Error;
                 st.complete = true;
                 return st;
             }
@@ -622,53 +998,53 @@ public:
         {
             std::lock_guard<std::mutex> lock(state->mutex);
             st.complete = state->complete;
-            st.result = state->manifest.result;
+            st.result   = state->manifest.result;
         }
         return st;
     }
 
-private:
-    std::string root_dir_;
-    TlsConfig tls_;
-    std::mutex mutex_;
+  private:
+    std::string                                                    root_dir_;
+    TlsConfig                                                      tls_;
+    std::mutex                                                     mutex_;
     std::unordered_map<std::string, std::shared_ptr<SessionState>> sessions_;
 
     static std::string generate_session_id() {
-        auto now = std::chrono::system_clock::now().time_since_epoch();
+        auto now   = std::chrono::system_clock::now().time_since_epoch();
         auto ticks = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
         return "session_" + std::to_string(ticks);
     }
 
     SessionManifest run_remote(const SessionSpec &spec, const std::string &peer) {
         std::string error;
-        Endpoint ep = parse_endpoint(peer, &error);
+        Endpoint    ep = parse_endpoint(peer, &error);
         if (!error.empty()) {
             SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
+            man.session_id  = spec.session_id;
+            man.group       = spec.group;
+            man.mode        = spec.mode;
+            man.result      = ResultCode::Error;
             man.fail_reason = error;
             return man;
         }
         Connection conn = connect_endpoint(ep, tls_, &error);
         if (!conn.is_valid()) {
             SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
+            man.session_id  = spec.session_id;
+            man.group       = spec.group;
+            man.mode        = spec.mode;
+            man.result      = ResultCode::Error;
             man.fail_reason = error;
             return man;
         }
         Message submit_msg{1, MsgSessionSubmit{spec}};
-        auto buf = encode_message(submit_msg, &error);
+        auto    buf = encode_message(submit_msg, &error);
         if (buf.empty()) {
             SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
+            man.session_id  = spec.session_id;
+            man.group       = spec.group;
+            man.mode        = spec.mode;
+            man.result      = ResultCode::Error;
             man.fail_reason = error;
             return man;
         }
@@ -678,24 +1054,24 @@ private:
         auto decoded = decode_message(reply);
         if (!decoded.ok) {
             SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
+            man.session_id  = spec.session_id;
+            man.group       = spec.group;
+            man.mode        = spec.mode;
+            man.result      = ResultCode::Error;
             man.fail_reason = decoded.error;
             return man;
         }
         if (!std::holds_alternative<MsgSessionAccepted>(decoded.message.payload)) {
             SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
+            man.session_id  = spec.session_id;
+            man.group       = spec.group;
+            man.mode        = spec.mode;
+            man.result      = ResultCode::Error;
             man.fail_reason = "unexpected response from peer";
             return man;
         }
         std::string remote_id = std::get<MsgSessionAccepted>(decoded.message.payload).session_id;
-        Message wait_msg{1, MsgSessionWait{remote_id}};
+        Message     wait_msg{1, MsgSessionWait{remote_id}};
         buf = encode_message(wait_msg, &error);
         conn.write_frame(buf, &error);
         reply.clear();
@@ -703,10 +1079,10 @@ private:
         auto decoded2 = decode_message(reply);
         if (!decoded2.ok || !std::holds_alternative<MsgSessionManifest>(decoded2.message.payload)) {
             SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
+            man.session_id  = spec.session_id;
+            man.group       = spec.group;
+            man.mode        = spec.mode;
+            man.result      = ResultCode::Error;
             man.fail_reason = decoded2.error;
             return man;
         }
@@ -718,42 +1094,42 @@ private:
 static void handle_connection(Connection conn, SessionManager &sessions, const ServerConfig &cfg) {
     while (!g_shutdown.load()) {
         std::vector<std::byte> frame;
-        std::string error;
+        std::string            error;
         if (!conn.read_frame(frame, &error)) {
             return;
         }
         auto decoded = decode_message(frame);
         if (!decoded.ok) {
             Message err{1, MsgError{decoded.error}};
-            auto buf = encode_message(err);
+            auto    buf = encode_message(err);
             conn.write_frame(buf, nullptr);
             continue;
         }
         if (std::holds_alternative<MsgSessionSubmit>(decoded.message.payload)) {
-            auto msg = std::get<MsgSessionSubmit>(decoded.message.payload);
+            auto        msg = std::get<MsgSessionSubmit>(decoded.message.payload);
             std::string peer_target;
             if (!msg.spec.placement.target.empty() && msg.spec.placement.target.rfind("peer:", 0) == 0) {
                 peer_target = msg.spec.placement.target.substr(5);
             }
             std::string id = sessions.submit(msg.spec, peer_target);
-            Message accepted{1, MsgSessionAccepted{id}};
-            auto buf = encode_message(accepted);
+            Message     accepted{1, MsgSessionAccepted{id}};
+            auto        buf = encode_message(accepted);
             conn.write_frame(buf, nullptr);
             continue;
         }
         if (std::holds_alternative<MsgSessionWait>(decoded.message.payload)) {
-            auto msg = std::get<MsgSessionWait>(decoded.message.payload);
-            auto manifest = sessions.wait(msg.session_id);
+            auto    msg      = std::get<MsgSessionWait>(decoded.message.payload);
+            auto    manifest = sessions.wait(msg.session_id);
             Message reply{1, MsgSessionManifest{manifest}};
-            auto buf = encode_message(reply);
+            auto    buf = encode_message(reply);
             conn.write_frame(buf, nullptr);
             continue;
         }
         if (std::holds_alternative<MsgSessionStatusRequest>(decoded.message.payload)) {
-            auto msg = std::get<MsgSessionStatusRequest>(decoded.message.payload);
-            auto st = sessions.status(msg.session_id);
+            auto    msg = std::get<MsgSessionStatusRequest>(decoded.message.payload);
+            auto    st  = sessions.status(msg.session_id);
             Message reply{1, MsgSessionStatus{st}};
-            auto buf = encode_message(reply);
+            auto    buf = encode_message(reply);
             conn.write_frame(buf, nullptr);
             continue;
         }
@@ -761,13 +1137,13 @@ static void handle_connection(Connection conn, SessionManager &sessions, const S
             auto msg = std::get<MsgShutdown>(decoded.message.payload);
             if (!cfg.shutdown_token.empty() && msg.token != cfg.shutdown_token) {
                 Message err{1, MsgError{"invalid shutdown token"}};
-                auto buf = encode_message(err);
+                auto    buf = encode_message(err);
                 conn.write_frame(buf, nullptr);
                 continue;
             }
             g_shutdown.store(true);
             Message ok{1, MsgSessionStatus{SessionStatus{"", ResultCode::Success, true}}};
-            auto buf = encode_message(ok);
+            auto    buf = encode_message(ok);
             conn.write_frame(buf, nullptr);
             std::string wake_error;
             (void)connect_endpoint(cfg.listen, cfg.tls, &wake_error);
@@ -803,7 +1179,7 @@ static void daemonize_process(const ServerConfig &cfg) {
 
 static int run_server(const ServerConfig &cfg) {
     std::string error;
-    int listener = listen_endpoint(cfg.listen, &error);
+    int         listener = listen_endpoint(cfg.listen, &error);
     if (listener < 0) {
         std::cerr << "coordd: " << error << "\n";
         return 1;
@@ -849,7 +1225,15 @@ static int run_server(const ServerConfig &cfg) {
 }
 
 static void usage() {
-    std::cout << "coordd --listen <endpoint> --root <dir> [--tls-ca <ca>] [--tls-cert <cert>] [--tls-key <key>] [--ready-file <path>] [--pid-file <path>] [--daemonize]\n";
+    std::cout << "coordd --listen <endpoint> --root <dir> [--tls-ca <ca>] [--tls-cert <cert>] [--tls-key <key>] [--ready-file <path>] "
+                 "[--pid-file <path>] [--daemonize]\n";
+}
+
+static bool is_loopback_tcp_host(std::string host) {
+    for (char &ch : host) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return host == "127.0.0.1" || host == "localhost" || host == "::1";
 }
 
 static bool parse_args(int argc, char **argv, ServerConfig &cfg) {
@@ -872,10 +1256,10 @@ static bool parse_args(int argc, char **argv, ServerConfig &cfg) {
             cfg.tls.enabled = true;
         } else if (arg == "--tls-cert" && i + 1 < argc) {
             cfg.tls.cert_file = argv[++i];
-            cfg.tls.enabled = true;
+            cfg.tls.enabled   = true;
         } else if (arg == "--tls-key" && i + 1 < argc) {
             cfg.tls.key_file = argv[++i];
-            cfg.tls.enabled = true;
+            cfg.tls.enabled  = true;
         } else if (arg == "--ready-file" && i + 1 < argc) {
             cfg.ready_file = argv[++i];
         } else if (arg == "--pid-file" && i + 1 < argc) {
@@ -895,8 +1279,8 @@ static bool parse_args(int argc, char **argv, ServerConfig &cfg) {
             return false;
         }
     }
-    if (cfg.listen.kind == Endpoint::Kind::Tcp && !cfg.tls.enabled) {
-        std::cerr << "coordd: TLS is required for TCP endpoints\n";
+    if (cfg.listen.kind == Endpoint::Kind::Tcp && !cfg.tls.enabled && !is_loopback_tcp_host(cfg.listen.host)) {
+        std::cerr << "coordd: TLS is required for non-loopback TCP endpoints\n";
         return false;
     }
     return true;
