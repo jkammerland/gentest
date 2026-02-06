@@ -157,13 +157,23 @@ else()
     message(FATAL_ERROR "tests: no gentest code generator available (gentest_codegen). Configure with -DGENTEST_BUILD_CODEGEN=ON or -DGENTEST_CODEGEN_EXECUTABLE=<path>.")
 endif()
 
+set(_gentest_codegen_cross_target_arg "")
+if(CMAKE_CROSSCOMPILING)
+    if(CMAKE_CXX_COMPILER_TARGET)
+        set(_gentest_codegen_cross_target_arg "--target=${CMAKE_CXX_COMPILER_TARGET}")
+    elseif(CMAKE_C_COMPILER_TARGET)
+        set(_gentest_codegen_cross_target_arg "--target=${CMAKE_C_COMPILER_TARGET}")
+    endif()
+endif()
+
 # Lint-only checks for generator
 add_test(NAME gentest_codegen_check_valid
     COMMAND ${_gentest_codegen_prog}
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
-        -- ${_gentest_codegen_std_flag}
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
            -I${PROJECT_SOURCE_DIR}/include
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -172,7 +182,8 @@ add_test(NAME gentest_codegen_check_invalid
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
-        -- ${_gentest_codegen_std_flag}
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
            -I${PROJECT_SOURCE_DIR}/include
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -189,6 +200,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/baseline_requires_bench.cpp
         --
+        ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
@@ -205,6 +217,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/incomplete_virtual_ref.cpp
         --
+        ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
@@ -220,6 +233,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/virtual_defined_in_cpp.cpp
         --
+        ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
@@ -235,6 +249,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/anonymous_namespace_type.cpp
         --
+        ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
@@ -250,6 +265,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/local_class.cpp
         --
+        ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
@@ -267,6 +283,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/suite_member_test.cpp
         --
+        ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
@@ -283,6 +300,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/global_member_test.cpp
         --
+        ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
@@ -298,6 +316,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/namespace_scope.cpp
         --
+        ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
