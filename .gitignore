@@ -11,6 +11,7 @@ bazel-*
 MODULE.bazel.lock
 shmem.md
 mocking-support/
+third_party/samples/
 
 # IDE and editor files
 .vscode/
