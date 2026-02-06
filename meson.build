@@ -4,7 +4,7 @@ fmt_dep = dependency('fmt', required: false)
 cpp = meson.get_compiler('cpp')
 fs = import('fs')
 
-inc = include_directories('include', 'tests')
+inc = include_directories('include', 'tests', 'third_party/include')
 
 # Build the runtime as a static library (compiled, not header-only)
 runtime_cargs = ['-DFMT_HEADER_ONLY']
@@ -17,7 +17,7 @@ endif
 
 libgentest_runtime = static_library(
   'gentest_runtime',
-  ['src/runner_impl.cpp'],
+  ['src/bench_stats.cpp', 'src/runner_impl.cpp'],
   include_directories: inc,
   cpp_args: runtime_cargs,
   dependencies: runtime_deps,

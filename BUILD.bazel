@@ -40,13 +40,20 @@ alias(
 
 cc_library(
     name = 'gentest_runtime',
-    srcs = ['src/runner_impl.cpp'],
-    hdrs = glob(['include/gentest/*.h'], allow_empty = False),
-    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests'] + select({
+    srcs = [
+        'src/bench_stats.cpp',
+        'src/runner_impl.cpp',
+    ],
+    hdrs = glob([
+        'include/gentest/*.h',
+        'include/gentest/detail/*.h',
+        'third_party/include/tabulate/*.hpp',
+    ], allow_empty = False),
+    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({
         '@bazel_tools//src/conditions:windows': ['/wd5030'],
         '//conditions:default': ['-Wno-attributes'],
     }),
-    includes = ['include'],
+    includes = ['include', 'third_party/include'],
     linkopts = ['-fuse-ld=bfd'],
     visibility = ['//visibility:public'],
 )
