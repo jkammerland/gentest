@@ -321,6 +321,44 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+if(TARGET gentest_coord_tests
+   AND WIN32
+   AND CMAKE_BUILD_TYPE STREQUAL "Debug"
+   AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 21.0.0)
+    set(_gentest_codegen_coord_args
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/coord/cases.cpp
+        --)
+
+    if(NOT _gentest_codegen_cross_target_arg STREQUAL "")
+        list(APPEND _gentest_codegen_coord_args ${_gentest_codegen_cross_target_arg})
+    endif()
+
+    list(APPEND _gentest_codegen_coord_args
+        -DGENTEST_CODEGEN=1
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+    gentest_add_cmake_script_test(
+        NAME gentest_codegen_coord_check_stability
+        NO_EMULATOR
+        PROG ${_gentest_codegen_prog}
+        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckStableExitCode.cmake"
+        ARGS ${_gentest_codegen_coord_args}
+        DEFINES
+            "EXPECT_RC=0"
+            "REPEATS=20")
+
+    set_property(TEST gentest_codegen_coord_check_stability APPEND PROPERTY LABELS "codegen")
+    set_tests_properties(gentest_codegen_coord_check_stability PROPERTIES TIMEOUT 300)
+
+    unset(_gentest_codegen_coord_args)
+endif()
+
 # Label codegen/clang-tooling checks so valgrind workflows can exclude them by default.
 set_tests_properties(
     gentest_codegen_check_valid
