@@ -68,3 +68,6 @@ suites/
 .codex-mcp-jobs/
 .worktrees/
 results/
+
+# Vendored third-party examples (headers/licenses are tracked)
+third_party/samples/
