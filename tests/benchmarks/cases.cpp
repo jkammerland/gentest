@@ -78,34 +78,70 @@ void lock_guard_small() {
 }
 } // namespace spacing
 
-[[using gentest: bench("string/concat_small")]]
+[[using gentest: bench("string/concat_small"), baseline]]
 void bench_concat_small() {
     // Minimal work; harness repeats this function many times
     std::string a = "hello";
     std::string b = " ";
     std::string c = "world";
-    volatile auto s = a + b + c; // prevent optimizing fully away
-    (void)s;
+    auto s = a + b + c;
+    gentest::doNotOptimizeAway(s);
 }
 
-[[using gentest: bench("math/sqrt")]]
+[[using gentest: bench("math/sqrt"), baseline]]
 void bench_sqrt() {
     // Compute a sqrt to exercise math pipeline
-    volatile double x = 12345.6789;
-    volatile double r = std::sqrt(x);
-    (void)r;
+    double x = 12345.6789;
+    gentest::doNotOptimizeAway(x);
+    double r = std::sqrt(x);
+    gentest::doNotOptimizeAway(r);
 }
 
 [[using gentest: jitter("math/sin_jitter")]]
 void jitter_sin() {
-    volatile double x = 1.2345;
-    volatile double y = std::sin(x);
-    (void)y;
+    double x = 1.2345;
+    gentest::doNotOptimizeAway(x);
+    double y = std::sin(x);
+    gentest::doNotOptimizeAway(y);
+}
+
+[[using gentest: jitter("math/sin_approx"), baseline]]
+void jitter_sin_approx() {
+    double x = 0.5;
+    gentest::doNotOptimizeAway(x);
+    const double x2 = x * x;
+    double y = x - (x2 * x) / 6.0;
+    gentest::doNotOptimizeAway(x2);
+    gentest::doNotOptimizeAway(y);
+}
+
+[[using gentest: jitter("math/cos_jitter")]]
+void jitter_cos() {
+    double x = 1.2345;
+    gentest::doNotOptimizeAway(x);
+    double y = std::cos(x);
+    gentest::doNotOptimizeAway(y);
+}
+
+[[using gentest: jitter("math/tan_jitter")]]
+void jitter_tan() {
+    double x = 0.5;
+    gentest::doNotOptimizeAway(x);
+    double y = std::tan(x);
+    gentest::doNotOptimizeAway(y);
+}
+
+[[using gentest: jitter("math/tanh_jitter")]]
+void jitter_tanh() {
+    double x = 0.5;
+    gentest::doNotOptimizeAway(x);
+    double y = std::tanh(x);
+    gentest::doNotOptimizeAway(y);
 }
 
 template <typename Mutex>
 // clang-format off
-[[using gentest: bench("spacing/lock_guard_small")]]
+[[using gentest: bench("spacing/lock_guard_small"), baseline]]
 [[using gentest: template(Mutex, benchmarks::spacing::DummyMutex, std::mutex)]]
 // clang-format on
 // Spacing regression: comment between attributes and declaration.
@@ -131,13 +167,14 @@ struct Blob { int a; int b; };
 inline int work(const Blob& b) { return (b.a * 3) + (b.b * 5); }
 }
 
-[[using gentest: bench("struct/process"), parameters(p, benchmarks::demo::Blob{1,2}, benchmarks::demo::Blob{3,4})]]
+[[using gentest: bench("struct/process"), baseline, parameters(p, benchmarks::demo::Blob{1,2}, benchmarks::demo::Blob{3,4})]]
 void bench_struct_params(demo::Blob p) {
     auto v = demo::work(p);
     gentest::doNotOptimizeAway(v);
 }
 
-[[using gentest: bench("complex/mag"), parameters(z, std::complex<double>(1.0, 2.0), std::complex<double>(3.0, 4.0))]]
+[[using gentest: bench("complex/mag"), baseline,
+  parameters(z, std::complex<double>(1.0, 2.0), std::complex<double>(3.0, 4.0))]]
 void bench_complex(std::complex<double> z) {
     auto m = std::norm(z);
     gentest::doNotOptimizeAway(m);
@@ -157,7 +194,7 @@ struct [[using gentest: fixture(suite)]] NullJitterFixture {
     }
 };
 
-[[using gentest: bench("fixture/null"), fixtures(NullBenchFixture)]]
+[[using gentest: bench("fixture/null"), baseline, fixtures(NullBenchFixture)]]
 void bench_null(NullBenchFixture&) {}
 
 [[using gentest: jitter("fixture/jitter_null"), fixtures(NullJitterFixture)]]
