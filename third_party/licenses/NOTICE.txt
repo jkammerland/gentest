@@ -1,0 +1,17 @@
+Third-party licensing notice for vendored tabulate headers.
+
+Source package:
+- tabulate (https://github.com/p-ranav/tabulate)
+
+License files included in this directory:
+- tabulate-MIT.txt
+- termcolor-BSD.txt
+- boost-software-license-1.0.txt
+
+Mapping:
+- Most files under third_party/include/tabulate are from tabulate and are MIT-licensed.
+- third_party/include/tabulate/termcolor.hpp references termcolor and BSD license.
+- third_party/include/tabulate/optional_lite.hpp,
+  third_party/include/tabulate/string_view_lite.hpp,
+  third_party/include/tabulate/variant_lite.hpp
+  are from Martin Moene "lite" libraries under Boost Software License 1.0.

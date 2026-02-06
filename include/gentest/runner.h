@@ -53,12 +53,13 @@ namespace gentest {
 //   --allure-dir=<dir>      Write Allure JSON results
 //   --run-bench=<name>      Run a single benchmark
 //   --bench-filter=<pat>    Run benchmarks matching wildcard pattern
-//   --bench-table           Print a summary table per suite
+//   --bench-table           Print a summary table per suite (runs benches)
 //   --bench-min-epoch-time-s=<sec>  Minimum epoch time
 //   --bench-epochs=<N>      Measurement epochs (default 12)
 //   --bench-warmup=<N>      Warmup epochs (default 1)
+//   --bench-min-total-time-s=<sec>  Min total time per benchmark (may exceed --bench-epochs)
 //   --bench-max-total-time-s=<sec>  Max total time per benchmark
-//   --run-jitter=<name>     Run a single jitter benchmark and print histogram
+//   --run-jitter=<name>     Run a single jitter benchmark and print summary + histogram tables
 //   --jitter-filter=<pat>   Run jitter benchmarks matching wildcard pattern
 //   --jitter-bins=<N>       Histogram bins (default 10)
 

@@ -1,11 +1,14 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
+#include "gentest/detail/bench_stats.h"
 using namespace gentest::asserts;
 
 #include <array>
+#include <cmath>
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace unit {
 
@@ -122,5 +125,49 @@ struct DefaultNameFixture {
         EXPECT_TRUE(true);
     }
 };
+
+[[using gentest: test("bench_stats/stats_known")]]
+void bench_stats_known() {
+    std::vector<double> samples{1, 2, 3, 4, 5};
+    const auto stats = gentest::detail::compute_sample_stats(samples);
+    EXPECT_EQ(stats.count, std::size_t{5});
+    EXPECT_EQ(stats.min, 1.0);
+    EXPECT_EQ(stats.max, 5.0);
+    EXPECT_EQ(stats.median, 3.0);
+    EXPECT_EQ(stats.mean, 3.0);
+    using gentest::approx::Approx;
+    EXPECT_EQ(stats.p05, Approx(1.2).abs(0.001));
+    EXPECT_EQ(stats.p95, Approx(4.8).abs(0.001));
+    EXPECT_EQ(stats.stddev, Approx(std::sqrt(2.0)).abs(0.0001));
+}
+
+[[using gentest: test("bench_stats/hist_bimodal")]]
+void bench_stats_hist_bimodal() {
+    std::vector<double> samples{0, 0, 0, 0, 10, 10, 10, 10};
+    const auto hist = gentest::detail::compute_histogram(samples, 4);
+    EXPECT_EQ(hist.bins.size(), std::size_t{4});
+    EXPECT_EQ(hist.bins[0].count, std::size_t{4});
+    EXPECT_EQ(hist.bins[1].count, std::size_t{0});
+    EXPECT_EQ(hist.bins[2].count, std::size_t{0});
+    EXPECT_EQ(hist.bins[3].count, std::size_t{4});
+    using gentest::approx::Approx;
+    EXPECT_EQ(hist.bins[0].percent, Approx(50.0).abs(0.01));
+    EXPECT_EQ(hist.bins[3].percent, Approx(50.0).abs(0.01));
+    EXPECT_EQ(hist.bins[3].cumulative_percent, Approx(100.0).abs(0.01));
+    EXPECT_TRUE(hist.bins[3].inclusive_hi);
+}
+
+[[using gentest: test("bench_stats/hist_skewed")]]
+void bench_stats_hist_skewed() {
+    std::vector<double> samples{0, 0, 0, 0, 10};
+    const auto hist = gentest::detail::compute_histogram(samples, 2);
+    EXPECT_EQ(hist.bins.size(), std::size_t{2});
+    EXPECT_EQ(hist.bins[0].count, std::size_t{4});
+    EXPECT_EQ(hist.bins[1].count, std::size_t{1});
+    using gentest::approx::Approx;
+    EXPECT_EQ(hist.bins[0].percent, Approx(80.0).abs(0.01));
+    EXPECT_EQ(hist.bins[1].percent, Approx(20.0).abs(0.01));
+    EXPECT_EQ(hist.bins[1].cumulative_percent, Approx(100.0).abs(0.01));
+}
 
 } // namespace unit

@@ -1,4 +1,5 @@
 #include "gentest/runner.h"
+#include "gentest/detail/bench_stats.h"
 
 #include <algorithm>
 #include <array>
@@ -12,6 +13,7 @@
 #include <fmt/format.h>
 #include <functional>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -23,6 +25,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <tabulate/table.hpp>
 
 #ifdef GENTEST_USE_BOOST_JSON
 #  include <boost/json.hpp>
@@ -341,6 +344,7 @@ static void record_failure_summary(RunnerState& state, std::string_view name, st
 
 struct BenchConfig {
     double      min_epoch_time_s = 0.01; // 10 ms
+    double      min_total_time_s = 0.0;  // per benchmark
     double      max_total_time_s = 1.0;  // per benchmark
     std::size_t warmup_epochs    = 1;
     std::size_t measure_epochs   = 12;
@@ -349,9 +353,41 @@ struct BenchConfig {
 struct BenchResult {
     std::size_t epochs = 0;
     std::size_t iters_per_epoch = 0;
+    std::size_t total_iters = 0;
     double      best_ns = 0;
+    double      worst_ns = 0;
     double      median_ns = 0;
     double      mean_ns = 0;
+    double      p05_ns = 0;
+    double      p95_ns = 0;
+    double      total_time_s = 0;
+    double      warmup_time_s = 0;
+    double      wall_time_s = 0;
+    double      calibration_time_s = 0;
+    std::size_t calibration_iters = 0;
+};
+
+struct JitterResult {
+    std::size_t epochs = 0;
+    std::size_t iters_per_epoch = 0;
+    std::size_t total_iters = 0;
+    bool        batch_mode = false;
+    double      min_ns = 0;
+    double      max_ns = 0;
+    double      median_ns = 0;
+    double      mean_ns = 0;
+    double      stddev_ns = 0;
+    double      p05_ns = 0;
+    double      p95_ns = 0;
+    double      overhead_mean_ns = 0;
+    double      overhead_sd_ns = 0;
+    double      overhead_ratio_pct = 0;
+    double      total_time_s = 0;
+    double      warmup_time_s = 0;
+    double      wall_time_s = 0;
+    double      calibration_time_s = 0;
+    std::size_t calibration_iters = 0;
+    std::vector<double> samples_ns;
 };
 
 static inline double ns_from_s(double s) { return s * 1e9; }
@@ -377,6 +413,39 @@ static inline double mean_of(const std::vector<double>& v) {
     return s / static_cast<double>(v.size());
 }
 
+static inline double stddev_of(const std::vector<double>& v, double mean) {
+    if (v.size() < 2)
+        return 0.0;
+    double sum = 0.0;
+    for (double x : v) {
+        const double d = x - mean;
+        sum += d * d;
+    }
+    return std::sqrt(sum / static_cast<double>(v.size()));
+}
+
+struct OverheadEstimate {
+    double      mean_ns = 0.0;
+    double      stddev_ns = 0.0;
+    std::size_t samples = 0;
+};
+
+static inline double percentile_sorted(const std::vector<double>& v, double p) {
+    if (v.empty())
+        return 0.0;
+    if (v.size() == 1)
+        return v.front();
+    if (p <= 0.0)
+        return v.front();
+    if (p >= 1.0)
+        return v.back();
+    const double idx = p * static_cast<double>(v.size() - 1);
+    const std::size_t lo = static_cast<std::size_t>(idx);
+    const std::size_t hi = (lo + 1 < v.size()) ? (lo + 1) : lo;
+    const double frac = idx - static_cast<double>(lo);
+    return v[lo] + (v[hi] - v[lo]) * frac;
+}
+
 static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters, std::size_t& iterations_done, bool& had_assert_fail) {
     using clock = std::chrono::steady_clock;
     auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
@@ -393,6 +462,123 @@ static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters
     auto end = clock::now();
     ctxinfo->active = false; gentest::detail::set_current_test(nullptr);
     return std::chrono::duration<double>(end - start).count();
+}
+
+static OverheadEstimate estimate_timer_overhead_per_iter(std::size_t sample_count) {
+    using clock = std::chrono::steady_clock;
+    OverheadEstimate est{};
+    if (sample_count == 0)
+        return est;
+    constexpr std::size_t repeat = 128;
+    std::vector<double> samples;
+    samples.reserve(sample_count);
+    for (std::size_t i = 0; i < sample_count; ++i) {
+        auto start = clock::now();
+        for (std::size_t r = 0; r < repeat; ++r) {
+            (void)clock::now();
+            (void)clock::now();
+        }
+        auto end = clock::now();
+        const double ns = ns_from_s(std::chrono::duration<double>(end - start).count()) / static_cast<double>(repeat);
+        samples.push_back(ns);
+    }
+    est.mean_ns = mean_of(samples);
+    est.stddev_ns = stddev_of(samples, est.mean_ns);
+    est.samples = samples.size();
+    return est;
+}
+
+static OverheadEstimate estimate_timer_overhead_batch(std::size_t sample_count, std::size_t batch_iters) {
+    using clock = std::chrono::steady_clock;
+    OverheadEstimate est{};
+    if (sample_count == 0 || batch_iters == 0)
+        return est;
+    std::vector<double> samples;
+    samples.reserve(sample_count);
+    volatile std::size_t sink = 0;
+    for (std::size_t i = 0; i < sample_count; ++i) {
+        auto start = clock::now();
+        for (std::size_t j = 0; j < batch_iters; ++j) {
+            sink += j;
+        }
+        auto end = clock::now();
+        const double ns = ns_from_s(std::chrono::duration<double>(end - start).count()) / static_cast<double>(batch_iters);
+        samples.push_back(ns);
+    }
+    (void)sink;
+    est.mean_ns = mean_of(samples);
+    est.stddev_ns = stddev_of(samples, est.mean_ns);
+    est.samples = samples.size();
+    return est;
+}
+
+static inline double run_jitter_epoch_calls(const Case& c,
+                                            void* ctx,
+                                            std::size_t iters,
+                                            std::size_t& iterations_done,
+                                            bool& had_assert_fail,
+                                            std::vector<double>& samples_ns) {
+    using clock = std::chrono::steady_clock;
+    auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
+    ctxinfo->display_name = std::string(c.name);
+    ctxinfo->active = true;
+    gentest::detail::set_current_test(ctxinfo);
+    gentest::detail::BenchPhaseScope bench_scope(gentest::detail::BenchPhase::Call);
+    auto epoch_start = clock::now();
+    had_assert_fail = false;
+    iterations_done = 0;
+    for (std::size_t i = 0; i < iters; ++i) {
+        auto start = clock::now();
+        try {
+            c.fn(ctx);
+        } catch (const gentest::assertion&) {
+            had_assert_fail = true;
+            break;
+        } catch (...) { /* ignore */ }
+        auto end = clock::now();
+        samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - start).count()));
+        iterations_done = i + 1;
+    }
+    auto epoch_end = clock::now();
+    ctxinfo->active = false;
+    gentest::detail::set_current_test(nullptr);
+    return std::chrono::duration<double>(epoch_end - epoch_start).count();
+}
+
+static inline double run_jitter_batch_epoch_calls(const Case& c,
+                                                  void* ctx,
+                                                  std::size_t batch_iters,
+                                                  std::size_t batch_samples,
+                                                  std::size_t& iterations_done,
+                                                  bool& had_assert_fail,
+                                                  std::vector<double>& samples_ns) {
+    using clock = std::chrono::steady_clock;
+    auto ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
+    ctxinfo->display_name = std::string(c.name);
+    ctxinfo->active = true;
+    gentest::detail::set_current_test(ctxinfo);
+    gentest::detail::BenchPhaseScope bench_scope(gentest::detail::BenchPhase::Call);
+    auto epoch_start = clock::now();
+    had_assert_fail = false;
+    iterations_done = 0;
+    for (std::size_t s = 0; s < batch_samples; ++s) {
+        auto start = clock::now();
+        std::size_t local_done = 0;
+        for (std::size_t i = 0; i < batch_iters; ++i) {
+            try { c.fn(ctx); } catch (const gentest::assertion&) { had_assert_fail = true; break; } catch (...) { /* ignore */ }
+            local_done = i + 1;
+        }
+        auto end = clock::now();
+        const std::size_t denom = local_done ? local_done : 1;
+        samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - start).count()) / static_cast<double>(denom));
+        iterations_done += denom;
+        if (had_assert_fail)
+            break;
+    }
+    auto epoch_end = clock::now();
+    ctxinfo->active = false;
+    gentest::detail::set_current_test(nullptr);
+    return std::chrono::duration<double>(epoch_end - epoch_start).count();
 }
 
 static bool run_measurement_phase(const Case& c,
@@ -457,24 +643,123 @@ static BenchResult run_bench(const Case& c, void* ctx, const BenchConfig& cfg) {
     BenchResult br{};
     // Calibrate iterations to reach min epoch time
     std::size_t iters = 1; bool had_assert = false; std::size_t done = 0;
-    while (run_epoch_calls(c, ctx, iters, done, had_assert) < cfg.min_epoch_time_s) {
-        iters *= 2; if (iters == 0 || iters > (std::size_t(1)<<30)) break;
+    double calib_s = 0.0;
+    while (true) {
+        calib_s = run_epoch_calls(c, ctx, iters, done, had_assert);
+        if (calib_s >= cfg.min_epoch_time_s) break;
+        iters *= 2;
+        if (iters == 0 || iters > (std::size_t(1) << 30)) break;
     }
+    br.calibration_time_s = calib_s;
+    br.calibration_iters = iters;
     // Warmup epochs
-    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) { (void)run_epoch_calls(c, ctx, iters, done, had_assert); }
+    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) { br.warmup_time_s += run_epoch_calls(c, ctx, iters, done, had_assert); }
     // Measure epochs
     std::vector<double> epoch_ns;
     auto start_all = std::chrono::steady_clock::now();
-    for (std::size_t i = 0; i < cfg.measure_epochs; ++i) {
+    std::size_t epochs_run = 0;
+    for (;;) {
+        if (epochs_run >= cfg.measure_epochs && br.total_time_s >= cfg.min_total_time_s)
+            break;
         double s = run_epoch_calls(c, ctx, iters, done, had_assert);
-        epoch_ns.push_back(ns_from_s(s) / static_cast<double>(done ? done : 1));
+        const std::size_t iter_count = done ? done : 1;
+        epoch_ns.push_back(ns_from_s(s) / static_cast<double>(iter_count));
+        br.total_time_s += s;
+        br.total_iters += done;
+        ++epochs_run;
         auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_all).count();
-        if (elapsed > cfg.max_total_time_s) break;
+        if (cfg.max_total_time_s > 0.0 && elapsed > cfg.max_total_time_s && br.total_time_s >= cfg.min_total_time_s) break;
     }
     if (!epoch_ns.empty()) {
-        br.epochs = epoch_ns.size(); br.iters_per_epoch = iters; br.best_ns = *std::min_element(epoch_ns.begin(), epoch_ns.end()); br.median_ns = median_of(epoch_ns); br.mean_ns = mean_of(epoch_ns);
+        std::vector<double> sorted = epoch_ns;
+        std::sort(sorted.begin(), sorted.end());
+        br.epochs = sorted.size();
+        br.iters_per_epoch = iters;
+        br.best_ns = sorted.front();
+        br.worst_ns = sorted.back();
+        br.median_ns = percentile_sorted(sorted, 0.5);
+        br.mean_ns = mean_of(epoch_ns);
+        br.p05_ns = percentile_sorted(sorted, 0.05);
+        br.p95_ns = percentile_sorted(sorted, 0.95);
     }
+    br.wall_time_s = br.warmup_time_s + br.total_time_s + br.calibration_time_s;
     return br;
+}
+
+static JitterResult run_jitter(const Case& c, void* ctx, const BenchConfig& cfg) {
+    JitterResult jr{};
+    std::size_t iters = 1;
+    bool had_assert = false;
+    std::size_t done = 0;
+    std::size_t epoch_count = 0;
+    double calib_s = 0.0;
+    while (true) {
+        calib_s = run_epoch_calls(c, ctx, iters, done, had_assert);
+        if (calib_s >= cfg.min_epoch_time_s) break;
+        iters *= 2;
+        if (iters == 0 || iters > (std::size_t(1) << 30)) break;
+    }
+    jr.calibration_time_s = calib_s;
+    jr.calibration_iters = iters;
+
+    const std::size_t calib_iters = done ? done : iters;
+    const double real_ns_per_iter = (calib_iters > 0) ? (ns_from_s(calib_s) / static_cast<double>(calib_iters)) : 0.0;
+    constexpr std::size_t kOverheadSamples = 256;
+    const OverheadEstimate per_iter_overhead = estimate_timer_overhead_per_iter(kOverheadSamples);
+    constexpr double kOverheadThreshold = 10.0;
+    const bool use_batch = (real_ns_per_iter > 0.0) && (per_iter_overhead.mean_ns > 0.0) &&
+                           (real_ns_per_iter < per_iter_overhead.mean_ns * kOverheadThreshold);
+
+    std::size_t batch_samples = 1;
+    std::size_t batch_iters = 1;
+    OverheadEstimate overhead = per_iter_overhead;
+    if (use_batch) {
+        batch_samples = std::min<std::size_t>(64, iters);
+        if (batch_samples == 0)
+            batch_samples = 1;
+        batch_iters = std::max<std::size_t>(1, iters / batch_samples);
+        overhead = estimate_timer_overhead_batch(kOverheadSamples, batch_iters);
+        jr.batch_mode = true;
+    }
+    jr.overhead_mean_ns = overhead.mean_ns;
+    jr.overhead_sd_ns = overhead.stddev_ns;
+
+    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) {
+        jr.warmup_time_s += run_epoch_calls(c, ctx, iters, done, had_assert);
+    }
+    auto start_all = std::chrono::steady_clock::now();
+    for (;;) {
+        if (epoch_count >= cfg.measure_epochs && jr.total_time_s >= cfg.min_total_time_s)
+            break;
+        double s = 0.0;
+        if (use_batch) {
+            s = run_jitter_batch_epoch_calls(c, ctx, batch_iters, batch_samples, done, had_assert, jr.samples_ns);
+        } else {
+            s = run_jitter_epoch_calls(c, ctx, iters, done, had_assert, jr.samples_ns);
+        }
+        ++epoch_count;
+        jr.total_time_s += s;
+        jr.total_iters += done;
+        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_all).count();
+        if (cfg.max_total_time_s > 0.0 && elapsed > cfg.max_total_time_s && jr.total_time_s >= cfg.min_total_time_s) break;
+    }
+    jr.epochs = epoch_count;
+    jr.iters_per_epoch = use_batch ? (batch_iters * batch_samples) : iters;
+    if (!jr.samples_ns.empty()) {
+        const auto stats = gentest::detail::compute_sample_stats(jr.samples_ns);
+        jr.min_ns = stats.min;
+        jr.max_ns = stats.max;
+        jr.median_ns = stats.median;
+        jr.mean_ns = stats.mean;
+        jr.stddev_ns = stats.stddev;
+        jr.p05_ns = stats.p05;
+        jr.p95_ns = stats.p95;
+    }
+    if (jr.median_ns > 0.0) {
+        jr.overhead_ratio_pct = (jr.overhead_mean_ns / jr.median_ns) * 100.0;
+    }
+    jr.wall_time_s = jr.warmup_time_s + jr.total_time_s + jr.calibration_time_s;
+    return jr;
 }
 
 bool wildcard_match(std::string_view text, std::string_view pattern) {
@@ -643,6 +928,7 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
 
     bool seen_repeat = false;
     bool seen_bench_min_epoch_time = false;
+    bool seen_bench_min_total_time = false;
     bool seen_bench_max_total_time = false;
     bool seen_bench_warmup = false;
     bool seen_bench_epochs = false;
@@ -847,6 +1133,21 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
             case ValueMatch::No: break;
             }
         }
+        if (!seen_bench_min_total_time) {
+            std::string_view value;
+            switch (match_value(i, s, "--bench-min-total-time-s", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (!parse_double_option("--bench-min-total-time-s", value, opt.bench_cfg.min_total_time_s)) return false;
+                if (opt.bench_cfg.min_total_time_s < 0.0) {
+                    fmt::print(stderr, "error: --bench-min-total-time-s must be non-negative\n");
+                    return false;
+                }
+                seen_bench_min_total_time = true;
+                continue;
+            case ValueMatch::No: break;
+            }
+        }
         if (!seen_bench_max_total_time) {
             std::string_view value;
             switch (match_value(i, s, "--bench-max-total-time-s", value)) {
@@ -952,8 +1253,15 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
     opt.github_annotations = github_annotations_flag || env_github_actions();
 
     if (opt.bench_cfg.measure_epochs == 0) opt.bench_cfg.measure_epochs = 1;
+    if (opt.bench_cfg.max_total_time_s > 0.0 && opt.bench_cfg.min_total_time_s > opt.bench_cfg.max_total_time_s) {
+        fmt::print(stderr,
+                   "error: --bench-min-total-time-s must be <= --bench-max-total-time-s ({} > {})\n",
+                   opt.bench_cfg.min_total_time_s,
+                   opt.bench_cfg.max_total_time_s);
+        return false;
+    }
 
-    const bool wants_run_benches = (opt.run_bench != nullptr) || (opt.bench_filter != nullptr);
+    const bool wants_run_benches = opt.bench_table || (opt.run_bench != nullptr) || (opt.bench_filter != nullptr);
     const bool wants_run_jitter = (opt.run_jitter != nullptr) || (opt.jitter_filter != nullptr);
 
     if (wants_help) opt.mode = Mode::Help;
@@ -1448,13 +1756,14 @@ auto run_all_tests(std::span<const char*> args) -> int {
         fmt::print("  --list-benches        List benchmark names (one per line)\n");
         fmt::print("  --run-bench=<name>    Run a single benchmark\n");
         fmt::print("  --bench-filter=<pat>  Run benchmarks matching wildcard pattern\n");
-        fmt::print("  --bench-table         Print a summary table per suite\n");
+        fmt::print("  --bench-table         Print a summary table per suite (runs benches)\n");
         fmt::print("  --bench-min-epoch-time-s=<sec>  Minimum epoch time\n");
         fmt::print("  --bench-epochs=<N>    Measurement epochs (default 12)\n");
         fmt::print("  --bench-warmup=<N>    Warmup epochs (default 1)\n");
+        fmt::print("  --bench-min-total-time-s=<sec>  Min total time per benchmark (may exceed --bench-epochs)\n");
         fmt::print("  --bench-max-total-time-s=<sec>  Max total time per benchmark\n");
         fmt::print("\nJitter options:\n");
-        fmt::print("  --run-jitter=<name>   Run a single jitter benchmark and print histogram\n");
+        fmt::print("  --run-jitter=<name>   Run a single jitter benchmark and print summary + histogram tables\n");
         fmt::print("  --jitter-filter=<pat> Run jitter benchmarks matching wildcard pattern\n");
         fmt::print("  --jitter-bins=<N>     Histogram bins (default 10)\n");
         return 0;
@@ -1503,20 +1812,54 @@ auto run_all_tests(std::span<const char*> args) -> int {
         SharedFixtureRunGuard fixture_guard;
         std::vector<std::size_t> idxs;
         if (opt.run_bench) {
+            const std::string_view run_bench = opt.run_bench;
             for (std::size_t i = 0; i < kCases.size(); ++i) {
-                if (kCases[i].is_benchmark && kCases[i].name == opt.run_bench) { idxs.push_back(i); break; }
+                if (kCases[i].is_benchmark && kCases[i].name == run_bench) { idxs.push_back(i); break; }
             }
-            if (idxs.empty()) { fmt::print(stderr, "Benchmark not found: {}\n", opt.run_bench); return 1; }
-        } else {
-            const char* pat = opt.bench_filter;
-            for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_benchmark && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
             if (idxs.empty()) {
-                fmt::print(stderr, "benchmark filter matched 0 benchmarks: {}\n", pat);
-                fmt::print(stderr, "hint: use --list-benches to see available names\n");
-                return 1;
+                // Fallback: allow suffix match (e.g., "string/concat_small" matches "benchmarks/string/concat_small").
+                std::vector<std::size_t> suffix_matches;
+                for (std::size_t i = 0; i < kCases.size(); ++i) {
+                    if (!kCases[i].is_benchmark) continue;
+                    if (kCases[i].name.size() < run_bench.size()) continue;
+                    if (kCases[i].name.ends_with(run_bench)) suffix_matches.push_back(i);
+                }
+                if (suffix_matches.size() == 1) {
+                    idxs.push_back(suffix_matches.front());
+                } else if (!suffix_matches.empty()) {
+                    fmt::print(stderr, "Benchmark name is ambiguous: {}\n", opt.run_bench);
+                    fmt::print(stderr, "Matches:\n");
+                    for (auto idx : suffix_matches) fmt::print(stderr, "  {}\n", kCases[idx].name);
+                    return 1;
+                } else {
+                    fmt::print(stderr, "Benchmark not found: {}\n", opt.run_bench);
+                    return 1;
+                }
+            }
+        } else {
+            if (opt.bench_filter) {
+                const char* pat = opt.bench_filter;
+                for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_benchmark && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
+                if (idxs.empty()) {
+                    fmt::print(stderr, "benchmark filter matched 0 benchmarks: {}\n", pat);
+                    fmt::print(stderr, "hint: use --list-benches to see available names\n");
+                    return 1;
+                }
+            } else {
+                // --bench-table with no filter runs all benchmarks.
+                for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_benchmark) idxs.push_back(i);
+                if (idxs.empty()) {
+                    fmt::print("Executed 0 benchmark(s).\n");
+                    return 0;
+                }
             }
         }
-        if (opt.bench_table) fmt::print("Summary ({})\n", (idxs.empty() ? "" : std::string(kCases[idxs.front()].suite)));
+        struct BenchRow {
+            const Case* c = nullptr;
+            BenchResult br{};
+        };
+        std::vector<BenchRow> rows;
+        rows.reserve(idxs.size());
         bool had_fixture_failure = false;
         const auto report_fixture_failure = [&](const Case& c,
                                                 std::string_view reason,
@@ -1565,11 +1908,92 @@ auto run_all_tests(std::span<const char*> args) -> int {
                 report_fixture_failure(c, call_error, call_alloc_failure, "call");
                 continue;
             }
-            if (!opt.bench_table) {
-                fmt::print("{}: epochs={}, iters/epoch={}, best={:.0f} ns, median={:.0f} ns, mean={:.0f} ns\n", c.name, br.epochs,
-                           br.iters_per_epoch, br.best_ns, br.median_ns, br.mean_ns);
+            rows.push_back(BenchRow{&c, br});
+        }
+        std::map<std::string, double> baseline_ns;
+        for (const auto& row : rows) {
+            if (!row.c || !row.c->is_baseline) continue;
+            const std::string suite(row.c->suite);
+            if (baseline_ns.find(suite) == baseline_ns.end()) {
+                baseline_ns.emplace(suite, row.br.median_ns);
             }
         }
+
+        using tabulate::FontAlign;
+        using tabulate::Table;
+        using Row_t = Table::Row_t;
+
+        const auto bench_calls_per_sec = [](const BenchResult& br) -> double {
+            if (br.total_time_s <= 0.0 || br.total_iters == 0) return 0.0;
+            return static_cast<double>(br.total_iters) / br.total_time_s;
+        };
+
+        Table summary;
+        summary.add_row(Row_t{"Benchmark", "Samples", "Iters/epoch", "Median (ns)", "Mean (ns)",
+                              "P05 (ns)", "P95 (ns)", "Worst (ns)", "Total (s)", "Baseline Δ%"});
+        summary[0].format().font_align(FontAlign::center);
+        summary.column(1).format().font_align(FontAlign::right);
+        summary.column(2).format().font_align(FontAlign::right);
+        summary.column(3).format().font_align(FontAlign::right);
+        summary.column(4).format().font_align(FontAlign::right);
+        summary.column(5).format().font_align(FontAlign::right);
+        summary.column(6).format().font_align(FontAlign::right);
+        summary.column(7).format().font_align(FontAlign::right);
+        summary.column(8).format().font_align(FontAlign::right);
+        summary.column(9).format().font_align(FontAlign::right);
+
+        for (const auto& row : rows) {
+            if (!row.c) continue;
+            const std::string suite(row.c->suite);
+            const auto base_it = baseline_ns.find(suite);
+            const double base_ns = (base_it == baseline_ns.end()) ? 0.0 : base_it->second;
+            const std::string baseline_cell =
+                (base_ns > 0.0) ? fmt::format("{:+.2f}%", (row.br.median_ns - base_ns) / base_ns * 100.0)
+                                : std::string("-");
+            summary.add_row(Row_t{
+                std::string(row.c->name),
+                fmt::format("{}", row.br.epochs),
+                fmt::format("{}", row.br.iters_per_epoch),
+                fmt::format("{:.2f}", row.br.median_ns),
+                fmt::format("{:.2f}", row.br.mean_ns),
+                fmt::format("{:.2f}", row.br.p05_ns),
+                fmt::format("{:.2f}", row.br.p95_ns),
+                fmt::format("{:.2f}", row.br.worst_ns),
+                fmt::format("{:.3f}", row.br.wall_time_s),
+                baseline_cell,
+            });
+        }
+
+        Table debug;
+        debug.add_row(Row_t{"Benchmark", "Epochs", "Iters/epoch", "Total iters", "Measured (s)", "Wall (s)",
+                            "Warmup (s)", "Calib iters", "Calib (s)", "Min epoch (s)", "Min total (s)",
+                            "Max total (s)", "Calls/sec"});
+        debug[0].format().font_align(FontAlign::center);
+        for (std::size_t col = 1; col < 13; ++col) {
+            debug.column(col).format().font_align(FontAlign::right);
+        }
+
+        for (const auto& row : rows) {
+            if (!row.c) continue;
+            debug.add_row(Row_t{
+                std::string(row.c->name),
+                fmt::format("{}", row.br.epochs),
+                fmt::format("{}", row.br.iters_per_epoch),
+                fmt::format("{}", row.br.total_iters),
+                fmt::format("{:.3f}", row.br.total_time_s),
+                fmt::format("{:.3f}", row.br.wall_time_s),
+                fmt::format("{:.3f}", row.br.warmup_time_s),
+                fmt::format("{}", row.br.calibration_iters),
+                fmt::format("{:.3f}", row.br.calibration_time_s),
+                fmt::format("{:.3f}", opt.bench_cfg.min_epoch_time_s),
+                fmt::format("{:.3f}", opt.bench_cfg.min_total_time_s),
+                fmt::format("{:.3f}", opt.bench_cfg.max_total_time_s),
+                fmt::format("{:.3f}", bench_calls_per_sec(row.br)),
+            });
+        }
+
+        std::cout << "Benchmarks\n" << summary << "\n\n";
+        std::cout << "Bench debug\n" << debug << "\n";
         return (had_fixture_failure || !fixture_guard.ok) ? 1 : 0;
     }
     case Mode::RunJitter: {
@@ -1581,7 +2005,6 @@ auto run_all_tests(std::span<const char*> args) -> int {
                 if (kCases[i].is_jitter && kCases[i].name == opt.run_jitter) { idxs.push_back(i); break; }
             }
             if (idxs.empty()) { fmt::print(stderr, "Jitter benchmark not found: {}\n", opt.run_jitter); return 1; }
-            fmt::print("histogram (bins={}, name={})\n", bins, opt.run_jitter);
         } else {
             const char* pat = opt.jitter_filter;
             for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_jitter && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
@@ -1590,9 +2013,13 @@ auto run_all_tests(std::span<const char*> args) -> int {
                 fmt::print(stderr, "hint: use --list-benches to see available names\n");
                 return 1;
             }
-            fmt::print("Jitter ({})\n", (idxs.empty() ? "" : std::string(kCases[idxs.front()].suite)));
         }
         bool had_fixture_failure = false;
+        struct JitterRow {
+            const Case* c = nullptr;
+            JitterResult jr;
+        };
+        std::vector<JitterRow> rows;
         const auto report_fixture_failure = [&](const Case& c,
                                                 std::string_view reason,
                                                 bool allocation_failure,
@@ -1625,9 +2052,7 @@ auto run_all_tests(std::span<const char*> args) -> int {
                 report_fixture_failure(c, reason, allocation_failure, "setup");
                 continue;
             }
-            std::size_t done = 0;
-            bool had_assert = false;
-            (void)run_epoch_calls(c, ctx, 1, done, had_assert);
+            JitterResult jr = run_jitter(c, ctx, opt.bench_cfg);
             std::string call_error;
             bool call_alloc_failure = false;
             if (gentest::detail::has_bench_error()) {
@@ -1642,6 +2067,130 @@ auto run_all_tests(std::span<const char*> args) -> int {
                 report_fixture_failure(c, call_error, call_alloc_failure, "call");
                 continue;
             }
+            rows.push_back(JitterRow{&c, std::move(jr)});
+        }
+
+        std::map<std::string, double> baseline_median_ns;
+        std::map<std::string, double> baseline_stddev_ns;
+        for (const auto& row : rows) {
+            if (!row.c || !row.c->is_baseline) continue;
+            const std::string suite(row.c->suite);
+            if (baseline_median_ns.find(suite) == baseline_median_ns.end()) {
+                baseline_median_ns.emplace(suite, row.jr.median_ns);
+                baseline_stddev_ns.emplace(suite, row.jr.stddev_ns);
+            }
+        }
+
+        using tabulate::FontAlign;
+        using tabulate::Table;
+        using Row_t = Table::Row_t;
+
+        Table summary;
+        summary.add_row(Row_t{"Benchmark", "Samples", "Median (ns)", "Mean (ns)", "StdDev (ns)", "P05 (ns)", "P95 (ns)",
+                              "Min (ns)", "Max (ns)", "Total (s)", "Baseline Δ%", "Baseline SD Δ%"});
+        summary[0].format().font_align(FontAlign::center);
+        for (std::size_t col = 1; col < 12; ++col) {
+            summary.column(col).format().font_align(FontAlign::right);
+        }
+
+        for (const auto& row : rows) {
+            if (!row.c) continue;
+            const std::string suite(row.c->suite);
+            const auto base_med_it = baseline_median_ns.find(suite);
+            const auto base_sd_it = baseline_stddev_ns.find(suite);
+            const double base_median = (base_med_it == baseline_median_ns.end()) ? 0.0 : base_med_it->second;
+            const double base_sd = (base_sd_it == baseline_stddev_ns.end()) ? 0.0 : base_sd_it->second;
+            const std::string baseline_med_cell =
+                (base_median > 0.0)
+                    ? fmt::format("{:+.2f}%", (row.jr.median_ns - base_median) / base_median * 100.0)
+                    : std::string("-");
+            const std::string baseline_sd_cell =
+                (base_sd > 0.0) ? fmt::format("{:+.2f}%", (row.jr.stddev_ns - base_sd) / base_sd * 100.0) : std::string("-");
+            summary.add_row(Row_t{
+                std::string(row.c->name),
+                fmt::format("{}", row.jr.samples_ns.size()),
+                fmt::format("{:.2f}", row.jr.median_ns),
+                fmt::format("{:.2f}", row.jr.mean_ns),
+                fmt::format("{:.2f}", row.jr.stddev_ns),
+                fmt::format("{:.2f}", row.jr.p05_ns),
+                fmt::format("{:.2f}", row.jr.p95_ns),
+                fmt::format("{:.2f}", row.jr.min_ns),
+                fmt::format("{:.2f}", row.jr.max_ns),
+                fmt::format("{:.3f}", row.jr.wall_time_s),
+                baseline_med_cell,
+                baseline_sd_cell,
+            });
+        }
+
+        std::cout << "Jitter summary\n" << summary << "\n";
+
+        Table debug;
+        debug.add_row(Row_t{"Benchmark", "Mode", "Samples", "Iters/epoch", "Overhead (ns/iter)", "Overhead %",
+                            "Measured (s)", "Warmup (s)", "Min total (s)", "Max total (s)", "Wall (s)"});
+        debug[0].format().font_align(FontAlign::center);
+        for (std::size_t col = 2; col < 11; ++col) {
+            debug.column(col).format().font_align(FontAlign::right);
+        }
+
+        for (const auto& row : rows) {
+            if (!row.c) continue;
+            const std::string mode = row.jr.batch_mode ? "batch" : "per-iter";
+            const std::string overhead_cell =
+                (row.jr.overhead_mean_ns > 0.0)
+                    ? fmt::format("{:.3f} ± {:.3f}", row.jr.overhead_mean_ns, row.jr.overhead_sd_ns)
+                    : std::string("-");
+            const std::string overhead_pct =
+                (row.jr.overhead_ratio_pct > 0.0) ? fmt::format("{:.2f}%", row.jr.overhead_ratio_pct) : std::string("-");
+            debug.add_row(Row_t{
+                std::string(row.c->name),
+                mode,
+                fmt::format("{}", row.jr.samples_ns.size()),
+                fmt::format("{}", row.jr.iters_per_epoch),
+                overhead_cell,
+                overhead_pct,
+                fmt::format("{:.3f}", row.jr.total_time_s),
+                fmt::format("{:.3f}", row.jr.warmup_time_s),
+                fmt::format("{:.3f}", opt.bench_cfg.min_total_time_s),
+                fmt::format("{:.3f}", opt.bench_cfg.max_total_time_s),
+                fmt::format("{:.3f}", row.jr.wall_time_s),
+            });
+        }
+
+        std::cout << "Jitter debug\n" << debug << "\n";
+
+        for (const auto& row : rows) {
+            if (!row.c) continue;
+            const auto& samples = row.jr.samples_ns;
+            std::cout << "\nJitter histogram (bins=" << bins << ", name=" << row.c->name << ")\n";
+            Table hist;
+            hist.add_row(Row_t{"Bin", "Range (ns)", "Count", "Percent", "Cumulative %"});
+            hist[0].format().font_align(FontAlign::center);
+            hist.column(0).format().font_align(FontAlign::right);
+            hist.column(2).format().font_align(FontAlign::right);
+            hist.column(3).format().font_align(FontAlign::right);
+            hist.column(4).format().font_align(FontAlign::right);
+
+            if (samples.empty()) {
+                std::cout << hist << "\n";
+                continue;
+            }
+
+            const auto hist_data = gentest::detail::compute_histogram(samples, bins);
+            for (std::size_t i = 0; i < hist_data.bins.size(); ++i) {
+                const auto& bin = hist_data.bins[i];
+                const std::string range = bin.inclusive_hi
+                                              ? fmt::format("[{:.2f}, {:.2f}]", bin.lo, bin.hi)
+                                              : fmt::format("[{:.2f}, {:.2f})", bin.lo, bin.hi);
+                hist.add_row(Row_t{
+                    fmt::format("{}", i + 1),
+                    range,
+                    fmt::format("{}", bin.count),
+                    fmt::format("{:.2f}%", bin.percent),
+                    fmt::format("{:.2f}%", bin.cumulative_percent),
+                });
+            }
+
+            std::cout << hist << "\n";
         }
         return (had_fixture_failure || !fixture_guard.ok) ? 1 : 0;
     }

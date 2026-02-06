@@ -8,6 +8,7 @@ if(GENTEST_RUNTIME_SHARED)
 endif()
 
 add_library(gentest_runtime ${_gentest_runtime_libtype}
+    ${PROJECT_SOURCE_DIR}/src/bench_stats.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp)
 
 add_library(gentest_main STATIC
@@ -29,6 +30,10 @@ endif()
 target_link_libraries(gentest_runtime
     PUBLIC fmt::fmt)
 
+target_include_directories(gentest_runtime
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/third_party/include)
+
 target_compile_features(gentest_runtime PUBLIC cxx_std_20)
 
 # For LLVM 21+ with libc++, explicitly link LLVM's libc++ to avoid ABI issues
@@ -48,6 +53,9 @@ file(GLOB _gentest_headers
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/*.h
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/*.hpp
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/*.inl
+    ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/detail/*.h
+    ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/detail/*.hpp
+    ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/detail/*.inl
 )
 
 # Publish headers for dependents (and install/export them via FILE_SET)

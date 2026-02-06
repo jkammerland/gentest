@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <type_traits>
 
 // Cross‑platform utilities to inhibit compiler optimizations in microbenchmarks.
 //
@@ -37,23 +38,92 @@ inline void doNotOptimizeAway(T& value) {
     _ReadWriteBarrier();
 }
 
+template <class T>
+inline void doNotOptimizeAway(T&& value) {
+    auto p = reinterpret_cast<char const volatile*>(&value);
+    (void)*p;
+    _ReadWriteBarrier();
+}
+
 inline void clobberMemory() { _ReadWriteBarrier(); }
 
 #elif defined(__GNUC__) || defined(__clang__)
 
+#if defined(__clang__)
+
 template <class T>
 inline void doNotOptimizeAway(T const& value) {
-    // Tell the compiler that value is an input to an imaginary asm stmt.
-    asm volatile("" : : "g"(value) : "memory");
+    asm volatile("" : : "r,m"(value) : "memory");
 }
 
 template <class T>
 inline void doNotOptimizeAway(T& value) {
-    // Mark value as both read and written to be maximally conservative.
-    asm volatile("" : "+g"(value) : : "memory");
+    asm volatile("" : "+r,m"(value) : : "memory");
+}
+
+template <class T>
+inline void doNotOptimizeAway(T&& value) {
+    asm volatile("" : "+r,m"(value) : : "memory");
+}
+
+#elif (__GNUC__ >= 5)
+
+template <class T>
+inline typename std::enable_if<std::is_trivially_copyable<T>::value && (sizeof(T) <= sizeof(T*))>::type
+doNotOptimizeAway(T const& value) {
+    asm volatile("" : : "r,m"(value) : "memory");
+}
+
+template <class T>
+inline typename std::enable_if<!std::is_trivially_copyable<T>::value || (sizeof(T) > sizeof(T*))>::type
+doNotOptimizeAway(T const& value) {
+    asm volatile("" : : "m"(value) : "memory");
+}
+
+template <class T>
+inline typename std::enable_if<std::is_trivially_copyable<T>::value && (sizeof(T) <= sizeof(T*))>::type
+doNotOptimizeAway(T& value) {
+    asm volatile("" : "+m,r"(value) : : "memory");
+}
+
+template <class T>
+inline typename std::enable_if<!std::is_trivially_copyable<T>::value || (sizeof(T) > sizeof(T*))>::type
+doNotOptimizeAway(T& value) {
+    asm volatile("" : "+m"(value) : : "memory");
+}
+
+template <class T>
+inline typename std::enable_if<std::is_trivially_copyable<T>::value && (sizeof(T) <= sizeof(T*))>::type
+doNotOptimizeAway(T&& value) {
+    asm volatile("" : "+m,r"(value) : : "memory");
+}
+
+template <class T>
+inline typename std::enable_if<!std::is_trivially_copyable<T>::value || (sizeof(T) > sizeof(T*))>::type
+doNotOptimizeAway(T&& value) {
+    asm volatile("" : "+m"(value) : : "memory");
+}
+
+#else
+
+template <class T>
+inline void doNotOptimizeAway(T const& value) {
+    asm volatile("" : : "r,m"(value) : "memory");
+}
+
+template <class T>
+inline void doNotOptimizeAway(T& value) {
+    asm volatile("" : "+m,r"(value) : : "memory");
+}
+
+template <class T>
+inline void doNotOptimizeAway(T&& value) {
+    asm volatile("" : "+m,r"(value) : : "memory");
 }
 
 inline void clobberMemory() { asm volatile("" : : : "memory"); }
+
+#endif
 
 #else
 
@@ -70,9 +140,14 @@ inline void doNotOptimizeAway(T& value) {
     *p = *p;
 }
 
+template <class T>
+inline void doNotOptimizeAway(T&& value) {
+    auto p = reinterpret_cast<char const volatile*>(&value);
+    (void)*p;
+}
+
 inline void clobberMemory() { (void)0; }
 
 #endif
 
 } // namespace gentest
-

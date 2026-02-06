@@ -3,7 +3,7 @@ set_languages("cxx20")
 
 add_rules("mode.debug", "mode.release")
 
-local incdirs = {"include", "tests"}
+local incdirs = {"include", "tests", "third_party/include"}
 
 local gentest_common_defines = {"FMT_HEADER_ONLY"}
 local gentest_common_cxxflags = {}
@@ -36,6 +36,7 @@ end
 
 target("gentest_runtime")
     set_kind("static")
+    add_files("src/bench_stats.cpp")
     add_files("src/runner_impl.cpp")
     add_includedirs(incdirs)
     add_defines(gentest_common_defines)
