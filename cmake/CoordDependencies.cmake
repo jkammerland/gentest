@@ -147,7 +147,19 @@ function(coord_fetch_dependencies)
                 unset(_suffix)
             endif()
 
-            find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
+            if(WIN32)
+                find_package(OpenSSL QUIET COMPONENTS SSL Crypto)
+                if(NOT OpenSSL_FOUND)
+                    message(
+                        WARNING
+                            "coord: OpenSSL headers/libraries were not found on this Windows runner; "
+                            "disabling COORD_ENABLE_TLS for this configure.")
+                    set(COORD_ENABLE_TLS OFF CACHE BOOL "Enable mTLS for coordd TCP endpoints" FORCE)
+                    set(COORD_TLS_BACKEND "none" CACHE STRING "TLS backend for coordd (openssl, wolfssl, none)" FORCE)
+                endif()
+            else()
+                find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
+            endif()
         elseif(COORD_TLS_BACKEND STREQUAL "wolfssl")
             if(DEFINED COORD_WOLFSSL_SOURCE_DIR AND COORD_WOLFSSL_SOURCE_DIR)
                 set(_coord_wolfssl_source "${COORD_WOLFSSL_SOURCE_DIR}")
