@@ -554,9 +554,11 @@ int main(int argc, const char **argv) {
                 : file_(file), commands_(commands) {}
 
             std::vector<clang::tooling::CompileCommand> getCompileCommands(llvm::StringRef file_path) const override {
-                if (file_path != file_) {
-                    return {};
-                }
+                (void)file_path;
+                // Clang may query with a path spelling that differs from the original
+                // source argument (slash direction, case, absolute/relative). In this
+                // single-file wrapper mode we only ever serve one TU, so always return
+                // that TU's compile command.
                 return commands_;
             }
 
