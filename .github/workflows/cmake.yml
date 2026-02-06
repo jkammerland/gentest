@@ -285,11 +285,55 @@ jobs:
             $roots.Add($root)
           }
 
-          $root = $roots | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-          if (-not $root) { throw "OpenSSL install not found. Checked: $($roots -join ', ')" }
+          $candidateRoots = $roots | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+          if (-not $candidateRoots) { throw "OpenSSL install not found. Checked: $($roots -join ', ')" }
 
-          "OPENSSL_ROOT_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "OPENSSL_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $libPathSuffixes = @(
+            "lib",
+            "lib64",
+            "lib\\VC",
+            "lib\\VC\\x64",
+            "lib\\VC\\x64\\MD",
+            "lib\\VC\\x64\\MT",
+            "lib\\VC\\x64\\MDd",
+            "lib\\VC\\x64\\MTd",
+            "lib\\VC\\static",
+            "lib\\VC\\x64\\static"
+          )
+
+          $resolvedRoot = $null
+          $resolvedSslLib = $null
+          $resolvedCryptoLib = $null
+
+          foreach ($candidateRoot in $candidateRoots) {
+            $includeOk = Test-Path (Join-Path $candidateRoot "include\\openssl\\ssl.h")
+            if (-not $includeOk) { continue }
+
+            foreach ($suffix in $libPathSuffixes) {
+              $libDir = Join-Path $candidateRoot $suffix
+              if (-not (Test-Path $libDir)) { continue }
+
+              $sslLib = Join-Path $libDir "libssl.lib"
+              $cryptoLib = Join-Path $libDir "libcrypto.lib"
+              if ((Test-Path $sslLib) -and (Test-Path $cryptoLib)) {
+                $resolvedRoot = $candidateRoot
+                $resolvedSslLib = $sslLib
+                $resolvedCryptoLib = $cryptoLib
+                break
+              }
+            }
+
+            if ($resolvedRoot) { break }
+          }
+
+          if (-not $resolvedRoot) {
+            throw "OpenSSL install found but import libraries were not. Checked roots: $($candidateRoots -join ', ')"
+          }
+
+          "OPENSSL_ROOT_DIR=$resolvedRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_DIR=$resolvedRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_SSL_LIBRARY=$resolvedSslLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_CRYPTO_LIBRARY=$resolvedCryptoLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Show tool versions
         shell: pwsh
@@ -310,6 +354,10 @@ jobs:
             "-DClang_DIR=$env:Clang_DIR",
             "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
           )
+          if ($env:OPENSSL_SSL_LIBRARY -and $env:OPENSSL_CRYPTO_LIBRARY) {
+            $cmakeArgs += "-DOPENSSL_SSL_LIBRARY=$env:OPENSSL_SSL_LIBRARY"
+            $cmakeArgs += "-DOPENSSL_CRYPTO_LIBRARY=$env:OPENSSL_CRYPTO_LIBRARY"
+          }
           if ("${{ matrix.preset }}" -eq "debug-system") {
             $cmakeArgs += "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON"
           }
@@ -336,7 +384,10 @@ jobs:
             -DGENTEST_ENABLE_PACKAGE_TESTS=ON `
             -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON `
             -DLLVM_DIR="$env:LLVM_DIR" `
-            -DClang_DIR="$env:Clang_DIR"
+            -DClang_DIR="$env:Clang_DIR" `
+            -DOPENSSL_ROOT_DIR="$env:OPENSSL_ROOT_DIR" `
+            -DOPENSSL_SSL_LIBRARY="$env:OPENSSL_SSL_LIBRARY" `
+            -DOPENSSL_CRYPTO_LIBRARY="$env:OPENSSL_CRYPTO_LIBRARY"
           cmake --build $msvcBuildDir
           ctest --test-dir $msvcBuildDir --output-on-failure
 
@@ -439,11 +490,55 @@ jobs:
             $roots.Add($root)
           }
 
-          $root = $roots | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-          if (-not $root) { throw "OpenSSL install not found. Checked: $($roots -join ', ')" }
+          $candidateRoots = $roots | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+          if (-not $candidateRoots) { throw "OpenSSL install not found. Checked: $($roots -join ', ')" }
 
-          "OPENSSL_ROOT_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "OPENSSL_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $libPathSuffixes = @(
+            "lib",
+            "lib64",
+            "lib\\VC",
+            "lib\\VC\\x64",
+            "lib\\VC\\x64\\MD",
+            "lib\\VC\\x64\\MT",
+            "lib\\VC\\x64\\MDd",
+            "lib\\VC\\x64\\MTd",
+            "lib\\VC\\static",
+            "lib\\VC\\x64\\static"
+          )
+
+          $resolvedRoot = $null
+          $resolvedSslLib = $null
+          $resolvedCryptoLib = $null
+
+          foreach ($candidateRoot in $candidateRoots) {
+            $includeOk = Test-Path (Join-Path $candidateRoot "include\\openssl\\ssl.h")
+            if (-not $includeOk) { continue }
+
+            foreach ($suffix in $libPathSuffixes) {
+              $libDir = Join-Path $candidateRoot $suffix
+              if (-not (Test-Path $libDir)) { continue }
+
+              $sslLib = Join-Path $libDir "libssl.lib"
+              $cryptoLib = Join-Path $libDir "libcrypto.lib"
+              if ((Test-Path $sslLib) -and (Test-Path $cryptoLib)) {
+                $resolvedRoot = $candidateRoot
+                $resolvedSslLib = $sslLib
+                $resolvedCryptoLib = $cryptoLib
+                break
+              }
+            }
+
+            if ($resolvedRoot) { break }
+          }
+
+          if (-not $resolvedRoot) {
+            throw "OpenSSL install found but import libraries were not. Checked roots: $($candidateRoots -join ', ')"
+          }
+
+          "OPENSSL_ROOT_DIR=$resolvedRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_DIR=$resolvedRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_SSL_LIBRARY=$resolvedSslLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_CRYPTO_LIBRARY=$resolvedCryptoLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Show tool versions
         shell: pwsh
@@ -465,6 +560,10 @@ jobs:
             "-DClang_DIR=$env:Clang_DIR",
             "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
           )
+          if ($env:OPENSSL_SSL_LIBRARY -and $env:OPENSSL_CRYPTO_LIBRARY) {
+            $cmakeArgs += "-DOPENSSL_SSL_LIBRARY=$env:OPENSSL_SSL_LIBRARY"
+            $cmakeArgs += "-DOPENSSL_CRYPTO_LIBRARY=$env:OPENSSL_CRYPTO_LIBRARY"
+          }
           cmake @cmakeArgs
 
       - name: Build
