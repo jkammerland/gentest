@@ -21,6 +21,10 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef _WIN32
+#include <io.h>
+#endif
+
 #ifndef _WIN32
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -148,7 +152,7 @@ static void watch_pipe_to_file(int fd, const std::string &path, OutputWatcher *w
 #ifndef _WIN32
         ssize_t n = ::read(fd, buffer.data(), buffer.size());
 #else
-        int n = recv(fd, buffer.data(), static_cast<int>(buffer.size()), 0);
+        int n = ::_read(fd, buffer.data(), static_cast<unsigned int>(buffer.size()));
 #endif
         if (n <= 0) {
             break;
@@ -174,7 +178,7 @@ static void watch_pipe_to_file(int fd, const std::string &path, OutputWatcher *w
 #ifndef _WIN32
     ::close(fd);
 #else
-    closesocket(fd);
+    ::_close(fd);
 #endif
 }
 
