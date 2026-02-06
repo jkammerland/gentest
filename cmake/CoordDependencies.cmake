@@ -25,7 +25,80 @@ function(coord_fetch_dependencies)
 
     if(COORD_ENABLE_TLS)
         if(COORD_TLS_BACKEND STREQUAL "openssl")
-            find_package(OpenSSL REQUIRED)
+            if(WIN32)
+                # Select an OpenSSL root that actually contains both headers and import libs.
+                # Some Windows images expose openssl.exe/version but not import libraries.
+                set(_coord_openssl_roots "")
+                foreach(
+                    _candidate IN ITEMS
+                    "${OPENSSL_ROOT_DIR}"
+                    "$ENV{OPENSSL_ROOT_DIR}"
+                    "$ENV{OPENSSL_DIR}"
+                    "C:/Program Files/OpenSSL-Win64"
+                    "C:/Program Files/OpenSSL"
+                    "C:/Program Files (x86)/OpenSSL-Win32"
+                    "C:/Program Files (x86)/OpenSSL")
+                    if(_candidate)
+                        file(TO_CMAKE_PATH "${_candidate}" _candidate_norm)
+                        if(EXISTS "${_candidate_norm}")
+                            list(APPEND _coord_openssl_roots "${_candidate_norm}")
+                        endif()
+                    endif()
+                endforeach()
+                list(REMOVE_DUPLICATES _coord_openssl_roots)
+
+                set(
+                    _coord_openssl_lib_suffixes
+                    "lib"
+                    "lib64"
+                    "lib/VC"
+                    "lib/VC/x64"
+                    "lib/VC/x64/MD"
+                    "lib/VC/x64/MT"
+                    "lib/VC/x64/MDd"
+                    "lib/VC/x64/MTd"
+                    "lib/VC/static"
+                    "lib/VC/x64/static")
+
+                foreach(_root IN LISTS _coord_openssl_roots)
+                    if(NOT EXISTS "${_root}/include/openssl/ssl.h")
+                        continue()
+                    endif()
+
+                    set(_coord_ssl_lib "")
+                    set(_coord_crypto_lib "")
+                    foreach(_suffix IN LISTS _coord_openssl_lib_suffixes)
+                        find_library(_coord_ssl_candidate NAMES libssl ssl PATHS "${_root}/${_suffix}" NO_DEFAULT_PATH)
+                        find_library(_coord_crypto_candidate NAMES libcrypto crypto PATHS "${_root}/${_suffix}" NO_DEFAULT_PATH)
+                        if(_coord_ssl_candidate AND _coord_crypto_candidate)
+                            set(_coord_ssl_lib "${_coord_ssl_candidate}")
+                            set(_coord_crypto_lib "${_coord_crypto_candidate}")
+                            break()
+                        endif()
+                    endforeach()
+
+                    if(_coord_ssl_lib AND _coord_crypto_lib)
+                        set(OPENSSL_ROOT_DIR "${_root}" CACHE PATH "OpenSSL root directory" FORCE)
+                        set(OPENSSL_DIR "${_root}" CACHE PATH "OpenSSL root directory" FORCE)
+                        set(OPENSSL_SSL_LIBRARY "${_coord_ssl_lib}" CACHE FILEPATH "OpenSSL SSL library" FORCE)
+                        set(OPENSSL_CRYPTO_LIBRARY "${_coord_crypto_lib}" CACHE FILEPATH "OpenSSL crypto library" FORCE)
+                        break()
+                    endif()
+                endforeach()
+
+                unset(_coord_openssl_roots)
+                unset(_coord_openssl_lib_suffixes)
+                unset(_coord_ssl_lib)
+                unset(_coord_crypto_lib)
+                unset(_coord_ssl_candidate)
+                unset(_coord_crypto_candidate)
+                unset(_candidate)
+                unset(_candidate_norm)
+                unset(_root)
+                unset(_suffix)
+            endif()
+
+            find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
         elseif(COORD_TLS_BACKEND STREQUAL "wolfssl")
             if(DEFINED COORD_WOLFSSL_SOURCE_DIR AND COORD_WOLFSSL_SOURCE_DIR)
                 set(_coord_wolfssl_source "${COORD_WOLFSSL_SOURCE_DIR}")
