@@ -526,6 +526,22 @@ int main(int argc, const char **argv) {
 
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
 
+    class SingleFileCompilationDatabase final : public clang::tooling::CompilationDatabase {
+    public:
+        explicit SingleFileCompilationDatabase(const std::vector<clang::tooling::CompileCommand> &commands) : commands_(commands) {}
+
+        std::vector<clang::tooling::CompileCommand> getCompileCommands(llvm::StringRef /*file_path*/) const override {
+            // Clang may query with a path spelling that differs from the original
+            // source argument (slash direction, case, absolute/relative). In this
+            // single-file wrapper mode we only ever serve one TU, so always return
+            // that TU's compile command.
+            return commands_;
+        }
+
+    private:
+        const std::vector<clang::tooling::CompileCommand> &commands_;
+    };
+
     struct ParseResult {
         int                                 status = 0;
         bool                                had_test_errors = false;
@@ -547,25 +563,6 @@ int main(int argc, const char **argv) {
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
             compile_commands[i] = database->getCompileCommands(options.sources[i]);
         }
-
-        class SingleFileCompilationDatabase final : public clang::tooling::CompilationDatabase {
-        public:
-            SingleFileCompilationDatabase(llvm::StringRef file, const std::vector<clang::tooling::CompileCommand> &commands)
-                : file_(file), commands_(commands) {}
-
-            std::vector<clang::tooling::CompileCommand> getCompileCommands(llvm::StringRef file_path) const override {
-                (void)file_path;
-                // Clang may query with a path spelling that differs from the original
-                // source argument (slash direction, case, absolute/relative). In this
-                // single-file wrapper mode we only ever serve one TU, so always return
-                // that TU's compile command.
-                return commands_;
-            }
-
-        private:
-            llvm::StringRef                                          file_;
-            const std::vector<clang::tooling::CompileCommand> &commands_;
-        };
 
         std::vector<ParseResult> results(options.sources.size());
         std::vector<std::string> diag_texts(options.sources.size());
@@ -592,7 +589,7 @@ int main(int argc, const char **argv) {
 #endif
             }
 
-            const SingleFileCompilationDatabase file_database{options.sources[idx], compile_commands[idx]};
+            const SingleFileCompilationDatabase file_database{compile_commands[idx]};
 
             // Use a per-tool physical filesystem instance. llvm::vfs::getRealFileSystem()
             // shares process working directory state and is documented as thread-hostile.
@@ -677,7 +674,16 @@ int main(int argc, const char **argv) {
             return 1;
         }
     } else {
-        clang::tooling::ClangTool tool{*database, options.sources};
+        std::vector<clang::tooling::CompileCommand> single_file_commands;
+        std::unique_ptr<SingleFileCompilationDatabase> single_file_database;
+        if (options.compilation_database && options.sources.size() == 1) {
+            single_file_commands = database->getCompileCommands(options.sources.front());
+            single_file_database = std::make_unique<SingleFileCompilationDatabase>(single_file_commands);
+        }
+
+        clang::tooling::ClangTool tool{
+            single_file_database ? static_cast<clang::tooling::CompilationDatabase &>(*single_file_database) : *database,
+            options.sources};
         tool.setDiagnosticConsumer(diag_consumer.get());
         tool.appendArgumentsAdjuster(args_adjuster);
         tool.appendArgumentsAdjuster(syntax_only_adjuster);

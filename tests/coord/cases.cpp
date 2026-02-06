@@ -1,3 +1,44 @@
+#if defined(GENTEST_CODEGEN)
+
+#include "gentest/attributes.h"
+
+namespace coord_tests {
+
+[[using gentest: test("coord/cbor_roundtrip")]]
+void cbor_roundtrip() {}
+
+[[using gentest: test("coord/cbor_manifest_status")]]
+void cbor_manifest_status() {}
+
+[[using gentest: test("coord/codec_decode_error")]]
+void codec_decode_error() {}
+
+[[using gentest: test("coord/endpoint_parse")]]
+void endpoint_parse() {}
+
+#ifndef _WIN32
+[[using gentest: test("coord/transport_frame_roundtrip")]]
+void transport_frame_roundtrip() {}
+
+[[using gentest: test("coord/transport_frame_errors")]]
+void transport_frame_errors() {}
+#endif
+
+#if COORD_ENABLE_JSON
+[[using gentest: test("coord/json_parse")]]
+void json_parse() {}
+
+[[using gentest: test("coord/json_errors")]]
+void json_errors() {}
+
+[[using gentest: test("coord/manifest_write")]]
+void manifest_write() {}
+#endif
+
+} // namespace coord_tests
+
+#else
+
 #include "coord/codec.h"
 #include "coord/json.h"
 #include "coord/transport.h"
@@ -413,3 +454,5 @@ void manifest_write() {
 #endif
 
 } // namespace coord_tests
+
+#endif
