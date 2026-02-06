@@ -8,6 +8,7 @@
 #include <cbor_tags/cbor.h>
 
 #include <chrono>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -354,8 +355,17 @@ static bool recv_message(Connection &conn, Message &msg, std::string &error) {
 }
 
 static bool ensure_tls_if_tcp(const Endpoint &endpoint, const TlsConfig &tls, std::string &error) {
-    if (endpoint.kind == Endpoint::Kind::Tcp && !tls.enabled) {
-        error = "TLS required for TCP endpoints; provide --tls-ca/--tls-cert/--tls-key";
+    if (endpoint.kind != Endpoint::Kind::Tcp || tls.enabled) {
+        return true;
+    }
+
+    std::string host = endpoint.host;
+    for (char &ch : host) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    const bool is_loopback = (host == "127.0.0.1" || host == "localhost" || host == "::1");
+    if (!is_loopback) {
+        error = "TLS required for non-loopback TCP endpoints; provide --tls-ca/--tls-cert/--tls-key";
         return false;
     }
     return true;
