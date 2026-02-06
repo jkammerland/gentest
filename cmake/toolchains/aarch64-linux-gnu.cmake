@@ -19,6 +19,14 @@ if(NOT DEFINED CMAKE_CXX_COMPILER)
     set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
 endif()
 
+if(NOT DEFINED CMAKE_C_COMPILER_TARGET)
+    set(CMAKE_C_COMPILER_TARGET aarch64-linux-gnu)
+endif()
+
+if(NOT DEFINED CMAKE_CXX_COMPILER_TARGET)
+    set(CMAKE_CXX_COMPILER_TARGET aarch64-linux-gnu)
+endif()
+
 set(_gentest_qemu_sysroot "")
 execute_process(
     COMMAND ${CMAKE_C_COMPILER} -print-file-name=ld-linux-aarch64.so.1
