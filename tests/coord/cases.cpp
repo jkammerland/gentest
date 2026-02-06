@@ -277,7 +277,7 @@ void transport_frame_errors() {
 [[using gentest: test("coord/json_parse")]]
 void json_parse() {
     const auto tmp = std::filesystem::temp_directory_path() / "coord_spec.json";
-    std::ofstream out(tmp);
+    std::ofstream out(tmp.string());
     out << R"JSON({
   "group": "coord_test",
   "mode": "A",
@@ -311,7 +311,7 @@ void json_errors() {
 
     {
         auto path = base / "coord_invalid_mode.json";
-        std::ofstream out(path);
+        std::ofstream out(path.string());
         out << R"JSON({ "group": "g", "mode": "Z", "nodes": [] })JSON";
         out.close();
         coord::SessionSpec spec{};
@@ -322,7 +322,7 @@ void json_errors() {
 
     {
         auto path = base / "coord_missing_nodes.json";
-        std::ofstream out(path);
+        std::ofstream out(path.string());
         out << R"JSON({ "group": "g", "mode": "A" })JSON";
         out.close();
         coord::SessionSpec spec{};
@@ -334,7 +334,7 @@ void json_errors() {
 
     {
         auto path = base / "coord_bad_protocol.json";
-        std::ofstream out(path);
+        std::ofstream out(path.string());
         out << R"JSON({
   "group": "g",
   "mode": "A",
@@ -351,7 +351,7 @@ void json_errors() {
 
     {
         auto path = base / "coord_bad_readiness.json";
-        std::ofstream out(path);
+        std::ofstream out(path.string());
         out << R"JSON({
   "group": "g",
   "mode": "A",
@@ -393,11 +393,12 @@ void manifest_write() {
     info.ports.push_back(pa);
     manifest.instances.push_back(info);
 
-    auto path = std::filesystem::temp_directory_path() / "coord_manifest.json";
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    auto path = std::filesystem::temp_directory_path() / ("coord_manifest_" + std::to_string(stamp) + ".json");
     std::string error;
     ASSERT_TRUE(coord::write_manifest_json(manifest, path.string(), &error), error);
 
-    std::ifstream in(path);
+    std::ifstream in(path.string());
     nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
     ASSERT_FALSE(j.is_discarded());
     EXPECT_EQ(j["session_id"], "manifest_session");
@@ -405,6 +406,7 @@ void manifest_write() {
     EXPECT_EQ(j["instances"].size(), std::size_t{1});
     EXPECT_EQ(j["instances"][0]["node"], "node");
     EXPECT_EQ(j["instances"][0]["ports"][0]["protocol"], "udp");
+    in.close();
 
     std::filesystem::remove(path);
 }
