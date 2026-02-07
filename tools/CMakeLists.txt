@@ -319,6 +319,15 @@ target_compile_features(gentest_codegen PRIVATE cxx_std_20)
 
 if(WIN32)
     target_compile_definitions(gentest_codegen PRIVATE _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING)
+
+    # Windows Debug + LLVM/Clang 21 can overflow the default stack while
+    # running clang-tooling over large TUs. Give the codegen tool a larger
+    # stack reserve so discovery/check mode stays stable.
+    if(MSVC)
+        target_link_options(gentest_codegen PRIVATE /STACK:33554432)
+    else()
+        target_link_options(gentest_codegen PRIVATE -Xlinker /STACK:33554432)
+    endif()
 endif()
 
 if(WIN32 AND MSVC)
