@@ -51,7 +51,8 @@ target("gentest_main")
     add_deps("gentest_runtime")
 
 local function gentest_suite(name)
-    local out = path.join("build", "gen", name, "test_impl.cpp")
+    local out = path.join(os.projectdir(), "build", "gen", name, "test_impl.cpp")
+    local cases = path.join(os.projectdir(), "tests", name, "cases.cpp")
 
     target("gentest_" .. name .. "_xmake")
         set_kind("binary")
@@ -74,7 +75,7 @@ local function gentest_suite(name)
                 table.insert(args, "--compdb")
                 table.insert(args, compdb_dir)
             end
-            table.insert(args, path.join("tests", name, "cases.cpp"))
+            table.insert(args, cases)
             table.insert(args, "--")
             table.insert(args, "-std=c++20")
             table.insert(args, "-DGENTEST_CODEGEN=1")
