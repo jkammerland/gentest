@@ -335,20 +335,9 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             summary.param_packs.push_back(std::move(pack));
         } else if (lowered == "fixtures") {
-            if (attr.arguments.empty()) {
-                summary.had_error = true;
-                report("'fixtures' requires at least one type name");
-                continue;
-            }
-            saw_case = true;
-            for (const auto &ty : attr.arguments) {
-                if (ty.empty()) {
-                    summary.had_error = true;
-                    report("'fixtures' contains an empty type token");
-                    break;
-                }
-                summary.fixtures_types.push_back(ty);
-            }
+            summary.had_error = true;
+            report("'fixtures(...)' was removed; infer fixtures from function parameters instead");
+            continue;
         } else if (attr.arguments.empty()) {
             if (!gentest::detail::is_allowed_flag_attribute(lowered)) {
                 summary.had_error = true;

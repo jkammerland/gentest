@@ -51,8 +51,6 @@ struct AttributeSummary {
         std::vector<std::vector<std::string>> rows;
     };
     std::vector<ParamPack> param_packs;
-    // Free-function fixtures declared via fixtures(A, B, ...)
-    std::vector<std::string> fixtures_types;
 };
 
 // Summary of class/struct-level attributes after validation.

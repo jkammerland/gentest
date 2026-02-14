@@ -19,10 +19,12 @@
 #include <clang/Basic/SourceManager.h>
 #include <fmt/format.h>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 using namespace clang;
@@ -92,6 +94,114 @@ bool has_cpp_extension(llvm::StringRef path) {
     std::ranges::reverse(parts);
     return parts;
 }
+
+std::string print_type(QualType type, const PrintingPolicy &policy) {
+    std::string             out;
+    llvm::raw_string_ostream os(out);
+    type.print(os, policy);
+    os.flush();
+    return out;
+}
+
+bool is_std_namespace(const DeclContext *ctx) {
+    const auto *current = ctx;
+    while (current != nullptr) {
+        if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
+            if (ns->isInlineNamespace()) {
+                current = ns->getParent();
+                continue;
+            }
+            return ns->getName() == "std";
+        }
+        current = current->getParent();
+    }
+    return false;
+}
+
+std::optional<QualType> unwrap_std_shared_ptr(QualType type) {
+    type = type.getCanonicalType().getUnqualifiedType();
+    const auto *record_type = type->getAs<RecordType>();
+    if (!record_type) {
+        return std::nullopt;
+    }
+    const auto *spec = llvm::dyn_cast<ClassTemplateSpecializationDecl>(record_type->getDecl());
+    if (!spec) {
+        return std::nullopt;
+    }
+    if (spec->getName() != "shared_ptr") {
+        return std::nullopt;
+    }
+    if (!is_std_namespace(spec->getDeclContext())) {
+        return std::nullopt;
+    }
+    const auto &args = spec->getTemplateArgs();
+    if (args.size() != 1 || args[0].getKind() != TemplateArgument::Type) {
+        return std::nullopt;
+    }
+    return args[0].getAsType();
+}
+
+std::string infer_fixture_type_from_param(const ParmVarDecl &param, const PrintingPolicy &policy) {
+    QualType type = param.getType();
+    if (type->isReferenceType()) {
+        type = type->getPointeeType();
+    }
+    type = type.getUnqualifiedType();
+
+    if (const auto *pointer = type->getAs<PointerType>()) {
+        type = pointer->getPointeeType().getUnqualifiedType();
+    }
+    if (const auto shared_inner = unwrap_std_shared_ptr(type.getUnqualifiedType())) {
+        type = shared_inner->getUnqualifiedType();
+    }
+    type = type.getUnqualifiedType();
+    const QualType canonical = type.getCanonicalType().getUnqualifiedType();
+    return print_type(canonical, policy);
+}
+
+std::optional<FixtureScope> infer_declared_fixture_scope_from_param(const ParmVarDecl &param, const SourceManager &sm) {
+    QualType type = param.getType();
+    if (type->isReferenceType()) {
+        type = type->getPointeeType();
+    }
+    type = type.getUnqualifiedType();
+    if (const auto *pointer = type->getAs<PointerType>()) {
+        type = pointer->getPointeeType().getUnqualifiedType();
+    }
+    if (const auto shared_inner = unwrap_std_shared_ptr(type.getUnqualifiedType())) {
+        type = shared_inner->getUnqualifiedType();
+    }
+    type = type.getUnqualifiedType();
+
+    const auto *record = type->getAsCXXRecordDecl();
+    if (!record) {
+        return std::nullopt;
+    }
+    if (const auto *definition = record->getDefinition()) {
+        record = definition;
+    }
+
+    const auto attrs = collect_gentest_attributes_for(*record, sm);
+    const auto summary = validate_fixture_attributes(attrs.gentest, [](const std::string &) {});
+    if (summary.lifetime == FixtureLifetime::MemberSuite) {
+        return FixtureScope::Suite;
+    }
+    if (summary.lifetime == FixtureLifetime::MemberGlobal) {
+        return FixtureScope::Global;
+    }
+    return std::nullopt;
+}
+
+struct FunctionParamInfo {
+    const ParmVarDecl* decl = nullptr;
+    std::string name;
+    std::string type_spelling;
+    bool        is_value_axis = false;
+    bool        has_default_arg = false;
+    bool        is_fixture = false;
+    std::size_t fixture_index = 0;
+    std::optional<FixtureScope> required_scope;
+};
 } // namespace
 
 TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes)
@@ -213,15 +323,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         return std::nullopt;
     };
-
-    // 'fixtures(...)' applies only to free functions; reject on member functions.
-    if (!summary.fixtures_types.empty()) {
-        if (llvm::isa<CXXMethodDecl>(func)) {
-            had_error_ = true;
-            report("'fixtures(...)' is not supported on member tests");
-            return;
-        }
-    }
 
     std::string qualified = func->getQualifiedNameAsString();
     if (qualified.empty())
@@ -387,10 +488,13 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
 
-    auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &call_args) {
+    auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &display_args, const std::string &call_args,
+                        const std::vector<std::string> &free_fixture_types,
+                        const std::vector<std::optional<FixtureScope>> &free_fixture_required_scopes,
+                        const std::vector<FreeCallArg> &free_call_args) {
         TestCaseInfo info{};
         info.qualified_name = make_qualified(tpl_ordered);
-        info.display_name   = make_display(final_base, tpl_ordered, call_args);
+        info.display_name   = make_display(final_base, tpl_ordered, display_args);
         info.base_name      = final_base;
         info.tu_filename    = tu_filename;
         info.filename       = filename.str();
@@ -405,14 +509,11 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.is_baseline    = summary.is_baseline;
         info.template_args  = tpl_ordered;
         info.call_arguments = call_args;
-        info.returns_value  = !func->getReturnType()->isVoidType();
+        info.returns_value = !func->getReturnType()->isVoidType();
         info.namespace_parts = namespace_parts;
-        // Preserve raw fixture type tokens for resolution after discovery.
-        if (!summary.fixtures_types.empty()) {
-            for (const auto &ty : summary.fixtures_types) {
-                info.free_fixture_types.push_back(ty);
-            }
-        }
+        info.free_fixture_types           = free_fixture_types;
+        info.free_fixture_required_scopes = free_fixture_required_scopes;
+        info.free_call_args               = free_call_args;
         if (fixture_ctx) {
             info.fixture_qualified_name = fixture_ctx->qualified_name;
             info.fixture_lifetime       = fixture_ctx->lifetime;
@@ -422,263 +523,329 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             out_.push_back(std::move(info));
     };
 
-    if (!summary.parameter_sets.empty() || !summary.param_packs.empty()) {
-        // Build maps of parameter name -> type spelling, and order of parameters
-        std::vector<std::string>              param_order;
-        std::map<std::string, std::string>    param_types;
-        {
-            auto policy = PrintingPolicy(result.Context->getLangOpts());
-            policy.adjustForCPlusPlus();
-            policy.SuppressScope          = false;
-            policy.FullyQualifiedName     = true;
-            policy.SuppressUnwrittenScope = false;
-            for (const ParmVarDecl *p : func->parameters()) {
-                std::string name = p->getNameAsString();
-                if (name.empty()) {
-                    had_error_ = true;
-                    report("function parameter is unnamed; named parameters are required for 'parameters(...)'");
-                    return;
-                }
-                std::string ty;
-                llvm::raw_string_ostream os(ty);
-                p->getType().print(os, policy);
-                os.flush();
-                param_order.push_back(name);
-                param_types.emplace(name, std::move(ty));
-            }
-        }
-        // Validate: all named axes refer to known parameters; no overlaps
-        std::set<std::string> seen_param_names;
-        for (const auto &ps : summary.parameter_sets) {
-            if (!param_types.contains(ps.param_name)) {
-                had_error_ = true;
-                report(fmt::format("unknown parameter name '{}' in parameters(...)", ps.param_name));
-                return;
-            }
-            if (!seen_param_names.insert(ps.param_name).second) {
-                had_error_ = true;
-                report(fmt::format("duplicate parameter axis for '{}'", ps.param_name));
-                return;
-            }
-        }
-        for (const auto &rs : summary.parameter_ranges) {
-            if (!param_types.contains(rs.name)) { had_error_ = true; report(fmt::format("unknown parameter name '{}' in parameters_range(...)", rs.name)); return; }
-            if (!seen_param_names.insert(rs.name).second) { had_error_ = true; report(fmt::format("duplicate parameter axis for '{}'", rs.name)); return; }
-        }
-        for (const auto &ls : summary.parameter_linspaces) {
-            if (!param_types.contains(ls.name)) { had_error_ = true; report(fmt::format("unknown parameter name '{}' in parameters_linspace(...)", ls.name)); return; }
-            if (!seen_param_names.insert(ls.name).second) { had_error_ = true; report(fmt::format("duplicate parameter axis for '{}'", ls.name)); return; }
-        }
-        for (const auto &gs : summary.parameter_geoms) {
-            if (!param_types.contains(gs.name)) { had_error_ = true; report(fmt::format("unknown parameter name '{}' in parameters_geom(...)", gs.name)); return; }
-            if (!seen_param_names.insert(gs.name).second) { had_error_ = true; report(fmt::format("duplicate parameter axis for '{}'", gs.name)); return; }
-        }
-        for (const auto &pp : summary.param_packs) {
-            for (const auto &nm : pp.names) {
-                if (!param_types.contains(nm)) {
-                    had_error_ = true;
-                    report(fmt::format("unknown parameter name '{}' in parameters_pack(...)", nm));
-                    return;
-                }
-                if (!seen_param_names.insert(nm).second) {
-                    had_error_ = true;
-                    report(fmt::format("parameter '{}' supplied by multiple parameter sets/packs", nm));
-                    return;
-                }
-            }
-        }
-        // Cartesian product of scalar parameter axes across names
-        std::vector<std::vector<std::pair<std::string, std::string>>> scalar_axes; // vector of (name,value) arrays
-        for (const auto &ps : summary.parameter_sets) {
-            std::vector<std::pair<std::string, std::string>> axis;
-            axis.reserve(ps.values.size());
-            for (const auto &v : ps.values)
-                axis.emplace_back(ps.param_name, v);
-            scalar_axes.push_back(std::move(axis));
-        }
-        // Range-based generators expanded using declared parameter type
-        auto normalize_type = [](std::string_view text) -> std::string {
-            std::string out(text);
-            std::erase_if(out, [](unsigned char c) { return std::isspace(c) != 0; });
-            std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return out;
-        };
-        std::unordered_map<std::string, std::string> param_types_norm;
-        param_types_norm.reserve(param_types.size());
-        for (const auto &[name, ty] : param_types) {
-            param_types_norm.emplace(name, normalize_type(ty));
-        }
-        auto is_integer_type = [&](const std::string &t) -> bool {
-            if (t.find("bool") != std::string::npos)
-                return true;
-            if (t.find("char") != std::string::npos && t.find("char_t") == std::string::npos)
-                return true;
-            if (t.find("short") != std::string::npos)
-                return true;
-            if (t.find("int") != std::string::npos)
-                return true;
-            if (t.find("longlong") != std::string::npos || t == "longlong" || t == "unsignedlonglong")
-                return true;
-            if (t.find("long") != std::string::npos && t.find("longlong") == std::string::npos)
-                return true;
-            if (t.find("size_t") != std::string::npos)
-                return true;
-            if (t.find("ptrdiff_t") != std::string::npos)
-                return true;
-            return false;
-        };
-        auto is_float_type = [&](const std::string &t) -> bool {
-            return t.find("float") != std::string::npos || t.find("double") != std::string::npos;
-        };
-        auto to_int = [](std::string_view s) -> long long {
-            try {
-                return std::stoll(std::string(s));
-            } catch (...) {
-                try {
-                    const double d = std::stod(std::string(s));
-                    return static_cast<long long>(std::llround(d));
-                } catch (...) {
-                    return 0LL;
-                }
-            }
-        };
-        auto to_double = [](std::string_view s) -> double {
-            try {
-                return std::stod(std::string(s));
-            } catch (...) {
-                try {
-                    return static_cast<double>(std::stoll(std::string(s)));
-                } catch (...) {
-                    return 0.0;
-                }
-            }
-        };
-        auto fmt_int = [](long long v) -> std::string { return std::to_string(v); };
-        auto fmt_double = [](double v) -> std::string {
-            char buf[64];
-            (void)std::snprintf(buf, sizeof(buf), "%.17g", v);
-            return {buf};
-        };
-        for (const auto &rs : summary.parameter_ranges) {
-            const std::string &ty = param_types_norm.at(rs.name);
-            std::vector<std::pair<std::string, std::string>> axis;
-            if (is_integer_type(ty)) {
-                long long a = to_int(rs.start), st = to_int(rs.step), b = to_int(rs.end);
-                if (st == 0) st = 1;
-                if ((st > 0 && a > b) || (st < 0 && a < b)) {
-                    had_error_ = true; report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name)); return;
-                }
-                if (st > 0) { for (long long v = a; v <= b; v += st) axis.emplace_back(rs.name, fmt_int(v)); }
-                else { for (long long v = a; v >= b; v += st) axis.emplace_back(rs.name, fmt_int(v)); }
-            } else if (is_float_type(ty)) {
-                const double a  = to_double(rs.start);
-                double       st = to_double(rs.step);
-                const double b  = to_double(rs.end);
-                if (st == 0.0)
-                    st = 1.0;
-                if ((st > 0.0 && a > b) || (st < 0.0 && a < b)) {
-                    had_error_ = true;
-                    report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name));
-                    return;
-                }
+    auto policy = PrintingPolicy(result.Context->getLangOpts());
+    policy.adjustForCPlusPlus();
+    policy.SuppressScope          = false;
+    policy.FullyQualifiedName     = true;
+    policy.SuppressUnwrittenScope = false;
 
-                const double eps = std::abs(st) * 1e-12;
-                for (std::size_t i = 0;; ++i) {
-                    const double v = a + st * static_cast<double>(i);
-                    if (!std::isfinite(v)) {
-                        had_error_ = true;
-                        report(fmt::format("parameters_range for '{}' produced a non-finite value", rs.name));
-                        return;
-                    }
-                    if (st > 0.0) {
-                        if (v > b + eps)
-                            break;
-                    } else {
-                        if (v < b - eps)
-                            break;
-                    }
-                    axis.emplace_back(rs.name, fmt_double(v));
-                }
-            } else {
-                had_error_ = true; report(fmt::format("parameters_range not supported for parameter type '{}'", ty)); return;
-            }
-            scalar_axes.push_back(std::move(axis));
+    std::vector<FunctionParamInfo> function_params;
+    function_params.reserve(func->parameters().size());
+    std::map<std::string, std::string> param_types;
+    for (const ParmVarDecl *p : func->parameters()) {
+        FunctionParamInfo param{};
+        param.decl = p;
+        param.name = p->getNameAsString();
+        param.type_spelling = print_type(p->getType(), policy);
+        param.has_default_arg = p->hasDefaultArg();
+        if (!param.name.empty()) {
+            param_types.emplace(param.name, param.type_spelling);
         }
-        for (const auto &ls : summary.parameter_linspaces) {
-            const std::string &ty = param_types_norm.at(ls.name);
-            std::vector<std::pair<std::string, std::string>> axis;
-            long long n = to_int(ls.count);
-            if (n < 1)
-                n = 1;
-            if (is_integer_type(ty)) {
-                long long a = to_int(ls.start), b = to_int(ls.end);
-                if (n == 1) {
-                    axis.emplace_back(ls.name, fmt_int(a));
-                } else {
-                    const double step = static_cast<double>(b - a) / static_cast<double>(n - 1);
-                    for (long long i = 0; i < n; ++i) {
-                        const double d = static_cast<double>(a) + step * static_cast<double>(i);
-                        axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(d))));
-                    }
-                }
-            } else if (is_float_type(ty)) {
-                double a = to_double(ls.start), b = to_double(ls.end);
-                if (n == 1) {
-                    axis.emplace_back(ls.name, fmt_double(a));
-                } else {
-                    const double step = (b - a) / static_cast<double>(n - 1);
-                    for (long long i = 0; i < n; ++i) {
-                        const double d = a + step * static_cast<double>(i);
-                        axis.emplace_back(ls.name, fmt_double(d));
-                    }
-                }
-            } else {
+        function_params.push_back(std::move(param));
+    }
+
+    // Validate: all named axes refer to known parameters; no overlaps.
+    std::set<std::string> value_axis_names;
+    auto validate_axis_name = [&](const std::string &name, std::string_view origin) -> bool {
+        if (!param_types.contains(name)) {
+            had_error_ = true;
+            report(fmt::format("unknown parameter name '{}' in {}(...)", name, origin));
+            return false;
+        }
+        if (!value_axis_names.insert(name).second) {
+            had_error_ = true;
+            report(fmt::format("duplicate parameter axis for '{}'", name));
+            return false;
+        }
+        return true;
+    };
+
+    for (const auto &ps : summary.parameter_sets) {
+        if (!validate_axis_name(ps.param_name, "parameters")) {
+            return;
+        }
+    }
+    for (const auto &rs : summary.parameter_ranges) {
+        if (!validate_axis_name(rs.name, "parameters_range")) {
+            return;
+        }
+    }
+    for (const auto &ls : summary.parameter_linspaces) {
+        if (!validate_axis_name(ls.name, "parameters_linspace")) {
+            return;
+        }
+    }
+    for (const auto &gs : summary.parameter_geoms) {
+        if (!validate_axis_name(gs.name, "parameters_geom")) {
+            return;
+        }
+    }
+    for (const auto &ls : summary.parameter_logspaces) {
+        if (!validate_axis_name(ls.name, "logspace")) {
+            return;
+        }
+    }
+    for (const auto &pp : summary.param_packs) {
+        for (const auto &nm : pp.names) {
+            if (!param_types.contains(nm)) {
                 had_error_ = true;
-                report(fmt::format("parameters_linspace not supported for parameter type '{}'", ty));
+                report(fmt::format("unknown parameter name '{}' in parameters_pack(...)", nm));
                 return;
             }
-            scalar_axes.push_back(std::move(axis));
-        }
-        for (const auto &gs : summary.parameter_geoms) {
-            const std::string &ty = param_types_norm.at(gs.name);
-            std::vector<std::pair<std::string, std::string>> axis;
-            long long n = to_int(gs.count);
-            if (n < 1)
-                n = 1;
-            if (is_integer_type(ty)) {
-                const long long a = to_int(gs.start);
-                const double    f = to_double(gs.factor);
-                auto            v = static_cast<double>(a);
-                for (long long i = 0; i < n; ++i) {
-                    axis.emplace_back(gs.name, fmt_int(static_cast<long long>(std::llround(v))));
-                    v *= f;
-                }
-            } else if (is_float_type(ty)) {
-                const double a = to_double(gs.start);
-                const double f = to_double(gs.factor);
-                auto         v = a;
-                for (long long i = 0; i < n; ++i) {
-                    axis.emplace_back(gs.name, fmt_double(v));
-                    v *= f;
-                }
-            } else {
+            if (!value_axis_names.insert(nm).second) {
                 had_error_ = true;
-                report(fmt::format("parameters_geom not supported for parameter type '{}'", ty));
+                report(fmt::format("parameter '{}' supplied by multiple parameter sets/packs", nm));
                 return;
             }
-            scalar_axes.push_back(std::move(axis));
         }
-        for (const auto &ls : summary.parameter_logspaces) {
-            const std::string &ty = param_types_norm.at(ls.name);
-            std::vector<std::pair<std::string, std::string>> axis;
-            long long n = to_int(ls.count);
-            if (n < 1)
-                n = 1;
-            const double base = ls.base.empty() ? 10.0 : to_double(ls.base);
-            const double aexp = to_double(ls.start_exp);
-            const double bexp = to_double(ls.end_exp);
+    }
+
+    std::vector<std::string> inferred_fixture_types;
+    std::vector<std::optional<FixtureScope>> inferred_fixture_required_scopes;
+    for (auto &param : function_params) {
+        if (!param.name.empty() && value_axis_names.contains(param.name)) {
+            param.is_value_axis = true;
+            continue;
+        }
+        if (param.has_default_arg) {
+            continue;
+        }
+        param.is_fixture = true;
+        param.fixture_index = inferred_fixture_types.size();
+        if (!param.decl) {
+            had_error_ = true;
+            report("internal error while inferring fixture parameter type");
+            return;
+        }
+        std::string fixture_type = infer_fixture_type_from_param(*param.decl, policy);
+        if (fixture_type.empty()) {
+            had_error_ = true;
+            const std::string fallback_name = param.name.empty() ? std::string("<unnamed>") : param.name;
+            report(fmt::format("unable to infer fixture type for parameter '{}'", fallback_name));
+            return;
+        }
+        param.required_scope = infer_declared_fixture_scope_from_param(*param.decl, *sm);
+        inferred_fixture_types.push_back(std::move(fixture_type));
+        inferred_fixture_required_scopes.push_back(param.required_scope);
+    }
+
+    // Cartesian product of scalar parameter axes across names.
+    std::vector<std::vector<std::pair<std::string, std::string>>> scalar_axes; // vector of (name,value) arrays
+    for (const auto &ps : summary.parameter_sets) {
+        std::vector<std::pair<std::string, std::string>> axis;
+        axis.reserve(ps.values.size());
+        for (const auto &v : ps.values) {
+            axis.emplace_back(ps.param_name, v);
+        }
+        scalar_axes.push_back(std::move(axis));
+    }
+
+    // Range-based generators expanded using declared parameter type.
+    auto normalize_type = [](std::string_view text) -> std::string {
+        std::string out(text);
+        std::erase_if(out, [](unsigned char c) { return std::isspace(c) != 0; });
+        std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return out;
+    };
+    std::unordered_map<std::string, std::string> param_types_norm;
+    param_types_norm.reserve(param_types.size());
+    for (const auto &[name, ty] : param_types) {
+        param_types_norm.emplace(name, normalize_type(ty));
+    }
+    auto is_integer_type = [&](const std::string &t) -> bool {
+        if (t.find("bool") != std::string::npos)
+            return true;
+        if (t.find("char") != std::string::npos && t.find("char_t") == std::string::npos)
+            return true;
+        if (t.find("short") != std::string::npos)
+            return true;
+        if (t.find("int") != std::string::npos)
+            return true;
+        if (t.find("longlong") != std::string::npos || t == "longlong" || t == "unsignedlonglong")
+            return true;
+        if (t.find("long") != std::string::npos && t.find("longlong") == std::string::npos)
+            return true;
+        if (t.find("size_t") != std::string::npos)
+            return true;
+        if (t.find("ptrdiff_t") != std::string::npos)
+            return true;
+        return false;
+    };
+    auto is_float_type = [&](const std::string &t) -> bool {
+        return t.find("float") != std::string::npos || t.find("double") != std::string::npos;
+    };
+    auto to_int = [](std::string_view s) -> long long {
+        try {
+            return std::stoll(std::string(s));
+        } catch (...) {
+            try {
+                const double d = std::stod(std::string(s));
+                return static_cast<long long>(std::llround(d));
+            } catch (...) {
+                return 0LL;
+            }
+        }
+    };
+    auto to_double = [](std::string_view s) -> double {
+        try {
+            return std::stod(std::string(s));
+        } catch (...) {
+            try {
+                return static_cast<double>(std::stoll(std::string(s)));
+            } catch (...) {
+                return 0.0;
+            }
+        }
+    };
+    auto fmt_int = [](long long v) -> std::string { return std::to_string(v); };
+    auto fmt_double = [](double v) -> std::string {
+        char buf[64];
+        (void)std::snprintf(buf, sizeof(buf), "%.17g", v);
+        return {buf};
+    };
+    for (const auto &rs : summary.parameter_ranges) {
+        const std::string &ty = param_types_norm.at(rs.name);
+        std::vector<std::pair<std::string, std::string>> axis;
+        if (is_integer_type(ty)) {
+            long long a = to_int(rs.start), st = to_int(rs.step), b = to_int(rs.end);
+            if (st == 0) st = 1;
+            if ((st > 0 && a > b) || (st < 0 && a < b)) {
+                had_error_ = true;
+                report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name));
+                return;
+            }
+            if (st > 0) {
+                for (long long v = a; v <= b; v += st)
+                    axis.emplace_back(rs.name, fmt_int(v));
+            } else {
+                for (long long v = a; v >= b; v += st)
+                    axis.emplace_back(rs.name, fmt_int(v));
+            }
+        } else if (is_float_type(ty)) {
+            const double a  = to_double(rs.start);
+            double       st = to_double(rs.step);
+            const double b  = to_double(rs.end);
+            if (st == 0.0)
+                st = 1.0;
+            if ((st > 0.0 && a > b) || (st < 0.0 && a < b)) {
+                had_error_ = true;
+                report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name));
+                return;
+            }
+
+            const double eps = std::abs(st) * 1e-12;
+            for (std::size_t i = 0;; ++i) {
+                const double v = a + st * static_cast<double>(i);
+                if (!std::isfinite(v)) {
+                    had_error_ = true;
+                    report(fmt::format("parameters_range for '{}' produced a non-finite value", rs.name));
+                    return;
+                }
+                if (st > 0.0) {
+                    if (v > b + eps)
+                        break;
+                } else {
+                    if (v < b - eps)
+                        break;
+                }
+                axis.emplace_back(rs.name, fmt_double(v));
+            }
+        } else {
+            had_error_ = true;
+            report(fmt::format("parameters_range not supported for parameter type '{}'", ty));
+            return;
+        }
+        scalar_axes.push_back(std::move(axis));
+    }
+    for (const auto &ls : summary.parameter_linspaces) {
+        const std::string &ty = param_types_norm.at(ls.name);
+        std::vector<std::pair<std::string, std::string>> axis;
+        long long n = to_int(ls.count);
+        if (n < 1)
+            n = 1;
+        if (is_integer_type(ty)) {
+            long long a = to_int(ls.start), b = to_int(ls.end);
             if (n == 1) {
-                const double val = std::pow(base, aexp);
+                axis.emplace_back(ls.name, fmt_int(a));
+            } else {
+                const double step = static_cast<double>(b - a) / static_cast<double>(n - 1);
+                for (long long i = 0; i < n; ++i) {
+                    const double d = static_cast<double>(a) + step * static_cast<double>(i);
+                    axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(d))));
+                }
+            }
+        } else if (is_float_type(ty)) {
+            double a = to_double(ls.start), b = to_double(ls.end);
+            if (n == 1) {
+                axis.emplace_back(ls.name, fmt_double(a));
+            } else {
+                const double step = (b - a) / static_cast<double>(n - 1);
+                for (long long i = 0; i < n; ++i) {
+                    const double d = a + step * static_cast<double>(i);
+                    axis.emplace_back(ls.name, fmt_double(d));
+                }
+            }
+        } else {
+            had_error_ = true;
+            report(fmt::format("parameters_linspace not supported for parameter type '{}'", ty));
+            return;
+        }
+        scalar_axes.push_back(std::move(axis));
+    }
+    for (const auto &gs : summary.parameter_geoms) {
+        const std::string &ty = param_types_norm.at(gs.name);
+        std::vector<std::pair<std::string, std::string>> axis;
+        long long n = to_int(gs.count);
+        if (n < 1)
+            n = 1;
+        if (is_integer_type(ty)) {
+            const long long a = to_int(gs.start);
+            const double    f = to_double(gs.factor);
+            auto            v = static_cast<double>(a);
+            for (long long i = 0; i < n; ++i) {
+                axis.emplace_back(gs.name, fmt_int(static_cast<long long>(std::llround(v))));
+                v *= f;
+            }
+        } else if (is_float_type(ty)) {
+            const double a = to_double(gs.start);
+            const double f = to_double(gs.factor);
+            auto         v = a;
+            for (long long i = 0; i < n; ++i) {
+                axis.emplace_back(gs.name, fmt_double(v));
+                v *= f;
+            }
+        } else {
+            had_error_ = true;
+            report(fmt::format("parameters_geom not supported for parameter type '{}'", ty));
+            return;
+        }
+        scalar_axes.push_back(std::move(axis));
+    }
+    for (const auto &ls : summary.parameter_logspaces) {
+        const std::string &ty = param_types_norm.at(ls.name);
+        std::vector<std::pair<std::string, std::string>> axis;
+        long long n = to_int(ls.count);
+        if (n < 1)
+            n = 1;
+        const double base = ls.base.empty() ? 10.0 : to_double(ls.base);
+        const double aexp = to_double(ls.start_exp);
+        const double bexp = to_double(ls.end_exp);
+        if (n == 1) {
+            const double val = std::pow(base, aexp);
+            if (is_integer_type(ty))
+                axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
+            else if (is_float_type(ty))
+                axis.emplace_back(ls.name, fmt_double(val));
+            else {
+                had_error_ = true;
+                report(fmt::format("logspace not supported for parameter type '{}'", ty));
+                return;
+            }
+        } else {
+            const double step = (bexp - aexp) / static_cast<double>(n - 1);
+            for (long long i = 0; i < n; ++i) {
+                const double e   = aexp + step * static_cast<double>(i);
+                const double val = std::pow(base, e);
                 if (is_integer_type(ty))
                     axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
                 else if (is_float_type(ty))
@@ -688,111 +855,130 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                     report(fmt::format("logspace not supported for parameter type '{}'", ty));
                     return;
                 }
-            } else {
-                const double step = (bexp - aexp) / static_cast<double>(n - 1);
-                for (long long i = 0; i < n; ++i) {
-                    const double e   = aexp + step * static_cast<double>(i);
-                    const double val = std::pow(base, e);
-                    if (is_integer_type(ty))
-                        axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
-                    else if (is_float_type(ty))
-                        axis.emplace_back(ls.name, fmt_double(val));
-                    else {
-                        had_error_ = true;
-                        report(fmt::format("logspace not supported for parameter type '{}'", ty));
-                        return;
-                    }
-                }
             }
-            scalar_axes.push_back(std::move(axis));
         }
-        using NameMap = std::map<std::string, std::string>;
-        NameMap current;
+        scalar_axes.push_back(std::move(axis));
+    }
 
-        auto set_value = [&](const std::string &name, const std::string &value) -> std::optional<std::string> {
-            auto it = current.find(name);
+    auto join_csv = [](const std::vector<std::string> &parts) {
+        std::string out;
+        for (std::size_t i = 0; i < parts.size(); ++i) {
+            if (i) out += ", ";
+            out += parts[i];
+        }
+        return out;
+    };
+
+    using NameMap = std::map<std::string, std::string>;
+    NameMap current;
+
+    auto set_value = [&](const std::string &name, const std::string &value) -> std::optional<std::string> {
+        auto it = current.find(name);
+        if (it == current.end()) {
+            current.emplace(name, value);
+            return std::nullopt;
+        }
+        std::string prev = it->second;
+        it->second       = value;
+        return prev;
+    };
+    auto restore_value = [&](const std::string &name, const std::optional<std::string> &prev) {
+        if (prev.has_value())
+            current[name] = *prev;
+        else
+            current.erase(name);
+    };
+
+    auto emit_case = [&](const std::vector<std::string> &tpl_combo) {
+        std::vector<std::string> value_exprs_for_display;
+        std::vector<std::string> value_exprs_for_call;
+        std::vector<FreeCallArg> free_call_args;
+        free_call_args.reserve(function_params.size());
+
+        for (const auto &param : function_params) {
+            if (param.is_fixture) {
+                FreeCallArg arg{};
+                arg.kind          = FreeCallArgKind::Fixture;
+                arg.fixture_index = param.fixture_index;
+                free_call_args.push_back(std::move(arg));
+                continue;
+            }
+            if (!param.is_value_axis) {
+                // Parameter has a default argument and is not driven by explicit value axes.
+                continue;
+            }
+
+            if (param.name.empty()) {
+                had_error_ = true;
+                report("missing value for unnamed function parameter in parameters(...) or parameters_pack(...)");
+                return;
+            }
+            auto it = current.find(param.name);
             if (it == current.end()) {
-                current.emplace(name, value);
-                return std::nullopt;
+                had_error_ = true;
+                report(fmt::format("missing value for function parameter '{}' in parameters(...) or parameters_pack(...)", param.name));
+                return;
             }
-            std::string prev = it->second;
-            it->second       = value;
-            return prev;
-        };
-        auto restore_value = [&](const std::string &name, const std::optional<std::string> &prev) {
-            if (prev.has_value())
-                current[name] = *prev;
-            else
-                current.erase(name);
-        };
+            auto kind = classify_type(param.type_spelling);
+            std::string expr = quote_for_type(kind, it->second, param.type_spelling);
+            value_exprs_for_call.push_back(expr);
+            value_exprs_for_display.push_back(expr);
+            FreeCallArg arg{};
+            arg.kind = FreeCallArgKind::Value;
+            arg.value_expression = std::move(expr);
+            free_call_args.push_back(std::move(arg));
+        }
 
-        auto emit_case = [&](const std::vector<std::string> &tpl_combo) {
-            std::string call;
-            for (std::size_t i = 0; i < param_order.size(); ++i) {
-                if (i) call += ", ";
-                const auto &pname = param_order[i];
-                auto        it    = current.find(pname);
-                if (it == current.end()) {
-                    had_error_ = true;
-                    report(fmt::format("missing value for function parameter '{}' in parameters(...) or parameters_pack(...)", pname));
-                    return;
-                }
-                const std::string &ty   = param_types[pname];
-                auto               kind = classify_type(ty);
-                call += quote_for_type(kind, it->second, ty);
+        const std::string display_args = join_csv(value_exprs_for_display);
+        const std::string call_args    = join_csv(value_exprs_for_call);
+        add_case(tpl_combo, display_args, call_args, inferred_fixture_types, inferred_fixture_required_scopes, free_call_args);
+    };
+
+    std::function<void(std::size_t, const std::vector<std::string> &)> visit_scalars =
+        [&](std::size_t idx, const std::vector<std::string> &tpl_combo) {
+            if (idx == scalar_axes.size()) {
+                emit_case(tpl_combo);
+                return;
             }
-            add_case(tpl_combo, call);
+            for (const auto &nv : scalar_axes[idx]) {
+                const auto prev = set_value(nv.first, nv.second);
+                visit_scalars(idx + 1, tpl_combo);
+                restore_value(nv.first, prev);
+            }
         };
 
-        std::function<void(std::size_t, const std::vector<std::string> &)> visit_scalars =
-            [&](std::size_t idx, const std::vector<std::string> &tpl_combo) {
-                if (idx == scalar_axes.size()) {
-                    emit_case(tpl_combo);
-                    return;
-                }
-                for (const auto &nv : scalar_axes[idx]) {
-                    const auto prev = set_value(nv.first, nv.second);
-                    visit_scalars(idx + 1, tpl_combo);
-                    restore_value(nv.first, prev);
-                }
-            };
-
-        std::function<void(std::size_t, const std::vector<std::string> &)> visit_packs =
-            [&](std::size_t idx, const std::vector<std::string> &tpl_combo) {
-                if (idx == summary.param_packs.size()) {
-                    if (scalar_axes.empty())
-                        emit_case(tpl_combo);
-                    else
-                        visit_scalars(0, tpl_combo);
-                    return;
-                }
-                const auto &pp = summary.param_packs[idx];
-                for (const auto &row : pp.rows) {
-                    std::vector<std::pair<std::string, std::optional<std::string>>> prev;
-                    prev.reserve(pp.names.size());
-                    for (std::size_t i = 0; i < pp.names.size(); ++i) {
-                        prev.emplace_back(pp.names[i], set_value(pp.names[i], row[i]));
-                    }
-                    visit_packs(idx + 1, tpl_combo);
-                    for (auto it = prev.rbegin(); it != prev.rend(); ++it) {
-                        restore_value(it->first, it->second);
-                    }
-                }
-            };
-
-        for (const auto &tpl_combo : combined_tpl_combos) {
-            if (summary.param_packs.empty()) {
+    std::function<void(std::size_t, const std::vector<std::string> &)> visit_packs =
+        [&](std::size_t idx, const std::vector<std::string> &tpl_combo) {
+            if (idx == summary.param_packs.size()) {
                 if (scalar_axes.empty())
                     emit_case(tpl_combo);
                 else
                     visit_scalars(0, tpl_combo);
-            } else {
-                visit_packs(0, tpl_combo);
+                return;
             }
+            const auto &pp = summary.param_packs[idx];
+            for (const auto &row : pp.rows) {
+                std::vector<std::pair<std::string, std::optional<std::string>>> prev;
+                prev.reserve(pp.names.size());
+                for (std::size_t i = 0; i < pp.names.size(); ++i) {
+                    prev.emplace_back(pp.names[i], set_value(pp.names[i], row[i]));
+                }
+                visit_packs(idx + 1, tpl_combo);
+                for (auto it = prev.rbegin(); it != prev.rend(); ++it) {
+                    restore_value(it->first, it->second);
+                }
+            }
+        };
+
+    for (const auto &tpl_combo : combined_tpl_combos) {
+        if (summary.param_packs.empty()) {
+            if (scalar_axes.empty())
+                emit_case(tpl_combo);
+            else
+                visit_scalars(0, tpl_combo);
+        } else {
+            visit_packs(0, tpl_combo);
         }
-    } else {
-        for (const auto &tpl_combo : combined_tpl_combos)
-            add_case(tpl_combo, "");
     }
 }
 
@@ -929,12 +1115,6 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
     info.is_baseline    = summary.is_baseline;
     info.returns_value  = !func.getReturnType()->isVoidType();
     info.namespace_parts = collect_namespace_parts(func.getDeclContext());
-
-    if (!summary.fixtures_types.empty()) {
-        for (const auto &ty : summary.fixtures_types) {
-            info.free_fixture_types.push_back(ty);
-        }
-    }
 
     // If this is a method, collect fixture attributes from the parent class/struct.
     if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {
@@ -1191,6 +1371,17 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
         ok = false;
         log_err("gentest_codegen: {}:{}: {} (test {})\n", test.filename, test.line, message, test.display_name);
     };
+    const auto scope_name = [](FixtureScope scope) -> std::string_view {
+        switch (scope) {
+            case FixtureScope::Local:
+                return "local";
+            case FixtureScope::Suite:
+                return "suite";
+            case FixtureScope::Global:
+                return "global";
+        }
+        return "unknown";
+    };
 
     for (auto &test : cases) {
         if (test.free_fixture_types.empty()) {
@@ -1199,17 +1390,41 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
         test.free_fixtures.clear();
         const auto it = lookups.find(test.tu_filename);
         const FixtureLookup *lookup = (it == lookups.end()) ? nullptr : &it->second;
-        for (const auto &raw_type : test.free_fixture_types) {
+        for (std::size_t fixture_idx = 0; fixture_idx < test.free_fixture_types.size(); ++fixture_idx) {
+            const std::string &raw_type = test.free_fixture_types[fixture_idx];
+            const std::optional<FixtureScope> required_scope =
+                (fixture_idx < test.free_fixture_required_scopes.size()) ? test.free_fixture_required_scopes[fixture_idx] : std::nullopt;
             ParsedFixtureType parsed = parse_fixture_type(raw_type);
             if (parsed.base.empty()) {
-                report(test, "empty fixture type in fixtures(...)");
+                report(test, "empty inferred fixture type from function signature");
                 continue;
             }
             const std::string base_no_colons = strip_leading_colons(parsed.base);
             const auto emit_local = [&](const std::string &qualified_name) {
+                if (required_scope.has_value()) {
+                    report(test,
+                           fmt::format(
+                               "fixture '{}' is declared as '{}' but resolved as local; ensure the fixture declaration is visible and in "
+                               "an ancestor namespace",
+                               parsed.full, scope_name(*required_scope)));
+                    return;
+                }
                 FreeFixtureUse use{};
                 use.type_name = qualified_name;
                 use.scope = FixtureScope::Local;
+                test.free_fixtures.push_back(std::move(use));
+            };
+            const auto emit_declared = [&](const FixtureDeclInfo *decl) {
+                if (required_scope.has_value() && decl->scope != *required_scope) {
+                    report(test,
+                           fmt::format("fixture '{}' declared as '{}' but resolved as '{}' via '{}'", parsed.full,
+                                       scope_name(*required_scope), scope_name(decl->scope), decl->qualified_name));
+                    return;
+                }
+                FreeFixtureUse use{};
+                use.type_name  = decl->qualified_name + parsed.suffix;
+                use.scope      = decl->scope;
+                use.suite_name = decl->suite_name;
                 test.free_fixtures.push_back(std::move(use));
             };
 
@@ -1222,11 +1437,7 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
                             report(test, fmt::format("fixture '{}' is not in an ancestor namespace of this test", base_no_colons));
                             continue;
                         }
-                        FreeFixtureUse use{};
-                        use.type_name  = decl->qualified_name + parsed.suffix;
-                        use.scope      = decl->scope;
-                        use.suite_name = decl->suite_name;
-                        test.free_fixtures.push_back(std::move(use));
+                        emit_declared(decl);
                         continue;
                     }
                     emit_local(parsed.full);
@@ -1248,11 +1459,7 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
                         report(test, fmt::format("fixture '{}' is not in an ancestor namespace of this test", parsed.base));
                         continue;
                     }
-                    FreeFixtureUse use{};
-                    use.type_name  = best->qualified_name + parsed.suffix;
-                    use.scope      = best->scope;
-                    use.suite_name = best->suite_name;
-                    test.free_fixtures.push_back(std::move(use));
+                    emit_declared(best);
                     continue;
                 }
             }

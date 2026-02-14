@@ -17,7 +17,7 @@ struct NullFreeFixture {
     static std::unique_ptr<NullFreeFixture> gentest_allocate() { return {}; }
 };
 
-[[using gentest: test("alloc/free_null"), fixtures(NullFreeFixture)]]
+[[using gentest: test("alloc/free_null")]]
 void free_null_fixture(NullFreeFixture&) {}
 
 struct [[using gentest: fixture(suite)]] NullSuiteFixture {

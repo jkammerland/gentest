@@ -300,12 +300,28 @@ gentest_add_check_death(
     NAME gentest_codegen_fixture_namespace_scope
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "fixture 'SharedFx' is not in an ancestor namespace"
+    EXPECT_SUBSTRING "fixture 'outer_a::inner::SharedFx' is not in an ancestor namespace"
     ARGS
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/namespace_scope.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_fixture_attr_removed
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "'fixtures(...)' was removed; infer fixtures from function parameters instead"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/fixtures_attribute_removed.cpp
         --
         ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
@@ -324,6 +340,7 @@ set_tests_properties(
     gentest_codegen_fixture_suite_member_illegal
     gentest_codegen_fixture_global_member_illegal
     gentest_codegen_fixture_namespace_scope
+    gentest_codegen_fixture_attr_removed
     PROPERTIES LABELS "codegen")
 
 # End-to-end behavioral checks with robust counting
@@ -340,12 +357,30 @@ set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
 
 # Verify argument-mismatch message content for mock expectations
 
+gentest_add_check_death(
+    NAME failing_free_fixture_alloc_message
+    PROG $<TARGET_FILE:gentest_failing_tests>
+    EXPECT_SUBSTRING "fixture allocation failed for 'failing::NullFreeFixture': returned null"
+    ARGS --run-test=failing/alloc/free_null)
+
+gentest_add_check_death(
+    NAME failing_suite_fixture_alloc_message
+    PROG $<TARGET_FILE:gentest_failing_tests>
+    EXPECT_SUBSTRING "gentest: fixture 'failing::NullSuiteFixture' fixture allocation returned null"
+    ARGS --run-test=failing/alloc/suite_null)
+
+gentest_add_check_death(
+    NAME failing_global_fixture_alloc_message
+    PROG $<TARGET_FILE:gentest_failing_tests>
+    EXPECT_SUBSTRING "gentest: fixture 'failing::NullGlobalFixture' fixture allocation returned null"
+    ARGS --run-test=failing/alloc/global_null)
+
 
 gentest_add_check_counts(NAME skiponly_counts PROG $<TARGET_FILE:gentest_skiponly_tests> PASS 0 FAIL 0 SKIP 2)
 gentest_add_check_counts(NAME skiponly_list_counts PROG $<TARGET_FILE:gentest_skiponly_tests> LIST CASES 2)
 
-gentest_add_check_counts(NAME fixtures_counts PROG $<TARGET_FILE:gentest_fixtures_tests> PASS 27 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME fixtures_list_counts PROG $<TARGET_FILE:gentest_fixtures_tests> LIST CASES 27)
+gentest_add_check_counts(NAME fixtures_counts PROG $<TARGET_FILE:gentest_fixtures_tests> PASS 29 FAIL 0 SKIP 0)
+gentest_add_check_counts(NAME fixtures_list_counts PROG $<TARGET_FILE:gentest_fixtures_tests> LIST CASES 29)
 
 gentest_add_check_counts(NAME templates_counts PROG $<TARGET_FILE:gentest_templates_tests> PASS 93 FAIL 0 SKIP 0)
 gentest_add_check_lines(NAME templates_list_tests_lines PROG $<TARGET_FILE:gentest_templates_tests> LINES 93 ARGS --list-tests)
@@ -567,7 +602,7 @@ gentest_add_check_counts(
     SKIP 0
     ARGS --filter=*strings*)
 
-gentest_add_check_lines(NAME fixtures_list_tests_lines PROG $<TARGET_FILE:gentest_fixtures_tests> LINES 27 ARGS --list-tests)
+gentest_add_check_lines(NAME fixtures_list_tests_lines PROG $<TARGET_FILE:gentest_fixtures_tests> LINES 29 ARGS --list-tests)
 
 # JUnit XML smoke test: generate and validate basic content
 gentest_add_check_file_contains(

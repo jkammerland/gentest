@@ -100,6 +100,9 @@ Run:
 ./my_tests
 ```
 
+`--list-tests` prints only resolved test names (one per line).
+`--list` prints the richer listing format (name plus metadata such as tags/owner when present).
+
 Naming:
 - Any gentest function-level attribute marks the declaration as a case.
 - `test("...")` is optional; if omitted, the base name defaults to the C++ function name (or `FixtureType/method` for member tests).
@@ -303,8 +306,19 @@ void matrix() {
 
 ### Fixtures
 
-Use `fixtures(A, B, ...)` on a free-function test to get ephemeral (per-invocation) fixture objects passed by reference.
-If a fixture implements `gentest::FixtureSetup`/`gentest::FixtureTearDown`, hooks run automatically.
+Fixture arguments are inferred from the free-function signature. If a fixture implements
+`gentest::FixtureSetup`/`gentest::FixtureTearDown`, hooks run automatically.
+
+Supported fixture argument forms:
+- `T&`
+- `T*`
+- `std::shared_ptr<T>`
+
+Allocation hooks can return `std::unique_ptr<T>` (or custom-deleter unique ptr),
+`std::shared_ptr<T>`, or raw `T*`. Gentest always manages fixture ownership
+internally. Raw-pointer returns are adopted into managed ownership (same lifetime
+semantics as returning `std::unique_ptr<T>`), and the framework handles
+deallocation.
 
 ```cpp
 #include "gentest/attributes.h"
@@ -317,11 +331,13 @@ struct Counter : gentest::FixtureSetup {
     void setUp() override { x = 1; }
 };
 
-[[using gentest: test("fx/counter"), fixtures(Counter)]]
+[[using gentest: test("fx/counter")]]
 void counter(Counter& c) {
     EXPECT_EQ(c.x, 1);
 }
 ```
+
+See `docs/fixtures_allocation.md` for the full allocation and ownership model.
 
 ### Mocks
 

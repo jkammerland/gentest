@@ -32,6 +32,19 @@ struct FreeFixtureUse {
     std::string   suite_name; // only for suite fixtures
 };
 
+enum class FreeCallArgKind {
+    Fixture,
+    Value,
+};
+
+struct FreeCallArg {
+    FreeCallArgKind kind = FreeCallArgKind::Fixture;
+    // Index into TestCaseInfo::free_fixtures when kind == Fixture.
+    std::size_t     fixture_index = 0;
+    // C++ expression string when kind == Value.
+    std::string     value_expression;
+};
+
 struct FixtureDeclInfo {
     std::string              qualified_name;
     std::string              base_name;
@@ -121,11 +134,16 @@ struct TestCaseInfo {
     std::vector<std::string> template_args;
     // Call-time arguments for free/member tests (e.g., parameterized value list joined by ',').
     std::string call_arguments;
-    // Free-function fixtures declared via [[using gentest: fixtures(A, B, ...)]].
-    // Raw fixture tokens as spelled in the attribute; resolved after discovery.
+    // Free-function fixtures inferred from function signature parameter types.
+    // Raw fixture type tokens as discovered from the signature; resolved after discovery.
     std::vector<std::string> free_fixture_types;
+    // Optional expected scope for each inferred fixture type (same length/order as free_fixture_types).
+    // Set when the referenced type declaration is explicitly marked fixture(suite/global).
+    std::vector<std::optional<FixtureScope>> free_fixture_required_scopes;
     // Resolved fixture uses with scope/suite metadata.
     std::vector<FreeFixtureUse> free_fixtures;
+    // Ordered free-function call argument bindings (supports fixture/value interleaving).
+    std::vector<FreeCallArg> free_call_args;
     // Namespace parts for this test (used for fixture resolution).
     std::vector<std::string> namespace_parts;
 };

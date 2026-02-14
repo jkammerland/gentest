@@ -194,10 +194,10 @@ struct [[using gentest: fixture(suite)]] NullJitterFixture {
     }
 };
 
-[[using gentest: bench("fixture/null"), baseline, fixtures(NullBenchFixture)]]
+[[using gentest: bench("fixture/null"), baseline]]
 void bench_null(NullBenchFixture&) {}
 
-[[using gentest: jitter("fixture/jitter_null"), fixtures(NullJitterFixture)]]
+[[using gentest: jitter("fixture/jitter_null")]]
 void jitter_null(NullJitterFixture&) {}
 
 struct LocalBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
@@ -210,12 +210,12 @@ struct LocalJitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void tearDown() { BenchFixtureState<LocalJitterFixture>::on_teardown("benchmarks/fixture/local_jitter"); }
 };
 
-[[using gentest: bench("fixture/local"), fixtures(LocalBenchFixture)]]
+[[using gentest: bench("fixture/local")]]
 void bench_local(LocalBenchFixture& fx) {
     BenchFixtureState<LocalBenchFixture>::on_call("benchmarks/fixture/local", &fx);
 }
 
-[[using gentest: jitter("fixture/local_jitter"), fixtures(LocalJitterFixture)]]
+[[using gentest: jitter("fixture/local_jitter")]]
 void jitter_local(LocalJitterFixture& fx) {
     BenchFixtureState<LocalJitterFixture>::on_call("benchmarks/fixture/local_jitter", &fx);
 }
@@ -240,13 +240,13 @@ struct [[using gentest: fixture(global)]] GlobalJitterFixture : gentest::Fixture
     void tearDown() { BenchFixtureState<GlobalJitterFixture>::on_teardown("benchmarks/fixture/free_suite_global_jitter/global"); }
 };
 
-[[using gentest: bench("fixture/free_suite_global"), fixtures(SuiteBenchFixture, GlobalBenchFixture)]]
+[[using gentest: bench("fixture/free_suite_global")]]
 void bench_free_suite_global(SuiteBenchFixture& suite_fx, GlobalBenchFixture& global_fx) {
     BenchFixtureState<SuiteBenchFixture>::on_call("benchmarks/fixture/free_suite_global/suite", &suite_fx);
     BenchFixtureState<GlobalBenchFixture>::on_call("benchmarks/fixture/free_suite_global/global", &global_fx);
 }
 
-[[using gentest: jitter("fixture/free_suite_global_jitter"), fixtures(SuiteJitterFixture, GlobalJitterFixture)]]
+[[using gentest: jitter("fixture/free_suite_global_jitter")]]
 void jitter_free_suite_global(SuiteJitterFixture& suite_fx, GlobalJitterFixture& global_fx) {
     BenchFixtureState<SuiteJitterFixture>::on_call("benchmarks/fixture/free_suite_global_jitter/suite", &suite_fx);
     BenchFixtureState<GlobalJitterFixture>::on_call("benchmarks/fixture/free_suite_global_jitter/global", &global_fx);

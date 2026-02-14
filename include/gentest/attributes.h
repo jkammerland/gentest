@@ -15,12 +15,17 @@
 //   - Optional flags: --bench-table, --bench-min-epoch-time-s, --bench-epochs, --bench-warmup, --bench-max-total-time-s
 //   - Jitter runs via --run-jitter= or --jitter-filter=; use --jitter-bins to control histogram bins.
 //
-// Fixture composition for free functions:
-//   [[using gentest : test("suite/free"), fixtures(A, B, C)]]
+// Fixture composition for test/bench/jitter function parameters:
+//   [[using gentest : test("suite/free")]]
 //   void my_free_test(A& a, B& b, C& c);
-//   - A/B/C are default-constructed per invocation and passed by reference.
+//   - Any parameter not listed by `parameters(...)` / `parameters_pack(...)` /
+//     range/linspace/geom/logspace is treated as a fixture argument.
+//   - Trailing parameters with C++ default arguments are passed through as
+//     normal defaulted values (not fixture-inferred).
+//   - Unannotated fixture types are local (per invocation).
+//   - Types marked `[[using gentest: fixture(suite)]]` / `fixture(global)` are shared.
 //   - If a fixture derives from gentest::FixtureSetup/TearDown, setUp/tearDown are called automatically.
-//   - Applies to free functions only (not member tests) and is always ephemeral.
+//   - The legacy `fixtures(...)` attribute is removed and now rejected.
 //
 // Naming:
 // - Any gentest function-level attribute marks the declaration as a case.
