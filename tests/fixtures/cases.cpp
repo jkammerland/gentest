@@ -56,6 +56,11 @@ struct [[using gentest: fixture(suite)]] Counter /* optionally implement setup/t
         gentest::expect_eq(this, last, "suite fixture instance reused");
         gentest::expect_eq(helper.data.size(), std::size_t{0}, "suite member test receives inferred fixture parameter");
     }
+
+    [[using gentest: test("stateful/c_default_ptr_passthrough")]]
+    void default_ptr_passthrough(StackFixture* helper = nullptr) {
+        gentest::expect(helper == nullptr, "defaulted fixture-like pointer parameter is passed through (not fixture-inferred)");
+    }
 };
 
 struct [[using gentest: fixture(suite)]] SuiteAlloc {
@@ -240,6 +245,11 @@ void free_basic(A &a, B<int> &b, C &c, int marker = 7) {
     gentest::expect(std::string(b.msg) == "ok", "B default value");
     gentest::expect_eq(c.v, 7, "C default value");
     gentest::expect_eq(marker, 7, "default value parameter is not inferred as fixture");
+}
+
+[[using gentest: test("free/default_ptr_passthrough")]]
+void free_default_ptr_passthrough(PtrFixture* fx = nullptr) {
+    gentest::expect(fx == nullptr, "defaulted fixture-like pointer parameter is passed through (not fixture-inferred)");
 }
 
 [[using gentest: test("free/pointer")]]
