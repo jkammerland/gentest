@@ -592,7 +592,7 @@ gentest_add_check_counts(
 gentest_add_check_exit_code(
     NAME run_test_not_found
     PROG $<TARGET_FILE:gentest_unit_tests>
-    EXPECT_RC 1
+    EXPECT_RC 3
     ARGS --run=does/not/exist)
 
 gentest_add_check_counts(

@@ -632,6 +632,11 @@ foreach(_arg IN LISTS _args)
   endif()
 endforeach()
 
+if(NOT _missing_case STREQUAL "" AND _rc EQUAL 3)
+  message(STATUS "[ SKIP ] Death test not present in this build configuration")
+  return()
+endif()
+
 set(_missing_case_line FALSE)
 if(NOT _missing_case STREQUAL "")
   string(REPLACE "\r\n" "\n" _all_norm "${_all}")

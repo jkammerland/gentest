@@ -2143,6 +2143,8 @@ static TimedRunStatus run_selected_jitters(std::span<const Case> kCases,
 }
 
 auto run_all_tests(std::span<const char*> args) -> int {
+    constexpr int kExitCaseNotFound = 3;
+
     CliOptions opt{};
     if (!parse_cli(args, opt)) return 1;
 
@@ -2271,7 +2273,7 @@ auto run_all_tests(std::span<const char*> args) -> int {
             }
             if (suffix_matches.empty()) {
                 fmt::print(stderr, "Case not found: {}\n", opt.run_exact);
-                return 1;
+                return kExitCaseNotFound;
             }
             if (suffix_kind_matches.empty()) {
                 fmt::print(stderr, "Case '{}' does not match --kind={}\n", opt.run_exact, kind_to_string(opt.kind));
