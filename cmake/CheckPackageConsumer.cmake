@@ -24,6 +24,8 @@ if(NOT DEFINED PACKAGE_NAME)
   message(FATAL_ERROR "PACKAGE_NAME not set")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
+
 function(run_or_fail)
   set(options "")
   set(oneValueArgs WORKING_DIRECTORY)
@@ -55,16 +57,11 @@ function(run_or_fail)
       "CCACHE_TEMPDIR=${_ccache_tmp}"
       ${RUN_COMMAND})
 
-  execute_process(
+  gentest_check_run_or_fail(
     COMMAND ${_command}
     WORKING_DIRECTORY "${RUN_WORKING_DIRECTORY}"
-    OUTPUT_VARIABLE out
-    ERROR_VARIABLE err
-    RESULT_VARIABLE rc)
-
-  if(NOT rc EQUAL 0)
-    message(FATAL_ERROR "Command failed (${rc}): ${RUN_COMMAND}\n--- stdout ---\n${out}\n--- stderr ---\n${err}\n")
-  endif()
+    DISPLAY_COMMAND "${RUN_COMMAND}"
+  )
 endfunction()
 
 set(_work_dir "${BUILD_ROOT}/package_consumer")

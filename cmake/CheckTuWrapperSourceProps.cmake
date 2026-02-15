@@ -21,26 +21,7 @@ if(NOT DEFINED GENERATOR)
   message(FATAL_ERROR "CheckTuWrapperSourceProps.cmake: GENERATOR not set")
 endif()
 
-function(run_or_fail)
-  set(options "")
-  set(oneValueArgs WORKING_DIRECTORY)
-  set(multiValueArgs COMMAND)
-  cmake_parse_arguments(RUN "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
-
-  execute_process(
-    COMMAND ${RUN_COMMAND}
-    WORKING_DIRECTORY "${RUN_WORKING_DIRECTORY}"
-    RESULT_VARIABLE _rc
-    OUTPUT_VARIABLE _out
-    ERROR_VARIABLE _err
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_STRIP_TRAILING_WHITESPACE
-  )
-
-  if(NOT _rc EQUAL 0)
-    message(FATAL_ERROR "Command failed (${_rc}): ${RUN_COMMAND}\n--- stdout ---\n${_out}\n--- stderr ---\n${_err}\n")
-  endif()
-endfunction()
+include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
 set(_work_dir "${BUILD_ROOT}/tu_wrapper_source_props")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -74,15 +55,15 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
 endif()
 
 message(STATUS "Configure gentest_tu_wrapper_source_props fixture...")
-run_or_fail(
+gentest_check_run_or_fail(
   COMMAND
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
     -S "${SOURCE_DIR}"
     -B "${_build_dir}"
     ${_cmake_cache_args}
+  STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_work_dir}"
 )
 
 message(STATUS "gentest_tu_wrapper_source_props fixture passed")
-
