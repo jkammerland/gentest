@@ -471,6 +471,7 @@ gentest_add_run_and_check_file(
     PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
     FILE ${CMAKE_BINARY_DIR}/outcomes_junit_xpass.xml
     EXPECT_SUBSTRING "xpass: unexpected pass"
+    EXPECT_RC 1
     ARGS --run=outcomes/xfail_xpass --junit=${CMAKE_BINARY_DIR}/outcomes_junit_xpass.xml)
 
 # libassert integration counts (optional)
@@ -652,6 +653,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         PROG $<TARGET_FILE:gentest_failing_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-result.json
         EXPECT_SUBSTRING "\"attachments\": [ { \"name\": \"logs\", \"source\": \"result-0-attachment.txt\""
+        EXPECT_RC 1
         ARGS
             --run=failing/logging/attachment
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs)
@@ -662,6 +664,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         PROG $<TARGET_FILE:gentest_failing_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-attachment.txt
         EXPECT_SUBSTRING "hello from log"
+        EXPECT_RC 1
         ARGS
             --run=failing/logging/attachment
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs)

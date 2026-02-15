@@ -1,7 +1,9 @@
 # Usage:
-#   cmake -DPROG=<path> -DFILE=<path> -DEXPECT_SUBSTRING=<text> [-DARGS="--flags ..."] -P cmake/RunAndCheckFile.cmake
+#   cmake -DPROG=<path> -DFILE=<path> -DEXPECT_SUBSTRING=<text> [-DEXPECT_RC=<int>] [-DARGS="--flags ..."]
+#     -P cmake/RunAndCheckFile.cmake
 #
-# Runs the program with provided args and does NOT enforce a zero exit code.
+# Runs the program with provided args.
+# If EXPECT_RC is set, enforces that exact exit code; otherwise does not enforce an exit code.
 # Then checks that FILE exists and contains EXPECT_SUBSTRING.
 
 if(NOT DEFINED PROG)
@@ -39,7 +41,11 @@ execute_process(
   RESULT_VARIABLE rc
 )
 
-# Intentionally do not check rc; artifacts may be generated on failure
+if(DEFINED EXPECT_RC AND NOT "${EXPECT_RC}" STREQUAL "")
+  if(NOT rc EQUAL EXPECT_RC)
+    message(FATAL_ERROR "Expected exit code ${EXPECT_RC}, got ${rc}. Output:\n${out}\nErrors:\n${err}")
+  endif()
+endif()
 
 if(NOT EXISTS "${FILE}")
   message(FATAL_ERROR "Expected file not found: ${FILE}\nProgram exit code: ${rc}\nOutput:\n${out}\nErrors:\n${err}")

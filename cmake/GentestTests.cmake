@@ -280,7 +280,7 @@ function(gentest_add_check_file_contains)
 endfunction()
 
 function(gentest_add_run_and_check_file)
-    set(one_value_args NAME PROG FILE EXPECT_SUBSTRING)
+    set(one_value_args NAME PROG FILE EXPECT_SUBSTRING EXPECT_RC)
     set(multi_value_args ARGS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -288,12 +288,17 @@ function(gentest_add_run_and_check_file)
         message(FATAL_ERROR "gentest_add_run_and_check_file: NAME, PROG, FILE, and EXPECT_SUBSTRING are required")
     endif()
 
+    set(_defines
+        "FILE=${GENTEST_FILE}"
+        "EXPECT_SUBSTRING=${GENTEST_EXPECT_SUBSTRING}")
+    if(NOT GENTEST_EXPECT_RC STREQUAL "")
+        list(APPEND _defines "EXPECT_RC=${GENTEST_EXPECT_RC}")
+    endif()
+
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake"
         ARGS ${GENTEST_ARGS}
-        DEFINES
-            "FILE=${GENTEST_FILE}"
-            "EXPECT_SUBSTRING=${GENTEST_EXPECT_SUBSTRING}")
+        DEFINES ${_defines})
 endfunction()
