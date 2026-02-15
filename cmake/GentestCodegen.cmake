@@ -15,6 +15,29 @@ if(NOT DEFINED GENTEST_CODEGEN_DEFAULT_CLANG_ARGS)
         "Default extra clang arguments for gentest_codegen. Set empty to disable.")
 endif()
 
+function(_gentest_normalize_path_and_key input_path base_dir out_abs out_key)
+    set(_gentest_path "${input_path}")
+    cmake_path(ABSOLUTE_PATH _gentest_path BASE_DIRECTORY "${base_dir}" NORMALIZE OUTPUT_VARIABLE _gentest_abs)
+
+    set(_gentest_key "${_gentest_abs}")
+    if(WIN32)
+        string(TOLOWER "${_gentest_key}" _gentest_key)
+    endif()
+
+    set(${out_abs} "${_gentest_abs}" PARENT_SCOPE)
+    set(${out_key} "${_gentest_key}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_reserve_unique_owner property_prefix path_key owner out_prev_owner)
+    string(MD5 _gentest_path_md5 "${path_key}")
+    set(_gentest_owner_property "${property_prefix}_${_gentest_path_md5}")
+    get_property(_gentest_prev_owner GLOBAL PROPERTY "${_gentest_owner_property}")
+    if(NOT _gentest_prev_owner OR _gentest_prev_owner STREQUAL "${owner}")
+        set_property(GLOBAL PROPERTY "${_gentest_owner_property}" "${owner}")
+    endif()
+    set(${out_prev_owner} "${_gentest_prev_owner}" PARENT_SCOPE)
+endfunction()
+
 function(gentest_attach_codegen target)
     set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
     set(one_value_args OUTPUT OUTPUT_DIR ENTRY)
@@ -49,9 +72,7 @@ function(gentest_attach_codegen target)
         if(NOT _gentest_ext MATCHES "^\\.(cc|cpp|cxx)$")
             continue()
         endif()
-        set(_gentest_src_path "${_gentest_src}")
-        cmake_path(ABSOLUTE_PATH _gentest_src_path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
-                   OUTPUT_VARIABLE _gentest_src_abs)
+        _gentest_normalize_path_and_key("${_gentest_src}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_src_abs _gentest_src_key)
         list(APPEND _gentest_tu_source_entries "${_gentest_src}")
         list(APPEND _gentest_tus "${_gentest_src_abs}")
     endforeach()
@@ -92,18 +113,8 @@ function(gentest_attach_codegen target)
         if("${GENTEST_OUTPUT}" MATCHES "\\$<")
             message(WARNING "gentest_attach_codegen(${target}): OUTPUT contains generator expressions; collision checks skipped: '${GENTEST_OUTPUT}'")
         else()
-            set(_gentest_output_path "${GENTEST_OUTPUT}")
-            cmake_path(ABSOLUTE_PATH _gentest_output_path BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" NORMALIZE
-                       OUTPUT_VARIABLE _gentest_output_abs)
-
-            # Use a normalized key for case-insensitive filesystems.
-            set(_gentest_output_key "${_gentest_output_abs}")
-            if(WIN32)
-                string(TOLOWER "${_gentest_output_key}" _gentest_output_key)
-            endif()
-            string(MD5 _gentest_output_md5 "${_gentest_output_key}")
-
-            get_property(_gentest_prev_owner GLOBAL PROPERTY "GENTEST_CODEGEN_OUTPUT_OWNER_${_gentest_output_md5}")
+            _gentest_normalize_path_and_key("${GENTEST_OUTPUT}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_output_abs _gentest_output_key)
+            _gentest_reserve_unique_owner("GENTEST_CODEGEN_OUTPUT_OWNER" "${_gentest_output_key}" "${target}" _gentest_prev_owner)
             if(_gentest_prev_owner)
                 if(NOT _gentest_prev_owner STREQUAL "${target}")
                     message(FATAL_ERROR
@@ -114,18 +125,10 @@ function(gentest_attach_codegen target)
                     "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' is registered multiple times for the same target. "
                     "Call gentest_attach_codegen() once per target and list all SOURCES in that call.")
             endif()
-            set_property(GLOBAL PROPERTY "GENTEST_CODEGEN_OUTPUT_OWNER_${_gentest_output_md5}" "${target}")
 
             # Also prevent the OUTPUT from overwriting any scanned source file.
             foreach(_gentest_src IN LISTS _gentest_tus)
-                set(_gentest_src_path "${_gentest_src}")
-                cmake_path(ABSOLUTE_PATH _gentest_src_path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
-                           OUTPUT_VARIABLE _gentest_src_abs)
-
-                set(_gentest_src_key "${_gentest_src_abs}")
-                if(WIN32)
-                    string(TOLOWER "${_gentest_src_key}" _gentest_src_key)
-                endif()
+                _gentest_normalize_path_and_key("${_gentest_src}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_src_abs _gentest_src_key)
                 if(_gentest_src_key STREQUAL _gentest_output_key)
                     message(FATAL_ERROR
                         "gentest_attach_codegen(${target}): OUTPUT '${_gentest_output_abs}' would overwrite a scanned source file '${_gentest_src_abs}'.")
@@ -161,26 +164,17 @@ function(gentest_attach_codegen target)
         # Normalize OUTPUT_DIR to an absolute path so wrapper file paths match
         # compile_commands.json entries (avoids falling back to synthetic tool
         # invocations).
-        set(_gentest_outdir_path "${_gentest_output_dir}")
-        cmake_path(ABSOLUTE_PATH _gentest_outdir_path BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" NORMALIZE
-                   OUTPUT_VARIABLE _gentest_outdir_abs)
+        _gentest_normalize_path_and_key("${_gentest_output_dir}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_outdir_abs _gentest_outdir_key)
         set(_gentest_output_dir "${_gentest_outdir_abs}")
 
         # Configure-time collision checks for the output directory (avoid
         # clobbering among targets).
-        set(_gentest_outdir_key "${_gentest_outdir_abs}")
-        if(WIN32)
-            string(TOLOWER "${_gentest_outdir_key}" _gentest_outdir_key)
-        endif()
-        string(MD5 _gentest_outdir_md5 "${_gentest_outdir_key}")
-
-        get_property(_gentest_prev_owner GLOBAL PROPERTY "GENTEST_CODEGEN_OUTDIR_OWNER_${_gentest_outdir_md5}")
+        _gentest_reserve_unique_owner("GENTEST_CODEGEN_OUTDIR_OWNER" "${_gentest_outdir_key}" "${target}" _gentest_prev_owner)
         if(_gentest_prev_owner AND NOT _gentest_prev_owner STREQUAL "${target}")
             message(FATAL_ERROR
                 "gentest_attach_codegen(${target}): OUTPUT_DIR '${_gentest_outdir_abs}' is already used by '${_gentest_prev_owner}'. "
                 "Each target should have a unique OUTPUT_DIR to avoid generated file clobbering.")
         endif()
-        set_property(GLOBAL PROPERTY "GENTEST_CODEGEN_OUTDIR_OWNER_${_gentest_outdir_md5}" "${target}")
     endif()
 
     set(_gentest_codegen_target "")
@@ -440,12 +434,7 @@ function(gentest_attach_codegen target)
 
         set(_gentest_wrap_keys "")
         foreach(_tu IN LISTS _gentest_tus)
-            set(_p "${_tu}")
-            cmake_path(ABSOLUTE_PATH _p BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE _abs)
-            set(_key "${_abs}")
-            if(WIN32)
-                string(TOLOWER "${_key}" _key)
-            endif()
+            _gentest_normalize_path_and_key("${_tu}" "${CMAKE_CURRENT_SOURCE_DIR}" _abs _key)
             list(APPEND _gentest_wrap_keys "${_key}")
         endforeach()
 
@@ -459,12 +448,7 @@ function(gentest_attach_codegen target)
             if(NOT _src_entry_idx EQUAL -1)
                 continue()
             endif()
-            set(_p "${_src}")
-            cmake_path(ABSOLUTE_PATH _p BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE _abs)
-            set(_key "${_abs}")
-            if(WIN32)
-                string(TOLOWER "${_key}" _key)
-            endif()
+            _gentest_normalize_path_and_key("${_src}" "${CMAKE_CURRENT_SOURCE_DIR}" _abs _key)
             list(FIND _gentest_wrap_keys "${_key}" _found)
             if(_found EQUAL -1)
                 list(APPEND _gentest_new_sources "${_src}")
