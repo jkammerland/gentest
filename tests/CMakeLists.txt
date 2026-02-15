@@ -805,74 +805,11 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "error: --bench-table requires --kind=bench or --kind=all"
     ARGS --bench-table --kind=jitter)
 
-add_test(NAME gentest_codegen_output_collision
-    COMMAND ${CMAKE_COMMAND}
-        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_collision
-        -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-        -DGENERATOR=${CMAKE_GENERATOR}
-        -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
-        -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
-        -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-        -DC_COMPILER=${CMAKE_C_COMPILER}
-        -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -P ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake)
-
-set_tests_properties(gentest_codegen_output_collision PROPERTIES LABELS "cmake")
-
-set(_gentest_discover_tests_config "")
-if(CMAKE_CONFIGURATION_TYPES)
-    set(_gentest_discover_tests_config "Debug")
-endif()
-
-add_test(NAME gentest_discover_tests_smoke
-    COMMAND ${CMAKE_COMMAND}
-        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/discover_tests
-        -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-        -DGENERATOR=${CMAKE_GENERATOR}
-        -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
-        -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
-        -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-        -DC_COMPILER=${CMAKE_C_COMPILER}
-        -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DBUILD_CONFIG=${_gentest_discover_tests_config}
-        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDiscoverTests.cmake)
-
-set_tests_properties(gentest_discover_tests_smoke PROPERTIES LABELS "cmake")
-
-unset(_gentest_discover_tests_config)
-
-add_test(NAME gentest_tu_wrapper_source_props
-    COMMAND ${CMAKE_COMMAND}
-        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
-        -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-        -DGENERATOR=${CMAKE_GENERATOR}
-        -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
-        -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
-        -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-        -DC_COMPILER=${CMAKE_C_COMPILER}
-        -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake)
-
-set_tests_properties(gentest_tu_wrapper_source_props PROPERTIES LABELS "cmake")
-
-option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
-if(GENTEST_ENABLE_PACKAGE_TESTS)
-    set(_gentest_package_test_config "")
-    if(CMAKE_CONFIGURATION_TYPES)
-        set(_gentest_package_test_config "Debug")
-    endif()
-
-    add_test(NAME gentest_package_consumer
+function(_gentest_add_cmake_helper_test name source_dir script_path label)
+    add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
-            -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+            -DSOURCE_DIR=${source_dir}
             -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-            -DPACKAGE_NAME=${PROJECT_NAME}
             -DGENERATOR=${CMAKE_GENERATOR}
             -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
             -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
@@ -881,10 +818,52 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
             -DC_COMPILER=${CMAKE_C_COMPILER}
             -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
             -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
-            -DBUILD_CONFIG=${_gentest_package_test_config}
-            -P ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake)
+            ${ARGN}
+            -P ${script_path})
 
-    set_tests_properties(gentest_package_consumer PROPERTIES LABELS "package")
+    set_tests_properties(${name} PROPERTIES LABELS "${label}")
+endfunction()
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_output_collision
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_collision
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake
+    cmake)
+
+set(_gentest_discover_tests_config "")
+if(CMAKE_CONFIGURATION_TYPES)
+    set(_gentest_discover_tests_config "Debug")
+endif()
+
+_gentest_add_cmake_helper_test(
+    gentest_discover_tests_smoke
+    ${PROJECT_SOURCE_DIR}/tests/cmake/discover_tests
+    ${PROJECT_SOURCE_DIR}/cmake/CheckDiscoverTests.cmake
+    cmake
+    -DBUILD_CONFIG=${_gentest_discover_tests_config})
+
+unset(_gentest_discover_tests_config)
+
+_gentest_add_cmake_helper_test(
+    gentest_tu_wrapper_source_props
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake
+    cmake)
+
+option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
+if(GENTEST_ENABLE_PACKAGE_TESTS)
+    set(_gentest_package_test_config "")
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(_gentest_package_test_config "Debug")
+    endif()
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config})
 endif()
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
