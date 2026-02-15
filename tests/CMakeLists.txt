@@ -91,7 +91,7 @@ gentest_add_check_counts(
     PASS 1
     FAIL 0
     SKIP 0
-    ARGS --run-test=concurrency/child_expect_pass)
+    ARGS --run=concurrency/child_expect_pass)
 
 gentest_add_check_counts(
     NAME concurrency_pass_throw_single
@@ -99,13 +99,13 @@ gentest_add_check_counts(
     PASS 1
     FAIL 0
     SKIP 0
-    ARGS --run-test=concurrency/child_expect_throw_pass)
+    ARGS --run=concurrency/child_expect_throw_pass)
 
 gentest_add_check_death(
     NAME concurrency_fail_single_death
     PROG ${PROJECT_NAME}_concurrency_tests
     EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
-    ARGS --run-test=concurrency/child_expect_fail)
+    ARGS --run=concurrency/child_expect_fail)
 
 gentest_add_check_counts(
     NAME concurrency_multi_pass_single
@@ -113,7 +113,7 @@ gentest_add_check_counts(
     PASS 1
     FAIL 0
     SKIP 0
-    ARGS --run-test=concurrency/multi_adopt_expect_pass)
+    ARGS --run=concurrency/multi_adopt_expect_pass)
 
 gentest_add_check_counts(
     NAME concurrency_multi_fail_single
@@ -121,13 +121,13 @@ gentest_add_check_counts(
     PASS 0
     FAIL 1
     SKIP 0
-    ARGS --run-test=concurrency/multi_adopt_expect_fail)
+    ARGS --run=concurrency/multi_adopt_expect_fail)
 
 gentest_add_check_death(
     NAME concurrency_multi_noadopt_death
     PROG ${PROJECT_NAME}_concurrency_tests
     EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
-    ARGS --run-test=concurrency/no_adopt_expect_death_multi)
+    ARGS --run=concurrency/no_adopt_expect_death_multi)
 
 option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
 if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
@@ -361,19 +361,19 @@ gentest_add_check_death(
     NAME failing_free_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
     EXPECT_SUBSTRING "fixture allocation failed for 'failing::NullFreeFixture': returned null"
-    ARGS --run-test=failing/alloc/free_null)
+    ARGS --run=failing/alloc/free_null)
 
 gentest_add_check_death(
     NAME failing_suite_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
     EXPECT_SUBSTRING "gentest: fixture 'failing::NullSuiteFixture' fixture allocation returned null"
-    ARGS --run-test=failing/alloc/suite_null)
+    ARGS --run=failing/alloc/suite_null)
 
 gentest_add_check_death(
     NAME failing_global_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
     EXPECT_SUBSTRING "gentest: fixture 'failing::NullGlobalFixture' fixture allocation returned null"
-    ARGS --run-test=failing/alloc/global_null)
+    ARGS --run=failing/alloc/global_null)
 
 
 gentest_add_check_counts(NAME skiponly_counts PROG $<TARGET_FILE:gentest_skiponly_tests> PASS 0 FAIL 0 SKIP 2)
@@ -397,7 +397,7 @@ gentest_add_check_counts(
     SKIP 1
     XFAIL 0
     XPASS 0
-    ARGS --run-test=outcomes/runtime_skip_simple)
+    ARGS --run=outcomes/runtime_skip_simple)
 
 gentest_add_check_counts(
     NAME outcomes_runtime_skip_if
@@ -407,7 +407,7 @@ gentest_add_check_counts(
     SKIP 1
     XFAIL 0
     XPASS 0
-    ARGS --run-test=outcomes/runtime_skip_if)
+    ARGS --run=outcomes/runtime_skip_if)
 
 gentest_add_check_counts(
     NAME outcomes_xfail_expect_fail
@@ -417,7 +417,7 @@ gentest_add_check_counts(
     SKIP 0
     XFAIL 1
     XPASS 0
-    ARGS --run-test=outcomes/xfail_expect_fail)
+    ARGS --run=outcomes/xfail_expect_fail)
 
 gentest_add_check_counts(
     NAME outcomes_xfail_throw
@@ -427,7 +427,7 @@ gentest_add_check_counts(
     SKIP 0
     XFAIL 1
     XPASS 0
-    ARGS --run-test=outcomes/xfail_throw)
+    ARGS --run=outcomes/xfail_throw)
 
 gentest_add_check_counts(
     NAME outcomes_xfail_xpass
@@ -437,7 +437,7 @@ gentest_add_check_counts(
     SKIP 0
     XFAIL 0
     XPASS 1
-    ARGS --run-test=outcomes/xfail_xpass)
+    ARGS --run=outcomes/xfail_xpass)
 
 gentest_add_check_counts(
     NAME outcomes_skip_overrides_xfail
@@ -447,7 +447,7 @@ gentest_add_check_counts(
     SKIP 1
     XFAIL 0
     XPASS 0
-    ARGS --run-test=outcomes/skip_overrides_xfail)
+    ARGS --run=outcomes/skip_overrides_xfail)
 
 gentest_add_check_counts(
     NAME outcomes_skip_after_failure_is_fail
@@ -457,21 +457,21 @@ gentest_add_check_counts(
     SKIP 0
     XFAIL 0
     XPASS 0
-    ARGS --run-test=outcomes/skip_after_failure_is_fail)
+    ARGS --run=outcomes/skip_after_failure_is_fail)
 
 gentest_add_run_and_check_file(
     NAME outcomes_junit_xfail_mapping
     PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
     FILE ${CMAKE_BINARY_DIR}/outcomes_junit_xfail.xml
     EXPECT_SUBSTRING "message=\"xfail: expected failure\""
-    ARGS --run-test=outcomes/xfail_expect_fail --junit=${CMAKE_BINARY_DIR}/outcomes_junit_xfail.xml)
+    ARGS --run=outcomes/xfail_expect_fail --junit=${CMAKE_BINARY_DIR}/outcomes_junit_xfail.xml)
 
 gentest_add_run_and_check_file(
     NAME outcomes_junit_xpass_mapping
     PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
     FILE ${CMAKE_BINARY_DIR}/outcomes_junit_xpass.xml
     EXPECT_SUBSTRING "xpass: unexpected pass"
-    ARGS --run-test=outcomes/xfail_xpass --junit=${CMAKE_BINARY_DIR}/outcomes_junit_xpass.xml)
+    ARGS --run=outcomes/xfail_xpass --junit=${CMAKE_BINARY_DIR}/outcomes_junit_xpass.xml)
 
 # libassert integration counts (optional)
 if(GENTEST_WITH_LIBASSERT)
@@ -526,7 +526,7 @@ if(GENTEST_WITH_LIBASSERT AND GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS)
         NAME libassert_noexc_assert_fail_death
         PROG ${target_name_noexc}
         EXPECT_SUBSTRING "gentest: exceptions are disabled; terminating after fatal assertion"
-        ARGS --run-test=libassert/assert_fail_simple)
+        ARGS --run=libassert/assert_fail_simple)
 endif()
 
 # Verify descriptive predicate mismatch content
@@ -534,7 +534,7 @@ gentest_add_check_death(
     NAME mocking_predicate_mismatch_message
     PROG gentest_failing_tests
     EXPECT_SUBSTRING "expected == 3"
-    ARGS --run-test=failing/mocking/predicate_mismatch)
+    ARGS --run=failing/mocking/predicate_mismatch)
 
 # GitHub annotations smoke: ensure ::error lines present when enabled
 gentest_add_check_death(
@@ -542,20 +542,20 @@ gentest_add_check_death(
     PROG gentest_failing_tests
     EXPECT_SUBSTRING "::error file="
     ARGS
-        --run-test=failing/mocking/predicate_mismatch
+        --run=failing/mocking/predicate_mismatch
         --github-annotations)
 
 gentest_add_check_death(
     NAME expect_throw_location_smoke
     PROG gentest_failing_tests
     EXPECT_SUBSTRING "EXPECT_THROW failed at tests/failing/cases.cpp:"
-    ARGS --run-test=failing/exceptions/expect_throw_location)
+    ARGS --run=failing/exceptions/expect_throw_location)
 
 gentest_add_check_death(
     NAME expect_no_throw_unknown_smoke
     PROG gentest_failing_tests
     EXPECT_SUBSTRING "EXPECT_NO_THROW failed at tests/failing/cases.cpp:"
-    ARGS --run-test=failing/exceptions/expect_no_throw_unknown)
+    ARGS --run=failing/exceptions/expect_no_throw_unknown)
 
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
@@ -570,7 +570,7 @@ gentest_add_check_counts(
     PASS 1
     FAIL 0
     SKIP 0
-    ARGS --run-test=unit/arithmetic/sum)
+    ARGS --run=unit/arithmetic/sum)
 
 gentest_add_check_counts(
     NAME run_test_default_name_free
@@ -578,7 +578,7 @@ gentest_add_check_counts(
     PASS 1
     FAIL 0
     SKIP 0
-    ARGS --run-test=unit/default_name_free)
+    ARGS --run=unit/default_name_free)
 
 gentest_add_check_counts(
     NAME run_test_default_name_member
@@ -586,13 +586,13 @@ gentest_add_check_counts(
     PASS 1
     FAIL 0
     SKIP 0
-    ARGS --run-test=unit/DefaultNameFixture/default_name_member)
+    ARGS --run=unit/DefaultNameFixture/default_name_member)
 
 gentest_add_check_exit_code(
     NAME run_test_not_found
     PROG $<TARGET_FILE:gentest_unit_tests>
     EXPECT_RC 1
-    ARGS --run-test=does/not/exist)
+    ARGS --run=does/not/exist)
 
 gentest_add_check_counts(
     NAME filter_single
@@ -628,7 +628,7 @@ gentest_add_check_contains(
     PROG $<TARGET_FILE:gentest_fixtures_tests>
     EXPECT_SUBSTRING "Shuffle seed: 42"
     ARGS
-        --run-test=fixtures/free/basic
+        --run=fixtures/free/basic
         --shuffle
         --seed
         42)
@@ -642,7 +642,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/result-0-result.json
         EXPECT_SUBSTRING "status\": \"passed"
         ARGS
-            --run-test=unit/arithmetic/sum
+            --run=unit/arithmetic/sum
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single)
     set_tests_properties(allure_smoke_single PROPERTIES LABELS "allure")
 
@@ -653,7 +653,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-result.json
         EXPECT_SUBSTRING "\"attachments\": [ { \"name\": \"logs\", \"source\": \"result-0-attachment.txt\""
         ARGS
-            --run-test=failing/logging/attachment
+            --run=failing/logging/attachment
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs)
     set_tests_properties(allure_logs_attachment PROPERTIES LABELS "allure")
 
@@ -663,7 +663,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-attachment.txt
         EXPECT_SUBSTRING "hello from log"
         ARGS
-            --run-test=failing/logging/attachment
+            --run=failing/logging/attachment
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs)
     set_tests_properties(allure_logs_attachment_file PROPERTIES LABELS "allure")
 endif()
@@ -681,25 +681,25 @@ gentest_add_check_death(
     NAME fixture_ctor_ephemeral_member
     PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "unexpected std::exception: ephemeral-ctor"
-    ARGS --run-test=ctor/ephemeral_member)
+    ARGS --run=ctor/ephemeral_member)
 
 gentest_add_check_death(
     NAME fixture_ctor_free_fixtures
     PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "unexpected std::exception: free-fx-ctor"
-    ARGS --run-test=ctor/free_fixtures)
+    ARGS --run=ctor/free_fixtures)
 
 gentest_add_check_death(
     NAME fixture_ctor_suite_shared
     PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "fixture construction threw std::exception: suite-ctor"
-    ARGS --run-test=ctor/suite)
+    ARGS --run=ctor/suite)
 
 gentest_add_check_death(
     NAME fixture_ctor_global_shared
     PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "fixture construction threw std::exception: global-ctor"
-    ARGS --run-test=ctor/global)
+    ARGS --run=ctor/global)
 # The 'ctor' suite intentionally contains failing tests; mark its raw run as WILL_FAIL
 set_tests_properties(ctor PROPERTIES WILL_FAIL TRUE)
 # Benchmarks: smoke checks for listing and suite table
@@ -719,45 +719,45 @@ gentest_add_check_contains(
     NAME benches_filter_space
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     EXPECT_SUBSTRING "benchmarks/spacing/lock_guard_small<"
-    ARGS --bench-filter benchmarks/spacing/*)
+    ARGS --filter benchmarks/spacing/* --kind=bench)
 
 gentest_add_check_death(
     NAME benches_filter_no_match
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     EXPECT_SUBSTRING "benchmark filter matched 0 benchmarks"
-    ARGS --bench-filter=benchmarks/spacing/nope*)
+    ARGS --filter=benchmarks/spacing/nope* --kind=bench)
 
 gentest_add_check_death(
     NAME benches_filter_missing_arg
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING "error: --bench-filter requires a value"
-    ARGS --bench-filter)
+    EXPECT_SUBSTRING "error: --filter requires a value"
+    ARGS --filter)
 
 gentest_add_check_death(
     NAME benches_fixture_alloc_null
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     EXPECT_SUBSTRING "benchmark fixture allocation failed for benchmarks/fixture/null"
     ENV_VARS GENTEST_BENCH_NULL_FIXTURE=1
-    ARGS --run-bench=benchmarks/fixture/null)
+    ARGS --run=benchmarks/fixture/null --kind=bench)
 
 gentest_add_check_exit_code(
     NAME benches_fixture_free_suite_global
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     EXPECT_RC 0
-    ARGS --run-bench=benchmarks/fixture/free_suite_global)
+    ARGS --run=benchmarks/fixture/free_suite_global --kind=bench)
 
 gentest_add_check_death(
     NAME jitter_fixture_alloc_null
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     EXPECT_SUBSTRING "jitter fixture allocation failed for benchmarks/fixture/jitter_null"
     ENV_VARS GENTEST_JITTER_NULL_FIXTURE=1
-    ARGS --run-jitter=benchmarks/fixture/jitter_null)
+    ARGS --run=benchmarks/fixture/jitter_null --kind=jitter)
 
 gentest_add_check_exit_code(
     NAME jitter_fixture_free_suite_global
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     EXPECT_RC 0
-    ARGS --run-jitter=benchmarks/fixture/free_suite_global_jitter)
+    ARGS --run=benchmarks/fixture/free_suite_global_jitter --kind=jitter)
 
 # Jitter: histogram header and suite table header
 gentest_add_check_contains(
@@ -777,6 +777,30 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_unit_tests>
     EXPECT_SUBSTRING "error: unknown option"
     ARGS --this-option-does-not-exist)
+
+gentest_add_check_death(
+    NAME cli_unknown_option_hard_fail
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    EXPECT_SUBSTRING "error: unknown option '--this-option-does-not-exist'"
+    ARGS --run=unit/arithmetic/sum --this-option-does-not-exist)
+
+gentest_add_check_death(
+    NAME cli_removed_run_test
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    EXPECT_SUBSTRING "error: --run-test was removed; use --run"
+    ARGS --run-test=unit/arithmetic/sum)
+
+gentest_add_check_contains(
+    NAME cli_kind_filter_zero_bench
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    EXPECT_SUBSTRING "Executed 0 benchmark(s)."
+    ARGS --kind=bench)
+
+gentest_add_check_death(
+    NAME cli_bench_table_invalid_kind
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    EXPECT_SUBSTRING "error: --bench-table requires --kind=bench or --kind=all"
+    ARGS --bench-table --kind=jitter)
 
 add_test(NAME gentest_codegen_output_collision
     COMMAND ${CMAKE_COMMAND}

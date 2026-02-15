@@ -624,7 +624,28 @@ execute_process(
 
 set(_all "${_out}\n${_err}")
 
-if(_all MATCHES "Test not found:")
+set(_missing_case "")
+foreach(_arg IN LISTS _args)
+  if(_arg MATCHES "^--run=(.+)$")
+    set(_missing_case "${CMAKE_MATCH_1}")
+    break()
+  endif()
+endforeach()
+
+set(_missing_case_line FALSE)
+if(NOT _missing_case STREQUAL "")
+  string(REPLACE "\r\n" "\n" _all_norm "${_all}")
+  string(REPLACE "\n" ";" _all_lines "${_all_norm}")
+  foreach(_line IN LISTS _all_lines)
+    string(STRIP "${_line}" _line_trim)
+    if(_line_trim STREQUAL "Case not found: ${_missing_case}" OR _line_trim STREQUAL "Test not found: ${_missing_case}")
+      set(_missing_case_line TRUE)
+      break()
+    endif()
+  endforeach()
+endif()
+
+if(_missing_case_line)
   message(STATUS "[ SKIP ] Death test not present in this build configuration")
   return()
 endif()
@@ -831,7 +852,7 @@ ${death_output}")
     string(APPEND script "add_test(${guarded_testname} ${launcher_args}")
     foreach(arg IN ITEMS
       "${arg_TEST_EXECUTABLE}"
-      "--run-test=${case_id}"
+      "--run=${case_id}"
       )
       if(arg MATCHES "[^-./:a-zA-Z0-9_]")
         string(APPEND script " [==[${arg}]==]")
@@ -871,7 +892,7 @@ ${death_output}")
     set(testname "${prefix}${death_prefix}${case_id}${death_suffix}${suffix}")
     set(guarded_testname "${open_guard}${testname}${close_guard}")
 
-    set(death_args_list "--include-death" "--run-test=${case_id}")
+    set(death_args_list "--include-death" "--run=${case_id}")
     if(arg_TEST_EXTRA_ARGS)
       list(APPEND death_args_list ${arg_TEST_EXTRA_ARGS})
     endif()

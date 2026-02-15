@@ -43,7 +43,7 @@ Discovery runs:
 Death tests are registered as `death/<case>` and executed via a harness that runs:
 
 ```
---include-death --run-test=<case>
+--include-death --run=<case>
 ```
 
 The harness:

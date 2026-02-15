@@ -11,9 +11,9 @@
 // Benchmarks:
 //   [[using gentest : bench("suite/bench_name")]]
 //   void my_benchmark();
-//   - Run via --run-bench= or --bench-filter=, list via --list-benches.
+//   - Run via --run= / --filter= (optionally --kind=bench), list via --list-benches.
 //   - Optional flags: --bench-table, --bench-min-epoch-time-s, --bench-epochs, --bench-warmup, --bench-max-total-time-s
-//   - Jitter runs via --run-jitter= or --jitter-filter=; use --jitter-bins to control histogram bins.
+//   - Jitter runs via --run= / --filter= with --kind=jitter; use --jitter-bins to control histogram bins.
 //
 // Fixture composition for test/bench/jitter function parameters:
 //   [[using gentest : test("suite/free")]]
@@ -44,7 +44,7 @@
 //   [[using gentest : test("suite/crash_on_x"), death]]
 //   - Tagged tests are excluded from the default "run all" execution to avoid
 //     aborting the full test run.
-//   - Run explicitly via --run-test=... with --include-death, or wire them into
+//   - Run explicitly via --run=... with --include-death, or wire them into
 //     CTest using a death-test harness (see GentestCodegen.cmake helpers).
 
 // Benchmarking:

@@ -90,9 +90,9 @@ Run:
 ./my_tests --list-tests
 ./my_tests --list
 ./my_tests --list-death
-./my_tests --run-test=<exact-name>
-./my_tests --filter=unit/*
-./my_tests --include-death --run-test=death/fatal_path
+./my_tests --run=<exact-name>
+./my_tests --filter=unit/* --kind=test
+./my_tests --include-death --run=death/fatal_path
 ./my_tests --fail-fast --repeat=2
 ./my_tests --shuffle --seed 123
 ./my_tests --no-color
@@ -102,6 +102,7 @@ Run:
 
 `--list-tests` prints only resolved test names (one per line).
 `--list` prints the richer listing format (name plus metadata such as tags/owner when present).
+`--kind` restricts execution/filtering to `all|test|bench|jitter` (default `all`).
 
 Naming:
 - Any gentest function-level attribute marks the declaration as a case.
@@ -209,7 +210,7 @@ gentest_discover_tests(my_tests
 Manual run:
 
 ```bash
-./my_tests --run-test=death/fatal_path --include-death
+./my_tests --run=death/fatal_path --include-death
 ```
 
 Note: if a death test is compiled out in a configuration (e.g. wrapped in `#ifndef NDEBUG`), it won't
@@ -432,11 +433,11 @@ CLI:
 
 ```bash
 ./my_tests --list-benches
-./my_tests --run-bench=bench/concat
-./my_tests --bench-filter=bench/* --bench-table
+./my_tests --run=bench/concat --kind=bench
+./my_tests --filter=bench/* --kind=bench --bench-table
 ./my_tests --bench-min-epoch-time-s=0.02 --bench-epochs=8 --bench-warmup=2 --bench-max-total-time-s=5
-./my_tests --run-jitter=bench/sin --jitter-bins=20
-./my_tests --jitter-filter=bench/* --jitter-bins=20
+./my_tests --run=bench/sin --kind=jitter --jitter-bins=20
+./my_tests --filter=bench/* --kind=jitter --jitter-bins=20
 ```
 
 ### Reporting (JUnit / Allure / GitHub annotations)

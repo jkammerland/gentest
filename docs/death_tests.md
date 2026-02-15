@@ -20,7 +20,7 @@ void fatal_path();
 - Run them explicitly with:
 
 ```bash
-./my_tests --include-death --run-test=death/fatal_path
+./my_tests --include-death --run=death/fatal_path
 ```
 
 - List only death tests:
@@ -36,9 +36,9 @@ void fatal_path();
 
 - Death tests are registered with the `death/` prefix by default. If your test names already include `death/`,
   you'll see entries like `death/death/fatal_path` in CTest.
-- The harness runs `--include-death --run-test=<case>` and expects a non-zero exit code.
+- The harness runs `--include-death --run=<case>` and expects a non-zero exit code.
 - If the test binary reports a normal test failure (`[ FAIL ]`), the harness marks it as a failure.
-- If the test binary reports "Test not found:" (e.g., a death test was compiled out), the harness marks the CTest
+- If the test binary reports "Case not found:" (or legacy "Test not found:"), the harness marks the CTest
   entry as skipped.
 - Discovery requires a test binary that supports `--list-death`; if not, configuration fails with a clear error.
 - Full discovery options live in `docs/discover_tests.md`.

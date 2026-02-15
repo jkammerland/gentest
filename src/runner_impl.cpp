@@ -838,18 +838,24 @@ static inline std::string gha_escape(std::string_view s) {
 }
 
 enum class Mode {
-    Tests,
+    Execute,
     Help,
     ListTests,
     ListMeta,
     ListDeath,
     ListBenches,
-    RunBenches,
-    RunJitter,
+};
+
+enum class KindFilter {
+    All,
+    Test,
+    Bench,
+    Jitter,
 };
 
 struct CliOptions {
-    Mode mode = Mode::Tests;
+    Mode mode = Mode::Execute;
+    KindFilter kind = KindFilter::All;
 
     bool color_output = true;
     bool github_annotations = false;
@@ -868,15 +874,10 @@ struct CliOptions {
     const char* junit_path = nullptr;
     const char* allure_dir = nullptr;
 
-    // Bench options
-    const char* run_bench = nullptr;
-    const char* bench_filter = nullptr;
+    // Bench/Jitter options
     bool        bench_table = false;
     BenchConfig bench_cfg{};
 
-    // Jitter options
-    const char* run_jitter = nullptr;
-    const char* jitter_filter = nullptr;
     int         jitter_bins = 10;
 };
 
@@ -995,6 +996,27 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
         return true;
     };
 
+    auto parse_kind_option = [&](std::string_view value, KindFilter& out_kind) -> bool {
+        if (value == "all") {
+            out_kind = KindFilter::All;
+            return true;
+        }
+        if (value == "test" || value == "tests") {
+            out_kind = KindFilter::Test;
+            return true;
+        }
+        if (value == "bench" || value == "benches" || value == "benchmark" || value == "benchmarks") {
+            out_kind = KindFilter::Bench;
+            return true;
+        }
+        if (value == "jitter" || value == "jitters") {
+            out_kind = KindFilter::Jitter;
+            return true;
+        }
+        fmt::print(stderr, "error: --kind must be one of all,test,bench,jitter; got: '{}'\n", value);
+        return false;
+    };
+
     std::size_t start = 0;
     if (!args.empty() && args[0] && args[0][0] != '-') {
         start = 1; // Skip argv[0] (program name) when present.
@@ -1052,10 +1074,10 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
 
         {
             std::string_view value;
-            switch (match_value(i, s, "--run-test", value)) {
+            switch (match_value(i, s, "--run", value)) {
             case ValueMatch::Error: return false;
             case ValueMatch::Yes:
-                if (opt.run_exact) { fmt::print(stderr, "error: duplicate --run-test\n"); return false; }
+                if (opt.run_exact) { fmt::print(stderr, "error: duplicate --run\n"); return false; }
                 opt.run_exact = value.data();
                 continue;
             case ValueMatch::No: break;
@@ -1068,6 +1090,16 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
             case ValueMatch::Yes:
                 if (opt.filter_pat) { fmt::print(stderr, "error: duplicate --filter\n"); return false; }
                 opt.filter_pat = value.data();
+                continue;
+            case ValueMatch::No: break;
+            }
+        }
+        {
+            std::string_view value;
+            switch (match_value(i, s, "--kind", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                if (!parse_kind_option(value, opt.kind)) return false;
                 continue;
             case ValueMatch::No: break;
             }
@@ -1097,12 +1129,21 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
 
         {
             std::string_view value;
+            switch (match_value(i, s, "--run-test", value)) {
+            case ValueMatch::Error: return false;
+            case ValueMatch::Yes:
+                fmt::print(stderr, "error: --run-test was removed; use --run\n");
+                return false;
+            case ValueMatch::No: break;
+            }
+        }
+        {
+            std::string_view value;
             switch (match_value(i, s, "--run-bench", value)) {
             case ValueMatch::Error: return false;
             case ValueMatch::Yes:
-                if (opt.run_bench) { fmt::print(stderr, "error: duplicate --run-bench\n"); return false; }
-                opt.run_bench = value.data();
-                continue;
+                fmt::print(stderr, "error: --run-bench was removed; use --run with --kind=bench\n");
+                return false;
             case ValueMatch::No: break;
             }
         }
@@ -1111,9 +1152,8 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
             switch (match_value(i, s, "--bench-filter", value)) {
             case ValueMatch::Error: return false;
             case ValueMatch::Yes:
-                if (opt.bench_filter) { fmt::print(stderr, "error: duplicate --bench-filter\n"); return false; }
-                opt.bench_filter = value.data();
-                continue;
+                fmt::print(stderr, "error: --bench-filter was removed; use --filter with --kind=bench\n");
+                return false;
             case ValueMatch::No: break;
             }
         }
@@ -1205,9 +1245,8 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
             switch (match_value(i, s, "--run-jitter", value)) {
             case ValueMatch::Error: return false;
             case ValueMatch::Yes:
-                if (opt.run_jitter) { fmt::print(stderr, "error: duplicate --run-jitter\n"); return false; }
-                opt.run_jitter = value.data();
-                continue;
+                fmt::print(stderr, "error: --run-jitter was removed; use --run with --kind=jitter\n");
+                return false;
             case ValueMatch::No: break;
             }
         }
@@ -1216,9 +1255,8 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
             switch (match_value(i, s, "--jitter-filter", value)) {
             case ValueMatch::Error: return false;
             case ValueMatch::Yes:
-                if (opt.jitter_filter) { fmt::print(stderr, "error: duplicate --jitter-filter\n"); return false; }
-                opt.jitter_filter = value.data();
-                continue;
+                fmt::print(stderr, "error: --jitter-filter was removed; use --filter with --kind=jitter\n");
+                return false;
             case ValueMatch::No: break;
             }
         }
@@ -1261,17 +1299,17 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
         return false;
     }
 
-    const bool wants_run_benches = opt.bench_table || (opt.run_bench != nullptr) || (opt.bench_filter != nullptr);
-    const bool wants_run_jitter = (opt.run_jitter != nullptr) || (opt.jitter_filter != nullptr);
+    if (opt.bench_table && opt.kind == KindFilter::Jitter) {
+        fmt::print(stderr, "error: --bench-table requires --kind=bench or --kind=all\n");
+        return false;
+    }
 
     if (wants_help) opt.mode = Mode::Help;
     else if (wants_list_tests) opt.mode = Mode::ListTests;
     else if (wants_list_meta) opt.mode = Mode::ListMeta;
     else if (wants_list_death) opt.mode = Mode::ListDeath;
     else if (wants_list_benches) opt.mode = Mode::ListBenches;
-    else if (wants_run_benches) opt.mode = Mode::RunBenches;
-    else if (wants_run_jitter) opt.mode = Mode::RunJitter;
-    else opt.mode = Mode::Tests;
+    else opt.mode = Mode::Execute;
 
     if (opt.shuffle) opt.shuffle_seed = opt.seed_provided ? opt.seed_value : make_random_seed();
 
@@ -1721,6 +1759,389 @@ static bool run_tests_once(RunnerState& state, std::span<const Case> cases, std:
     return false;
 }
 
+static bool case_is_test(const Case& c) { return !c.is_benchmark && !c.is_jitter; }
+
+static bool case_matches_kind(const Case& c, KindFilter kind) {
+    switch (kind) {
+    case KindFilter::All: return true;
+    case KindFilter::Test: return case_is_test(c);
+    case KindFilter::Bench: return c.is_benchmark;
+    case KindFilter::Jitter: return c.is_jitter;
+    }
+    return true;
+}
+
+static std::string_view kind_to_string(KindFilter kind) {
+    switch (kind) {
+    case KindFilter::All: return "all";
+    case KindFilter::Test: return "test";
+    case KindFilter::Bench: return "bench";
+    case KindFilter::Jitter: return "jitter";
+    }
+    return "all";
+}
+
+struct TimedRunStatus {
+    bool ok = true;
+    bool stopped = false;
+};
+
+struct MeasurementCaseFailure {
+    std::string      reason;
+    bool             allocation_failure = false;
+    std::string_view phase{};
+};
+
+template <typename Result, typename CallFn>
+static bool run_measured_case(const Case& c, CallFn&& run_call, Result& out_result, MeasurementCaseFailure& out_failure) {
+    void* ctx = nullptr;
+    std::string reason;
+    if (!acquire_case_fixture(c, ctx, reason)) {
+        out_failure.reason = std::move(reason);
+        out_failure.allocation_failure = true;
+        out_failure.phase = "allocation";
+        return false;
+    }
+
+    bool allocation_failure = false;
+    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure)) {
+        out_failure.reason = std::move(reason);
+        out_failure.allocation_failure = allocation_failure;
+        out_failure.phase = "setup";
+        return false;
+    }
+
+    out_result = run_call(c, ctx);
+
+    std::string call_error;
+    bool call_alloc_failure = false;
+    if (gentest::detail::has_bench_error()) {
+        call_error = gentest::detail::take_bench_error();
+        call_alloc_failure = true;
+    }
+
+    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure)) {
+        out_failure.reason = std::move(reason);
+        out_failure.allocation_failure = allocation_failure;
+        out_failure.phase = "teardown";
+        return false;
+    }
+
+    if (!call_error.empty()) {
+        out_failure.reason = std::move(call_error);
+        out_failure.allocation_failure = call_alloc_failure;
+        out_failure.phase = "call";
+        return false;
+    }
+
+    return true;
+}
+
+static TimedRunStatus run_selected_benches(std::span<const Case> kCases,
+                                           std::span<const std::size_t> idxs,
+                                           const CliOptions& opt,
+                                           bool fail_fast) {
+    if (idxs.empty()) return TimedRunStatus{};
+
+    struct BenchRow {
+        const Case* c = nullptr;
+        BenchResult br{};
+    };
+    std::vector<BenchRow> rows;
+    rows.reserve(idxs.size());
+    bool had_fixture_failure = false;
+    const auto report_fixture_failure = [&](const Case& c,
+                                            std::string_view reason,
+                                            bool allocation_failure,
+                                            std::string_view phase) {
+        if (allocation_failure) {
+            if (!c.fixture.empty()) {
+                fmt::print(stderr, "benchmark fixture allocation failed for {} ({}): {}\n", c.name, c.fixture, reason);
+            } else {
+                fmt::print(stderr, "benchmark fixture allocation failed for {}: {}\n", c.name, reason);
+            }
+        } else {
+            if (!c.fixture.empty()) {
+                fmt::print(stderr, "benchmark {} failed for {} ({}): {}\n", phase, c.name, c.fixture, reason);
+            } else {
+                fmt::print(stderr, "benchmark {} failed for {}: {}\n", phase, c.name, reason);
+            }
+        }
+        had_fixture_failure = true;
+    };
+    for (auto i : idxs) {
+        const auto& c = kCases[i];
+        BenchResult br{};
+        MeasurementCaseFailure failure{};
+        if (!run_measured_case(c,
+                               [&](const Case& measured, void* measured_ctx) { return run_bench(measured, measured_ctx, opt.bench_cfg); },
+                               br,
+                               failure)) {
+            report_fixture_failure(c, failure.reason, failure.allocation_failure, failure.phase);
+            if (fail_fast) return TimedRunStatus{false, true};
+            continue;
+        }
+        rows.push_back(BenchRow{&c, br});
+    }
+    std::map<std::string, double> baseline_ns;
+    for (const auto& row : rows) {
+        if (!row.c || !row.c->is_baseline) continue;
+        const std::string suite(row.c->suite);
+        if (baseline_ns.find(suite) == baseline_ns.end()) {
+            baseline_ns.emplace(suite, row.br.median_ns);
+        }
+    }
+
+    using tabulate::FontAlign;
+    using tabulate::Table;
+    using Row_t = Table::Row_t;
+
+    const auto bench_calls_per_sec = [](const BenchResult& br) -> double {
+        if (br.total_time_s <= 0.0 || br.total_iters == 0) return 0.0;
+        return static_cast<double>(br.total_iters) / br.total_time_s;
+    };
+
+    Table summary;
+    summary.add_row(Row_t{"Benchmark", "Samples", "Iters/epoch", "Median (ns)", "Mean (ns)",
+                          "P05 (ns)", "P95 (ns)", "Worst (ns)", "Total (s)", "Baseline Δ%"});
+    summary[0].format().font_align(FontAlign::center);
+    summary.column(1).format().font_align(FontAlign::right);
+    summary.column(2).format().font_align(FontAlign::right);
+    summary.column(3).format().font_align(FontAlign::right);
+    summary.column(4).format().font_align(FontAlign::right);
+    summary.column(5).format().font_align(FontAlign::right);
+    summary.column(6).format().font_align(FontAlign::right);
+    summary.column(7).format().font_align(FontAlign::right);
+    summary.column(8).format().font_align(FontAlign::right);
+    summary.column(9).format().font_align(FontAlign::right);
+
+    for (const auto& row : rows) {
+        if (!row.c) continue;
+        const std::string suite(row.c->suite);
+        const auto base_it = baseline_ns.find(suite);
+        const double base_ns = (base_it == baseline_ns.end()) ? 0.0 : base_it->second;
+        const std::string baseline_cell =
+            (base_ns > 0.0) ? fmt::format("{:+.2f}%", (row.br.median_ns - base_ns) / base_ns * 100.0)
+                            : std::string("-");
+        summary.add_row(Row_t{
+            std::string(row.c->name),
+            fmt::format("{}", row.br.epochs),
+            fmt::format("{}", row.br.iters_per_epoch),
+            fmt::format("{:.2f}", row.br.median_ns),
+            fmt::format("{:.2f}", row.br.mean_ns),
+            fmt::format("{:.2f}", row.br.p05_ns),
+            fmt::format("{:.2f}", row.br.p95_ns),
+            fmt::format("{:.2f}", row.br.worst_ns),
+            fmt::format("{:.3f}", row.br.wall_time_s),
+            baseline_cell,
+        });
+    }
+
+    Table debug;
+    debug.add_row(Row_t{"Benchmark", "Epochs", "Iters/epoch", "Total iters", "Measured (s)", "Wall (s)",
+                        "Warmup (s)", "Calib iters", "Calib (s)", "Min epoch (s)", "Min total (s)",
+                        "Max total (s)", "Calls/sec"});
+    debug[0].format().font_align(FontAlign::center);
+    for (std::size_t col = 1; col < 13; ++col) {
+        debug.column(col).format().font_align(FontAlign::right);
+    }
+
+    for (const auto& row : rows) {
+        if (!row.c) continue;
+        debug.add_row(Row_t{
+            std::string(row.c->name),
+            fmt::format("{}", row.br.epochs),
+            fmt::format("{}", row.br.iters_per_epoch),
+            fmt::format("{}", row.br.total_iters),
+            fmt::format("{:.3f}", row.br.total_time_s),
+            fmt::format("{:.3f}", row.br.wall_time_s),
+            fmt::format("{:.3f}", row.br.warmup_time_s),
+            fmt::format("{}", row.br.calibration_iters),
+            fmt::format("{:.3f}", row.br.calibration_time_s),
+            fmt::format("{:.3f}", opt.bench_cfg.min_epoch_time_s),
+            fmt::format("{:.3f}", opt.bench_cfg.min_total_time_s),
+            fmt::format("{:.3f}", opt.bench_cfg.max_total_time_s),
+            fmt::format("{:.3f}", bench_calls_per_sec(row.br)),
+        });
+    }
+
+    std::cout << "Benchmarks\n" << summary << "\n\n";
+    std::cout << "Bench debug\n" << debug << "\n";
+    return TimedRunStatus{!had_fixture_failure};
+}
+
+static TimedRunStatus run_selected_jitters(std::span<const Case> kCases,
+                                           std::span<const std::size_t> idxs,
+                                           const CliOptions& opt,
+                                           bool fail_fast) {
+    if (idxs.empty()) return TimedRunStatus{};
+
+    const int bins = opt.jitter_bins;
+    bool had_fixture_failure = false;
+    struct JitterRow {
+        const Case* c = nullptr;
+        JitterResult jr;
+    };
+    std::vector<JitterRow> rows;
+    const auto report_fixture_failure = [&](const Case& c,
+                                            std::string_view reason,
+                                            bool allocation_failure,
+                                            std::string_view phase) {
+        if (allocation_failure) {
+            if (!c.fixture.empty()) {
+                fmt::print(stderr, "jitter fixture allocation failed for {} ({}): {}\n", c.name, c.fixture, reason);
+            } else {
+                fmt::print(stderr, "jitter fixture allocation failed for {}: {}\n", c.name, reason);
+            }
+        } else {
+            if (!c.fixture.empty()) {
+                fmt::print(stderr, "jitter {} failed for {} ({}): {}\n", phase, c.name, c.fixture, reason);
+            } else {
+                fmt::print(stderr, "jitter {} failed for {}: {}\n", phase, c.name, reason);
+            }
+        }
+        had_fixture_failure = true;
+    };
+    for (auto i : idxs) {
+        const auto& c = kCases[i];
+        JitterResult jr{};
+        MeasurementCaseFailure failure{};
+        if (!run_measured_case(c,
+                               [&](const Case& measured, void* measured_ctx) { return run_jitter(measured, measured_ctx, opt.bench_cfg); },
+                               jr,
+                               failure)) {
+            report_fixture_failure(c, failure.reason, failure.allocation_failure, failure.phase);
+            if (fail_fast) return TimedRunStatus{false, true};
+            continue;
+        }
+        rows.push_back(JitterRow{&c, std::move(jr)});
+    }
+
+    std::map<std::string, double> baseline_median_ns;
+    std::map<std::string, double> baseline_stddev_ns;
+    for (const auto& row : rows) {
+        if (!row.c || !row.c->is_baseline) continue;
+        const std::string suite(row.c->suite);
+        if (baseline_median_ns.find(suite) == baseline_median_ns.end()) {
+            baseline_median_ns.emplace(suite, row.jr.median_ns);
+            baseline_stddev_ns.emplace(suite, row.jr.stddev_ns);
+        }
+    }
+
+    using tabulate::FontAlign;
+    using tabulate::Table;
+    using Row_t = Table::Row_t;
+
+    Table summary;
+    summary.add_row(Row_t{"Benchmark", "Samples", "Median (ns)", "Mean (ns)", "StdDev (ns)", "P05 (ns)", "P95 (ns)",
+                          "Min (ns)", "Max (ns)", "Total (s)", "Baseline Δ%", "Baseline SD Δ%"});
+    summary[0].format().font_align(FontAlign::center);
+    for (std::size_t col = 1; col < 12; ++col) {
+        summary.column(col).format().font_align(FontAlign::right);
+    }
+
+    for (const auto& row : rows) {
+        if (!row.c) continue;
+        const std::string suite(row.c->suite);
+        const auto base_med_it = baseline_median_ns.find(suite);
+        const auto base_sd_it = baseline_stddev_ns.find(suite);
+        const double base_median = (base_med_it == baseline_median_ns.end()) ? 0.0 : base_med_it->second;
+        const double base_sd = (base_sd_it == baseline_stddev_ns.end()) ? 0.0 : base_sd_it->second;
+        const std::string baseline_med_cell =
+            (base_median > 0.0)
+                ? fmt::format("{:+.2f}%", (row.jr.median_ns - base_median) / base_median * 100.0)
+                : std::string("-");
+        const std::string baseline_sd_cell =
+            (base_sd > 0.0) ? fmt::format("{:+.2f}%", (row.jr.stddev_ns - base_sd) / base_sd * 100.0) : std::string("-");
+        summary.add_row(Row_t{
+            std::string(row.c->name),
+            fmt::format("{}", row.jr.samples_ns.size()),
+            fmt::format("{:.2f}", row.jr.median_ns),
+            fmt::format("{:.2f}", row.jr.mean_ns),
+            fmt::format("{:.2f}", row.jr.stddev_ns),
+            fmt::format("{:.2f}", row.jr.p05_ns),
+            fmt::format("{:.2f}", row.jr.p95_ns),
+            fmt::format("{:.2f}", row.jr.min_ns),
+            fmt::format("{:.2f}", row.jr.max_ns),
+            fmt::format("{:.3f}", row.jr.wall_time_s),
+            baseline_med_cell,
+            baseline_sd_cell,
+        });
+    }
+
+    std::cout << "Jitter summary\n" << summary << "\n";
+
+    Table debug;
+    debug.add_row(Row_t{"Benchmark", "Mode", "Samples", "Iters/epoch", "Overhead (ns/iter)", "Overhead %",
+                        "Measured (s)", "Warmup (s)", "Min total (s)", "Max total (s)", "Wall (s)"});
+    debug[0].format().font_align(FontAlign::center);
+    for (std::size_t col = 2; col < 11; ++col) {
+        debug.column(col).format().font_align(FontAlign::right);
+    }
+
+    for (const auto& row : rows) {
+        if (!row.c) continue;
+        const std::string mode = row.jr.batch_mode ? "batch" : "per-iter";
+        const std::string overhead_cell =
+            (row.jr.overhead_mean_ns > 0.0)
+                ? fmt::format("{:.3f} ± {:.3f}", row.jr.overhead_mean_ns, row.jr.overhead_sd_ns)
+                : std::string("-");
+        const std::string overhead_pct =
+            (row.jr.overhead_ratio_pct > 0.0) ? fmt::format("{:.2f}%", row.jr.overhead_ratio_pct) : std::string("-");
+        debug.add_row(Row_t{
+            std::string(row.c->name),
+            mode,
+            fmt::format("{}", row.jr.samples_ns.size()),
+            fmt::format("{}", row.jr.iters_per_epoch),
+            overhead_cell,
+            overhead_pct,
+            fmt::format("{:.3f}", row.jr.total_time_s),
+            fmt::format("{:.3f}", row.jr.warmup_time_s),
+            fmt::format("{:.3f}", opt.bench_cfg.min_total_time_s),
+            fmt::format("{:.3f}", opt.bench_cfg.max_total_time_s),
+            fmt::format("{:.3f}", row.jr.wall_time_s),
+        });
+    }
+
+    std::cout << "Jitter debug\n" << debug << "\n";
+
+    for (const auto& row : rows) {
+        if (!row.c) continue;
+        const auto& samples = row.jr.samples_ns;
+        std::cout << "\nJitter histogram (bins=" << bins << ", name=" << row.c->name << ")\n";
+        Table hist;
+        hist.add_row(Row_t{"Bin", "Range (ns)", "Count", "Percent", "Cumulative %"});
+        hist[0].format().font_align(FontAlign::center);
+        hist.column(0).format().font_align(FontAlign::right);
+        hist.column(2).format().font_align(FontAlign::right);
+        hist.column(3).format().font_align(FontAlign::right);
+        hist.column(4).format().font_align(FontAlign::right);
+
+        if (samples.empty()) {
+            std::cout << hist << "\n";
+            continue;
+        }
+
+        const auto hist_data = gentest::detail::compute_histogram(samples, bins);
+        for (std::size_t i = 0; i < hist_data.bins.size(); ++i) {
+            const auto& bin = hist_data.bins[i];
+            const std::string range = bin.inclusive_hi
+                                          ? fmt::format("[{:.2f}, {:.2f}]", bin.lo, bin.hi)
+                                          : fmt::format("[{:.2f}, {:.2f})", bin.lo, bin.hi);
+            hist.add_row(Row_t{
+                fmt::format("{}", i + 1),
+                range,
+                fmt::format("{}", bin.count),
+                fmt::format("{:.2f}%", bin.percent),
+                fmt::format("{:.2f}%", bin.cumulative_percent),
+            });
+        }
+
+        std::cout << hist << "\n";
+    }
+    return TimedRunStatus{!had_fixture_failure};
+}
+
 auto run_all_tests(std::span<const char*> args) -> int {
     CliOptions opt{};
     if (!parse_cli(args, opt)) return 1;
@@ -1741,21 +2162,20 @@ auto run_all_tests(std::span<const char*> args) -> int {
         fmt::print("  --list-tests          List test names (one per line)\n");
         fmt::print("  --list                List tests with metadata\n");
         fmt::print("  --list-death          List death test names (one per line)\n");
-        fmt::print("  --run-test=<name>     Run a single test by exact name\n");
-        fmt::print("  --filter=<pattern>    Run tests matching wildcard pattern (*, ?)\n");
+        fmt::print("  --list-benches        List benchmark/jitter names (one per line)\n");
+        fmt::print("  --run=<name>          Run a single case by exact name\n");
+        fmt::print("  --filter=<pattern>    Run cases matching wildcard pattern (*, ?)\n");
+        fmt::print("  --kind=<kind>         Restrict to kind: all|test|bench|jitter (default all)\n");
         fmt::print("  --include-death       Allow running tests tagged 'death'\n");
         fmt::print("  --no-color            Disable colorized output (or set NO_COLOR/GENTEST_NO_COLOR)\n");
         fmt::print("  --github-annotations  Emit GitHub Actions annotations (::error ...) on failures\n");
         fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
         fmt::print("  --allure-dir=<dir>    Write Allure result JSON files into directory\n");
-        fmt::print("  --fail-fast           Stop after the first failing test\n");
+        fmt::print("  --fail-fast           Stop after the first failing case\n");
         fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
         fmt::print("  --shuffle             Shuffle tests (respects fixture/grouping)\n");
         fmt::print("  --seed N              RNG seed used with --shuffle\n");
         fmt::print("\nBenchmark options:\n");
-        fmt::print("  --list-benches        List benchmark names (one per line)\n");
-        fmt::print("  --run-bench=<name>    Run a single benchmark\n");
-        fmt::print("  --bench-filter=<pat>  Run benchmarks matching wildcard pattern\n");
         fmt::print("  --bench-table         Print a summary table per suite (runs benches)\n");
         fmt::print("  --bench-min-epoch-time-s=<sec>  Minimum epoch time\n");
         fmt::print("  --bench-epochs=<N>    Measurement epochs (default 12)\n");
@@ -1763,8 +2183,6 @@ auto run_all_tests(std::span<const char*> args) -> int {
         fmt::print("  --bench-min-total-time-s=<sec>  Min total time per benchmark (may exceed --bench-epochs)\n");
         fmt::print("  --bench-max-total-time-s=<sec>  Max total time per benchmark\n");
         fmt::print("\nJitter options:\n");
-        fmt::print("  --run-jitter=<name>   Run a single jitter benchmark and print summary + histogram tables\n");
-        fmt::print("  --jitter-filter=<pat> Run jitter benchmarks matching wildcard pattern\n");
         fmt::print("  --jitter-bins=<N>     Histogram bins (default 10)\n");
         return 0;
     case Mode::ListTests:
@@ -1808,417 +2226,99 @@ auto run_all_tests(std::span<const char*> args) -> int {
     case Mode::ListBenches:
         for (const auto& t : kCases) if (t.is_benchmark || t.is_jitter) fmt::print("{}\n", t.name);
         return 0;
-    case Mode::RunBenches: {
-        SharedFixtureRunGuard fixture_guard;
-        std::vector<std::size_t> idxs;
-        if (opt.run_bench) {
-            const std::string_view run_bench = opt.run_bench;
-            for (std::size_t i = 0; i < kCases.size(); ++i) {
-                if (kCases[i].is_benchmark && kCases[i].name == run_bench) { idxs.push_back(i); break; }
-            }
-            if (idxs.empty()) {
-                // Fallback: allow suffix match (e.g., "string/concat_small" matches "benchmarks/string/concat_small").
-                std::vector<std::size_t> suffix_matches;
-                for (std::size_t i = 0; i < kCases.size(); ++i) {
-                    if (!kCases[i].is_benchmark) continue;
-                    if (kCases[i].name.size() < run_bench.size()) continue;
-                    if (kCases[i].name.ends_with(run_bench)) suffix_matches.push_back(i);
-                }
-                if (suffix_matches.size() == 1) {
-                    idxs.push_back(suffix_matches.front());
-                } else if (!suffix_matches.empty()) {
-                    fmt::print(stderr, "Benchmark name is ambiguous: {}\n", opt.run_bench);
-                    fmt::print(stderr, "Matches:\n");
-                    for (auto idx : suffix_matches) fmt::print(stderr, "  {}\n", kCases[idx].name);
-                    return 1;
-                } else {
-                    fmt::print(stderr, "Benchmark not found: {}\n", opt.run_bench);
-                    return 1;
-                }
-            }
-        } else {
-            if (opt.bench_filter) {
-                const char* pat = opt.bench_filter;
-                for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_benchmark && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
-                if (idxs.empty()) {
-                    fmt::print(stderr, "benchmark filter matched 0 benchmarks: {}\n", pat);
-                    fmt::print(stderr, "hint: use --list-benches to see available names\n");
-                    return 1;
-                }
-            } else {
-                // --bench-table with no filter runs all benchmarks.
-                for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_benchmark) idxs.push_back(i);
-                if (idxs.empty()) {
-                    fmt::print("Executed 0 benchmark(s).\n");
-                    return 0;
-                }
-            }
-        }
-        struct BenchRow {
-            const Case* c = nullptr;
-            BenchResult br{};
-        };
-        std::vector<BenchRow> rows;
-        rows.reserve(idxs.size());
-        bool had_fixture_failure = false;
-        const auto report_fixture_failure = [&](const Case& c,
-                                                std::string_view reason,
-                                                bool allocation_failure,
-                                                std::string_view phase) {
-            if (allocation_failure) {
-                if (!c.fixture.empty()) {
-                    fmt::print(stderr, "benchmark fixture allocation failed for {} ({}): {}\n", c.name, c.fixture, reason);
-                } else {
-                    fmt::print(stderr, "benchmark fixture allocation failed for {}: {}\n", c.name, reason);
-                }
-            } else {
-                if (!c.fixture.empty()) {
-                    fmt::print(stderr, "benchmark {} failed for {} ({}): {}\n", phase, c.name, c.fixture, reason);
-                } else {
-                    fmt::print(stderr, "benchmark {} failed for {}: {}\n", phase, c.name, reason);
-                }
-            }
-            had_fixture_failure = true;
-        };
-        for (auto i : idxs) {
-            const auto& c = kCases[i];
-            void* ctx = nullptr;
-            std::string reason;
-            if (!acquire_case_fixture(c, ctx, reason)) {
-                report_fixture_failure(c, reason, true, "allocation");
-                continue;
-            }
-            bool allocation_failure = false;
-            if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure)) {
-                report_fixture_failure(c, reason, allocation_failure, "setup");
-                continue;
-            }
-            BenchResult br = run_bench(c, ctx, opt.bench_cfg);
-            std::string call_error;
-            bool call_alloc_failure = false;
-            if (gentest::detail::has_bench_error()) {
-                call_error = gentest::detail::take_bench_error();
-                call_alloc_failure = true;
-            }
-            if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure)) {
-                report_fixture_failure(c, reason, allocation_failure, "teardown");
-                continue;
-            }
-            if (!call_error.empty()) {
-                report_fixture_failure(c, call_error, call_alloc_failure, "call");
-                continue;
-            }
-            rows.push_back(BenchRow{&c, br});
-        }
-        std::map<std::string, double> baseline_ns;
-        for (const auto& row : rows) {
-            if (!row.c || !row.c->is_baseline) continue;
-            const std::string suite(row.c->suite);
-            if (baseline_ns.find(suite) == baseline_ns.end()) {
-                baseline_ns.emplace(suite, row.br.median_ns);
-            }
-        }
-
-        using tabulate::FontAlign;
-        using tabulate::Table;
-        using Row_t = Table::Row_t;
-
-        const auto bench_calls_per_sec = [](const BenchResult& br) -> double {
-            if (br.total_time_s <= 0.0 || br.total_iters == 0) return 0.0;
-            return static_cast<double>(br.total_iters) / br.total_time_s;
-        };
-
-        Table summary;
-        summary.add_row(Row_t{"Benchmark", "Samples", "Iters/epoch", "Median (ns)", "Mean (ns)",
-                              "P05 (ns)", "P95 (ns)", "Worst (ns)", "Total (s)", "Baseline Δ%"});
-        summary[0].format().font_align(FontAlign::center);
-        summary.column(1).format().font_align(FontAlign::right);
-        summary.column(2).format().font_align(FontAlign::right);
-        summary.column(3).format().font_align(FontAlign::right);
-        summary.column(4).format().font_align(FontAlign::right);
-        summary.column(5).format().font_align(FontAlign::right);
-        summary.column(6).format().font_align(FontAlign::right);
-        summary.column(7).format().font_align(FontAlign::right);
-        summary.column(8).format().font_align(FontAlign::right);
-        summary.column(9).format().font_align(FontAlign::right);
-
-        for (const auto& row : rows) {
-            if (!row.c) continue;
-            const std::string suite(row.c->suite);
-            const auto base_it = baseline_ns.find(suite);
-            const double base_ns = (base_it == baseline_ns.end()) ? 0.0 : base_it->second;
-            const std::string baseline_cell =
-                (base_ns > 0.0) ? fmt::format("{:+.2f}%", (row.br.median_ns - base_ns) / base_ns * 100.0)
-                                : std::string("-");
-            summary.add_row(Row_t{
-                std::string(row.c->name),
-                fmt::format("{}", row.br.epochs),
-                fmt::format("{}", row.br.iters_per_epoch),
-                fmt::format("{:.2f}", row.br.median_ns),
-                fmt::format("{:.2f}", row.br.mean_ns),
-                fmt::format("{:.2f}", row.br.p05_ns),
-                fmt::format("{:.2f}", row.br.p95_ns),
-                fmt::format("{:.2f}", row.br.worst_ns),
-                fmt::format("{:.3f}", row.br.wall_time_s),
-                baseline_cell,
-            });
-        }
-
-        Table debug;
-        debug.add_row(Row_t{"Benchmark", "Epochs", "Iters/epoch", "Total iters", "Measured (s)", "Wall (s)",
-                            "Warmup (s)", "Calib iters", "Calib (s)", "Min epoch (s)", "Min total (s)",
-                            "Max total (s)", "Calls/sec"});
-        debug[0].format().font_align(FontAlign::center);
-        for (std::size_t col = 1; col < 13; ++col) {
-            debug.column(col).format().font_align(FontAlign::right);
-        }
-
-        for (const auto& row : rows) {
-            if (!row.c) continue;
-            debug.add_row(Row_t{
-                std::string(row.c->name),
-                fmt::format("{}", row.br.epochs),
-                fmt::format("{}", row.br.iters_per_epoch),
-                fmt::format("{}", row.br.total_iters),
-                fmt::format("{:.3f}", row.br.total_time_s),
-                fmt::format("{:.3f}", row.br.wall_time_s),
-                fmt::format("{:.3f}", row.br.warmup_time_s),
-                fmt::format("{}", row.br.calibration_iters),
-                fmt::format("{:.3f}", row.br.calibration_time_s),
-                fmt::format("{:.3f}", opt.bench_cfg.min_epoch_time_s),
-                fmt::format("{:.3f}", opt.bench_cfg.min_total_time_s),
-                fmt::format("{:.3f}", opt.bench_cfg.max_total_time_s),
-                fmt::format("{:.3f}", bench_calls_per_sec(row.br)),
-            });
-        }
-
-        std::cout << "Benchmarks\n" << summary << "\n\n";
-        std::cout << "Bench debug\n" << debug << "\n";
-        return (had_fixture_failure || !fixture_guard.ok) ? 1 : 0;
-    }
-    case Mode::RunJitter: {
-        SharedFixtureRunGuard fixture_guard;
-        const int bins = opt.jitter_bins;
-        std::vector<std::size_t> idxs;
-        if (opt.run_jitter) {
-            for (std::size_t i = 0; i < kCases.size(); ++i) {
-                if (kCases[i].is_jitter && kCases[i].name == opt.run_jitter) { idxs.push_back(i); break; }
-            }
-            if (idxs.empty()) { fmt::print(stderr, "Jitter benchmark not found: {}\n", opt.run_jitter); return 1; }
-        } else {
-            const char* pat = opt.jitter_filter;
-            for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].is_jitter && wildcard_match(kCases[i].name, pat)) idxs.push_back(i);
-            if (idxs.empty()) {
-                fmt::print(stderr, "jitter filter matched 0 benchmarks: {}\n", pat);
-                fmt::print(stderr, "hint: use --list-benches to see available names\n");
-                return 1;
-            }
-        }
-        bool had_fixture_failure = false;
-        struct JitterRow {
-            const Case* c = nullptr;
-            JitterResult jr;
-        };
-        std::vector<JitterRow> rows;
-        const auto report_fixture_failure = [&](const Case& c,
-                                                std::string_view reason,
-                                                bool allocation_failure,
-                                                std::string_view phase) {
-            if (allocation_failure) {
-                if (!c.fixture.empty()) {
-                    fmt::print(stderr, "jitter fixture allocation failed for {} ({}): {}\n", c.name, c.fixture, reason);
-                } else {
-                    fmt::print(stderr, "jitter fixture allocation failed for {}: {}\n", c.name, reason);
-                }
-            } else {
-                if (!c.fixture.empty()) {
-                    fmt::print(stderr, "jitter {} failed for {} ({}): {}\n", phase, c.name, c.fixture, reason);
-                } else {
-                    fmt::print(stderr, "jitter {} failed for {}: {}\n", phase, c.name, reason);
-                }
-            }
-            had_fixture_failure = true;
-        };
-        for (auto i : idxs) {
-            const auto& c = kCases[i];
-            void* ctx = nullptr;
-            std::string reason;
-            if (!acquire_case_fixture(c, ctx, reason)) {
-                report_fixture_failure(c, reason, true, "allocation");
-                continue;
-            }
-            bool allocation_failure = false;
-            if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure)) {
-                report_fixture_failure(c, reason, allocation_failure, "setup");
-                continue;
-            }
-            JitterResult jr = run_jitter(c, ctx, opt.bench_cfg);
-            std::string call_error;
-            bool call_alloc_failure = false;
-            if (gentest::detail::has_bench_error()) {
-                call_error = gentest::detail::take_bench_error();
-                call_alloc_failure = true;
-            }
-            if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure)) {
-                report_fixture_failure(c, reason, allocation_failure, "teardown");
-                continue;
-            }
-            if (!call_error.empty()) {
-                report_fixture_failure(c, call_error, call_alloc_failure, "call");
-                continue;
-            }
-            rows.push_back(JitterRow{&c, std::move(jr)});
-        }
-
-        std::map<std::string, double> baseline_median_ns;
-        std::map<std::string, double> baseline_stddev_ns;
-        for (const auto& row : rows) {
-            if (!row.c || !row.c->is_baseline) continue;
-            const std::string suite(row.c->suite);
-            if (baseline_median_ns.find(suite) == baseline_median_ns.end()) {
-                baseline_median_ns.emplace(suite, row.jr.median_ns);
-                baseline_stddev_ns.emplace(suite, row.jr.stddev_ns);
-            }
-        }
-
-        using tabulate::FontAlign;
-        using tabulate::Table;
-        using Row_t = Table::Row_t;
-
-        Table summary;
-        summary.add_row(Row_t{"Benchmark", "Samples", "Median (ns)", "Mean (ns)", "StdDev (ns)", "P05 (ns)", "P95 (ns)",
-                              "Min (ns)", "Max (ns)", "Total (s)", "Baseline Δ%", "Baseline SD Δ%"});
-        summary[0].format().font_align(FontAlign::center);
-        for (std::size_t col = 1; col < 12; ++col) {
-            summary.column(col).format().font_align(FontAlign::right);
-        }
-
-        for (const auto& row : rows) {
-            if (!row.c) continue;
-            const std::string suite(row.c->suite);
-            const auto base_med_it = baseline_median_ns.find(suite);
-            const auto base_sd_it = baseline_stddev_ns.find(suite);
-            const double base_median = (base_med_it == baseline_median_ns.end()) ? 0.0 : base_med_it->second;
-            const double base_sd = (base_sd_it == baseline_stddev_ns.end()) ? 0.0 : base_sd_it->second;
-            const std::string baseline_med_cell =
-                (base_median > 0.0)
-                    ? fmt::format("{:+.2f}%", (row.jr.median_ns - base_median) / base_median * 100.0)
-                    : std::string("-");
-            const std::string baseline_sd_cell =
-                (base_sd > 0.0) ? fmt::format("{:+.2f}%", (row.jr.stddev_ns - base_sd) / base_sd * 100.0) : std::string("-");
-            summary.add_row(Row_t{
-                std::string(row.c->name),
-                fmt::format("{}", row.jr.samples_ns.size()),
-                fmt::format("{:.2f}", row.jr.median_ns),
-                fmt::format("{:.2f}", row.jr.mean_ns),
-                fmt::format("{:.2f}", row.jr.stddev_ns),
-                fmt::format("{:.2f}", row.jr.p05_ns),
-                fmt::format("{:.2f}", row.jr.p95_ns),
-                fmt::format("{:.2f}", row.jr.min_ns),
-                fmt::format("{:.2f}", row.jr.max_ns),
-                fmt::format("{:.3f}", row.jr.wall_time_s),
-                baseline_med_cell,
-                baseline_sd_cell,
-            });
-        }
-
-        std::cout << "Jitter summary\n" << summary << "\n";
-
-        Table debug;
-        debug.add_row(Row_t{"Benchmark", "Mode", "Samples", "Iters/epoch", "Overhead (ns/iter)", "Overhead %",
-                            "Measured (s)", "Warmup (s)", "Min total (s)", "Max total (s)", "Wall (s)"});
-        debug[0].format().font_align(FontAlign::center);
-        for (std::size_t col = 2; col < 11; ++col) {
-            debug.column(col).format().font_align(FontAlign::right);
-        }
-
-        for (const auto& row : rows) {
-            if (!row.c) continue;
-            const std::string mode = row.jr.batch_mode ? "batch" : "per-iter";
-            const std::string overhead_cell =
-                (row.jr.overhead_mean_ns > 0.0)
-                    ? fmt::format("{:.3f} ± {:.3f}", row.jr.overhead_mean_ns, row.jr.overhead_sd_ns)
-                    : std::string("-");
-            const std::string overhead_pct =
-                (row.jr.overhead_ratio_pct > 0.0) ? fmt::format("{:.2f}%", row.jr.overhead_ratio_pct) : std::string("-");
-            debug.add_row(Row_t{
-                std::string(row.c->name),
-                mode,
-                fmt::format("{}", row.jr.samples_ns.size()),
-                fmt::format("{}", row.jr.iters_per_epoch),
-                overhead_cell,
-                overhead_pct,
-                fmt::format("{:.3f}", row.jr.total_time_s),
-                fmt::format("{:.3f}", row.jr.warmup_time_s),
-                fmt::format("{:.3f}", opt.bench_cfg.min_total_time_s),
-                fmt::format("{:.3f}", opt.bench_cfg.max_total_time_s),
-                fmt::format("{:.3f}", row.jr.wall_time_s),
-            });
-        }
-
-        std::cout << "Jitter debug\n" << debug << "\n";
-
-        for (const auto& row : rows) {
-            if (!row.c) continue;
-            const auto& samples = row.jr.samples_ns;
-            std::cout << "\nJitter histogram (bins=" << bins << ", name=" << row.c->name << ")\n";
-            Table hist;
-            hist.add_row(Row_t{"Bin", "Range (ns)", "Count", "Percent", "Cumulative %"});
-            hist[0].format().font_align(FontAlign::center);
-            hist.column(0).format().font_align(FontAlign::right);
-            hist.column(2).format().font_align(FontAlign::right);
-            hist.column(3).format().font_align(FontAlign::right);
-            hist.column(4).format().font_align(FontAlign::right);
-
-            if (samples.empty()) {
-                std::cout << hist << "\n";
-                continue;
-            }
-
-            const auto hist_data = gentest::detail::compute_histogram(samples, bins);
-            for (std::size_t i = 0; i < hist_data.bins.size(); ++i) {
-                const auto& bin = hist_data.bins[i];
-                const std::string range = bin.inclusive_hi
-                                              ? fmt::format("[{:.2f}, {:.2f}]", bin.lo, bin.hi)
-                                              : fmt::format("[{:.2f}, {:.2f})", bin.lo, bin.hi);
-                hist.add_row(Row_t{
-                    fmt::format("{}", i + 1),
-                    range,
-                    fmt::format("{}", bin.count),
-                    fmt::format("{:.2f}%", bin.percent),
-                    fmt::format("{:.2f}%", bin.cumulative_percent),
-                });
-            }
-
-            std::cout << hist << "\n";
-        }
-        return (had_fixture_failure || !fixture_guard.ok) ? 1 : 0;
-    }
-    case Mode::Tests:
+    case Mode::Execute:
         break;
     }
 
-    RunnerState state{};
-    state.color_output = opt.color_output;
-    state.github_annotations = opt.github_annotations;
-    state.record_results = (opt.junit_path != nullptr) || (opt.allure_dir != nullptr);
-
-    SharedFixtureRunGuard fixture_guard;
-    Counters counters;
-
     std::vector<std::size_t> idxs;
     const bool has_selection = (opt.run_exact != nullptr) || (opt.filter_pat != nullptr);
-    if (has_selection) {
-        if (opt.run_exact) {
-            for (std::size_t i = 0; i < kCases.size(); ++i) if (kCases[i].name == opt.run_exact) { idxs.push_back(i); break; }
-            if (idxs.empty()) { fmt::print(stderr, "Test not found: {}\n", opt.run_exact); return 1; }
+
+    if (opt.run_exact) {
+        const std::string_view exact = opt.run_exact;
+
+        auto report_ambiguous = [&](const std::vector<std::size_t>& matches) {
+            fmt::print(stderr, "Case name is ambiguous: {}\n", opt.run_exact);
+            fmt::print(stderr, "Matches:\n");
+            for (auto idx : matches) fmt::print(stderr, "  {}\n", kCases[idx].name);
+        };
+
+        std::vector<std::size_t> exact_matches;
+        std::vector<std::size_t> exact_kind_matches;
+        for (std::size_t i = 0; i < kCases.size(); ++i) {
+            if (kCases[i].name != exact) continue;
+            exact_matches.push_back(i);
+            if (case_matches_kind(kCases[i], opt.kind)) exact_kind_matches.push_back(i);
+        }
+
+        if (!exact_matches.empty()) {
+            if (exact_kind_matches.empty()) {
+                fmt::print(stderr, "Case '{}' does not match --kind={}\n", opt.run_exact, kind_to_string(opt.kind));
+                return 1;
+            }
+            if (exact_kind_matches.size() > 1) {
+                report_ambiguous(exact_kind_matches);
+                return 1;
+            }
+            idxs.push_back(exact_kind_matches.front());
         } else {
-            for (std::size_t i = 0; i < kCases.size(); ++i) if (wildcard_match(kCases[i].name, opt.filter_pat)) idxs.push_back(i);
-            if (idxs.empty()) { fmt::print("Executed 0 test(s).\n"); return 0; }
+            std::vector<std::size_t> suffix_matches;
+            std::vector<std::size_t> suffix_kind_matches;
+            for (std::size_t i = 0; i < kCases.size(); ++i) {
+                if (kCases[i].name.size() < exact.size()) continue;
+                if (!kCases[i].name.ends_with(exact)) continue;
+                suffix_matches.push_back(i);
+                if (case_matches_kind(kCases[i], opt.kind)) suffix_kind_matches.push_back(i);
+            }
+            if (suffix_matches.empty()) {
+                fmt::print(stderr, "Case not found: {}\n", opt.run_exact);
+                return 1;
+            }
+            if (suffix_kind_matches.empty()) {
+                fmt::print(stderr, "Case '{}' does not match --kind={}\n", opt.run_exact, kind_to_string(opt.kind));
+                return 1;
+            }
+            if (suffix_kind_matches.size() > 1) {
+                report_ambiguous(suffix_kind_matches);
+                return 1;
+            }
+            idxs.push_back(suffix_kind_matches.front());
+        }
+    } else if (opt.filter_pat) {
+        for (std::size_t i = 0; i < kCases.size(); ++i) {
+            if (wildcard_match(kCases[i].name, opt.filter_pat)) idxs.push_back(i);
         }
     } else {
         idxs.resize(kCases.size());
         for (std::size_t i = 0; i < kCases.size(); ++i) idxs[i] = i;
+    }
+
+    {
+        std::vector<std::size_t> kept;
+        kept.reserve(idxs.size());
+        for (auto idx : idxs) {
+            if (case_matches_kind(kCases[idx], opt.kind)) kept.push_back(idx);
+        }
+        idxs = std::move(kept);
+    }
+
+    if (idxs.empty()) {
+        if (opt.filter_pat && opt.kind == KindFilter::Bench) {
+            fmt::print(stderr, "benchmark filter matched 0 benchmarks: {}\n", opt.filter_pat);
+            fmt::print(stderr, "hint: use --list-benches to see available names\n");
+            return 1;
+        }
+        if (opt.filter_pat && opt.kind == KindFilter::Jitter) {
+            fmt::print(stderr, "jitter filter matched 0 benchmarks: {}\n", opt.filter_pat);
+            fmt::print(stderr, "hint: use --list-benches to see available names\n");
+            return 1;
+        }
+        switch (opt.kind) {
+        case KindFilter::Test: fmt::print("Executed 0 test(s).\n"); break;
+        case KindFilter::Bench: fmt::print("Executed 0 benchmark(s).\n"); break;
+        case KindFilter::Jitter: fmt::print("Executed 0 jitter benchmark(s).\n"); break;
+        case KindFilter::All: fmt::print("Executed 0 case(s).\n"); break;
+        }
+        return 0;
     }
 
     if (!opt.include_death) {
@@ -2234,14 +2334,10 @@ auto run_all_tests(std::span<const char*> args) -> int {
         }
         if (kept.empty() && filtered_death > 0) {
             if (opt.run_exact) {
-                fmt::print(stderr, "Test '{}' is tagged as a death test; rerun with --include-death\n", opt.run_exact);
+                fmt::print(stderr, "Case '{}' is tagged as a death test; rerun with --include-death\n", opt.run_exact);
                 return 1;
             }
-            if (opt.filter_pat) {
-                fmt::print("Executed 0 test(s). (death tests excluded; use --include-death)\n");
-                return 0;
-            }
-            fmt::print("Executed 0 test(s). (death tests excluded; use --include-death)\n");
+            fmt::print("Executed 0 case(s). (death tests excluded; use --include-death)\n");
             return 0;
         }
         if (filtered_death > 0) {
@@ -2250,41 +2346,83 @@ auto run_all_tests(std::span<const char*> args) -> int {
         idxs = std::move(kept);
     }
 
-    if (opt.shuffle && !has_selection) fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
-
-    for (std::size_t iter = 0; iter < opt.repeat_n; ++iter) {
-        if (opt.shuffle && has_selection) fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
-        const bool stopped =
-            run_tests_once(state, kCases, std::span<const std::size_t>{idxs.data(), idxs.size()}, opt.shuffle, opt.shuffle_seed, opt.fail_fast, counters);
-        if (stopped) break;
+    std::vector<std::size_t> test_idxs;
+    std::vector<std::size_t> bench_idxs;
+    std::vector<std::size_t> jitter_idxs;
+    test_idxs.reserve(idxs.size());
+    bench_idxs.reserve(idxs.size());
+    jitter_idxs.reserve(idxs.size());
+    for (auto idx : idxs) {
+        if (kCases[idx].is_benchmark) bench_idxs.push_back(idx);
+        else if (kCases[idx].is_jitter) jitter_idxs.push_back(idx);
+        else test_idxs.push_back(idx);
     }
 
-    if (state.record_results) write_reports(state, opt.junit_path, opt.allure_dir);
-    std::string summary;
-    summary.reserve(128 + state.failure_items.size() * 64);
-    fmt::format_to(std::back_inserter(summary),
-                   "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n",
-                   counters.passed, counters.total, counters.failed, counters.skipped, counters.xfail, counters.xpass);
-    if (!state.failure_items.empty()) {
-        std::map<std::string, std::vector<std::string>> grouped;
-        for (const auto& item : state.failure_items) {
-            auto& issues = grouped[item.name];
-            for (const auto& issue : item.issues) {
-                if (std::find(issues.begin(), issues.end(), issue) == issues.end()) {
-                    issues.push_back(issue);
+    RunnerState state{};
+    state.color_output = opt.color_output;
+    state.github_annotations = opt.github_annotations;
+    state.record_results = (opt.junit_path != nullptr) || (opt.allure_dir != nullptr);
+
+    SharedFixtureRunGuard fixture_guard;
+    Counters counters;
+
+    bool tests_stopped = false;
+    if (!test_idxs.empty()) {
+        if (opt.shuffle && !has_selection) fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
+        for (std::size_t iter = 0; iter < opt.repeat_n; ++iter) {
+            if (opt.shuffle && has_selection) fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
+            tests_stopped = run_tests_once(state,
+                                           kCases,
+                                           std::span<const std::size_t>{test_idxs.data(), test_idxs.size()},
+                                           opt.shuffle,
+                                           opt.shuffle_seed,
+                                           opt.fail_fast,
+                                           counters);
+            if (tests_stopped) break;
+        }
+    }
+
+    TimedRunStatus bench_status{};
+    TimedRunStatus jitter_status{};
+    if (!(opt.fail_fast && tests_stopped)) {
+        bench_status =
+            run_selected_benches(kCases, std::span<const std::size_t>{bench_idxs.data(), bench_idxs.size()}, opt, opt.fail_fast);
+    }
+    if (!(opt.fail_fast && (tests_stopped || bench_status.stopped))) {
+        jitter_status =
+            run_selected_jitters(kCases, std::span<const std::size_t>{jitter_idxs.data(), jitter_idxs.size()}, opt, opt.fail_fast);
+    }
+
+    if (!test_idxs.empty()) {
+        if (state.record_results) write_reports(state, opt.junit_path, opt.allure_dir);
+        std::string summary;
+        summary.reserve(128 + state.failure_items.size() * 64);
+        fmt::format_to(std::back_inserter(summary),
+                       "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n",
+                       counters.passed, counters.total, counters.failed, counters.skipped, counters.xfail, counters.xpass);
+        if (!state.failure_items.empty()) {
+            std::map<std::string, std::vector<std::string>> grouped;
+            for (const auto& item : state.failure_items) {
+                auto& issues = grouped[item.name];
+                for (const auto& issue : item.issues) {
+                    if (std::find(issues.begin(), issues.end(), issue) == issues.end()) {
+                        issues.push_back(issue);
+                    }
+                }
+            }
+            summary.append("Failed tests:\n");
+            for (const auto& [name, issues] : grouped) {
+                fmt::format_to(std::back_inserter(summary), "  {}:\n", name);
+                for (const auto& issue : issues) {
+                    fmt::format_to(std::back_inserter(summary), "    {}\n", issue);
                 }
             }
         }
-        summary.append("Failed tests:\n");
-        for (const auto& [name, issues] : grouped) {
-            fmt::format_to(std::back_inserter(summary), "  {}:\n", name);
-            for (const auto& issue : issues) {
-                fmt::format_to(std::back_inserter(summary), "    {}\n", issue);
-            }
-        }
+        fmt::print("{}", summary);
     }
-    fmt::print("{}", summary);
-    return (counters.failures == 0 && fixture_guard.ok) ? 0 : 1;
+
+    const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok;
+    return ok ? 0 : 1;
 }
 
 auto run_all_tests(int argc, char **argv) -> int {

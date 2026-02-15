@@ -32,7 +32,11 @@ static int run_one(std::string_view name) {
     if (name == "demo/b") { std::cout << "[ PASS ] demo/b\n"; return 0; }
     if (name == "demo/skip") { std::cout << "[ SKIP ] demo/skip :: not ready\n"; return 0; }
     if (name == "demo/has [bracket]") { std::cout << "[ PASS ] demo/has [bracket]\n"; return 0; }
-    if (name == "demo/death") { std::cout << "fatal path\n"; return 1; }
+    if (name == "demo/death") {
+        std::cout << "Case not found: unrelated-diagnostic\n";
+        std::cout << "fatal path\n";
+        return 1;
+    }
     std::cerr << "Test not found: " << name << "\n";
     return 1;
 }
@@ -52,7 +56,7 @@ int main(int argc, char** argv) {
             std::cout << "demo/death\n";
             return 0;
         }
-        constexpr std::string_view kRun = "--run-test=";
+        constexpr std::string_view kRun = "--run=";
         if (arg.rfind(kRun, 0) == 0) {
             return run_one(arg.substr(kRun.size()));
         }
