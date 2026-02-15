@@ -22,28 +22,7 @@ if(NOT DEFINED GENERATOR)
   message(FATAL_ERROR "CheckDiscoverTests.cmake: GENERATOR not set")
 endif()
 
-function(run_or_fail)
-  set(options "")
-  set(oneValueArgs WORKING_DIRECTORY)
-  set(multiValueArgs COMMAND)
-  cmake_parse_arguments(RUN "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
-
-  execute_process(
-    COMMAND ${RUN_COMMAND}
-    WORKING_DIRECTORY "${RUN_WORKING_DIRECTORY}"
-    RESULT_VARIABLE _rc
-    OUTPUT_VARIABLE _out
-    ERROR_VARIABLE _err
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_STRIP_TRAILING_WHITESPACE
-  )
-
-  if(NOT _rc EQUAL 0)
-    message(FATAL_ERROR "Command failed (${_rc}): ${RUN_COMMAND}\n--- stdout ---\n${_out}\n--- stderr ---\n${_err}\n")
-  endif()
-
-  set(_run_or_fail_out "${_out}\n${_err}" PARENT_SCOPE)
-endfunction()
+include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
 set(_work_dir "${BUILD_ROOT}/discover_tests")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -77,13 +56,14 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
 endif()
 
 message(STATUS "Configure gentest_discover_tests fixture...")
-run_or_fail(
+gentest_check_run_or_fail(
   COMMAND
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
     -S "${SOURCE_DIR}"
     -B "${_build_dir}"
     ${_cmake_cache_args}
+  STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_work_dir}"
 )
 
@@ -92,7 +72,7 @@ set(_build_args --build "${_build_dir}")
 if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
   list(APPEND _build_args --config "${BUILD_CONFIG}")
 endif()
-run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_build_args} WORKING_DIRECTORY "${_work_dir}")
+gentest_check_run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_build_args} STRIP_TRAILING_WHITESPACE WORKING_DIRECTORY "${_work_dir}")
 
 set(_ctest_cmd "${CMAKE_CTEST_COMMAND}")
 set(_ctest_common_args --output-on-failure)
@@ -101,8 +81,12 @@ if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
 endif()
 
 message(STATUS "List discovered tests...")
-run_or_fail(COMMAND "${_ctest_cmd}" -N ${_ctest_common_args} WORKING_DIRECTORY "${_build_dir}")
-set(_list_out "${_run_or_fail_out}")
+gentest_check_run_or_fail(
+  COMMAND "${_ctest_cmd}" -N ${_ctest_common_args}
+  STRIP_TRAILING_WHITESPACE
+  WORKING_DIRECTORY "${_build_dir}"
+  OUTPUT_VARIABLE _list_out
+)
 
 foreach(_name IN ITEMS "demo/a" "demo/b" "demo/skip" "demo/has [bracket]" "death/demo/death")
   string(FIND "${_list_out}" "${_name}" _pos)
@@ -116,11 +100,19 @@ if(_list_out MATCHES "(^|\\n)[ \t]*Test #[0-9]+: demo/death([ \t]*$)")
 endif()
 
 message(STATUS "Run discovered tests...")
-run_or_fail(COMMAND "${_ctest_cmd}" ${_ctest_common_args} -R "^demo/" WORKING_DIRECTORY "${_build_dir}")
+gentest_check_run_or_fail(
+  COMMAND "${_ctest_cmd}" ${_ctest_common_args} -R "^demo/"
+  STRIP_TRAILING_WHITESPACE
+  WORKING_DIRECTORY "${_build_dir}"
+)
 
 message(STATUS "Run discovered death tests...")
-run_or_fail(COMMAND "${_ctest_cmd}" -V ${_ctest_common_args} -R "^death/" WORKING_DIRECTORY "${_build_dir}")
-set(_death_out "${_run_or_fail_out}")
+gentest_check_run_or_fail(
+  COMMAND "${_ctest_cmd}" -V ${_ctest_common_args} -R "^death/"
+  STRIP_TRAILING_WHITESPACE
+  WORKING_DIRECTORY "${_build_dir}"
+  OUTPUT_VARIABLE _death_out
+)
 string(FIND "${_death_out}" "Death test passed" _pos)
 if(_pos EQUAL -1)
   message(FATAL_ERROR "Expected death harness success message. Output:\n${_death_out}")
