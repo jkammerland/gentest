@@ -632,11 +632,6 @@ foreach(_arg IN LISTS _args)
   endif()
 endforeach()
 
-if(NOT _missing_case STREQUAL "" AND _rc EQUAL 3)
-  message(STATUS "[ SKIP ] Death test not present in this build configuration")
-  return()
-endif()
-
 set(_missing_case_line FALSE)
 if(NOT _missing_case STREQUAL "")
   string(REPLACE "\r\n" "\n" _all_norm "${_all}")
@@ -650,6 +645,13 @@ if(NOT _missing_case STREQUAL "")
   endforeach()
 endif()
 
+if(_missing_case_line AND _rc EQUAL 3)
+  message(STATUS "[ SKIP ] Death test not present in this build configuration")
+  return()
+endif()
+
+# Compatibility fallback for older runners that emit the "not found" line
+# but still use a generic non-zero exit code.
 if(_missing_case_line)
   message(STATUS "[ SKIP ] Death test not present in this build configuration")
   return()

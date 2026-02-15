@@ -35,7 +35,7 @@ static int run_one(std::string_view name) {
     if (name == "demo/death") {
         std::cout << "Case not found: unrelated-diagnostic\n";
         std::cout << "fatal path\n";
-        return 1;
+        return 3;
     }
     std::cerr << "Test not found: " << name << "\n";
     return 1;
