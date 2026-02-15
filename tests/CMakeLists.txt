@@ -85,49 +85,57 @@ add_custom_target(gentest_codegen_parallel_bench
     DEPENDS gentest_codegen_gentest_codegen_parallel_bench_obj)
 
 # Focused checks: ensure pass-only selection passes, and failing selection returns non-zero
-gentest_add_check_counts(
-    NAME concurrency_pass_single
-    PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
-    PASS 1
-    FAIL 0
-    SKIP 0
-    ARGS --run=concurrency/child_expect_pass)
+set(_gentest_concurrency_count_checks
+    "concurrency_pass_single|1|0|0|concurrency/child_expect_pass"
+    "concurrency_pass_throw_single|1|0|0|concurrency/child_expect_throw_pass"
+    "concurrency_multi_pass_single|1|0|0|concurrency/multi_adopt_expect_pass"
+    "concurrency_multi_fail_single|0|1|0|concurrency/multi_adopt_expect_fail")
 
-gentest_add_check_counts(
-    NAME concurrency_pass_throw_single
-    PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
-    PASS 1
-    FAIL 0
-    SKIP 0
-    ARGS --run=concurrency/child_expect_throw_pass)
+foreach(_gentest_check IN LISTS _gentest_concurrency_count_checks)
+    string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
+    list(GET _gentest_fields 0 _gentest_name)
+    list(GET _gentest_fields 1 _gentest_pass)
+    list(GET _gentest_fields 2 _gentest_fail)
+    list(GET _gentest_fields 3 _gentest_skip)
+    list(GET _gentest_fields 4 _gentest_run)
 
-gentest_add_check_death(
-    NAME concurrency_fail_single_death
-    PROG ${PROJECT_NAME}_concurrency_tests
-    EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
-    ARGS --run=concurrency/child_expect_fail)
+    gentest_add_check_counts(
+        NAME ${_gentest_name}
+        PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
+        PASS ${_gentest_pass}
+        FAIL ${_gentest_fail}
+        SKIP ${_gentest_skip}
+        ARGS --run=${_gentest_run})
+endforeach()
+unset(_gentest_concurrency_count_checks)
+unset(_gentest_check)
+unset(_gentest_fields)
+unset(_gentest_name)
+unset(_gentest_pass)
+unset(_gentest_fail)
+unset(_gentest_skip)
+unset(_gentest_run)
 
-gentest_add_check_counts(
-    NAME concurrency_multi_pass_single
-    PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
-    PASS 1
-    FAIL 0
-    SKIP 0
-    ARGS --run=concurrency/multi_adopt_expect_pass)
+set(_gentest_concurrency_death_checks
+    "concurrency_fail_single_death|concurrency/child_expect_fail"
+    "concurrency_multi_noadopt_death|concurrency/no_adopt_expect_death_multi")
 
-gentest_add_check_counts(
-    NAME concurrency_multi_fail_single
-    PROG $<TARGET_FILE:${PROJECT_NAME}_concurrency_tests>
-    PASS 0
-    FAIL 1
-    SKIP 0
-    ARGS --run=concurrency/multi_adopt_expect_fail)
+foreach(_gentest_check IN LISTS _gentest_concurrency_death_checks)
+    string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
+    list(GET _gentest_fields 0 _gentest_name)
+    list(GET _gentest_fields 1 _gentest_run)
 
-gentest_add_check_death(
-    NAME concurrency_multi_noadopt_death
-    PROG ${PROJECT_NAME}_concurrency_tests
-    EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
-    ARGS --run=concurrency/no_adopt_expect_death_multi)
+    gentest_add_check_death(
+        NAME ${_gentest_name}
+        PROG ${PROJECT_NAME}_concurrency_tests
+        EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
+        ARGS --run=${_gentest_run})
+endforeach()
+unset(_gentest_concurrency_death_checks)
+unset(_gentest_check)
+unset(_gentest_fields)
+unset(_gentest_name)
+unset(_gentest_run)
 
 option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
 if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
@@ -389,75 +397,45 @@ gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_
 gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 26)
 
 # Runtime skip/xfail/XPASS outcome checks
-gentest_add_check_counts(
-    NAME outcomes_runtime_skip_simple
-    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
-    PASS 0
-    FAIL 0
-    SKIP 1
-    XFAIL 0
-    XPASS 0
-    ARGS --run=outcomes/runtime_skip_simple)
+set(_gentest_outcomes_runtime_checks
+    "outcomes_runtime_skip_simple|0|0|1|0|0|outcomes/runtime_skip_simple"
+    "outcomes_runtime_skip_if|0|0|1|0|0|outcomes/runtime_skip_if"
+    "outcomes_xfail_expect_fail|0|0|0|1|0|outcomes/xfail_expect_fail"
+    "outcomes_xfail_throw|0|0|0|1|0|outcomes/xfail_throw"
+    "outcomes_xfail_xpass|0|0|0|0|1|outcomes/xfail_xpass"
+    "outcomes_skip_overrides_xfail|0|0|1|0|0|outcomes/skip_overrides_xfail"
+    "outcomes_skip_after_failure_is_fail|0|1|0|0|0|outcomes/skip_after_failure_is_fail")
 
-gentest_add_check_counts(
-    NAME outcomes_runtime_skip_if
-    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
-    PASS 0
-    FAIL 0
-    SKIP 1
-    XFAIL 0
-    XPASS 0
-    ARGS --run=outcomes/runtime_skip_if)
+foreach(_gentest_check IN LISTS _gentest_outcomes_runtime_checks)
+    string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
+    list(GET _gentest_fields 0 _gentest_name)
+    list(GET _gentest_fields 1 _gentest_pass)
+    list(GET _gentest_fields 2 _gentest_fail)
+    list(GET _gentest_fields 3 _gentest_skip)
+    list(GET _gentest_fields 4 _gentest_xfail)
+    list(GET _gentest_fields 5 _gentest_xpass)
+    list(GET _gentest_fields 6 _gentest_run)
 
-gentest_add_check_counts(
-    NAME outcomes_xfail_expect_fail
-    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
-    PASS 0
-    FAIL 0
-    SKIP 0
-    XFAIL 1
-    XPASS 0
-    ARGS --run=outcomes/xfail_expect_fail)
-
-gentest_add_check_counts(
-    NAME outcomes_xfail_throw
-    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
-    PASS 0
-    FAIL 0
-    SKIP 0
-    XFAIL 1
-    XPASS 0
-    ARGS --run=outcomes/xfail_throw)
-
-gentest_add_check_counts(
-    NAME outcomes_xfail_xpass
-    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
-    PASS 0
-    FAIL 0
-    SKIP 0
-    XFAIL 0
-    XPASS 1
-    ARGS --run=outcomes/xfail_xpass)
-
-gentest_add_check_counts(
-    NAME outcomes_skip_overrides_xfail
-    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
-    PASS 0
-    FAIL 0
-    SKIP 1
-    XFAIL 0
-    XPASS 0
-    ARGS --run=outcomes/skip_overrides_xfail)
-
-gentest_add_check_counts(
-    NAME outcomes_skip_after_failure_is_fail
-    PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
-    PASS 0
-    FAIL 1
-    SKIP 0
-    XFAIL 0
-    XPASS 0
-    ARGS --run=outcomes/skip_after_failure_is_fail)
+    gentest_add_check_counts(
+        NAME ${_gentest_name}
+        PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
+        PASS ${_gentest_pass}
+        FAIL ${_gentest_fail}
+        SKIP ${_gentest_skip}
+        XFAIL ${_gentest_xfail}
+        XPASS ${_gentest_xpass}
+        ARGS --run=${_gentest_run})
+endforeach()
+unset(_gentest_outcomes_runtime_checks)
+unset(_gentest_check)
+unset(_gentest_fields)
+unset(_gentest_name)
+unset(_gentest_pass)
+unset(_gentest_fail)
+unset(_gentest_skip)
+unset(_gentest_xfail)
+unset(_gentest_xpass)
+unset(_gentest_run)
 
 gentest_add_run_and_check_file(
     NAME outcomes_junit_xfail_mapping
@@ -805,74 +783,11 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "error: --bench-table requires --kind=bench or --kind=all"
     ARGS --bench-table --kind=jitter)
 
-add_test(NAME gentest_codegen_output_collision
-    COMMAND ${CMAKE_COMMAND}
-        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_collision
-        -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-        -DGENERATOR=${CMAKE_GENERATOR}
-        -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
-        -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
-        -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-        -DC_COMPILER=${CMAKE_C_COMPILER}
-        -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -P ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake)
-
-set_tests_properties(gentest_codegen_output_collision PROPERTIES LABELS "cmake")
-
-set(_gentest_discover_tests_config "")
-if(CMAKE_CONFIGURATION_TYPES)
-    set(_gentest_discover_tests_config "Debug")
-endif()
-
-add_test(NAME gentest_discover_tests_smoke
-    COMMAND ${CMAKE_COMMAND}
-        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/discover_tests
-        -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-        -DGENERATOR=${CMAKE_GENERATOR}
-        -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
-        -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
-        -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-        -DC_COMPILER=${CMAKE_C_COMPILER}
-        -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DBUILD_CONFIG=${_gentest_discover_tests_config}
-        -P ${PROJECT_SOURCE_DIR}/cmake/CheckDiscoverTests.cmake)
-
-set_tests_properties(gentest_discover_tests_smoke PROPERTIES LABELS "cmake")
-
-unset(_gentest_discover_tests_config)
-
-add_test(NAME gentest_tu_wrapper_source_props
-    COMMAND ${CMAKE_COMMAND}
-        -DSOURCE_DIR=${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
-        -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-        -DGENERATOR=${CMAKE_GENERATOR}
-        -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
-        -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
-        -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-        -DC_COMPILER=${CMAKE_C_COMPILER}
-        -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -P ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake)
-
-set_tests_properties(gentest_tu_wrapper_source_props PROPERTIES LABELS "cmake")
-
-option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
-if(GENTEST_ENABLE_PACKAGE_TESTS)
-    set(_gentest_package_test_config "")
-    if(CMAKE_CONFIGURATION_TYPES)
-        set(_gentest_package_test_config "Debug")
-    endif()
-
-    add_test(NAME gentest_package_consumer
+function(_gentest_add_cmake_helper_test name source_dir script_path label)
+    add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
-            -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+            -DSOURCE_DIR=${source_dir}
             -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-            -DPACKAGE_NAME=${PROJECT_NAME}
             -DGENERATOR=${CMAKE_GENERATOR}
             -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
             -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
@@ -881,10 +796,52 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
             -DC_COMPILER=${CMAKE_C_COMPILER}
             -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
             -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
-            -DBUILD_CONFIG=${_gentest_package_test_config}
-            -P ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake)
+            ${ARGN}
+            -P ${script_path})
 
-    set_tests_properties(gentest_package_consumer PROPERTIES LABELS "package")
+    set_tests_properties(${name} PROPERTIES LABELS "${label}")
+endfunction()
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_output_collision
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_collision
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake
+    cmake)
+
+set(_gentest_discover_tests_config "")
+if(CMAKE_CONFIGURATION_TYPES)
+    set(_gentest_discover_tests_config "Debug")
+endif()
+
+_gentest_add_cmake_helper_test(
+    gentest_discover_tests_smoke
+    ${PROJECT_SOURCE_DIR}/tests/cmake/discover_tests
+    ${PROJECT_SOURCE_DIR}/cmake/CheckDiscoverTests.cmake
+    cmake
+    -DBUILD_CONFIG=${_gentest_discover_tests_config})
+
+unset(_gentest_discover_tests_config)
+
+_gentest_add_cmake_helper_test(
+    gentest_tu_wrapper_source_props
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake
+    cmake)
+
+option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
+if(GENTEST_ENABLE_PACKAGE_TESTS)
+    set(_gentest_package_test_config "")
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(_gentest_package_test_config "Debug")
+    endif()
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config})
 endif()
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
