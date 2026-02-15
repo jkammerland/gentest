@@ -960,6 +960,18 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
         }
         return ValueMatch::No;
     };
+    enum class OptionParseResult { NoMatch, Consumed, Error };
+    auto parse_value_option = [&](std::size_t& i, std::string_view s, std::string_view opt_name, auto&& on_value) -> OptionParseResult {
+        std::string_view value;
+        switch (match_value(i, s, opt_name, value)) {
+        case ValueMatch::Error: return OptionParseResult::Error;
+        case ValueMatch::Yes:
+            if (!on_value(value)) return OptionParseResult::Error;
+            return OptionParseResult::Consumed;
+        case ValueMatch::No: return OptionParseResult::NoMatch;
+        }
+        return OptionParseResult::NoMatch;
+    };
 
     auto parse_u64_option = [&](std::string_view opt_name, std::string_view value, std::uint64_t& out) -> bool {
         const ParseU64DecimalResult parsed = parse_u64_decimal_strict(value);
@@ -1016,6 +1028,22 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
         fmt::print(stderr, "error: --kind must be one of all,test,bench,jitter; got: '{}'\n", value);
         return false;
     };
+    auto set_unique_string_option = [&](const char*& out_value, std::string_view opt_name, std::string_view value) -> bool {
+        if (out_value) {
+            fmt::print(stderr, "error: duplicate {}\n", opt_name);
+            return false;
+        }
+        out_value = value.data();
+        return true;
+    };
+    auto parse_non_negative_double_option = [&](std::string_view opt_name, std::string_view value, double& out) -> bool {
+        if (!parse_double_option(opt_name, value, out)) return false;
+        if (out < 0.0) {
+            fmt::print(stderr, "error: {} must be non-negative\n", opt_name);
+            return false;
+        }
+        return true;
+    };
 
     std::size_t start = 0;
     if (!args.empty() && args[0] && args[0][0] != '-') {
@@ -1038,244 +1066,194 @@ static bool parse_cli(std::span<const char*> args, CliOptions& out_opt) {
         if (s == "--include-death") { opt.include_death = true; continue; }
         if (s == "--bench-table") { opt.bench_table = true; continue; }
 
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--seed", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes: {
+        if (const OptionParseResult seed_result = parse_value_option(i, s, "--seed", [&](std::string_view value) {
                 std::uint64_t seed_value = 0;
                 if (!parse_u64_option("--seed", value, seed_value)) return false;
                 if (!opt.seed_provided) {
                     opt.seed_provided = true;
                     opt.seed_value = seed_value;
                 }
-                continue;
-            }
-            case ValueMatch::No: break;
-            }
+                return true;
+            });
+            seed_result != OptionParseResult::NoMatch) {
+            if (seed_result == OptionParseResult::Error) return false;
+            continue;
         }
 
         if (!seen_repeat) {
-            std::string_view value;
-            switch (match_value(i, s, "--repeat", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes: {
+            if (const OptionParseResult repeat_result = parse_value_option(i, s, "--repeat", [&](std::string_view value) {
                 std::uint64_t rep = 0;
                 if (!parse_u64_option("--repeat", value, rep)) return false;
                 if (rep == 0) rep = 1;
                 if (rep > 1000000) rep = 1000000;
                 opt.repeat_n = static_cast<std::size_t>(rep);
                 seen_repeat = true;
+                return true;
+                });
+                repeat_result != OptionParseResult::NoMatch) {
+                if (repeat_result == OptionParseResult::Error) return false;
                 continue;
-            }
-            case ValueMatch::No: break;
             }
         }
 
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--run", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
-                if (opt.run_exact) { fmt::print(stderr, "error: duplicate --run\n"); return false; }
-                opt.run_exact = value.data();
-                continue;
-            case ValueMatch::No: break;
-            }
+        if (const OptionParseResult run_result = parse_value_option(i, s, "--run", [&](std::string_view value) {
+                return set_unique_string_option(opt.run_exact, "--run", value);
+            });
+            run_result != OptionParseResult::NoMatch) {
+            if (run_result == OptionParseResult::Error) return false;
+            continue;
         }
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--filter", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
-                if (opt.filter_pat) { fmt::print(stderr, "error: duplicate --filter\n"); return false; }
-                opt.filter_pat = value.data();
-                continue;
-            case ValueMatch::No: break;
-            }
+        if (const OptionParseResult filter_result = parse_value_option(i, s, "--filter", [&](std::string_view value) {
+                return set_unique_string_option(opt.filter_pat, "--filter", value);
+            });
+            filter_result != OptionParseResult::NoMatch) {
+            if (filter_result == OptionParseResult::Error) return false;
+            continue;
         }
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--kind", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
-                if (!parse_kind_option(value, opt.kind)) return false;
-                continue;
-            case ValueMatch::No: break;
-            }
+        if (const OptionParseResult kind_result = parse_value_option(i, s, "--kind", [&](std::string_view value) {
+                return parse_kind_option(value, opt.kind);
+            });
+            kind_result != OptionParseResult::NoMatch) {
+            if (kind_result == OptionParseResult::Error) return false;
+            continue;
         }
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--junit", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
-                if (opt.junit_path) { fmt::print(stderr, "error: duplicate --junit\n"); return false; }
-                opt.junit_path = value.data();
-                continue;
-            case ValueMatch::No: break;
-            }
+        if (const OptionParseResult junit_result = parse_value_option(i, s, "--junit", [&](std::string_view value) {
+                return set_unique_string_option(opt.junit_path, "--junit", value);
+            });
+            junit_result != OptionParseResult::NoMatch) {
+            if (junit_result == OptionParseResult::Error) return false;
+            continue;
         }
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--allure-dir", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
-                if (opt.allure_dir) { fmt::print(stderr, "error: duplicate --allure-dir\n"); return false; }
-                opt.allure_dir = value.data();
-                continue;
-            case ValueMatch::No: break;
-            }
+        if (const OptionParseResult allure_result = parse_value_option(i, s, "--allure-dir", [&](std::string_view value) {
+                return set_unique_string_option(opt.allure_dir, "--allure-dir", value);
+            });
+            allure_result != OptionParseResult::NoMatch) {
+            if (allure_result == OptionParseResult::Error) return false;
+            continue;
         }
 
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--run-test", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
+        if (const OptionParseResult removed_run_test = parse_value_option(i, s, "--run-test", [&](std::string_view) {
                 fmt::print(stderr, "error: --run-test was removed; use --run\n");
                 return false;
-            case ValueMatch::No: break;
-            }
+            });
+            removed_run_test != OptionParseResult::NoMatch) {
+            return false;
         }
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--run-bench", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
+        if (const OptionParseResult removed_run_bench = parse_value_option(i, s, "--run-bench", [&](std::string_view) {
                 fmt::print(stderr, "error: --run-bench was removed; use --run with --kind=bench\n");
                 return false;
-            case ValueMatch::No: break;
-            }
+            });
+            removed_run_bench != OptionParseResult::NoMatch) {
+            return false;
         }
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--bench-filter", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
+        if (const OptionParseResult removed_bench_filter = parse_value_option(i, s, "--bench-filter", [&](std::string_view) {
                 fmt::print(stderr, "error: --bench-filter was removed; use --filter with --kind=bench\n");
                 return false;
-            case ValueMatch::No: break;
-            }
+            });
+            removed_bench_filter != OptionParseResult::NoMatch) {
+            return false;
         }
 
         if (!seen_bench_min_epoch_time) {
-            std::string_view value;
-            switch (match_value(i, s, "--bench-min-epoch-time-s", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
-                if (!parse_double_option("--bench-min-epoch-time-s", value, opt.bench_cfg.min_epoch_time_s)) return false;
-                if (opt.bench_cfg.min_epoch_time_s < 0.0) {
-                    fmt::print(stderr, "error: --bench-min-epoch-time-s must be non-negative\n");
-                    return false;
-                }
-                seen_bench_min_epoch_time = true;
+            if (const OptionParseResult min_epoch_result =
+                    parse_value_option(i, s, "--bench-min-epoch-time-s", [&](std::string_view value) {
+                        if (!parse_non_negative_double_option("--bench-min-epoch-time-s", value, opt.bench_cfg.min_epoch_time_s)) return false;
+                        seen_bench_min_epoch_time = true;
+                        return true;
+                    });
+                min_epoch_result != OptionParseResult::NoMatch) {
+                if (min_epoch_result == OptionParseResult::Error) return false;
                 continue;
-            case ValueMatch::No: break;
             }
         }
         if (!seen_bench_min_total_time) {
-            std::string_view value;
-            switch (match_value(i, s, "--bench-min-total-time-s", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
-                if (!parse_double_option("--bench-min-total-time-s", value, opt.bench_cfg.min_total_time_s)) return false;
-                if (opt.bench_cfg.min_total_time_s < 0.0) {
-                    fmt::print(stderr, "error: --bench-min-total-time-s must be non-negative\n");
-                    return false;
-                }
-                seen_bench_min_total_time = true;
+            if (const OptionParseResult min_total_result =
+                    parse_value_option(i, s, "--bench-min-total-time-s", [&](std::string_view value) {
+                        if (!parse_non_negative_double_option("--bench-min-total-time-s", value, opt.bench_cfg.min_total_time_s)) return false;
+                        seen_bench_min_total_time = true;
+                        return true;
+                    });
+                min_total_result != OptionParseResult::NoMatch) {
+                if (min_total_result == OptionParseResult::Error) return false;
                 continue;
-            case ValueMatch::No: break;
             }
         }
         if (!seen_bench_max_total_time) {
-            std::string_view value;
-            switch (match_value(i, s, "--bench-max-total-time-s", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
-                if (!parse_double_option("--bench-max-total-time-s", value, opt.bench_cfg.max_total_time_s)) return false;
-                if (opt.bench_cfg.max_total_time_s < 0.0) {
-                    fmt::print(stderr, "error: --bench-max-total-time-s must be non-negative\n");
-                    return false;
-                }
-                seen_bench_max_total_time = true;
+            if (const OptionParseResult max_total_result =
+                    parse_value_option(i, s, "--bench-max-total-time-s", [&](std::string_view value) {
+                        if (!parse_non_negative_double_option("--bench-max-total-time-s", value, opt.bench_cfg.max_total_time_s)) return false;
+                        seen_bench_max_total_time = true;
+                        return true;
+                    });
+                max_total_result != OptionParseResult::NoMatch) {
+                if (max_total_result == OptionParseResult::Error) return false;
                 continue;
-            case ValueMatch::No: break;
             }
         }
         if (!seen_bench_warmup) {
-            std::string_view value;
-            switch (match_value(i, s, "--bench-warmup", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes: {
-                std::uint64_t warmup = 0;
-                if (!parse_u64_option("--bench-warmup", value, warmup)) return false;
-                if (warmup > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
-                    fmt::print(stderr, "error: --bench-warmup is out of range\n");
-                    return false;
-                }
-                opt.bench_cfg.warmup_epochs = static_cast<std::size_t>(warmup);
-                seen_bench_warmup = true;
+            if (const OptionParseResult warmup_result = parse_value_option(i, s, "--bench-warmup", [&](std::string_view value) {
+                    std::uint64_t warmup = 0;
+                    if (!parse_u64_option("--bench-warmup", value, warmup)) return false;
+                    if (warmup > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                        fmt::print(stderr, "error: --bench-warmup is out of range\n");
+                        return false;
+                    }
+                    opt.bench_cfg.warmup_epochs = static_cast<std::size_t>(warmup);
+                    seen_bench_warmup = true;
+                    return true;
+                });
+                warmup_result != OptionParseResult::NoMatch) {
+                if (warmup_result == OptionParseResult::Error) return false;
                 continue;
-            }
-            case ValueMatch::No: break;
             }
         }
         if (!seen_bench_epochs) {
-            std::string_view value;
-            switch (match_value(i, s, "--bench-epochs", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes: {
-                std::uint64_t epochs = 0;
-                if (!parse_u64_option("--bench-epochs", value, epochs)) return false;
-                if (epochs > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
-                    fmt::print(stderr, "error: --bench-epochs is out of range\n");
-                    return false;
-                }
-                opt.bench_cfg.measure_epochs = static_cast<std::size_t>(epochs);
-                seen_bench_epochs = true;
+            if (const OptionParseResult epochs_result = parse_value_option(i, s, "--bench-epochs", [&](std::string_view value) {
+                    std::uint64_t epochs = 0;
+                    if (!parse_u64_option("--bench-epochs", value, epochs)) return false;
+                    if (epochs > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                        fmt::print(stderr, "error: --bench-epochs is out of range\n");
+                        return false;
+                    }
+                    opt.bench_cfg.measure_epochs = static_cast<std::size_t>(epochs);
+                    seen_bench_epochs = true;
+                    return true;
+                });
+                epochs_result != OptionParseResult::NoMatch) {
+                if (epochs_result == OptionParseResult::Error) return false;
                 continue;
-            }
-            case ValueMatch::No: break;
             }
         }
 
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--run-jitter", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
+        if (const OptionParseResult removed_run_jitter = parse_value_option(i, s, "--run-jitter", [&](std::string_view) {
                 fmt::print(stderr, "error: --run-jitter was removed; use --run with --kind=jitter\n");
                 return false;
-            case ValueMatch::No: break;
-            }
+            });
+            removed_run_jitter != OptionParseResult::NoMatch) {
+            return false;
         }
-        {
-            std::string_view value;
-            switch (match_value(i, s, "--jitter-filter", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes:
+        if (const OptionParseResult removed_jitter_filter = parse_value_option(i, s, "--jitter-filter", [&](std::string_view) {
                 fmt::print(stderr, "error: --jitter-filter was removed; use --filter with --kind=jitter\n");
                 return false;
-            case ValueMatch::No: break;
-            }
+            });
+            removed_jitter_filter != OptionParseResult::NoMatch) {
+            return false;
         }
         if (!seen_jitter_bins) {
-            std::string_view value;
-            switch (match_value(i, s, "--jitter-bins", value)) {
-            case ValueMatch::Error: return false;
-            case ValueMatch::Yes: {
-                std::uint64_t bins = 0;
-                if (!parse_u64_option("--jitter-bins", value, bins)) return false;
-                if (bins == 0 || bins > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
-                    fmt::print(stderr, "error: --jitter-bins must be a positive integer\n");
-                    return false;
-                }
-                opt.jitter_bins = static_cast<int>(bins);
-                seen_jitter_bins = true;
+            if (const OptionParseResult jitter_bins_result = parse_value_option(i, s, "--jitter-bins", [&](std::string_view value) {
+                    std::uint64_t bins = 0;
+                    if (!parse_u64_option("--jitter-bins", value, bins)) return false;
+                    if (bins == 0 || bins > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
+                        fmt::print(stderr, "error: --jitter-bins must be a positive integer\n");
+                        return false;
+                    }
+                    opt.jitter_bins = static_cast<int>(bins);
+                    seen_jitter_bins = true;
+                    return true;
+                });
+                jitter_bins_result != OptionParseResult::NoMatch) {
+                if (jitter_bins_result == OptionParseResult::Error) return false;
                 continue;
-            }
-            case ValueMatch::No: break;
             }
         }
 
