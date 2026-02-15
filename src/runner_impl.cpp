@@ -1701,31 +1701,25 @@ static bool run_tests_once(RunnerState& state, std::span<const Case> cases, std:
             else it->idxs.push_back(i);
         }
 
-        if (shuffle && free_like.size() > 1) {
-            std::uint64_t s = base_seed;
-            s ^= (std::hash<std::string_view>{}(suite_name) << 1);
-            std::mt19937_64 rng_(static_cast<std::mt19937_64::result_type>(s));
-            std::shuffle(free_like.begin(), free_like.end(), rng_);
-        }
-        for (auto& g : suite_groups) {
-            auto& order = g.idxs;
-            if (shuffle && order.size() > 1) {
-                std::uint64_t s = base_seed;
-                s ^= (std::hash<std::string_view>{}(suite_name) << 1);
-                s += std::hash<std::string_view>{}(g.fixture);
-                std::mt19937_64 rng_(static_cast<std::mt19937_64::result_type>(s));
+        if (shuffle) {
+            const auto shuffle_with_seed = [](std::vector<std::size_t>& order, std::uint64_t seed) {
+                if (order.size() <= 1) return;
+                std::mt19937_64 rng_(static_cast<std::mt19937_64::result_type>(seed));
                 std::shuffle(order.begin(), order.end(), rng_);
-            }
-        }
-        for (auto& g : global_groups) {
-            auto& order = g.idxs;
-            if (shuffle && order.size() > 1) {
-                std::uint64_t s = base_seed;
-                s ^= (std::hash<std::string_view>{}(suite_name) << 1);
-                s += std::hash<std::string_view>{}(g.fixture);
-                std::mt19937_64 rng_(static_cast<std::mt19937_64::result_type>(s));
-                std::shuffle(order.begin(), order.end(), rng_);
-            }
+            };
+
+            const std::uint64_t suite_seed = base_seed ^ (std::hash<std::string_view>{}(suite_name) << 1);
+            shuffle_with_seed(free_like, suite_seed);
+
+            const auto shuffle_groups = [&](std::vector<Group>& groups) {
+                for (auto& g : groups) {
+                    const std::uint64_t group_seed = suite_seed + std::hash<std::string_view>{}(g.fixture);
+                    shuffle_with_seed(g.idxs, group_seed);
+                }
+            };
+
+            shuffle_groups(suite_groups);
+            shuffle_groups(global_groups);
         }
 
         for (auto i : free_like) {
@@ -1837,6 +1831,49 @@ static bool run_measured_case(const Case& c, CallFn&& run_call, Result& out_resu
     return true;
 }
 
+static void report_measured_fixture_failure(std::string_view kind_label,
+                                            const Case& c,
+                                            std::string_view reason,
+                                            bool allocation_failure,
+                                            std::string_view phase) {
+    if (allocation_failure) {
+        if (!c.fixture.empty()) {
+            fmt::print(stderr, "{} fixture allocation failed for {} ({}): {}\n", kind_label, c.name, c.fixture, reason);
+        } else {
+            fmt::print(stderr, "{} fixture allocation failed for {}: {}\n", kind_label, c.name, reason);
+        }
+    } else {
+        if (!c.fixture.empty()) {
+            fmt::print(stderr, "{} {} failed for {} ({}): {}\n", kind_label, phase, c.name, c.fixture, reason);
+        } else {
+            fmt::print(stderr, "{} {} failed for {}: {}\n", kind_label, phase, c.name, reason);
+        }
+    }
+}
+
+template <typename Result, typename CallFn, typename SuccessFn>
+static TimedRunStatus run_measured_cases(std::span<const Case> kCases,
+                                         std::span<const std::size_t> idxs,
+                                         std::string_view kind_label,
+                                         bool fail_fast,
+                                         CallFn run_call,
+                                         SuccessFn on_success) {
+    bool had_fixture_failure = false;
+    for (auto i : idxs) {
+        const auto& c = kCases[i];
+        Result      result{};
+        MeasurementCaseFailure failure{};
+        if (!run_measured_case(c, run_call, result, failure)) {
+            report_measured_fixture_failure(kind_label, c, failure.reason, failure.allocation_failure, failure.phase);
+            had_fixture_failure = true;
+            if (fail_fast) return TimedRunStatus{false, true};
+            continue;
+        }
+        on_success(c, std::move(result));
+    }
+    return TimedRunStatus{!had_fixture_failure};
+}
+
 static TimedRunStatus run_selected_benches(std::span<const Case> kCases,
                                            std::span<const std::size_t> idxs,
                                            const CliOptions& opt,
@@ -1849,40 +1886,15 @@ static TimedRunStatus run_selected_benches(std::span<const Case> kCases,
     };
     std::vector<BenchRow> rows;
     rows.reserve(idxs.size());
-    bool had_fixture_failure = false;
-    const auto report_fixture_failure = [&](const Case& c,
-                                            std::string_view reason,
-                                            bool allocation_failure,
-                                            std::string_view phase) {
-        if (allocation_failure) {
-            if (!c.fixture.empty()) {
-                fmt::print(stderr, "benchmark fixture allocation failed for {} ({}): {}\n", c.name, c.fixture, reason);
-            } else {
-                fmt::print(stderr, "benchmark fixture allocation failed for {}: {}\n", c.name, reason);
-            }
-        } else {
-            if (!c.fixture.empty()) {
-                fmt::print(stderr, "benchmark {} failed for {} ({}): {}\n", phase, c.name, c.fixture, reason);
-            } else {
-                fmt::print(stderr, "benchmark {} failed for {}: {}\n", phase, c.name, reason);
-            }
-        }
-        had_fixture_failure = true;
-    };
-    for (auto i : idxs) {
-        const auto& c = kCases[i];
-        BenchResult br{};
-        MeasurementCaseFailure failure{};
-        if (!run_measured_case(c,
-                               [&](const Case& measured, void* measured_ctx) { return run_bench(measured, measured_ctx, opt.bench_cfg); },
-                               br,
-                               failure)) {
-            report_fixture_failure(c, failure.reason, failure.allocation_failure, failure.phase);
-            if (fail_fast) return TimedRunStatus{false, true};
-            continue;
-        }
-        rows.push_back(BenchRow{&c, br});
-    }
+    const TimedRunStatus measured_status = run_measured_cases<BenchResult>(
+        kCases,
+        idxs,
+        "benchmark",
+        fail_fast,
+        [&](const Case& measured, void* measured_ctx) { return run_bench(measured, measured_ctx, opt.bench_cfg); },
+        [&](const Case& measured, BenchResult br) { rows.push_back(BenchRow{&measured, std::move(br)}); });
+    if (measured_status.stopped) return measured_status;
+
     std::map<std::string, double> baseline_ns;
     for (const auto& row : rows) {
         if (!row.c || !row.c->is_baseline) continue;
@@ -1967,7 +1979,7 @@ static TimedRunStatus run_selected_benches(std::span<const Case> kCases,
 
     std::cout << "Benchmarks\n" << summary << "\n\n";
     std::cout << "Bench debug\n" << debug << "\n";
-    return TimedRunStatus{!had_fixture_failure};
+    return TimedRunStatus{measured_status.ok};
 }
 
 static TimedRunStatus run_selected_jitters(std::span<const Case> kCases,
@@ -1977,45 +1989,20 @@ static TimedRunStatus run_selected_jitters(std::span<const Case> kCases,
     if (idxs.empty()) return TimedRunStatus{};
 
     const int bins = opt.jitter_bins;
-    bool had_fixture_failure = false;
     struct JitterRow {
         const Case* c = nullptr;
         JitterResult jr;
     };
     std::vector<JitterRow> rows;
-    const auto report_fixture_failure = [&](const Case& c,
-                                            std::string_view reason,
-                                            bool allocation_failure,
-                                            std::string_view phase) {
-        if (allocation_failure) {
-            if (!c.fixture.empty()) {
-                fmt::print(stderr, "jitter fixture allocation failed for {} ({}): {}\n", c.name, c.fixture, reason);
-            } else {
-                fmt::print(stderr, "jitter fixture allocation failed for {}: {}\n", c.name, reason);
-            }
-        } else {
-            if (!c.fixture.empty()) {
-                fmt::print(stderr, "jitter {} failed for {} ({}): {}\n", phase, c.name, c.fixture, reason);
-            } else {
-                fmt::print(stderr, "jitter {} failed for {}: {}\n", phase, c.name, reason);
-            }
-        }
-        had_fixture_failure = true;
-    };
-    for (auto i : idxs) {
-        const auto& c = kCases[i];
-        JitterResult jr{};
-        MeasurementCaseFailure failure{};
-        if (!run_measured_case(c,
-                               [&](const Case& measured, void* measured_ctx) { return run_jitter(measured, measured_ctx, opt.bench_cfg); },
-                               jr,
-                               failure)) {
-            report_fixture_failure(c, failure.reason, failure.allocation_failure, failure.phase);
-            if (fail_fast) return TimedRunStatus{false, true};
-            continue;
-        }
-        rows.push_back(JitterRow{&c, std::move(jr)});
-    }
+    rows.reserve(idxs.size());
+    const TimedRunStatus measured_status = run_measured_cases<JitterResult>(
+        kCases,
+        idxs,
+        "jitter",
+        fail_fast,
+        [&](const Case& measured, void* measured_ctx) { return run_jitter(measured, measured_ctx, opt.bench_cfg); },
+        [&](const Case& measured, JitterResult jr) { rows.push_back(JitterRow{&measured, std::move(jr)}); });
+    if (measured_status.stopped) return measured_status;
 
     std::map<std::string, double> baseline_median_ns;
     std::map<std::string, double> baseline_stddev_ns;
@@ -2139,7 +2126,7 @@ static TimedRunStatus run_selected_jitters(std::span<const Case> kCases,
 
         std::cout << hist << "\n";
     }
-    return TimedRunStatus{!had_fixture_failure};
+    return TimedRunStatus{measured_status.ok};
 }
 
 auto run_all_tests(std::span<const char*> args) -> int {
