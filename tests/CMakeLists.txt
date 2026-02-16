@@ -34,6 +34,12 @@ endforeach()
 
 if(TARGET gentest_coord_tests)
     target_link_libraries(gentest_coord_tests PRIVATE coord::coord)
+    if(TARGET coordctl AND TARGET coordd)
+        add_dependencies(gentest_coord_tests coordctl coordd)
+        target_compile_definitions(gentest_coord_tests PRIVATE
+            COORDCTL_BIN_PATH="$<TARGET_FILE:coordctl>"
+            COORDD_BIN_PATH="$<TARGET_FILE:coordd>")
+    endif()
 endif()
 
 unset(_gentest_test_suites)
@@ -406,7 +412,7 @@ gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_
 gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 26)
 
 if(TARGET gentest_coord_tests)
-    set(_coord_expected_count 12)
+    set(_coord_expected_count 17)
     if(WIN32)
         set(_coord_expected_count 9)
     endif()

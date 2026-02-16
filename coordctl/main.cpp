@@ -22,7 +22,9 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -215,6 +217,7 @@ static std::string quote_windows_arg(const std::string &arg) {
 static bool spawn_coordd(const Args &args, std::string &error) {
     auto coordd_args = build_coordd_args(args);
 #ifdef _WIN32
+    HANDLE process_handle = nullptr;
     std::string cmdline;
     for (std::size_t i = 0; i < coordd_args.size(); ++i) {
         if (i > 0) cmdline += " ";
@@ -228,8 +231,8 @@ static bool spawn_coordd(const Args &args, std::string &error) {
         error = "CreateProcess failed";
         return false;
     }
+    process_handle = pi.hProcess;
     CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
 #else
     pid_t pid = fork();
     if (pid < 0) {
@@ -261,9 +264,44 @@ static bool spawn_coordd(const Args &args, std::string &error) {
     }
 #endif
     if (!wait_for_ready_file(args.ready_file, args.ready_timeout_ms)) {
+#ifdef _WIN32
+        if (process_handle != nullptr) {
+            (void)TerminateProcess(process_handle, 1);
+            (void)WaitForSingleObject(process_handle, 2000);
+            CloseHandle(process_handle);
+            process_handle = nullptr;
+        }
+#else
+        if (pid > 0) {
+            (void)::kill(pid, SIGTERM);
+            int status = 0;
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+            while (std::chrono::steady_clock::now() < deadline) {
+                pid_t rc = ::waitpid(pid, &status, WNOHANG);
+                if (rc == pid) {
+                    pid = -1;
+                    break;
+                }
+                if (rc < 0) {
+                    pid = -1;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            if (pid > 0) {
+                (void)::kill(pid, SIGKILL);
+                (void)::waitpid(pid, &status, 0);
+            }
+        }
+#endif
         error = "ready file did not appear";
         return false;
     }
+#ifdef _WIN32
+    if (process_handle != nullptr) {
+        CloseHandle(process_handle);
+    }
+#endif
     return true;
 }
 
@@ -542,9 +580,29 @@ static int handle_shutdown(const Args &args) {
         return 1;
     }
     Message msg{1, MsgShutdown{args.shutdown_token}};
-    send_message(conn, msg, error);
+    if (!send_message(conn, msg, error)) {
+        std::cerr << "coordctl: " << error << "\n";
+        return 1;
+    }
     Message reply;
-    recv_message(conn, reply, error);
+    if (!recv_message(conn, reply, error)) {
+        std::cerr << "coordctl: " << error << "\n";
+        return 1;
+    }
+    if (std::holds_alternative<MsgError>(reply.payload)) {
+        auto err = std::get<MsgError>(reply.payload);
+        std::cerr << "coordctl: shutdown failed: " << err.message << "\n";
+        return 1;
+    }
+    if (!std::holds_alternative<MsgSessionStatus>(reply.payload)) {
+        std::cerr << "coordctl: unexpected response to shutdown\n";
+        return 1;
+    }
+    auto status = std::get<MsgSessionStatus>(reply.payload).status;
+    if (status.result != ResultCode::Success) {
+        std::cerr << "coordctl: shutdown failed with result=" << static_cast<int>(status.result) << "\n";
+        return 1;
+    }
     return 0;
 }
 
