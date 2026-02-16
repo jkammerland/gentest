@@ -4,17 +4,23 @@ include(FetchContent)
 function(coord_fetch_dependencies)
     set(CBOR_TAGS_USE_SYSTEM_EXPECTED OFF CACHE BOOL "Use system tl-expected for cbor_tags" FORCE)
     set(CBOR_TAGS_BUILD_TOOLS OFF CACHE BOOL "Disable cbor_tags tools" FORCE)
+    set(COORD_CBOR_TAGS_SOURCE_DIR "" CACHE PATH "Path to local cbor_tags source tree. Empty uses the pinned FetchContent dependency.")
+    option(COORD_USE_SIBLING_CBOR_TAGS "Allow using ../cbor_tags when COORD_CBOR_TAGS_SOURCE_DIR is empty (opt-in local convenience)." OFF)
     set(COORD_WOLFSSL_SOURCE_DIR "" CACHE PATH "Path to wolfSSL source tree")
 
-    if(DEFINED COORD_CBOR_TAGS_SOURCE_DIR)
+    if(COORD_CBOR_TAGS_SOURCE_DIR)
         set(_coord_cbor_tags_source "${COORD_CBOR_TAGS_SOURCE_DIR}")
-    elseif(EXISTS "${PROJECT_SOURCE_DIR}/../cbor_tags")
+        set(_coord_cbor_tags_source_reason "COORD_CBOR_TAGS_SOURCE_DIR")
+    elseif(COORD_USE_SIBLING_CBOR_TAGS AND EXISTS "${PROJECT_SOURCE_DIR}/../cbor_tags")
         set(_coord_cbor_tags_source "${PROJECT_SOURCE_DIR}/../cbor_tags")
+        set(_coord_cbor_tags_source_reason "COORD_USE_SIBLING_CBOR_TAGS")
     endif()
 
     if(_coord_cbor_tags_source)
+        message(STATUS "coord: using cbor_tags SOURCE_DIR='${_coord_cbor_tags_source}' via ${_coord_cbor_tags_source_reason}")
         FetchContent_Declare(cbor_tags SOURCE_DIR "${_coord_cbor_tags_source}")
     else()
+        message(STATUS "coord: using cbor_tags via FetchContent (https://github.com/jkammerland/cbor_tags.git @ v0.9.5)")
         FetchContent_Declare(
             cbor_tags
             GIT_REPOSITORY https://github.com/jkammerland/cbor_tags.git
