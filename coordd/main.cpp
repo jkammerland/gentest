@@ -799,8 +799,8 @@ static void daemonize_process(const ServerConfig &cfg) {
 
 static int run_server(const ServerConfig &cfg) {
     std::string error;
-    int listener = listen_endpoint(cfg.listen, &error);
-    if (listener < 0) {
+    SocketHandle listener = listen_endpoint(cfg.listen, &error);
+    if (listener == kInvalidSocketHandle) {
         std::cerr << "coordd: " << error << "\n";
         return 1;
     }
