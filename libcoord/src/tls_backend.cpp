@@ -2,6 +2,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <limits>
 #include <mutex>
 
 namespace coord::tls_backend {
@@ -104,7 +105,7 @@ static bool init_tls_ctx(SSL_CTX *ctx, const TlsConfig &cfg, bool is_server, std
     return true;
 }
 
-bool init(void *&ctx_out, void *&ssl_out, int fd, const TlsConfig &cfg, bool is_server, std::string *error) {
+bool init(void *&ctx_out, void *&ssl_out, SocketHandle fd, const TlsConfig &cfg, bool is_server, std::string *error) {
     tls_global_init();
     SSL_CTX *ctx = SSL_CTX_new(is_server ? TLS_server_method() : TLS_client_method());
     if (!ctx) {
@@ -121,7 +122,14 @@ bool init(void *&ctx_out, void *&ssl_out, int fd, const TlsConfig &cfg, bool is_
         if (error) *error = "TLS_new failed";
         return false;
     }
-    if (SSL_set_fd(ssl, fd) != 1) {
+    if (fd > static_cast<SocketHandle>(std::numeric_limits<int>::max())) {
+        SSL_free(ssl);
+        SSL_CTX_free(ctx);
+        if (error) *error = "socket handle out of range for TLS backend";
+        return false;
+    }
+    int ssl_fd = static_cast<int>(fd);
+    if (SSL_set_fd(ssl, ssl_fd) != 1) {
         SSL_free(ssl);
         SSL_CTX_free(ctx);
         if (error) *error = "TLS_set_fd failed";
@@ -211,7 +219,7 @@ int write(void *ssl, const void *buf, std::size_t len, std::string *error) {
     }
 }
 #else
-bool init(void *&, void *&, int, const TlsConfig &, bool, std::string *error) {
+bool init(void *&, void *&, SocketHandle, const TlsConfig &, bool, std::string *error) {
     if (error) *error = "TLS disabled in this build";
     return false;
 }

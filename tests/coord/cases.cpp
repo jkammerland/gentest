@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <thread>
 #include <vector>
 
@@ -159,6 +160,47 @@ void endpoint_parse() {
     EXPECT_FALSE(error.empty());
 }
 
+[[using gentest: test("coord/endpoint_parse_invalid_port")]]
+void endpoint_parse_invalid_port() {
+    std::string error;
+    coord::Endpoint ep{};
+
+    bool threw = false;
+    try {
+        ep = coord::parse_endpoint("localhost:not-a-port", &error);
+    } catch (...) {
+        threw = true;
+    }
+    EXPECT_FALSE(threw);
+    EXPECT_EQ(ep.kind, coord::Endpoint::Kind::Tcp);
+    EXPECT_EQ(ep.host, "localhost");
+    EXPECT_EQ(ep.port, 0);
+    EXPECT_EQ(error, "tcp endpoint port must be numeric");
+
+    threw = false;
+    error.clear();
+    try {
+        ep = coord::parse_endpoint("tcp://127.0.0.1:70000", &error);
+    } catch (...) {
+        threw = true;
+    }
+    EXPECT_FALSE(threw);
+    EXPECT_EQ(ep.kind, coord::Endpoint::Kind::Tcp);
+    EXPECT_EQ(ep.host, "127.0.0.1");
+    EXPECT_EQ(ep.port, 0);
+    EXPECT_EQ(error, "tcp endpoint port out of range");
+}
+
+[[using gentest: test("coord/transport_frame_outgoing_oversized")]]
+void transport_frame_outgoing_oversized() {
+    coord::Connection conn{};
+    std::string error;
+    const auto too_large = static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max()) + std::size_t{1};
+    bool ok = conn.write_frame(nullptr, too_large, &error);
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(error, "outgoing frame too large");
+}
+
 #ifndef _WIN32
 [[using gentest: test("coord/transport_frame_roundtrip")]]
 void transport_frame_roundtrip() {
@@ -168,8 +210,8 @@ void transport_frame_roundtrip() {
     ep.path = path.string();
 
     std::string error;
-    int listener = coord::listen_endpoint(ep, &error);
-    ASSERT_TRUE(listener >= 0, error);
+    coord::SocketHandle listener = coord::listen_endpoint(ep, &error);
+    ASSERT_TRUE(listener != coord::kInvalidSocketHandle, error);
 
     coord::Connection client = coord::connect_endpoint(ep, {}, &error);
     bool client_ok = client.is_valid();
@@ -209,7 +251,7 @@ void transport_frame_roundtrip() {
     if (server.joinable()) {
         server.join();
     }
-    ::close(listener);
+    ::close(static_cast<int>(listener));
     std::filesystem::remove(path);
 
     ASSERT_TRUE(server_error.empty(), server_error);
@@ -228,8 +270,8 @@ void transport_frame_errors() {
     ep.path = path.string();
 
     std::string error;
-    int listener = coord::listen_endpoint(ep, &error);
-    ASSERT_TRUE(listener >= 0, error);
+    coord::SocketHandle listener = coord::listen_endpoint(ep, &error);
+    ASSERT_TRUE(listener != coord::kInvalidSocketHandle, error);
 
     coord::Connection client = coord::connect_endpoint(ep, {}, &error);
     bool client_ok = client.is_valid();
@@ -251,12 +293,12 @@ void transport_frame_errors() {
     }
     if (client_ok) {
         std::uint32_t len_be = htonl(8);
-        auto len_rc = ::write(client.fd(), &len_be, sizeof(len_be));
+        auto len_rc = ::write(static_cast<int>(client.fd()), &len_be, sizeof(len_be));
         client_ok = (len_rc > 0);
     }
     if (client_ok) {
         std::array<std::byte, 4> partial{std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}, std::byte{0xdd}};
-        auto data_rc = ::write(client.fd(), partial.data(), partial.size());
+        auto data_rc = ::write(static_cast<int>(client.fd()), partial.data(), partial.size());
         client_ok = (data_rc > 0);
     }
     client = coord::Connection{};
@@ -264,12 +306,59 @@ void transport_frame_errors() {
     if (server.joinable()) {
         server.join();
     }
-    ::close(listener);
+    ::close(static_cast<int>(listener));
     std::filesystem::remove(path);
 
     EXPECT_TRUE(client_ok, error);
     EXPECT_FALSE(server_read_ok);
     EXPECT_FALSE(server_error.empty());
+}
+
+[[using gentest: test("coord/transport_frame_incoming_oversized")]]
+void transport_frame_incoming_oversized() {
+    auto path = make_socket_path("oversized");
+    coord::Endpoint ep{};
+    ep.kind = coord::Endpoint::Kind::Unix;
+    ep.path = path.string();
+
+    std::string error;
+    coord::SocketHandle listener = coord::listen_endpoint(ep, &error);
+    ASSERT_TRUE(listener != coord::kInvalidSocketHandle, error);
+
+    coord::Connection client = coord::connect_endpoint(ep, {}, &error);
+    bool client_ok = client.is_valid();
+    bool server_read_ok = false;
+    std::string server_error;
+    std::thread server;
+    if (client_ok) {
+        server = std::thread([&]() {
+            coord::Connection conn = coord::accept_connection(listener, {}, &server_error);
+            if (!conn.is_valid()) {
+                if (server_error.empty()) {
+                    server_error = "accept failed";
+                }
+                return;
+            }
+            std::vector<std::byte> data;
+            server_read_ok = conn.read_frame(data, &server_error);
+        });
+    }
+    if (client_ok) {
+        std::uint32_t len_be = htonl(std::numeric_limits<std::uint32_t>::max());
+        auto len_rc = ::write(static_cast<int>(client.fd()), &len_be, sizeof(len_be));
+        client_ok = (len_rc == static_cast<ssize_t>(sizeof(len_be)));
+    }
+    client = coord::Connection{};
+
+    if (server.joinable()) {
+        server.join();
+    }
+    ::close(static_cast<int>(listener));
+    std::filesystem::remove(path);
+
+    EXPECT_TRUE(client_ok, error);
+    EXPECT_FALSE(server_read_ok);
+    EXPECT_EQ(server_error, "incoming frame too large");
 }
 #endif
 
