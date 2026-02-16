@@ -18,8 +18,8 @@ set(_gentest_test_suites
     ctor
     benchmarks)
 
-# coord suite depends on coord::coord and JSON support
-if(COORD_BUILD AND COORD_ENABLE_JSON)
+# coord suite depends on coord runtime + coordctl/coordd binaries + JSON support
+if(COORD_BUILD AND COORD_ENABLE_JSON AND TARGET coord AND TARGET coordctl AND TARGET coordd)
     list(APPEND _gentest_test_suites coord)
 endif()
 

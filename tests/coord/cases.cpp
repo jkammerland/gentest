@@ -747,7 +747,7 @@ void coordd_status_wait_polling_consistent() {
     {
         std::ofstream node_script(script_path);
         node_script << "#!/bin/sh\n";
-        node_script << "sleep 1\n";
+        node_script << "sleep 2\n";
         node_script << "exit 0\n";
     }
     std::filesystem::permissions(script_path,
@@ -783,6 +783,19 @@ void coordd_status_wait_polling_consistent() {
     auto session_id = trim_copy(submit.stdout_text);
     ASSERT_FALSE(session_id.empty(), "submit returned empty session id");
 
+    bool saw_incomplete = false;
+    auto observe_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+    while (std::chrono::steady_clock::now() < observe_deadline) {
+        auto status = run_exec_capture({COORDCTL_BIN_PATH, "status", "--session", session_id, "--connect", endpoint});
+        EXPECT_EQ(status.exit_code, 0, status.stderr_text);
+        if (status.stdout_text.find("complete=0") != std::string::npos) {
+            saw_incomplete = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT_TRUE(saw_incomplete, "status never reported complete=0 before wait");
+
     std::atomic<bool> wait_done{false};
     ExecResult wait_result{};
     std::thread waiter([&]() {
@@ -790,22 +803,20 @@ void coordd_status_wait_polling_consistent() {
         wait_done.store(true);
     });
 
-    bool saw_incomplete = false;
+    bool polled_after_waiter = false;
     auto poll_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(4000);
     while (!wait_done.load() && std::chrono::steady_clock::now() < poll_deadline) {
+        polled_after_waiter = true;
         auto status = run_exec_capture({COORDCTL_BIN_PATH, "status", "--session", session_id, "--connect", endpoint});
         EXPECT_EQ(status.exit_code, 0, status.stderr_text);
-        if (status.stdout_text.find("complete=0") != std::string::npos) {
-            saw_incomplete = true;
-        }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     if (waiter.joinable()) {
         waiter.join();
     }
 
+    EXPECT_TRUE(polled_after_waiter);
     EXPECT_EQ(wait_result.exit_code, 0, wait_result.stderr_text + wait_result.stdout_text);
-    EXPECT_TRUE(saw_incomplete);
 
     auto shutdown =
         run_exec_capture({COORDCTL_BIN_PATH, "shutdown", "--connect", endpoint, "--token", shutdown_token});
