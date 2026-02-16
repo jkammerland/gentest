@@ -122,7 +122,7 @@ bool init(void *&ctx_out, void *&ssl_out, SocketHandle fd, const TlsConfig &cfg,
         if (error) *error = "TLS_new failed";
         return false;
     }
-    if (fd > static_cast<SocketHandle>(std::numeric_limits<int>::max())) {
+    if (fd > static_cast<SocketHandle>((std::numeric_limits<int>::max)())) {
         SSL_free(ssl);
         SSL_CTX_free(ctx);
         if (error) *error = "socket handle out of range for TLS backend";
@@ -169,6 +169,10 @@ void shutdown(void *&ctx, void *&ssl) {
 
 int read(void *ssl, void *buf, std::size_t len, std::string *error) {
     SSL *ssl_ptr = reinterpret_cast<SSL *>(ssl);
+    if (len > static_cast<std::size_t>((std::numeric_limits<int>::max)())) {
+        if (error) *error = "TLS read chunk too large";
+        return -1;
+    }
     for (;;) {
         ERR_clear_error();
         int rc = SSL_read(ssl_ptr, buf, static_cast<int>(len));
@@ -195,6 +199,10 @@ int read(void *ssl, void *buf, std::size_t len, std::string *error) {
 
 int write(void *ssl, const void *buf, std::size_t len, std::string *error) {
     SSL *ssl_ptr = reinterpret_cast<SSL *>(ssl);
+    if (len > static_cast<std::size_t>((std::numeric_limits<int>::max)())) {
+        if (error) *error = "TLS write chunk too large";
+        return -1;
+    }
     for (;;) {
         ERR_clear_error();
         int rc = SSL_write(ssl_ptr, buf, static_cast<int>(len));
