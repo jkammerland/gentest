@@ -570,13 +570,15 @@ public:
         SessionSpec spec_copy = spec;
         spec_copy.session_id = id;
         std::thread([this, state, spec_copy, peer]() {
+            SessionManifest manifest{};
             if (!peer.empty()) {
-                state->manifest = run_remote(spec_copy, peer);
+                manifest = run_remote(spec_copy, peer);
             } else {
-                state->manifest = run_session(spec_copy, root_dir_);
+                manifest = run_session(spec_copy, root_dir_);
             }
             {
                 std::lock_guard<std::mutex> lock(state->mutex);
+                state->manifest = std::move(manifest);
                 state->complete = true;
             }
             state->cv.notify_all();
@@ -638,75 +640,82 @@ private:
     }
 
     SessionManifest run_remote(const SessionSpec &spec, const std::string &peer) {
+        auto make_error_manifest = [&spec](std::string reason) {
+            SessionManifest man{};
+            man.session_id = spec.session_id;
+            man.group = spec.group;
+            man.mode = spec.mode;
+            man.result = ResultCode::Error;
+            man.fail_reason = std::move(reason);
+            return man;
+        };
         std::string error;
         Endpoint ep = parse_endpoint(peer, &error);
         if (!error.empty()) {
-            SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
-            man.fail_reason = error;
-            return man;
+            return make_error_manifest(error);
         }
         Connection conn = connect_endpoint(ep, tls_, &error);
         if (!conn.is_valid()) {
-            SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
-            man.fail_reason = error;
-            return man;
+            return make_error_manifest(error);
         }
         Message submit_msg{1, MsgSessionSubmit{spec}};
         auto buf = encode_message(submit_msg, &error);
         if (buf.empty()) {
-            SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
-            man.fail_reason = error;
-            return man;
+            return make_error_manifest(error);
         }
-        conn.write_frame(buf, &error);
+        if (!conn.write_frame(buf, &error)) {
+            if (error.empty()) {
+                error = "failed to send submit message to peer";
+            }
+            return make_error_manifest(error);
+        }
         std::vector<std::byte> reply;
-        conn.read_frame(reply, &error);
+        if (!conn.read_frame(reply, &error)) {
+            if (error.empty()) {
+                error = "failed to read submit reply from peer";
+            }
+            return make_error_manifest(error);
+        }
         auto decoded = decode_message(reply);
         if (!decoded.ok) {
-            SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
-            man.fail_reason = decoded.error;
-            return man;
+            return make_error_manifest(decoded.error);
+        }
+        if (std::holds_alternative<MsgError>(decoded.message.payload)) {
+            auto msg = std::get<MsgError>(decoded.message.payload);
+            return make_error_manifest(msg.message);
         }
         if (!std::holds_alternative<MsgSessionAccepted>(decoded.message.payload)) {
-            SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
-            man.fail_reason = "unexpected response from peer";
-            return man;
+            return make_error_manifest("unexpected response from peer to submit");
         }
         std::string remote_id = std::get<MsgSessionAccepted>(decoded.message.payload).session_id;
         Message wait_msg{1, MsgSessionWait{remote_id}};
         buf = encode_message(wait_msg, &error);
-        conn.write_frame(buf, &error);
+        if (buf.empty()) {
+            return make_error_manifest(error);
+        }
+        if (!conn.write_frame(buf, &error)) {
+            if (error.empty()) {
+                error = "failed to send wait message to peer";
+            }
+            return make_error_manifest(error);
+        }
         reply.clear();
-        conn.read_frame(reply, &error);
+        if (!conn.read_frame(reply, &error)) {
+            if (error.empty()) {
+                error = "failed to read wait reply from peer";
+            }
+            return make_error_manifest(error);
+        }
         auto decoded2 = decode_message(reply);
-        if (!decoded2.ok || !std::holds_alternative<MsgSessionManifest>(decoded2.message.payload)) {
-            SessionManifest man{};
-            man.session_id = spec.session_id;
-            man.group = spec.group;
-            man.mode = spec.mode;
-            man.result = ResultCode::Error;
-            man.fail_reason = decoded2.error;
-            return man;
+        if (!decoded2.ok) {
+            return make_error_manifest(decoded2.error);
+        }
+        if (std::holds_alternative<MsgError>(decoded2.message.payload)) {
+            auto msg = std::get<MsgError>(decoded2.message.payload);
+            return make_error_manifest(msg.message);
+        }
+        if (!std::holds_alternative<MsgSessionManifest>(decoded2.message.payload)) {
+            return make_error_manifest("unexpected response from peer to wait");
         }
         auto manifest = std::get<MsgSessionManifest>(decoded2.message.payload).manifest;
         return manifest;
