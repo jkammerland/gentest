@@ -16,6 +16,10 @@ target_link_libraries(coord
         cbor::tags
         Threads::Threads)
 
+if(WIN32)
+    target_link_libraries(coord PUBLIC ws2_32)
+endif()
+
 # For LLVM 21+ with libc++, explicitly link LLVM's libc++ to avoid ABI issues
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE)
     get_filename_component(_coord_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)

@@ -12,6 +12,9 @@
 #include <string_view>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
@@ -203,9 +206,10 @@ bool Connection::read_frame(std::vector<std::byte> &out, std::string *error) {
         std::size_t got = 0;
         while (got < len) {
             int rc = 0;
+            std::size_t chunk = std::min(len - got, static_cast<std::size_t>((std::numeric_limits<int>::max)()));
 #if COORD_ENABLE_TLS
             if (impl_->tls) {
-                rc = tls_backend::read(impl_->ssl, dst + got, len - got, err);
+                rc = tls_backend::read(impl_->ssl, dst + got, chunk, err);
             } else {
 #else
             if (impl_->tls) {
@@ -213,7 +217,6 @@ bool Connection::read_frame(std::vector<std::byte> &out, std::string *error) {
                 return false;
             } else {
 #endif
-                std::size_t chunk = std::min(len - got, static_cast<std::size_t>(std::numeric_limits<int>::max()));
 #ifdef _WIN32
                 rc = recv(to_native_socket(impl_->fd), reinterpret_cast<char *>(dst + got), static_cast<int>(chunk), 0);
                 if (rc == SOCKET_ERROR) {
@@ -294,9 +297,10 @@ bool Connection::write_frame(const std::byte *data, std::size_t size, std::strin
         std::size_t sent = 0;
         while (sent < len) {
             int rc = 0;
+            std::size_t chunk = std::min(len - sent, static_cast<std::size_t>((std::numeric_limits<int>::max)()));
 #if COORD_ENABLE_TLS
             if (impl_->tls) {
-                rc = tls_backend::write(impl_->ssl, src + sent, len - sent, err);
+                rc = tls_backend::write(impl_->ssl, src + sent, chunk, err);
             } else {
 #else
             if (impl_->tls) {
@@ -304,7 +308,6 @@ bool Connection::write_frame(const std::byte *data, std::size_t size, std::strin
                 return false;
             } else {
 #endif
-                std::size_t chunk = std::min(len - sent, static_cast<std::size_t>(std::numeric_limits<int>::max()));
 #ifdef _WIN32
                 rc = send(to_native_socket(impl_->fd), reinterpret_cast<const char *>(src + sent), static_cast<int>(chunk), 0);
                 if (rc == SOCKET_ERROR) {
