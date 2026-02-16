@@ -117,3 +117,17 @@ jobs:
         run: |
           set -euxo pipefail
           ctest --preset=aarch64-qemu --output-on-failure
+
+      - name: Coord smoke (host native)
+        run: |
+          set -euxo pipefail
+          cmake --preset=debug-system \
+            -DCMAKE_C_COMPILER=${CC} \
+            -DCMAKE_CXX_COMPILER=${CXX} \
+            -DLLVM_DIR=${LLVM_DIR} \
+            -DClang_DIR=${Clang_DIR} \
+            -DGENTEST_BUILD_CODEGEN=OFF \
+            -DGENTEST_CODEGEN_EXECUTABLE=${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen \
+            -DCOORD_CBOR_TAGS_SOURCE_DIR=
+          cmake --build --preset=debug-system --target gentest_coord_tests --parallel
+          ctest --preset=debug-system -R "^(coord_counts|coord_list_counts)$" --output-on-failure

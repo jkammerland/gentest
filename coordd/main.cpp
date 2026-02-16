@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -54,6 +55,8 @@ struct ServerConfig {
 struct SessionState {
     SessionManifest manifest;
     bool complete{false};
+    std::uint64_t completed_at_ms{0};
+    std::uint64_t last_access_ms{0};
     std::mutex mutex;
     std::condition_variable cv;
 };
@@ -420,8 +423,9 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
     auto ports = allocate_ports(spec.network, diagnostics);
 
     std::unordered_map<std::string, std::string> node_addrs;
+    const std::string default_node_addr = spec.network.bridge.empty() ? "127.0.0.1" : spec.network.bridge;
     for (const auto &node : spec.nodes) {
-        node_addrs[node.name] = "127.0.0.1";
+        node_addrs[node.name] = default_node_addr;
     }
 
     std::deque<ProcessInstance> instances;
@@ -447,7 +451,8 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
                 }
                 manifest.diagnostics = diagnostics;
                 for (auto &running : instances) {
-                    running.info.addr = "127.0.0.1";
+                    auto it = node_addrs.find(running.info.node);
+                    running.info.addr = (it != node_addrs.end()) ? it->second : std::string{};
                     running.info.ports = ports;
                     manifest.instances.push_back(running.info);
                 }
@@ -540,7 +545,8 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
 
     manifest.instances.clear();
     for (auto &inst : instances) {
-        inst.info.addr = "127.0.0.1";
+        auto it = node_addrs.find(inst.info.node);
+        inst.info.addr = (it != node_addrs.end()) ? it->second : std::string{};
         inst.info.ports = ports;
         manifest.instances.push_back(inst.info);
     }
@@ -555,33 +561,39 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
     return manifest;
 }
 
-class SessionManager {
+class SessionManager : public std::enable_shared_from_this<SessionManager> {
 public:
     SessionManager(std::string root, TlsConfig tls)
         : root_dir_(std::move(root)), tls_(std::move(tls)) {}
 
     std::string submit(const SessionSpec &spec, const std::string &peer) {
+        auto self = shared_from_this();
         std::string id = spec.session_id.empty() ? generate_session_id() : spec.session_id;
         auto state = std::make_shared<SessionState>();
+        state->last_access_ms = now_ms();
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            prune_stale_sessions_locked(now_ms());
             sessions_[id] = state;
         }
         SessionSpec spec_copy = spec;
         spec_copy.session_id = id;
-        std::thread([this, state, spec_copy, peer]() {
+        std::thread([self, state, spec_copy, peer]() {
             SessionManifest manifest{};
             if (!peer.empty()) {
-                manifest = run_remote(spec_copy, peer);
+                manifest = self->run_remote(spec_copy, peer);
             } else {
-                manifest = run_session(spec_copy, root_dir_);
+                manifest = run_session(spec_copy, self->root_dir_);
             }
             {
                 std::lock_guard<std::mutex> lock(state->mutex);
                 state->manifest = std::move(manifest);
                 state->complete = true;
+                state->completed_at_ms = now_ms();
+                state->last_access_ms = state->completed_at_ms;
             }
             state->cv.notify_all();
+            self->prune_stale_sessions();
         }).detach();
         return id;
     }
@@ -602,7 +614,11 @@ public:
         }
         std::unique_lock<std::mutex> lock(state->mutex);
         state->cv.wait(lock, [&state] { return state->complete; });
-        return state->manifest;
+        state->last_access_ms = now_ms();
+        SessionManifest manifest = state->manifest;
+        lock.unlock();
+        prune_stale_sessions();
+        return manifest;
     }
 
     SessionStatus status(const std::string &id) {
@@ -623,11 +639,41 @@ public:
             std::lock_guard<std::mutex> lock(state->mutex);
             st.complete = state->complete;
             st.result = state->manifest.result;
+            state->last_access_ms = now_ms();
         }
+        prune_stale_sessions();
         return st;
     }
 
 private:
+    static constexpr std::uint64_t kCompletedSessionRetentionMs = 60ULL * 60ULL * 1000ULL;
+
+    void prune_stale_sessions() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        prune_stale_sessions_locked(now_ms());
+    }
+
+    void prune_stale_sessions_locked(std::uint64_t now) {
+        for (auto it = sessions_.begin(); it != sessions_.end();) {
+            const auto &state = it->second;
+            bool erase = false;
+            {
+                std::lock_guard<std::mutex> state_lock(state->mutex);
+                if (state->complete) {
+                    const std::uint64_t last_touch = state->last_access_ms == 0 ? state->completed_at_ms : state->last_access_ms;
+                    if (last_touch > 0 && now >= last_touch && (now - last_touch) >= kCompletedSessionRetentionMs) {
+                        erase = true;
+                    }
+                }
+            }
+            if (erase) {
+                it = sessions_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     std::string root_dir_;
     TlsConfig tls_;
     std::mutex mutex_;
@@ -722,7 +768,7 @@ private:
     }
 };
 
-static void handle_connection(Connection conn, SessionManager &sessions, const ServerConfig &cfg) {
+static void handle_connection(Connection conn, std::shared_ptr<SessionManager> sessions, const ServerConfig &cfg) {
     while (!g_shutdown.load()) {
         std::vector<std::byte> frame;
         std::string error;
@@ -742,7 +788,7 @@ static void handle_connection(Connection conn, SessionManager &sessions, const S
             if (!msg.spec.placement.target.empty() && msg.spec.placement.target.rfind("peer:", 0) == 0) {
                 peer_target = msg.spec.placement.target.substr(5);
             }
-            std::string id = sessions.submit(msg.spec, peer_target);
+            std::string id = sessions->submit(msg.spec, peer_target);
             Message accepted{1, MsgSessionAccepted{id}};
             auto buf = encode_message(accepted);
             conn.write_frame(buf, nullptr);
@@ -750,7 +796,7 @@ static void handle_connection(Connection conn, SessionManager &sessions, const S
         }
         if (std::holds_alternative<MsgSessionWait>(decoded.message.payload)) {
             auto msg = std::get<MsgSessionWait>(decoded.message.payload);
-            auto manifest = sessions.wait(msg.session_id);
+            auto manifest = sessions->wait(msg.session_id);
             Message reply{1, MsgSessionManifest{manifest}};
             auto buf = encode_message(reply);
             conn.write_frame(buf, nullptr);
@@ -758,7 +804,7 @@ static void handle_connection(Connection conn, SessionManager &sessions, const S
         }
         if (std::holds_alternative<MsgSessionStatusRequest>(decoded.message.payload)) {
             auto msg = std::get<MsgSessionStatusRequest>(decoded.message.payload);
-            auto st = sessions.status(msg.session_id);
+            auto st = sessions->status(msg.session_id);
             Message reply{1, MsgSessionStatus{st}};
             auto buf = encode_message(reply);
             conn.write_frame(buf, nullptr);
@@ -836,7 +882,7 @@ static int run_server(const ServerConfig &cfg) {
         }
     }
 
-    SessionManager manager(cfg.root_dir, cfg.tls);
+    auto manager = std::make_shared<SessionManager>(cfg.root_dir, cfg.tls);
 
     while (!g_shutdown.load()) {
         Connection conn = accept_connection(listener, cfg.tls, &error);
@@ -846,7 +892,7 @@ static int run_server(const ServerConfig &cfg) {
             }
             continue;
         }
-        std::thread(handle_connection, std::move(conn), std::ref(manager), std::cref(cfg)).detach();
+        std::thread(handle_connection, std::move(conn), manager, std::cref(cfg)).detach();
     }
 
 #ifndef _WIN32

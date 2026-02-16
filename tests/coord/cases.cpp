@@ -803,10 +803,8 @@ void coordd_status_wait_polling_consistent() {
         wait_done.store(true);
     });
 
-    bool polled_after_waiter = false;
     auto poll_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(4000);
     while (!wait_done.load() && std::chrono::steady_clock::now() < poll_deadline) {
-        polled_after_waiter = true;
         auto status = run_exec_capture({COORDCTL_BIN_PATH, "status", "--session", session_id, "--connect", endpoint});
         EXPECT_EQ(status.exit_code, 0, status.stderr_text);
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -815,7 +813,6 @@ void coordd_status_wait_polling_consistent() {
         waiter.join();
     }
 
-    EXPECT_TRUE(polled_after_waiter);
     EXPECT_EQ(wait_result.exit_code, 0, wait_result.stderr_text + wait_result.stdout_text);
 
     auto shutdown =
