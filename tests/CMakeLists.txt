@@ -33,7 +33,9 @@ foreach(suite IN LISTS _gentest_test_suites)
 endforeach()
 
 if(TARGET gentest_coord_tests)
+    find_package(Boost REQUIRED COMPONENTS json)
     target_link_libraries(gentest_coord_tests PRIVATE coord::coord)
+    target_link_libraries(gentest_coord_tests PRIVATE Boost::json)
     if(TARGET coordctl AND TARGET coordd)
         add_dependencies(gentest_coord_tests coordctl coordd)
         target_compile_definitions(gentest_coord_tests PRIVATE

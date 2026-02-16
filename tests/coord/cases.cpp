@@ -26,7 +26,7 @@
 #endif
 
 #if COORD_ENABLE_JSON
-#include <nlohmann/json.hpp>
+#include <boost/json.hpp>
 #endif
 
 using namespace gentest::asserts;
@@ -948,14 +948,37 @@ void manifest_write() {
     std::string error;
     ASSERT_TRUE(coord::write_manifest_json(manifest, path.string(), &error), error);
 
-    std::ifstream in(path);
-    nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
-    ASSERT_FALSE(j.is_discarded());
-    EXPECT_EQ(j["session_id"], "manifest_session");
-    EXPECT_EQ(j["group"], "group");
-    EXPECT_EQ(j["instances"].size(), std::size_t{1});
-    EXPECT_EQ(j["instances"][0]["node"], "node");
-    EXPECT_EQ(j["instances"][0]["ports"][0]["protocol"], "udp");
+    std::ifstream in(path, std::ios::binary);
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+
+    boost::json::error_code ec;
+    boost::json::value value = boost::json::parse(buffer.str(), ec);
+    ASSERT_TRUE(!ec, ec.message());
+    ASSERT_TRUE(value.is_object());
+
+    const auto &root = value.as_object();
+    ASSERT_TRUE(root.contains("session_id"));
+    ASSERT_TRUE(root.contains("group"));
+    ASSERT_TRUE(root.contains("instances"));
+    EXPECT_EQ(std::string(root.at("session_id").as_string()), "manifest_session");
+    EXPECT_EQ(std::string(root.at("group").as_string()), "group");
+
+    const auto &instances = root.at("instances").as_array();
+    EXPECT_EQ(instances.size(), std::size_t{1});
+    ASSERT_FALSE(instances.empty());
+    ASSERT_TRUE(instances.front().is_object());
+    const auto &inst0 = instances.front().as_object();
+    ASSERT_TRUE(inst0.contains("node"));
+    ASSERT_TRUE(inst0.contains("ports"));
+    EXPECT_EQ(std::string(inst0.at("node").as_string()), "node");
+
+    const auto &ports = inst0.at("ports").as_array();
+    ASSERT_FALSE(ports.empty());
+    ASSERT_TRUE(ports.front().is_object());
+    const auto &port0 = ports.front().as_object();
+    ASSERT_TRUE(port0.contains("protocol"));
+    EXPECT_EQ(std::string(port0.at("protocol").as_string()), "udp");
 
     std::filesystem::remove(path);
 }
