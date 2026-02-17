@@ -44,9 +44,9 @@ jobs:
         run: |
           brew update
           if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
-            brew install llvm@20 ninja ccache
+            brew install llvm@20 ninja ccache openssl@3
           else
-            brew install llvm ninja ccache
+            brew install llvm ninja ccache openssl@3
           fi
 
       - name: Configure LLVM environment
@@ -61,6 +61,9 @@ jobs:
           if [ "${{ matrix.compiler }}" = "llvm" ] || [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
           fi
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+          echo "OPENSSL_ROOT_DIR=${OPENSSL_PREFIX}" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=${OPENSSL_PREFIX}" >> $GITHUB_ENV
 
       - name: Configure environment
         run: |
@@ -90,6 +93,9 @@ jobs:
             "-DCMAKE_CXX_COMPILER=${COMPILER_BIN}/clang++"
             "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="
           )
+          if [ -n "${OPENSSL_ROOT_DIR:-}" ]; then
+            CMAKE_ARGS+=("-DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}")
+          fi
           if [ -n "${LLVM_DIR:-}" ]; then
             CMAKE_ARGS+=("-DLLVM_DIR=${LLVM_DIR}")
             # Also add Clang_DIR to find ClangConfig.cmake
@@ -116,7 +122,7 @@ jobs:
       - name: Install dependencies (Homebrew)
         run: |
           brew update
-          brew install llvm@20 ninja ccache
+          brew install llvm@20 ninja ccache openssl@3
 
       - name: Configure LLVM environment
         run: |
@@ -124,6 +130,9 @@ jobs:
           echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
           echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
           echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+          echo "OPENSSL_ROOT_DIR=${OPENSSL_PREFIX}" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=${OPENSSL_PREFIX}" >> $GITHUB_ENV
 
       - name: Configure environment
         run: |
@@ -154,6 +163,9 @@ jobs:
             "-DCMAKE_CXX_COMPILER=${COMPILER_BIN}/clang++"
             "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="
           )
+          if [ -n "${OPENSSL_ROOT_DIR:-}" ]; then
+            CMAKE_ARGS+=("-DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}")
+          fi
           if [ -n "${LLVM_DIR:-}" ]; then
             CMAKE_ARGS+=("-DLLVM_DIR=${LLVM_DIR}")
             CLANG_DIR="$(dirname ${LLVM_DIR})/clang"
@@ -238,6 +250,47 @@ jobs:
         with:
           arch: x64
 
+      - name: Install OpenSSL
+        shell: pwsh
+        run: |
+          choco install openssl.light --no-progress
+
+          $roots = New-Object System.Collections.Generic.List[string]
+          foreach ($candidate in @(
+            "$env:ProgramFiles\\OpenSSL-Win64",
+            "$env:ProgramFiles\\OpenSSL",
+            "$env:ProgramFiles(x86)\\OpenSSL-Win32",
+            "$env:ProgramFiles(x86)\\OpenSSL"
+          )) {
+            if ($candidate) { $roots.Add($candidate) }
+          }
+
+          $regKeys = @(
+            "HKLM:\\SOFTWARE\\OpenSSL-Win64",
+            "HKLM:\\SOFTWARE\\OpenSSL-Win32",
+            "HKLM:\\SOFTWARE\\WOW6432Node\\OpenSSL-Win32",
+            "HKLM:\\SOFTWARE\\OpenSSL"
+          )
+          foreach ($key in $regKeys) {
+            if (Test-Path $key) {
+              $p = (Get-ItemProperty $key).InstallPath
+              if ($p) { $roots.Add($p) }
+            }
+          }
+
+          $openssl = Get-Command openssl.exe -ErrorAction SilentlyContinue
+          if ($openssl) {
+            $bin = Split-Path -Parent $openssl.Source
+            $root = Split-Path -Parent $bin
+            $roots.Add($root)
+          }
+
+          $root = $roots | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $root) { throw "OpenSSL install not found. Checked: $($roots -join ', ')" }
+
+          "OPENSSL_ROOT_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Show tool versions
         shell: pwsh
         run: |
@@ -254,7 +307,8 @@ jobs:
             "-DCMAKE_C_COMPILER=$env:LLVM_BIN\\clang.exe",
             "-DCMAKE_CXX_COMPILER=$env:LLVM_BIN\\clang++.exe",
             "-DLLVM_DIR=$env:LLVM_DIR",
-            "-DClang_DIR=$env:Clang_DIR"
+            "-DClang_DIR=$env:Clang_DIR",
+            "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
           )
           if ("${{ matrix.preset }}" -eq "debug-system") {
             $cmakeArgs += "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON"
@@ -350,6 +404,47 @@ jobs:
         with:
           arch: x64
 
+      - name: Install OpenSSL
+        shell: pwsh
+        run: |
+          choco install openssl.light --no-progress
+
+          $roots = New-Object System.Collections.Generic.List[string]
+          foreach ($candidate in @(
+            "$env:ProgramFiles\\OpenSSL-Win64",
+            "$env:ProgramFiles\\OpenSSL",
+            "$env:ProgramFiles(x86)\\OpenSSL-Win32",
+            "$env:ProgramFiles(x86)\\OpenSSL"
+          )) {
+            if ($candidate) { $roots.Add($candidate) }
+          }
+
+          $regKeys = @(
+            "HKLM:\\SOFTWARE\\OpenSSL-Win64",
+            "HKLM:\\SOFTWARE\\OpenSSL-Win32",
+            "HKLM:\\SOFTWARE\\WOW6432Node\\OpenSSL-Win32",
+            "HKLM:\\SOFTWARE\\OpenSSL"
+          )
+          foreach ($key in $regKeys) {
+            if (Test-Path $key) {
+              $p = (Get-ItemProperty $key).InstallPath
+              if ($p) { $roots.Add($p) }
+            }
+          }
+
+          $openssl = Get-Command openssl.exe -ErrorAction SilentlyContinue
+          if ($openssl) {
+            $bin = Split-Path -Parent $openssl.Source
+            $root = Split-Path -Parent $bin
+            $roots.Add($root)
+          }
+
+          $root = $roots | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $root) { throw "OpenSSL install not found. Checked: $($roots -join ', ')" }
+
+          "OPENSSL_ROOT_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Show tool versions
         shell: pwsh
         run: |
@@ -367,7 +462,8 @@ jobs:
             "-DCMAKE_CXX_COMPILER=$env:LLVM_BIN\\clang++.exe",
             "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON",
             "-DLLVM_DIR=$env:LLVM_DIR",
-            "-DClang_DIR=$env:Clang_DIR"
+            "-DClang_DIR=$env:Clang_DIR",
+            "-DOPENSSL_ROOT_DIR=$env:OPENSSL_ROOT_DIR"
           )
           cmake @cmakeArgs
 
@@ -600,6 +696,7 @@ jobs:
             ca-certificates \
             libffi-dev \
             libxml2-dev \
+            libssl-dev \
             zlib1g-dev \
             libzstd-dev \
             libcurl4-openssl-dev \
@@ -641,6 +738,7 @@ jobs:
             libcurl-devel \
             libffi-devel \
             libxml2-devel \
+            openssl-devel \
             gcc \
             gcc-c++ \
             make \
@@ -716,6 +814,7 @@ jobs:
             ca-certificates \
             libffi-dev \
             libxml2-dev \
+            libssl-dev \
             zlib1g-dev \
             libzstd-dev \
             libcurl4-openssl-dev \

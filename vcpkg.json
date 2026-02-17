@@ -4,8 +4,10 @@
   "description": "Attribute-driven test discovery with clang tooling",
   "dependencies": [
     "fmt",
+    "boost-json",
     "zlib",
     "zstd",
-    "libxml2"
+    "libxml2",
+    "tl-expected"
   ]
 }
