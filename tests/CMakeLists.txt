@@ -773,7 +773,7 @@ gentest_add_check_death(
 
 
 if(TARGET gentest_coord_tests)
-    set(_coord_expected_count 9)
+    set(_coord_expected_count 10)
     if(WIN32)
         set(_coord_expected_count 7)
     endif()
