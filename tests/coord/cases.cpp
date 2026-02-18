@@ -158,6 +158,18 @@ void endpoint_parse() {
     error.clear();
     ep = coord::parse_endpoint("bad_endpoint", &error);
     EXPECT_FALSE(error.empty());
+
+    error.clear();
+    ep = coord::parse_endpoint("tcp://127.0.0.1:not-a-port", &error);
+    EXPECT_FALSE(error.empty());
+
+    error.clear();
+    ep = coord::parse_endpoint("localhost:70000", &error);
+    EXPECT_FALSE(error.empty());
+
+    error.clear();
+    ep = coord::parse_endpoint("localhost:-1", &error);
+    EXPECT_FALSE(error.empty());
 }
 
 #ifndef _WIN32
@@ -271,6 +283,52 @@ void transport_frame_errors() {
     EXPECT_TRUE(client_ok, error);
     EXPECT_FALSE(server_read_ok);
     EXPECT_FALSE(server_error.empty());
+}
+
+[[using gentest: test("coord/transport_reject_oversized_frame")]]
+void transport_reject_oversized_frame() {
+    auto path = make_socket_path("oversized");
+    coord::Endpoint ep{};
+    ep.kind = coord::Endpoint::Kind::Unix;
+    ep.path = path.string();
+
+    std::string error;
+    int listener = coord::listen_endpoint(ep, &error);
+    ASSERT_TRUE(listener >= 0, error);
+
+    std::string server_error;
+    std::thread server([&]() {
+        coord::Connection conn = coord::accept_connection(listener, {}, &server_error);
+        if (!conn.is_valid()) {
+            if (server_error.empty()) {
+                server_error = "accept failed";
+            }
+            return;
+        }
+
+        std::uint32_t len_be = htonl(0xFFFFFFFFu);
+        ssize_t written = ::write(conn.fd(), &len_be, sizeof(len_be));
+        if (written != static_cast<ssize_t>(sizeof(len_be)) && server_error.empty()) {
+            server_error = "failed to write frame header";
+        }
+    });
+
+    coord::Connection client = coord::connect_endpoint(ep, {}, &error);
+    ASSERT_TRUE(client.is_valid(), error);
+
+    std::vector<std::byte> payload;
+    std::string read_error;
+    bool ok = client.read_frame(payload, &read_error);
+
+    if (server.joinable()) {
+        server.join();
+    }
+    ::close(listener);
+    std::filesystem::remove(path);
+
+    ASSERT_TRUE(server_error.empty(), server_error);
+    EXPECT_FALSE(ok);
+    EXPECT_TRUE(read_error.find("frame too large") != std::string::npos, read_error);
 }
 #endif
 

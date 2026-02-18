@@ -1,8 +1,11 @@
 #include "coord/transport.h"
 #include "tls_backend.h"
 
+#include <charconv>
 #include <cerrno>
 #include <cstring>
+#include <exception>
+#include <limits>
 #include <string_view>
 
 #ifdef _WIN32
@@ -19,6 +22,27 @@
 #endif
 
 namespace coord {
+
+namespace {
+
+constexpr std::uint32_t k_max_frame_size_bytes = 16U * 1024U * 1024U;
+
+static bool parse_port_value(std::string_view text, std::uint16_t &out) {
+    if (text.empty()) {
+        return false;
+    }
+    std::uint32_t value = 0;
+    const char *begin = text.data();
+    const char *end = begin + text.size();
+    auto [ptr, ec] = std::from_chars(begin, end, value);
+    if (ec != std::errc() || ptr != end || value > std::numeric_limits<std::uint16_t>::max()) {
+        return false;
+    }
+    out = static_cast<std::uint16_t>(value);
+    return true;
+}
+
+} // namespace
 
 struct Connection::Impl {
     int fd{-1};
@@ -65,7 +89,10 @@ Endpoint parse_endpoint(const std::string &value, std::string *error) {
             return out;
         }
         out.host = rest.substr(0, pos);
-        out.port = static_cast<std::uint16_t>(std::stoi(rest.substr(pos + 1)));
+        if (!parse_port_value(std::string_view(rest).substr(pos + 1), out.port)) {
+            if (error) *error = "invalid tcp endpoint port";
+            return out;
+        }
         return out;
     }
     if (!value.empty() && value[0] == '/') {
@@ -80,7 +107,10 @@ Endpoint parse_endpoint(const std::string &value, std::string *error) {
     }
     out.kind = Endpoint::Kind::Tcp;
     out.host = value.substr(0, pos);
-    out.port = static_cast<std::uint16_t>(std::stoi(value.substr(pos + 1)));
+    if (!parse_port_value(std::string_view(value).substr(pos + 1), out.port)) {
+        if (error) *error = "invalid tcp endpoint port";
+        return out;
+    }
     return out;
 }
 
@@ -153,11 +183,23 @@ bool Connection::read_frame(std::vector<std::byte> &out, std::string *error) {
         return false;
     }
     std::uint32_t len = ntohl(len_be);
+    if (len > k_max_frame_size_bytes) {
+        if (error) *error = "frame too large";
+        return false;
+    }
     if (len == 0) {
         out.clear();
         return true;
     }
-    out.resize(len);
+    try {
+        out.resize(len);
+    } catch (const std::exception &ex) {
+        if (error) *error = std::string("frame allocation failed: ") + ex.what();
+        return false;
+    } catch (...) {
+        if (error) *error = "frame allocation failed";
+        return false;
+    }
     return read_exact(out.data(), len, error);
 }
 

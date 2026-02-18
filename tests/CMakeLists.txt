@@ -363,7 +363,7 @@ gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_
 gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 26)
 
 if(TARGET gentest_coord_tests)
-    set(_coord_expected_count 9)
+    set(_coord_expected_count 10)
     if(WIN32)
         set(_coord_expected_count 7)
     endif()
