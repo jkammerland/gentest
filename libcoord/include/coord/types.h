@@ -18,16 +18,19 @@ enum class ReadinessKind : std::uint8_t { None = 0, StdoutToken = 1, Socket = 2,
 enum class Protocol : std::uint8_t { Tcp = 0, Udp = 1 };
 
 struct EnvVar {
+    static constexpr std::uint64_t cbor_tag = 3010;
     std::string key;
     std::string value;
 };
 
 struct ReadinessSpec {
+    static constexpr std::uint64_t cbor_tag = 3011;
     ReadinessKind kind{ReadinessKind::None};
     std::string value;
 };
 
 struct NodeDef {
+    static constexpr std::uint64_t cbor_tag = 3012;
     std::string name;
     std::string exec;
     std::vector<std::string> args;
@@ -38,24 +41,28 @@ struct NodeDef {
 };
 
 struct PortRequest {
+    static constexpr std::uint64_t cbor_tag = 3013;
     std::string name;
     std::uint32_t count{1};
     Protocol protocol{Protocol::Tcp};
 };
 
 struct NetworkSpec {
+    static constexpr std::uint64_t cbor_tag = 3014;
     bool isolated{false};
     std::string bridge;
     std::vector<PortRequest> ports;
 };
 
 struct Timeouts {
+    static constexpr std::uint64_t cbor_tag = 3015;
     std::uint32_t startup_ms{30000};
     std::uint32_t session_ms{300000};
     std::uint32_t shutdown_ms{5000};
 };
 
 struct Placement {
+    static constexpr std::uint64_t cbor_tag = 3016;
     std::string target; // "local" or "peer:<addr:port>"
 };
 
@@ -72,12 +79,14 @@ struct SessionSpec {
 };
 
 struct PortAssignment {
+    static constexpr std::uint64_t cbor_tag = 3017;
     std::string name;
     Protocol protocol{Protocol::Tcp};
     std::vector<std::uint16_t> ports;
 };
 
 struct InstanceInfo {
+    static constexpr std::uint64_t cbor_tag = 3018;
     std::string node;
     std::uint32_t index{0};
     std::int64_t pid{-1};

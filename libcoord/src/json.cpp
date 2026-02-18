@@ -1,12 +1,74 @@
 #include "coord/json.h"
 
-#include <fstream>
+#include <boost/json.hpp>
 
-#include <nlohmann/json.hpp>
+#include <fstream>
+#include <iterator>
+#include <limits>
+#include <string_view>
 
 namespace coord {
 
-using json = nlohmann::json;
+namespace {
+
+using JsonObject = boost::json::object;
+using JsonValue = boost::json::value;
+
+static std::string to_std_string(boost::json::string_view value) {
+    return std::string(value.data(), value.size());
+}
+
+static std::string get_string_or(const JsonObject &obj, std::string_view key, std::string_view fallback = {}) {
+    if (const JsonValue *value = obj.if_contains(key)) {
+        if (const boost::json::string *str = value->if_string()) {
+            return to_std_string(*str);
+        }
+    }
+    return std::string(fallback);
+}
+
+static bool get_bool_or(const JsonObject &obj, std::string_view key, bool fallback) {
+    if (const JsonValue *value = obj.if_contains(key)) {
+        if (value->is_bool()) {
+            return value->as_bool();
+        }
+    }
+    return fallback;
+}
+
+static std::uint32_t get_uint32_or(const JsonObject &obj, std::string_view key, std::uint32_t fallback) {
+    constexpr std::uint64_t max_u32 = std::numeric_limits<std::uint32_t>::max();
+    if (const JsonValue *value = obj.if_contains(key)) {
+        if (const std::uint64_t *u = value->if_uint64()) {
+            if (*u <= max_u32) {
+                return static_cast<std::uint32_t>(*u);
+            }
+            return fallback;
+        }
+        if (const std::int64_t *i = value->if_int64()) {
+            if (*i >= 0 && static_cast<std::uint64_t>(*i) <= max_u32) {
+                return static_cast<std::uint32_t>(*i);
+            }
+        }
+    }
+    return fallback;
+}
+
+static const JsonObject *get_object_or_null(const JsonObject &obj, std::string_view key) {
+    if (const JsonValue *value = obj.if_contains(key)) {
+        return value->if_object();
+    }
+    return nullptr;
+}
+
+static const boost::json::array *get_array_or_null(const JsonObject &obj, std::string_view key) {
+    if (const JsonValue *value = obj.if_contains(key)) {
+        return value->if_array();
+    }
+    return nullptr;
+}
+
+} // namespace
 
 static std::string exec_mode_to_string(ExecMode mode) {
     switch (mode) {
@@ -60,43 +122,53 @@ bool load_session_spec_json(const std::string &path, SessionSpec &out, std::stri
         if (error) *error = "failed to open spec file";
         return false;
     }
-    json j = json::parse(file, nullptr, false);
-    if (j.is_discarded()) {
+
+    std::string json_text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    boost::json::error_code parse_error;
+    JsonValue parsed = boost::json::parse(json_text, parse_error);
+    if (parse_error) {
+        if (error) *error = "invalid JSON";
+        return false;
+    }
+    const JsonObject *root = parsed.if_object();
+    if (!root) {
         if (error) *error = "invalid JSON";
         return false;
     }
 
     SessionSpec spec{};
-    spec.session_id = j.value("session_id", "");
-    spec.group = j.value("group", "");
-    std::string mode_str = j.value("mode", "A");
+    spec.session_id = get_string_or(*root, "session_id", "");
+    spec.group = get_string_or(*root, "group", "");
+    std::string mode_str = get_string_or(*root, "mode", "A");
     if (!parse_exec_mode(mode_str, spec.mode)) {
         if (error) *error = "invalid mode";
         return false;
     }
-    spec.artifact_dir = j.value("artifact_dir", "");
+    spec.artifact_dir = get_string_or(*root, "artifact_dir", "");
 
-    if (j.contains("timeouts")) {
-        auto jt = j["timeouts"];
-        spec.timeouts.startup_ms = jt.value("startup_ms", spec.timeouts.startup_ms);
-        spec.timeouts.session_ms = jt.value("session_ms", spec.timeouts.session_ms);
-        spec.timeouts.shutdown_ms = jt.value("shutdown_ms", spec.timeouts.shutdown_ms);
+    if (const JsonObject *jt = get_object_or_null(*root, "timeouts")) {
+        spec.timeouts.startup_ms = get_uint32_or(*jt, "startup_ms", spec.timeouts.startup_ms);
+        spec.timeouts.session_ms = get_uint32_or(*jt, "session_ms", spec.timeouts.session_ms);
+        spec.timeouts.shutdown_ms = get_uint32_or(*jt, "shutdown_ms", spec.timeouts.shutdown_ms);
     }
 
-    if (j.contains("placement")) {
-        spec.placement.target = j["placement"].value("target", "");
+    if (const JsonObject *placement = get_object_or_null(*root, "placement")) {
+        spec.placement.target = get_string_or(*placement, "target", "");
     }
 
-    if (j.contains("network")) {
-        auto jn = j["network"];
-        spec.network.isolated = jn.value("isolated", spec.network.isolated);
-        spec.network.bridge = jn.value("bridge", "");
-        if (jn.contains("ports")) {
-            for (auto &jp : jn["ports"]) {
+    if (const JsonObject *network = get_object_or_null(*root, "network")) {
+        spec.network.isolated = get_bool_or(*network, "isolated", spec.network.isolated);
+        spec.network.bridge = get_string_or(*network, "bridge", "");
+        if (const boost::json::array *ports = get_array_or_null(*network, "ports")) {
+            for (const JsonValue &port_value : *ports) {
+                const JsonObject *jp = port_value.if_object();
+                if (!jp) {
+                    continue;
+                }
                 PortRequest pr{};
-                pr.name = jp.value("name", "");
-                pr.count = jp.value("count", pr.count);
-                std::string proto = jp.value("protocol", "tcp");
+                pr.name = get_string_or(*jp, "name", "");
+                pr.count = get_uint32_or(*jp, "count", pr.count);
+                std::string proto = get_string_or(*jp, "protocol", "tcp");
                 if (!parse_protocol(proto, pr.protocol)) {
                     if (error) *error = "invalid protocol";
                     return false;
@@ -106,35 +178,50 @@ bool load_session_spec_json(const std::string &path, SessionSpec &out, std::stri
         }
     }
 
-    if (!j.contains("nodes") || !j["nodes"].is_array()) {
+    const boost::json::array *nodes = get_array_or_null(*root, "nodes");
+    if (!nodes) {
         if (error) *error = "spec missing nodes";
         return false;
     }
-    for (auto &jn : j["nodes"]) {
-        NodeDef node{};
-        node.name = jn.value("name", "");
-        node.exec = jn.value("exec", "");
-        node.cwd = jn.value("cwd", "");
-        node.instances = jn.value("instances", node.instances);
-        if (jn.contains("args")) {
-            node.args = jn["args"].get<std::vector<std::string>>();
+    for (const JsonValue &node_value : *nodes) {
+        const JsonObject *jn = node_value.if_object();
+        if (!jn) {
+            if (error) *error = "invalid node";
+            return false;
         }
-        if (jn.contains("env")) {
-            for (auto &je : jn["env"]) {
+        NodeDef node{};
+        node.name = get_string_or(*jn, "name", "");
+        node.exec = get_string_or(*jn, "exec", "");
+        node.cwd = get_string_or(*jn, "cwd", "");
+        node.instances = get_uint32_or(*jn, "instances", node.instances);
+        if (const boost::json::array *args = get_array_or_null(*jn, "args")) {
+            node.args.reserve(args->size());
+            for (const JsonValue &arg : *args) {
+                if (const boost::json::string *arg_str = arg.if_string()) {
+                    node.args.push_back(to_std_string(*arg_str));
+                }
+            }
+        }
+        if (const boost::json::array *env = get_array_or_null(*jn, "env")) {
+            node.env.reserve(env->size());
+            for (const JsonValue &env_value : *env) {
+                const JsonObject *je = env_value.if_object();
+                if (!je) {
+                    continue;
+                }
                 EnvVar ev{};
-                ev.key = je.value("key", "");
-                ev.value = je.value("value", "");
+                ev.key = get_string_or(*je, "key", "");
+                ev.value = get_string_or(*je, "value", "");
                 node.env.push_back(std::move(ev));
             }
         }
-        if (jn.contains("readiness")) {
-            auto jr = jn["readiness"];
-            std::string kind = jr.value("type", "none");
+        if (const JsonObject *jr = get_object_or_null(*jn, "readiness")) {
+            std::string kind = get_string_or(*jr, "type", "none");
             if (!parse_readiness(kind, node.readiness.kind)) {
                 if (error) *error = "invalid readiness";
                 return false;
             }
-            node.readiness.value = jr.value("value", "");
+            node.readiness.value = get_string_or(*jr, "value", "");
         }
         spec.nodes.push_back(std::move(node));
     }
@@ -144,19 +231,25 @@ bool load_session_spec_json(const std::string &path, SessionSpec &out, std::stri
 }
 
 bool write_manifest_json(const SessionManifest &manifest, const std::string &path, std::string *error) {
-    json j;
-    j["session_id"] = manifest.session_id;
-    j["group"] = manifest.group;
-    j["mode"] = exec_mode_to_string(manifest.mode);
-    j["result"] = static_cast<int>(manifest.result);
-    j["fail_reason"] = manifest.fail_reason;
-    j["start_ms"] = manifest.start_ms;
-    j["end_ms"] = manifest.end_ms;
-    j["diagnostics"] = manifest.diagnostics;
+    JsonObject root;
+    root["session_id"] = manifest.session_id;
+    root["group"] = manifest.group;
+    root["mode"] = exec_mode_to_string(manifest.mode);
+    root["result"] = static_cast<std::int32_t>(manifest.result);
+    root["fail_reason"] = manifest.fail_reason;
+    root["start_ms"] = manifest.start_ms;
+    root["end_ms"] = manifest.end_ms;
+    boost::json::array diagnostics;
+    diagnostics.reserve(manifest.diagnostics.size());
+    for (const std::string &entry : manifest.diagnostics) {
+        diagnostics.emplace_back(entry);
+    }
+    root["diagnostics"] = std::move(diagnostics);
 
-    json inst = json::array();
+    boost::json::array instances;
+    instances.reserve(manifest.instances.size());
     for (const auto &info : manifest.instances) {
-        json ji;
+        JsonObject ji;
         ji["node"] = info.node;
         ji["index"] = info.index;
         ji["pid"] = info.pid;
@@ -168,25 +261,31 @@ bool write_manifest_json(const SessionManifest &manifest, const std::string &pat
         ji["start_ms"] = info.start_ms;
         ji["end_ms"] = info.end_ms;
         ji["failure_reason"] = info.failure_reason;
-        json ports = json::array();
+        boost::json::array ports;
+        ports.reserve(info.ports.size());
         for (const auto &pa : info.ports) {
-            json jp;
+            JsonObject jp;
             jp["name"] = pa.name;
             jp["protocol"] = protocol_to_string(pa.protocol);
-            jp["ports"] = pa.ports;
+            boost::json::array port_values;
+            port_values.reserve(pa.ports.size());
+            for (std::uint16_t port : pa.ports) {
+                port_values.emplace_back(port);
+            }
+            jp["ports"] = std::move(port_values);
             ports.push_back(std::move(jp));
         }
         ji["ports"] = std::move(ports);
-        inst.push_back(std::move(ji));
+        instances.push_back(std::move(ji));
     }
-    j["instances"] = std::move(inst);
+    root["instances"] = std::move(instances);
 
     std::ofstream out(path);
     if (!out) {
         if (error) *error = "failed to open manifest output";
         return false;
     }
-    out << j.dump(2);
+    out << boost::json::serialize(root);
     return true;
 }
 

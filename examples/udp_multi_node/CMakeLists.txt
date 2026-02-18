@@ -4,6 +4,13 @@ add_executable(udp_client udp_client.cpp)
 target_compile_features(udp_server PRIVATE cxx_std_20)
 target_compile_features(udp_client PRIVATE cxx_std_20)
 
+if(UNIX)
+    add_custom_command(TARGET udp_server POST_BUILD
+        COMMAND /bin/chmod +x $<TARGET_FILE:udp_server>)
+    add_custom_command(TARGET udp_client POST_BUILD
+        COMMAND /bin/chmod +x $<TARGET_FILE:udp_client>)
+endif()
+
 set(_coord_socket "${CMAKE_CURRENT_BINARY_DIR}/coordd.sock")
 set(_coord_root "${CMAKE_CURRENT_BINARY_DIR}/coordd_root")
 set(_coord_ready "${CMAKE_CURRENT_BINARY_DIR}/coordd.ready")

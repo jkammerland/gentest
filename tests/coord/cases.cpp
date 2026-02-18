@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <thread>
 #include <vector>
 
@@ -18,7 +19,7 @@
 #endif
 
 #if COORD_ENABLE_JSON
-#include <nlohmann/json.hpp>
+#include <boost/json.hpp>
 #endif
 
 using namespace gentest::asserts;
@@ -398,13 +399,28 @@ void manifest_write() {
     ASSERT_TRUE(coord::write_manifest_json(manifest, path.string(), &error), error);
 
     std::ifstream in(path);
-    nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
-    ASSERT_FALSE(j.is_discarded());
-    EXPECT_EQ(j["session_id"], "manifest_session");
-    EXPECT_EQ(j["group"], "group");
-    EXPECT_EQ(j["instances"].size(), std::size_t{1});
-    EXPECT_EQ(j["instances"][0]["node"], "node");
-    EXPECT_EQ(j["instances"][0]["ports"][0]["protocol"], "udp");
+    ASSERT_TRUE(in.good(), "failed to read manifest");
+    std::string json_text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    boost::json::error_code parse_error;
+    boost::json::value parsed = boost::json::parse(json_text, parse_error);
+    ASSERT_FALSE(static_cast<bool>(parse_error), parse_error.message().c_str());
+
+    const boost::json::object *j = parsed.if_object();
+    ASSERT_TRUE(j != nullptr, "manifest root is not an object");
+
+    auto as_string = [](const boost::json::value &value) {
+        auto sv = value.as_string();
+        return std::string(sv.data(), sv.size());
+    };
+
+    EXPECT_EQ(as_string(j->at("session_id")), "manifest_session");
+    EXPECT_EQ(as_string(j->at("group")), "group");
+    const auto &instances = j->at("instances").as_array();
+    EXPECT_EQ(instances.size(), std::size_t{1});
+    const auto &instance = instances[0].as_object();
+    EXPECT_EQ(as_string(instance.at("node")), "node");
+    const auto &ports = instance.at("ports").as_array();
+    EXPECT_EQ(as_string(ports[0].as_object().at("protocol")), "udp");
 
     std::filesystem::remove(path);
 }
