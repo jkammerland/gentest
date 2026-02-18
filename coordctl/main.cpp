@@ -532,6 +532,10 @@ static int handle_status(const Args &args) {
 static int handle_shutdown(const Args &args) {
     std::string error;
     Endpoint endpoint = parse_endpoint(args.connect, &error);
+    if (!error.empty()) {
+        std::cerr << "coordctl: " << error << "\n";
+        return 1;
+    }
     if (!ensure_tls_if_tcp(endpoint, args.tls, error)) {
         std::cerr << "coordctl: " << error << "\n";
         return 1;
@@ -542,9 +546,28 @@ static int handle_shutdown(const Args &args) {
         return 1;
     }
     Message msg{1, MsgShutdown{args.shutdown_token}};
-    send_message(conn, msg, error);
+    if (!send_message(conn, msg, error)) {
+        std::cerr << "coordctl: " << error << "\n";
+        return 1;
+    }
     Message reply;
-    recv_message(conn, reply, error);
+    if (!recv_message(conn, reply, error)) {
+        std::cerr << "coordctl: " << error << "\n";
+        return 1;
+    }
+    if (std::holds_alternative<MsgError>(reply.payload)) {
+        std::cerr << "coordctl: " << std::get<MsgError>(reply.payload).message << "\n";
+        return 1;
+    }
+    if (!std::holds_alternative<MsgSessionStatus>(reply.payload)) {
+        std::cerr << "coordctl: unexpected response to shutdown\n";
+        return 1;
+    }
+    const auto status = std::get<MsgSessionStatus>(reply.payload).status;
+    if (status.result != ResultCode::Success) {
+        std::cerr << "coordctl: shutdown failed\n";
+        return 1;
+    }
     return 0;
 }
 

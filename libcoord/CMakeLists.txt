@@ -41,7 +41,7 @@ endif()
 
 if(COORD_ENABLE_JSON)
     target_sources(coord PRIVATE src/json.cpp)
-    target_link_libraries(coord PUBLIC nlohmann_json::nlohmann_json)
+    target_link_libraries(coord PUBLIC Boost::json)
     target_compile_definitions(coord PUBLIC COORD_ENABLE_JSON=1)
 else()
     target_compile_definitions(coord PUBLIC COORD_ENABLE_JSON=0)

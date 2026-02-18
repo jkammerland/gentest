@@ -8,6 +8,6 @@
     "zstd",
     "libxml2",
     "tl-expected",
-    "nlohmann-json"
+    "boost-json"
   ]
 }

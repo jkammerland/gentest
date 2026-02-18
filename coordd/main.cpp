@@ -65,6 +65,48 @@ struct OutputWatcher {
     std::string token;
 };
 
+struct PortAllocation {
+    std::vector<PortAssignment> ports;
+#ifndef _WIN32
+    std::vector<int> reserved_fds;
+
+    PortAllocation() = default;
+    PortAllocation(const PortAllocation &) = delete;
+    PortAllocation &operator=(const PortAllocation &) = delete;
+
+    PortAllocation(PortAllocation &&other) noexcept
+        : ports(std::move(other.ports)), reserved_fds(std::move(other.reserved_fds)) {
+        other.reserved_fds.clear();
+    }
+
+    PortAllocation &operator=(PortAllocation &&other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+        release();
+        ports = std::move(other.ports);
+        reserved_fds = std::move(other.reserved_fds);
+        other.reserved_fds.clear();
+        return *this;
+    }
+
+    ~PortAllocation() {
+        release();
+    }
+
+    void release() {
+        for (int fd : reserved_fds) {
+            if (fd >= 0) {
+                ::close(fd);
+            }
+        }
+        reserved_fds.clear();
+    }
+#else
+    void release() {}
+#endif
+};
+
 struct ProcessInstance {
     InstanceInfo info;
     int stdout_fd{-1};
@@ -99,8 +141,8 @@ static std::string join_paths(const std::string &a, const std::string &b) {
     return p.string();
 }
 
-static std::vector<PortAssignment> allocate_ports(const NetworkSpec &network, std::vector<std::string> &diagnostics) {
-    std::vector<PortAssignment> out;
+static PortAllocation allocate_ports(const NetworkSpec &network, std::vector<std::string> &diagnostics) {
+    PortAllocation allocation;
 #ifndef _WIN32
     for (const auto &req : network.ports) {
         PortAssignment pa;
@@ -124,16 +166,19 @@ static std::vector<PortAssignment> allocate_ports(const NetworkSpec &network, st
             socklen_t len = sizeof(addr);
             if (::getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len) == 0) {
                 pa.ports.push_back(ntohs(addr.sin_port));
+                allocation.reserved_fds.push_back(fd);
+                continue;
             }
+            diagnostics.push_back("port allocation failed: getsockname() error");
             ::close(fd);
         }
-        out.push_back(std::move(pa));
+        allocation.ports.push_back(std::move(pa));
     }
 #else
     (void)network;
     diagnostics.push_back("port allocation not implemented on Windows");
 #endif
-    return out;
+    return allocation;
 }
 
 static void watch_pipe_to_file(int fd, const std::string &path, OutputWatcher *watcher) {
@@ -415,7 +460,8 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
     fs::create_directories(session_dir);
 
     std::vector<std::string> diagnostics;
-    auto ports = allocate_ports(spec.network, diagnostics);
+    PortAllocation port_allocation = allocate_ports(spec.network, diagnostics);
+    const auto &ports = port_allocation.ports;
 
     std::unordered_map<std::string, std::string> node_addrs;
     for (const auto &node : spec.nodes) {
@@ -432,6 +478,8 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
     for (const auto &node : spec.nodes) {
         std::size_t start_index = instances.size();
         for (std::uint32_t idx = 0; idx < node.instances; ++idx) {
+            // Keep reserved ports bound until we are ready to launch workload processes.
+            port_allocation.release();
             instances.emplace_back();
             ProcessInstance &inst = instances.back();
             if (!spawn_instance(spec, node, idx, session_dir.string(), ports, node_addrs, inst, error)) {
@@ -563,7 +611,20 @@ public:
         auto state = std::make_shared<SessionState>();
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            sessions_[id] = state;
+            if (sessions_.find(id) != sessions_.end()) {
+                if (spec.session_id.empty()) {
+                    do {
+                        id = generate_session_id();
+                    } while (sessions_.find(id) != sessions_.end());
+                } else {
+                    const std::string base = id;
+                    std::uint64_t suffix = 1;
+                    do {
+                        id = base + "_" + std::to_string(suffix++);
+                    } while (sessions_.find(id) != sessions_.end());
+                }
+            }
+            sessions_.emplace(id, state);
         }
         SessionSpec spec_copy = spec;
         spec_copy.session_id = id;
@@ -630,9 +691,11 @@ private:
     std::unordered_map<std::string, std::shared_ptr<SessionState>> sessions_;
 
     static std::string generate_session_id() {
+        static std::atomic<std::uint64_t> next_id{0};
         auto now = std::chrono::system_clock::now().time_since_epoch();
         auto ticks = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
-        return "session_" + std::to_string(ticks);
+        auto counter = next_id.fetch_add(1, std::memory_order_relaxed);
+        return "session_" + std::to_string(ticks) + "_" + std::to_string(counter);
     }
 
     SessionManifest run_remote(const SessionSpec &spec, const std::string &peer) {
