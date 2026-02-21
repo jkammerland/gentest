@@ -44,7 +44,7 @@ Keep manifest mode working for now, but make “per‑TU by default” the docum
 
 Implementation sketch:
 
-- Generate shim TUs in the Meson build dir, named like `tu_0000_cases.gentest.cpp` (stable and collision-free).
+- Generate shim TUs in the Meson build dir, named like `tu_0000_cases.gentest.cpp` (stable, and collision-safe when shim basenames are unique case-insensitively).
 - Run codegen with `--tu-out-dir` pointing at the same directory and pass `-DGENTEST_CODEGEN=1` after `--`.
 - Compile the shim TUs (not the original `.cpp`) into the test executable.
 

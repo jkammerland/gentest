@@ -20,7 +20,7 @@
 - Fixture lifetimes: local (per test/bench/jitter), suite (per namespace group), global (per run).
 - Suite/global fixtures are registered at startup and set up once at the start of the run; teardown happens once at the end.
 - Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace for all tests that use them.
-- Prefer free-function tests/benches/jitters with `fixtures(...)`. Member tests are deprecated; they are treated as suite-level fixtures and should be avoided in new code.
+- Prefer free-function tests/benches/jitters with fixture parameters inferred from function signatures. The legacy `fixtures(...)` attribute is removed. Member tests are deprecated; they are treated as suite-level fixtures and should be avoided in new code.
 - Allocation hook: optional `static gentest_allocate()` or `static gentest_allocate(std::string_view suite)`. Supported returns: `unique_ptr` (custom deleter), `shared_ptr`, or raw pointer (adopted).
 - Allocation failures (null/exception) are treated as test failures and reported.
 
@@ -73,10 +73,15 @@
 - Author cases in `tests/<suite>/cases.cpp` and annotate with `[[using gentest : test("suite/name"), ...]]` so the generator discovers them.
 - Attach codegen in `tests/CMakeLists.txt` with `gentest_attach_codegen(TARGET <target>)`.
 - Executables return non‑zero on any `gentest::failure`; always run `ctest` before pushing.
-- Prefer free-function tests/benches/jitters with `fixtures(...)`. Member tests are deprecated; they are treated as suite-level fixtures (shared instance across methods) and should be avoided in new code.
+- Prefer free-function tests/benches/jitters with fixture parameters inferred from function signatures. The legacy `fixtures(...)` attribute is removed. Member tests are deprecated; they are treated as suite-level fixtures (shared instance across methods) and should be avoided in new code.
 - Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace that owns the tests.
 - If you add tests, update `tests/CMakeLists.txt` counts (`*_counts`, `*_list_counts`, `*_list_tests_lines`) accordingly.
 - Always run tests for your changes before reporting back.
+
+## CMake Regression Check Scripts
+- `cmake/CheckNoTimeout.cmake` validates a command completes within a timeout and can optionally enforce an exact exit code via `EXPECT_RC`.
+- `cmake/CheckTuHeaderCaseCollision.cmake` validates codegen fails when per-TU generated header names collide case-insensitively.
+- In `tests/CMakeLists.txt`, prefer `gentest_add_cmake_script_test(...)` for these checks and pass required `DEFINES` explicitly (for example `TIMEOUT_SEC`, `EXPECT_RC`, `BUILD_ROOT`, `TARGET_ARG`).
 
 ## Commit & Pull Request Guidelines
 - Commits: short, imperative subject (e.g., “Implement clang codegen attach helper”); add context in the body when needed; use trailers like `Refs: #123`.

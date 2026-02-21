@@ -1008,7 +1008,8 @@ bool setup_shared_fixtures();
 void teardown_shared_fixtures();
 
 // Lookup shared fixture instance by scope/suite/name. Returns nullptr and fills
-// error if the fixture could not be created or set up.
+// error when unavailable (not registered, allocation/setup failure, or setup
+// currently in progress due to reentrant lookup).
 std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite,
                                          std::string_view fixture_name, std::string& error);
 
