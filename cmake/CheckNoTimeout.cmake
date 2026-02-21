@@ -3,6 +3,7 @@
 # Optional:
 #  -DARGS=<optional CLI args>
 #  -DTIMEOUT_SEC=<seconds, default 3>
+#  -DEXPECT_RC=<expected numeric exit code>
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "CheckNoTimeout.cmake: PROG not set")
@@ -45,6 +46,12 @@ set(_all "${out}\n${err}")
 
 if(NOT rc MATCHES "^-?[0-9]+$")
   message(FATAL_ERROR "Process did not complete within ${_timeout}s (rc='${rc}'). Output:\n${_all}")
+endif()
+
+if(DEFINED EXPECT_RC AND NOT "${EXPECT_RC}" STREQUAL "")
+  if(NOT rc EQUAL EXPECT_RC)
+    message(FATAL_ERROR "Expected exit code ${EXPECT_RC}, got ${rc}. Output:\n${_all}")
+  endif()
 endif()
 
 message(STATUS "Process completed within timeout (rc=${rc})")

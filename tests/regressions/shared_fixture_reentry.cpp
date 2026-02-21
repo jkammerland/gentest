@@ -10,9 +10,13 @@ std::shared_ptr<void> create_fixture(std::string_view, std::string&) { return st
 
 void setup_fixture(void*, std::string& error) {
     std::string inner_error;
-    (void)gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureName, inner_error);
-    if (!inner_error.empty()) {
-        error = inner_error;
+    auto inner = gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureName, inner_error);
+    if (inner) {
+        error = "fixture should not be visible during setup";
+        return;
+    }
+    if (inner_error != "fixture initialization in progress") {
+        error = "unexpected reentry status: " + inner_error;
     }
 }
 

@@ -279,9 +279,6 @@ std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_v
                 return {};
             }
             if (entry.initializing) {
-                if (entry.instance) {
-                    return entry.instance;
-                }
                 error = "fixture initialization in progress";
                 return {};
             }
@@ -304,9 +301,6 @@ std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_v
             return {};
         }
         if (entry.initializing) {
-            if (entry.instance) {
-                return entry.instance;
-            }
             error = "fixture initialization in progress";
             return {};
         }
@@ -1899,10 +1893,8 @@ static bool run_measured_case(const Case& c, CallFn&& run_call, Result& out_resu
     out_result = run_call(c, ctx);
 
     std::string call_error;
-    bool call_alloc_failure = false;
     if (gentest::detail::has_bench_error()) {
         call_error = gentest::detail::take_bench_error();
-        call_alloc_failure = true;
     }
 
     if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure)) {
@@ -1914,7 +1906,7 @@ static bool run_measured_case(const Case& c, CallFn&& run_call, Result& out_resu
 
     if (!call_error.empty()) {
         out_failure.reason = std::move(call_error);
-        out_failure.allocation_failure = call_alloc_failure;
+        out_failure.allocation_failure = false;
         out_failure.phase = "call";
         return false;
     }
