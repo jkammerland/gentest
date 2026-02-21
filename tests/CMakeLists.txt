@@ -536,6 +536,35 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "EXPECT_NO_THROW failed at tests/failing/cases.cpp:"
     ARGS --run=failing/exceptions/expect_no_throw_unknown)
 
+# Regression binaries (manual runtime registration to isolate runner edge cases)
+add_executable(gentest_regression_bench_assert
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/bench_assert_propagation.cpp)
+target_link_libraries(gentest_regression_bench_assert PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_bench_assert PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_bench_assert PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_reentry
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_reentry.cpp)
+target_link_libraries(gentest_regression_shared_fixture_reentry PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_reentry PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_reentry PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME regression_bench_assert_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    ARGS --run=regressions/bench_assert_should_fail --kind=bench)
+
+gentest_add_cmake_script_test(
+    NAME regression_shared_fixture_reentry_no_timeout
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_reentry>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoTimeout.cmake"
+    ARGS --run=regressions/shared_fixture_reentry_smoke --kind=test
+    DEFINES TIMEOUT_SEC=3)
+
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
 gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 16 ARGS --list-tests)
@@ -827,6 +856,13 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
     ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake
     cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_tu_header_case_collision
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_header_case_collision
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTuHeaderCaseCollision.cmake
+    cmake
+    -DCODEGEN_EXECUTABLE=${_gentest_codegen_prog})
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)

@@ -49,6 +49,7 @@ struct SharedFixtureEntry {
     gentest::detail::SharedFixtureScope scope;
     std::shared_ptr<void>               instance;
     bool                                initialized = false;
+    bool                                initializing = false;
     bool                                failed = false;
     std::string                         error;
     std::shared_ptr<void>               (*create)(std::string_view suite, std::string& error) = nullptr;
@@ -151,40 +152,94 @@ std::string format_fixture_error(std::string_view stage, std::string_view detail
 
 bool setup_shared_fixtures() {
     auto& reg = shared_fixture_registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
     bool ok = true;
-    for (auto& entry : reg.entries) {
-        if (entry.initialized || entry.failed) {
-            continue;
-        }
-        std::string error;
-        if (!entry.create) {
-            entry.failed = true;
-            entry.error = "fixture allocation failed: missing factory";
-            ok = false;
-            continue;
-        }
-        entry.instance = entry.create(entry.suite, error);
-        if (!entry.instance) {
-            entry.failed = true;
-            entry.error = format_fixture_error("allocation", error);
-            fmt::print(stderr, "gentest: fixture '{}' {}", entry.fixture_name, entry.error);
-            fmt::print(stderr, "\n");
-            ok = false;
-            continue;
-        }
-        if (entry.setup) {
-            const std::string label = fmt::format("fixture setup {}", entry.fixture_name);
-            if (!run_fixture_phase(label, [&](std::string& err) { entry.setup(entry.instance.get(), err); }, error)) {
-                entry.failed = true;
-                entry.error = format_fixture_error("setup", error);
-                fmt::print(stderr, "gentest: fixture '{}' {}\n", entry.fixture_name, entry.error);
-                entry.instance.reset();
-                ok = false;
-                continue;
+    for (;;) {
+        std::size_t target_idx = std::numeric_limits<std::size_t>::max();
+        std::string fixture_name;
+        std::string suite_name;
+        std::shared_ptr<void> (*create_fn)(std::string_view, std::string&) = nullptr;
+        void (*setup_fn)(void*, std::string&) = nullptr;
+
+        {
+            std::lock_guard<std::mutex> lk(reg.mtx);
+            for (std::size_t i = 0; i < reg.entries.size(); ++i) {
+                auto& entry = reg.entries[i];
+                if (entry.initialized || entry.initializing || entry.failed) {
+                    continue;
+                }
+                entry.initializing = true;
+                target_idx = i;
+                fixture_name = entry.fixture_name;
+                suite_name = entry.suite;
+                create_fn = entry.create;
+                setup_fn = entry.setup;
+                break;
             }
         }
-        entry.initialized = true;
+
+        if (target_idx == std::numeric_limits<std::size_t>::max()) {
+            break;
+        }
+
+        std::string          error;
+        std::shared_ptr<void> instance;
+        if (!create_fn) {
+            error = "missing factory";
+        } else {
+            instance = create_fn(suite_name, error);
+        }
+
+        if (!instance) {
+            std::string fixture_error = create_fn ? format_fixture_error("allocation", error) : "fixture allocation failed: missing factory";
+            {
+                std::lock_guard<std::mutex> lk(reg.mtx);
+                auto& entry = reg.entries[target_idx];
+                entry.initializing = false;
+                entry.initialized = false;
+                entry.failed = true;
+                entry.error = fixture_error;
+                entry.instance.reset();
+            }
+            fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
+            ok = false;
+            continue;
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(reg.mtx);
+            reg.entries[target_idx].instance = instance;
+        }
+
+        bool setup_ok = true;
+        if (setup_fn) {
+            const std::string label = fmt::format("fixture setup {}", fixture_name);
+            setup_ok = run_fixture_phase(label, [&](std::string& err) { setup_fn(instance.get(), err); }, error);
+        }
+
+        if (!setup_ok) {
+            const std::string fixture_error = format_fixture_error("setup", error);
+            {
+                std::lock_guard<std::mutex> lk(reg.mtx);
+                auto& entry = reg.entries[target_idx];
+                entry.initializing = false;
+                entry.initialized = false;
+                entry.failed = true;
+                entry.error = fixture_error;
+                entry.instance.reset();
+            }
+            fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
+            ok = false;
+            continue;
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(reg.mtx);
+            auto& entry = reg.entries[target_idx];
+            entry.initializing = false;
+            entry.initialized = true;
+            entry.failed = false;
+            entry.error.clear();
+        }
     }
     return ok;
 }
@@ -223,6 +278,13 @@ std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_v
                 error = entry.error;
                 return {};
             }
+            if (entry.initializing) {
+                if (entry.instance) {
+                    return entry.instance;
+                }
+                error = "fixture initialization in progress";
+                return {};
+            }
             if (entry.initialized) {
                 return entry.instance;
             }
@@ -239,6 +301,13 @@ std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_v
         if (scope == SharedFixtureScope::Suite && entry.suite != suite) continue;
         if (entry.failed) {
             error = entry.error;
+            return {};
+        }
+        if (entry.initializing) {
+            if (entry.instance) {
+                return entry.instance;
+            }
+            error = "fixture initialization in progress";
             return {};
         }
         if (!entry.instance) {
@@ -456,7 +525,18 @@ static inline double run_epoch_calls(const Case& c, void* ctx, std::size_t iters
     auto start = clock::now();
     had_assert_fail = false; iterations_done = 0;
     for (std::size_t i = 0; i < iters; ++i) {
-        try { c.fn(ctx); } catch (const gentest::assertion&) { had_assert_fail = true; break; } catch (...) { /* ignore */ }
+        try {
+            c.fn(ctx);
+        } catch (const gentest::assertion& e) {
+            gentest::detail::record_bench_error(e.message());
+            had_assert_fail = true;
+            break;
+        } catch (...) { /* ignore */ }
+        if (!ctxinfo->failures.empty()) {
+            gentest::detail::record_bench_error(ctxinfo->failures.front());
+            had_assert_fail = true;
+            break;
+        }
         iterations_done = i + 1;
     }
     auto end = clock::now();
@@ -531,10 +611,16 @@ static inline double run_jitter_epoch_calls(const Case& c,
         auto start = clock::now();
         try {
             c.fn(ctx);
-        } catch (const gentest::assertion&) {
+        } catch (const gentest::assertion& e) {
+            gentest::detail::record_bench_error(e.message());
             had_assert_fail = true;
             break;
         } catch (...) { /* ignore */ }
+        if (!ctxinfo->failures.empty()) {
+            gentest::detail::record_bench_error(ctxinfo->failures.front());
+            had_assert_fail = true;
+            break;
+        }
         auto end = clock::now();
         samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - start).count()));
         iterations_done = i + 1;
@@ -565,7 +651,18 @@ static inline double run_jitter_batch_epoch_calls(const Case& c,
         auto start = clock::now();
         std::size_t local_done = 0;
         for (std::size_t i = 0; i < batch_iters; ++i) {
-            try { c.fn(ctx); } catch (const gentest::assertion&) { had_assert_fail = true; break; } catch (...) { /* ignore */ }
+            try {
+                c.fn(ctx);
+            } catch (const gentest::assertion& e) {
+                gentest::detail::record_bench_error(e.message());
+                had_assert_fail = true;
+                break;
+            } catch (...) { /* ignore */ }
+            if (!ctxinfo->failures.empty()) {
+                gentest::detail::record_bench_error(ctxinfo->failures.front());
+                had_assert_fail = true;
+                break;
+            }
             local_done = i + 1;
         }
         auto end = clock::now();
@@ -646,6 +743,7 @@ static BenchResult run_bench(const Case& c, void* ctx, const BenchConfig& cfg) {
     double calib_s = 0.0;
     while (true) {
         calib_s = run_epoch_calls(c, ctx, iters, done, had_assert);
+        if (had_assert) break;
         if (calib_s >= cfg.min_epoch_time_s) break;
         iters *= 2;
         if (iters == 0 || iters > (std::size_t(1) << 30)) break;
@@ -653,7 +751,10 @@ static BenchResult run_bench(const Case& c, void* ctx, const BenchConfig& cfg) {
     br.calibration_time_s = calib_s;
     br.calibration_iters = iters;
     // Warmup epochs
-    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) { br.warmup_time_s += run_epoch_calls(c, ctx, iters, done, had_assert); }
+    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) {
+        br.warmup_time_s += run_epoch_calls(c, ctx, iters, done, had_assert);
+        if (had_assert) break;
+    }
     // Measure epochs
     std::vector<double> epoch_ns;
     auto start_all = std::chrono::steady_clock::now();
@@ -662,6 +763,11 @@ static BenchResult run_bench(const Case& c, void* ctx, const BenchConfig& cfg) {
         if (epochs_run >= cfg.measure_epochs && br.total_time_s >= cfg.min_total_time_s)
             break;
         double s = run_epoch_calls(c, ctx, iters, done, had_assert);
+        if (had_assert) {
+            br.total_time_s += s;
+            br.total_iters += done;
+            break;
+        }
         const std::size_t iter_count = done ? done : 1;
         epoch_ns.push_back(ns_from_s(s) / static_cast<double>(iter_count));
         br.total_time_s += s;
@@ -695,6 +801,7 @@ static JitterResult run_jitter(const Case& c, void* ctx, const BenchConfig& cfg)
     double calib_s = 0.0;
     while (true) {
         calib_s = run_epoch_calls(c, ctx, iters, done, had_assert);
+        if (had_assert) break;
         if (calib_s >= cfg.min_epoch_time_s) break;
         iters *= 2;
         if (iters == 0 || iters > (std::size_t(1) << 30)) break;
@@ -726,6 +833,7 @@ static JitterResult run_jitter(const Case& c, void* ctx, const BenchConfig& cfg)
 
     for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) {
         jr.warmup_time_s += run_epoch_calls(c, ctx, iters, done, had_assert);
+        if (had_assert) break;
     }
     auto start_all = std::chrono::steady_clock::now();
     for (;;) {
@@ -736,6 +844,11 @@ static JitterResult run_jitter(const Case& c, void* ctx, const BenchConfig& cfg)
             s = run_jitter_batch_epoch_calls(c, ctx, batch_iters, batch_samples, done, had_assert, jr.samples_ns);
         } else {
             s = run_jitter_epoch_calls(c, ctx, iters, done, had_assert, jr.samples_ns);
+        }
+        if (had_assert) {
+            jr.total_time_s += s;
+            jr.total_iters += done;
+            break;
         }
         ++epoch_count;
         jr.total_time_s += s;
