@@ -41,25 +41,49 @@ set(_compdb_cxx_list "${_compdb_cxx}")
 list(GET _compdb_cxx_list 0 _compdb_cxx)
 
 set(_json_dir "${_work_dir}")
-set(_json_lower "${_lower_src}")
-set(_json_upper "${_upper_src}")
+string(REPLACE "\\" "/" _json_dir "${_json_dir}")
+
 set(_json_cxx "${_compdb_cxx}")
-foreach(_json_var IN ITEMS _json_dir _json_lower _json_upper _json_cxx)
-  string(REPLACE "\\" "/" ${_json_var} "${${_json_var}}")
+string(REPLACE "\\" "/" _json_cxx "${_json_cxx}")
+
+set(_json_lower_fwd "${_lower_src}")
+set(_json_upper_fwd "${_upper_src}")
+string(REPLACE "\\" "/" _json_lower_fwd "${_json_lower_fwd}")
+string(REPLACE "\\" "/" _json_upper_fwd "${_json_upper_fwd}")
+
+set(_json_lower_native "${_lower_src}")
+set(_json_upper_native "${_upper_src}")
+if(WIN32)
+  string(REPLACE "/" "\\" _json_lower_native "${_json_lower_native}")
+  string(REPLACE "/" "\\" _json_upper_native "${_json_upper_native}")
+endif()
+
+foreach(_json_var IN ITEMS _json_lower_native _json_upper_native)
+  string(REPLACE "\\" "\\\\" ${_json_var} "${${_json_var}}")
 endforeach()
 
 set(_compdb "${_work_dir}/compile_commands.json")
 file(WRITE "${_compdb}"
   "[\n"
   "  {\n"
-  "    \"directory\": \"${_json_dir}\",\n"
-  "    \"file\": \"${_json_lower}\",\n"
-  "    \"arguments\": [\"${_json_cxx}\", \"-c\", \"${_json_lower}\"]\n"
+    "    \"directory\": \"${_json_dir}\",\n"
+    "    \"file\": \"${_json_lower_fwd}\",\n"
+    "    \"arguments\": [\"${_json_cxx}\", \"-c\", \"${_json_lower_fwd}\"]\n"
   "  },\n"
   "  {\n"
-  "    \"directory\": \"${_json_dir}\",\n"
-  "    \"file\": \"${_json_upper}\",\n"
-  "    \"arguments\": [\"${_json_cxx}\", \"-c\", \"${_json_upper}\"]\n"
+    "    \"directory\": \"${_json_dir}\",\n"
+    "    \"file\": \"${_json_upper_fwd}\",\n"
+    "    \"arguments\": [\"${_json_cxx}\", \"-c\", \"${_json_upper_fwd}\"]\n"
+  "  },\n"
+  "  {\n"
+    "    \"directory\": \"${_json_dir}\",\n"
+    "    \"file\": \"${_json_lower_native}\",\n"
+    "    \"arguments\": [\"${_json_cxx}\", \"-c\", \"${_json_lower_native}\"]\n"
+  "  },\n"
+  "  {\n"
+    "    \"directory\": \"${_json_dir}\",\n"
+    "    \"file\": \"${_json_upper_native}\",\n"
+    "    \"arguments\": [\"${_json_cxx}\", \"-c\", \"${_json_upper_native}\"]\n"
   "  }\n"
   "]\n")
 
