@@ -123,8 +123,10 @@ function(gentest_add_cmake_script_test)
 
     set(_defines)
     foreach(def IN LISTS GENTEST_DEFINES)
-        list(APPEND _defines "-D${def}")
+        string(REPLACE ";" "\\;" _def_escaped "${def}")
+        list(APPEND _defines "-D${_def_escaped}")
     endforeach()
+    unset(_def_escaped)
 
     set(_cmd_args "${_prog_def}")
     if(NOT _args_def STREQUAL "")

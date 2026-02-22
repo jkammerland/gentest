@@ -93,6 +93,7 @@ struct TestContextInfo {
     std::vector<char>        event_kinds;
     std::mutex               mtx;
     std::atomic<bool>        active{false};
+    std::atomic<bool>        has_failures{false};
     bool                     dump_logs_on_failure{false};
 
     bool        runtime_skip_requested{false};
@@ -118,6 +119,7 @@ inline void                             record_failure(std::string msg) {
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->failures.push_back(std::move(msg));
+    ctx->has_failures.store(true, std::memory_order_relaxed);
     ctx->failure_locations.push_back({std::string{}, 0});
     // Record event (after pushing so that failures vector is up-to-date)
     ctx->event_lines.push_back(ctx->failures.back());
@@ -133,6 +135,7 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->failures.push_back(std::move(msg));
+    ctx->has_failures.store(true, std::memory_order_relaxed);
     // Normalize path to a stable, short form for diagnostics
     std::filesystem::path p(std::string(loc.file_name()));
     p = p.lexically_normal();

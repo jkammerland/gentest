@@ -3,6 +3,7 @@
 #  -DBUILD_ROOT=<path to parent build dir>
 # Optional:
 #  -DTARGET_ARG=<optional --target=... argument>
+#  -DCXX_COMPILER=<compiler for synthetic compile_commands entries>
 #  -DEXPECT_SUBSTRING=<expected build error substring>
 
 if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
@@ -28,6 +29,40 @@ set(_upper_src "${_work_dir}/Lower_Case.cpp")
 file(WRITE "${_lower_src}" "int lower_case_fixture = 0;\n")
 file(WRITE "${_upper_src}" "int upper_case_fixture = 0;\n")
 
+set(_compdb_cxx "")
+if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
+  set(_compdb_cxx "${CXX_COMPILER}")
+elseif(DEFINED ENV{CXX} AND NOT "$ENV{CXX}" STREQUAL "")
+  set(_compdb_cxx "$ENV{CXX}")
+else()
+  set(_compdb_cxx "clang++")
+endif()
+set(_compdb_cxx_list "${_compdb_cxx}")
+list(GET _compdb_cxx_list 0 _compdb_cxx)
+
+set(_json_dir "${_work_dir}")
+set(_json_lower "${_lower_src}")
+set(_json_upper "${_upper_src}")
+set(_json_cxx "${_compdb_cxx}")
+foreach(_json_var IN ITEMS _json_dir _json_lower _json_upper _json_cxx)
+  string(REPLACE "\\" "/" ${_json_var} "${${_json_var}}")
+endforeach()
+
+set(_compdb "${_work_dir}/compile_commands.json")
+file(WRITE "${_compdb}"
+  "[\n"
+  "  {\n"
+  "    \"directory\": \"${_json_dir}\",\n"
+  "    \"file\": \"${_json_lower}\",\n"
+  "    \"arguments\": [\"${_json_cxx}\", \"-c\", \"${_json_lower}\"]\n"
+  "  },\n"
+  "  {\n"
+  "    \"directory\": \"${_json_dir}\",\n"
+  "    \"file\": \"${_json_upper}\",\n"
+  "    \"arguments\": [\"${_json_cxx}\", \"-c\", \"${_json_upper}\"]\n"
+  "  }\n"
+  "]\n")
+
 set(_clang_args)
 if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
   list(APPEND _clang_args "${TARGET_ARG}")
@@ -39,6 +74,7 @@ set(_codegen_cmd
   --mock-registry "${_registry}"
   --mock-impl "${_impl}"
   --tu-out-dir "${_work_dir}/generated"
+  --compdb "${_work_dir}"
   --source-root "${_source_root}"
   "${_lower_src}"
   "${_upper_src}"

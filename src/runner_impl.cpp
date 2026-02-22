@@ -668,6 +668,16 @@ static inline double percentile_sorted(const std::vector<double> &v, double p) {
     return v[lo] + (v[hi] - v[lo]) * frac;
 }
 
+static bool try_take_first_failure(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string &failure) {
+    if (!ctxinfo->has_failures.load(std::memory_order_relaxed))
+        return false;
+    std::scoped_lock lk(ctxinfo->mtx);
+    if (ctxinfo->failures.empty())
+        return false;
+    failure = ctxinfo->failures.front();
+    return true;
+}
+
 static inline double run_epoch_calls(const Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail) {
     using clock           = std::chrono::steady_clock;
     auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
@@ -678,6 +688,7 @@ static inline double run_epoch_calls(const Case &c, void *ctx, std::size_t iters
     auto                             start = clock::now();
     had_assert_fail                        = false;
     iterations_done                        = 0;
+    std::string first_failure;
     for (std::size_t i = 0; i < iters; ++i) {
         try {
             c.fn(ctx);
@@ -687,8 +698,8 @@ static inline double run_epoch_calls(const Case &c, void *ctx, std::size_t iters
             break;
         } catch (...) { /* ignore */
         }
-        if (!ctxinfo->failures.empty()) {
-            gentest::detail::record_bench_error(ctxinfo->failures.front());
+        if (try_take_first_failure(ctxinfo, first_failure)) {
+            gentest::detail::record_bench_error(std::move(first_failure));
             had_assert_fail = true;
             break;
         }
@@ -759,6 +770,7 @@ static inline double run_jitter_epoch_calls(const Case &c, void *ctx, std::size_
     auto                             epoch_start = clock::now();
     had_assert_fail                              = false;
     iterations_done                              = 0;
+    std::string first_failure;
     for (std::size_t i = 0; i < iters; ++i) {
         auto start = clock::now();
         try {
@@ -769,8 +781,8 @@ static inline double run_jitter_epoch_calls(const Case &c, void *ctx, std::size_
             break;
         } catch (...) { /* ignore */
         }
-        if (!ctxinfo->failures.empty()) {
-            gentest::detail::record_bench_error(ctxinfo->failures.front());
+        if (try_take_first_failure(ctxinfo, first_failure)) {
+            gentest::detail::record_bench_error(std::move(first_failure));
             had_assert_fail = true;
             break;
         }
@@ -795,6 +807,7 @@ static inline double run_jitter_batch_epoch_calls(const Case &c, void *ctx, std:
     auto                             epoch_start = clock::now();
     had_assert_fail                              = false;
     iterations_done                              = 0;
+    std::string first_failure;
     for (std::size_t s = 0; s < batch_samples; ++s) {
         auto        start      = clock::now();
         std::size_t local_done = 0;
@@ -807,8 +820,8 @@ static inline double run_jitter_batch_epoch_calls(const Case &c, void *ctx, std:
                 break;
             } catch (...) { /* ignore */
             }
-            if (!ctxinfo->failures.empty()) {
-                gentest::detail::record_bench_error(ctxinfo->failures.front());
+            if (try_take_first_failure(ctxinfo, first_failure)) {
+                gentest::detail::record_bench_error(std::move(first_failure));
                 had_assert_fail = true;
                 break;
             }
@@ -1728,18 +1741,21 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
     } catch (const gentest::detail::skip_exception &) { runtime_skipped = true; } catch (const gentest::failure &err) {
         threw_non_skip = true;
         ctxinfo->failures.push_back(std::string("FAIL() :: ") + err.what());
+        ctxinfo->has_failures.store(true, std::memory_order_relaxed);
         // Record event for console output as well
         ctxinfo->event_lines.push_back(ctxinfo->failures.back());
         ctxinfo->event_kinds.push_back('F');
     } catch (const gentest::assertion &) { threw_non_skip = true; } catch (const std::exception &err) {
         threw_non_skip = true;
         ctxinfo->failures.push_back(std::string("unexpected std::exception: ") + err.what());
+        ctxinfo->has_failures.store(true, std::memory_order_relaxed);
         // Record event for console output as well
         ctxinfo->event_lines.push_back(ctxinfo->failures.back());
         ctxinfo->event_kinds.push_back('F');
     } catch (...) {
         threw_non_skip = true;
         ctxinfo->failures.push_back("unknown exception");
+        ctxinfo->has_failures.store(true, std::memory_order_relaxed);
         // Record event for console output as well
         ctxinfo->event_lines.push_back(ctxinfo->failures.back());
         ctxinfo->event_kinds.push_back('F');

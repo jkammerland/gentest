@@ -567,6 +567,12 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "intentional benchmark assertion failure"
     ARGS --run=regressions/bench_assert_should_fail --kind=bench)
 
+gentest_add_check_death(
+    NAME regression_jitter_assert_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional jitter assertion failure"
+    ARGS --run=regressions/jitter_assert_should_fail --kind=jitter)
+
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_reentry_no_timeout
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_reentry>
@@ -889,6 +895,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake
     cmake)
 
+string(REPLACE ";" "\\;" _gentest_tu_collision_cxx "${CMAKE_CXX_COMPILER}")
 gentest_add_cmake_script_test(
     NAME gentest_tu_header_case_collision
     NO_EMULATOR
@@ -896,7 +903,9 @@ gentest_add_cmake_script_test(
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTuHeaderCaseCollision.cmake"
     DEFINES
         BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-        TARGET_ARG=${_gentest_codegen_cross_target_arg})
+        TARGET_ARG=${_gentest_codegen_cross_target_arg}
+        CXX_COMPILER=${_gentest_tu_collision_cxx})
+unset(_gentest_tu_collision_cxx)
 set_property(TEST gentest_tu_header_case_collision APPEND PROPERTY LABELS "codegen")
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
