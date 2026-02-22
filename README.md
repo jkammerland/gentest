@@ -440,6 +440,7 @@ CLI:
 ./my_tests --bench-min-epoch-time-s=0.02 --bench-epochs=8 --bench-warmup=2 --bench-max-total-time-s=5
 ./my_tests --run=bench/sin --kind=jitter --jitter-bins=20
 ./my_tests --filter=bench/* --kind=jitter --jitter-bins=20
+./my_tests --filter=bench/* --kind=all --time-unit=ns
 ```
 
 Bench/jitter execution is phase-based (`setup -> call -> teardown`), and only the

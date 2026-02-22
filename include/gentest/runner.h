@@ -52,6 +52,7 @@ namespace gentest {
 //   --github-annotations    Emit GitHub Actions annotations on failures
 //   --junit=<file>          Write JUnit XML report
 //   --allure-dir=<dir>      Write Allure JSON results
+//   --time-unit=<mode>      Time display unit: auto|ns (default auto)
 //   --bench-table           Print a summary table per suite (runs benches)
 //   --bench-min-epoch-time-s=<sec>  Minimum epoch time
 //   --bench-epochs=<N>      Measurement epochs (default 12)
@@ -62,7 +63,7 @@ namespace gentest {
 
 class failure : public std::runtime_error {
   public:
-    explicit failure(std::string message) : std::runtime_error(std::move(message)) {}
+    explicit failure(const std::string& message) : std::runtime_error(message) {}
 };
 
 // Fatal assertion exception that is NOT derived from std::exception.

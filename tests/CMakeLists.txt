@@ -553,6 +553,14 @@ target_include_directories(gentest_regression_shared_fixture_reentry PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_time_unit_scaling
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/time_unit_scaling.cpp)
+target_link_libraries(gentest_regression_time_unit_scaling PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_time_unit_scaling PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_time_unit_scaling PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 gentest_add_check_death(
     NAME regression_bench_assert_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
@@ -566,8 +574,31 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/shared_fixture_reentry_smoke --kind=test
     DEFINES TIMEOUT_SEC=10 EXPECT_RC=0)
 
+gentest_add_cmake_script_test(
+    NAME regression_time_unit_tables
+    PROG $<TARGET_FILE:gentest_regression_time_unit_scaling>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTimeUnitTables.cmake")
+
+gentest_add_cmake_script_test(
+    NAME regression_time_unit_ns_override
+    PROG $<TARGET_FILE:gentest_regression_time_unit_scaling>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTimeUnitNsOverride.cmake")
+
+gentest_add_check_death(
+    NAME regression_time_unit_invalid_value
+    PROG $<TARGET_FILE:gentest_regression_time_unit_scaling>
+    EXPECT_SUBSTRING "error: --time-unit must be one of auto,ns"
+    ARGS --time-unit=not-a-unit)
+
+gentest_add_check_death(
+    NAME regression_time_unit_duplicate_value
+    PROG $<TARGET_FILE:gentest_regression_time_unit_scaling>
+    EXPECT_SUBSTRING "error: duplicate --time-unit"
+    ARGS --time-unit=auto --time-unit=ns)
+
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
+gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "--time-unit=<mode>" ARGS --help)
 gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 16 ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "tags=fast" ARGS --list)
 gentest_add_check_lines(NAME integration_list_tests_lines PROG $<TARGET_FILE:gentest_integration_tests> LINES 4 ARGS --list-tests)
