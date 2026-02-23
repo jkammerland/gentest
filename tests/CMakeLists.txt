@@ -895,17 +895,13 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake
     cmake)
 
-string(REPLACE ";" "\\;" _gentest_tu_collision_cxx "${CMAKE_CXX_COMPILER}")
-gentest_add_cmake_script_test(
-    NAME gentest_tu_header_case_collision
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTuHeaderCaseCollision.cmake"
-    DEFINES
-        BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-        TARGET_ARG=${_gentest_codegen_cross_target_arg}
-        CXX_COMPILER=${_gentest_tu_collision_cxx})
-unset(_gentest_tu_collision_cxx)
+_gentest_add_cmake_helper_test(
+    gentest_tu_header_case_collision
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_header_case_collision
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTuHeaderCaseCollision.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_tu_header_case_collision APPEND PROPERTY LABELS "codegen")
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
