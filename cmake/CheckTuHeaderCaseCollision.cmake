@@ -100,8 +100,26 @@ gentest_check_run_or_fail(
 
 set(_registry "${_work_dir}/mock_registry.hpp")
 set(_impl "${_work_dir}/mock_impl.hpp")
-set(_lower_src "${_build_dir}/a/lower_case.cpp")
-set(_upper_src "${_build_dir}/b/Lower_Case.cpp")
+file(READ "${_compdb}" _compdb_json)
+string(JSON _compdb_entries LENGTH "${_compdb_json}")
+if(NOT _compdb_entries EQUAL 2)
+  message(FATAL_ERROR "Expected fixture compile_commands.json to have 2 entries, got ${_compdb_entries}")
+endif()
+
+set(_lower_src "")
+set(_upper_src "")
+foreach(_idx RANGE 0 1)
+  string(JSON _entry_file GET "${_compdb_json}" ${_idx} file)
+  if(_entry_file MATCHES "[\\\\/]lower_case\\.cpp$")
+    set(_lower_src "${_entry_file}")
+  elseif(_entry_file MATCHES "[\\\\/]Lower_Case\\.cpp$")
+    set(_upper_src "${_entry_file}")
+  endif()
+endforeach()
+
+if(_lower_src STREQUAL "" OR _upper_src STREQUAL "")
+  message(FATAL_ERROR "Failed to locate lower_case.cpp/Lower_Case.cpp entries in '${_compdb}'")
+endif()
 
 set(_clang_args)
 if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
