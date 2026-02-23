@@ -61,6 +61,8 @@ target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 # Default (recommended): per-TU registration (gtest/catch/doctest-like).
 # NOTE: This mode requires a single-config generator/build dir (e.g. Ninja).
 gentest_attach_codegen(my_tests)
+# Per-TU mode enforces case-insensitive uniqueness for generated TU headers.
+# If two sources map to the same header name ignoring case, codegen fails fast.
 # Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via
 # `gentest_attach_codegen(... CLANG_ARGS ...)` or override
 # `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`.
@@ -438,7 +440,12 @@ CLI:
 ./my_tests --bench-min-epoch-time-s=0.02 --bench-epochs=8 --bench-warmup=2 --bench-max-total-time-s=5
 ./my_tests --run=bench/sin --kind=jitter --jitter-bins=20
 ./my_tests --filter=bench/* --kind=jitter --jitter-bins=20
+./my_tests --filter=bench/* --kind=all --time-unit=ns
 ```
+
+Bench/jitter execution is phase-based (`setup -> call -> teardown`), and only the
+call phase is timed. If assertions or expectations fail in the call phase, gentest
+reports a call failure for that measured case and exits non-zero.
 
 ### Reporting (JUnit / Allure / GitHub annotations)
 

@@ -57,6 +57,12 @@ std::string normalize_path_key(const fs::path &path) {
     return key;
 }
 
+std::string casefolded_path_key(const fs::path &path) {
+    std::string key = normalize_path_key(path);
+    for (auto &ch : key) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    return key;
+}
+
 std::string sanitize_stem(std::string value) {
     for (auto &ch : value) {
         const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
@@ -395,7 +401,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
         for (const auto &src : opts.sources) {
             fs::path header_out = opts.tu_output_dir / fs::path(src).filename();
             header_out.replace_extension(".h");
-            const std::string key = header_out.generic_string();
+            const std::string key = casefolded_path_key(header_out);
             auto              [it, inserted] = header_owner.emplace(key, src);
             if (!inserted) {
                 log_err("gentest_codegen: multiple sources map to the same TU output header '{}': '{}' and '{}'\n", key, it->second, src);

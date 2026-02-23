@@ -157,3 +157,7 @@ void free_pointer(RawFx* fx) {
 - Suite/global fixtures are constructed once (per suite or per process) and
   reused across tests. Their `setUp`/`tearDown` hooks run once at the start/end
   of the test run, not per test.
+- Shared fixture lookup is intentionally non-reentrant during setup:
+  `get_shared_fixture(...)` returns `nullptr` and sets `error` to
+  `"fixture initialization in progress"` until setup completes.
+  Do not depend on partially initialized shared fixtures from setup paths.

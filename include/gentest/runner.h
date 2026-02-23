@@ -52,6 +52,7 @@ namespace gentest {
 //   --github-annotations    Emit GitHub Actions annotations on failures
 //   --junit=<file>          Write JUnit XML report
 //   --allure-dir=<dir>      Write Allure JSON results
+//   --time-unit=<mode>      Time display unit: auto|ns (default auto)
 //   --bench-table           Print a summary table per suite (runs benches)
 //   --bench-min-epoch-time-s=<sec>  Minimum epoch time
 //   --bench-epochs=<N>      Measurement epochs (default 12)
@@ -62,7 +63,7 @@ namespace gentest {
 
 class failure : public std::runtime_error {
   public:
-    explicit failure(std::string message) : std::runtime_error(std::move(message)) {}
+    explicit failure(const std::string& message) : std::runtime_error(message) {}
 };
 
 // Fatal assertion exception that is NOT derived from std::exception.
@@ -92,6 +93,7 @@ struct TestContextInfo {
     std::vector<char>        event_kinds;
     std::mutex               mtx;
     std::atomic<bool>        active{false};
+    std::atomic<bool>        has_failures{false};
     bool                     dump_logs_on_failure{false};
 
     bool        runtime_skip_requested{false};
@@ -117,6 +119,7 @@ inline void                             record_failure(std::string msg) {
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->failures.push_back(std::move(msg));
+    ctx->has_failures.store(true, std::memory_order_relaxed);
     ctx->failure_locations.push_back({std::string{}, 0});
     // Record event (after pushing so that failures vector is up-to-date)
     ctx->event_lines.push_back(ctx->failures.back());
@@ -132,6 +135,7 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->failures.push_back(std::move(msg));
+    ctx->has_failures.store(true, std::memory_order_relaxed);
     // Normalize path to a stable, short form for diagnostics
     std::filesystem::path p(std::string(loc.file_name()));
     p = p.lexically_normal();
@@ -1008,7 +1012,8 @@ bool setup_shared_fixtures();
 void teardown_shared_fixtures();
 
 // Lookup shared fixture instance by scope/suite/name. Returns nullptr and fills
-// error if the fixture could not be created or set up.
+// error when unavailable (not registered, allocation/setup failure, or setup
+// currently in progress due to reentrant lookup).
 std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite,
                                          std::string_view fixture_name, std::string& error);
 

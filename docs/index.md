@@ -32,3 +32,4 @@
 - Per‑TU registration wrappers (CMake): [`docs/stories/003_per_tu_registration_wrappers.md`](stories/003_per_tu_registration_wrappers.md)
 - Deprecate manifest + port non‑CMake builds: [`docs/stories/004_deprecate_manifest_mode_and_port_non_cmake_builds.md`](stories/004_deprecate_manifest_mode_and_port_non_cmake_builds.md)
 - Parallel `gentest_codegen` jobs (TU mode): [`docs/stories/005_codegen_parallelism_jobs.md`](stories/005_codegen_parallelism_jobs.md)
+- Runtime regressions and CMake check hardening: [`docs/stories/006_runtime_regressions_and_cmake_checks.md`](stories/006_runtime_regressions_and_cmake_checks.md)
