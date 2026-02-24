@@ -1,0 +1,15 @@
+// Positive scenario: include a `.mpp` file used as a header-like container.
+// This should be accepted unless it is a named module interface unit.
+
+#pragma once
+
+#include "gentest/mock.h"
+
+namespace badmpp {
+struct Sink {
+    void write(int) {}
+};
+} // namespace badmpp
+
+using SinkMock = gentest::mock<badmpp::Sink>;
+[[maybe_unused]] inline SinkMock *kSinkMockPtr = nullptr;

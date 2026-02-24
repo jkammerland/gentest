@@ -158,9 +158,9 @@ using ParamPassStyle = MockParamInfo::PassStyle;
 [[nodiscard]] bool looks_like_source_or_module_interface(std::string_view path) {
     // Reject known source/module-interface extensions. Anything else is treated
     // as header-like so nonstandard header names are still supported.
-    static constexpr std::array<std::string_view, 16> kRejectedExtensions = {
+    static constexpr std::array<std::string_view, 15> kRejectedExtensions = {
         ".c", ".cc", ".cp", ".cpp", ".cxx", ".c++", ".m", ".mm", ".cu", ".cppm", ".ccm",
-        ".cxxm", ".c++m", ".ixx", ".mxx", ".mpp",
+        ".cxxm", ".c++m", ".ixx", ".mxx",
     };
     for (const auto suffix : kRejectedExtensions) {
         if (has_case_insensitive_suffix(path, suffix)) {
@@ -168,6 +168,22 @@ using ParamPassStyle = MockParamInfo::PassStyle;
         }
     }
     return false;
+}
+
+template <typename DeclT> [[nodiscard]] bool is_in_named_module_compat(const DeclT &decl) {
+    if constexpr (requires { decl.isInNamedModule(); }) {
+        return decl.isInNamedModule();
+    } else {
+        return false;
+    }
+}
+
+template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const DeclT &decl) {
+    if constexpr (requires { decl.isFromHeaderUnit(); }) {
+        return decl.isFromHeaderUnit();
+    } else {
+        return false;
+    }
 }
 
 [[nodiscard]] std::string resolve_definition_file(const SourceManager &sm, SourceLocation loc) {
@@ -326,7 +342,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     const SourceManager &sm                      = *result.SourceManager;
     const SourceLocation def_loc                 = sm.getFileLoc(record->getBeginLoc());
     const std::string    definition_file         = resolve_definition_file(sm, def_loc);
-    const bool from_named_module_interface = record->isInNamedModule() && !record->isFromHeaderUnit();
+    const bool from_named_module_interface = is_in_named_module_compat(*record) && !is_from_header_unit_compat(*record);
     if (definition_file.empty() || looks_like_source_or_module_interface(definition_file) || from_named_module_interface) {
         had_error_                 = true;
         const std::string location = definition_file.empty() ? std::string{"<unknown-file>"} : definition_file;

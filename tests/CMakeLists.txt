@@ -362,6 +362,51 @@ add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
+    COMMAND ${_gentest_codegen_prog}
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_mpp.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+add_test(NAME gentest_codegen_mock_emit_header_main_tu_ok
+    COMMAND ${_gentest_codegen_prog}
+        --output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu.gentest.cpp
+        --mock-registry
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_registry.hpp
+        --mock-impl
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_impl.hpp
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        -x
+        c++
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+if(WIN32)
+    gentest_add_cmake_script_test(
+        NAME gentest_codegen_mock_cross_root_include_windows
+        NO_EMULATOR
+        PROG ${_gentest_codegen_prog}
+        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckMockCrossRootInclude.cmake"
+        DEFINES
+            "BUILD_ROOT=${CMAKE_BINARY_DIR}"
+            "PROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+            "TESTS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "CODEGEN_STD=${_gentest_codegen_std_flag}"
+            "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
+endif()
+
 gentest_add_check_death(
     NAME gentest_codegen_mock_anonymous_namespace_msg
     NO_EMULATOR
@@ -476,6 +521,8 @@ set_tests_properties(
     gentest_codegen_mock_nonvirtual_defined_in_included_cppm_msg
     gentest_codegen_mock_nonvirtual_defined_in_included_cu_msg
     gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
+    gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
+    gentest_codegen_mock_emit_header_main_tu_ok
     gentest_codegen_mock_anonymous_namespace_msg
     gentest_codegen_mock_local_class_msg
     gentest_codegen_fixture_suite_member_illegal
@@ -483,6 +530,10 @@ set_tests_properties(
     gentest_codegen_fixture_namespace_scope
     gentest_codegen_fixture_attr_removed
     PROPERTIES LABELS "codegen")
+
+if(WIN32)
+    set_property(TEST gentest_codegen_mock_cross_root_include_windows APPEND PROPERTY LABELS "codegen")
+endif()
 
 # End-to-end behavioral checks with robust counting
 gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 16 FAIL 0 SKIP 0)

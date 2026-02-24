@@ -500,13 +500,22 @@ DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &op
         }
         def_path = def_path.lexically_normal();
 
+        ec.clear();
+        fs::path include_path;
         fs::path rel_path = fs::proximate(def_path, registry_dir, ec);
-        if (ec || rel_path.empty() || rel_path.is_absolute()) {
-            result.error = fmt::format("mock renderer: could not compute source-relative include from '{}' to '{}' for '{}'",
-                                       registry_dir.generic_string(), def_path.generic_string(), cls->qualified_name);
+        if (!ec && !rel_path.empty() && !rel_path.is_absolute()) {
+            include_path = std::move(rel_path);
+        } else {
+            // Cross-root/drive paths can legitimately yield absolute results.
+            // In that case, fall back to an absolute include instead of failing.
+            include_path = def_path;
+        }
+        if (include_path.empty()) {
+            result.error = fmt::format("mock renderer: unable to resolve include path for '{}' (registry='{}', definition='{}')",
+                                       cls->qualified_name, registry_dir.generic_string(), def_path.generic_string());
             return result;
         }
-        includes.insert(rel_path.generic_string());
+        includes.insert(include_path.generic_string());
     }
 
     RenderBuffer include_block;
