@@ -114,7 +114,7 @@ Naming:
 Tags/metadata:
 - Flag attributes are collected as tags: `fast`, `slow`, `linux`, `windows`, `death`.
 - Value attributes attach metadata: `req("BUG-123")`, `owner("team-runtime")`, `skip("reason")`.
-- `req("...")` is the requirement-to-test mapping hook for traceability workflows (including ASIL-style evidence).
+- `req("...")` is the requirement-to-test mapping hook for traceability workflows.
 - Requirement IDs are shown in `--list` output as `requires=...` and exported in JUnit as
   `<property name="requirement" value="...">`, so you can build a trace matrix from CI artifacts.
 - `death`-tagged tests are excluded from the default run; pass `--include-death` to execute them.
@@ -368,16 +368,11 @@ void mock_clock() {
 }
 ```
 
-For virtual interfaces, `gentest::mock<T>` derives from `T`, so you can also pass it to code under test as `T&`/`T*`
-when needed (for dependency-injection points that take references or pointers).
-
-Limits/safeguards:
+Safeguards:
 - Mocked target definitions must be in a header or header module. Source/module-interface definitions are rejected by codegen.
+- Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
-- Unsupported targets include anonymous-namespace types, local classes, `final` classes, unions, and classes with private destructors.
-- Expectation verification runs automatically on mock destruction; missing/unexpected calls fail the active test context.
-
-Non-virtual type example (the mock does not derive from `T`; use it directly, typically via templates/CRTP):
+- Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (only a windows problem).
 
 ```cpp
 #include "gentest/attributes.h"

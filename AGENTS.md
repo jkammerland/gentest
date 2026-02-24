@@ -81,6 +81,7 @@
 ## CMake Regression Check Scripts
 - `cmake/CheckNoTimeout.cmake` validates a command completes within a timeout and can optionally enforce an exact exit code via `EXPECT_RC`.
 - `cmake/CheckTuHeaderCaseCollision.cmake` validates codegen fails when per-TU generated header names collide case-insensitively.
+- `cmake/CheckMockCrossRootInclude.cmake` validates mock codegen succeeds for cross-root/cross-drive header includes on Windows (falls back to absolute include paths when relative paths are impossible).
 - In `tests/CMakeLists.txt`, prefer `gentest_add_cmake_script_test(...)` for these checks and pass required `DEFINES` explicitly (for example `TIMEOUT_SEC`, `EXPECT_RC`, `BUILD_ROOT`, `TARGET_ARG`).
 
 ## Commit & Pull Request Guidelines
