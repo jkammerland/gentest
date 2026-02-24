@@ -3,6 +3,8 @@
 #include "log.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Attr.h>
 #include <clang/AST/Decl.h>
@@ -136,6 +138,36 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     case EST_NoexceptTrue: return true;
     default: return false;
     }
+}
+
+[[nodiscard]] bool has_case_insensitive_suffix(std::string_view path, std::string_view suffix) {
+    if (path.size() < suffix.size()) {
+        return false;
+    }
+    const std::size_t start = path.size() - suffix.size();
+    for (std::size_t i = 0; i < suffix.size(); ++i) {
+        const auto lhs = static_cast<unsigned char>(path[start + i]);
+        const auto rhs = static_cast<unsigned char>(suffix[i]);
+        if (std::tolower(lhs) != std::tolower(rhs)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool looks_like_source_or_module_interface(std::string_view path) {
+    // Reject known source/module-interface extensions. Anything else is treated
+    // as header-like so nonstandard header names are still supported.
+    static constexpr std::array<std::string_view, 16> kRejectedExtensions = {
+        ".c", ".cc", ".cp", ".cpp", ".cxx", ".c++", ".m", ".mm", ".cu", ".cppm", ".ccm",
+        ".cxxm", ".c++m", ".ixx", ".mxx", ".mpp",
+    };
+    for (const auto suffix : kRejectedExtensions) {
+        if (has_case_insensitive_suffix(path, suffix)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 [[nodiscard]] std::string resolve_definition_file(const SourceManager &sm, SourceLocation loc) {
@@ -294,12 +326,12 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     const SourceManager &sm                      = *result.SourceManager;
     const SourceLocation def_loc                 = sm.getFileLoc(record->getBeginLoc());
     const std::string    definition_file         = resolve_definition_file(sm, def_loc);
-    const bool           in_main_input           = sm.isWrittenInMainFile(def_loc);
-    if (definition_file.empty() || in_main_input) {
+    const bool from_named_module_interface = record->isInNamedModule() && !record->isFromHeaderUnit();
+    if (definition_file.empty() || looks_like_source_or_module_interface(definition_file) || from_named_module_interface) {
         had_error_                 = true;
         const std::string location = definition_file.empty() ? std::string{"<unknown-file>"} : definition_file;
         report(sm, decl.getBeginLoc(),
-               fmt::format("gentest::mock<{}>: target definition must be in an included header/file (not the main input TU). Found in {}",
+               fmt::format("gentest::mock<{}>: target definition must be in a header or header module (found in {})",
                            record->getQualifiedNameAsString(), location));
         return;
     }

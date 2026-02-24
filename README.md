@@ -372,7 +372,7 @@ For virtual interfaces, `gentest::mock<T>` derives from `T`, so you can also pas
 when needed (for dependency-injection points that take references or pointers).
 
 Limits/safeguards:
-- Mocked target definitions must come from an included header/file; definitions in the main input TU are rejected by codegen.
+- Mocked target definitions must be in a header or header module. Source/module-interface definitions are rejected by codegen.
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
 - Unsupported targets include anonymous-namespace types, local classes, `final` classes, unions, and classes with private destructors.
 - Expectation verification runs automatically on mock destruction; missing/unexpected calls fail the active test context.

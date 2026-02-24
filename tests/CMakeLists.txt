@@ -225,7 +225,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_virtual_defined_in_cpp_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in an included header/file"
+    EXPECT_SUBSTRING "target definition must be in a header or header module"
     ARGS
         --check
         --compdb
@@ -241,7 +241,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_cpp_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in an included header/file"
+    EXPECT_SUBSTRING "target definition must be in a header or header module"
     ARGS
         --check
         --compdb
@@ -257,7 +257,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_cppm_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in an included header/file"
+    EXPECT_SUBSTRING "target definition must be in a header or header module"
     ARGS
         --check
         --compdb
@@ -271,15 +271,10 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-gentest_add_check_death(
-    NAME gentest_codegen_mock_header_main_tu_rejected
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in an included header/file"
-    ARGS
+add_test(NAME gentest_codegen_mock_header_main_tu_ok
+    COMMAND ${_gentest_codegen_prog}
         --check
-        --compdb
-        ${CMAKE_BINARY_DIR}
+        --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
         --
         ${_gentest_codegen_cross_target_arg}
@@ -293,7 +288,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_cu_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in an included header/file"
+    EXPECT_SUBSTRING "target definition must be in a header or header module"
     ARGS
         --check
         --compdb
@@ -303,6 +298,66 @@ gentest_add_check_death(
         ${_gentest_codegen_cross_target_arg}
         -x
         c++
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_mock_nonvirtual_defined_in_included_cpp_msg
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_cpp.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_mock_nonvirtual_defined_in_included_cppm_msg
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_cppm.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_mock_nonvirtual_defined_in_included_cu_msg
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_cu.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
+    COMMAND ${_gentest_codegen_prog}
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_noext.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
@@ -415,8 +470,12 @@ set_tests_properties(
     gentest_codegen_mock_virtual_defined_in_cpp_msg
     gentest_codegen_mock_nonvirtual_defined_in_cpp_msg
     gentest_codegen_mock_nonvirtual_defined_in_cppm_msg
-    gentest_codegen_mock_header_main_tu_rejected
+    gentest_codegen_mock_header_main_tu_ok
     gentest_codegen_mock_nonvirtual_defined_in_cu_msg
+    gentest_codegen_mock_nonvirtual_defined_in_included_cpp_msg
+    gentest_codegen_mock_nonvirtual_defined_in_included_cppm_msg
+    gentest_codegen_mock_nonvirtual_defined_in_included_cu_msg
+    gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
     gentest_codegen_mock_anonymous_namespace_msg
     gentest_codegen_mock_local_class_msg
     gentest_codegen_fixture_suite_member_illegal

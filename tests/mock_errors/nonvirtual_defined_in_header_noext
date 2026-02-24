@@ -1,0 +1,15 @@
+// Positive scenario: include an extensionless header that defines the mocked
+// target. Nonstandard header names should still be accepted.
+
+#pragma once
+
+#include "gentest/mock.h"
+
+namespace badnoext {
+struct Sink {
+    void write(int) {}
+};
+} // namespace badnoext
+
+using SinkMock = gentest::mock<badnoext::Sink>;
+[[maybe_unused]] inline SinkMock *kSinkMockPtr = nullptr;

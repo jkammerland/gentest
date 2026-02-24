@@ -1,6 +1,6 @@
 // Negative scenario: define a non-virtual type directly in a `.cu` source-like
 // file and attempt to mock it. The generator should reject this because mocked
-// target definitions must come from included files.
+// target definitions must live in headers.
 
 #include "gentest/mock.h"
 

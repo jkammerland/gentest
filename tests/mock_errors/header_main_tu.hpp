@@ -1,6 +1,7 @@
-// Negative scenario: definition resides in the main input TU (even if that TU
-// uses a header extension). The generator should reject this and require the
-// definition to come from an included file.
+// Positive scenario: definition resides in a header-like input TU.
+// The generator should accept this as a header/header-unit style definition.
+
+#pragma once
 
 #include "gentest/mock.h"
 
@@ -10,8 +11,5 @@ struct Sink {
 };
 } // namespace headermain
 
-static int _gentest_mock_header_main_tu_odr() {
-    gentest::mock<headermain::Sink> m;
-    (void)m;
-    return 0;
-}
+using SinkMock = gentest::mock<headermain::Sink>;
+[[maybe_unused]] inline SinkMock *kSinkMockPtr = nullptr;
