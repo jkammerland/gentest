@@ -78,7 +78,6 @@ set(_args
   --output "${_output_cpp}"
   --mock-registry "${_mock_registry}"
   --mock-impl "${_mock_impl}"
-  --compdb "${_build_root}"
   "${_input_cpp}"
   --)
 
@@ -87,6 +86,8 @@ if(DEFINED CROSS_TARGET_ARG AND NOT "${CROSS_TARGET_ARG}" STREQUAL "")
 endif()
 
 list(APPEND _args
+  -x
+  c++
   "${CODEGEN_STD}"
   "-I${PROJECT_SOURCE_DIR}/include"
   "-I${TESTS_SOURCE_DIR}")
