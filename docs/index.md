@@ -24,6 +24,7 @@
 - LLVM 21 location notes: [`docs/llvm21-location-api-fix.md`](llvm21-location-api-fix.md)
 - Compilation database include-path notes: [`INCLUDE_PATH_FIX.md`](../INCLUDE_PATH_FIX.md)
 - Fixture allocation hook: [`docs/fixtures_allocation.md`](fixtures_allocation.md)
+- Traceability standards map: [`docs/traceability_standards.md`](traceability_standards.md)
 
 ## Work items
 

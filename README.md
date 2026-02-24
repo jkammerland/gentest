@@ -75,7 +75,7 @@ gentest_discover_tests(my_tests)
 # Death tests (tagged `death`) are auto-registered as CTest tests with a `death/` prefix.
 # Optional: EXPECT_SUBSTRING enforces a substring in the death harness output
 # (for normal tests, use PASS_REGULAR_EXPRESSION via PROPERTIES).
-# See docs/death_tests.md for death-test details and docs/discover_tests.md for full options.
+# See linked docs below for death-test details and discover options.
 # gentest_discover_tests(my_tests EXPECT_SUBSTRING "fatal path")
 #
 # More gentest_attach_codegen options:
@@ -85,6 +85,8 @@ gentest_discover_tests(my_tests)
 # Alternative: run everything in a single process.
 # add_test(NAME my_tests COMMAND my_tests)
 ```
+
+Docs: [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
 
 Run:
 
@@ -114,12 +116,13 @@ Naming:
 Tags/metadata:
 - Flag attributes are collected as tags: `fast`, `slow`, `linux`, `windows`, `death`.
 - Value attributes attach metadata: `req("BUG-123")`, `owner("team-runtime")`, `skip("reason")`.
-- `req("...")` is the requirement-to-test mapping hook for traceability workflows.
+- `req("...")` is the requirement-to-test mapping hook for traceability workflows (see [docs/traceability_standards.md](docs/traceability_standards.md)).
 - Requirement IDs are shown in `--list` output as `requires=...` and exported in JUnit as
-  `<property name="requirement" value="...">`, so you can build a trace matrix from CI artifacts.
+  `<property name="requirement" value="...">`, so you can build a trace matrix from CI artifacts (example flow: [docs/traceability_standards.md](docs/traceability_standards.md)).
+- Source standards links: [ISO 26262-6](https://www.iso.org/standard/68388.html), [ISO 26262-8](https://www.iso.org/standard/68390.html), [IEC 61508-1](https://webstore.iec.ch/en/publication/5515), [IEC 61508-3](https://webstore.iec.ch/en/publication/5517), [IEC TS 61508-3-1](https://webstore.iec.ch/en/publication/25410).
 - `death`-tagged tests are excluded from the default run; pass `--include-death` to execute them.
 - The death-test harness treats non-zero exit as success (and fails on normal test failures); set `EXPECT_SUBSTRING` to assert output.
-- Full death-test docs: `docs/death_tests.md`.
+- Full death-test docs: [docs/death_tests.md](docs/death_tests.md).
 
 ## Feature examples
 
@@ -343,7 +346,7 @@ void counter(Counter& c) {
 }
 ```
 
-See `docs/fixtures_allocation.md` for the full allocation and ownership model.
+See [docs/fixtures_allocation.md](docs/fixtures_allocation.md) for the full allocation and ownership model.
 
 ### Mocks
 
@@ -373,6 +376,19 @@ Safeguards:
 - Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
 - Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (only a windows problem).
+
+Header implementation to mock (`sink.h`):
+
+```cpp
+#pragma once
+
+struct Sink {
+    void write(int value) { last = value; }
+    int last = 0;
+};
+```
+
+Test file (`cases.cpp`):
 
 ```cpp
 #include "gentest/attributes.h"
