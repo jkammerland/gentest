@@ -11,7 +11,7 @@ inline constexpr std::string_view registry_preamble = R"CPP(// This file is auto
 
 #include <type_traits>
 
-// This header is included while inside namespace gentest
+// This header is included at global scope.
 
 )CPP";
 

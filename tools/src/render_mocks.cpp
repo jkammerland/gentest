@@ -6,8 +6,10 @@
 #include <filesystem>
 #include <fmt/format.h>
 #include <iterator>
+#include <set>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 namespace {
@@ -453,19 +455,70 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
     return def.str();
 }
 
-std::string include_sources_block(const CollectorOptions &options, const std::filesystem::path &base_dir) {
+struct DefinitionIncludeBlock {
+    std::string text;
+    std::string error;
+};
+
+DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &options, const std::vector<const MockClassInfo *> &classes) {
     namespace fs = std::filesystem;
-    RenderBuffer includes;
-    includes.reserve(options.sources.size() * 32);
-    for (const auto &src : options.sources) {
-        fs::path        spath(src);
-        std::error_code ec;
-        fs::path        rel = fs::proximate(spath, base_dir, ec);
-        if (ec)
-            rel = spath;
-        includes.append("#include \"{}\"\n", rel.generic_string());
+    DefinitionIncludeBlock result;
+    std::set<std::string>  includes;
+
+    fs::path registry_dir = options.mock_registry_path.parent_path();
+    if (registry_dir.empty()) {
+        registry_dir = ".";
     }
-    return includes.str();
+    std::error_code ec;
+    if (registry_dir.is_relative()) {
+        const fs::path abs_registry_dir = fs::absolute(registry_dir, ec);
+        if (!ec) {
+            registry_dir = abs_registry_dir;
+        }
+        ec.clear();
+    }
+    registry_dir = registry_dir.lexically_normal();
+
+    for (const auto *cls : classes) {
+        if (!cls) {
+            continue;
+        }
+        if (cls->definition_file.empty()) {
+            result.error = fmt::format("mock renderer: missing definition file for '{}'", cls->qualified_name);
+            return result;
+        }
+
+        fs::path def_path{cls->definition_file};
+        if (def_path.is_relative()) {
+            const fs::path abs_def_path = fs::absolute(def_path, ec);
+            if (ec) {
+                result.error = fmt::format("mock renderer: failed to resolve definition path '{}' for '{}': {}", def_path.string(),
+                                           cls->qualified_name, ec.message());
+                return result;
+            }
+            def_path = abs_def_path;
+        }
+        def_path = def_path.lexically_normal();
+
+        fs::path rel_path = fs::proximate(def_path, registry_dir, ec);
+        if (ec || rel_path.empty() || rel_path.is_absolute()) {
+            result.error = fmt::format("mock renderer: could not compute source-relative include from '{}' to '{}' for '{}'",
+                                       registry_dir.generic_string(), def_path.generic_string(), cls->qualified_name);
+            return result;
+        }
+        includes.insert(rel_path.generic_string());
+    }
+
+    RenderBuffer include_block;
+    include_block.reserve(includes.size() * 48);
+    for (const auto &path : includes) {
+        include_block.append("#include \"{}\"\n", path);
+    }
+    if (!includes.empty()) {
+        include_block.append_raw("\n");
+    }
+    result.text = include_block.str();
+    return result;
 }
 
 std::string generate_implementation_header(const std::vector<const MockClassInfo *> &mocks) {
@@ -530,9 +583,10 @@ std::string generate_implementation_header(const std::vector<const MockClassInfo
 
 } // namespace
 
-std::optional<MockOutputs> render_mocks(const CollectorOptions &options, const std::vector<MockClassInfo> &mocks) {
+MockRenderResult render_mocks(const CollectorOptions &options, const std::vector<MockClassInfo> &mocks) {
+    MockRenderResult result;
     if (mocks.empty()) {
-        return std::nullopt;
+        return result;
     }
 
     std::vector<const MockClassInfo *> classes;
@@ -547,10 +601,14 @@ std::optional<MockOutputs> render_mocks(const CollectorOptions &options, const s
     header.reserve(classes.size() * 256);
     header.append_raw(tpl::mocks::registry_preamble);
 
-    // Note: We require all mocked types to be complete before this registry is
-    // included. The generated test TU ensures this by including project sources
-    // first, then gentest/mock.h. For other TUs, users must include their
-    // interfaces before including gentest/mock.h as well.
+    const DefinitionIncludeBlock include_block = build_definition_include_block(options, classes);
+    if (!include_block.error.empty()) {
+        result.error = include_block.error;
+        return result;
+    }
+    header.append_raw(include_block.text);
+    header.append_raw("namespace gentest {\n\n");
+
     for (const auto *cls : classes) {
         header.append_raw(build_class_declaration(*cls));
     }
@@ -559,10 +617,12 @@ std::optional<MockOutputs> render_mocks(const CollectorOptions &options, const s
         header.append_raw(build_mock_access(*cls));
     }
     header.append_raw("} // namespace detail\n");
+    header.append_raw("} // namespace gentest\n");
 
     out.registry_header     = header.str();
     out.implementation_unit = generate_implementation_header(classes);
-    return out;
+    result.outputs          = std::move(out);
+    return result;
 }
 
 } // namespace gentest::codegen::render

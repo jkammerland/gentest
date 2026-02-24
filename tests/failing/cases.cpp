@@ -4,11 +4,7 @@ using namespace gentest::asserts;
 #include <memory>
 #include <stdexcept>
 
-// Helper type for mocking checks in this suite (global to ease mock codegen)
-struct SingleArg {
-    void call(int) {}
-};
-
+#include "mocking/types.h"
 #include "gentest/mock.h"
 
 namespace failing {
@@ -41,10 +37,10 @@ void will_fail() {
 [[using gentest: test("mocking/predicate_mismatch")]]
 void predicate_mismatch() {
     using namespace gentest::match;
-    gentest::mock<SingleArg> mock_obj;
-    gentest::expect(mock_obj, &SingleArg::call).where_args(Eq(3)).times(1);
+    gentest::mock<mocking::Ticker> mock_obj;
+    gentest::expect(mock_obj, &mocking::Ticker::tick).where_args(Eq(3)).times(1);
     // Mismatch: should record a failure due to predicate not matching
-    mock_obj.call(4);
+    mock_obj.tick(4);
 }
 
 [[using gentest: test("logging/attachment")]]

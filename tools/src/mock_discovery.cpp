@@ -9,7 +9,9 @@
 #include <clang/AST/DeclCXX.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/AST/Type.h>
+#include <clang/Basic/FileEntry.h>
 #include <clang/Basic/SourceManager.h>
+#include <filesystem>
 #include <fmt/core.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <string>
@@ -29,11 +31,11 @@ using ParamPassStyle = MockParamInfo::PassStyle;
 [[nodiscard]] std::string print_type(const QualType &qt, const ASTContext &ctx) {
     auto policy = PrintingPolicy(ctx.getLangOpts());
     policy.adjustForCPlusPlus();
-    policy.SuppressScope      = false;
-    policy.FullyQualifiedName = true;
-    policy.SuppressUnwrittenScope = false;
-    QualType canonical             = ctx.getCanonicalType(qt);
-    std::string result;
+    policy.SuppressScope               = false;
+    policy.FullyQualifiedName          = true;
+    policy.SuppressUnwrittenScope      = false;
+    QualType                 canonical = ctx.getCanonicalType(qt);
+    std::string              result;
     llvm::raw_string_ostream os(result);
     canonical.print(os, policy);
     os.flush();
@@ -46,7 +48,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     policy.SuppressScope          = false;
     policy.FullyQualifiedName     = true;
     policy.SuppressUnwrittenScope = false;
-    std::string result;
+    std::string              result;
     llvm::raw_string_ostream os(result);
     qt.print(os, policy);
     os.flush();
@@ -68,7 +70,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
         return ParamPassStyle::LValueRef;
     }
     if (type->isRValueReferenceType()) {
-        const QualType pointee = type->getPointeeType();
+        const QualType pointee     = type->getPointeeType();
         const bool     unqualified = !pointee.isConstQualified() && !pointee.isVolatileQualified();
         if (unqualified) {
             if (pointee->getAs<TemplateTypeParmType>() != nullptr || pointee->getAs<SubstTemplateTypeParmType>() != nullptr) {
@@ -87,11 +89,11 @@ using ParamPassStyle = MockParamInfo::PassStyle;
 
 [[nodiscard]] MockParamInfo build_param_info(const ParmVarDecl &param, const ASTContext &ctx, bool is_template, unsigned index) {
     MockParamInfo info;
-    info.type = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
-    info.pass_style = classify_param_pass_style(param);
+    info.type                = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
+    info.pass_style          = classify_param_pass_style(param);
     const QualType base_type = param.getType().getNonReferenceType();
-    info.is_const = base_type.isConstQualified();
-    info.is_volatile = base_type.isVolatileQualified();
+    info.is_const            = base_type.isConstQualified();
+    info.is_volatile         = base_type.isVolatileQualified();
     if (!param.getNameAsString().empty()) {
         info.name = param.getNameAsString();
     } else {
@@ -134,6 +136,39 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     case EST_NoexceptTrue: return true;
     default: return false;
     }
+}
+
+[[nodiscard]] std::string resolve_definition_file(const SourceManager &sm, SourceLocation loc) {
+    const SourceLocation file_loc = sm.getFileLoc(loc);
+    std::string          resolved;
+
+    if (file_loc.isValid()) {
+        const FileID file_id = sm.getFileID(file_loc);
+        if (const auto entry_ref = sm.getFileEntryRefForID(file_id)) {
+            const llvm::StringRef real_path = entry_ref->getFileEntry().tryGetRealPathName();
+            if (!real_path.empty()) {
+                resolved = real_path.str();
+            } else {
+                resolved = entry_ref->getName().str();
+            }
+        }
+    }
+    if (resolved.empty()) {
+        resolved = sm.getFilename(file_loc).str();
+    }
+    if (resolved.empty()) {
+        return resolved;
+    }
+
+    std::error_code       ec;
+    std::filesystem::path p{resolved};
+    if (p.is_relative()) {
+        const std::filesystem::path abs = std::filesystem::absolute(p, ec);
+        if (!ec) {
+            p = abs;
+        }
+    }
+    return p.lexically_normal().generic_string();
 }
 
 } // namespace
@@ -187,7 +222,8 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     if (record == nullptr) {
         had_error_ = true;
         report(*result.SourceManager, decl.getBeginLoc(),
-               "gentest::mock<T>: target type is incomplete here; move the interface to a header and include it before the generated mock registry.");
+               "gentest::mock<T>: target type is incomplete here; move the interface to a header and include it before the generated mock "
+               "registry.");
         return;
     }
 
@@ -205,11 +241,14 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     // Disallow anonymous-namespace and local (function-scope) types: these do not
     // have stable, externally visible qualified names and cannot be safely mocked.
     {
-        bool in_anonymous_ns = false;
-        const DeclContext *ctx = record->getDeclContext();
+        bool               in_anonymous_ns = false;
+        const DeclContext *ctx             = record->getDeclContext();
         while (ctx != nullptr) {
             if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(ctx)) {
-                if (ns->isAnonymousNamespace()) { in_anonymous_ns = true; break; }
+                if (ns->isAnonymousNamespace()) {
+                    in_anonymous_ns = true;
+                    break;
+                }
             }
             ctx = ctx->getParent();
         }
@@ -241,9 +280,9 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     }
 
     MockClassInfo info;
-    info.qualified_name              = record->getQualifiedNameAsString();
-    info.display_name                = info.qualified_name;
-    info.derive_for_virtual          = record->isPolymorphic();
+    info.qualified_name     = record->getQualifiedNameAsString();
+    info.display_name       = info.qualified_name;
+    info.derive_for_virtual = record->isPolymorphic();
     if (const auto *dtor = record->getDestructor()) {
         info.has_virtual_destructor = dtor->isVirtual();
     } else {
@@ -251,32 +290,27 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     }
     info.has_accessible_default_ctor = has_accessible_default_ctor(*record);
 
-    const ASTContext &ctx = *result.Context;
-
-    // Polymorphic (virtual) types must have their interface visible from a header.
-    if (info.derive_for_virtual) {
-        const SourceLocation def_loc = record->getBeginLoc();
-        const SourceManager &sm      = *result.SourceManager;
-        const auto           file    = sm.getFilename(sm.getFileLoc(def_loc));
-        auto                  ends_with = [](llvm::StringRef s, llvm::StringRef suf) { return s.size() >= suf.size() && s.ends_with(suf); };
-        const bool           looks_like_source =
-            (!file.empty() && (ends_with(file, ".cc") || ends_with(file, ".cpp") || ends_with(file, ".cxx")));
-        const bool in_main = sm.isWrittenInMainFile(def_loc);
-        if (looks_like_source || in_main) {
-            had_error_ = true;
-            report(sm, def_loc,
-                   fmt::format("gentest::mock<{}>: polymorphic target appears defined in a source file ({}); move the interface to a header included before the generated mock registry",
-                               record->getQualifiedNameAsString(), file.str()));
-            return;
-        }
+    const ASTContext    &ctx                     = *result.Context;
+    const SourceManager &sm                      = *result.SourceManager;
+    const SourceLocation def_loc                 = sm.getFileLoc(record->getBeginLoc());
+    const std::string    definition_file         = resolve_definition_file(sm, def_loc);
+    const bool           in_main_input           = sm.isWrittenInMainFile(def_loc);
+    if (definition_file.empty() || in_main_input) {
+        had_error_                 = true;
+        const std::string location = definition_file.empty() ? std::string{"<unknown-file>"} : definition_file;
+        report(sm, decl.getBeginLoc(),
+               fmt::format("gentest::mock<{}>: target definition must be in an included header/file (not the main input TU). Found in {}",
+                           record->getQualifiedNameAsString(), location));
+        return;
     }
+    info.definition_file = definition_file;
 
     // Capture constructors (excluding the default ctor which is tracked via
     // has_accessible_default_ctor). For polymorphic targets, this list is used
     // to generate forwarding constructors so mocks don't require default
     // constructibility.
     llvm::SmallPtrSet<const Decl *, 16> captured_ctors;
-    auto capture_ctor = [&](const CXXConstructorDecl *ctor) {
+    auto                                capture_ctor = [&](const CXXConstructorDecl *ctor) {
         if (ctor == nullptr)
             return;
         if (!captured_ctors.insert(ctor->getCanonicalDecl()).second)
@@ -330,7 +364,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         }
 
         const bool is_template = ctor->getDescribedFunctionTemplate() != nullptr;
-        unsigned arg_index = 0;
+        unsigned   arg_index   = 0;
         for (const auto *param : ctor->parameters()) {
             ctor_info.parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
             ++arg_index;
@@ -359,7 +393,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         return;
     }
 
-    auto capture_method = [&](const CXXMethodDecl* method) {
+    auto capture_method = [&](const CXXMethodDecl *method) {
         if (llvm::isa<CXXConstructorDecl>(method) || llvm::isa<CXXDestructorDecl>(method)) {
             return;
         }
@@ -372,11 +406,11 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
             return;
         }
         MockMethodInfo method_info;
-        method_info.qualified_name  = method->getQualifiedNameAsString();
-        method_info.method_name     = method->getNameAsString();
-        const bool is_template      = method->getDescribedFunctionTemplate() != nullptr;
-        method_info.return_type     = is_template ? print_type_as_written(method->getReturnType(), ctx)
-                                                  : print_type(method->getReturnType(), ctx);
+        method_info.qualified_name = method->getQualifiedNameAsString();
+        method_info.method_name    = method->getNameAsString();
+        const bool is_template     = method->getDescribedFunctionTemplate() != nullptr;
+        method_info.return_type =
+            is_template ? print_type_as_written(method->getReturnType(), ctx) : print_type(method->getReturnType(), ctx);
         method_info.is_const        = method->isConst();
         method_info.is_volatile     = method->isVolatile();
         method_info.is_static       = method->isStatic();
@@ -390,7 +424,8 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
             tpl += "template <";
             bool first = true;
             for (const auto *param : *ft->getTemplateParameters()) {
-                if (!first) tpl += ", ";
+                if (!first)
+                    tpl += ", ";
                 first = false;
                 if (const auto *ttp = llvm::dyn_cast<TemplateTypeParmDecl>(param)) {
                     tpl += (ttp->isParameterPack() ? "typename... " : "typename ");
@@ -399,7 +434,8 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
                     method_info.template_param_names.push_back(name);
                 } else if (const auto *nttp = llvm::dyn_cast<NonTypeTemplateParmDecl>(param)) {
                     tpl += print_type(nttp->getType(), ctx);
-                    if (nttp->isParameterPack()) tpl += "...";
+                    if (nttp->isParameterPack())
+                        tpl += "...";
                     tpl += ' ';
                     const std::string name = nttp->getNameAsString();
                     tpl += name;

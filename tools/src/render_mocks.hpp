@@ -13,7 +13,15 @@ struct MockOutputs {
     std::string implementation_unit;
 };
 
-// Render generated mocks; returns empty optional if mocks.size()==0.
-std::optional<MockOutputs> render_mocks(const CollectorOptions &options, const std::vector<MockClassInfo> &mocks);
+struct MockRenderResult {
+    std::optional<MockOutputs> outputs;
+    std::string                error;
+};
+
+// Render generated mocks.
+// - outputs == std::nullopt and error.empty(): no mocks discovered
+// - outputs.has_value() and error.empty(): success
+// - !error.empty(): rendering failed
+MockRenderResult render_mocks(const CollectorOptions &options, const std::vector<MockClassInfo> &mocks);
 
 } // namespace gentest::codegen::render

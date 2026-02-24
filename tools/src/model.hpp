@@ -193,6 +193,9 @@ struct MockMethodInfo {
 struct MockClassInfo {
     std::string               qualified_name;
     std::string               display_name; // pretty name for diagnostics/codegen
+    // Absolute (or normalized) path to the file that contains the target type
+    // definition used for registry include generation.
+    std::string               definition_file;
     bool                      derive_for_virtual = false;
     bool                      has_accessible_default_ctor = false;
     bool                      has_virtual_destructor = false;

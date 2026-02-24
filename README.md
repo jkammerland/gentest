@@ -114,6 +114,9 @@ Naming:
 Tags/metadata:
 - Flag attributes are collected as tags: `fast`, `slow`, `linux`, `windows`, `death`.
 - Value attributes attach metadata: `req("BUG-123")`, `owner("team-runtime")`, `skip("reason")`.
+- `req("...")` is the requirement-to-test mapping hook for traceability workflows (including ASIL-style evidence).
+- Requirement IDs are shown in `--list` output as `requires=...` and exported in JUnit as
+  `<property name="requirement" value="...">`, so you can build a trace matrix from CI artifacts.
 - `death`-tagged tests are excluded from the default run; pass `--include-death` to execute them.
 - The death-test harness treats non-zero exit as success (and fails on normal test failures); set `EXPECT_SUBSTRING` to assert output.
 - Full death-test docs: `docs/death_tests.md`.
@@ -142,7 +145,7 @@ void add() {
 
 Exceptions:
 - If a test throws a `std::exception`, the runner records a failure like `unexpected std::exception: ...` and continues.
-- If you want to assert on exceptions, you can use the gtest-like macros (optional; can be disabled with `GENTEST_NO_THROW_MACROS`):
+- If you want to assert on exceptions, you can use the gtest-like macros.
 
 ```cpp
 #include "gentest/attributes.h"
@@ -351,31 +354,36 @@ Virtual interface example:
 
 ```cpp
 #include "gentest/attributes.h"
-#include "clock.h" // virtual interface under test
+#include "clock.h" // header that defines Clock
 #include "gentest/mock.h"
 using namespace gentest::asserts;
+
+int read_now(Clock& c) { return c.now(); }
 
 [[using gentest: test("mock/clock")]]
 void mock_clock() {
     gentest::mock<Clock> clock;
     EXPECT_CALL(clock, now).times(1).returns(123);
-    EXPECT_EQ(clock.now(), 123);
+    EXPECT_EQ(read_now(clock), 123);
 }
 ```
 
 For virtual interfaces, `gentest::mock<T>` derives from `T`, so you can also pass it to code under test as `T&`/`T*`
-when needed (useful for pointer-based DI / legacy APIs).
+when needed (for dependency-injection points that take references or pointers).
+
+Limits/safeguards:
+- Mocked target definitions must come from an included header/file; definitions in the main input TU are rejected by codegen.
+- `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
+- Unsupported targets include anonymous-namespace types, local classes, `final` classes, unions, and classes with private destructors.
+- Expectation verification runs automatically on mock destruction; missing/unexpected calls fail the active test context.
 
 Non-virtual type example (the mock does not derive from `T`; use it directly, typically via templates/CRTP):
 
 ```cpp
 #include "gentest/attributes.h"
+#include "sink.h" // header that defines Sink::write(int)
 #include "gentest/mock.h"
 using namespace gentest::asserts;
-
-struct Sink {
-    void write(int) {}
-};
 
 template <class SinkLike>
 void emit(SinkLike& s) {
@@ -443,9 +451,11 @@ CLI:
 ./my_tests --filter=bench/* --kind=all --time-unit=ns
 ```
 
-Bench/jitter execution is phase-based (`setup -> call -> teardown`), and only the
-call phase is timed. If assertions or expectations fail in the call phase, gentest
-reports a call failure for that measured case and exits non-zero.
+Bench/jitter execution is phase-based per measured case:
+- `setup`: runs once before calibration/warmup/measurement call loops.
+- `call`: runs in loops; reported benchmark/jitter metrics come from this phase.
+- `teardown`: runs once after call loops.
+Failures are reported by phase (`setup`, `call`, or `teardown`), and the executable exits non-zero.
 
 ### Reporting (JUnit / Allure / GitHub annotations)
 

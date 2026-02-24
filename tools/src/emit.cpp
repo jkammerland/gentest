@@ -483,10 +483,14 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
             log_err_raw("gentest_codegen: mock outputs requested but --mock-registry/--mock-impl paths were not provided\n");
             return 1;
         }
-        auto                rendered = render::render_mocks(opts, mocks);
+        const auto          rendered = render::render_mocks(opts, mocks);
+        if (!rendered.error.empty()) {
+            log_err("gentest_codegen: {}\n", rendered.error);
+            return 1;
+        }
         render::MockOutputs outputs;
-        if (rendered) {
-            outputs = std::move(*rendered);
+        if (rendered.outputs.has_value()) {
+            outputs = std::move(*rendered.outputs);
         } else {
             outputs.registry_header     = "#pragma once\n\n// gentest_codegen: no mocks discovered.\n";
             outputs.implementation_unit = "// gentest_codegen: no mocks discovered.\n";

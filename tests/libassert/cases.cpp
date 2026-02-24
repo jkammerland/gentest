@@ -1,18 +1,11 @@
 #include "gentest/assert_libassert.h"
-
-struct Simple {
-    int  v() const { return 0; }
-    void set(int) {}
-};
-
 // Bring in mock API (includes generated registry)
+#include "../mocking/types.h"
 #include "gentest/mock.h"
 
 #include <ostream>
 
 using namespace gentest;
-
-// No need to define Simple's methods; the mock provides overrides/stand-ins.
 
 [[using gentest: test("libassert/assert_pass_simple")]]
 void assert_pass_simple() {
@@ -70,17 +63,18 @@ void assert_fail() {
 
 [[using gentest: test("libassert/mock_expect_call_pass")]]
 void mock_expect_call_pass() {
-    gentest::mock<Simple> m;
-    EXPECT_CALL(m, v).times(1).returns(123);
-    EXPECT_EQ(m.v(), 123);
+    gentest::mock<mocking::Calculator> m;
+    EXPECT_CALL(m, compute).times(1).returns(123);
+    mocking::Calculator *iface = &m;
+    EXPECT_EQ(iface->compute(12, 30), 123);
 }
 
 [[using gentest: test("libassert/mock_assert_call_pass")]]
 void mock_assert_call_pass() {
-    gentest::mock<Simple> m;
-    ASSERT_CALL(m, set).times(2);
-    m.set(1);
-    m.set(2);
+    gentest::mock<mocking::Ticker> m;
+    ASSERT_CALL(m, tick).times(2);
+    m.tick(1);
+    m.tick(2);
 }
 
 // Additional EXPECT samples to exercise boolean path (non-fatal vs fatal separation)

@@ -1,8 +1,8 @@
 // Helper demonstrating that mocks are usable outside annotated tests.
 #pragma once
 
-#include "types.h"
 #include "gentest/mock.h"
+#include "types.h"
 
 namespace mocking::helpers {
 

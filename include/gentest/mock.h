@@ -858,17 +858,19 @@ template <typename... M> struct AllOfFactory {
 template <typename... M> inline auto AllOf(M &&...m) { return AllOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)}; }
 } // namespace match
 
+} // namespace gentest
+
 #if defined(GENTEST_MOCK_REGISTRY_PATH) && !defined(GENTEST_CODEGEN)
+#ifndef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
 #define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x
 #define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)
+#endif
 #define GENTEST_MOCK_REGISTRY_HEADER GENTEST_DETAIL_MOCK_STRINGIFY(GENTEST_MOCK_REGISTRY_PATH)
 #if __has_include(GENTEST_MOCK_REGISTRY_HEADER)
 #include GENTEST_MOCK_REGISTRY_HEADER
 #endif
 #undef GENTEST_MOCK_REGISTRY_HEADER
 #endif
-
-} // namespace gentest
 
 // Include generated mock inline implementations at global scope, so fully
 // qualified definitions like `inline auto gentest::mock<T>::method(...)` are
