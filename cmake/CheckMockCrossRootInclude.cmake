@@ -92,6 +92,18 @@ list(APPEND _args
   "-I${PROJECT_SOURCE_DIR}/include"
   "-I${TESTS_SOURCE_DIR}")
 
+if(EXISTS "${_build_root}/_deps/fmt-src/include")
+  list(APPEND _args "-I${_build_root}/_deps/fmt-src/include")
+endif()
+file(GLOB _vcpkg_include_dirs LIST_DIRECTORIES true "${_build_root}/vcpkg_installed/*/include")
+foreach(_inc IN LISTS _vcpkg_include_dirs)
+  if(IS_DIRECTORY "${_inc}")
+    list(APPEND _args "-I${_inc}")
+  endif()
+endforeach()
+unset(_inc)
+unset(_vcpkg_include_dirs)
+
 execute_process(
   COMMAND "${PROG}" ${_args}
   RESULT_VARIABLE _rc
