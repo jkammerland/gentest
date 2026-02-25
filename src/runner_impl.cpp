@@ -246,23 +246,50 @@ bool setup_shared_fixtures() {
 }
 
 void teardown_shared_fixtures() {
-    auto                       &reg = shared_fixture_registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
-    for (auto &entry : reg.entries) {
-        if (!entry.initialized || entry.failed) {
-            entry.instance.reset();
-            entry.initialized = false;
-            continue;
+    struct TeardownWorkItem {
+        std::size_t           index = std::numeric_limits<std::size_t>::max();
+        std::string           fixture_name;
+        std::shared_ptr<void> instance;
+        void (*teardown)(void *instance, std::string &error) = nullptr;
+    };
+
+    auto                         &reg = shared_fixture_registry();
+    std::vector<TeardownWorkItem> work;
+    {
+        std::lock_guard<std::mutex> lk(reg.mtx);
+        work.reserve(reg.entries.size());
+        for (std::size_t i = 0; i < reg.entries.size(); ++i) {
+            auto &entry = reg.entries[i];
+            if (!entry.initialized || entry.failed) {
+                entry.instance.reset();
+                entry.initialized = false;
+                continue;
+            }
+            work.push_back(TeardownWorkItem{
+                .index        = i,
+                .fixture_name = entry.fixture_name,
+                .instance     = entry.instance,
+                .teardown     = entry.teardown,
+            });
         }
-        if (entry.teardown) {
+    }
+
+    for (const auto &item : work) {
+        if (item.teardown) {
             std::string       error;
-            const std::string label = fmt::format("fixture teardown {}", entry.fixture_name);
-            if (!run_fixture_phase(label, [&](std::string &err) { entry.teardown(entry.instance.get(), err); }, error)) {
-                fmt::print(stderr, "gentest: fixture teardown failed for {}: {}\n", entry.fixture_name, error);
+            const std::string label = fmt::format("fixture teardown {}", item.fixture_name);
+            if (!run_fixture_phase(label, [&](std::string &err) { item.teardown(item.instance.get(), err); }, error)) {
+                fmt::print(stderr, "gentest: fixture teardown failed for {}: {}\n", item.fixture_name, error);
             }
         }
-        entry.instance.reset();
-        entry.initialized = false;
+
+        std::lock_guard<std::mutex> lk(reg.mtx);
+        if (item.index < reg.entries.size()) {
+            auto &entry = reg.entries[item.index];
+            entry.instance.reset();
+            entry.initialized  = false;
+            entry.initializing = false;
+        }
     }
 }
 

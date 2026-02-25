@@ -20,6 +20,9 @@ def gentest_suite(name):
         cmd = "mkdir -p $(@D) && " +
               '"$(location :gentest_codegen_build)" --output $@ $(SRCS) -- -std=c++20 -DGENTEST_CODEGEN=1 -Wno-unknown-attributes ' +
               '-Wno-attributes -Wno-unknown-warning-option -Iinclude -Itests',
+        cmd_bat = "if not exist $(@D) mkdir $(@D) && " +
+                  '"$(location :gentest_codegen_build)" --output $@ $(SRCS) -- -std=c++20 -DGENTEST_CODEGEN=1 -Wno-unknown-attributes ' +
+                  '-Wno-attributes -Wno-unknown-warning-option -Iinclude -Itests',
         tags = ['no-sandbox'],
     )
 
