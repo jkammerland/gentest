@@ -85,10 +85,18 @@ if(DEFINED CROSS_TARGET_ARG AND NOT "${CROSS_TARGET_ARG}" STREQUAL "")
   list(APPEND _args "${CROSS_TARGET_ARG}")
 endif()
 
+set(_codegen_std "${CODEGEN_STD}")
+if(_codegen_std MATCHES "^/std:c\\+\\+([0-9]+)$")
+  set(_codegen_std "-std=c++${CMAKE_MATCH_1}")
+elseif(_codegen_std STREQUAL "/std:c++latest")
+  # clang does not understand MSVC's /std:c++latest spelling.
+  set(_codegen_std "-std=c++23")
+endif()
+
 list(APPEND _args
   -x
   c++
-  "${CODEGEN_STD}"
+  "${_codegen_std}"
   "-I${PROJECT_SOURCE_DIR}/include"
   "-I${TESTS_SOURCE_DIR}")
 
