@@ -1,8 +1,8 @@
 # gentest
 
-`gentest` is an attribute-driven C++ test runner + clang tools based code generator.  
+`gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
 
-Write tests using standard C++ attributes (`[[using gentest: ...]]`). The build runs `gentest_codegen` based on the attributes found in the src files, moving the code generation outside the build phase of the test themselves as you have with macro based code expansion. Allowing yourself this degree of freedom allows for much greater flexibility when adding new features and naturalness since we can communicate via modern c++ style attributes to the compiler, which are made for this purpose. The tradeoff being higher tooling complexity. 
+Write tests with standard C++ attributes (`[[using gentest: ...]]`). During the build, `gentest_codegen` scans your sources and generates registrations/wrappers from those attributes. This avoids macro-heavy registration and keeps test declarations in normal C++ syntax. The tradeoff is higher tooling complexity.
 
 >[!NOTE]
 > Start at [`docs/index.md`](docs/index.md) for the rest of the docs.
@@ -375,7 +375,7 @@ Safeguards:
 - Mocked target definitions must be in a header or header module. Source/module-interface definitions are rejected by codegen.
 - Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
-- Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (only a windows problem).
+- Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (Windows-only path constraint).
 
 Header implementation to mock (`sink.h`):
 
@@ -409,21 +409,30 @@ void mock_nonvirtual() {
 }
 ```
 
-Matchers (continuing the example above; use `.where(...)` with `gentest::match` helpers):
+Matchers (`.where(...)` with `gentest::match` helpers):
 
 ```cpp
+#include "sink.h"
+#include "gentest/mock.h"
 using namespace gentest::match;
 
+gentest::mock<Sink> sink;
 EXPECT_CALL(sink, write).times(2).where(InRange(10, 20));
 ```
 
-Static member functions can be mocked too (calls must go through the mock object):
+Static member functions can be mocked too. Example type:
 
 ```cpp
+struct Ticker {
+    static int add(int lhs, int rhs) noexcept { return lhs + rhs; }
+};
+
 gentest::mock<Ticker> t;
 EXPECT_CALL(t, add).times(1).returns(123);
 EXPECT_EQ(t.add(4, 5), 123);
 ```
+
+Use `t.add(...)` (through the mock object). A direct `Ticker::add(...)` call bypasses the mock.
 
 ### Benchmarks and jitter
 
