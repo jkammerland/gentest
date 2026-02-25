@@ -24,6 +24,91 @@ std::string_view trim_view(std::string_view text) {
     return text;
 }
 
+std::size_t find_attribute_open_for_close(llvm::StringRef buffer, std::size_t close_marker) {
+    if (close_marker + 1 >= static_cast<std::size_t>(buffer.size())) {
+        return llvm::StringRef::npos;
+    }
+
+    bool in_string        = false;
+    bool in_char          = false;
+    bool in_line_comment  = false;
+    bool in_block_comment = false;
+    bool escape           = false;
+
+    std::size_t open_marker = llvm::StringRef::npos;
+    for (std::size_t i = 0; i <= close_marker && i < static_cast<std::size_t>(buffer.size()); ++i) {
+        const char ch   = buffer[i];
+        const char next = (i + 1 < static_cast<std::size_t>(buffer.size())) ? buffer[i + 1] : '\0';
+
+        if (in_line_comment) {
+            if (ch == '\n' || ch == '\r') {
+                in_line_comment = false;
+            }
+            continue;
+        }
+        if (in_block_comment) {
+            if (ch == '*' && next == '/') {
+                in_block_comment = false;
+                ++i;
+            }
+            continue;
+        }
+        if (in_string) {
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        if (in_char) {
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '\'') {
+                in_char = false;
+            }
+            continue;
+        }
+
+        if (ch == '/' && next == '/') {
+            in_line_comment = true;
+            ++i;
+            continue;
+        }
+        if (ch == '/' && next == '*') {
+            in_block_comment = true;
+            ++i;
+            continue;
+        }
+        if (ch == '"') {
+            in_string = true;
+            continue;
+        }
+        if (ch == '\'') {
+            in_char = true;
+            continue;
+        }
+        if (ch == '[' && next == '[') {
+            open_marker = i;
+            ++i;
+            continue;
+        }
+        if (ch == ']' && next == ']') {
+            if (i == close_marker) {
+                return open_marker;
+            }
+            open_marker = llvm::StringRef::npos;
+            ++i;
+        }
+    }
+
+    return llvm::StringRef::npos;
+}
+
 void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buffer, std::size_t start_offset) {
     auto find_line_comment = [](std::string_view line) -> std::size_t {
         bool in_string = false;
@@ -100,7 +185,7 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
             const llvm::StringRef line = buffer.slice(line_start, cursor);
             const auto            pos  = find_line_comment(std::string_view(line.data(), line.size()));
             if (pos != std::string_view::npos) {
-                cursor = line_start + pos;
+                cursor     = line_start + pos;
                 progressed = true;
                 continue;
             }
@@ -116,14 +201,9 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
             break;
         }
 
-        const llvm::StringRef prefix = buffer.take_front(position);
-        const std::size_t     open   = prefix.rfind("[[");
+        const std::size_t close_marker = position - 2;
+        const std::size_t open         = find_attribute_open_for_close(buffer, close_marker);
         if (open == llvm::StringRef::npos) {
-            break;
-        }
-
-        const std::size_t close_marker = buffer.find("]]", open);
-        if (close_marker == llvm::StringRef::npos) {
             break;
         }
 
@@ -160,12 +240,12 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
         }
         view.remove_prefix(1);
 
-        std::size_t args_end = view.rfind("]]");
-        if (args_end == std::string_view::npos) {
+        if (view.size() < 2 || !view.ends_with("]]")) {
             cursor = open;
             continue;
         }
-        std::string_view args_text = trim_view(view.substr(0, args_end));
+        view.remove_suffix(2);
+        std::string_view args_text = trim_view(view);
 
         if (namespace_name != "gentest") {
             collected.other_namespaces.push_back(attribute_text.str());

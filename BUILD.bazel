@@ -3,6 +3,11 @@ load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
+_gentest_linkopts = select({
+    '@bazel_tools//src/conditions:windows': [],
+    '//conditions:default': ['-fuse-ld=bfd'],
+})
+
 # Build gentest_codegen via CMake inside Bazel
 genrule(
     name = 'gentest_codegen_build',
@@ -29,6 +34,12 @@ genrule(
           "cmake -S . -B $(@D)/b -DCMAKE_BUILD_TYPE=Release && " +
           "cmake --build $(@D)/b --target gentest_codegen -j 1 && " +
           "cp $(@D)/b/tools/gentest_codegen $@",
+    cmd_bat = "if exist $(@D)\\b rmdir /S /Q $(@D)\\b && mkdir $(@D)\\b && " +
+              "cmake -S . -B $(@D)\\b -DCMAKE_BUILD_TYPE=Release && " +
+              "cmake --build $(@D)\\b --target gentest_codegen --config Release && " +
+              "(if exist $(@D)\\b\\tools\\Release\\gentest_codegen.exe " +
+              "(copy /Y $(@D)\\b\\tools\\Release\\gentest_codegen.exe $@ >NUL) " +
+              "else (copy /Y $(@D)\\b\\tools\\gentest_codegen.exe $@ >NUL))",
     tags = ['no-sandbox', 'local'],
 )
 
@@ -54,7 +65,7 @@ cc_library(
         '//conditions:default': ['-Wno-attributes'],
     }),
     includes = ['include', 'third_party/include'],
-    linkopts = ['-fuse-ld=bfd'],
+    linkopts = _gentest_linkopts,
     visibility = ['//visibility:public'],
 )
 
@@ -65,7 +76,7 @@ cc_library(
         '@bazel_tools//src/conditions:windows': ['/wd5030'],
         '//conditions:default': ['-Wno-attributes'],
     }),
-    linkopts = ['-fuse-ld=bfd'],
+    linkopts = _gentest_linkopts,
     deps = [':gentest_runtime'],
     visibility = ['//visibility:public'],
 )
