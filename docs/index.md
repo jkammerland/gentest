@@ -6,6 +6,7 @@
 ## Getting started
 
 - Quick start: [`README.md`](../README.md)
+- C++20 module usage (`import gentest`): [`README.md#c20-modules`](../README.md#c20-modules)
 - Previous (full) README snapshot: [`docs/archive/README_2026-01-03.md`](archive/README_2026-01-03.md)
 
 ## Install / build templates

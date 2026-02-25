@@ -63,6 +63,10 @@ target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 gentest_attach_codegen(my_tests)
 # Per-TU mode enforces case-insensitive uniqueness for generated TU headers.
 # If two sources map to the same header name ignoring case, codegen fails fast.
+# Per-TU mode also rejects named module units (for example files with
+# `export module ...;`), because wrapper shims include original sources.
+# If you need to scan/wrap named module interfaces, use manifest mode
+# (OUTPUT=...) or pass explicit SOURCES that exclude module interface units.
 # Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via
 # `gentest_attach_codegen(... CLANG_ARGS ...)` or override
 # `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`.
@@ -103,6 +107,40 @@ Run:
 ./my_tests --github-annotations
 ./my_tests
 ```
+
+## C++20 modules
+
+Install package with module support (`find_package` consumer flow):
+
+```bash
+cmake -S . -B build -DGENTEST_ENABLE_MODULES=ON -Dgentest_INSTALL=ON
+cmake --build build --target install
+```
+
+Consumer `CMakeLists.txt`:
+
+```cmake
+find_package(gentest CONFIG REQUIRED)
+
+add_executable(my_tests cases.cpp)
+target_link_libraries(my_tests PRIVATE
+    gentest::gentest_main
+    gentest::gentest_modules)
+```
+
+Consumer source:
+
+```cpp
+#include <span>
+#include <string_view>
+import gentest;
+```
+
+Notes:
+- `gentest::gentest_modules` exports the `gentest` named module; link it alongside `gentest::gentest_main` (or `gentest::gentest_runtime` if you provide your own `main`).
+- `gentest_attach_codegen()` TU wrapper mode cannot scan/wrap named module units (interfaces or implementations); use `gentest_attach_codegen(... OUTPUT <file>)` (manifest mode), or pass explicit `SOURCES` that exclude module units.
+- Some toolchains require module scanning to be enabled in the consumer project (`CMAKE_CXX_SCAN_FOR_MODULES=ON` or target property `CXX_SCAN_FOR_MODULES ON`).
+- `import std;` support is compiler/STL dependent. Use normal standard-library includes in consumer TUs unless your toolchain supports `import std;`. Optional configure probe: `-DGENTEST_TRY_IMPORT_STD=ON`.
 
 `--list-tests` prints only resolved test names (one per line).
 `--list` prints the richer listing format (name plus metadata such as tags/owner when present).
@@ -372,7 +410,7 @@ void mock_clock() {
 ```
 
 Safeguards:
-- Mocked target definitions must be in a header or header module. Source/module-interface definitions are rejected by codegen.
+- Mocked target definitions must be in a header or header module. Definitions in ordinary source files and named module interface files are rejected by codegen.
 - Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
 - Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (Windows-only path constraint).
@@ -420,7 +458,7 @@ gentest::mock<Sink> sink;
 EXPECT_CALL(sink, write).times(2).where(InRange(10, 20));
 ```
 
-Static member functions can be mocked too. Example type:
+Static member functions can be mocked too when the call goes through the mock object:
 
 ```cpp
 struct Ticker {
@@ -430,9 +468,10 @@ struct Ticker {
 gentest::mock<Ticker> t;
 EXPECT_CALL(t, add).times(1).returns(123);
 EXPECT_EQ(t.add(4, 5), 123);
+EXPECT_EQ(Ticker::add(4, 5), 9); // direct static call (not mocked)
 ```
 
-Use `t.add(...)` (through the mock object). A direct `Ticker::add(...)` call bypasses the mock.
+`t.add(...)` is intercepted. `Ticker::add(...)` bypasses the mock.
 
 ### Benchmarks and jitter
 

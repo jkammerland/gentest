@@ -72,3 +72,6 @@ results/
 
 # Vendored third-party examples (headers/licenses are tracked)
 third_party/samples/
+
+# GCC C++ modules cache
+gcm.cache/

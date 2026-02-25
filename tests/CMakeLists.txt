@@ -1083,7 +1083,15 @@ _gentest_add_cmake_helper_test(
     gentest_tu_wrapper_source_props
     ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
     ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake
-    cmake)
+    cmake
+    -DWORK_DIR_NAME=source_props)
+
+_gentest_add_cmake_helper_test(
+    gentest_tu_wrapper_extension_preserve
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_extension_preserve
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake
+    cmake
+    -DWORK_DIR_NAME=extension_preserve)
 
 _gentest_add_cmake_helper_test(
     gentest_tu_header_case_collision
@@ -1094,8 +1102,18 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_tu_header_case_collision APPEND PROPERTY LABELS "codegen")
 
+_gentest_add_cmake_helper_test(
+    gentest_tu_wrapper_named_module_reject
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_named_module_reject
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperNamedModuleReject.cmake
+    cmake)
+set_property(TEST gentest_tu_wrapper_named_module_reject APPEND PROPERTY LABELS "codegen")
+
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
+    option(GENTEST_ENABLE_PACKAGE_MODULE_TESTS
+        "Enable install + find_package module consumer smoke test (import gentest)"
+        ${GENTEST_ENABLE_MODULES})
     set(_gentest_package_test_config "")
     if(CMAKE_CONFIGURATION_TYPES)
         set(_gentest_package_test_config "Debug")
@@ -1108,6 +1126,17 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         package
         -DPACKAGE_NAME=${PROJECT_NAME}
         -DBUILD_CONFIG=${_gentest_package_test_config})
+
+    if(GENTEST_ENABLE_PACKAGE_MODULE_TESTS)
+        _gentest_add_cmake_helper_test(
+            gentest_package_consumer_modules
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+            package
+            -DPACKAGE_NAME=${PROJECT_NAME}
+            -DBUILD_CONFIG=${_gentest_package_test_config}
+            -DCONSUMER_USE_MODULES=ON)
+    endif()
 endif()
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
