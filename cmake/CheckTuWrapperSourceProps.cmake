@@ -10,6 +10,7 @@
 #  -DC_COMPILER=<C compiler>
 #  -DCXX_COMPILER=<C++ compiler>
 #  -DBUILD_TYPE=<Debug/Release/...>
+#  -DWORK_DIR_NAME=<custom suffix to avoid build-dir collisions>
 
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckTuWrapperSourceProps.cmake: SOURCE_DIR not set")
@@ -23,7 +24,17 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
-set(_work_dir "${BUILD_ROOT}/tu_wrapper_source_props")
+if(DEFINED WORK_DIR_NAME AND NOT "${WORK_DIR_NAME}" STREQUAL "")
+  set(_work_dir_suffix "${WORK_DIR_NAME}")
+else()
+  get_filename_component(_work_dir_suffix "${SOURCE_DIR}" NAME)
+endif()
+if(_work_dir_suffix STREQUAL "")
+  set(_work_dir_suffix "fixture")
+endif()
+string(REGEX REPLACE "[^A-Za-z0-9_]+" "_" _work_dir_suffix "${_work_dir_suffix}")
+
+set(_work_dir "${BUILD_ROOT}/tu_wrapper_source_props_${_work_dir_suffix}")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 

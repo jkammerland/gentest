@@ -24,12 +24,24 @@ set(CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP 0)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(GentestDependencies)
+include(GentestModules)
 gentest_ensure_fmt()
 
 option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
 option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
 option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
 option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
+option(GENTEST_ENABLE_MODULES "Build and export C++20 module interface units for gentest" OFF)
+option(GENTEST_TRY_IMPORT_STD "Run a configure-time probe for compiler support of 'import std;'" OFF)
+
+if(GENTEST_ENABLE_MODULES AND GENTEST_TRY_IMPORT_STD)
+    gentest_check_import_std(GENTEST_IMPORT_STD_AVAILABLE)
+    if(GENTEST_IMPORT_STD_AVAILABLE)
+        message(STATUS "gentest: compiler supports 'import std;' in this configuration")
+    else()
+        message(STATUS "gentest: 'import std;' probe failed for this configuration (module support for gentest remains enabled)")
+    endif()
+endif()
 
 set(_gentest_build_codegen_default ON)
 if(CMAKE_CROSSCOMPILING OR NOT ${PROJECT_NAME}_BUILD_TESTING)
@@ -46,6 +58,7 @@ add_subdirectory(src)
 
 if(${PROJECT_NAME}_INSTALL)
     include(FetchContent)
+    include(GNUInstallDirs)
     FetchContent_Declare(
         target_install_package
         GIT_REPOSITORY https://github.com/jkammerland/target_install_package.cmake.git
@@ -65,6 +78,14 @@ if(${PROJECT_NAME}_INSTALL)
         EXPORT_NAME ${PROJECT_NAME}
         INCLUDE_ON_FIND_PACKAGE "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
         PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
+    if(TARGET gentest_modules)
+        install(TARGETS gentest_modules
+            EXPORT ${PROJECT_NAME}
+            FILE_SET cxx_modules DESTINATION include
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
 else()
     message(STATUS "Enable install of ${PROJECT_NAME} with -D${PROJECT_NAME}_INSTALL=ON")
 endif()

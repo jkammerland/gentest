@@ -137,7 +137,12 @@ unset(_gentest_fields)
 unset(_gentest_name)
 unset(_gentest_run)
 
-option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
+set(_gentest_skip_windows_debug_death_tests_default OFF)
+if(WIN32)
+    set(_gentest_skip_windows_debug_death_tests_default ON)
+endif()
+option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" ${_gentest_skip_windows_debug_death_tests_default})
+unset(_gentest_skip_windows_debug_death_tests_default)
 if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
 endif()
@@ -790,6 +795,7 @@ gentest_add_check_death(
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "--time-unit=<mode>" ARGS --help)
 gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 16 ARGS --list-tests)
+gentest_add_check_contains(NAME unit_list_contains_default_name_member PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "unit/DefaultNameFixture/default_name_member" ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "tags=fast" ARGS --list)
 gentest_add_check_lines(NAME integration_list_tests_lines PROG $<TARGET_FILE:gentest_integration_tests> LINES 4 ARGS --list-tests)
 gentest_add_check_contains(NAME integration_list_tags_owner PROG $<TARGET_FILE:gentest_integration_tests> EXPECT_SUBSTRING "owner=team-runtime" ARGS --list)
@@ -1077,7 +1083,15 @@ _gentest_add_cmake_helper_test(
     gentest_tu_wrapper_source_props
     ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
     ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake
-    cmake)
+    cmake
+    -DWORK_DIR_NAME=source_props)
+
+_gentest_add_cmake_helper_test(
+    gentest_tu_wrapper_extension_preserve
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_extension_preserve
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperSourceProps.cmake
+    cmake
+    -DWORK_DIR_NAME=extension_preserve)
 
 _gentest_add_cmake_helper_test(
     gentest_tu_header_case_collision
@@ -1088,8 +1102,25 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_tu_header_case_collision APPEND PROPERTY LABELS "codegen")
 
+_gentest_add_cmake_helper_test(
+    gentest_tu_wrapper_named_module_reject
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_named_module_reject
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTuWrapperNamedModuleReject.cmake
+    cmake)
+set_property(TEST gentest_tu_wrapper_named_module_reject APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_manifest_named_module_reject
+    ${PROJECT_SOURCE_DIR}/tests/cmake/manifest_named_module_reject
+    ${PROJECT_SOURCE_DIR}/cmake/CheckManifestNamedModuleReject.cmake
+    cmake)
+set_property(TEST gentest_manifest_named_module_reject APPEND PROPERTY LABELS "codegen")
+
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
+    option(GENTEST_ENABLE_PACKAGE_MODULE_TESTS
+        "Enable install + find_package module consumer smoke test (import gentest)"
+        ${GENTEST_ENABLE_MODULES})
     set(_gentest_package_test_config "")
     if(CMAKE_CONFIGURATION_TYPES)
         set(_gentest_package_test_config "Debug")
@@ -1101,7 +1132,20 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
         package
         -DPACKAGE_NAME=${PROJECT_NAME}
-        -DBUILD_CONFIG=${_gentest_package_test_config})
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DWORK_DIR_NAME=header)
+
+    if(GENTEST_ENABLE_PACKAGE_MODULE_TESTS)
+        _gentest_add_cmake_helper_test(
+            gentest_package_consumer_modules
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+            package
+            -DPACKAGE_NAME=${PROJECT_NAME}
+            -DBUILD_CONFIG=${_gentest_package_test_config}
+            -DCONSUMER_USE_MODULES=ON
+            -DWORK_DIR_NAME=modules)
+    endif()
 endif()
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.

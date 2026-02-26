@@ -54,27 +54,87 @@ function(gentest_attach_codegen target)
     set(_gentest_scan_sources "${GENTEST_SOURCES}")
     if(NOT _gentest_scan_sources)
         get_target_property(_gentest_scan_sources ${target} SOURCES)
+        get_target_property(_gentest_module_sources ${target} CXX_MODULE_SET)
+        if(_gentest_module_sources AND NOT _gentest_module_sources STREQUAL "NOTFOUND")
+            list(APPEND _gentest_scan_sources ${_gentest_module_sources})
+        endif()
+        get_target_property(_gentest_module_sets ${target} CXX_MODULE_SETS)
+        if(_gentest_module_sets AND NOT _gentest_module_sets STREQUAL "NOTFOUND")
+            foreach(_gentest_module_set IN LISTS _gentest_module_sets)
+                get_target_property(_gentest_named_module_sources ${target} "CXX_MODULE_SET_${_gentest_module_set}")
+                if(_gentest_named_module_sources AND NOT _gentest_named_module_sources STREQUAL "NOTFOUND")
+                    list(APPEND _gentest_scan_sources ${_gentest_named_module_sources})
+                endif()
+            endforeach()
+            unset(_gentest_module_set)
+            unset(_gentest_named_module_sources)
+        endif()
     endif()
     if(NOT _gentest_scan_sources)
         message(FATAL_ERROR "gentest_attach_codegen(${target}): SOURCES not provided and target has no SOURCES property")
     endif()
+    list(REMOVE_DUPLICATES _gentest_scan_sources)
 
-    # Select translation units (C++ sources only, no generator expressions).
+    # Select translation units (C++/CUDA/module sources only, no generator expressions).
     set(_gentest_tus "")
     set(_gentest_tu_source_entries "")
+    set(_gentest_tu_extensions "")
+    set(_gentest_module_tus "")
     set(_gentest_skipped_genex_sources "")
+    set(_gentest_scan_extensions
+        .C
+        .cc
+        .cpp
+        .cxx
+        .c++
+        .cp
+        .cu
+        .cppm
+        .ccm
+        .cxxm
+        .c++m
+        .ixx
+        .mxx)
+    set(_gentest_named_module_extensions
+        .cppm
+        .ccm
+        .cxxm
+        .c++m
+        .ixx
+        .mxx)
     foreach(_gentest_src IN LISTS _gentest_scan_sources)
         if("${_gentest_src}" MATCHES "\\$<")
             list(APPEND _gentest_skipped_genex_sources "${_gentest_src}")
             continue()
         endif()
         get_filename_component(_gentest_ext "${_gentest_src}" EXT)
-        if(NOT _gentest_ext MATCHES "^\\.(cc|cpp|cxx)$")
+        set(_gentest_ext_key "${_gentest_ext}")
+        if(NOT _gentest_ext STREQUAL ".C")
+            string(TOLOWER "${_gentest_ext}" _gentest_ext_key)
+        endif()
+        if(NOT _gentest_ext_key IN_LIST _gentest_scan_extensions)
             continue()
         endif()
         _gentest_normalize_path_and_key("${_gentest_src}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_src_abs _gentest_src_key)
         list(APPEND _gentest_tu_source_entries "${_gentest_src}")
         list(APPEND _gentest_tus "${_gentest_src_abs}")
+        list(APPEND _gentest_tu_extensions "${_gentest_ext}")
+
+        set(_gentest_is_named_module FALSE)
+        if(_gentest_ext_key IN_LIST _gentest_named_module_extensions)
+            set(_gentest_is_named_module TRUE)
+        elseif(EXISTS "${_gentest_src_abs}")
+            file(READ "${_gentest_src_abs}" _gentest_source_text)
+            if(_gentest_source_text MATCHES "(^|[\n\r])[ \t]*export[ \t]+module[ \t]+[^;\n\r]+;"
+                OR _gentest_source_text MATCHES "(^|[\n\r])[ \t]*module[ \t]+[A-Za-z_][A-Za-z0-9_:.]*[ \t]*;")
+                set(_gentest_is_named_module TRUE)
+            endif()
+            unset(_gentest_source_text)
+        endif()
+        if(_gentest_is_named_module)
+            list(APPEND _gentest_module_tus "${_gentest_src_abs}")
+        endif()
+        unset(_gentest_is_named_module)
     endforeach()
 
     if(_gentest_skipped_genex_sources)
@@ -101,6 +161,20 @@ function(gentest_attach_codegen target)
         message(FATAL_ERROR
             "gentest_attach_codegen(${target}): TU wrapper mode is not supported with multi-config generators. "
             "Use a single-config generator (separate build dirs) or pass OUTPUT=... to use manifest mode.")
+    endif()
+    if(_gentest_module_tus)
+        string(JOIN ", " _gentest_module_inputs ${_gentest_module_tus})
+        if(_gentest_mode STREQUAL "tu")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): TU wrapper mode does not support named module units "
+                "(${_gentest_module_inputs}). Pass explicit SOURCES that exclude module units.")
+        endif()
+        if(_gentest_mode STREQUAL "manifest")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): manifest mode does not support named module units "
+                "(${_gentest_module_inputs}), including when NO_INCLUDE_SOURCES is set. "
+                "Pass explicit SOURCES that exclude module units.")
+        endif()
     endif()
 
     if(_gentest_mode STREQUAL "manifest")
@@ -213,6 +287,7 @@ function(gentest_attach_codegen target)
     if(_gentest_mode STREQUAL "tu")
         set(_gentest_idx 0)
         foreach(_tu IN LISTS _gentest_tus)
+            list(GET _gentest_tu_extensions ${_gentest_idx} _tu_ext)
             get_filename_component(_stem "${_tu}" NAME_WE)
             string(REGEX REPLACE "[^A-Za-z0-9_]" "_" _stem "${_stem}")
             if(_stem STREQUAL "")
@@ -226,7 +301,7 @@ function(gentest_attach_codegen target)
                 set(_idx_str "${_zeros}${_idx_str}")
             endif()
             list(APPEND _gentest_wrapper_headers "${_gentest_output_dir}/tu_${_idx_str}_${_stem}.gentest.h")
-            list(APPEND _gentest_wrapper_cpp "${_gentest_output_dir}/tu_${_idx_str}_${_stem}.gentest.cpp")
+            list(APPEND _gentest_wrapper_cpp "${_gentest_output_dir}/tu_${_idx_str}_${_stem}.gentest${_tu_ext}")
             math(EXPR _gentest_idx "${_gentest_idx} + 1")
         endforeach()
         unset(_gentest_idx)
@@ -234,7 +309,8 @@ function(gentest_attach_codegen target)
 
     if(_gentest_mode STREQUAL "tu")
         # TU wrapper mode uses configure-time generated shim translation units
-        # (*.gentest.cpp) that include the original source. gentest_codegen
+        # (*.gentest.<original-ext>) that include the original source.
+        # gentest_codegen
         # emits only the corresponding registration headers (*.gentest.h).
         if(NOT "${_gentest_output_dir}" MATCHES "\\$<")
             file(MAKE_DIRECTORY "${_gentest_output_dir}")
@@ -281,7 +357,20 @@ function(gentest_attach_codegen target)
 
         # Preserve per-source compile properties when replacing the original TU
         # with a generated wrapper TU (which includes the original source).
-        set(_gentest_source_props COMPILE_DEFINITIONS COMPILE_OPTIONS INCLUDE_DIRECTORIES COMPILE_FLAGS)
+        set(_gentest_source_props
+            COMPILE_DEFINITIONS
+            COMPILE_OPTIONS
+            INCLUDE_DIRECTORIES
+            COMPILE_FLAGS
+            LANGUAGE
+            CUDA_ARCHITECTURES
+            CUDA_STANDARD
+            CUDA_STANDARD_REQUIRED
+            CUDA_EXTENSIONS
+            CUDA_RUNTIME_LIBRARY
+            CUDA_SEPARABLE_COMPILATION
+            CUDA_PTX_COMPILATION
+            CUDA_RESOLVE_DEVICE_SYMBOLS)
         set(_gentest_configs "")
         if(CMAKE_CONFIGURATION_TYPES)
             set(_gentest_configs ${CMAKE_CONFIGURATION_TYPES})

@@ -51,7 +51,11 @@ bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
 }
 
 bool has_cpp_extension(llvm::StringRef path) {
-    return ends_with_ci(path, ".cc") || ends_with_ci(path, ".cpp") || ends_with_ci(path, ".cxx");
+    // Treat uppercase .C as a distinct C++ suffix; do not accept lowercase .c here.
+    return path.ends_with(".C") || ends_with_ci(path, ".cc") || ends_with_ci(path, ".cpp") || ends_with_ci(path, ".cxx")
+           || ends_with_ci(path, ".c++") || ends_with_ci(path, ".cp") || ends_with_ci(path, ".cu")
+           || ends_with_ci(path, ".cppm") || ends_with_ci(path, ".ccm") || ends_with_ci(path, ".cxxm")
+           || ends_with_ci(path, ".c++m") || ends_with_ci(path, ".ixx") || ends_with_ci(path, ".mxx");
 }
 
 [[nodiscard]] std::string derive_namespace_path(const DeclContext *ctx) {

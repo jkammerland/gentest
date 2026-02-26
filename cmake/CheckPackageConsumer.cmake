@@ -12,6 +12,8 @@
 #     [-DCXX_COMPILER=<path>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
+#     [-DCONSUMER_USE_MODULES=ON|OFF]         # if ON, producer installs modules and consumer uses `import gentest;`
+#     [-DWORK_DIR_NAME=<name>]                # optional unique suffix for parallel-safe runs
 #     -P cmake/CheckPackageConsumer.cmake
 
 if(NOT DEFINED SOURCE_DIR)
@@ -64,7 +66,16 @@ function(run_or_fail)
   )
 endfunction()
 
-set(_work_dir "${BUILD_ROOT}/package_consumer")
+if(DEFINED WORK_DIR_NAME AND NOT WORK_DIR_NAME STREQUAL "")
+  set(_work_suffix "${WORK_DIR_NAME}")
+elseif(CONSUMER_USE_MODULES)
+  set(_work_suffix "modules")
+else()
+  set(_work_suffix "headers")
+endif()
+string(REGEX REPLACE "[^A-Za-z0-9_]+" "_" _work_suffix "${_work_suffix}")
+
+set(_work_dir "${BUILD_ROOT}/package_consumer_${_work_suffix}")
 set(_producer_build_dir "${_work_dir}/producer")
 set(_install_prefix "${_work_dir}/install")
 set(_consumer_build_dir "${_work_dir}/consumer")
@@ -101,6 +112,12 @@ if(DEFINED BUILD_TYPE AND NOT BUILD_TYPE STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
+set(_producer_cache_args ${_cmake_cache_args})
+if(CONSUMER_USE_MODULES)
+  # Package-specific option: build/install the module interface target.
+  list(APPEND _producer_cache_args "-DGENTEST_ENABLE_MODULES=ON")
+endif()
+
 message(STATUS "Configure producer build (${PACKAGE_NAME})...")
 run_or_fail(
   COMMAND
@@ -108,19 +125,25 @@ run_or_fail(
     ${_cmake_generator_args}
     -S "${SOURCE_DIR}"
     -B "${_producer_build_dir}"
-    ${_cmake_cache_args}
+    ${_producer_cache_args}
     "-D${PACKAGE_NAME}_INSTALL=ON"
     "-D${PACKAGE_NAME}_BUILD_TESTING=OFF"
     "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
 
 message(STATUS "Build and install producer into '${_install_prefix}'...")
 if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
-  # Multi-config generators (Visual Studio, Xcode, Ninja Multi-Config) often
-  # generate for several configurations at once. Install both Debug and Release
-  # so imported targets have locations for common configs (and for the config
-  # mapping logic in the generated *Config.cmake files).
-  set(_install_configs Debug Release)
-  list(REMOVE_DUPLICATES _install_configs)
+  # For module-consumer coverage, install only the requested config to avoid
+  # masking mismatched artifacts in a mixed Debug+Release prefix.
+  if(CONSUMER_USE_MODULES)
+    set(_install_configs "${BUILD_CONFIG}")
+  else()
+    # Multi-config generators (Visual Studio, Xcode, Ninja Multi-Config) often
+    # generate for several configurations at once. Install both Debug and
+    # Release so imported targets have locations for common configs (and for
+    # the config mapping logic in generated *Config.cmake files).
+    set(_install_configs Debug Release)
+    list(REMOVE_DUPLICATES _install_configs)
+  endif()
   foreach(_cfg IN LISTS _install_configs)
     run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install --config "${_cfg}")
   endforeach()
@@ -155,6 +178,10 @@ if(CMAKE_HOST_WIN32 AND DEFINED CXX_COMPILER AND CXX_COMPILER MATCHES "[Cc]lang"
 endif()
 
 set(_consumer_dir_var "${PACKAGE_NAME}_DIR")
+set(_consumer_use_modules OFF)
+if(CONSUMER_USE_MODULES)
+  set(_consumer_use_modules ON)
+endif()
 run_or_fail(
   COMMAND
     "${CMAKE_COMMAND}"
@@ -162,8 +189,11 @@ run_or_fail(
     -S "${_consumer_source_dir}"
     -B "${_consumer_build_dir}"
     ${_consumer_cache_args}
-    "-D${_consumer_dir_var}=${_config_dir}")
+    "-D${_consumer_dir_var}=${_config_dir}"
+    "-DGENTEST_CONSUMER_USE_MODULES=${_consumer_use_modules}")
 unset(_consumer_cache_args)
+unset(_consumer_use_modules)
+unset(_producer_cache_args)
 
 message(STATUS "Build consumer project...")
 set(_consumer_build_args --build "${_consumer_build_dir}")
@@ -186,4 +216,59 @@ if(NOT EXISTS "${_consumer_exe}")
 endif()
 
 message(STATUS "Run consumer executable...")
-run_or_fail(COMMAND "${_consumer_exe}")
+set(_run_args "${_consumer_exe}" --run=consumer/smoke --kind=test)
+
+if(CMAKE_HOST_WIN32)
+  set(_runtime_env_var "PATH")
+  set(_runtime_sep ";")
+  set(_runtime_seed "$ENV{PATH}")
+  set(_runtime_dirs "${_install_prefix}/bin" "${_install_prefix}/lib" "${_install_prefix}/lib64")
+elseif(CMAKE_HOST_APPLE)
+  set(_runtime_env_var "DYLD_LIBRARY_PATH")
+  set(_runtime_sep ":")
+  set(_runtime_seed "$ENV{DYLD_LIBRARY_PATH}")
+  set(_runtime_dirs "${_install_prefix}/lib" "${_install_prefix}/lib64")
+else()
+  set(_runtime_env_var "LD_LIBRARY_PATH")
+  set(_runtime_sep ":")
+  set(_runtime_seed "$ENV{LD_LIBRARY_PATH}")
+  set(_runtime_dirs "${_install_prefix}/lib" "${_install_prefix}/lib64")
+endif()
+
+set(_runtime_existing_dirs "")
+foreach(_dir IN LISTS _runtime_dirs)
+  if(IS_DIRECTORY "${_dir}")
+    list(APPEND _runtime_existing_dirs "${_dir}")
+  endif()
+endforeach()
+
+if(_runtime_existing_dirs)
+  list(JOIN _runtime_existing_dirs "${_runtime_sep}" _runtime_prefix)
+  if(_runtime_seed STREQUAL "")
+    set(_runtime_value "${_runtime_prefix}")
+  else()
+    set(_runtime_value "${_runtime_prefix}${_runtime_sep}${_runtime_seed}")
+  endif()
+  execute_process(
+    COMMAND
+      "${CMAKE_COMMAND}" -E env
+      "${_runtime_env_var}=${_runtime_value}"
+      ${_run_args}
+    RESULT_VARIABLE _run_rc
+    OUTPUT_VARIABLE _run_out
+    ERROR_VARIABLE _run_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+else()
+  execute_process(
+    COMMAND ${_run_args}
+    RESULT_VARIABLE _run_rc
+    OUTPUT_VARIABLE _run_out
+    ERROR_VARIABLE _run_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+endif()
+
+if(NOT _run_rc EQUAL 0)
+  message(FATAL_ERROR "Consumer execution failed (${_run_rc}).\n--- stdout ---\n${_run_out}\n--- stderr ---\n${_run_err}\n")
+endif()
