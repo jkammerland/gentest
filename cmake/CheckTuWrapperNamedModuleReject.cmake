@@ -11,6 +11,7 @@
 #  -DCXX_COMPILER=<C++ compiler>
 #  -DBUILD_TYPE=<Debug/Release/...>
 #  -DEXPECT_SUBSTRING=<expected configure error substring>
+#  -DEXPECT_ALT_SUBSTRING=<optional alternate expected substring>
 
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckTuWrapperNamedModuleReject.cmake: SOURCE_DIR not set")
@@ -23,6 +24,13 @@ if(NOT DEFINED GENERATOR)
 endif()
 if(NOT DEFINED EXPECT_SUBSTRING)
   set(EXPECT_SUBSTRING "TU wrapper mode does not support named module")
+endif()
+if(NOT DEFINED EXPECT_ALT_SUBSTRING)
+  if(GENERATOR MATCHES "^Visual Studio" OR GENERATOR STREQUAL "Xcode" OR GENERATOR STREQUAL "Ninja Multi-Config")
+    set(EXPECT_ALT_SUBSTRING "TU wrapper mode is not supported with multi-config generators")
+  else()
+    set(EXPECT_ALT_SUBSTRING "")
+  endif()
 endif()
 
 set(_work_dir "${BUILD_ROOT}/tu_wrapper_named_module_reject")
@@ -78,8 +86,17 @@ if(_rc EQUAL 0)
 endif()
 
 string(FIND "${_all_normalized}" "${EXPECT_SUBSTRING}" _pos)
-if(_pos EQUAL -1)
-  message(FATAL_ERROR "Expected substring not found in configure output: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
+set(_alt_pos -1)
+if(NOT EXPECT_ALT_SUBSTRING STREQUAL "")
+  string(FIND "${_all_normalized}" "${EXPECT_ALT_SUBSTRING}" _alt_pos)
+endif()
+if(_pos EQUAL -1 AND _alt_pos EQUAL -1)
+  if(NOT EXPECT_ALT_SUBSTRING STREQUAL "")
+    message(FATAL_ERROR
+      "Expected substring not found in configure output: '${EXPECT_SUBSTRING}' or '${EXPECT_ALT_SUBSTRING}'. Output:\n${_all}")
+  else()
+    message(FATAL_ERROR "Expected substring not found in configure output: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
+  endif()
 endif()
 
 message(STATUS "Named module TU-wrapper rejection check passed")

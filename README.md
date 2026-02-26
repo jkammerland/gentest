@@ -139,6 +139,7 @@ import gentest;
 Notes:
 - `gentest::gentest_modules` exports the `gentest` named module; link it alongside `gentest::gentest_main` (or `gentest::gentest_runtime` if you provide your own `main`).
 - `gentest_attach_codegen()` currently cannot scan/wrap named module units (interfaces or implementations) in either TU wrapper or manifest mode. Pass explicit `SOURCES` that exclude module units.
+- Mock generation is include-based today (`#include "gentest/mock.h"` plus generated registry/impl headers). `import gentest;` does not export mock APIs, and complete module generation for mocks is still incomplete.
 - Some toolchains require module scanning to be enabled in the consumer project (`CMAKE_CXX_SCAN_FOR_MODULES=ON` or target property `CXX_SCAN_FOR_MODULES ON`).
 - `import std;` support is compiler/STL dependent. Use normal standard-library includes in consumer TUs unless your toolchain supports `import std;`. Optional configure probe: `-DGENTEST_TRY_IMPORT_STD=ON`.
 
@@ -410,7 +411,7 @@ void mock_clock() {
 ```
 
 Safeguards:
-- Mocked target definitions must be in a header or header module. Definitions in ordinary source files and named module units are rejected by codegen (the generated mock registry currently resolves targets via `#include`, not `import`).
+- Mocked target definitions must be in an includable header (diagnostics: "header or header module", including header units). Definitions in ordinary source files and named module units are rejected by codegen (the generated mock registry currently resolves targets via `#include`, not `import`).
 - Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module units).
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
 - Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (Windows-only path constraint).

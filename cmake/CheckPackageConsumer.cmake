@@ -13,6 +13,7 @@
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
 #     [-DCONSUMER_USE_MODULES=ON|OFF]         # if ON, producer installs modules and consumer uses `import gentest;`
+#     [-DWORK_DIR_NAME=<name>]                # optional unique suffix for parallel-safe runs
 #     -P cmake/CheckPackageConsumer.cmake
 
 if(NOT DEFINED SOURCE_DIR)
@@ -65,7 +66,16 @@ function(run_or_fail)
   )
 endfunction()
 
-set(_work_dir "${BUILD_ROOT}/package_consumer")
+if(DEFINED WORK_DIR_NAME AND NOT WORK_DIR_NAME STREQUAL "")
+  set(_work_suffix "${WORK_DIR_NAME}")
+elseif(CONSUMER_USE_MODULES)
+  set(_work_suffix "modules")
+else()
+  set(_work_suffix "headers")
+endif()
+string(REGEX REPLACE "[^A-Za-z0-9_]+" "_" _work_suffix "${_work_suffix}")
+
+set(_work_dir "${BUILD_ROOT}/package_consumer_${_work_suffix}")
 set(_producer_build_dir "${_work_dir}/producer")
 set(_install_prefix "${_work_dir}/install")
 set(_consumer_build_dir "${_work_dir}/consumer")

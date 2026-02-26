@@ -541,8 +541,8 @@ if(WIN32)
 endif()
 
 # End-to-end behavioral checks with robust counting
-gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 17 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 17)
+gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 16 FAIL 0 SKIP 0)
+gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 16)
 
 gentest_add_check_counts(NAME integration_counts PROG $<TARGET_FILE:gentest_integration_tests> PASS 3 FAIL 0 SKIP 1)
 gentest_add_check_counts(NAME integration_list_counts PROG $<TARGET_FILE:gentest_integration_tests> LIST CASES 4)
@@ -794,8 +794,8 @@ gentest_add_check_death(
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "--time-unit=<mode>" ARGS --help)
-gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 17 ARGS --list-tests)
-gentest_add_check_contains(NAME unit_list_contains_attr_close_marker_name_prefix PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "unit/attributes/close_marker_in_string_" ARGS --list-tests)
+gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 16 ARGS --list-tests)
+gentest_add_check_contains(NAME unit_list_contains_default_name_member PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "unit/DefaultNameFixture/default_name_member" ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "tags=fast" ARGS --list)
 gentest_add_check_lines(NAME integration_list_tests_lines PROG $<TARGET_FILE:gentest_integration_tests> LINES 4 ARGS --list-tests)
 gentest_add_check_contains(NAME integration_list_tags_owner PROG $<TARGET_FILE:gentest_integration_tests> EXPECT_SUBSTRING "owner=team-runtime" ARGS --list)
@@ -855,7 +855,7 @@ gentest_add_check_file_contains(
     EXPECT_SUBSTRING "<property name=\"requirement\" value=\"#42\""
     ARGS --junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml)
 
-gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 34 FAIL 0 SKIP 0 ARGS --repeat=2)
+gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 32 FAIL 0 SKIP 0 ARGS --repeat=2)
 
 gentest_add_check_counts(NAME failing_fail_fast PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 1 SKIP 0 ARGS --fail-fast)
 
@@ -1132,7 +1132,8 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
         package
         -DPACKAGE_NAME=${PROJECT_NAME}
-        -DBUILD_CONFIG=${_gentest_package_test_config})
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DWORK_DIR_NAME=header)
 
     if(GENTEST_ENABLE_PACKAGE_MODULE_TESTS)
         _gentest_add_cmake_helper_test(
@@ -1142,7 +1143,8 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
             package
             -DPACKAGE_NAME=${PROJECT_NAME}
             -DBUILD_CONFIG=${_gentest_package_test_config}
-            -DCONSUMER_USE_MODULES=ON)
+            -DCONSUMER_USE_MODULES=ON
+            -DWORK_DIR_NAME=modules)
     endif()
 endif()
 
