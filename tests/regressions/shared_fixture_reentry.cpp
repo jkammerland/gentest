@@ -4,14 +4,15 @@
 
 namespace {
 
-constexpr std::string_view kFixtureName = "regressions::ReentryFixture";
+constexpr std::string_view kPrimaryFixtureName   = "regressions::ReentryFixturePrimary";
+constexpr std::string_view kSecondaryFixtureName = "regressions::ReentryFixtureSecondary";
 
-std::shared_ptr<void> create_fixture(std::string_view, std::string &) { return std::make_shared<int>(42); }
+std::shared_ptr<void> create_primary_fixture(std::string_view, std::string &) { return std::make_shared<int>(42); }
 
-void setup_fixture(void *, std::string &error) {
+void setup_primary_fixture(void *, std::string &error) {
     std::string inner_error;
-    auto        inner =
-        gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureName, inner_error);
+    auto inner = gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kPrimaryFixtureName,
+                                                     inner_error);
     if (inner) {
         error = "fixture should not be visible during setup";
         return;
@@ -21,12 +22,23 @@ void setup_fixture(void *, std::string &error) {
     }
 }
 
-void teardown_fixture(void *, std::string &error) {
+void teardown_primary_fixture(void *, std::string &error) {
     std::string inner_error;
-    auto        inner =
-        gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureName, inner_error);
+    auto inner = gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kPrimaryFixtureName,
+                                                     inner_error);
     if (!inner) {
         error = "fixture should stay accessible during teardown: " + inner_error;
+    }
+}
+
+std::shared_ptr<void> create_secondary_fixture(std::string_view, std::string &) { return std::make_shared<int>(7); }
+
+void teardown_secondary_fixture(void *, std::string &error) {
+    std::string inner_error;
+    auto inner = gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kPrimaryFixtureName,
+                                                     inner_error);
+    if (inner) {
+        error = "primary fixture should not be lazily recreated during teardown";
     }
 }
 
@@ -54,15 +66,26 @@ gentest::Case kCases[] = {
 } // namespace
 
 int main(int argc, char **argv) {
-    gentest::detail::SharedFixtureRegistration registration{
-        .fixture_name = kFixtureName,
+    gentest::detail::SharedFixtureRegistration primary_registration{
+        .fixture_name = kPrimaryFixtureName,
         .suite        = std::string_view{},
         .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_fixture,
-        .setup        = &setup_fixture,
-        .teardown     = &teardown_fixture,
+        .create       = &create_primary_fixture,
+        .setup        = &setup_primary_fixture,
+        .teardown     = &teardown_primary_fixture,
     };
-    gentest::detail::register_shared_fixture(registration);
+    gentest::detail::register_shared_fixture(primary_registration);
+
+    gentest::detail::SharedFixtureRegistration secondary_registration{
+        .fixture_name = kSecondaryFixtureName,
+        .suite        = std::string_view{},
+        .scope        = gentest::detail::SharedFixtureScope::Global,
+        .create       = &create_secondary_fixture,
+        .setup        = nullptr,
+        .teardown     = &teardown_secondary_fixture,
+    };
+    gentest::detail::register_shared_fixture(secondary_registration);
+
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     return gentest::run_all_tests(argc, argv);
 }
