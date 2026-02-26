@@ -67,6 +67,24 @@ target_sources(gentest_runtime
             FILES ${_gentest_headers}
 )
 
+if(GENTEST_ENABLE_MODULES)
+    add_library(gentest_modules STATIC)
+    target_sources(gentest_modules
+        PUBLIC
+            FILE_SET cxx_modules
+                TYPE CXX_MODULES
+                BASE_DIRS ${PROJECT_SOURCE_DIR}/include
+                FILES
+                    ${PROJECT_SOURCE_DIR}/include/gentest/gentest.cppm
+    )
+    target_include_directories(gentest_modules
+        PUBLIC
+            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>)
+    target_compile_features(gentest_modules PUBLIC cxx_std_20)
+    target_link_libraries(gentest_modules PUBLIC gentest_runtime)
+endif()
+
 target_link_libraries(${PROJECT_NAME}
     INTERFACE gentest_runtime)
 
@@ -85,4 +103,7 @@ if(NOT TARGET gentest::gentest_runtime)
 endif()
 if(NOT TARGET gentest::gentest_main)
     add_library(gentest::gentest_main ALIAS gentest_main)
+endif()
+if(GENTEST_ENABLE_MODULES AND NOT TARGET gentest::gentest_modules)
+    add_library(gentest::gentest_modules ALIAS gentest_modules)
 endif()

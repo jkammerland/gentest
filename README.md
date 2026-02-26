@@ -1,8 +1,8 @@
 # gentest
 
-`gentest` is an attribute-driven C++ test runner + clang tools based code generator.  
+`gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
 
-Write tests using standard C++ attributes (`[[using gentest: ...]]`). The build runs `gentest_codegen` based on the attributes found in the src files, moving the code generation outside the build phase of the test themselves as you have with macro based code expansion. Allowing yourself this degree of freedom allows for much greater flexibility when adding new features and naturalness since we can communicate via modern c++ style attributes to the compiler, which are made for this purpose. The tradeoff being higher tooling complexity. 
+Write tests with standard C++ attributes (`[[using gentest: ...]]`). During the build, `gentest_codegen` scans your sources and generates registrations/wrappers from those attributes. This avoids macro-heavy registration and keeps test declarations in normal C++ syntax. The tradeoff is higher tooling complexity.
 
 >[!NOTE]
 > Start at [`docs/index.md`](docs/index.md) for the rest of the docs.
@@ -63,6 +63,10 @@ target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 gentest_attach_codegen(my_tests)
 # Per-TU mode enforces case-insensitive uniqueness for generated TU headers.
 # If two sources map to the same header name ignoring case, codegen fails fast.
+# Per-TU mode rejects named module units (for example files with
+# `export module ...;`), because wrapper shims include original sources.
+# Manifest mode also rejects named module units.
+# For now, pass explicit SOURCES that exclude module units.
 # Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via
 # `gentest_attach_codegen(... CLANG_ARGS ...)` or override
 # `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`.
@@ -103,6 +107,40 @@ Run:
 ./my_tests --github-annotations
 ./my_tests
 ```
+
+## C++20 modules
+
+Install package with module support (`find_package` consumer flow):
+
+```bash
+cmake -S . -B build -DGENTEST_ENABLE_MODULES=ON -Dgentest_INSTALL=ON
+cmake --build build --target install
+```
+
+Consumer `CMakeLists.txt`:
+
+```cmake
+find_package(gentest CONFIG REQUIRED)
+
+add_executable(my_tests cases.cpp)
+target_link_libraries(my_tests PRIVATE
+    gentest::gentest_main
+    gentest::gentest_modules)
+```
+
+Consumer source:
+
+```cpp
+#include <span>
+#include <string_view>
+import gentest;
+```
+
+Notes:
+- `gentest::gentest_modules` exports the `gentest` named module; link it alongside `gentest::gentest_main` (or `gentest::gentest_runtime` if you provide your own `main`).
+- `gentest_attach_codegen()` currently cannot scan/wrap named module units (interfaces or implementations) in either TU wrapper or manifest mode. Pass explicit `SOURCES` that exclude module units.
+- Some toolchains require module scanning to be enabled in the consumer project (`CMAKE_CXX_SCAN_FOR_MODULES=ON` or target property `CXX_SCAN_FOR_MODULES ON`).
+- `import std;` support is compiler/STL dependent. Use normal standard-library includes in consumer TUs unless your toolchain supports `import std;`. Optional configure probe: `-DGENTEST_TRY_IMPORT_STD=ON`.
 
 `--list-tests` prints only resolved test names (one per line).
 `--list` prints the richer listing format (name plus metadata such as tags/owner when present).
@@ -372,10 +410,10 @@ void mock_clock() {
 ```
 
 Safeguards:
-- Mocked target definitions must be in a header or header module. Source/module-interface definitions are rejected by codegen.
-- Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
+- Mocked target definitions must be in a header or header module. Definitions in ordinary source files and named module units are rejected by codegen (the generated mock registry currently resolves targets via `#include`, not `import`).
+- Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module units).
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
-- Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (only a windows problem).
+- Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (Windows-only path constraint).
 
 Header implementation to mock (`sink.h`):
 
@@ -409,21 +447,31 @@ void mock_nonvirtual() {
 }
 ```
 
-Matchers (continuing the example above; use `.where(...)` with `gentest::match` helpers):
+Matchers (`.where(...)` with `gentest::match` helpers):
 
 ```cpp
+#include "sink.h"
+#include "gentest/mock.h"
 using namespace gentest::match;
 
+gentest::mock<Sink> sink;
 EXPECT_CALL(sink, write).times(2).where(InRange(10, 20));
 ```
 
-Static member functions can be mocked too (calls must go through the mock object):
+Static member functions can be mocked too when the call goes through the mock object:
 
 ```cpp
+struct Ticker {
+    static int add(int lhs, int rhs) noexcept { return lhs + rhs; }
+};
+
 gentest::mock<Ticker> t;
 EXPECT_CALL(t, add).times(1).returns(123);
 EXPECT_EQ(t.add(4, 5), 123);
+EXPECT_EQ(Ticker::add(4, 5), 9); // direct static call (not mocked)
 ```
+
+`t.add(...)` is intercepted. `Ticker::add(...)` bypasses the mock.
 
 ### Benchmarks and jitter
 

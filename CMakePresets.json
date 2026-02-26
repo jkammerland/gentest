@@ -126,6 +126,16 @@
       }
     },
     {
+      "name": "debug-system-modules",
+      "inherits": "debug-system",
+      "displayName": "Debug (system LLVM/Clang, modules)",
+      "description": "Debug build using the system toolchain with module targets and module package-consumer smoke enabled",
+      "cacheVariables": {
+        "GENTEST_ENABLE_MODULES": "ON",
+        "GENTEST_ENABLE_PACKAGE_MODULE_TESTS": "ON"
+      }
+    },
+    {
       "name": "debug-system-cxx20",
       "inherits": "debug-system",
       "displayName": "Debug (system LLVM/Clang, C++20 tests)",
@@ -473,6 +483,14 @@
       "jobs": 0
     },
     {
+      "name": "debug-system-modules",
+      "inherits": "build-base",
+      "configurePreset": "debug-system-modules",
+      "displayName": "Debug Build (system LLVM/Clang, modules)",
+      "description": "Build with the system toolchain and module targets/package smoke enabled",
+      "jobs": 0
+    },
+    {
       "name": "debug-system-cxx20",
       "inherits": "build-base",
       "configurePreset": "debug-system-cxx20",
@@ -733,6 +751,13 @@
       "configurePreset": "debug-system",
       "displayName": "Debug Tests (system LLVM/Clang)",
       "description": "Run all tests in debug mode using the system LLVM/Clang toolchain"
+    },
+    {
+      "name": "debug-system-modules",
+      "inherits": "test-base",
+      "configurePreset": "debug-system-modules",
+      "displayName": "Debug Tests (system LLVM/Clang, modules)",
+      "description": "Run all tests in debug mode with module targets and module package-consumer smoke enabled"
     },
     {
       "name": "debug-system-cxx20",
@@ -996,6 +1021,16 @@
           "type": "test",
           "name": "debug-system"
         }
+      ]
+    },
+    {
+      "name": "debug-system-modules",
+      "displayName": "Debug Workflow (system LLVM/Clang, modules)",
+      "description": "Configure, build, and test with module targets and module package-consumer coverage enabled",
+      "steps": [
+        { "type": "configure", "name": "debug-system-modules" },
+        { "type": "build",     "name": "debug-system-modules" },
+        { "type": "test",      "name": "debug-system-modules" }
       ]
     },
     {

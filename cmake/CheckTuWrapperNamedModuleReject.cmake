@@ -10,31 +10,22 @@
 #  -DC_COMPILER=<C compiler>
 #  -DCXX_COMPILER=<C++ compiler>
 #  -DBUILD_TYPE=<Debug/Release/...>
-#  -DWORK_DIR_NAME=<custom suffix to avoid build-dir collisions>
+#  -DEXPECT_SUBSTRING=<expected configure error substring>
 
 if(NOT DEFINED SOURCE_DIR)
-  message(FATAL_ERROR "CheckTuWrapperSourceProps.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckTuWrapperNamedModuleReject.cmake: SOURCE_DIR not set")
 endif()
 if(NOT DEFINED BUILD_ROOT)
-  message(FATAL_ERROR "CheckTuWrapperSourceProps.cmake: BUILD_ROOT not set")
+  message(FATAL_ERROR "CheckTuWrapperNamedModuleReject.cmake: BUILD_ROOT not set")
 endif()
 if(NOT DEFINED GENERATOR)
-  message(FATAL_ERROR "CheckTuWrapperSourceProps.cmake: GENERATOR not set")
+  message(FATAL_ERROR "CheckTuWrapperNamedModuleReject.cmake: GENERATOR not set")
+endif()
+if(NOT DEFINED EXPECT_SUBSTRING)
+  set(EXPECT_SUBSTRING "TU wrapper mode does not support named module")
 endif()
 
-include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
-
-if(DEFINED WORK_DIR_NAME AND NOT "${WORK_DIR_NAME}" STREQUAL "")
-  set(_work_dir_suffix "${WORK_DIR_NAME}")
-else()
-  get_filename_component(_work_dir_suffix "${SOURCE_DIR}" NAME)
-endif()
-if(_work_dir_suffix STREQUAL "")
-  set(_work_dir_suffix "fixture")
-endif()
-string(REGEX REPLACE "[^A-Za-z0-9_]+" "_" _work_dir_suffix "${_work_dir_suffix}")
-
-set(_work_dir "${BUILD_ROOT}/tu_wrapper_source_props_${_work_dir_suffix}")
+set(_work_dir "${BUILD_ROOT}/tu_wrapper_named_module_reject")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
@@ -65,16 +56,30 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
-message(STATUS "Configure gentest_tu_wrapper_source_props fixture...")
-gentest_check_run_or_fail(
+execute_process(
   COMMAND
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
     -S "${SOURCE_DIR}"
     -B "${_build_dir}"
     ${_cmake_cache_args}
-  STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_work_dir}"
-)
+  RESULT_VARIABLE _rc
+  OUTPUT_VARIABLE _out
+  ERROR_VARIABLE _err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
 
-message(STATUS "gentest_tu_wrapper_source_props fixture passed")
+set(_all "${_out}\n${_err}")
+set(_all_normalized "${_all}")
+string(REGEX REPLACE "[\r\n\t ]+" " " _all_normalized "${_all_normalized}")
+if(_rc EQUAL 0)
+  message(FATAL_ERROR "Expected configure to fail for TU wrapper + named modules, but it succeeded.")
+endif()
+
+string(FIND "${_all_normalized}" "${EXPECT_SUBSTRING}" _pos)
+if(_pos EQUAL -1)
+  message(FATAL_ERROR "Expected substring not found in configure output: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
+endif()
+
+message(STATUS "Named module TU-wrapper rejection check passed")
