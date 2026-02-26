@@ -63,10 +63,10 @@ target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 gentest_attach_codegen(my_tests)
 # Per-TU mode enforces case-insensitive uniqueness for generated TU headers.
 # If two sources map to the same header name ignoring case, codegen fails fast.
-# Per-TU mode also rejects named module units (for example files with
+# Per-TU mode rejects named module units (for example files with
 # `export module ...;`), because wrapper shims include original sources.
-# If you need to scan/wrap named module interfaces, use manifest mode
-# (OUTPUT=...) or pass explicit SOURCES that exclude module interface units.
+# Manifest mode also rejects named module units.
+# For now, pass explicit SOURCES that exclude module units.
 # Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via
 # `gentest_attach_codegen(... CLANG_ARGS ...)` or override
 # `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`.
@@ -138,7 +138,7 @@ import gentest;
 
 Notes:
 - `gentest::gentest_modules` exports the `gentest` named module; link it alongside `gentest::gentest_main` (or `gentest::gentest_runtime` if you provide your own `main`).
-- `gentest_attach_codegen()` TU wrapper mode cannot scan/wrap named module units (interfaces or implementations); use `gentest_attach_codegen(... OUTPUT <file>)` (manifest mode), or pass explicit `SOURCES` that exclude module units.
+- `gentest_attach_codegen()` currently cannot scan/wrap named module units (interfaces or implementations) in either TU wrapper or manifest mode. Pass explicit `SOURCES` that exclude module units.
 - Some toolchains require module scanning to be enabled in the consumer project (`CMAKE_CXX_SCAN_FOR_MODULES=ON` or target property `CXX_SCAN_FOR_MODULES ON`).
 - `import std;` support is compiler/STL dependent. Use normal standard-library includes in consumer TUs unless your toolchain supports `import std;`. Optional configure probe: `-DGENTEST_TRY_IMPORT_STD=ON`.
 
@@ -410,8 +410,8 @@ void mock_clock() {
 ```
 
 Safeguards:
-- Mocked target definitions must be in a header or header module. Definitions in ordinary source files and named module interface files are rejected by codegen.
-- Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
+- Mocked target definitions must be in a header or header module. Definitions in ordinary source files and named module units are rejected by codegen (the generated mock registry currently resolves targets via `#include`, not `import`).
+- Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module units).
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
 - Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (Windows-only path constraint).
 

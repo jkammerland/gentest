@@ -1109,6 +1109,13 @@ _gentest_add_cmake_helper_test(
     cmake)
 set_property(TEST gentest_tu_wrapper_named_module_reject APPEND PROPERTY LABELS "codegen")
 
+_gentest_add_cmake_helper_test(
+    gentest_manifest_named_module_reject
+    ${PROJECT_SOURCE_DIR}/tests/cmake/manifest_named_module_reject
+    ${PROJECT_SOURCE_DIR}/cmake/CheckManifestNamedModuleReject.cmake
+    cmake)
+set_property(TEST gentest_manifest_named_module_reject APPEND PROPERTY LABELS "codegen")
+
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
     option(GENTEST_ENABLE_PACKAGE_MODULE_TESTS

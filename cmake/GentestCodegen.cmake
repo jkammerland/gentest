@@ -162,11 +162,19 @@ function(gentest_attach_codegen target)
             "gentest_attach_codegen(${target}): TU wrapper mode is not supported with multi-config generators. "
             "Use a single-config generator (separate build dirs) or pass OUTPUT=... to use manifest mode.")
     endif()
-    if(_gentest_mode STREQUAL "tu" AND _gentest_module_tus)
+    if(_gentest_module_tus)
         string(JOIN ", " _gentest_module_inputs ${_gentest_module_tus})
-        message(FATAL_ERROR
-            "gentest_attach_codegen(${target}): TU wrapper mode does not support named module interface sources "
-            "(${_gentest_module_inputs}). Use OUTPUT=... (manifest mode) for targets that include module interface units.")
+        if(_gentest_mode STREQUAL "tu")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): TU wrapper mode does not support named module units "
+                "(${_gentest_module_inputs}). Pass explicit SOURCES that exclude module units.")
+        endif()
+        if(_gentest_mode STREQUAL "manifest")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): manifest mode does not support named module units "
+                "(${_gentest_module_inputs}), including when NO_INCLUDE_SOURCES is set. "
+                "Pass explicit SOURCES that exclude module units.")
+        endif()
     endif()
 
     if(_gentest_mode STREQUAL "manifest")
