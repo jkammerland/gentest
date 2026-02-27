@@ -542,7 +542,7 @@ gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_t
 gentest_add_check_counts(NAME integration_counts PROG $<TARGET_FILE:gentest_integration_tests> PASS 3 FAIL 0 SKIP 1)
 gentest_add_check_counts(NAME integration_list_counts PROG $<TARGET_FILE:gentest_integration_tests> LIST CASES 4)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 8 SKIP 0)
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 6 SKIP 2)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -555,16 +555,20 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "fixture allocation failed for 'failing::NullFreeFixture': returned null"
     ARGS --run=failing/alloc/free_null)
 
-gentest_add_check_death(
+gentest_add_check_counts(
     NAME failing_suite_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
-    EXPECT_SUBSTRING "gentest: fixture 'failing::NullSuiteFixture' fixture allocation returned null"
+    PASS 0
+    FAIL 0
+    SKIP 1
     ARGS --run=failing/alloc/suite_null)
 
-gentest_add_check_death(
+gentest_add_check_counts(
     NAME failing_global_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
-    EXPECT_SUBSTRING "gentest: fixture 'failing::NullGlobalFixture' fixture allocation returned null"
+    PASS 0
+    FAIL 0
+    SKIP 1
     ARGS --run=failing/alloc/global_null)
 
 
@@ -745,6 +749,66 @@ target_include_directories(gentest_regression_shared_fixture_teardown_exit PRIVA
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_member_shared_fixture_setup_skip
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/member_shared_fixture_setup_skip.cpp)
+target_link_libraries(gentest_regression_member_shared_fixture_setup_skip PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_member_shared_fixture_setup_skip PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_member_shared_fixture_setup_skip PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_duplicate_registration
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_duplicate_registration.cpp)
+target_link_libraries(gentest_regression_shared_fixture_duplicate_registration PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_duplicate_registration PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_duplicate_registration PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_scope_conflict
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_scope_conflict.cpp)
+target_link_libraries(gentest_regression_shared_fixture_scope_conflict PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_scope_conflict PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_scope_conflict PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_ordering
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_ordering.cpp)
+target_link_libraries(gentest_regression_shared_fixture_ordering PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_ordering PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_ordering PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_manual_create_throw_skip
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_create_throw_skip.cpp)
+target_link_libraries(gentest_regression_shared_fixture_manual_create_throw_skip PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_manual_create_throw_skip PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_manual_create_throw_skip PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_manual_teardown_throw_exit
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_teardown_throw_exit.cpp)
+target_link_libraries(gentest_regression_shared_fixture_manual_teardown_throw_exit PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_manual_teardown_throw_exit PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_manual_teardown_throw_exit PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_suite(regression_local_fixture_teardown
+    TARGET gentest_regression_local_fixture_teardown
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_on_throw.cpp
+    OUTPUT_DIR regressions/local_fixture_teardown
+    NO_CTEST)
+
+gentest_add_suite(regression_shared_fixture_setup_skip
+    TARGET gentest_regression_shared_fixture_setup_skip
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_setup_skip.cpp
+    OUTPUT_DIR regressions/shared_fixture_setup_skip
+    NO_CTEST)
+
 add_executable(gentest_regression_time_unit_scaling
     ${CMAKE_CURRENT_SOURCE_DIR}/regressions/time_unit_scaling.cpp)
 target_link_libraries(gentest_regression_time_unit_scaling PRIVATE gentest_runtime)
@@ -777,6 +841,61 @@ gentest_add_check_exit_code(
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_teardown_exit>
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_local_fixture_teardown_unwind
+    PROG $<TARGET_FILE:gentest_regression_local_fixture_teardown>
+    PASS 1
+    FAIL 0
+    SKIP 1)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_setup_skip_free
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
+    PASS 0
+    FAIL 0
+    SKIP 2)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_setup_skip_member
+    PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
+    PASS 0
+    FAIL 0
+    SKIP 2)
+
+gentest_add_check_exit_code(
+    NAME regression_shared_fixture_duplicate_registration_rejected
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_duplicate_registration>
+    EXPECT_RC 1
+    ARGS --run=regressions/shared_fixture_duplicate_registration/smoke --kind=test)
+
+gentest_add_check_exit_code(
+    NAME regression_shared_fixture_scope_conflict_rejected
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_scope_conflict>
+    EXPECT_RC 1
+    ARGS --run=regressions/shared_fixture_scope_conflict/smoke --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_ordering_is_stable
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_ordering>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=regressions/shared_fixture_ordering/uses_b --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_manual_create_throw_skips
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_throw_skip>
+    PASS 0
+    FAIL 0
+    SKIP 1
+    ARGS --run=regressions/shared_fixture_manual_create_throw_skip/member_case --kind=test)
+
+gentest_add_check_exit_code(
+    NAME regression_shared_fixture_manual_teardown_throw_exits_nonzero
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_teardown_throw_exit>
+    EXPECT_RC 1
+    ARGS --run=regressions/shared_fixture_manual_teardown_throw_exit/smoke --kind=test)
 
 gentest_add_cmake_script_test(
     NAME regression_time_unit_tables
@@ -936,16 +1055,20 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "unexpected std::exception: free-fx-ctor"
     ARGS --run=ctor/free_fixtures)
 
-gentest_add_check_death(
+gentest_add_check_counts(
     NAME fixture_ctor_suite_shared
     PROG ${PROJECT_NAME}_ctor_tests
-    EXPECT_SUBSTRING "fixture construction threw std::exception: suite-ctor"
+    PASS 0
+    FAIL 0
+    SKIP 1
     ARGS --run=ctor/suite)
 
-gentest_add_check_death(
+gentest_add_check_counts(
     NAME fixture_ctor_global_shared
     PROG ${PROJECT_NAME}_ctor_tests
-    EXPECT_SUBSTRING "fixture construction threw std::exception: global-ctor"
+    PASS 0
+    FAIL 0
+    SKIP 1
     ARGS --run=ctor/global)
 # The 'ctor' suite intentionally contains failing tests; mark its raw run as WILL_FAIL
 set_tests_properties(ctor PROPERTIES WILL_FAIL TRUE)

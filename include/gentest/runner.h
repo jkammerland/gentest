@@ -1006,8 +1006,8 @@ struct SharedFixtureRegistration {
 // register_shared_fixture during static initialization.
 void register_shared_fixture(const SharedFixtureRegistration& registration);
 
-// Setup/teardown shared fixtures before/after the test run. Returns false if any
-// fixture failed to allocate or set up.
+// Setup/teardown shared fixtures before/after the test run. setup returns false
+// only for fatal registry errors (for example conflicting registrations).
 bool setup_shared_fixtures();
 bool teardown_shared_fixtures();
 

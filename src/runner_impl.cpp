@@ -61,11 +61,35 @@ struct SharedFixtureRegistry {
     std::vector<SharedFixtureEntry> entries;
     std::mutex                      mtx;
     bool                            teardown_in_progress = false;
+    bool                            registration_error   = false;
+    std::vector<std::string>        registration_errors;
 };
 
 auto shared_fixture_registry() -> SharedFixtureRegistry & {
     static SharedFixtureRegistry reg;
     return reg;
+}
+
+int shared_fixture_scope_rank(gentest::detail::SharedFixtureScope scope) {
+    switch (scope) {
+    case gentest::detail::SharedFixtureScope::Suite: return 0;
+    case gentest::detail::SharedFixtureScope::Global: return 1;
+    }
+    return 0;
+}
+
+bool shared_fixture_order_less(const SharedFixtureEntry &lhs, const SharedFixtureEntry &rhs) {
+    if (lhs.fixture_name != rhs.fixture_name)
+        return lhs.fixture_name < rhs.fixture_name;
+    const int lhs_scope_rank = shared_fixture_scope_rank(lhs.scope);
+    const int rhs_scope_rank = shared_fixture_scope_rank(rhs.scope);
+    if (lhs_scope_rank != rhs_scope_rank)
+        return lhs_scope_rank < rhs_scope_rank;
+    return lhs.suite < rhs.suite;
+}
+
+bool shared_fixture_callbacks_match(const SharedFixtureEntry &entry, const gentest::detail::SharedFixtureRegistration &registration) {
+    return entry.create == registration.create && entry.setup == registration.setup && entry.teardown == registration.teardown;
 }
 } // namespace
 
@@ -82,10 +106,21 @@ void register_shared_fixture(const SharedFixtureRegistration &registration) {
     std::lock_guard<std::mutex> lk(reg.mtx);
     for (const auto &entry : reg.entries) {
         if (entry.fixture_name == registration.fixture_name && entry.suite == registration.suite && entry.scope == registration.scope) {
+            if (!shared_fixture_callbacks_match(entry, registration)) {
+                const std::string msg = fmt::format("fixture '{}' registered multiple times with conflicting callbacks",
+                                                    registration.fixture_name);
+                fmt::print(stderr, "gentest: {}\n", msg);
+                reg.registration_error = true;
+                reg.registration_errors.push_back(msg);
+            }
             return;
         }
         if (entry.fixture_name == registration.fixture_name && entry.scope != registration.scope) {
-            fmt::print(stderr, "gentest: fixture '{}' registered with conflicting scopes.\n", entry.fixture_name);
+            const std::string msg = fmt::format("fixture '{}' registered with conflicting scopes.", entry.fixture_name);
+            fmt::print(stderr, "gentest: {}\n", msg);
+            reg.registration_error = true;
+            reg.registration_errors.push_back(msg);
+            return;
         }
     }
     SharedFixtureEntry entry;
@@ -95,7 +130,8 @@ void register_shared_fixture(const SharedFixtureRegistration &registration) {
     entry.create       = registration.create;
     entry.setup        = registration.setup;
     entry.teardown     = registration.teardown;
-    reg.entries.push_back(std::move(entry));
+    auto it = std::lower_bound(reg.entries.begin(), reg.entries.end(), entry, shared_fixture_order_less);
+    reg.entries.insert(it, std::move(entry));
 }
 
 namespace {
@@ -119,7 +155,15 @@ bool run_fixture_phase(std::string_view label, const std::function<void(std::str
     error_out.clear();
     gentest::detail::clear_bench_error();
     FixtureContextGuard guard(label);
-    fn(error_out);
+    try {
+        fn(error_out);
+    } catch (const gentest::assertion &e) {
+        error_out = e.message();
+    } catch (const std::exception &e) {
+        error_out = std::string("std::exception: ") + e.what();
+    } catch (...) {
+        error_out = "unknown exception";
+    }
     if (!error_out.empty()) {
         return false;
     }
@@ -154,6 +198,12 @@ std::string format_fixture_error(std::string_view stage, std::string_view detail
 bool setup_shared_fixtures() {
     auto &reg = shared_fixture_registry();
     bool  ok  = true;
+    {
+        std::lock_guard<std::mutex> lk(reg.mtx);
+        if (reg.registration_error) {
+            return false;
+        }
+    }
     for (;;) {
         std::size_t target_idx = std::numeric_limits<std::size_t>::max();
         std::string fixture_name;
@@ -194,7 +244,15 @@ bool setup_shared_fixtures() {
         if (!create_fn) {
             error = "missing factory";
         } else {
-            instance = create_fn(suite_name, error);
+            try {
+                instance = create_fn(suite_name, error);
+            } catch (const gentest::assertion &e) {
+                error = e.message();
+            } catch (const std::exception &e) {
+                error = std::string("std::exception: ") + e.what();
+            } catch (...) {
+                error = "unknown exception";
+            }
         }
 
         if (!instance) {
@@ -210,7 +268,6 @@ bool setup_shared_fixtures() {
                 entry.instance.reset();
             }
             fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
-            ok = false;
             continue;
         }
 
@@ -237,7 +294,6 @@ bool setup_shared_fixtures() {
                 entry.instance.reset();
             }
             fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
-            ok = false;
             continue;
         }
 
@@ -278,7 +334,7 @@ bool teardown_shared_fixtures() {
     {
         std::lock_guard<std::mutex> lk(reg.mtx);
         work.reserve(reg.entries.size());
-        for (std::size_t i = 0; i < reg.entries.size(); ++i) {
+        for (std::size_t i = reg.entries.size(); i-- > 0;) {
             auto &entry = reg.entries[i];
             if (!entry.initialized || entry.failed) {
                 entry.instance.reset();
@@ -2159,6 +2215,39 @@ static void record_synthetic_failure(RunnerState &state, const Case &test, std::
     state.report_items.push_back(std::move(item));
 }
 
+static void record_synthetic_skip(RunnerState &state, const Case &test, std::string reason, Counters &c) {
+    ++c.total;
+    ++c.skipped;
+    const long long dur_ms = 0LL;
+    if (state.color_output) {
+        fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
+        if (!reason.empty()) {
+            fmt::print(" {} :: {} ({} ms)\n", test.name, reason, dur_ms);
+        } else {
+            fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+        }
+    } else {
+        if (!reason.empty()) {
+            fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, reason, dur_ms);
+        } else {
+            fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+        }
+    }
+    if (!state.record_results)
+        return;
+    ReportItem item;
+    item.suite       = std::string(test.suite);
+    item.name        = std::string(test.name);
+    item.time_s      = 0.0;
+    item.skipped     = true;
+    item.skip_reason = std::move(reason);
+    for (auto sv : test.tags)
+        item.tags.emplace_back(sv);
+    for (auto sv : test.requirements)
+        item.requirements.emplace_back(sv);
+    state.report_items.push_back(std::move(item));
+}
+
 static bool run_tests_once(RunnerState &state, std::span<const Case> cases, std::span<const std::size_t> idxs, bool shuffle,
                            std::uint64_t base_seed, bool fail_fast, Counters &counters) {
     // Partition by suite (order of first encounter in idxs)
@@ -2233,7 +2322,7 @@ static bool run_tests_once(RunnerState &state, std::span<const Case> cases, std:
                     std::string reason;
                     if (!acquire_case_fixture(t, ctx, reason)) {
                         const std::string msg = reason.empty() ? std::string("fixture allocation returned null") : reason;
-                        record_synthetic_failure(state, t, msg, counters);
+                        record_synthetic_skip(state, t, msg, counters);
                         if (fail_fast && counters.failures > 0)
                             return true;
                         continue;

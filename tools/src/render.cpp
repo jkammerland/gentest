@@ -363,9 +363,14 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += decls;
         out += inits;
         out += setup;
-        out += "    " + invoke + "\n";
+        out += "    gentest_run_with_local_teardown(\n";
+        out += "        [&] {\n";
+        out += "            " + invoke + "\n";
+        out += "        },\n";
+        out += "        [&] {\n";
         out += teardown;
-        out += "    gentest_maybe_teardown(fx_.ref());\n";
+        out += "            gentest_maybe_teardown(fx_.ref());\n";
+        out += "        });\n";
         out += "}\n\n";
         return;
     }
@@ -423,8 +428,13 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += decls;
         out += inits;
         out += setup;
-        out += "    " + invoke + "\n";
+        out += "    gentest_run_with_local_teardown(\n";
+        out += "        [&] {\n";
+        out += "            " + invoke + "\n";
+        out += "        },\n";
+        out += "        [&] {\n";
         out += teardown;
+        out += "        });\n";
         out += "}\n\n";
         return;
     }

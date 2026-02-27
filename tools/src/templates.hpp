@@ -84,6 +84,46 @@ inline void gentest_record_fixture_failure(std::string_view fixture, std::string
     gentest::detail::record_failure(std::move(msg));
 }
 
+inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, std::string_view reason) {
+    std::string msg;
+    msg.reserve(fixture.size() + reason.size() + 48);
+    msg.append("shared fixture unavailable for '");
+    msg.append(fixture);
+    msg.push_back('\'');
+    if (!reason.empty()) {
+        msg.append(": ");
+        msg.append(reason);
+    }
+    if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
+        ::gentest::detail::record_bench_error(std::move(msg));
+        return;
+    }
+#if GENTEST_EXCEPTIONS_ENABLED
+    ::gentest::skip(msg);
+#else
+    ::gentest::detail::record_failure(std::move(msg));
+#endif
+}
+
+template <typename BodyFn, typename TeardownFn>
+inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+#if GENTEST_EXCEPTIONS_ENABLED
+    try {
+        body();
+    } catch (...) {
+        try {
+            teardown();
+        } catch (...) {
+        }
+        throw;
+    }
+    teardown();
+#else
+    body();
+    teardown();
+#endif
+}
+
 template <typename Handle>
 inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
     if (!handle.init()) {
@@ -101,7 +141,7 @@ inline bool gentest_init_shared_fixture(::gentest::detail::FixtureHandle<T>& han
     std::string reason;
     auto shared = ::gentest::detail::get_shared_fixture_typed<T>(scope, suite, fixture, reason);
     if (!shared) {
-        gentest_record_fixture_failure(fixture, reason);
+        gentest_record_shared_fixture_unavailable(fixture, reason);
         return false;
     }
     if (!handle.init_shared(std::move(shared))) {
@@ -185,6 +225,46 @@ inline void gentest_record_fixture_failure(std::string_view fixture, std::string
     gentest::detail::record_failure(std::move(msg));
 }
 
+inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, std::string_view reason) {
+    std::string msg;
+    msg.reserve(fixture.size() + reason.size() + 48);
+    msg.append("shared fixture unavailable for '");
+    msg.append(fixture);
+    msg.push_back('\'');
+    if (!reason.empty()) {
+        msg.append(": ");
+        msg.append(reason);
+    }
+    if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
+        ::gentest::detail::record_bench_error(std::move(msg));
+        return;
+    }
+#if GENTEST_EXCEPTIONS_ENABLED
+    ::gentest::skip(msg);
+#else
+    ::gentest::detail::record_failure(std::move(msg));
+#endif
+}
+
+template <typename BodyFn, typename TeardownFn>
+inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+#if GENTEST_EXCEPTIONS_ENABLED
+    try {
+        body();
+    } catch (...) {
+        try {
+            teardown();
+        } catch (...) {
+        }
+        throw;
+    }
+    teardown();
+#else
+    body();
+    teardown();
+#endif
+}
+
 template <typename Handle>
 inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
     if (!handle.init()) {
@@ -202,7 +282,7 @@ inline bool gentest_init_shared_fixture(::gentest::detail::FixtureHandle<T>& han
     std::string reason;
     auto shared = ::gentest::detail::get_shared_fixture_typed<T>(scope, suite, fixture, reason);
     if (!shared) {
-        gentest_record_fixture_failure(fixture, reason);
+        gentest_record_shared_fixture_unavailable(fixture, reason);
         return false;
     }
     if (!handle.init_shared(std::move(shared))) {
@@ -272,8 +352,13 @@ inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static void {w}(
         }}
         return;
     }}
-{decls}{inits}{setup}    {invoke}
-{teardown}}}
+{decls}{inits}{setup}    gentest_run_with_local_teardown(
+        [&] {{
+            {invoke}
+        }},
+        [&] {{
+{teardown}        }});
+}}
 
 )FMT";
 
@@ -308,8 +393,13 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
     auto fx_ = ::gentest::detail::FixtureHandle<{fixture}>::empty();
     if (!gentest_init_fixture(fx_, "{fixture}")) return;
     gentest_maybe_setup(fx_.ref());
-    {invoke}
-    gentest_maybe_teardown(fx_.ref());
+    gentest_run_with_local_teardown(
+        [&] {{
+            {invoke}
+        }},
+        [&] {{
+            gentest_maybe_teardown(fx_.ref());
+        }});
 }}
 
 )FMT";
