@@ -737,6 +737,14 @@ target_include_directories(gentest_regression_shared_fixture_reentry PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_shared_fixture_teardown_exit
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_teardown_exit.cpp)
+target_link_libraries(gentest_regression_shared_fixture_teardown_exit PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_teardown_exit PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_teardown_exit PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(gentest_regression_time_unit_scaling
     ${CMAKE_CURRENT_SOURCE_DIR}/regressions/time_unit_scaling.cpp)
 target_link_libraries(gentest_regression_time_unit_scaling PRIVATE gentest_runtime)
@@ -763,6 +771,12 @@ gentest_add_cmake_script_test(
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoTimeout.cmake"
     ARGS --run=regressions/shared_fixture_reentry_smoke --kind=test
     DEFINES TIMEOUT_SEC=10 EXPECT_RC=0)
+
+gentest_add_check_exit_code(
+    NAME regression_shared_fixture_teardown_failure_exits_nonzero
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_teardown_exit>
+    EXPECT_RC 1
+    ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test)
 
 gentest_add_cmake_script_test(
     NAME regression_time_unit_tables

@@ -253,7 +253,7 @@ bool setup_shared_fixtures() {
     return ok;
 }
 
-void teardown_shared_fixtures() {
+bool teardown_shared_fixtures() {
     struct TeardownWorkItem {
         std::size_t           index = std::numeric_limits<std::size_t>::max();
         std::string           fixture_name;
@@ -294,12 +294,14 @@ void teardown_shared_fixtures() {
         }
     }
 
+    bool teardown_ok = true;
     for (const auto &item : work) {
         if (item.teardown) {
             std::string       error;
             const std::string label = fmt::format("fixture teardown {}", item.fixture_name);
             if (!run_fixture_phase(label, [&](std::string &err) { item.teardown(item.instance.get(), err); }, error)) {
                 fmt::print(stderr, "gentest: fixture teardown failed for {}: {}\n", item.fixture_name, error);
+                teardown_ok = false;
             }
         }
 
@@ -311,6 +313,7 @@ void teardown_shared_fixtures() {
             entry.initializing = false;
         }
     }
+    return teardown_ok;
 }
 
 std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name,
@@ -416,9 +419,22 @@ struct Counters {
 };
 
 struct SharedFixtureRunGuard {
-    bool ok = true;
-    SharedFixtureRunGuard() { ok = gentest::detail::setup_shared_fixtures(); }
-    ~SharedFixtureRunGuard() { gentest::detail::teardown_shared_fixtures(); }
+    bool setup_ok    = true;
+    bool teardown_ok = true;
+    bool finalized   = false;
+
+    SharedFixtureRunGuard() { setup_ok = gentest::detail::setup_shared_fixtures(); }
+
+    void finalize() {
+        if (!finalized) {
+            teardown_ok = gentest::detail::teardown_shared_fixtures();
+            finalized   = true;
+        }
+    }
+
+    bool ok() const { return setup_ok && teardown_ok; }
+
+    ~SharedFixtureRunGuard() { finalize(); }
 };
 
 enum class Outcome {
@@ -3056,7 +3072,8 @@ auto run_all_tests(std::span<const char *> args) -> int {
         fmt::print("{}", summary);
     }
 
-    const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok;
+    fixture_guard.finalize();
+    const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok();
     return ok ? 0 : 1;
 }
 

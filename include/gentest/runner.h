@@ -1009,7 +1009,7 @@ void register_shared_fixture(const SharedFixtureRegistration& registration);
 // Setup/teardown shared fixtures before/after the test run. Returns false if any
 // fixture failed to allocate or set up.
 bool setup_shared_fixtures();
-void teardown_shared_fixtures();
+bool teardown_shared_fixtures();
 
 // Lookup shared fixture instance by scope/suite/name. Returns nullptr and fills
 // error when unavailable (not registered, allocation/setup failure, or setup
