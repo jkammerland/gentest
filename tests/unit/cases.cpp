@@ -1,6 +1,6 @@
 #include "gentest/attributes.h"
-#include "gentest/runner.h"
 #include "gentest/detail/bench_stats.h"
+#include "gentest/runner.h"
 using namespace gentest::asserts;
 
 #include <array>
@@ -37,15 +37,15 @@ void approx_absolute() {
 [[using gentest: test("approx/relative")]]
 void approx_relative() {
     using gentest::approx::Approx;
-    EXPECT_EQ(101.0, Approx(100.0).rel(2.0));   // 1% diff within 2%
-    EXPECT_EQ(Approx(200.0).rel(1.0), 198.5);  // 0.75% diff within 1%
+    EXPECT_EQ(101.0, Approx(100.0).rel(2.0)); // 1% diff within 2%
+    EXPECT_EQ(Approx(200.0).rel(1.0), 198.5); // 0.75% diff within 1%
 }
 
 [[using gentest: test("approx/relative_negative")]]
 void approx_relative_negative() {
     using gentest::approx::Approx;
-    EXPECT_EQ(-101.0, Approx(-100.0).rel(2.0));  // 1% diff within 2%
-    EXPECT_EQ(Approx(-200.0).rel(1.0), -198.5);  // 0.75% diff within 1%
+    EXPECT_EQ(-101.0, Approx(-100.0).rel(2.0)); // 1% diff within 2%
+    EXPECT_EQ(Approx(-200.0).rel(1.0), -198.5); // 0.75% diff within 1%
 }
 
 [[using gentest: test("strings/concatenate"), req("#42"), slow]]
@@ -96,6 +96,26 @@ void default_name_free() {
     EXPECT_TRUE(true);
 }
 
+[[using gentest: test("attributes/close_marker_in_string_]]_ok"), fast]]
+void attribute_name_with_close_marker_literal() {
+    EXPECT_TRUE(true);
+}
+
+[[maybe_unused]] constexpr const char *kCloseMarkerAttrParserRawNoise =
+    R"gentest(raw "quoted" text [[not_an_attribute and stray ]] plus // and /* markers)gentest";
+
+[[using gentest: test("attributes/close_marker_after_line_comment_]]_ok"), fast]]
+// Parser regression: close-marker text in comments should not terminate attribute scanning ]]
+void attribute_name_with_close_marker_after_line_comment() {
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("attributes/close_marker_after_block_comment_]]_ok"), fast]]
+/* Parser regression: raw-string-like text R"( [[not_attr]] )" is comment noise. */
+void attribute_name_with_close_marker_after_block_comment() {
+    EXPECT_TRUE(true);
+}
+
 [[using gentest: test("exceptions/expect_throw")]]
 void expect_throw_simple() {
     EXPECT_THROW(throw_runtime_error(), std::runtime_error);
@@ -129,7 +149,7 @@ struct DefaultNameFixture {
 [[using gentest: test("bench_stats/stats_known")]]
 void bench_stats_known() {
     std::vector<double> samples{1, 2, 3, 4, 5};
-    const auto stats = gentest::detail::compute_sample_stats(samples);
+    const auto          stats = gentest::detail::compute_sample_stats(samples);
     EXPECT_EQ(stats.count, std::size_t{5});
     EXPECT_EQ(stats.min, 1.0);
     EXPECT_EQ(stats.max, 5.0);
@@ -144,7 +164,7 @@ void bench_stats_known() {
 [[using gentest: test("bench_stats/hist_bimodal")]]
 void bench_stats_hist_bimodal() {
     std::vector<double> samples{0, 0, 0, 0, 10, 10, 10, 10};
-    const auto hist = gentest::detail::compute_histogram(samples, 4);
+    const auto          hist = gentest::detail::compute_histogram(samples, 4);
     EXPECT_EQ(hist.bins.size(), std::size_t{4});
     EXPECT_EQ(hist.bins[0].count, std::size_t{4});
     EXPECT_EQ(hist.bins[1].count, std::size_t{0});
@@ -160,7 +180,7 @@ void bench_stats_hist_bimodal() {
 [[using gentest: test("bench_stats/hist_skewed")]]
 void bench_stats_hist_skewed() {
     std::vector<double> samples{0, 0, 0, 0, 10};
-    const auto hist = gentest::detail::compute_histogram(samples, 2);
+    const auto          hist = gentest::detail::compute_histogram(samples, 2);
     EXPECT_EQ(hist.bins.size(), std::size_t{2});
     EXPECT_EQ(hist.bins[0].count, std::size_t{4});
     EXPECT_EQ(hist.bins[1].count, std::size_t{1});

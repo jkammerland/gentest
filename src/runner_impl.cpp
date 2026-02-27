@@ -60,6 +60,7 @@ struct SharedFixtureEntry {
 struct SharedFixtureRegistry {
     std::vector<SharedFixtureEntry> entries;
     std::mutex                      mtx;
+    bool                            teardown_in_progress = false;
 };
 
 auto shared_fixture_registry() -> SharedFixtureRegistry & {
@@ -157,26 +158,33 @@ bool setup_shared_fixtures() {
         std::size_t target_idx = std::numeric_limits<std::size_t>::max();
         std::string fixture_name;
         std::string suite_name;
+        bool        teardown_in_progress                                    = false;
         std::shared_ptr<void> (*create_fn)(std::string_view, std::string &) = nullptr;
         void (*setup_fn)(void *, std::string &)                             = nullptr;
 
         {
             std::lock_guard<std::mutex> lk(reg.mtx);
-            for (std::size_t i = 0; i < reg.entries.size(); ++i) {
-                auto &entry = reg.entries[i];
-                if (entry.initialized || entry.initializing || entry.failed) {
-                    continue;
+            teardown_in_progress = reg.teardown_in_progress;
+            if (!teardown_in_progress) {
+                for (std::size_t i = 0; i < reg.entries.size(); ++i) {
+                    auto &entry = reg.entries[i];
+                    if (entry.initialized || entry.initializing || entry.failed) {
+                        continue;
+                    }
+                    entry.initializing = true;
+                    target_idx         = i;
+                    fixture_name       = entry.fixture_name;
+                    suite_name         = entry.suite;
+                    create_fn          = entry.create;
+                    setup_fn           = entry.setup;
+                    break;
                 }
-                entry.initializing = true;
-                target_idx         = i;
-                fixture_name       = entry.fixture_name;
-                suite_name         = entry.suite;
-                create_fn          = entry.create;
-                setup_fn           = entry.setup;
-                break;
             }
         }
 
+        if (teardown_in_progress) {
+            break;
+        }
         if (target_idx == std::numeric_limits<std::size_t>::max()) {
             break;
         }
@@ -246,23 +254,62 @@ bool setup_shared_fixtures() {
 }
 
 void teardown_shared_fixtures() {
-    auto                       &reg = shared_fixture_registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
-    for (auto &entry : reg.entries) {
-        if (!entry.initialized || entry.failed) {
-            entry.instance.reset();
-            entry.initialized = false;
-            continue;
+    struct TeardownWorkItem {
+        std::size_t           index = std::numeric_limits<std::size_t>::max();
+        std::string           fixture_name;
+        std::shared_ptr<void> instance;
+        void (*teardown)(void *instance, std::string &error) = nullptr;
+    };
+    struct TeardownGuard {
+        SharedFixtureRegistry &reg;
+        explicit TeardownGuard(SharedFixtureRegistry &registry) : reg(registry) {
+            std::lock_guard<std::mutex> lk(reg.mtx);
+            reg.teardown_in_progress = true;
         }
-        if (entry.teardown) {
+        ~TeardownGuard() {
+            std::lock_guard<std::mutex> lk(reg.mtx);
+            reg.teardown_in_progress = false;
+        }
+    };
+
+    auto                         &reg = shared_fixture_registry();
+    TeardownGuard                 teardown_guard(reg);
+    std::vector<TeardownWorkItem> work;
+    {
+        std::lock_guard<std::mutex> lk(reg.mtx);
+        work.reserve(reg.entries.size());
+        for (std::size_t i = 0; i < reg.entries.size(); ++i) {
+            auto &entry = reg.entries[i];
+            if (!entry.initialized || entry.failed) {
+                entry.instance.reset();
+                entry.initialized = false;
+                continue;
+            }
+            work.push_back(TeardownWorkItem{
+                .index        = i,
+                .fixture_name = entry.fixture_name,
+                .instance     = entry.instance,
+                .teardown     = entry.teardown,
+            });
+        }
+    }
+
+    for (const auto &item : work) {
+        if (item.teardown) {
             std::string       error;
-            const std::string label = fmt::format("fixture teardown {}", entry.fixture_name);
-            if (!run_fixture_phase(label, [&](std::string &err) { entry.teardown(entry.instance.get(), err); }, error)) {
-                fmt::print(stderr, "gentest: fixture teardown failed for {}: {}\n", entry.fixture_name, error);
+            const std::string label = fmt::format("fixture teardown {}", item.fixture_name);
+            if (!run_fixture_phase(label, [&](std::string &err) { item.teardown(item.instance.get(), err); }, error)) {
+                fmt::print(stderr, "gentest: fixture teardown failed for {}: {}\n", item.fixture_name, error);
             }
         }
-        entry.instance.reset();
-        entry.initialized = false;
+
+        std::lock_guard<std::mutex> lk(reg.mtx);
+        if (item.index < reg.entries.size()) {
+            auto &entry = reg.entries[item.index];
+            entry.instance.reset();
+            entry.initialized  = false;
+            entry.initializing = false;
+        }
     }
 }
 
@@ -289,7 +336,15 @@ std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_v
             if (entry.initialized) {
                 return entry.instance;
             }
+            if (reg.teardown_in_progress) {
+                error = "fixture teardown in progress";
+                return {};
+            }
             break;
+        }
+        if (reg.teardown_in_progress) {
+            error = "fixture teardown in progress";
+            return {};
         }
     }
     // Attempt lazy initialization if setup has not run yet.

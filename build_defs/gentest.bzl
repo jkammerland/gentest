@@ -16,10 +16,13 @@ def gentest_suite(name):
         name = 'gen_{}'.format(name),
         srcs = ['tests/{}/cases.cpp'.format(name)],
         outs = [gen_out],
-        tools = [':gentest_codegen_build'],
+        tools = [':gentest_codegen'],
         cmd = "mkdir -p $(@D) && " +
-              '"$(location :gentest_codegen_build)" --output $@ $(SRCS) -- -std=c++20 -DGENTEST_CODEGEN=1 -Wno-unknown-attributes ' +
+              '"$(location :gentest_codegen)" --output $@ $(SRCS) -- -std=c++20 -DGENTEST_CODEGEN=1 -Wno-unknown-attributes ' +
               '-Wno-attributes -Wno-unknown-warning-option -Iinclude -Itests',
+        cmd_bat = "if not exist $(@D) mkdir $(@D) && " +
+                  '"$(location :gentest_codegen)" --output $@ $(SRCS) -- -std=c++20 -DGENTEST_CODEGEN=1 -Wno-unknown-attributes ' +
+                  '-Wno-attributes -Wno-unknown-warning-option -Iinclude -Itests',
         tags = ['no-sandbox'],
     )
 
