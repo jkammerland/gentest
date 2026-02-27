@@ -555,13 +555,13 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "fixture allocation failed for 'failing::NullFreeFixture': returned null"
     ARGS --run=failing/alloc/free_null)
 
-gentest_add_check_contains(
+gentest_add_check_death(
     NAME failing_suite_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
     EXPECT_SUBSTRING "failing/alloc/suite_null :: fixture allocation returned null"
     ARGS --run=failing/alloc/suite_null)
 
-gentest_add_check_contains(
+gentest_add_check_death(
     NAME failing_global_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
     EXPECT_SUBSTRING "failing/alloc/global_null :: fixture allocation returned null"
@@ -904,13 +904,13 @@ gentest_add_check_counts(
     EXPECT_RC 1
     ARGS --fail-fast)
 
-gentest_add_check_contains(
+gentest_add_check_death(
     NAME regression_shared_fixture_setup_skip_bench
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
     EXPECT_SUBSTRING "[ SKIP ] regressions/shared_setup_skip_bench_jitter/regressions/shared_setup_skip_bench_jitter/suite_bench"
     ARGS --run=regressions/shared_setup_skip_bench_jitter/suite_bench --kind=bench)
 
-gentest_add_check_contains(
+gentest_add_check_death(
     NAME regression_shared_fixture_setup_skip_jitter
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
     EXPECT_SUBSTRING "[ SKIP ] regressions/shared_setup_skip_bench_jitter/regressions/shared_setup_skip_bench_jitter/global_jitter"
@@ -1117,13 +1117,13 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "unexpected std::exception: free-fx-ctor"
     ARGS --run=ctor/free_fixtures)
 
-gentest_add_check_contains(
+gentest_add_check_death(
     NAME fixture_ctor_suite_shared
     PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "fixture construction threw std::exception: suite-ctor"
     ARGS --run=ctor/suite)
 
-gentest_add_check_contains(
+gentest_add_check_death(
     NAME fixture_ctor_global_shared
     PROG ${PROJECT_NAME}_ctor_tests
     EXPECT_SUBSTRING "fixture construction threw std::exception: global-ctor"
@@ -1164,7 +1164,7 @@ gentest_add_check_death(
 gentest_add_check_death(
     NAME benches_fixture_alloc_null
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING "benchmark fixture allocation failed for benchmarks/fixture/null"
+    EXPECT_SUBSTRING "shared fixture unavailable for 'benchmarks::NullBenchFixture'"
     ENV_VARS GENTEST_BENCH_NULL_FIXTURE=1
     ARGS --run=benchmarks/fixture/null --kind=bench)
 
@@ -1177,7 +1177,7 @@ gentest_add_check_exit_code(
 gentest_add_check_death(
     NAME jitter_fixture_alloc_null
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING "jitter fixture allocation failed for benchmarks/fixture/jitter_null"
+    EXPECT_SUBSTRING "shared fixture unavailable for 'benchmarks::NullJitterFixture'"
     ENV_VARS GENTEST_JITTER_NULL_FIXTURE=1
     ARGS --run=benchmarks/fixture/jitter_null --kind=jitter)
 
