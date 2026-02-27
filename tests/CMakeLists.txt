@@ -555,20 +555,16 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "fixture allocation failed for 'failing::NullFreeFixture': returned null"
     ARGS --run=failing/alloc/free_null)
 
-gentest_add_check_counts(
+gentest_add_check_contains(
     NAME failing_suite_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
-    PASS 0
-    FAIL 0
-    SKIP 1
+    EXPECT_SUBSTRING "failing/alloc/suite_null :: fixture allocation returned null"
     ARGS --run=failing/alloc/suite_null)
 
-gentest_add_check_counts(
+gentest_add_check_contains(
     NAME failing_global_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
-    PASS 0
-    FAIL 0
-    SKIP 1
+    EXPECT_SUBSTRING "failing/alloc/global_null :: fixture allocation returned null"
     ARGS --run=failing/alloc/global_null)
 
 
@@ -765,6 +761,14 @@ target_include_directories(gentest_regression_shared_fixture_duplicate_registrat
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_shared_fixture_duplicate_registration_idempotent
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_duplicate_registration_idempotent.cpp)
+target_link_libraries(gentest_regression_shared_fixture_duplicate_registration_idempotent PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_duplicate_registration_idempotent PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_duplicate_registration_idempotent PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(gentest_regression_shared_fixture_scope_conflict
     ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_scope_conflict.cpp)
 target_link_libraries(gentest_regression_shared_fixture_scope_conflict PRIVATE gentest_runtime)
@@ -856,10 +860,10 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/shared_fixture_reentry_smoke --kind=test
     DEFINES TIMEOUT_SEC=10 EXPECT_RC=0)
 
-gentest_add_check_exit_code(
+gentest_add_check_death(
     NAME regression_shared_fixture_teardown_failure_exits_nonzero
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_teardown_exit>
-    EXPECT_RC 1
+    EXPECT_SUBSTRING "intentional shared fixture teardown failure"
     ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test)
 
 gentest_add_check_counts(
@@ -912,17 +916,25 @@ gentest_add_check_contains(
     EXPECT_SUBSTRING "[ SKIP ] regressions/shared_setup_skip_bench_jitter/regressions/shared_setup_skip_bench_jitter/global_jitter"
     ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter)
 
-gentest_add_check_exit_code(
+gentest_add_check_death(
     NAME regression_shared_fixture_duplicate_registration_rejected
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_duplicate_registration>
-    EXPECT_RC 1
+    EXPECT_SUBSTRING "registered multiple times with conflicting callbacks"
     ARGS --run=regressions/shared_fixture_duplicate_registration/smoke --kind=test)
 
-gentest_add_check_exit_code(
+gentest_add_check_death(
     NAME regression_shared_fixture_scope_conflict_rejected
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_scope_conflict>
-    EXPECT_RC 1
+    EXPECT_SUBSTRING "registered with conflicting scopes."
     ARGS --run=regressions/shared_fixture_scope_conflict/smoke --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_duplicate_registration_idempotent_accepted
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_duplicate_registration_idempotent>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=regressions/shared_fixture_duplicate_registration_idempotent/smoke --kind=test)
 
 gentest_add_check_counts(
     NAME regression_shared_fixture_ordering_is_stable
@@ -941,10 +953,10 @@ gentest_add_check_counts(
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_create_throw_skip/member_case --kind=test)
 
-gentest_add_check_exit_code(
+gentest_add_check_death(
     NAME regression_shared_fixture_manual_teardown_throw_exits_nonzero
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_teardown_throw_exit>
-    EXPECT_RC 1
+    EXPECT_SUBSTRING "manual-teardown-throw"
     ARGS --run=regressions/shared_fixture_manual_teardown_throw_exit/smoke --kind=test)
 
 gentest_add_cmake_script_test(
@@ -1105,20 +1117,16 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "unexpected std::exception: free-fx-ctor"
     ARGS --run=ctor/free_fixtures)
 
-gentest_add_check_counts(
+gentest_add_check_contains(
     NAME fixture_ctor_suite_shared
     PROG ${PROJECT_NAME}_ctor_tests
-    PASS 0
-    FAIL 0
-    SKIP 1
+    EXPECT_SUBSTRING "fixture construction threw std::exception: suite-ctor"
     ARGS --run=ctor/suite)
 
-gentest_add_check_counts(
+gentest_add_check_contains(
     NAME fixture_ctor_global_shared
     PROG ${PROJECT_NAME}_ctor_tests
-    PASS 0
-    FAIL 0
-    SKIP 1
+    EXPECT_SUBSTRING "fixture construction threw std::exception: global-ctor"
     ARGS --run=ctor/global)
 # The 'ctor' suite intentionally contains failing tests; mark its raw run as WILL_FAIL
 set_tests_properties(ctor PROPERTIES WILL_FAIL TRUE)
