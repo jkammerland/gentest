@@ -24,21 +24,53 @@ std::string_view trim_view(std::string_view text) {
     return text;
 }
 
+bool is_raw_string_delimiter_char(char ch) {
+    if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
+        return false;
+    }
+    return ch != '(' && ch != ')' && ch != '\\' && ch != '"';
+}
+
+bool try_start_raw_string(std::string_view text, std::size_t index, std::string &delimiter, std::size_t &open_paren) {
+    if (index + 2 >= text.size() || text[index] != 'R' || text[index + 1] != '"') {
+        return false;
+    }
+
+    std::size_t cursor = index + 2;
+    while (cursor < text.size() && text[cursor] != '(') {
+        if (!is_raw_string_delimiter_char(text[cursor])) {
+            return false;
+        }
+        ++cursor;
+    }
+    if (cursor >= text.size()) {
+        return false;
+    }
+
+    delimiter.assign(text.substr(index + 2, cursor - (index + 2)));
+    open_paren = cursor;
+    return true;
+}
+
 std::size_t find_attribute_open_for_close(llvm::StringRef buffer, std::size_t close_marker) {
     if (close_marker + 1 >= static_cast<std::size_t>(buffer.size())) {
         return llvm::StringRef::npos;
     }
 
+    const std::string_view text(buffer.data(), buffer.size());
+
     bool in_string        = false;
     bool in_char          = false;
     bool in_line_comment  = false;
     bool in_block_comment = false;
+    bool in_raw_string    = false;
     bool escape           = false;
+    std::string raw_delimiter;
 
     std::size_t open_marker = llvm::StringRef::npos;
-    for (std::size_t i = 0; i <= close_marker && i < static_cast<std::size_t>(buffer.size()); ++i) {
-        const char ch   = buffer[i];
-        const char next = (i + 1 < static_cast<std::size_t>(buffer.size())) ? buffer[i + 1] : '\0';
+    for (std::size_t i = 0; i <= close_marker && i < text.size(); ++i) {
+        const char ch   = text[i];
+        const char next = (i + 1 < text.size()) ? text[i + 1] : '\0';
 
         if (in_line_comment) {
             if (ch == '\n' || ch == '\r') {
@@ -50,6 +82,25 @@ std::size_t find_attribute_open_for_close(llvm::StringRef buffer, std::size_t cl
             if (ch == '*' && next == '/') {
                 in_block_comment = false;
                 ++i;
+            }
+            continue;
+        }
+        if (in_raw_string) {
+            if (ch == ')') {
+                const std::size_t quote_index = i + raw_delimiter.size() + 1;
+                if (quote_index < text.size()) {
+                    bool delimiter_matches = true;
+                    for (std::size_t j = 0; j < raw_delimiter.size(); ++j) {
+                        if (text[i + 1 + j] != raw_delimiter[j]) {
+                            delimiter_matches = false;
+                            break;
+                        }
+                    }
+                    if (delimiter_matches && text[quote_index] == '"') {
+                        in_raw_string = false;
+                        i             = quote_index;
+                    }
+                }
             }
             continue;
         }
@@ -84,6 +135,12 @@ std::size_t find_attribute_open_for_close(llvm::StringRef buffer, std::size_t cl
             ++i;
             continue;
         }
+        std::size_t raw_open_paren = 0;
+        if (try_start_raw_string(text, i, raw_delimiter, raw_open_paren)) {
+            in_raw_string = true;
+            i             = raw_open_paren;
+            continue;
+        }
         if (ch == '"') {
             in_string = true;
             continue;
@@ -111,11 +168,34 @@ std::size_t find_attribute_open_for_close(llvm::StringRef buffer, std::size_t cl
 
 void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buffer, std::size_t start_offset) {
     auto find_line_comment = [](std::string_view line) -> std::size_t {
-        bool in_string = false;
-        bool in_char   = false;
-        bool escape    = false;
-        for (std::size_t i = 0; i + 1 < line.size(); ++i) {
-            const char ch = line[i];
+        bool        in_string     = false;
+        bool        in_char       = false;
+        bool        in_raw_string = false;
+        bool        escape        = false;
+        std::string raw_delimiter;
+        for (std::size_t i = 0; i < line.size(); ++i) {
+            const char ch   = line[i];
+            const char next = (i + 1 < line.size()) ? line[i + 1] : '\0';
+
+            if (in_raw_string) {
+                if (ch == ')') {
+                    const std::size_t quote_index = i + raw_delimiter.size() + 1;
+                    if (quote_index < line.size()) {
+                        bool delimiter_matches = true;
+                        for (std::size_t j = 0; j < raw_delimiter.size(); ++j) {
+                            if (line[i + 1 + j] != raw_delimiter[j]) {
+                                delimiter_matches = false;
+                                break;
+                            }
+                        }
+                        if (delimiter_matches && line[quote_index] == '"') {
+                            in_raw_string = false;
+                            i             = quote_index;
+                        }
+                    }
+                }
+                continue;
+            }
             if (escape) {
                 escape = false;
                 continue;
@@ -136,6 +216,12 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
                 }
                 continue;
             }
+            std::size_t raw_open_paren = 0;
+            if (try_start_raw_string(line, i, raw_delimiter, raw_open_paren)) {
+                in_raw_string = true;
+                i             = raw_open_paren;
+                continue;
+            }
             if (ch == '"') {
                 in_string = true;
                 continue;
@@ -144,7 +230,7 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
                 in_char = true;
                 continue;
             }
-            if (ch == '/' && line[i + 1] == '/') {
+            if (ch == '/' && next == '/') {
                 return i;
             }
         }

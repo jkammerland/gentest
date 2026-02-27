@@ -101,6 +101,21 @@ void attribute_name_with_close_marker_literal() {
     EXPECT_TRUE(true);
 }
 
+[[maybe_unused]] constexpr const char *kCloseMarkerAttrParserRawNoise =
+    R"gentest(raw "quoted" text [[not_an_attribute and stray ]] plus // and /* markers)gentest";
+
+[[using gentest: test("attributes/close_marker_after_line_comment_]]_ok"), fast]]
+// Parser regression: close-marker text in comments should not terminate attribute scanning ]]
+void attribute_name_with_close_marker_after_line_comment() {
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("attributes/close_marker_after_block_comment_]]_ok"), fast]]
+/* Parser regression: raw-string-like text R"( [[not_attr]] )" is comment noise. */
+void attribute_name_with_close_marker_after_block_comment() {
+    EXPECT_TRUE(true);
+}
+
 [[using gentest: test("exceptions/expect_throw")]]
 void expect_throw_simple() {
     EXPECT_THROW(throw_runtime_error(), std::runtime_error);
