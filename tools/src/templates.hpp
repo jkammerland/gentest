@@ -95,7 +95,7 @@ inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, 
         msg.append(reason);
     }
 #if GENTEST_EXCEPTIONS_ENABLED
-    ::gentest::skip(msg);
+    ::gentest::detail::skip_shared_fixture_unavailable(msg);
 #else
     if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
         ::gentest::detail::record_bench_error(std::move(msg));
@@ -254,7 +254,7 @@ inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, 
         msg.append(reason);
     }
 #if GENTEST_EXCEPTIONS_ENABLED
-    ::gentest::skip(msg);
+    ::gentest::detail::skip_shared_fixture_unavailable(msg);
 #else
     if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
         ::gentest::detail::record_bench_error(std::move(msg));

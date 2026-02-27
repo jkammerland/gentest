@@ -970,11 +970,13 @@ static inline double run_jitter_batch_epoch_calls(const Case &c, void *ctx, std:
 }
 
 static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::BenchPhase phase, std::string &error,
-                                  bool &allocation_failure, bool &runtime_skipped, std::string &skip_reason) {
+                                  bool &allocation_failure, bool &runtime_skipped, std::string &skip_reason,
+                                  gentest::detail::TestContextInfo::RuntimeSkipKind &runtime_skip_kind) {
     error.clear();
     skip_reason.clear();
     allocation_failure = false;
     runtime_skipped    = false;
+    runtime_skip_kind  = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
     gentest::detail::clear_bench_error();
     auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
     ctxinfo->display_name = std::string(c.name);
@@ -994,6 +996,7 @@ static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::Ben
         std::lock_guard<std::mutex> lk(ctxinfo->mtx);
         if (ctxinfo->runtime_skip_requested) {
             skip_reason = ctxinfo->runtime_skip_reason;
+            runtime_skip_kind = ctxinfo->runtime_skip_kind;
         } else {
             runtime_skipped = false;
             error           = "skip requested without active runtime skip state";
@@ -1261,10 +1264,6 @@ static bool env_has_value(const char *name) {
 
 bool                      env_no_color() { return env_has_value("NO_COLOR") || env_has_value("GENTEST_NO_COLOR"); }
 bool                      env_github_actions() { return env_has_value("GITHUB_ACTIONS"); }
-static bool is_shared_fixture_infra_skip(std::string_view reason) {
-    static constexpr std::string_view kPrefix = "shared fixture unavailable for ";
-    return reason.rfind(kPrefix, 0) == 0;
-}
 static inline std::string gha_escape(std::string_view s) {
     std::string out;
     out.reserve(s.size());
@@ -1917,12 +1916,14 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
 
     bool        should_skip = false;
     std::string runtime_skip_reason;
+    auto        runtime_skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
     bool        is_xfail = false;
     std::string xfail_reason;
     {
         std::lock_guard<std::mutex> lk(ctxinfo->mtx);
         should_skip         = runtime_skipped && ctxinfo->runtime_skip_requested;
         runtime_skip_reason = ctxinfo->runtime_skip_reason;
+        runtime_skip_kind   = ctxinfo->runtime_skip_kind;
         is_xfail            = ctxinfo->xfail_requested;
         xfail_reason        = ctxinfo->xfail_reason;
     }
@@ -1934,8 +1935,16 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
         rr.skipped             = true;
         rr.outcome             = Outcome::Skip;
         rr.skip_reason         = std::move(runtime_skip_reason);
-        if (is_shared_fixture_infra_skip(rr.skip_reason)) {
+        if (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) {
+            const std::string issue = rr.skip_reason.empty() ? std::string("shared fixture unavailable") : rr.skip_reason;
+            rr.failures.push_back(issue);
+            ++c.failed;
             ++c.failures;
+            record_failure_summary(state, test.name, std::vector<std::string>{issue});
+            if (state.github_annotations) {
+                fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, gha_escape(std::string(test.name)),
+                           gha_escape(issue));
+            }
         }
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
@@ -2239,7 +2248,7 @@ static void record_synthetic_failure(RunnerState &state, const Case &test, std::
     state.report_items.push_back(std::move(item));
 }
 
-static void record_synthetic_skip(RunnerState &state, const Case &test, std::string reason, Counters &c) {
+static void record_synthetic_skip(RunnerState &state, const Case &test, std::string reason, Counters &c, bool infra_failure = false) {
     ++c.total;
     ++c.skipped;
     const long long dur_ms = 0LL;
@@ -2257,6 +2266,15 @@ static void record_synthetic_skip(RunnerState &state, const Case &test, std::str
             fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
         }
     }
+    const std::string issue = reason.empty() ? std::string("fixture allocation returned null") : reason;
+    if (infra_failure) {
+        ++c.failed;
+        ++c.failures;
+        record_failure_summary(state, test.name, std::vector<std::string>{issue});
+        if (state.github_annotations) {
+            fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, test.name, issue);
+        }
+    }
     if (!state.record_results)
         return;
     ReportItem item;
@@ -2264,7 +2282,10 @@ static void record_synthetic_skip(RunnerState &state, const Case &test, std::str
     item.name        = std::string(test.name);
     item.time_s      = 0.0;
     item.skipped     = true;
+    item.outcome     = Outcome::Skip;
     item.skip_reason = std::move(reason);
+    if (infra_failure)
+        item.failures.push_back(issue);
     for (auto sv : test.tags)
         item.tags.emplace_back(sv);
     for (auto sv : test.requirements)
@@ -2346,8 +2367,7 @@ static bool run_tests_once(RunnerState &state, std::span<const Case> cases, std:
                     std::string reason;
                     if (!acquire_case_fixture(t, ctx, reason)) {
                         const std::string msg = reason.empty() ? std::string("fixture allocation returned null") : reason;
-                        ++counters.failures;
-                        record_synthetic_skip(state, t, msg, counters);
+                        record_synthetic_skip(state, t, msg, counters, true);
                         if (fail_fast && counters.failures > 0)
                             return true;
                         continue;
@@ -2400,6 +2420,7 @@ struct MeasurementCaseFailure {
     std::string      reason;
     bool             allocation_failure = false;
     bool             skipped            = false;
+    bool             infra_failure      = false;
     std::string_view phase{};
 };
 
@@ -2411,20 +2432,29 @@ static bool run_measured_case(const Case &c, CallFn &&run_call, Result &out_resu
         if (reason.empty()) {
             reason = "fixture allocation returned null";
         }
-        out_failure.reason   = std::move(reason);
-        out_failure.skipped  = true;
-        out_failure.phase    = "allocation";
+        if (!c.fixture.empty()) {
+            out_failure.reason = fmt::format("shared fixture unavailable for '{}': {}", c.fixture, reason);
+        } else {
+            out_failure.reason = std::move(reason);
+        }
+        out_failure.skipped       = true;
+        out_failure.infra_failure = true;
+        out_failure.phase         = "allocation";
         return false;
     }
 
     bool        allocation_failure = false;
     bool        runtime_skipped    = false;
     std::string skip_reason;
-    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure, runtime_skipped, skip_reason)) {
+    auto        runtime_skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
+    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure, runtime_skipped, skip_reason,
+                               runtime_skip_kind)) {
         if (runtime_skipped) {
-            out_failure.reason  = std::move(skip_reason);
-            out_failure.skipped = true;
-            out_failure.phase   = "setup";
+            out_failure.reason        = std::move(skip_reason);
+            out_failure.skipped       = true;
+            out_failure.infra_failure =
+                (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.phase = "setup";
             return false;
         }
         out_failure.reason             = std::move(reason);
@@ -2440,11 +2470,14 @@ static bool run_measured_case(const Case &c, CallFn &&run_call, Result &out_resu
         call_error = gentest::detail::take_bench_error();
     }
 
-    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure, runtime_skipped, skip_reason)) {
+    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure, runtime_skipped, skip_reason,
+                               runtime_skip_kind)) {
         if (runtime_skipped) {
             out_failure.reason             = skip_reason.empty() ? std::string("teardown requested skip") : std::move(skip_reason);
             out_failure.allocation_failure = false;
-            out_failure.phase              = "teardown";
+            out_failure.infra_failure =
+                (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.phase = "teardown";
             return false;
         }
         out_failure.reason             = std::move(reason);
@@ -2499,6 +2532,11 @@ static TimedRunStatus run_measured_cases(std::span<const Case> kCases, std::span
         if (!run_measured_case(c, run_call, result, failure)) {
             if (failure.skipped) {
                 report_measured_case_skip(c, failure.reason);
+                if (failure.infra_failure) {
+                    had_fixture_failure = true;
+                    if (fail_fast)
+                        return TimedRunStatus{false, true};
+                }
                 continue;
             }
             report_measured_fixture_failure(kind_label, c, failure.reason, failure.allocation_failure, failure.phase);

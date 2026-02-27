@@ -98,6 +98,11 @@ struct TestContextInfo {
 
     bool        runtime_skip_requested{false};
     std::string runtime_skip_reason;
+    enum class RuntimeSkipKind {
+        User,
+        SharedFixtureInfra,
+    };
+    RuntimeSkipKind runtime_skip_kind{RuntimeSkipKind::User};
 
     bool        xfail_requested{false};
     std::string xfail_reason;
@@ -109,6 +114,19 @@ struct skip_exception {};
 
 inline void                             set_current_test(std::shared_ptr<TestContextInfo> ctx) { g_current_test = std::move(ctx); }
 inline std::shared_ptr<TestContextInfo> current_test() { return g_current_test; }
+inline void                             request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
+    auto ctx = g_current_test;
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+        std::fputs("gentest: fatal: skip called without an active test context.\n"
+                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                   stderr);
+        std::abort();
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    ctx->runtime_skip_requested = true;
+    ctx->runtime_skip_reason    = std::string(reason);
+    ctx->runtime_skip_kind      = kind;
+}
 inline void                             record_failure(std::string msg) {
     auto ctx = g_current_test;
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
@@ -302,6 +320,17 @@ inline void append_cmp_values(std::string &out, const L &lhs, const R &rhs, std:
     std::fputs(".\n", stderr);
     std::fflush(stderr);
     std::terminate();
+}
+
+[[noreturn]] inline void skip_shared_fixture_unavailable(std::string_view reason,
+                                                         const std::source_location &loc = std::source_location::current()) {
+    (void)loc;
+    request_runtime_skip(reason, TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+#if GENTEST_EXCEPTIONS_ENABLED
+    throw skip_exception{};
+#else
+    terminate_no_exceptions_fatal("gentest::detail::skip_shared_fixture_unavailable");
+#endif
 }
 
 template <class Expected, class Fn>
@@ -948,18 +977,7 @@ inline void fail(std::string message) {
 
 [[noreturn]] inline void skip(std::string_view reason = {}, const std::source_location& loc = std::source_location::current()) {
     (void)loc;
-    auto ctx = detail::g_current_test;
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        std::fputs("gentest: fatal: skip called without an active test context.\n"
-                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
-                   stderr);
-        std::abort();
-    }
-    {
-        std::lock_guard<std::mutex> lk(ctx->mtx);
-        ctx->runtime_skip_requested = true;
-        ctx->runtime_skip_reason    = std::string(reason);
-    }
+    detail::request_runtime_skip(reason, detail::TestContextInfo::RuntimeSkipKind::User);
 #if GENTEST_EXCEPTIONS_ENABLED
     throw detail::skip_exception{};
 #else
