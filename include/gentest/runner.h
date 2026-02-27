@@ -204,6 +204,40 @@ inline std::string take_bench_error() {
     return out;
 }
 
+using NoExceptionsFatalHook = void (*)(void *) noexcept;
+
+struct NoExceptionsFatalHookState {
+    NoExceptionsFatalHook hook      = nullptr;
+    void *                user_data = nullptr;
+};
+
+inline thread_local NoExceptionsFatalHookState g_noexceptions_fatal_hook{};
+
+struct NoExceptionsFatalHookScope {
+    NoExceptionsFatalHookState previous{};
+
+    explicit NoExceptionsFatalHookScope(NoExceptionsFatalHook hook, void *user_data) noexcept : previous(g_noexceptions_fatal_hook) {
+        g_noexceptions_fatal_hook = {
+            .hook      = hook,
+            .user_data = user_data,
+        };
+    }
+
+    NoExceptionsFatalHookScope(const NoExceptionsFatalHookScope &)            = delete;
+    NoExceptionsFatalHookScope &operator=(const NoExceptionsFatalHookScope &) = delete;
+
+    ~NoExceptionsFatalHookScope() { g_noexceptions_fatal_hook = previous; }
+};
+
+inline void run_noexceptions_fatal_hook() noexcept {
+    const auto state = g_noexceptions_fatal_hook;
+    if (!state.hook) {
+        return;
+    }
+    g_noexceptions_fatal_hook = {};
+    state.hook(state.user_data);
+}
+
 template <typename T>
 concept Ostreamable = requires(std::ostream &os, const T &v) {
     os << v;
@@ -258,6 +292,7 @@ inline void append_cmp_values(std::string &out, const L &lhs, const R &rhs, std:
 #endif
 
 [[noreturn]] inline void terminate_no_exceptions_fatal(std::string_view origin) {
+    ::gentest::detail::run_noexceptions_fatal_hook();
     std::fputs("gentest: exceptions are disabled; terminating after fatal assertion", stderr);
     if (!origin.empty()) {
         std::fputs(" (origin: ", stderr);
@@ -902,7 +937,14 @@ inline void ASSERT_GE(L &&lhs, R &&rhs, std::string_view message = {},
 } // namespace asserts
 
 // Unconditionally throw a gentest::failure with the provided message.
-inline void fail(std::string message) { throw failure(std::move(message)); }
+inline void fail(std::string message) {
+#if GENTEST_EXCEPTIONS_ENABLED
+    throw failure(std::move(message));
+#else
+    ::gentest::detail::record_failure(std::move(message));
+    ::gentest::detail::terminate_no_exceptions_fatal("gentest::fail");
+#endif
+}
 
 [[noreturn]] inline void skip(std::string_view reason = {}, const std::source_location& loc = std::source_location::current()) {
     (void)loc;

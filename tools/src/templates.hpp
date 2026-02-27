@@ -105,6 +105,21 @@ inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, 
 #endif
 }
 
+template <typename TeardownFn>
+struct gentest_noexceptions_local_teardown {
+    TeardownFn *teardown = nullptr;
+    bool        ran      = false;
+
+    static void run(void *user_data) noexcept {
+        auto *state = static_cast<gentest_noexceptions_local_teardown *>(user_data);
+        if (!state || state->ran || !state->teardown) return;
+        state->ran = true;
+        (*state->teardown)();
+    }
+
+    void run_now() noexcept { run(this); }
+};
+
 template <typename BodyFn, typename TeardownFn>
 inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -119,8 +134,11 @@ inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown
     }
     teardown();
 #else
+    auto teardown_fn = std::forward<TeardownFn>(teardown);
+    gentest_noexceptions_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
+    ::gentest::detail::NoExceptionsFatalHookScope            fatal_scope(&decltype(teardown_state)::run, &teardown_state);
     body();
-    teardown();
+    teardown_state.run_now();
 #endif
 }
 
@@ -246,6 +264,21 @@ inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, 
 #endif
 }
 
+template <typename TeardownFn>
+struct gentest_noexceptions_local_teardown {
+    TeardownFn *teardown = nullptr;
+    bool        ran      = false;
+
+    static void run(void *user_data) noexcept {
+        auto *state = static_cast<gentest_noexceptions_local_teardown *>(user_data);
+        if (!state || state->ran || !state->teardown) return;
+        state->ran = true;
+        (*state->teardown)();
+    }
+
+    void run_now() noexcept { run(this); }
+};
+
 template <typename BodyFn, typename TeardownFn>
 inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -260,8 +293,11 @@ inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown
     }
     teardown();
 #else
+    auto teardown_fn = std::forward<TeardownFn>(teardown);
+    gentest_noexceptions_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
+    ::gentest::detail::NoExceptionsFatalHookScope            fatal_scope(&decltype(teardown_state)::run, &teardown_state);
     body();
-    teardown();
+    teardown_state.run_now();
 #endif
 }
 
