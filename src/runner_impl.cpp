@@ -256,6 +256,7 @@ bool setup_shared_fixtures() {
         }
 
         if (!instance) {
+            ok = false;
             std::string fixture_error =
                 create_fn ? format_fixture_error("allocation", error) : "fixture allocation failed: missing factory";
             {
@@ -283,6 +284,7 @@ bool setup_shared_fixtures() {
         }
 
         if (!setup_ok) {
+            ok = false;
             const std::string fixture_error = format_fixture_error("setup", error);
             {
                 std::lock_guard<std::mutex> lk(reg.mtx);
@@ -1244,6 +1246,10 @@ static bool env_has_value(const char *name) {
 
 bool                      env_no_color() { return env_has_value("NO_COLOR") || env_has_value("GENTEST_NO_COLOR"); }
 bool                      env_github_actions() { return env_has_value("GITHUB_ACTIONS"); }
+static bool is_shared_fixture_infra_skip(std::string_view reason) {
+    static constexpr std::string_view kPrefix = "shared fixture unavailable for ";
+    return reason.rfind(kPrefix, 0) == 0;
+}
 static inline std::string gha_escape(std::string_view s) {
     std::string out;
     out.reserve(s.size());
@@ -1913,6 +1919,9 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
         rr.skipped             = true;
         rr.outcome             = Outcome::Skip;
         rr.skip_reason         = std::move(runtime_skip_reason);
+        if (is_shared_fixture_infra_skip(rr.skip_reason)) {
+            ++c.failures;
+        }
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
             fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
@@ -2322,6 +2331,7 @@ static bool run_tests_once(RunnerState &state, std::span<const Case> cases, std:
                     std::string reason;
                     if (!acquire_case_fixture(t, ctx, reason)) {
                         const std::string msg = reason.empty() ? std::string("fixture allocation returned null") : reason;
+                        ++counters.failures;
                         record_synthetic_skip(state, t, msg, counters);
                         if (fail_fast && counters.failures > 0)
                             return true;
