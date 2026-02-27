@@ -809,6 +809,12 @@ gentest_add_suite(regression_shared_fixture_setup_skip
     OUTPUT_DIR regressions/shared_fixture_setup_skip
     NO_CTEST)
 
+gentest_add_suite(regression_shared_fixture_setup_skip_bench_jitter
+    TARGET gentest_regression_shared_fixture_setup_skip_bench_jitter
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_setup_skip_bench_jitter.cpp
+    OUTPUT_DIR regressions/shared_fixture_setup_skip_bench_jitter
+    NO_CTEST)
+
 add_executable(gentest_regression_time_unit_scaling
     ${CMAKE_CURRENT_SOURCE_DIR}/regressions/time_unit_scaling.cpp)
 target_link_libraries(gentest_regression_time_unit_scaling PRIVATE gentest_runtime)
@@ -873,6 +879,18 @@ gentest_add_check_counts(
     SKIP 1
     EXPECT_RC 1
     ARGS --fail-fast)
+
+gentest_add_check_contains(
+    NAME regression_shared_fixture_setup_skip_bench
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
+    EXPECT_SUBSTRING "[ SKIP ] regressions/shared_setup_skip_bench_jitter/regressions/shared_setup_skip_bench_jitter/suite_bench"
+    ARGS --run=regressions/shared_setup_skip_bench_jitter/suite_bench --kind=bench)
+
+gentest_add_check_contains(
+    NAME regression_shared_fixture_setup_skip_jitter
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
+    EXPECT_SUBSTRING "[ SKIP ] regressions/shared_setup_skip_bench_jitter/regressions/shared_setup_skip_bench_jitter/global_jitter"
+    ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter)
 
 gentest_add_check_exit_code(
     NAME regression_shared_fixture_duplicate_registration_rejected
