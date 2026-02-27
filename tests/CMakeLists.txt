@@ -845,9 +845,9 @@ gentest_add_check_exit_code(
 gentest_add_check_counts(
     NAME regression_local_fixture_teardown_unwind
     PROG $<TARGET_FILE:gentest_regression_local_fixture_teardown>
-    PASS 1
-    FAIL 0
-    SKIP 1)
+    PASS 3
+    FAIL 1
+    SKIP 2)
 
 gentest_add_check_counts(
     NAME regression_shared_fixture_setup_skip_free

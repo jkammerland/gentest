@@ -14,7 +14,7 @@
 //   The emitter uses simple string replacement for these.
 // - Partials (formatted with fmt::format):
 //   wrapper_free:     {w}, {fn}
-//   wrapper_free_fixtures: {w}, {fn}, {decls}, {setup}, {teardown}, {call},
+//   wrapper_free_fixtures: {w}, {fn}, {decls}, {setup_flags}, {setup}, {teardown}, {call},
 //                          {bench_decls}, {bench_inits}, {bench_setup}, {bench_teardown}, {bench_invoke}
 //   wrapper_ephemeral:{w}, {fixture}, {method}, {bench_invoke}
 //   wrapper_stateful: {w}, {fixture}, {method}
@@ -352,9 +352,9 @@ inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static void {w}(
         }}
         return;
     }}
-{decls}{inits}{setup}    gentest_run_with_local_teardown(
+{decls}{inits}{setup_flags}    gentest_run_with_local_teardown(
         [&] {{
-            {invoke}
+{setup}            {invoke}
         }},
         [&] {{
 {teardown}        }});
@@ -392,13 +392,15 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
     }}
     auto fx_ = ::gentest::detail::FixtureHandle<{fixture}>::empty();
     if (!gentest_init_fixture(fx_, "{fixture}")) return;
-    gentest_maybe_setup(fx_.ref());
+    bool fx_setup_complete = false;
     gentest_run_with_local_teardown(
         [&] {{
+            gentest_maybe_setup(fx_.ref());
+            fx_setup_complete = true;
             {invoke}
         }},
         [&] {{
-            gentest_maybe_teardown(fx_.ref());
+            if (fx_setup_complete) gentest_maybe_teardown(fx_.ref());
         }});
 }}
 
