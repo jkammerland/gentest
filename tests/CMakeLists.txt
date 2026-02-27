@@ -854,14 +854,25 @@ gentest_add_check_counts(
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
     PASS 0
     FAIL 0
-    SKIP 2)
+    SKIP 2
+    EXPECT_RC 1)
 
 gentest_add_check_counts(
     NAME regression_shared_fixture_setup_skip_member
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
     PASS 0
     FAIL 0
-    SKIP 2)
+    SKIP 2
+    EXPECT_RC 1)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_setup_skip_fail_fast
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
+    PASS 0
+    FAIL 0
+    SKIP 1
+    EXPECT_RC 1
+    ARGS --fail-fast)
 
 gentest_add_check_exit_code(
     NAME regression_shared_fixture_duplicate_registration_rejected
@@ -889,6 +900,7 @@ gentest_add_check_counts(
     PASS 0
     FAIL 0
     SKIP 1
+    EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_create_throw_skip/member_case --kind=test)
 
 gentest_add_check_exit_code(
