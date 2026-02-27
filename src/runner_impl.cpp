@@ -807,6 +807,14 @@ static bool try_take_first_failure(const std::shared_ptr<gentest::detail::TestCo
     return true;
 }
 
+static bool try_take_runtime_skip_reason(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string &reason) {
+    std::scoped_lock lk(ctxinfo->mtx);
+    if (!ctxinfo->runtime_skip_requested)
+        return false;
+    reason = ctxinfo->runtime_skip_reason;
+    return true;
+}
+
 static inline double run_epoch_calls(const Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail) {
     using clock           = std::chrono::steady_clock;
     auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
@@ -818,14 +826,41 @@ static inline double run_epoch_calls(const Case &c, void *ctx, std::size_t iters
     had_assert_fail                        = false;
     iterations_done                        = 0;
     std::string first_failure;
+    std::string runtime_skip_reason;
     for (std::size_t i = 0; i < iters; ++i) {
         try {
             c.fn(ctx);
+        } catch (const gentest::detail::skip_exception &) {
+            if (try_take_runtime_skip_reason(ctxinfo, runtime_skip_reason) && !runtime_skip_reason.empty())
+                gentest::detail::record_bench_error(runtime_skip_reason);
+            else
+                gentest::detail::record_bench_error("skip requested during benchmark call phase");
+            had_assert_fail = true;
+            break;
         } catch (const gentest::assertion &e) {
             gentest::detail::record_bench_error(e.message());
             had_assert_fail = true;
             break;
-        } catch (...) { /* ignore */
+        } catch (const gentest::failure &e) {
+            gentest::detail::record_bench_error(e.what());
+            had_assert_fail = true;
+            break;
+        } catch (const std::exception &e) {
+            gentest::detail::record_bench_error(std::string("std::exception: ") + e.what());
+            had_assert_fail = true;
+            break;
+        } catch (...) {
+            gentest::detail::record_bench_error("unknown exception");
+            had_assert_fail = true;
+            break;
+        }
+        if (try_take_runtime_skip_reason(ctxinfo, runtime_skip_reason)) {
+            if (!runtime_skip_reason.empty())
+                gentest::detail::record_bench_error(std::move(runtime_skip_reason));
+            else
+                gentest::detail::record_bench_error("skip requested during benchmark call phase");
+            had_assert_fail = true;
+            break;
         }
         if (try_take_first_failure(ctxinfo, first_failure)) {
             gentest::detail::record_bench_error(std::move(first_failure));
@@ -900,15 +935,42 @@ static inline double run_jitter_epoch_calls(const Case &c, void *ctx, std::size_
     had_assert_fail                              = false;
     iterations_done                              = 0;
     std::string first_failure;
+    std::string runtime_skip_reason;
     for (std::size_t i = 0; i < iters; ++i) {
         auto start = clock::now();
         try {
             c.fn(ctx);
+        } catch (const gentest::detail::skip_exception &) {
+            if (try_take_runtime_skip_reason(ctxinfo, runtime_skip_reason) && !runtime_skip_reason.empty())
+                gentest::detail::record_bench_error(runtime_skip_reason);
+            else
+                gentest::detail::record_bench_error("skip requested during jitter call phase");
+            had_assert_fail = true;
+            break;
         } catch (const gentest::assertion &e) {
             gentest::detail::record_bench_error(e.message());
             had_assert_fail = true;
             break;
-        } catch (...) { /* ignore */
+        } catch (const gentest::failure &e) {
+            gentest::detail::record_bench_error(e.what());
+            had_assert_fail = true;
+            break;
+        } catch (const std::exception &e) {
+            gentest::detail::record_bench_error(std::string("std::exception: ") + e.what());
+            had_assert_fail = true;
+            break;
+        } catch (...) {
+            gentest::detail::record_bench_error("unknown exception");
+            had_assert_fail = true;
+            break;
+        }
+        if (try_take_runtime_skip_reason(ctxinfo, runtime_skip_reason)) {
+            if (!runtime_skip_reason.empty())
+                gentest::detail::record_bench_error(std::move(runtime_skip_reason));
+            else
+                gentest::detail::record_bench_error("skip requested during jitter call phase");
+            had_assert_fail = true;
+            break;
         }
         if (try_take_first_failure(ctxinfo, first_failure)) {
             gentest::detail::record_bench_error(std::move(first_failure));
@@ -937,17 +999,44 @@ static inline double run_jitter_batch_epoch_calls(const Case &c, void *ctx, std:
     had_assert_fail                              = false;
     iterations_done                              = 0;
     std::string first_failure;
+    std::string runtime_skip_reason;
     for (std::size_t s = 0; s < batch_samples; ++s) {
         auto        start      = clock::now();
         std::size_t local_done = 0;
         for (std::size_t i = 0; i < batch_iters; ++i) {
             try {
                 c.fn(ctx);
+            } catch (const gentest::detail::skip_exception &) {
+                if (try_take_runtime_skip_reason(ctxinfo, runtime_skip_reason) && !runtime_skip_reason.empty())
+                    gentest::detail::record_bench_error(runtime_skip_reason);
+                else
+                    gentest::detail::record_bench_error("skip requested during jitter call phase");
+                had_assert_fail = true;
+                break;
             } catch (const gentest::assertion &e) {
                 gentest::detail::record_bench_error(e.message());
                 had_assert_fail = true;
                 break;
-            } catch (...) { /* ignore */
+            } catch (const gentest::failure &e) {
+                gentest::detail::record_bench_error(e.what());
+                had_assert_fail = true;
+                break;
+            } catch (const std::exception &e) {
+                gentest::detail::record_bench_error(std::string("std::exception: ") + e.what());
+                had_assert_fail = true;
+                break;
+            } catch (...) {
+                gentest::detail::record_bench_error("unknown exception");
+                had_assert_fail = true;
+                break;
+            }
+            if (try_take_runtime_skip_reason(ctxinfo, runtime_skip_reason)) {
+                if (!runtime_skip_reason.empty())
+                    gentest::detail::record_bench_error(std::move(runtime_skip_reason));
+                else
+                    gentest::detail::record_bench_error("skip requested during jitter call phase");
+                had_assert_fail = true;
+                break;
             }
             if (try_take_first_failure(ctxinfo, first_failure)) {
                 gentest::detail::record_bench_error(std::move(first_failure));
@@ -2211,6 +2300,19 @@ static void record_failure_summary(RunnerState &state, std::string_view name, st
     state.failure_items.push_back(FailureSummary{std::string(name), std::move(issues)});
 }
 
+static void record_runner_level_failure(RunnerState &state, std::string_view name, std::string message) {
+    record_failure_summary(state, name, std::vector<std::string>{message});
+    if (!state.record_results)
+        return;
+    ReportItem item;
+    item.suite   = "gentest";
+    item.name    = std::string(name);
+    item.time_s  = 0.0;
+    item.outcome = Outcome::Fail;
+    item.failures.push_back(std::move(message));
+    state.report_items.push_back(std::move(item));
+}
+
 } // namespace
 
 static void print_fail_header(const RunnerState &state, const Case &test, long long dur_ms) {
@@ -3226,8 +3328,13 @@ auto run_all_tests(std::span<const char *> args) -> int {
             run_selected_jitters(kCases, std::span<const std::size_t>{jitter_idxs.data(), jitter_idxs.size()}, opt, opt.fail_fast);
     }
 
-    if (!test_idxs.empty()) {
-        if (state.record_results)
+    fixture_guard.finalize();
+    if (!fixture_guard.teardown_ok) {
+        record_runner_level_failure(state, "gentest/shared_fixture_teardown", "shared fixture teardown failed");
+    }
+
+    if (!test_idxs.empty() || !state.failure_items.empty()) {
+        if (state.record_results && !state.report_items.empty())
             write_reports(state, opt.junit_path, opt.allure_dir);
         std::string summary;
         summary.reserve(128 + state.failure_items.size() * 64);
@@ -3254,7 +3361,6 @@ auto run_all_tests(std::span<const char *> args) -> int {
         fmt::print("{}", summary);
     }
 
-    fixture_guard.finalize();
     const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok();
     return ok ? 0 : 1;
 }

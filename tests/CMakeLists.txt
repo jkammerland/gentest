@@ -869,6 +869,42 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "intentional jitter assertion failure"
     ARGS --run=regressions/jitter_assert_should_fail --kind=jitter)
 
+gentest_add_check_death(
+    NAME regression_bench_std_exception_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional benchmark std::exception failure"
+    ARGS --run=regressions/bench_std_exception_should_fail --kind=bench)
+
+gentest_add_check_death(
+    NAME regression_bench_fail_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional benchmark gentest::failure"
+    ARGS --run=regressions/bench_fail_should_fail --kind=bench)
+
+gentest_add_check_death(
+    NAME regression_bench_skip_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional benchmark skip in call phase"
+    ARGS --run=regressions/bench_skip_should_fail --kind=bench)
+
+gentest_add_check_death(
+    NAME regression_jitter_std_exception_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional jitter std::exception failure"
+    ARGS --run=regressions/jitter_std_exception_should_fail --kind=jitter)
+
+gentest_add_check_death(
+    NAME regression_jitter_fail_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional jitter gentest::failure"
+    ARGS --run=regressions/jitter_fail_should_fail --kind=jitter)
+
+gentest_add_check_death(
+    NAME regression_jitter_skip_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional jitter skip in call phase"
+    ARGS --run=regressions/jitter_skip_should_fail --kind=jitter)
+
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_reentry_no_timeout
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_reentry>
@@ -881,6 +917,14 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_teardown_exit>
     EXPECT_SUBSTRING "intentional shared fixture teardown failure"
     ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_teardown_failure_junit_reports_failure
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_teardown_exit>
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure.xml
+    EXPECT_SUBSTRING "failures=\"1\""
+    EXPECT_RC 1
+    ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure.xml)
 
 gentest_add_check_counts(
     NAME regression_local_fixture_teardown_unwind
