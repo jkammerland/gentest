@@ -803,6 +803,20 @@ gentest_add_suite(regression_local_fixture_teardown
     OUTPUT_DIR regressions/local_fixture_teardown
     NO_CTEST)
 
+gentest_add_suite(regression_local_fixture_teardown_noexceptions
+    TARGET gentest_regression_local_fixture_teardown_noexceptions
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_noexceptions.cpp
+    OUTPUT_DIR regressions/local_fixture_teardown_noexceptions
+    NO_CTEST)
+target_compile_options(gentest_regression_local_fixture_teardown_noexceptions
+    PRIVATE
+        $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:AppleClang>>:-fno-exceptions>
+        $<$<CXX_COMPILER_ID:MSVC>:/EHs-c->)
+target_compile_definitions(gentest_regression_local_fixture_teardown_noexceptions
+    PRIVATE
+        FMT_EXCEPTIONS=0
+        _HAS_EXCEPTIONS=0)
+
 gentest_add_suite(regression_shared_fixture_setup_skip
     TARGET gentest_regression_shared_fixture_setup_skip
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_setup_skip.cpp
@@ -854,6 +868,12 @@ gentest_add_check_counts(
     PASS 3
     FAIL 1
     SKIP 2)
+
+gentest_add_check_death(
+    NAME regression_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
+    PROG $<TARGET_FILE:gentest_regression_local_fixture_teardown_noexceptions>
+    EXPECT_SUBSTRING "local-fixture-teardown-noexc-marker"
+    ARGS --run=regressions/local_fixture_teardown_noexceptions/fatal_assert)
 
 gentest_add_check_counts(
     NAME regression_shared_fixture_setup_skip_free
