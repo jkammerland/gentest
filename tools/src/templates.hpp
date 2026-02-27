@@ -94,13 +94,13 @@ inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, 
         msg.append(": ");
         msg.append(reason);
     }
+#if GENTEST_EXCEPTIONS_ENABLED
+    ::gentest::skip(msg);
+#else
     if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
         ::gentest::detail::record_bench_error(std::move(msg));
         return;
     }
-#if GENTEST_EXCEPTIONS_ENABLED
-    ::gentest::skip(msg);
-#else
     ::gentest::detail::record_failure(std::move(msg));
 #endif
 }
@@ -235,13 +235,13 @@ inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, 
         msg.append(": ");
         msg.append(reason);
     }
+#if GENTEST_EXCEPTIONS_ENABLED
+    ::gentest::skip(msg);
+#else
     if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
         ::gentest::detail::record_bench_error(std::move(msg));
         return;
     }
-#if GENTEST_EXCEPTIONS_ENABLED
-    ::gentest::skip(msg);
-#else
     ::gentest::detail::record_failure(std::move(msg));
 #endif
 }

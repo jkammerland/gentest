@@ -968,9 +968,11 @@ static inline double run_jitter_batch_epoch_calls(const Case &c, void *ctx, std:
 }
 
 static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::BenchPhase phase, std::string &error,
-                                  bool &allocation_failure) {
+                                  bool &allocation_failure, bool &runtime_skipped, std::string &skip_reason) {
     error.clear();
+    skip_reason.clear();
     allocation_failure = false;
+    runtime_skipped    = false;
     gentest::detail::clear_bench_error();
     auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
     ctxinfo->display_name = std::string(c.name);
@@ -980,12 +982,25 @@ static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::Ben
         gentest::detail::BenchPhaseScope bench_scope(phase);
         try {
             c.fn(ctx);
+        } catch (const gentest::detail::skip_exception &) {
+            runtime_skipped = true;
         } catch (const gentest::assertion &e) { error = e.message(); } catch (const std::exception &e) {
             error = std::string("std::exception: ") + e.what();
         } catch (...) { error = "unknown exception"; }
     }
+    if (runtime_skipped) {
+        std::lock_guard<std::mutex> lk(ctxinfo->mtx);
+        if (ctxinfo->runtime_skip_requested) {
+            skip_reason = ctxinfo->runtime_skip_reason;
+        } else {
+            runtime_skipped = false;
+            error           = "skip requested without active runtime skip state";
+        }
+    }
     ctxinfo->active = false;
     gentest::detail::set_current_test(nullptr);
+    if (runtime_skipped)
+        return false;
     if (!error.empty())
         return false;
     if (gentest::detail::has_bench_error()) {
@@ -2374,6 +2389,7 @@ struct TimedRunStatus {
 struct MeasurementCaseFailure {
     std::string      reason;
     bool             allocation_failure = false;
+    bool             skipped            = false;
     std::string_view phase{};
 };
 
@@ -2382,14 +2398,25 @@ static bool run_measured_case(const Case &c, CallFn &&run_call, Result &out_resu
     void       *ctx = nullptr;
     std::string reason;
     if (!acquire_case_fixture(c, ctx, reason)) {
-        out_failure.reason             = std::move(reason);
-        out_failure.allocation_failure = true;
-        out_failure.phase              = "allocation";
+        if (reason.empty()) {
+            reason = "fixture allocation returned null";
+        }
+        out_failure.reason   = std::move(reason);
+        out_failure.skipped  = true;
+        out_failure.phase    = "allocation";
         return false;
     }
 
-    bool allocation_failure = false;
-    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure)) {
+    bool        allocation_failure = false;
+    bool        runtime_skipped    = false;
+    std::string skip_reason;
+    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure, runtime_skipped, skip_reason)) {
+        if (runtime_skipped) {
+            out_failure.reason  = std::move(skip_reason);
+            out_failure.skipped = true;
+            out_failure.phase   = "setup";
+            return false;
+        }
         out_failure.reason             = std::move(reason);
         out_failure.allocation_failure = allocation_failure;
         out_failure.phase              = "setup";
@@ -2403,7 +2430,13 @@ static bool run_measured_case(const Case &c, CallFn &&run_call, Result &out_resu
         call_error = gentest::detail::take_bench_error();
     }
 
-    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure)) {
+    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure, runtime_skipped, skip_reason)) {
+        if (runtime_skipped) {
+            out_failure.reason             = skip_reason.empty() ? std::string("teardown requested skip") : std::move(skip_reason);
+            out_failure.allocation_failure = false;
+            out_failure.phase              = "teardown";
+            return false;
+        }
         out_failure.reason             = std::move(reason);
         out_failure.allocation_failure = allocation_failure;
         out_failure.phase              = "teardown";
@@ -2437,6 +2470,14 @@ static void report_measured_fixture_failure(std::string_view kind_label, const C
     }
 }
 
+static void report_measured_case_skip(const Case &c, std::string_view reason) {
+    if (!reason.empty()) {
+        fmt::print("[ SKIP ] {} :: {} (0 ms)\n", c.name, reason);
+    } else {
+        fmt::print("[ SKIP ] {} (0 ms)\n", c.name);
+    }
+}
+
 template <typename Result, typename CallFn, typename SuccessFn>
 static TimedRunStatus run_measured_cases(std::span<const Case> kCases, std::span<const std::size_t> idxs, std::string_view kind_label,
                                          bool fail_fast, CallFn run_call, SuccessFn on_success) {
@@ -2446,6 +2487,10 @@ static TimedRunStatus run_measured_cases(std::span<const Case> kCases, std::span
         Result                 result{};
         MeasurementCaseFailure failure{};
         if (!run_measured_case(c, run_call, result, failure)) {
+            if (failure.skipped) {
+                report_measured_case_skip(c, failure.reason);
+                continue;
+            }
             report_measured_fixture_failure(kind_label, c, failure.reason, failure.allocation_failure, failure.phase);
             had_fixture_failure = true;
             if (fail_fast)
