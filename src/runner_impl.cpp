@@ -1,6 +1,9 @@
 #include "gentest/detail/bench_stats.h"
 #include "gentest/runner.h"
 
+#include "runner_case_invoker.h"
+#include "runner_result_model.h"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -504,24 +507,8 @@ struct SharedFixtureRunGuard {
     ~SharedFixtureRunGuard() { finalize(); }
 };
 
-enum class Outcome {
-    Pass,
-    Fail,
-    Skip,
-    XFail,
-    XPass,
-};
-
-struct RunResult {
-    double                   time_s  = 0.0;
-    bool                     skipped = false;
-    Outcome                  outcome = Outcome::Pass;
-    std::string              skip_reason;
-    std::string              xfail_reason;
-    std::vector<std::string> failures;
-    std::vector<std::string> logs;
-    std::vector<std::string> timeline;
-};
+using Outcome   = gentest::runner::Outcome;
+using RunResult = gentest::runner::RunResult;
 
 struct ReportItem {
     std::string              suite;
@@ -1077,21 +1064,16 @@ static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::Ben
     runtime_skipped    = false;
     runtime_skip_kind  = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
     gentest::detail::clear_bench_error();
-    auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
-    ctxinfo->display_name = std::string(c.name);
-    ctxinfo->active       = true;
-    gentest::detail::set_current_test(ctxinfo);
-    {
-        gentest::detail::BenchPhaseScope bench_scope(phase);
-        try {
-            c.fn(ctx);
-        } catch (const gentest::detail::skip_exception &) {
-            runtime_skipped = true;
-        } catch (const gentest::assertion &e) { error = e.message(); } catch (const std::exception &e) {
-            error = std::string("std::exception: ") + e.what();
-        } catch (...) { error = "unknown exception"; }
+    auto inv = gentest::runner::invoke_case_once(c, ctx, phase, gentest::runner::UnhandledExceptionPolicy::CaptureOnly);
+    auto &ctxinfo = inv.ctxinfo;
+    switch (inv.exception) {
+    case gentest::runner::InvokeException::None: break;
+    case gentest::runner::InvokeException::Skip: runtime_skipped = true; break;
+    case gentest::runner::InvokeException::Assertion:
+    case gentest::runner::InvokeException::Failure:
+    case gentest::runner::InvokeException::StdException:
+    case gentest::runner::InvokeException::Unknown: error = inv.message; break;
     }
-    wait_and_flush_test_context(ctxinfo);
     {
         std::lock_guard<std::mutex> lk(ctxinfo->mtx);
         const bool skip_requested = ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
@@ -1107,8 +1089,6 @@ static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::Ben
             error = ctxinfo->failures.front();
         }
     }
-    ctxinfo->active = false;
-    gentest::detail::set_current_test(nullptr);
     if (runtime_skipped)
         return false;
     if (!error.empty())
@@ -1981,29 +1961,13 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
     }
     ++c.total;
     ++c.executed;
-    auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
-    ctxinfo->display_name = std::string(test.name);
-    ctxinfo->active       = true;
-    gentest::detail::set_current_test(ctxinfo);
-    bool       threw_non_skip  = false;
-    bool       runtime_skipped = false;
     const auto start_tp        = std::chrono::steady_clock::now();
-    try {
-        test.fn(ctx);
-    } catch (const gentest::detail::skip_exception &) { runtime_skipped = true; } catch (const gentest::failure &err) {
-        threw_non_skip = true;
-        gentest::detail::record_failure(std::string("FAIL() :: ") + err.what());
-    } catch (const gentest::assertion &) { threw_non_skip = true; } catch (const std::exception &err) {
-        threw_non_skip = true;
-        gentest::detail::record_failure(std::string("unexpected std::exception: ") + err.what());
-    } catch (...) {
-        threw_non_skip = true;
-        gentest::detail::record_failure("unknown exception");
-    }
-    gentest::detail::wait_for_adopted_tokens(ctxinfo);
-    gentest::detail::flush_current_buffer_for(ctxinfo.get());
-    ctxinfo->active = false;
-    gentest::detail::set_current_test(nullptr);
+    auto       inv             = gentest::runner::invoke_case_once(test, ctx, gentest::detail::BenchPhase::None,
+                                                                    gentest::runner::UnhandledExceptionPolicy::RecordAsFailure);
+    auto       ctxinfo         = inv.ctxinfo;
+    const bool runtime_skipped = (inv.exception == gentest::runner::InvokeException::Skip);
+    const bool threw_non_skip  = (inv.exception != gentest::runner::InvokeException::None &&
+                                 inv.exception != gentest::runner::InvokeException::Skip);
     const auto end_tp = std::chrono::steady_clock::now();
     rr.time_s         = std::chrono::duration<double>(end_tp - start_tp).count();
     rr.logs           = ctxinfo->logs;
