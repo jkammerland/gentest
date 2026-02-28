@@ -34,6 +34,12 @@ void bench_skip_should_fail(void*) {
     gentest::skip("intentional benchmark skip in call phase");
 }
 
+void bench_setup_skip_should_not_fail(void*) {
+    if (gentest::detail::bench_phase() != gentest::detail::BenchPhase::Setup)
+        return;
+    gentest::skip("intentional benchmark setup skip");
+}
+
 void jitter_assert_should_fail(void*) {
     if (!in_bench_call_phase())
         return;
@@ -56,6 +62,12 @@ void jitter_skip_should_fail(void*) {
     if (!in_bench_call_phase())
         return;
     gentest::skip("intentional jitter skip in call phase");
+}
+
+void jitter_setup_skip_should_not_fail(void*) {
+    if (gentest::detail::bench_phase() != gentest::detail::BenchPhase::Setup)
+        return;
+    gentest::skip("intentional jitter setup skip");
 }
 
 gentest::Case kCases[] = {
@@ -124,6 +136,22 @@ gentest::Case kCases[] = {
         .suite = "regressions",
     },
     {
+        .name = "regressions/bench_setup_skip_should_not_fail",
+        .fn = &bench_setup_skip_should_not_fail,
+        .file = __FILE__,
+        .line = 20,
+        .is_benchmark = true,
+        .is_jitter = false,
+        .is_baseline = false,
+        .tags = {},
+        .requirements = {},
+        .skip_reason = {},
+        .should_skip = false,
+        .fixture = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite = "regressions",
+    },
+    {
         .name = "regressions/jitter_assert_should_fail",
         .fn = &jitter_assert_should_fail,
         .file = __FILE__,
@@ -176,6 +204,22 @@ gentest::Case kCases[] = {
         .fn = &jitter_skip_should_fail,
         .file = __FILE__,
         .line = 34,
+        .is_benchmark = false,
+        .is_jitter = true,
+        .is_baseline = false,
+        .tags = {},
+        .requirements = {},
+        .skip_reason = {},
+        .should_skip = false,
+        .fixture = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite = "regressions",
+    },
+    {
+        .name = "regressions/jitter_setup_skip_should_not_fail",
+        .fn = &jitter_setup_skip_should_not_fail,
+        .file = __FILE__,
+        .line = 40,
         .is_benchmark = false,
         .is_jitter = true,
         .is_baseline = false,
