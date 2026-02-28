@@ -1,8 +1,8 @@
 #include "gentest/detail/bench_stats.h"
 #include "gentest/runner.h"
-
 #include "runner_case_invoker.h"
 #include "runner_cli.h"
+#include "runner_fixture_runtime.h"
 #include "runner_reporting.h"
 #include "runner_result_model.h"
 #include "runner_selector.h"
@@ -43,55 +43,6 @@ auto case_registry() -> CaseRegistry & {
     static CaseRegistry reg;
     return reg;
 }
-
-struct SharedFixtureEntry {
-    std::string                         fixture_name;
-    std::string                         suite;
-    gentest::detail::SharedFixtureScope scope;
-    std::shared_ptr<void>               instance;
-    bool                                initialized  = false;
-    bool                                initializing = false;
-    bool                                failed       = false;
-    std::string                         error;
-    std::shared_ptr<void> (*create)(std::string_view suite, std::string &error) = nullptr;
-    void (*setup)(void *instance, std::string &error)                           = nullptr;
-    void (*teardown)(void *instance, std::string &error)                        = nullptr;
-};
-
-struct SharedFixtureRegistry {
-    std::vector<SharedFixtureEntry> entries;
-    std::mutex                      mtx;
-    bool                            teardown_in_progress = false;
-    bool                            registration_error   = false;
-    std::vector<std::string>        registration_errors;
-};
-
-auto shared_fixture_registry() -> SharedFixtureRegistry & {
-    static SharedFixtureRegistry reg;
-    return reg;
-}
-
-int shared_fixture_scope_rank(gentest::detail::SharedFixtureScope scope) {
-    switch (scope) {
-    case gentest::detail::SharedFixtureScope::Suite: return 0;
-    case gentest::detail::SharedFixtureScope::Global: return 1;
-    }
-    return 0;
-}
-
-bool shared_fixture_order_less(const SharedFixtureEntry &lhs, const SharedFixtureEntry &rhs) {
-    if (lhs.fixture_name != rhs.fixture_name)
-        return lhs.fixture_name < rhs.fixture_name;
-    const int lhs_scope_rank = shared_fixture_scope_rank(lhs.scope);
-    const int rhs_scope_rank = shared_fixture_scope_rank(rhs.scope);
-    if (lhs_scope_rank != rhs_scope_rank)
-        return lhs_scope_rank < rhs_scope_rank;
-    return lhs.suite < rhs.suite;
-}
-
-bool shared_fixture_callbacks_match(const SharedFixtureEntry &entry, const gentest::detail::SharedFixtureRegistration &registration) {
-    return entry.create == registration.create && entry.setup == registration.setup && entry.teardown == registration.teardown;
-}
 } // namespace
 
 namespace gentest::detail {
@@ -100,332 +51,6 @@ void register_cases(std::span<const Case> cases) {
     std::lock_guard<std::mutex> lk(reg.mtx);
     reg.cases.insert(reg.cases.end(), cases.begin(), cases.end());
     reg.sorted = false;
-}
-
-void register_shared_fixture(const SharedFixtureRegistration &registration) {
-    auto                       &reg = shared_fixture_registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
-    for (const auto &entry : reg.entries) {
-        if (entry.fixture_name == registration.fixture_name && entry.suite == registration.suite && entry.scope == registration.scope) {
-            if (!shared_fixture_callbacks_match(entry, registration)) {
-                const std::string msg = fmt::format("fixture '{}' registered multiple times with conflicting callbacks",
-                                                    registration.fixture_name);
-                fmt::print(stderr, "gentest: {}\n", msg);
-                reg.registration_error = true;
-                reg.registration_errors.push_back(msg);
-            }
-            return;
-        }
-        if (entry.fixture_name == registration.fixture_name && entry.scope != registration.scope) {
-            const std::string msg = fmt::format("fixture '{}' registered with conflicting scopes.", entry.fixture_name);
-            fmt::print(stderr, "gentest: {}\n", msg);
-            reg.registration_error = true;
-            reg.registration_errors.push_back(msg);
-            return;
-        }
-    }
-    SharedFixtureEntry entry;
-    entry.fixture_name = std::string(registration.fixture_name);
-    entry.suite        = std::string(registration.suite);
-    entry.scope        = registration.scope;
-    entry.create       = registration.create;
-    entry.setup        = registration.setup;
-    entry.teardown     = registration.teardown;
-    auto it = std::lower_bound(reg.entries.begin(), reg.entries.end(), entry, shared_fixture_order_less);
-    reg.entries.insert(it, std::move(entry));
-}
-
-namespace {
-struct FixtureContextGuard {
-    std::shared_ptr<gentest::detail::TestContextInfo> ctx;
-    explicit FixtureContextGuard(std::string_view name) {
-        ctx               = std::make_shared<gentest::detail::TestContextInfo>();
-        ctx->display_name = std::string(name);
-        ctx->active       = true;
-        gentest::detail::set_current_test(ctx);
-    }
-    ~FixtureContextGuard() {
-        if (ctx) {
-            ctx->active = false;
-            gentest::detail::set_current_test(nullptr);
-        }
-    }
-};
-
-bool run_fixture_phase(std::string_view label, const std::function<void(std::string &)> &fn, std::string &error_out) {
-    error_out.clear();
-    gentest::detail::clear_bench_error();
-    FixtureContextGuard guard(label);
-    try {
-        fn(error_out);
-    } catch (const gentest::assertion &e) {
-        error_out = e.message();
-    } catch (const std::exception &e) {
-        error_out = std::string("std::exception: ") + e.what();
-    } catch (...) {
-        error_out = "unknown exception";
-    }
-    gentest::detail::wait_for_adopted_tokens(guard.ctx);
-    gentest::detail::flush_current_buffer_for(guard.ctx.get());
-    if (!error_out.empty()) {
-        return false;
-    }
-    if (gentest::detail::has_bench_error()) {
-        error_out = gentest::detail::take_bench_error();
-        return false;
-    }
-    {
-        std::lock_guard<std::mutex> lk(guard.ctx->mtx);
-        if (!guard.ctx->failures.empty()) {
-            error_out = guard.ctx->failures.front();
-            return false;
-        }
-    }
-    return true;
-}
-
-std::string format_fixture_error(std::string_view stage, std::string_view detail) {
-    if (detail.empty()) {
-        return fmt::format("fixture {} failed", stage);
-    }
-    if (stage == "allocation" && detail == "returned null") {
-        return "fixture allocation returned null";
-    }
-    if (stage == "allocation" && detail.starts_with("std::exception:")) {
-        return fmt::format("fixture construction threw {}", detail);
-    }
-    if (stage == "allocation" && detail == "unknown exception") {
-        return "fixture construction threw unknown exception";
-    }
-    return fmt::format("fixture {} failed: {}", stage, detail);
-}
-} // namespace
-
-bool setup_shared_fixtures() {
-    auto &reg = shared_fixture_registry();
-    bool  ok  = true;
-    {
-        std::lock_guard<std::mutex> lk(reg.mtx);
-        if (reg.registration_error) {
-            return false;
-        }
-    }
-    for (;;) {
-        std::size_t target_idx = std::numeric_limits<std::size_t>::max();
-        std::string fixture_name;
-        std::string suite_name;
-        bool        teardown_in_progress                                    = false;
-        std::shared_ptr<void> (*create_fn)(std::string_view, std::string &) = nullptr;
-        void (*setup_fn)(void *, std::string &)                             = nullptr;
-
-        {
-            std::lock_guard<std::mutex> lk(reg.mtx);
-            teardown_in_progress = reg.teardown_in_progress;
-            if (!teardown_in_progress) {
-                for (std::size_t i = 0; i < reg.entries.size(); ++i) {
-                    auto &entry = reg.entries[i];
-                    if (entry.initialized || entry.initializing || entry.failed) {
-                        continue;
-                    }
-                    entry.initializing = true;
-                    target_idx         = i;
-                    fixture_name       = entry.fixture_name;
-                    suite_name         = entry.suite;
-                    create_fn          = entry.create;
-                    setup_fn           = entry.setup;
-                    break;
-                }
-            }
-        }
-
-        if (teardown_in_progress) {
-            break;
-        }
-        if (target_idx == std::numeric_limits<std::size_t>::max()) {
-            break;
-        }
-
-        std::string           error;
-        std::shared_ptr<void> instance;
-        if (!create_fn) {
-            error = "missing factory";
-        } else {
-            try {
-                instance = create_fn(suite_name, error);
-            } catch (const gentest::assertion &e) {
-                error = e.message();
-            } catch (const std::exception &e) {
-                error = std::string("std::exception: ") + e.what();
-            } catch (...) {
-                error = "unknown exception";
-            }
-        }
-
-        if (!instance) {
-            ok = false;
-            std::string fixture_error =
-                create_fn ? format_fixture_error("allocation", error) : "fixture allocation failed: missing factory";
-            {
-                std::lock_guard<std::mutex> lk(reg.mtx);
-                auto                       &entry = reg.entries[target_idx];
-                entry.initializing                = false;
-                entry.initialized                 = false;
-                entry.failed                      = true;
-                entry.error                       = fixture_error;
-                entry.instance.reset();
-            }
-            fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
-            continue;
-        }
-
-        {
-            std::lock_guard<std::mutex> lk(reg.mtx);
-            reg.entries[target_idx].instance = instance;
-        }
-
-        bool setup_ok = true;
-        if (setup_fn) {
-            const std::string label = fmt::format("fixture setup {}", fixture_name);
-            setup_ok                = run_fixture_phase(label, [&](std::string &err) { setup_fn(instance.get(), err); }, error);
-        }
-
-        if (!setup_ok) {
-            ok = false;
-            const std::string fixture_error = format_fixture_error("setup", error);
-            {
-                std::lock_guard<std::mutex> lk(reg.mtx);
-                auto                       &entry = reg.entries[target_idx];
-                entry.initializing                = false;
-                entry.initialized                 = false;
-                entry.failed                      = true;
-                entry.error                       = fixture_error;
-                entry.instance.reset();
-            }
-            fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
-            continue;
-        }
-
-        {
-            std::lock_guard<std::mutex> lk(reg.mtx);
-            auto                       &entry = reg.entries[target_idx];
-            entry.initializing                = false;
-            entry.initialized                 = true;
-            entry.failed                      = false;
-            entry.error.clear();
-        }
-    }
-    return ok;
-}
-
-bool teardown_shared_fixtures(std::vector<std::string> *errors) {
-    struct TeardownWorkItem {
-        std::size_t           index = std::numeric_limits<std::size_t>::max();
-        std::string           fixture_name;
-        std::shared_ptr<void> instance;
-        void (*teardown)(void *instance, std::string &error) = nullptr;
-    };
-    struct TeardownGuard {
-        SharedFixtureRegistry &reg;
-        explicit TeardownGuard(SharedFixtureRegistry &registry) : reg(registry) {
-            std::lock_guard<std::mutex> lk(reg.mtx);
-            reg.teardown_in_progress = true;
-        }
-        ~TeardownGuard() {
-            std::lock_guard<std::mutex> lk(reg.mtx);
-            reg.teardown_in_progress = false;
-        }
-    };
-
-    auto                         &reg = shared_fixture_registry();
-    TeardownGuard                 teardown_guard(reg);
-    std::vector<TeardownWorkItem> work;
-    {
-        std::lock_guard<std::mutex> lk(reg.mtx);
-        work.reserve(reg.entries.size());
-        for (std::size_t i = reg.entries.size(); i-- > 0;) {
-            auto &entry = reg.entries[i];
-            if (!entry.initialized || entry.failed) {
-                entry.instance.reset();
-                entry.initialized = false;
-                continue;
-            }
-            work.push_back(TeardownWorkItem{
-                .index        = i,
-                .fixture_name = entry.fixture_name,
-                .instance     = entry.instance,
-                .teardown     = entry.teardown,
-            });
-        }
-    }
-
-    bool teardown_ok = true;
-    for (const auto &item : work) {
-        if (item.teardown) {
-            std::string       error;
-            const std::string label = fmt::format("fixture teardown {}", item.fixture_name);
-            if (!run_fixture_phase(label, [&](std::string &err) { item.teardown(item.instance.get(), err); }, error)) {
-                const std::string message = fmt::format("fixture teardown failed for {}: {}", item.fixture_name, error);
-                fmt::print(stderr, "gentest: {}\n", message);
-                if (errors)
-                    errors->push_back(message);
-                teardown_ok = false;
-            }
-        }
-
-        std::lock_guard<std::mutex> lk(reg.mtx);
-        if (item.index < reg.entries.size()) {
-            auto &entry = reg.entries[item.index];
-            entry.instance.reset();
-            entry.initialized  = false;
-            entry.initializing = false;
-        }
-    }
-    return teardown_ok;
-}
-
-std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name,
-                                         std::string &error) {
-    auto                       &reg = shared_fixture_registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
-    if (reg.registration_error) {
-        if (!reg.registration_errors.empty()) {
-            error = reg.registration_errors.front();
-        } else {
-            error = "fixture registration failed";
-        }
-        return {};
-    }
-    for (auto &entry : reg.entries) {
-        if (entry.scope != scope)
-            continue;
-        if (entry.fixture_name != fixture_name)
-            continue;
-        if (scope == SharedFixtureScope::Suite && entry.suite != suite)
-            continue;
-        if (entry.failed) {
-            error = entry.error;
-            return {};
-        }
-        if (entry.initializing) {
-            error = "fixture initialization in progress";
-            return {};
-        }
-        if (!entry.initialized) {
-            error = reg.teardown_in_progress ? "fixture teardown in progress" : "fixture not initialized";
-            return {};
-        }
-        if (!entry.instance) {
-            error = "fixture allocation returned null";
-            return {};
-        }
-        return entry.instance;
-    }
-    if (reg.teardown_in_progress) {
-        error = "fixture teardown in progress";
-        return {};
-    }
-    error = "fixture not registered";
-    return {};
 }
 } // namespace gentest::detail
 
@@ -468,65 +93,40 @@ struct Counters {
 };
 
 struct SharedFixtureRunGuard {
-    bool                     setup_ok    = true;
-    bool                     teardown_ok = true;
-    bool                     finalized   = false;
-    std::vector<std::string> setup_errors;
-    std::vector<std::string> teardown_errors;
+    gentest::runner::detail::SharedFixtureRuntimeSession session{};
+    bool                                                 setup_ok    = true;
+    bool                                                 teardown_ok = true;
+    bool                                                 finalized   = false;
+    std::vector<std::string>                             setup_errors;
+    std::vector<std::string>                             teardown_errors;
 
-    SharedFixtureRunGuard() {
-        setup_ok = gentest::detail::setup_shared_fixtures();
-        if (!setup_ok) {
-            auto &reg = shared_fixture_registry();
-            std::lock_guard<std::mutex> lk(reg.mtx);
-            setup_errors.reserve(reg.registration_errors.size() + reg.entries.size());
-
-            for (const auto &msg : reg.registration_errors) {
-                if (std::find(setup_errors.begin(), setup_errors.end(), msg) == setup_errors.end()) {
-                    setup_errors.push_back(msg);
-                }
-            }
-            for (const auto &entry : reg.entries) {
-                if (!entry.failed || entry.error.empty())
-                    continue;
-                const std::string msg = fmt::format("fixture '{}' {}", entry.fixture_name, entry.error);
-                if (std::find(setup_errors.begin(), setup_errors.end(), msg) == setup_errors.end()) {
-                    setup_errors.push_back(msg);
-                }
-            }
-            if (setup_errors.empty() && reg.registration_error) {
-                setup_errors.emplace_back("shared fixture registration failed");
-            }
-            if (setup_errors.empty()) {
-                setup_errors.emplace_back("shared fixture setup failed");
-            }
-        }
-    }
+    SharedFixtureRunGuard() { setup_ok = gentest::runner::detail::setup_shared_fixture_runtime(setup_errors, session); }
 
     void finalize() {
         if (!finalized) {
-            teardown_ok = gentest::detail::teardown_shared_fixtures(&teardown_errors);
+            teardown_ok = gentest::runner::detail::teardown_shared_fixture_runtime(teardown_errors, session);
             finalized   = true;
         }
     }
 
     bool ok() const { return setup_ok && teardown_ok; }
+    bool gate_rejected() const { return session.gate_rejected; }
 
     ~SharedFixtureRunGuard() { finalize(); }
 };
 
-using Outcome   = gentest::runner::Outcome;
-using RunResult = gentest::runner::RunResult;
-using Mode      = gentest::runner::Mode;
-using KindFilter = gentest::runner::KindFilter;
+using Outcome      = gentest::runner::Outcome;
+using RunResult    = gentest::runner::RunResult;
+using Mode         = gentest::runner::Mode;
+using KindFilter   = gentest::runner::KindFilter;
 using TimeUnitMode = gentest::runner::TimeUnitMode;
-using BenchConfig = gentest::runner::BenchConfig;
-using CliOptions = gentest::runner::CliOptions;
-using ReportItem = gentest::runner::ReportItem;
+using BenchConfig  = gentest::runner::BenchConfig;
+using CliOptions   = gentest::runner::CliOptions;
+using ReportItem   = gentest::runner::ReportItem;
 
 struct RunnerState {
-    bool                        color_output   = true;
-    bool                        record_results = false;
+    bool                            color_output   = true;
+    bool                            record_results = false;
     gentest::runner::RunAccumulator acc;
 };
 
@@ -779,7 +379,7 @@ static void wait_and_flush_test_context(const std::shared_ptr<gentest::detail::T
 }
 
 static void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo,
-                                           std::string_view default_reason) {
+                                           std::string_view                                         default_reason) {
     std::string runtime_skip_reason;
     {
         std::scoped_lock lk(ctxinfo->mtx);
@@ -967,9 +567,9 @@ static inline double run_jitter_batch_epoch_calls(const Case &c, void *ctx, std:
     auto                             epoch_start = clock::now();
     had_assert_fail                              = false;
     iterations_done                              = 0;
-    std::size_t     local_done   = 0;
-    auto            batch_start  = clock::now();
-    bool            in_batch     = false;
+    std::size_t local_done                       = 0;
+    auto        batch_start                      = clock::now();
+    bool        in_batch                         = false;
     try {
         for (std::size_t s = 0; s < batch_samples; ++s) {
             batch_start = clock::now();
@@ -1034,8 +634,8 @@ static inline double run_jitter_batch_epoch_calls(const Case &c, void *ctx, std:
     return std::chrono::duration<double>(epoch_end - epoch_start).count();
 }
 
-static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::BenchPhase phase, std::string &error,
-                                  bool &allocation_failure, bool &runtime_skipped, std::string &skip_reason,
+static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::BenchPhase phase, std::string &error, bool &allocation_failure,
+                                  bool &runtime_skipped, std::string &skip_reason,
                                   gentest::detail::TestContextInfo::RuntimeSkipKind &runtime_skip_kind) {
     error.clear();
     skip_reason.clear();
@@ -1043,7 +643,7 @@ static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::Ben
     runtime_skipped    = false;
     runtime_skip_kind  = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
     gentest::detail::clear_bench_error();
-    auto inv = gentest::runner::invoke_case_once(c, ctx, phase, gentest::runner::UnhandledExceptionPolicy::CaptureOnly);
+    auto  inv     = gentest::runner::invoke_case_once(c, ctx, phase, gentest::runner::UnhandledExceptionPolicy::CaptureOnly);
     auto &ctxinfo = inv.ctxinfo;
     switch (inv.exception) {
     case gentest::runner::InvokeException::None: break;
@@ -1055,10 +655,10 @@ static bool run_measurement_phase(const Case &c, void *ctx, gentest::detail::Ben
     }
     {
         std::lock_guard<std::mutex> lk(ctxinfo->mtx);
-        const bool skip_requested = ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
+        const bool                  skip_requested = ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
         if (skip_requested) {
-            runtime_skipped  = true;
-            skip_reason = ctxinfo->runtime_skip_reason;
+            runtime_skipped   = true;
+            skip_reason       = ctxinfo->runtime_skip_reason;
             runtime_skip_kind = ctxinfo->runtime_skip_kind;
         } else if (runtime_skipped) {
             runtime_skipped = false;
@@ -1312,19 +912,19 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
     ++c.total;
     ++c.executed;
     auto       inv             = gentest::runner::invoke_case_once(test, ctx, gentest::detail::BenchPhase::None,
-                                                                    gentest::runner::UnhandledExceptionPolicy::RecordAsFailure);
+                                                                   gentest::runner::UnhandledExceptionPolicy::RecordAsFailure);
     auto       ctxinfo         = inv.ctxinfo;
     const bool runtime_skipped = (inv.exception == gentest::runner::InvokeException::Skip);
-    const bool threw_non_skip  = (inv.exception != gentest::runner::InvokeException::None &&
-                                 inv.exception != gentest::runner::InvokeException::Skip);
-    rr.time_s         = inv.elapsed_s;
-    rr.logs           = ctxinfo->logs;
-    rr.timeline       = ctxinfo->event_lines;
+    const bool threw_non_skip =
+        (inv.exception != gentest::runner::InvokeException::None && inv.exception != gentest::runner::InvokeException::Skip);
+    rr.time_s   = inv.elapsed_s;
+    rr.logs     = ctxinfo->logs;
+    rr.timeline = ctxinfo->event_lines;
 
     bool        should_skip = false;
     std::string runtime_skip_reason;
     auto        runtime_skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
-    bool        is_xfail = false;
+    bool        is_xfail          = false;
     std::string xfail_reason;
     {
         std::lock_guard<std::mutex> lk(ctxinfo->mtx);
@@ -1339,9 +939,9 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
 
     if (should_skip && !has_failures && !threw_non_skip) {
         ++c.skipped;
-        rr.skipped             = true;
-        rr.outcome             = Outcome::Skip;
-        rr.skip_reason         = std::move(runtime_skip_reason);
+        rr.skipped     = true;
+        rr.outcome     = Outcome::Skip;
+        rr.skip_reason = std::move(runtime_skip_reason);
         if (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) {
             const std::string issue = rr.skip_reason.empty() ? std::string("shared fixture unavailable") : rr.skip_reason;
             rr.failures.push_back(issue);
@@ -1695,8 +1295,7 @@ static void record_measured_failure_summary(RunnerState &state, const Case &c, c
     ++state.acc.measured_failures;
 }
 
-template <typename Result>
-static void record_measured_success_report_item(RunnerState &state, const Case &c, const Result &result) {
+template <typename Result> static void record_measured_success_report_item(RunnerState &state, const Case &c, const Result &result) {
     if (!state.record_results)
         return;
 
@@ -1742,9 +1341,8 @@ static bool run_measured_case(const Case &c, CallFn &&run_call, Result &out_resu
         if (runtime_skipped) {
             out_failure.reason        = std::move(skip_reason);
             out_failure.skipped       = true;
-            out_failure.infra_failure =
-                (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
-            out_failure.phase = "setup";
+            out_failure.infra_failure = (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.phase         = "setup";
             return false;
         }
         out_failure.reason             = std::move(reason);
@@ -1765,9 +1363,8 @@ static bool run_measured_case(const Case &c, CallFn &&run_call, Result &out_resu
         if (runtime_skipped) {
             out_failure.reason             = skip_reason.empty() ? std::string("teardown requested skip") : std::move(skip_reason);
             out_failure.allocation_failure = false;
-            out_failure.infra_failure =
-                (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
-            out_failure.phase = "teardown";
+            out_failure.infra_failure      = (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.phase              = "teardown";
             return false;
         }
         out_failure.reason             = std::move(reason);
@@ -2358,7 +1955,7 @@ auto run_all_tests(std::span<const char *> args) -> int {
     case Mode::Execute: break;
     }
 
-    const auto selection = gentest::runner::select_cases(kCases, opt);
+    const auto selection     = gentest::runner::select_cases(kCases, opt);
     const bool has_selection = selection.has_selection;
 
     switch (selection.status) {
@@ -2419,9 +2016,10 @@ auto run_all_tests(std::span<const char *> args) -> int {
             record_runner_level_failure(state, "gentest/shared_fixture_setup", message);
         }
     }
+    const bool fixture_runtime_blocked = fixture_guard.gate_rejected();
 
     bool tests_stopped = false;
-    if (!test_idxs.empty()) {
+    if (!fixture_runtime_blocked && !test_idxs.empty()) {
         if (opt.shuffle && !has_selection)
             fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
         for (std::size_t iter = 0; iter < opt.repeat_n; ++iter) {
@@ -2436,13 +2034,13 @@ auto run_all_tests(std::span<const char *> args) -> int {
 
     TimedRunStatus bench_status{};
     TimedRunStatus jitter_status{};
-    if (!(opt.fail_fast && tests_stopped)) {
+    if (!fixture_runtime_blocked && !(opt.fail_fast && tests_stopped)) {
         bench_status =
             run_selected_benches(kCases, std::span<const std::size_t>{bench_idxs.data(), bench_idxs.size()}, state, opt, opt.fail_fast);
     }
-    if (!(opt.fail_fast && (tests_stopped || bench_status.stopped))) {
-        jitter_status = run_selected_jitters(kCases, std::span<const std::size_t>{jitter_idxs.data(), jitter_idxs.size()}, state, opt,
-                                             opt.fail_fast);
+    if (!fixture_runtime_blocked && !(opt.fail_fast && (tests_stopped || bench_status.stopped))) {
+        jitter_status =
+            run_selected_jitters(kCases, std::span<const std::size_t>{jitter_idxs.data(), jitter_idxs.size()}, state, opt, opt.fail_fast);
     }
 
     fixture_guard.finalize();
@@ -2478,7 +2076,7 @@ auto run_all_tests(std::span<const char *> args) -> int {
 
     if (!test_idxs.empty() || !state.acc.failure_items.empty()) {
         const std::size_t failed_count = counters.failed + state.acc.measured_failures + state.acc.infra_errors.size();
-        std::string summary;
+        std::string       summary;
         summary.reserve(128 + state.acc.failure_items.size() * 64);
         fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n", counters.passed,
                        counters.total, failed_count, counters.skipped, counters.xfail, counters.xpass);

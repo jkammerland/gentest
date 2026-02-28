@@ -809,6 +809,38 @@ target_include_directories(gentest_regression_shared_fixture_manual_create_throw
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_shared_fixture_manual_setup_throw_skip
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_setup_throw_skip.cpp)
+target_link_libraries(gentest_regression_shared_fixture_manual_setup_throw_skip PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_manual_setup_throw_skip PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_manual_setup_throw_skip PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_missing_factory_skip
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_missing_factory_skip.cpp)
+target_link_libraries(gentest_regression_shared_fixture_missing_factory_skip PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_missing_factory_skip PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_missing_factory_skip PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_runtime_registration_during_run
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_runtime_registration_during_run.cpp)
+target_link_libraries(gentest_regression_shared_fixture_runtime_registration_during_run PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_runtime_registration_during_run PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_runtime_registration_during_run PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_runtime_reentry_rejected
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_runtime_reentry_rejected.cpp)
+target_link_libraries(gentest_regression_shared_fixture_runtime_reentry_rejected PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_runtime_reentry_rejected PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_runtime_reentry_rejected PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(gentest_regression_shared_fixture_manual_teardown_throw_exit
     ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_teardown_throw_exit.cpp)
 target_link_libraries(gentest_regression_shared_fixture_manual_teardown_throw_exit PRIVATE gentest_runtime)
@@ -1152,6 +1184,52 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_throw_skip>
     EXPECT_SUBSTRING "manual-create-throw"
     ARGS --run=regressions/shared_fixture_manual_create_throw_skip/member_case --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_manual_setup_throw_skips
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_throw_skip>
+    PASS 0
+    FAIL 0
+    SKIP 1
+    EXPECT_RC 1
+    ARGS --run=regressions/shared_fixture_manual_setup_throw_skip/member_case --kind=test)
+
+gentest_add_check_death(
+    NAME regression_shared_fixture_manual_setup_throw_reports_reason
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_throw_skip>
+    EXPECT_SUBSTRING "manual-setup-throw"
+    ARGS --run=regressions/shared_fixture_manual_setup_throw_skip/member_case --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_missing_factory_skips
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_missing_factory_skip>
+    PASS 0
+    FAIL 0
+    SKIP 1
+    EXPECT_RC 1
+    ARGS --run=regressions/shared_fixture_missing_factory_skip/member_case --kind=test)
+
+gentest_add_check_death(
+    NAME regression_shared_fixture_missing_factory_reports_reason
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_missing_factory_skip>
+    EXPECT_SUBSTRING "missing factory"
+    ARGS --run=regressions/shared_fixture_missing_factory_skip/member_case --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_runtime_registration_during_run_rejected
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_runtime_registration_during_run>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=regressions/shared_fixture_runtime_registration_during_run/late_register --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_runtime_reentry_is_rejected
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_runtime_reentry_rejected>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=regressions/shared_fixture_runtime_reentry_rejected/outer --kind=test)
 
 gentest_add_check_death(
     NAME regression_shared_fixture_manual_teardown_throw_exits_nonzero
