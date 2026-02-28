@@ -1,10 +1,12 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <exception>
+#include <iterator>
 #include <mutex>
 #include <ostream>
 #include <source_location>
@@ -92,11 +94,14 @@ struct TestContextInfo {
     std::vector<std::string> event_lines;
     std::vector<char>        event_kinds;
     std::mutex               mtx;
+    std::mutex               adopted_mtx;
+    std::condition_variable  adopted_cv;
     std::atomic<bool>        active{false};
     std::atomic<bool>        has_failures{false};
+    std::atomic<std::size_t> adopted_tokens{0};
     bool                     dump_logs_on_failure{false};
 
-    bool        runtime_skip_requested{false};
+    std::atomic<bool> runtime_skip_requested{false};
     std::string runtime_skip_reason;
     enum class RuntimeSkipKind {
         User,
@@ -108,12 +113,86 @@ struct TestContextInfo {
     std::string xfail_reason;
 };
 
+struct TestContextLocalBuffer {
+    TestContextInfo *owner = nullptr;
+
+    std::vector<std::string>              failures;
+    std::vector<TestContextInfo::FailureLoc> failure_locations;
+    std::vector<std::string>              logs;
+    std::vector<std::string>              event_lines;
+    std::vector<char>                     event_kinds;
+
+    bool empty() const {
+        return failures.empty() && failure_locations.empty() && logs.empty() && event_lines.empty() && event_kinds.empty();
+    }
+
+    void clear() {
+        failures.clear();
+        failure_locations.clear();
+        logs.clear();
+        event_lines.clear();
+        event_kinds.clear();
+    }
+};
+
 inline thread_local std::shared_ptr<TestContextInfo> g_current_test{};
+inline thread_local TestContextLocalBuffer           g_current_buffer{};
 
 struct skip_exception {};
 
-inline void                             set_current_test(std::shared_ptr<TestContextInfo> ctx) { g_current_test = std::move(ctx); }
+enum class BenchPhase {
+    None,
+    Setup,
+    Call,
+    Teardown,
+};
+inline BenchPhase bench_phase();
+
+inline void flush_current_buffer_for(TestContextInfo *ctx) {
+    if (!ctx || g_current_buffer.owner != ctx || g_current_buffer.empty())
+        return;
+
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    if (!g_current_buffer.failures.empty()) {
+        ctx->failures.insert(ctx->failures.end(), std::make_move_iterator(g_current_buffer.failures.begin()),
+                             std::make_move_iterator(g_current_buffer.failures.end()));
+    }
+    if (!g_current_buffer.failure_locations.empty()) {
+        ctx->failure_locations.insert(ctx->failure_locations.end(), std::make_move_iterator(g_current_buffer.failure_locations.begin()),
+                                      std::make_move_iterator(g_current_buffer.failure_locations.end()));
+    }
+    if (!g_current_buffer.logs.empty()) {
+        ctx->logs.insert(ctx->logs.end(), std::make_move_iterator(g_current_buffer.logs.begin()),
+                         std::make_move_iterator(g_current_buffer.logs.end()));
+    }
+    if (!g_current_buffer.event_lines.empty()) {
+        ctx->event_lines.insert(ctx->event_lines.end(), std::make_move_iterator(g_current_buffer.event_lines.begin()),
+                                std::make_move_iterator(g_current_buffer.event_lines.end()));
+    }
+    if (!g_current_buffer.event_kinds.empty()) {
+        ctx->event_kinds.insert(ctx->event_kinds.end(), std::make_move_iterator(g_current_buffer.event_kinds.begin()),
+                                std::make_move_iterator(g_current_buffer.event_kinds.end()));
+    }
+    g_current_buffer.clear();
+}
+
+inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
+    if (g_current_test) {
+        flush_current_buffer_for(g_current_test.get());
+    }
+    g_current_test         = std::move(ctx);
+    g_current_buffer.owner = g_current_test ? g_current_test.get() : nullptr;
+}
 inline std::shared_ptr<TestContextInfo> current_test() { return g_current_test; }
+inline void wait_for_adopted_tokens(const std::shared_ptr<TestContextInfo> &ctx) {
+    if (!ctx)
+        return;
+    // Intentional barrier: test/phase completion waits for all adopted contexts
+    // to be released. If adopted work is leaked (for example detached/stuck),
+    // completion blocks by design to preserve one-shot outcome accounting.
+    std::unique_lock<std::mutex> lk(ctx->adopted_mtx);
+    ctx->adopted_cv.wait(lk, [&] { return ctx->adopted_tokens.load(std::memory_order_acquire) == 0; });
+}
 inline void                             request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
     auto ctx = g_current_test;
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
@@ -123,7 +202,7 @@ inline void                             request_runtime_skip(std::string_view re
         std::abort();
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->runtime_skip_requested = true;
+    ctx->runtime_skip_requested.store(true, std::memory_order_relaxed);
     ctx->runtime_skip_reason    = std::string(reason);
     ctx->runtime_skip_kind      = kind;
 }
@@ -135,13 +214,20 @@ inline void                             record_failure(std::string msg) {
                                                stderr);
         std::abort();
     }
-    std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->failures.push_back(std::move(msg));
+    if (g_current_buffer.owner != ctx.get()) {
+        flush_current_buffer_for(g_current_buffer.owner);
+        g_current_buffer.owner = ctx.get();
+    }
+    g_current_buffer.failures.push_back(std::move(msg));
     ctx->has_failures.store(true, std::memory_order_relaxed);
-    ctx->failure_locations.push_back({std::string{}, 0});
-    // Record event (after pushing so that failures vector is up-to-date)
-    ctx->event_lines.push_back(ctx->failures.back());
-    ctx->event_kinds.push_back('F');
+    g_current_buffer.failure_locations.push_back({std::string{}, 0});
+    g_current_buffer.event_lines.push_back(g_current_buffer.failures.back());
+    g_current_buffer.event_kinds.push_back('F');
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    if (bench_phase() == BenchPhase::Call) {
+        throw gentest::assertion(g_current_buffer.failures.back());
+    }
+#endif
 }
 inline void record_failure(std::string msg, const std::source_location &loc) {
     auto ctx = g_current_test;
@@ -151,8 +237,11 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
                    stderr);
         std::abort();
     }
-    std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->failures.push_back(std::move(msg));
+    if (g_current_buffer.owner != ctx.get()) {
+        flush_current_buffer_for(g_current_buffer.owner);
+        g_current_buffer.owner = ctx.get();
+    }
+    g_current_buffer.failures.push_back(std::move(msg));
     ctx->has_failures.store(true, std::memory_order_relaxed);
     // Normalize path to a stable, short form for diagnostics
     std::filesystem::path p(std::string(loc.file_name()));
@@ -164,10 +253,14 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
         return false;
     };
     (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
-    ctx->failure_locations.push_back({std::move(s), loc.line()});
-    // Record event (after pushing so that failures vector is up-to-date)
-    ctx->event_lines.push_back(ctx->failures.back());
-    ctx->event_kinds.push_back('F');
+    g_current_buffer.failure_locations.push_back({std::move(s), loc.line()});
+    g_current_buffer.event_lines.push_back(g_current_buffer.failures.back());
+    g_current_buffer.event_kinds.push_back('F');
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    if (bench_phase() == BenchPhase::Call) {
+        throw gentest::assertion(g_current_buffer.failures.back());
+    }
+#endif
 }
 inline void append_label(std::string& out, std::string_view label) {
     static constexpr std::size_t kWidth = 12; // longest of EXPECT_FALSE/ASSERT_FALSE
@@ -189,13 +282,6 @@ inline std::string loc_to_string(const std::source_location &loc) {
     s.append(std::to_string(loc.line()));
     return s;
 }
-
-enum class BenchPhase {
-    None,
-    Setup,
-    Call,
-    Teardown,
-};
 
 inline thread_local BenchPhase g_bench_phase = BenchPhase::None;
 inline thread_local std::string g_bench_error;
@@ -517,11 +603,24 @@ inline void require_no_throw(Fn&& fn, const std::source_location& loc) {
 // Public context adoption API for multi-threaded/coroutine tests.
 namespace ctx {
 using Token = std::shared_ptr<detail::TestContextInfo>;
-inline Token current() { return detail::g_current_test; }
+inline Token current() { return detail::current_test(); }
 struct Adopt {
     Token prev;
-    explicit Adopt(const Token &t) : prev(detail::g_current_test) { detail::g_current_test = t; }
-    ~Adopt() { detail::g_current_test = prev; }
+    Token adopted;
+    explicit Adopt(const Token &t) : prev(detail::current_test()), adopted(t) {
+        if (adopted) {
+            adopted->adopted_tokens.fetch_add(1, std::memory_order_acq_rel);
+        }
+        detail::set_current_test(adopted);
+    }
+    // Releasing this guard is part of test completion progress: the runner
+    // blocks until all adopted guards for the test context are destroyed.
+    ~Adopt() {
+        detail::set_current_test(prev);
+        if (adopted && adopted->adopted_tokens.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            adopted->adopted_cv.notify_all();
+        }
+    }
 };
 } // namespace ctx
 
@@ -1070,7 +1169,7 @@ void register_shared_fixture(const SharedFixtureRegistration& registration);
 // when shared fixture infrastructure fails (for example conflicting
 // registrations, allocation failures, or setup failures).
 bool setup_shared_fixtures();
-bool teardown_shared_fixtures();
+bool teardown_shared_fixtures(std::vector<std::string> *errors = nullptr);
 
 // Lookup shared fixture instance by scope/suite/name. Returns nullptr and fills
 // error when unavailable (not registered, allocation/setup failure, or setup

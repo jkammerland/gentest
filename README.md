@@ -252,6 +252,10 @@ Assertions must run under an active test context. When you spawn threads/corouti
 `EXPECT_*` failures are attributed to the right test. Use `gentest::log_on_fail(true)` + `gentest::log(...)` for
 lightweight attachments.
 
+Completion semantics are strict by design: runner phase completion waits until all adopted contexts are released.
+If adopted work is detached/stuck and never releases `gentest::ctx::Adopt`, the test/run blocks intentionally.
+Always join/cancel adopted work before returning from the test body.
+
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/runner.h"

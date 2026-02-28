@@ -11,6 +11,8 @@ bool in_bench_call_phase() {
 }
 
 void bench_assert_should_fail(void*) {
+    if (!in_bench_call_phase())
+        return;
     EXPECT_TRUE(false, "intentional benchmark assertion failure");
 }
 
@@ -33,6 +35,8 @@ void bench_skip_should_fail(void*) {
 }
 
 void jitter_assert_should_fail(void*) {
+    if (!in_bench_call_phase())
+        return;
     EXPECT_TRUE(false, "intentional jitter assertion failure");
 }
 
