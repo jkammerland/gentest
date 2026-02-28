@@ -1,8 +1,17 @@
 #pragma once
 
+#include "gentest/runner.h"
+
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
+
+namespace gentest::runner {
+
+bool acquire_case_fixture(const gentest::Case &c, void *&ctx, std::string &reason);
+
+} // namespace gentest::runner
 
 namespace gentest::runner::detail {
 

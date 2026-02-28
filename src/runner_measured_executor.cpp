@@ -2,6 +2,7 @@
 
 #include "gentest/detail/bench_stats.h"
 #include "runner_case_invoker.h"
+#include "runner_fixture_runtime.h"
 
 #include <algorithm>
 #include <array>
@@ -518,27 +519,6 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
     return true;
 }
 
-bool acquire_case_fixture_impl(const gentest::Case &c, void *&ctx, std::string &reason) {
-    ctx = nullptr;
-    if (c.fixture_lifetime == FixtureLifetime::None || c.fixture_lifetime == FixtureLifetime::MemberEphemeral)
-        return true;
-    if (c.fixture.empty()) {
-        reason = "fixture allocation returned null";
-        return false;
-    }
-    const auto scope  = (c.fixture_lifetime == FixtureLifetime::MemberSuite) ? gentest::detail::SharedFixtureScope::Suite
-                                                                             : gentest::detail::SharedFixtureScope::Global;
-    auto       shared = gentest::detail::get_shared_fixture(scope, c.suite, c.fixture, reason);
-    if (!shared) {
-        if (reason.empty()) {
-            reason = "fixture allocation returned null";
-        }
-        return false;
-    }
-    ctx = shared.get();
-    return true;
-}
-
 BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg) {
     BenchResult br{};
     std::size_t iters      = 1;
@@ -693,7 +673,7 @@ template <typename Result, typename CallFn>
 bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_result, MeasurementCaseFailure &out_failure) {
     void       *ctx = nullptr;
     std::string reason;
-    if (!acquire_case_fixture_impl(c, ctx, reason)) {
+    if (!gentest::runner::acquire_case_fixture(c, ctx, reason)) {
         if (reason.empty()) {
             reason = "fixture allocation returned null";
         }
@@ -812,14 +792,12 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
                 return TimedRunStatus{false, true};
             continue;
         }
-        on_success(c, result);
+        on_success(c, std::move(result));
     }
     return TimedRunStatus{!had_fixture_failure};
 }
 
 } // namespace
-
-bool acquire_case_fixture(const gentest::Case &c, void *&ctx, std::string &reason) { return acquire_case_fixture_impl(c, ctx, reason); }
 
 TimedRunStatus run_selected_benches(std::span<const gentest::Case> kCases, std::span<const std::size_t> idxs, const CliOptions &opt,
                                     bool fail_fast, const BenchSuccessFn &on_success, const MeasurementFailureFn &on_failure) {
@@ -835,11 +813,11 @@ TimedRunStatus run_selected_benches(std::span<const gentest::Case> kCases, std::
     const TimedRunStatus measured_status = run_measured_cases<BenchResult>(
         kCases, idxs, "benchmark", fail_fast,
         [&](const gentest::Case &measured, void *measured_ctx) { return run_bench(measured, measured_ctx, opt.bench_cfg); },
-        [&](const gentest::Case &measured, const BenchResult &br) {
+        [&](const gentest::Case &measured, BenchResult &&br) {
             on_success(measured, br);
             rows.push_back(BenchRow{
                 .c  = &measured,
-                .br = br,
+                .br = std::move(br),
             });
         },
         on_failure);
@@ -1003,11 +981,11 @@ TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::
     const TimedRunStatus measured_status = run_measured_cases<JitterResult>(
         kCases, idxs, "jitter", fail_fast,
         [&](const gentest::Case &measured, void *measured_ctx) { return run_jitter(measured, measured_ctx, opt.bench_cfg); },
-        [&](const gentest::Case &measured, const JitterResult &jr) {
+        [&](const gentest::Case &measured, JitterResult &&jr) {
             on_success(measured, jr);
             rows.push_back(JitterRow{
                 .c  = &measured,
-                .jr = jr,
+                .jr = std::move(jr),
             });
         },
         on_failure);

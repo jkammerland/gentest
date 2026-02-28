@@ -123,6 +123,27 @@ bool shared_fixture_callbacks_match(const SharedFixtureEntry &entry, const gente
     return entry.create == registration.create && entry.setup == registration.setup && entry.teardown == registration.teardown;
 }
 
+bool suite_scope_matches(std::string_view fixture_suite, std::string_view requested_suite) {
+    if (fixture_suite.empty()) {
+        return true;
+    }
+    if (requested_suite == fixture_suite) {
+        return true;
+    }
+    if (requested_suite.size() <= fixture_suite.size() || !requested_suite.starts_with(fixture_suite)) {
+        return false;
+    }
+
+    const auto remainder = requested_suite.substr(fixture_suite.size());
+    if (remainder.empty()) {
+        return true;
+    }
+    if (remainder.front() == '/') {
+        return true;
+    }
+    return remainder.size() >= 2 && remainder[0] == ':' && remainder[1] == ':';
+}
+
 struct FixtureContextGuard {
     std::shared_ptr<gentest::detail::TestContextInfo> ctx;
     explicit FixtureContextGuard(std::string_view name) {
@@ -440,40 +461,77 @@ std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_v
         }
         return {};
     }
+    SharedFixtureEntry *selected = nullptr;
     for (auto &entry : reg.entries) {
         if (entry.scope != scope)
             continue;
         if (entry.fixture_name != fixture_name)
             continue;
-        if (scope == SharedFixtureScope::Suite && entry.suite != suite)
+        if (scope == SharedFixtureScope::Suite) {
+            if (!suite_scope_matches(entry.suite, suite))
+                continue;
+            if (!selected || entry.suite.size() > selected->suite.size()) {
+                selected = &entry;
+            }
             continue;
-        if (entry.failed) {
-            error = entry.error;
-            return {};
         }
-        if (entry.initializing) {
-            error = "fixture initialization in progress";
-            return {};
-        }
-        if (!entry.initialized) {
-            error = reg.teardown_in_progress ? "fixture teardown in progress" : "fixture not initialized";
-            return {};
-        }
-        if (!entry.instance) {
-            error = "fixture allocation returned null";
-            return {};
-        }
-        return entry.instance;
+        selected = &entry;
+        break;
     }
-    if (reg.teardown_in_progress) {
-        error = "fixture teardown in progress";
+    if (!selected) {
+        if (reg.teardown_in_progress) {
+            error = "fixture teardown in progress";
+            return {};
+        }
+        error = "fixture not registered";
         return {};
     }
-    error = "fixture not registered";
-    return {};
+
+    if (selected->failed) {
+        error = selected->error;
+        return {};
+    }
+    if (selected->initializing) {
+        error = "fixture initialization in progress";
+        return {};
+    }
+    if (!selected->initialized) {
+        error = reg.teardown_in_progress ? "fixture teardown in progress" : "fixture not initialized";
+        return {};
+    }
+    if (!selected->instance) {
+        error = "fixture allocation returned null";
+        return {};
+    }
+    return selected->instance;
 }
 
 } // namespace gentest::detail
+
+namespace gentest::runner {
+
+bool acquire_case_fixture(const gentest::Case &c, void *&ctx, std::string &reason) {
+    ctx = nullptr;
+    if (c.fixture_lifetime == FixtureLifetime::None || c.fixture_lifetime == FixtureLifetime::MemberEphemeral)
+        return true;
+    if (c.fixture.empty()) {
+        reason = "fixture allocation returned null";
+        return false;
+    }
+    const auto scope  = (c.fixture_lifetime == FixtureLifetime::MemberSuite) ? gentest::detail::SharedFixtureScope::Suite
+                                                                             : gentest::detail::SharedFixtureScope::Global;
+    auto       shared = gentest::detail::get_shared_fixture(scope, c.suite, c.fixture, reason);
+    if (!shared) {
+        if (reason.empty()) {
+            reason = "fixture allocation returned null";
+        }
+        return false;
+    }
+    ctx = shared.get();
+    return true;
+}
+
+} // namespace gentest::runner
 
 namespace gentest::runner::detail {
 

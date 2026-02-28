@@ -69,8 +69,6 @@ using MeasurementFailureFn = std::function<void(const gentest::Case &, const Mea
 using BenchSuccessFn       = std::function<void(const gentest::Case &, const BenchResult &)>;
 using JitterSuccessFn      = std::function<void(const gentest::Case &, const JitterResult &)>;
 
-bool acquire_case_fixture(const gentest::Case &c, void *&ctx, std::string &reason);
-
 TimedRunStatus run_selected_benches(std::span<const gentest::Case> cases, std::span<const std::size_t> idxs, const CliOptions &opt,
                                     bool fail_fast, const BenchSuccessFn &on_success, const MeasurementFailureFn &on_failure);
 

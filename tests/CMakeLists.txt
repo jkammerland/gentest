@@ -841,6 +841,22 @@ target_include_directories(gentest_regression_shared_fixture_runtime_reentry_rej
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_shared_fixture_suite_scope_descendant
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_suite_scope_descendant.cpp)
+target_link_libraries(gentest_regression_shared_fixture_suite_scope_descendant PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_suite_scope_descendant PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_suite_scope_descendant PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_shared_fixture_suite_scope_most_specific
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_suite_scope_most_specific.cpp)
+target_link_libraries(gentest_regression_shared_fixture_suite_scope_most_specific PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_suite_scope_most_specific PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_suite_scope_most_specific PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(gentest_regression_shared_fixture_manual_teardown_throw_exit
     ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_teardown_throw_exit.cpp)
 target_link_libraries(gentest_regression_shared_fixture_manual_teardown_throw_exit PRIVATE gentest_runtime)
@@ -854,6 +870,14 @@ add_executable(gentest_regression_cli_suffix_ambiguity
 target_link_libraries(gentest_regression_cli_suffix_ambiguity PRIVATE gentest_runtime)
 target_compile_features(gentest_regression_cli_suffix_ambiguity PRIVATE cxx_std_20)
 target_include_directories(gentest_regression_cli_suffix_ambiguity PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(gentest_regression_orchestrator_fail_fast_blocks_measured
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/orchestrator_fail_fast_blocks_measured.cpp)
+target_link_libraries(gentest_regression_orchestrator_fail_fast_blocks_measured PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_orchestrator_fail_fast_blocks_measured PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_orchestrator_fail_fast_blocks_measured PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -944,6 +968,34 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
     EXPECT_SUBSTRING "jitter call failed for regressions/jitter_skip_should_fail"
     ARGS --run=regressions/jitter_skip_should_fail --kind=jitter)
+
+gentest_add_check_counts(
+    NAME regression_orchestrator_fail_fast_blocks_measured
+    PROG $<TARGET_FILE:gentest_regression_orchestrator_fail_fast_blocks_measured>
+    PASS 0
+    FAIL 1
+    SKIP 0
+    ARGS --fail-fast)
+
+gentest_add_cmake_script_test(
+    NAME regression_orchestrator_fail_fast_blocks_measured_no_bench_call
+    PROG $<TARGET_FILE:gentest_regression_orchestrator_fail_fast_blocks_measured>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --fail-fast
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=orchestrator-fail-fast-test-failure"
+        "FORBID_SUBSTRING=benchmark call failed for regressions/orchestrator_fail_fast_blocks_measured/bench_should_not_run")
+
+gentest_add_cmake_script_test(
+    NAME regression_orchestrator_fail_fast_blocks_measured_no_jitter_call
+    PROG $<TARGET_FILE:gentest_regression_orchestrator_fail_fast_blocks_measured>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --fail-fast
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=orchestrator-fail-fast-test-failure"
+        "FORBID_SUBSTRING=jitter call failed for regressions/orchestrator_fail_fast_blocks_measured/jitter_should_not_run")
 
 gentest_add_check_exit_code(
     NAME regression_bench_setup_skip_noninfra_exit_zero
@@ -1230,6 +1282,22 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --run=regressions/shared_fixture_runtime_reentry_rejected/outer --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_suite_scope_descendant_lookup
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_suite_scope_descendant>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=regressions/shared_fixture_suite_scope_descendant/member_case --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_suite_scope_most_specific_lookup
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_suite_scope_most_specific>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=regressions/shared_fixture_suite_scope_most_specific/member_case --kind=test)
 
 gentest_add_check_death(
     NAME regression_shared_fixture_manual_teardown_throw_exits_nonzero
