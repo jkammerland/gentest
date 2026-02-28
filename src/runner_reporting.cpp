@@ -6,6 +6,7 @@
 
 #ifdef GENTEST_USE_BOOST_JSON
 #include <boost/json.hpp>
+#include <boost/json/src.hpp>
 #endif
 
 namespace gentest::runner {
@@ -154,6 +155,30 @@ void write_reports(const RunAccumulator &acc, const ReportConfig &cfg) {
                 out << boost::json::serialize(obj);
             ++idx;
         }
+
+        std::size_t infra_idx = 0;
+        for (const auto &message : acc.infra_errors) {
+            boost::json::object obj;
+            obj["name"]   = fmt::format("gentest/infra_error/{}", infra_idx);
+            obj["status"] = "failed";
+            obj["time"]   = 0.0;
+
+            boost::json::array labels;
+            labels.push_back({{"name", "suite"}, {"value", "gentest/infra"}});
+            obj["labels"] = std::move(labels);
+
+            boost::json::object details;
+            details["message"]    = message;
+            obj["statusDetails"]  = std::move(details);
+
+            const std::string file = std::string(cfg.allure_dir) + "/result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json";
+            std::ofstream     out(file, std::ios::binary);
+            if (out)
+                out << boost::json::serialize(obj);
+
+            ++infra_idx;
+            ++idx;
+        }
     }
 #else
     (void)cfg.allure_dir;
@@ -161,4 +186,3 @@ void write_reports(const RunAccumulator &acc, const ReportConfig &cfg) {
 }
 
 } // namespace gentest::runner
-

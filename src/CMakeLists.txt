@@ -42,6 +42,11 @@ endif()
 target_link_libraries(gentest_runtime
     PUBLIC fmt::fmt)
 
+if(GENTEST_USE_BOOST_JSON)
+    # Enable the runtime Allure JSON writer implementation.
+    target_compile_definitions(gentest_runtime PRIVATE GENTEST_USE_BOOST_JSON BOOST_JSON_NO_LIB)
+endif()
+
 target_include_directories(gentest_runtime
     PRIVATE
         ${PROJECT_SOURCE_DIR}/third_party/include)

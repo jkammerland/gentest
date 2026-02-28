@@ -801,6 +801,14 @@ target_include_directories(gentest_regression_shared_fixture_ordering PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_fixture_group_shuffle_invariants
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/fixture_group_shuffle_invariants.cpp)
+target_link_libraries(gentest_regression_fixture_group_shuffle_invariants PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_fixture_group_shuffle_invariants PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_fixture_group_shuffle_invariants PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(gentest_regression_shared_fixture_manual_create_throw_skip
     ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_create_throw_skip.cpp)
 target_link_libraries(gentest_regression_shared_fixture_manual_create_throw_skip PRIVATE gentest_runtime)
@@ -1441,6 +1449,18 @@ gentest_add_check_contains(
         --seed
         42)
 
+gentest_add_check_counts(
+    NAME regression_fixture_group_shuffle_invariants
+    PROG $<TARGET_FILE:gentest_regression_fixture_group_shuffle_invariants>
+    PASS 10
+    FAIL 0
+    SKIP 0
+    ARGS
+        --kind=test
+        --shuffle
+        --seed
+        1337)
+
 option(GENTEST_ENABLE_ALLURE_TESTS "Enable Allure writer tests (off by default)" OFF)
 if(GENTEST_ENABLE_ALLURE_TESTS)
     # Allure results smoke: single test writes a result file with passed status
@@ -1476,6 +1496,21 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             --run=failing/logging/attachment
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs)
     set_tests_properties(allure_logs_attachment_file PROPERTIES LABELS "allure")
+
+    gentest_add_cmake_script_test(
+        NAME regression_allure_runner_infra_failure_parity
+        PROG $<TARGET_FILE:gentest_regression_shared_fixture_duplicate_registration>
+        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckAllureRunnerInfraParity.cmake"
+        ARGS
+            --run=regressions/shared_fixture_duplicate_registration/smoke
+            --kind=test
+            --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_runner_infra
+        DEFINES
+            "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_runner_infra"
+            "EXPECT_RC=1"
+            "PASS_CASE_NAME=regressions/shared_fixture_duplicate_registration/smoke"
+            "INFRA_SUBSTRING=registered multiple times with conflicting callbacks")
+    set_tests_properties(regression_allure_runner_infra_failure_parity PROPERTIES LABELS "allure")
 endif()
 
 # Capture JUnit artifact example: unit suite emits JUnit; this smoke ensures the file is generated in build tree
@@ -1613,6 +1648,17 @@ gentest_add_run_and_check_file(
     EXPECT_SUBSTRING "failures=\"1\""
     EXPECT_RC 1
     ARGS --run=regressions/jitter_assert_should_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_failure_junit.xml)
+
+gentest_add_cmake_script_test(
+    NAME regression_outcome_consistency_matrix
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrix.cmake"
+    DEFINES
+        "PROG_UNIT=$<TARGET_FILE:gentest_unit_tests>"
+        "PROG_OUTCOMES=$<TARGET_FILE:gentest_outcomes_tests>"
+        "PROG_INFRA_TEST=$<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>"
+        "PROG_INFRA_MEASURED=$<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>"
+        "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/outcome_consistency_matrix")
 
 gentest_add_check_death(
     NAME cli_unknown_option

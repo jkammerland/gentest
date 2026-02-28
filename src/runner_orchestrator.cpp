@@ -243,7 +243,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         if (opt.junit_path != nullptr) {
             should_write = ran_any_case || !state.acc.infra_errors.empty();
         } else if (opt.allure_dir != nullptr) {
-            should_write = !state.acc.report_items.empty();
+            should_write = !state.acc.report_items.empty() || !state.acc.infra_errors.empty();
         }
         if (should_write) {
             gentest::runner::write_reports(state.acc, gentest::runner::ReportConfig{
