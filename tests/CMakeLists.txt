@@ -857,6 +857,14 @@ target_include_directories(gentest_regression_shared_fixture_suite_scope_most_sp
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_shared_fixture_suite_scope_prefix_collision
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_suite_scope_prefix_collision.cpp)
+target_link_libraries(gentest_regression_shared_fixture_suite_scope_prefix_collision PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_shared_fixture_suite_scope_prefix_collision PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_shared_fixture_suite_scope_prefix_collision PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(gentest_regression_shared_fixture_manual_teardown_throw_exit
     ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_teardown_throw_exit.cpp)
 target_link_libraries(gentest_regression_shared_fixture_manual_teardown_throw_exit PRIVATE gentest_runtime)
@@ -977,6 +985,18 @@ gentest_add_check_counts(
     SKIP 0
     ARGS --fail-fast)
 
+gentest_add_check_contains(
+    NAME regression_orchestrator_fail_fast_blocks_measured_lists_bench
+    PROG $<TARGET_FILE:gentest_regression_orchestrator_fail_fast_blocks_measured>
+    EXPECT_SUBSTRING "regressions/orchestrator_fail_fast_blocks_measured/bench_should_not_run"
+    ARGS --list-benches)
+
+gentest_add_check_contains(
+    NAME regression_orchestrator_fail_fast_blocks_measured_lists_jitter
+    PROG $<TARGET_FILE:gentest_regression_orchestrator_fail_fast_blocks_measured>
+    EXPECT_SUBSTRING "regressions/orchestrator_fail_fast_blocks_measured/jitter_should_not_run"
+    ARGS --list-benches)
+
 gentest_add_cmake_script_test(
     NAME regression_orchestrator_fail_fast_blocks_measured_no_bench_call
     PROG $<TARGET_FILE:gentest_regression_orchestrator_fail_fast_blocks_measured>
@@ -985,7 +1005,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "EXPECT_SUBSTRING=orchestrator-fail-fast-test-failure"
-        "FORBID_SUBSTRING=benchmark call failed for regressions/orchestrator_fail_fast_blocks_measured/bench_should_not_run")
+        "FORBID_SUBSTRING=orchestrator-fail-fast-bench-ran")
 
 gentest_add_cmake_script_test(
     NAME regression_orchestrator_fail_fast_blocks_measured_no_jitter_call
@@ -995,7 +1015,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "EXPECT_SUBSTRING=orchestrator-fail-fast-test-failure"
-        "FORBID_SUBSTRING=jitter call failed for regressions/orchestrator_fail_fast_blocks_measured/jitter_should_not_run")
+        "FORBID_SUBSTRING=orchestrator-fail-fast-jitter-ran")
 
 gentest_add_check_exit_code(
     NAME regression_bench_setup_skip_noninfra_exit_zero
@@ -1156,6 +1176,16 @@ gentest_add_run_and_check_file(
     EXPECT_RC 1
     ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter.xml)
 
+gentest_add_cmake_script_test(
+    NAME regression_shared_fixture_setup_skip_measured_fail_fast_stops_before_jitter
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --fail-fast
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=regressions/shared_setup_skip_bench_jitter/suite_bench"
+        "FORBID_SUBSTRING=regressions/shared_setup_skip_bench_jitter/global_jitter")
+
 gentest_add_check_death(
     NAME regression_member_shared_fixture_setup_skip_measured_bench
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
@@ -1298,6 +1328,12 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --run=regressions/shared_fixture_suite_scope_most_specific/member_case --kind=test)
+
+gentest_add_check_death(
+    NAME regression_shared_fixture_suite_scope_prefix_collision_rejected
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_suite_scope_prefix_collision>
+    EXPECT_SUBSTRING "fixture not registered"
+    ARGS --run=regressions/shared_fixture_suite_scope_prefix_collision/member_case --kind=test)
 
 gentest_add_check_death(
     NAME regression_shared_fixture_manual_teardown_throw_exits_nonzero
