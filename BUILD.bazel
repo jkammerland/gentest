@@ -84,6 +84,8 @@ cc_library(
         'src/runner_cli.h',
         'src/runner_fixture_runtime.cpp',
         'src/runner_fixture_runtime.h',
+        'src/runner_measured_executor.cpp',
+        'src/runner_measured_executor.h',
         'src/runner_impl.cpp',
         'src/runner_reporting.cpp',
         'src/runner_reporting.h',
