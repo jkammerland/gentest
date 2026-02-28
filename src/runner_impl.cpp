@@ -1364,15 +1364,13 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
     }
     ++c.total;
     ++c.executed;
-    const auto start_tp        = std::chrono::steady_clock::now();
     auto       inv             = gentest::runner::invoke_case_once(test, ctx, gentest::detail::BenchPhase::None,
                                                                     gentest::runner::UnhandledExceptionPolicy::RecordAsFailure);
     auto       ctxinfo         = inv.ctxinfo;
     const bool runtime_skipped = (inv.exception == gentest::runner::InvokeException::Skip);
     const bool threw_non_skip  = (inv.exception != gentest::runner::InvokeException::None &&
                                  inv.exception != gentest::runner::InvokeException::Skip);
-    const auto end_tp = std::chrono::steady_clock::now();
-    rr.time_s         = std::chrono::duration<double>(end_tp - start_tp).count();
+    rr.time_s         = inv.elapsed_s;
     rr.logs           = ctxinfo->logs;
     rr.timeline       = ctxinfo->event_lines;
 

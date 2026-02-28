@@ -23,6 +23,22 @@
 
 #include "gentest/fixture.h"
 
+#ifndef GENTEST_RUNTIME_API
+#if defined(GENTEST_RUNTIME_SHARED)
+#if defined(_WIN32)
+#if defined(GENTEST_RUNTIME_BUILDING)
+#define GENTEST_RUNTIME_API __declspec(dllexport)
+#else
+#define GENTEST_RUNTIME_API __declspec(dllimport)
+#endif
+#else
+#define GENTEST_RUNTIME_API __attribute__((visibility("default")))
+#endif
+#else
+#define GENTEST_RUNTIME_API
+#endif
+#endif
+
 namespace gentest {
 
 // Lightweight assertion and test-runner interfaces used by generated code.
@@ -1107,9 +1123,9 @@ inline void xfail_if(bool condition, std::string_view reason = {}, const std::so
 }
 
 // Unified test entry (argc/argv version). Consumed by generated code.
-auto run_all_tests(int argc, char **argv) -> int;
+GENTEST_RUNTIME_API auto run_all_tests(int argc, char **argv) -> int;
 // Unified test entry (span version). Consumed by generated code.
-auto run_all_tests(std::span<const char *> args) -> int;
+GENTEST_RUNTIME_API auto run_all_tests(std::span<const char *> args) -> int;
 
 // Runtime-visible test case description used by the generated manifest.
 // The generator produces a constexpr array of Case entries and provides access
@@ -1139,13 +1155,13 @@ struct Case {
 };
 
 // Provided by the runtime registry; populated by generated translation units.
-const Case* get_cases();
-std::size_t get_case_count();
+GENTEST_RUNTIME_API const Case* get_cases();
+GENTEST_RUNTIME_API std::size_t get_case_count();
 
 namespace detail {
 // Called by generated sources to register discovered cases. Not intended for
 // direct use in test code.
-void register_cases(std::span<const Case> cases);
+GENTEST_RUNTIME_API void register_cases(std::span<const Case> cases);
 
 enum class SharedFixtureScope {
     Suite,
@@ -1163,19 +1179,19 @@ struct SharedFixtureRegistration {
 
 // Runtime registry for suite/global fixtures. Generated code calls
 // register_shared_fixture during static initialization.
-void register_shared_fixture(const SharedFixtureRegistration& registration);
+GENTEST_RUNTIME_API void register_shared_fixture(const SharedFixtureRegistration& registration);
 
 // Setup/teardown shared fixtures before/after the test run. setup returns false
 // when shared fixture infrastructure fails (for example conflicting
 // registrations, allocation failures, or setup failures).
-bool setup_shared_fixtures();
-bool teardown_shared_fixtures(std::vector<std::string> *errors = nullptr);
+GENTEST_RUNTIME_API bool setup_shared_fixtures();
+GENTEST_RUNTIME_API bool teardown_shared_fixtures(std::vector<std::string> *errors = nullptr);
 
 // Lookup shared fixture instance by scope/suite/name. Returns nullptr and fills
 // error when unavailable (not registered, allocation/setup failure, or setup
 // currently in progress due to reentrant lookup).
-std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite,
-                                         std::string_view fixture_name, std::string& error);
+GENTEST_RUNTIME_API std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite,
+                                                             std::string_view fixture_name, std::string& error);
 
 namespace detail_internal {
 template <typename Fixture>

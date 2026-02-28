@@ -24,6 +24,7 @@ enum class UnhandledExceptionPolicy {
 struct InvokeResult {
     std::shared_ptr<gentest::detail::TestContextInfo> ctxinfo;
     InvokeException                                   exception = InvokeException::None;
+    double                                            elapsed_s = 0.0;
     std::string                                       message;
 };
 

@@ -1,5 +1,7 @@
 #include "runner_case_invoker.h"
 
+#include <chrono>
+
 namespace gentest::runner {
 
 InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail::BenchPhase phase, UnhandledExceptionPolicy policy) {
@@ -9,6 +11,7 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
     out.ctxinfo->active       = true;
     gentest::detail::set_current_test(out.ctxinfo);
 
+    const auto start_tp = std::chrono::steady_clock::now();
     auto run_call = [&] { c.fn(ctx); };
     try {
         if (phase == gentest::detail::BenchPhase::None) {
@@ -48,6 +51,8 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
     gentest::detail::flush_current_buffer_for(out.ctxinfo.get());
     out.ctxinfo->active = false;
     gentest::detail::set_current_test(nullptr);
+    const auto end_tp = std::chrono::steady_clock::now();
+    out.elapsed_s      = std::chrono::duration<double>(end_tp - start_tp).count();
     return out;
 }
 

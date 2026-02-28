@@ -23,10 +23,13 @@ target_link_libraries(gentest_main
 if(GENTEST_RUNTIME_SHARED)
     # Only set PIC for the shared case
     set_target_properties(gentest_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    # Make Windows shared builds work without explicit __declspec(dllexport)
-    if(WIN32)
-        set_target_properties(gentest_runtime PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    endif()
+    # Export only explicit runtime API symbols in shared builds.
+    target_compile_definitions(gentest_runtime
+        PUBLIC GENTEST_RUNTIME_SHARED
+        PRIVATE GENTEST_RUNTIME_BUILDING)
+    set_target_properties(gentest_runtime PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON)
 endif()
 
 target_link_libraries(gentest_runtime
