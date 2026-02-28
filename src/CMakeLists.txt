@@ -11,6 +11,7 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/bench_stats.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_case_invoker.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_cli.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_reporting.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_selector.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_test_plan.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp)

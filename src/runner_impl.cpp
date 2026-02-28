@@ -3,6 +3,7 @@
 
 #include "runner_case_invoker.h"
 #include "runner_cli.h"
+#include "runner_reporting.h"
 #include "runner_result_model.h"
 #include "runner_selector.h"
 #include "runner_test_plan.h"
@@ -17,7 +18,6 @@
 #include <filesystem>
 #include <fmt/color.h>
 #include <fmt/format.h>
-#include <fstream>
 #include <functional>
 #include <iostream>
 #include <iterator>
@@ -31,10 +31,6 @@
 #include <tabulate/table.hpp>
 #include <utility>
 #include <vector>
-
-#ifdef GENTEST_USE_BOOST_JSON
-#include <boost/json.hpp>
-#endif
 
 namespace {
 struct CaseRegistry {
@@ -389,42 +385,16 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
 
 std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name,
                                          std::string &error) {
-    {
-        auto                       &reg = shared_fixture_registry();
-        std::lock_guard<std::mutex> lk(reg.mtx);
-        for (auto &entry : reg.entries) {
-            if (entry.scope != scope)
-                continue;
-            if (entry.fixture_name != fixture_name)
-                continue;
-            if (scope == SharedFixtureScope::Suite && entry.suite != suite)
-                continue;
-            if (entry.failed) {
-                error = entry.error;
-                return {};
-            }
-            if (entry.initializing) {
-                error = "fixture initialization in progress";
-                return {};
-            }
-            if (entry.initialized) {
-                return entry.instance;
-            }
-            if (reg.teardown_in_progress) {
-                error = "fixture teardown in progress";
-                return {};
-            }
-            break;
-        }
-        if (reg.teardown_in_progress) {
-            error = "fixture teardown in progress";
-            return {};
-        }
-    }
-    // Attempt lazy initialization if setup has not run yet.
-    (void)setup_shared_fixtures();
     auto                       &reg = shared_fixture_registry();
     std::lock_guard<std::mutex> lk(reg.mtx);
+    if (reg.registration_error) {
+        if (!reg.registration_errors.empty()) {
+            error = reg.registration_errors.front();
+        } else {
+            error = "fixture registration failed";
+        }
+        return {};
+    }
     for (auto &entry : reg.entries) {
         if (entry.scope != scope)
             continue;
@@ -440,11 +410,19 @@ std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_v
             error = "fixture initialization in progress";
             return {};
         }
+        if (!entry.initialized) {
+            error = reg.teardown_in_progress ? "fixture teardown in progress" : "fixture not initialized";
+            return {};
+        }
         if (!entry.instance) {
             error = "fixture allocation returned null";
             return {};
         }
         return entry.instance;
+    }
+    if (reg.teardown_in_progress) {
+        error = "fixture teardown in progress";
+        return {};
     }
     error = "fixture not registered";
     return {};
@@ -544,34 +522,12 @@ using KindFilter = gentest::runner::KindFilter;
 using TimeUnitMode = gentest::runner::TimeUnitMode;
 using BenchConfig = gentest::runner::BenchConfig;
 using CliOptions = gentest::runner::CliOptions;
-
-struct ReportItem {
-    std::string              suite;
-    std::string              name;
-    double                   time_s  = 0.0;
-    bool                     skipped = false;
-    std::string              skip_reason;
-    Outcome                  outcome = Outcome::Pass;
-    std::vector<std::string> failures;
-    std::vector<std::string> logs;
-    std::vector<std::string> timeline;
-    std::vector<std::string> tags;
-    std::vector<std::string> requirements;
-};
-
-struct FailureSummary {
-    std::string              name;
-    std::vector<std::string> issues;
-};
+using ReportItem = gentest::runner::ReportItem;
 
 struct RunnerState {
-    bool                        color_output       = true;
-    bool                        github_annotations = false;
-    bool                        record_results     = false;
-    std::size_t                 measured_failures  = 0;
-    std::vector<ReportItem>     report_items;
-    std::vector<FailureSummary> failure_items;
-    std::vector<std::string>    infra_errors;
+    bool                        color_output   = true;
+    bool                        record_results = false;
+    gentest::runner::RunAccumulator acc;
 };
 
 static void record_failure_summary(RunnerState &state, std::string_view name, std::vector<std::string> issues);
@@ -1330,20 +1286,6 @@ std::string join_span(std::span<const std::string_view> items, char sep) {
     return out;
 }
 
-static inline std::string gha_escape(std::string_view s) {
-    std::string out;
-    out.reserve(s.size());
-    for (char ch : s) {
-        switch (ch) {
-        case '%': out += "%25"; break;
-        case '\r': out += "%0D"; break;
-        case '\n': out += "%0A"; break;
-        default: out.push_back(ch); break;
-        }
-    }
-    return out;
-}
-
 RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters &c) {
     RunResult rr;
     if (test.should_skip) {
@@ -1406,10 +1348,7 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
             ++c.failed;
             ++c.failures;
             record_failure_summary(state, test.name, std::vector<std::string>{issue});
-            if (state.github_annotations) {
-                fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, gha_escape(std::string(test.name)),
-                           gha_escape(issue));
-            }
+            gentest::runner::add_error_annotation(state.acc, test.file, test.line, test.name, issue);
         }
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
@@ -1471,10 +1410,7 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
         fmt::print(stderr, "{}\n\n", rr.failures.front());
         std::string xpass_issue = rr.xfail_reason.empty() ? "XPASS" : std::string("XPASS: ") + rr.xfail_reason;
         record_failure_summary(state, test.name, std::vector<std::string>{std::move(xpass_issue)});
-        if (state.github_annotations) {
-            fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, gha_escape(std::string(test.name)),
-                       gha_escape(rr.failures.front()));
-        }
+        gentest::runner::add_error_annotation(state.acc, test.file, test.line, test.name, rr.failures.front());
         return rr;
     }
 
@@ -1499,18 +1435,16 @@ RunResult execute_one(RunnerState &state, const Case &test, void *ctx, Counters 
             if (kind == 'F') {
                 fmt::print(stderr, "{}\n", ln);
                 failure_lines.push_back(ln);
-                if (state.github_annotations) {
-                    std::string_view file    = test.file;
-                    unsigned         line_no = test.line;
-                    if (failure_printed < ctxinfo->failure_locations.size()) {
-                        const auto &fl = ctxinfo->failure_locations[failure_printed];
-                        if (!fl.file.empty() && fl.line > 0) {
-                            file    = fl.file;
-                            line_no = fl.line;
-                        }
+                std::string_view file    = test.file;
+                unsigned         line_no = test.line;
+                if (failure_printed < ctxinfo->failure_locations.size()) {
+                    const auto &fl = ctxinfo->failure_locations[failure_printed];
+                    if (!fl.file.empty() && fl.line > 0) {
+                        file    = fl.file;
+                        line_no = fl.line;
                     }
-                    fmt::print("::error file={},line={},title={}::{}\n", file, line_no, gha_escape(std::string(test.name)), gha_escape(ln));
                 }
+                gentest::runner::add_error_annotation(state.acc, file, line_no, test.name, ln);
                 ++failure_printed;
             } else {
                 fmt::print(stderr, "{}\n", ln);
@@ -1565,128 +1499,15 @@ inline void execute_and_record(RunnerState &state, const Case &test, void *ctx, 
         item.tags.emplace_back(sv);
     for (auto sv : test.requirements)
         item.requirements.emplace_back(sv);
-    state.report_items.push_back(std::move(item));
-}
-
-#ifdef GENTEST_USE_BOOST_JSON
-#endif
-
-static std::string escape_xml(std::string_view s) {
-    std::string out;
-    out.reserve(s.size());
-    for (char ch : s) {
-        switch (ch) {
-        case '&': out += "&amp;"; break;
-        case '<': out += "&lt;"; break;
-        case '>': out += "&gt;"; break;
-        case '"': out += "&quot;"; break;
-        default: out.push_back(ch); break;
-        }
-    }
-    return out;
-}
-
-static void write_reports(const RunnerState &state, const char *junit_path, const char *allure_dir) {
-    if (junit_path) {
-        std::ofstream out(junit_path, std::ios::binary);
-        if (out) {
-            std::size_t total_tests = state.report_items.size();
-            std::size_t total_fail  = 0;
-            std::size_t total_skip  = 0;
-            std::size_t total_err   = state.infra_errors.size();
-            for (const auto &it : state.report_items) {
-                if (it.skipped)
-                    ++total_skip;
-                if (!it.failures.empty())
-                    ++total_fail;
-            }
-            out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-            out << "<testsuite name=\"gentest\" tests=\"" << total_tests << "\" failures=\"" << total_fail << "\" skipped=\"" << total_skip
-                << "\" errors=\"" << total_err << "\">\n";
-            for (const auto &it : state.report_items) {
-                out << "  <testcase classname=\"" << escape_xml(it.suite) << "\" name=\"" << escape_xml(it.name) << "\" time=\""
-                    << it.time_s << "\">\n";
-                if (!it.requirements.empty()) {
-                    out << "    <properties>\n";
-                    for (const auto &req : it.requirements) {
-                        out << "      <property name=\"requirement\" value=\"" << escape_xml(req) << "\"/>\n";
-                    }
-                    out << "    </properties>\n";
-                }
-                if (it.skipped) {
-                    out << "    <skipped";
-                    if (!it.skip_reason.empty())
-                        out << " message=\"" << escape_xml(it.skip_reason) << "\"";
-                    out << "/>\n";
-                }
-                for (const auto &f : it.failures) {
-                    out << "    <failure><![CDATA[" << f << "]]></failure>\n";
-                }
-                out << "  </testcase>\n";
-            }
-            if (!state.infra_errors.empty()) {
-                out << "  <system-err><![CDATA[";
-                for (const auto &msg : state.infra_errors) {
-                    out << msg << "\n";
-                }
-                out << "]]></system-err>\n";
-            }
-            out << "</testsuite>\n";
-        }
-    }
-#ifdef GENTEST_USE_BOOST_JSON
-    if (allure_dir) {
-        std::filesystem::create_directories(allure_dir);
-        std::size_t idx = 0;
-        for (const auto &it : state.report_items) {
-            boost::json::object obj;
-            obj["name"]   = it.name;
-            obj["status"] = it.failures.empty() ? (it.skipped ? "skipped" : "passed") : "failed";
-            obj["time"]   = it.time_s;
-            boost::json::array labels;
-            labels.push_back({{"name", "suite"}, {"value", it.suite}});
-            if (it.skipped && it.skip_reason.rfind("xfail", 0) == 0) {
-                std::string_view r = it.skip_reason;
-                if (r.rfind("xfail:", 0) == 0) {
-                    r.remove_prefix(std::string_view("xfail:").size());
-                    while (!r.empty() && r.front() == ' ')
-                        r.remove_prefix(1);
-                } else if (r == "xfail") {
-                    r = std::string_view{};
-                }
-                labels.push_back({{"name", "xfail"}, {"value", std::string(r)}});
-            }
-            obj["labels"] = std::move(labels);
-            if (!it.failures.empty()) {
-                boost::json::object ex;
-                ex["message"]        = it.failures.front();
-                obj["statusDetails"] = std::move(ex);
-            } else if (it.skipped && !it.skip_reason.empty()) {
-                boost::json::object ex;
-                ex["message"]        = it.skip_reason;
-                obj["statusDetails"] = std::move(ex);
-            }
-            const std::string file = std::string(allure_dir) + "/result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json";
-            std::ofstream     out(file, std::ios::binary);
-            if (out)
-                out << boost::json::serialize(obj);
-            ++idx;
-        }
-    }
-#else
-    (void)allure_dir;
-#endif
+    state.acc.report_items.push_back(std::move(item));
 }
 
 static void record_failure_summary(RunnerState &state, std::string_view name, std::vector<std::string> issues) {
-    if (issues.empty())
-        issues.emplace_back("failure (no details)");
-    state.failure_items.push_back(FailureSummary{std::string(name), std::move(issues)});
+    gentest::runner::record_failure_summary(state.acc, name, std::move(issues));
 }
 
 static void record_runner_level_failure(RunnerState &state, std::string_view name, std::string message) {
-    record_failure_summary(state, name, std::vector<std::string>{message});
-    state.infra_errors.push_back(std::move(message));
+    gentest::runner::record_runner_level_failure(state.acc, name, std::move(message));
 }
 
 } // namespace
@@ -1708,9 +1529,7 @@ static void record_synthetic_failure(RunnerState &state, const Case &test, std::
     const long long dur_ms = 0LL;
     print_fail_header(state, test, dur_ms);
     fmt::print(stderr, "{}\n\n", message);
-    if (state.github_annotations) {
-        fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, test.name, message);
-    }
+    gentest::runner::add_error_annotation(state.acc, test.file, test.line, test.name, message);
     record_failure_summary(state, test.name, std::vector<std::string>{message});
     if (!state.record_results)
         return;
@@ -1723,7 +1542,7 @@ static void record_synthetic_failure(RunnerState &state, const Case &test, std::
         item.tags.emplace_back(sv);
     for (auto sv : test.requirements)
         item.requirements.emplace_back(sv);
-    state.report_items.push_back(std::move(item));
+    state.acc.report_items.push_back(std::move(item));
 }
 
 static void record_synthetic_skip(RunnerState &state, const Case &test, std::string reason, Counters &c, bool infra_failure = false) {
@@ -1749,9 +1568,7 @@ static void record_synthetic_skip(RunnerState &state, const Case &test, std::str
         ++c.failed;
         ++c.failures;
         record_failure_summary(state, test.name, std::vector<std::string>{issue});
-        if (state.github_annotations) {
-            fmt::print("::error file={},line={},title={}::{}\n", test.file, test.line, test.name, issue);
-        }
+        gentest::runner::add_error_annotation(state.acc, test.file, test.line, test.name, issue);
     }
     if (!state.record_results)
         return;
@@ -1768,7 +1585,7 @@ static void record_synthetic_skip(RunnerState &state, const Case &test, std::str
         item.tags.emplace_back(sv);
     for (auto sv : test.requirements)
         item.requirements.emplace_back(sv);
-    state.report_items.push_back(std::move(item));
+    state.acc.report_items.push_back(std::move(item));
 }
 
 static bool run_tests_once(RunnerState &state, std::span<const Case> cases, std::span<const std::size_t> idxs, bool shuffle,
@@ -1854,7 +1671,7 @@ static void record_measured_failure_report_item(RunnerState &state, const Case &
     for (auto sv : c.requirements)
         item.requirements.emplace_back(sv);
 
-    state.report_items.push_back(std::move(item));
+    state.acc.report_items.push_back(std::move(item));
 }
 
 static void record_measured_failure_summary(RunnerState &state, const Case &c, const MeasurementCaseFailure &failure,
@@ -1875,7 +1692,7 @@ static void record_measured_failure_summary(RunnerState &state, const Case &c, c
     }
 
     record_failure_summary(state, c.name, std::vector<std::string>{issue});
-    ++state.measured_failures;
+    ++state.acc.measured_failures;
 }
 
 template <typename Result>
@@ -1894,7 +1711,7 @@ static void record_measured_success_report_item(RunnerState &state, const Case &
     for (auto sv : c.requirements)
         item.requirements.emplace_back(sv);
 
-    state.report_items.push_back(std::move(item));
+    state.acc.report_items.push_back(std::move(item));
 }
 
 template <typename Result, typename CallFn>
@@ -2591,9 +2408,8 @@ auto run_all_tests(std::span<const char *> args) -> int {
     const auto &jitter_idxs = selection.jitter_idxs;
 
     RunnerState state{};
-    state.color_output       = opt.color_output;
-    state.github_annotations = opt.github_annotations;
-    state.record_results     = (opt.junit_path != nullptr) || (opt.allure_dir != nullptr);
+    state.color_output   = opt.color_output;
+    state.record_results = (opt.junit_path != nullptr) || (opt.allure_dir != nullptr);
 
     SharedFixtureRunGuard fixture_guard;
     Counters              counters;
@@ -2644,24 +2460,31 @@ auto run_all_tests(std::span<const char *> args) -> int {
         const bool ran_any_case = !selection.idxs.empty();
         bool       should_write = false;
         if (opt.junit_path != nullptr) {
-            should_write = ran_any_case || !state.infra_errors.empty();
+            should_write = ran_any_case || !state.acc.infra_errors.empty();
         } else if (opt.allure_dir != nullptr) {
-            should_write = !state.report_items.empty();
+            should_write = !state.acc.report_items.empty();
         }
         if (should_write) {
-            write_reports(state, opt.junit_path, opt.allure_dir);
+            gentest::runner::write_reports(state.acc, gentest::runner::ReportConfig{
+                                                          .junit_path = opt.junit_path,
+                                                          .allure_dir = opt.allure_dir,
+                                                      });
         }
     }
 
-    if (!test_idxs.empty() || !state.failure_items.empty()) {
-        const std::size_t failed_count = counters.failed + state.measured_failures + state.infra_errors.size();
+    if (opt.github_annotations) {
+        gentest::runner::emit_github_annotations(state.acc);
+    }
+
+    if (!test_idxs.empty() || !state.acc.failure_items.empty()) {
+        const std::size_t failed_count = counters.failed + state.acc.measured_failures + state.acc.infra_errors.size();
         std::string summary;
-        summary.reserve(128 + state.failure_items.size() * 64);
+        summary.reserve(128 + state.acc.failure_items.size() * 64);
         fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n", counters.passed,
                        counters.total, failed_count, counters.skipped, counters.xfail, counters.xpass);
-        if (!state.failure_items.empty()) {
+        if (!state.acc.failure_items.empty()) {
             std::map<std::string, std::vector<std::string>> grouped;
-            for (const auto &item : state.failure_items) {
+            for (const auto &item : state.acc.failure_items) {
                 auto &issues = grouped[item.name];
                 for (const auto &issue : item.issues) {
                     if (std::find(issues.begin(), issues.end(), issue) == issues.end()) {
