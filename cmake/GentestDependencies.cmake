@@ -9,12 +9,14 @@ function(gentest_ensure_fmt)
         endif()
 
         # Work around a clang-on-Windows constant-evaluation issue in fmt's
-        # compile-time format string checks (observed with LLVM 21).
+        # compile-time format string checks (observed with LLVM 21). Disable
+        # only fmt's consteval path instead of redefining fmt's internal
+        # FMT_CONSTEVAL macro (which creates warning spam).
         #
         # Note: Do not set FMT_USE_CONSTEXPR=0. fmt uses constexpr helpers in
         # headers even when building our targets as C++20, and disabling them
         # breaks compilation under clang.
-        add_compile_definitions(FMT_CONSTEVAL=)
+        add_compile_definitions(FMT_USE_CONSTEVAL=0)
 
         # Prebuilt LLVM/Clang distributions typically ship release-mode STL
         # settings. Keep our build compatible when linking against those libs
@@ -42,6 +44,23 @@ function(gentest_ensure_fmt)
                 GIT_REPOSITORY https://github.com/fmtlib/fmt.git
                 GIT_TAG 12.1.0)
             FetchContent_MakeAvailable(fmt)
+
+            if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND TARGET fmt)
+                # Treat fetched fmt headers as system headers for downstream
+                # targets to avoid third-party warning noise in project builds.
+                get_target_property(_gentest_fmt_iface_includes fmt INTERFACE_INCLUDE_DIRECTORIES)
+                if(_gentest_fmt_iface_includes AND NOT _gentest_fmt_iface_includes MATCHES "-NOTFOUND$")
+                    set_property(TARGET fmt APPEND PROPERTY INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_gentest_fmt_iface_includes}")
+                endif()
+                unset(_gentest_fmt_iface_includes)
+                # Suppress third-party fmt warnings in its own sources.
+                if(DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT
+                   AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+                    target_compile_options(fmt PRIVATE /w)
+                else()
+                    target_compile_options(fmt PRIVATE -Wno-everything)
+                endif()
+            endif()
         endif()
 
         if(NOT TARGET fmt::fmt AND TARGET fmt)

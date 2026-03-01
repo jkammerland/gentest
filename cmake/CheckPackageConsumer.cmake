@@ -128,6 +128,17 @@ else()
   run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install)
 endif()
 
+set(_producer_fmt_dir "")
+set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
+if(EXISTS "${_producer_cache_file}")
+  file(STRINGS "${_producer_cache_file}" _producer_fmt_dir_line REGEX "^fmt_DIR:PATH=" LIMIT_COUNT 1)
+  if(_producer_fmt_dir_line)
+    list(GET _producer_fmt_dir_line 0 _producer_fmt_dir_line_value)
+    string(REGEX REPLACE "^fmt_DIR:PATH=" "" _producer_fmt_dir "${_producer_fmt_dir_line_value}")
+    unset(_producer_fmt_dir_line_value)
+  endif()
+endif()
+
 message(STATUS "Locate installed '${PACKAGE_NAME}' CMake package...")
 file(GLOB_RECURSE _config_candidates
   LIST_DIRECTORIES FALSE
@@ -147,6 +158,10 @@ endif()
 set(_consumer_cache_args ${_cmake_cache_args})
 # Make dependencies installed into the same prefix (e.g., fmt) discoverable.
 list(APPEND _consumer_cache_args "-DCMAKE_PREFIX_PATH=${_install_prefix}")
+if(NOT _producer_fmt_dir STREQUAL "")
+  # Keep consumer dependency resolution aligned with the producer package build.
+  list(APPEND _consumer_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")
+endif()
 if(CMAKE_HOST_WIN32 AND DEFINED CXX_COMPILER AND CXX_COMPILER MATCHES "[Cc]lang")
   # Keep the consumer build compatible with the producer's Windows+Clang settings.
   list(APPEND _consumer_cache_args "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")

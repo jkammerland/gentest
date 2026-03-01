@@ -23,6 +23,23 @@ inline void record_bench_issue(std::string_view label, std::string_view issue) {
     gentest::detail::record_bench_error(std::move(msg));
 }
 
+inline bool env_var_is_set(const char* name) {
+#if defined(_WIN32)
+    char*       value  = nullptr;
+    std::size_t length = 0;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
+        free(value);
+        return false;
+    }
+    const bool is_set = value[0] != '\0';
+    free(value);
+    return is_set;
+#else
+    const char* value = std::getenv(name);
+    return value != nullptr && value[0] != '\0';
+#endif
+}
+
 template <typename T>
 struct BenchFixtureState {
     static inline std::atomic<int> setups{0};
@@ -182,14 +199,14 @@ void bench_complex(std::complex<double> z) {
 
 struct [[using gentest: fixture(suite)]] NullBenchFixture {
     static std::unique_ptr<NullBenchFixture> gentest_allocate() {
-        if (std::getenv("GENTEST_BENCH_NULL_FIXTURE")) return {};
+        if (env_var_is_set("GENTEST_BENCH_NULL_FIXTURE")) return {};
         return std::make_unique<NullBenchFixture>();
     }
 };
 
 struct [[using gentest: fixture(suite)]] NullJitterFixture {
     static std::unique_ptr<NullJitterFixture> gentest_allocate() {
-        if (std::getenv("GENTEST_JITTER_NULL_FIXTURE")) return {};
+        if (env_var_is_set("GENTEST_JITTER_NULL_FIXTURE")) return {};
         return std::make_unique<NullJitterFixture>();
     }
 };
