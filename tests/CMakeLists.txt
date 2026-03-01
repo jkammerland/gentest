@@ -1115,6 +1115,13 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "terminating after fatal assertion"
     ARGS --run=regressions/local_fixture_teardown_noexceptions/fatal_assert)
 
+if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
+    set_tests_properties(
+        regression_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
+        regression_local_fixture_teardown_noexceptions_fatal_assert_termination_message
+        PROPERTIES DISABLED TRUE)
+endif()
+
 gentest_add_check_counts(
     NAME regression_shared_fixture_setup_skip_free
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
