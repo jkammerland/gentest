@@ -1,10 +1,12 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <exception>
+#include <iterator>
 #include <mutex>
 #include <ostream>
 #include <source_location>
@@ -20,6 +22,22 @@
 #include <filesystem>
 
 #include "gentest/fixture.h"
+
+#ifndef GENTEST_RUNTIME_API
+#if defined(GENTEST_RUNTIME_SHARED)
+#if defined(_WIN32)
+#if defined(GENTEST_RUNTIME_BUILDING)
+#define GENTEST_RUNTIME_API __declspec(dllexport)
+#else
+#define GENTEST_RUNTIME_API __declspec(dllimport)
+#endif
+#else
+#define GENTEST_RUNTIME_API __attribute__((visibility("default")))
+#endif
+#else
+#define GENTEST_RUNTIME_API
+#endif
+#endif
 
 namespace gentest {
 
@@ -92,23 +110,118 @@ struct TestContextInfo {
     std::vector<std::string> event_lines;
     std::vector<char>        event_kinds;
     std::mutex               mtx;
+    std::mutex               adopted_mtx;
+    std::condition_variable  adopted_cv;
     std::atomic<bool>        active{false};
     std::atomic<bool>        has_failures{false};
+    std::atomic<std::size_t> adopted_tokens{0};
     bool                     dump_logs_on_failure{false};
 
-    bool        runtime_skip_requested{false};
+    std::atomic<bool> runtime_skip_requested{false};
     std::string runtime_skip_reason;
+    enum class RuntimeSkipKind {
+        User,
+        SharedFixtureInfra,
+    };
+    RuntimeSkipKind runtime_skip_kind{RuntimeSkipKind::User};
 
     bool        xfail_requested{false};
     std::string xfail_reason;
 };
 
+struct TestContextLocalBuffer {
+    TestContextInfo *owner = nullptr;
+
+    std::vector<std::string>              failures;
+    std::vector<TestContextInfo::FailureLoc> failure_locations;
+    std::vector<std::string>              logs;
+    std::vector<std::string>              event_lines;
+    std::vector<char>                     event_kinds;
+
+    bool empty() const {
+        return failures.empty() && failure_locations.empty() && logs.empty() && event_lines.empty() && event_kinds.empty();
+    }
+
+    void clear() {
+        failures.clear();
+        failure_locations.clear();
+        logs.clear();
+        event_lines.clear();
+        event_kinds.clear();
+    }
+};
+
 inline thread_local std::shared_ptr<TestContextInfo> g_current_test{};
+inline thread_local TestContextLocalBuffer           g_current_buffer{};
 
 struct skip_exception {};
 
-inline void                             set_current_test(std::shared_ptr<TestContextInfo> ctx) { g_current_test = std::move(ctx); }
+enum class BenchPhase {
+    None,
+    Setup,
+    Call,
+    Teardown,
+};
+inline BenchPhase bench_phase();
+
+inline void flush_current_buffer_for(TestContextInfo *ctx) {
+    if (!ctx || g_current_buffer.owner != ctx || g_current_buffer.empty())
+        return;
+
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    if (!g_current_buffer.failures.empty()) {
+        ctx->failures.insert(ctx->failures.end(), std::make_move_iterator(g_current_buffer.failures.begin()),
+                             std::make_move_iterator(g_current_buffer.failures.end()));
+    }
+    if (!g_current_buffer.failure_locations.empty()) {
+        ctx->failure_locations.insert(ctx->failure_locations.end(), std::make_move_iterator(g_current_buffer.failure_locations.begin()),
+                                      std::make_move_iterator(g_current_buffer.failure_locations.end()));
+    }
+    if (!g_current_buffer.logs.empty()) {
+        ctx->logs.insert(ctx->logs.end(), std::make_move_iterator(g_current_buffer.logs.begin()),
+                         std::make_move_iterator(g_current_buffer.logs.end()));
+    }
+    if (!g_current_buffer.event_lines.empty()) {
+        ctx->event_lines.insert(ctx->event_lines.end(), std::make_move_iterator(g_current_buffer.event_lines.begin()),
+                                std::make_move_iterator(g_current_buffer.event_lines.end()));
+    }
+    if (!g_current_buffer.event_kinds.empty()) {
+        ctx->event_kinds.insert(ctx->event_kinds.end(), std::make_move_iterator(g_current_buffer.event_kinds.begin()),
+                                std::make_move_iterator(g_current_buffer.event_kinds.end()));
+    }
+    g_current_buffer.clear();
+}
+
+inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
+    if (g_current_test) {
+        flush_current_buffer_for(g_current_test.get());
+    }
+    g_current_test         = std::move(ctx);
+    g_current_buffer.owner = g_current_test ? g_current_test.get() : nullptr;
+}
 inline std::shared_ptr<TestContextInfo> current_test() { return g_current_test; }
+inline void wait_for_adopted_tokens(const std::shared_ptr<TestContextInfo> &ctx) {
+    if (!ctx)
+        return;
+    // Intentional barrier: test/phase completion waits for all adopted contexts
+    // to be released. If adopted work is leaked (for example detached/stuck),
+    // completion blocks by design to preserve one-shot outcome accounting.
+    std::unique_lock<std::mutex> lk(ctx->adopted_mtx);
+    ctx->adopted_cv.wait(lk, [&] { return ctx->adopted_tokens.load(std::memory_order_acquire) == 0; });
+}
+inline void                             request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
+    auto ctx = g_current_test;
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+        std::fputs("gentest: fatal: skip called without an active test context.\n"
+                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                   stderr);
+        std::abort();
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    ctx->runtime_skip_requested.store(true, std::memory_order_relaxed);
+    ctx->runtime_skip_reason    = std::string(reason);
+    ctx->runtime_skip_kind      = kind;
+}
 inline void                             record_failure(std::string msg) {
     auto ctx = g_current_test;
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
@@ -117,13 +230,20 @@ inline void                             record_failure(std::string msg) {
                                                stderr);
         std::abort();
     }
-    std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->failures.push_back(std::move(msg));
+    if (g_current_buffer.owner != ctx.get()) {
+        flush_current_buffer_for(g_current_buffer.owner);
+        g_current_buffer.owner = ctx.get();
+    }
+    g_current_buffer.failures.push_back(std::move(msg));
     ctx->has_failures.store(true, std::memory_order_relaxed);
-    ctx->failure_locations.push_back({std::string{}, 0});
-    // Record event (after pushing so that failures vector is up-to-date)
-    ctx->event_lines.push_back(ctx->failures.back());
-    ctx->event_kinds.push_back('F');
+    g_current_buffer.failure_locations.push_back({std::string{}, 0});
+    g_current_buffer.event_lines.push_back(g_current_buffer.failures.back());
+    g_current_buffer.event_kinds.push_back('F');
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    if (bench_phase() == BenchPhase::Call) {
+        throw gentest::assertion(g_current_buffer.failures.back());
+    }
+#endif
 }
 inline void record_failure(std::string msg, const std::source_location &loc) {
     auto ctx = g_current_test;
@@ -133,8 +253,11 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
                    stderr);
         std::abort();
     }
-    std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->failures.push_back(std::move(msg));
+    if (g_current_buffer.owner != ctx.get()) {
+        flush_current_buffer_for(g_current_buffer.owner);
+        g_current_buffer.owner = ctx.get();
+    }
+    g_current_buffer.failures.push_back(std::move(msg));
     ctx->has_failures.store(true, std::memory_order_relaxed);
     // Normalize path to a stable, short form for diagnostics
     std::filesystem::path p(std::string(loc.file_name()));
@@ -146,10 +269,14 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
         return false;
     };
     (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
-    ctx->failure_locations.push_back({std::move(s), loc.line()});
-    // Record event (after pushing so that failures vector is up-to-date)
-    ctx->event_lines.push_back(ctx->failures.back());
-    ctx->event_kinds.push_back('F');
+    g_current_buffer.failure_locations.push_back({std::move(s), loc.line()});
+    g_current_buffer.event_lines.push_back(g_current_buffer.failures.back());
+    g_current_buffer.event_kinds.push_back('F');
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    if (bench_phase() == BenchPhase::Call) {
+        throw gentest::assertion(g_current_buffer.failures.back());
+    }
+#endif
 }
 inline void append_label(std::string& out, std::string_view label) {
     static constexpr std::size_t kWidth = 12; // longest of EXPECT_FALSE/ASSERT_FALSE
@@ -171,13 +298,6 @@ inline std::string loc_to_string(const std::source_location &loc) {
     s.append(std::to_string(loc.line()));
     return s;
 }
-
-enum class BenchPhase {
-    None,
-    Setup,
-    Call,
-    Teardown,
-};
 
 inline thread_local BenchPhase g_bench_phase = BenchPhase::None;
 inline thread_local std::string g_bench_error;
@@ -202,6 +322,40 @@ inline std::string take_bench_error() {
     std::string out = std::move(g_bench_error);
     g_bench_error.clear();
     return out;
+}
+
+using NoExceptionsFatalHook = void (*)(void *) noexcept;
+
+struct NoExceptionsFatalHookState {
+    NoExceptionsFatalHook hook      = nullptr;
+    void *                user_data = nullptr;
+};
+
+inline thread_local NoExceptionsFatalHookState g_noexceptions_fatal_hook{};
+
+struct NoExceptionsFatalHookScope {
+    NoExceptionsFatalHookState previous{};
+
+    explicit NoExceptionsFatalHookScope(NoExceptionsFatalHook hook, void *user_data) noexcept : previous(g_noexceptions_fatal_hook) {
+        g_noexceptions_fatal_hook = {
+            .hook      = hook,
+            .user_data = user_data,
+        };
+    }
+
+    NoExceptionsFatalHookScope(const NoExceptionsFatalHookScope &)            = delete;
+    NoExceptionsFatalHookScope &operator=(const NoExceptionsFatalHookScope &) = delete;
+
+    ~NoExceptionsFatalHookScope() { g_noexceptions_fatal_hook = previous; }
+};
+
+inline void run_noexceptions_fatal_hook() noexcept {
+    const auto state = g_noexceptions_fatal_hook;
+    if (!state.hook) {
+        return;
+    }
+    g_noexceptions_fatal_hook = {};
+    state.hook(state.user_data);
 }
 
 template <typename T>
@@ -258,6 +412,7 @@ inline void append_cmp_values(std::string &out, const L &lhs, const R &rhs, std:
 #endif
 
 [[noreturn]] inline void terminate_no_exceptions_fatal(std::string_view origin) {
+    ::gentest::detail::run_noexceptions_fatal_hook();
     std::fputs("gentest: exceptions are disabled; terminating after fatal assertion", stderr);
     if (!origin.empty()) {
         std::fputs(" (origin: ", stderr);
@@ -267,6 +422,17 @@ inline void append_cmp_values(std::string &out, const L &lhs, const R &rhs, std:
     std::fputs(".\n", stderr);
     std::fflush(stderr);
     std::terminate();
+}
+
+[[noreturn]] inline void skip_shared_fixture_unavailable(std::string_view reason,
+                                                         const std::source_location &loc = std::source_location::current()) {
+    (void)loc;
+    request_runtime_skip(reason, TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+#if GENTEST_EXCEPTIONS_ENABLED
+    throw skip_exception{};
+#else
+    terminate_no_exceptions_fatal("gentest::detail::skip_shared_fixture_unavailable");
+#endif
 }
 
 template <class Expected, class Fn>
@@ -453,11 +619,24 @@ inline void require_no_throw(Fn&& fn, const std::source_location& loc) {
 // Public context adoption API for multi-threaded/coroutine tests.
 namespace ctx {
 using Token = std::shared_ptr<detail::TestContextInfo>;
-inline Token current() { return detail::g_current_test; }
+inline Token current() { return detail::current_test(); }
 struct Adopt {
     Token prev;
-    explicit Adopt(const Token &t) : prev(detail::g_current_test) { detail::g_current_test = t; }
-    ~Adopt() { detail::g_current_test = prev; }
+    Token adopted;
+    explicit Adopt(const Token &t) : prev(detail::current_test()), adopted(t) {
+        if (adopted) {
+            adopted->adopted_tokens.fetch_add(1, std::memory_order_acq_rel);
+        }
+        detail::set_current_test(adopted);
+    }
+    // Releasing this guard is part of test completion progress: the runner
+    // blocks until all adopted guards for the test context are destroyed.
+    ~Adopt() {
+        detail::set_current_test(prev);
+        if (adopted && adopted->adopted_tokens.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            adopted->adopted_cv.notify_all();
+        }
+    }
 };
 } // namespace ctx
 
@@ -902,22 +1081,18 @@ inline void ASSERT_GE(L &&lhs, R &&rhs, std::string_view message = {},
 } // namespace asserts
 
 // Unconditionally throw a gentest::failure with the provided message.
-inline void fail(std::string message) { throw failure(std::move(message)); }
+inline void fail(std::string message) {
+#if GENTEST_EXCEPTIONS_ENABLED
+    throw failure(std::move(message));
+#else
+    ::gentest::detail::record_failure(std::move(message));
+    ::gentest::detail::terminate_no_exceptions_fatal("gentest::fail");
+#endif
+}
 
 [[noreturn]] inline void skip(std::string_view reason = {}, const std::source_location& loc = std::source_location::current()) {
     (void)loc;
-    auto ctx = detail::g_current_test;
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        std::fputs("gentest: fatal: skip called without an active test context.\n"
-                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
-                   stderr);
-        std::abort();
-    }
-    {
-        std::lock_guard<std::mutex> lk(ctx->mtx);
-        ctx->runtime_skip_requested = true;
-        ctx->runtime_skip_reason    = std::string(reason);
-    }
+    detail::request_runtime_skip(reason, detail::TestContextInfo::RuntimeSkipKind::User);
 #if GENTEST_EXCEPTIONS_ENABLED
     throw detail::skip_exception{};
 #else
@@ -948,9 +1123,9 @@ inline void xfail_if(bool condition, std::string_view reason = {}, const std::so
 }
 
 // Unified test entry (argc/argv version). Consumed by generated code.
-auto run_all_tests(int argc, char **argv) -> int;
+GENTEST_RUNTIME_API auto run_all_tests(int argc, char **argv) -> int;
 // Unified test entry (span version). Consumed by generated code.
-auto run_all_tests(std::span<const char *> args) -> int;
+GENTEST_RUNTIME_API auto run_all_tests(std::span<const char *> args) -> int;
 
 // Runtime-visible test case description used by the generated manifest.
 // The generator produces a constexpr array of Case entries and provides access
@@ -980,13 +1155,13 @@ struct Case {
 };
 
 // Provided by the runtime registry; populated by generated translation units.
-const Case* get_cases();
-std::size_t get_case_count();
+GENTEST_RUNTIME_API const Case* get_cases();
+GENTEST_RUNTIME_API std::size_t get_case_count();
 
 namespace detail {
 // Called by generated sources to register discovered cases. Not intended for
 // direct use in test code.
-void register_cases(std::span<const Case> cases);
+GENTEST_RUNTIME_API void register_cases(std::span<const Case> cases);
 
 enum class SharedFixtureScope {
     Suite,
@@ -1004,22 +1179,24 @@ struct SharedFixtureRegistration {
 
 // Runtime registry for suite/global fixtures. Generated code calls
 // register_shared_fixture during static initialization.
-void register_shared_fixture(const SharedFixtureRegistration& registration);
+GENTEST_RUNTIME_API void register_shared_fixture(const SharedFixtureRegistration& registration);
 
-// Setup/teardown shared fixtures before/after the test run. Returns false if any
-// fixture failed to allocate or set up.
-bool setup_shared_fixtures();
-void teardown_shared_fixtures();
+// Setup/teardown shared fixtures before/after the test run. setup returns false
+// when shared fixture infrastructure fails (for example conflicting
+// registrations, allocation failures, or setup failures).
+GENTEST_RUNTIME_API bool setup_shared_fixtures();
+GENTEST_RUNTIME_API bool teardown_shared_fixtures(std::vector<std::string> *errors = nullptr);
 
 // Lookup shared fixture instance by scope/suite/name. Returns nullptr and fills
 // error when unavailable (not registered, allocation/setup failure, or setup
 // currently in progress due to reentrant lookup).
-std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite,
-                                         std::string_view fixture_name, std::string& error);
+GENTEST_RUNTIME_API std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite,
+                                                             std::string_view fixture_name, std::string& error);
 
 namespace detail_internal {
 template <typename Fixture>
 inline std::shared_ptr<void> shared_fixture_create(std::string_view suite, std::string& error) {
+#if GENTEST_EXCEPTIONS_ENABLED
     try {
         auto handle = FixtureHandle<Fixture>::empty();
         if (!handle.init(suite)) {
@@ -1034,6 +1211,14 @@ inline std::shared_ptr<void> shared_fixture_create(std::string_view suite, std::
         error = "unknown exception";
         return {};
     }
+#else
+    auto handle = FixtureHandle<Fixture>::empty();
+    if (!handle.init(suite)) {
+        error = "returned null";
+        return {};
+    }
+    return handle.shared();
+#endif
 }
 
 template <typename Fixture>
@@ -1043,6 +1228,7 @@ inline void shared_fixture_setup(void* instance, std::string& error) {
             error = "instance missing";
             return;
         }
+#if GENTEST_EXCEPTIONS_ENABLED
         try {
             static_cast<Fixture*>(instance)->setUp();
         } catch (const gentest::assertion& e) {
@@ -1052,6 +1238,9 @@ inline void shared_fixture_setup(void* instance, std::string& error) {
         } catch (...) {
             error = "unknown exception";
         }
+#else
+        static_cast<Fixture*>(instance)->setUp();
+#endif
     }
 }
 
@@ -1062,6 +1251,7 @@ inline void shared_fixture_teardown(void* instance, std::string& error) {
             error = "instance missing";
             return;
         }
+#if GENTEST_EXCEPTIONS_ENABLED
         try {
             static_cast<Fixture*>(instance)->tearDown();
         } catch (const gentest::assertion& e) {
@@ -1071,6 +1261,9 @@ inline void shared_fixture_teardown(void* instance, std::string& error) {
         } catch (...) {
             error = "unknown exception";
         }
+#else
+        static_cast<Fixture*>(instance)->tearDown();
+#endif
     }
 }
 } // namespace detail_internal

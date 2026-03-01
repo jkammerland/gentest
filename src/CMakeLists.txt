@@ -9,6 +9,15 @@ endif()
 
 add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/bench_stats.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_case_invoker.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_cli.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_fixture_runtime.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_measured_executor.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_orchestrator.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_reporting.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_selector.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_test_executor.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_test_plan.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp)
 
 add_library(gentest_main STATIC
@@ -21,14 +30,22 @@ target_link_libraries(gentest_main
 if(GENTEST_RUNTIME_SHARED)
     # Only set PIC for the shared case
     set_target_properties(gentest_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    # Make Windows shared builds work without explicit __declspec(dllexport)
-    if(WIN32)
-        set_target_properties(gentest_runtime PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    endif()
+    # Export only explicit runtime API symbols in shared builds.
+    target_compile_definitions(gentest_runtime
+        PUBLIC GENTEST_RUNTIME_SHARED
+        PRIVATE GENTEST_RUNTIME_BUILDING)
+    set_target_properties(gentest_runtime PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON)
 endif()
 
 target_link_libraries(gentest_runtime
     PUBLIC fmt::fmt)
+
+if(GENTEST_USE_BOOST_JSON)
+    # Enable the runtime Allure JSON writer implementation.
+    target_compile_definitions(gentest_runtime PRIVATE GENTEST_USE_BOOST_JSON BOOST_JSON_NO_LIB)
+endif()
 
 target_include_directories(gentest_runtime
     PRIVATE

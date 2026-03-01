@@ -15,6 +15,11 @@ void runtime_skip_if() {
     gentest::skip_if(true, "conditional runtime condition");
 }
 
+[[using gentest: test("runtime_skip_prefix_user_text")]]
+void runtime_skip_prefix_user_text() {
+    gentest::skip("shared fixture unavailable for user-requested skip");
+}
+
 [[using gentest: test("xfail_expect_fail")]]
 void xfail_expect_fail() {
     gentest::xfail("expected failure");

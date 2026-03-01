@@ -17,7 +17,19 @@ endif
 
 libgentest_runtime = static_library(
   'gentest_runtime',
-  ['src/bench_stats.cpp', 'src/runner_impl.cpp'],
+  [
+    'src/bench_stats.cpp',
+    'src/runner_case_invoker.cpp',
+    'src/runner_cli.cpp',
+    'src/runner_fixture_runtime.cpp',
+    'src/runner_measured_executor.cpp',
+    'src/runner_impl.cpp',
+    'src/runner_orchestrator.cpp',
+    'src/runner_reporting.cpp',
+    'src/runner_selector.cpp',
+    'src/runner_test_executor.cpp',
+    'src/runner_test_plan.cpp',
+  ],
   include_directories: inc,
   cpp_args: runtime_cargs,
   dependencies: runtime_deps,

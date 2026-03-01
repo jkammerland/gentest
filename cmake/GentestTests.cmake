@@ -146,7 +146,7 @@ endfunction()
 
 function(gentest_add_check_counts)
     set(options LIST)
-    set(one_value_args NAME PROG PASS FAIL SKIP XFAIL XPASS CASES)
+    set(one_value_args NAME PROG PASS FAIL SKIP XFAIL XPASS CASES EXPECT_RC)
     set(multi_value_args ARGS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -170,6 +170,9 @@ function(gentest_add_check_counts)
         endif()
         if(NOT "${GENTEST_XPASS}" STREQUAL "")
             list(APPEND _defines "XPASS=${GENTEST_XPASS}")
+        endif()
+        if(NOT "${GENTEST_EXPECT_RC}" STREQUAL "")
+            list(APPEND _defines "EXPECT_RC=${GENTEST_EXPECT_RC}")
         endif()
     endif()
 
