@@ -1196,6 +1196,7 @@ GENTEST_RUNTIME_API std::shared_ptr<void> get_shared_fixture(SharedFixtureScope 
 namespace detail_internal {
 template <typename Fixture>
 inline std::shared_ptr<void> shared_fixture_create(std::string_view suite, std::string& error) {
+#if GENTEST_EXCEPTIONS_ENABLED
     try {
         auto handle = FixtureHandle<Fixture>::empty();
         if (!handle.init(suite)) {
@@ -1210,6 +1211,14 @@ inline std::shared_ptr<void> shared_fixture_create(std::string_view suite, std::
         error = "unknown exception";
         return {};
     }
+#else
+    auto handle = FixtureHandle<Fixture>::empty();
+    if (!handle.init(suite)) {
+        error = "returned null";
+        return {};
+    }
+    return handle.shared();
+#endif
 }
 
 template <typename Fixture>
@@ -1219,6 +1228,7 @@ inline void shared_fixture_setup(void* instance, std::string& error) {
             error = "instance missing";
             return;
         }
+#if GENTEST_EXCEPTIONS_ENABLED
         try {
             static_cast<Fixture*>(instance)->setUp();
         } catch (const gentest::assertion& e) {
@@ -1228,6 +1238,9 @@ inline void shared_fixture_setup(void* instance, std::string& error) {
         } catch (...) {
             error = "unknown exception";
         }
+#else
+        static_cast<Fixture*>(instance)->setUp();
+#endif
     }
 }
 
@@ -1238,6 +1251,7 @@ inline void shared_fixture_teardown(void* instance, std::string& error) {
             error = "instance missing";
             return;
         }
+#if GENTEST_EXCEPTIONS_ENABLED
         try {
             static_cast<Fixture*>(instance)->tearDown();
         } catch (const gentest::assertion& e) {
@@ -1247,6 +1261,9 @@ inline void shared_fixture_teardown(void* instance, std::string& error) {
         } catch (...) {
             error = "unknown exception";
         }
+#else
+        static_cast<Fixture*>(instance)->tearDown();
+#endif
     }
 }
 } // namespace detail_internal
