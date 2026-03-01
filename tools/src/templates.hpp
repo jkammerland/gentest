@@ -367,7 +367,7 @@ inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static void {w}(
     const auto phase = ::gentest::detail::bench_phase();
     if (phase != ::gentest::detail::BenchPhase::None) {{
         struct BenchState {{
-{bench_decls}        bool ready = false;
+{bench_decls}{bench_setup_flags}        bool ready = false;
         }};
         static thread_local BenchState bench_state{{}};
         if (phase == ::gentest::detail::BenchPhase::Setup) {{
@@ -376,8 +376,7 @@ inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static void {w}(
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Teardown) {{
-            if (bench_state.ready) {{
-{bench_teardown}            }}
+{bench_teardown}
             bench_state = BenchState{{}};
             return;
         }}

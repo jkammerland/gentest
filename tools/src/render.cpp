@@ -247,6 +247,18 @@ std::string build_fixture_state_decls(const std::vector<FreeFixtureUse> &types) 
     return decls;
 }
 
+std::string build_fixture_state_setup_flags(const std::vector<FreeFixtureUse> &types) {
+    std::string flags;
+    flags.reserve(types.size() * 44);
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        if (types[i].scope != FixtureScope::Local) {
+            continue;
+        }
+        append_format(flags, "        bool fx{}_setup_complete = false;\n", i);
+    }
+    return flags;
+}
+
 std::string build_fixture_bench_inits(const std::vector<FreeFixtureUse> &types) {
     std::string inits;
     inits.reserve(types.size() * 56);
@@ -321,15 +333,19 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string call = fmt::format("({})", combined);
         const auto invoke = make_invoke_for_free(spec, spec.callee, call);
         const std::string bench_decls    = build_fixture_state_decls(spec.fixtures);
+        const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits    = build_fixture_bench_inits(spec.fixtures);
-        const std::string bench_setup    = build_fixture_setup(spec.fixtures, "bench_state.");
-        const std::string bench_teardown = build_fixture_teardown(spec.fixtures, "bench_state.");
+        const std::string bench_setup =
+            build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
+        const std::string bench_teardown =
+            build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
         const std::string bench_args = build_bound_arg_list(spec.free_args, "bench_state.");
         const std::string bench_call  = fmt::format("({})", bench_args);
         const auto        bench_invoke = make_invoke_for_free(spec, spec.callee, bench_call);
         append_format_runtime(out, templates.free_fixtures, fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
                               fmt::arg("inits", inits), fmt::arg("setup_flags", setup_flags), fmt::arg("setup", setup_tracked),
                               fmt::arg("teardown", teardown_guarded), fmt::arg("invoke", invoke), fmt::arg("bench_decls", bench_decls),
+                              fmt::arg("bench_setup_flags", bench_setup_flags),
                               fmt::arg("bench_inits", bench_inits), fmt::arg("bench_setup", bench_setup),
                               fmt::arg("bench_teardown", bench_teardown), fmt::arg("bench_invoke", bench_invoke));
         return;
@@ -362,10 +378,13 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string call_expr = fmt::format("fx_.ref().{}({})", spec.method, combined);
         const auto invoke = make_invoke_for_member(spec, call_expr);
 
-        const std::string bench_decls    = build_fixture_state_decls(spec.fixtures);
+        const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
+        const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits    = build_fixture_bench_inits(spec.fixtures);
-        const std::string bench_setup    = build_fixture_setup(spec.fixtures, "bench_state.");
-        const std::string bench_teardown = build_fixture_teardown(spec.fixtures, "bench_state.");
+        const std::string bench_setup =
+            build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
+        const std::string bench_teardown =
+            build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
         const std::string bench_args     = build_bound_arg_list(spec.free_args, "bench_state.");
         const std::string bench_call_expr = fmt::format("bench_state.fx_.ref().{}({})", spec.method, bench_args);
         const auto        bench_invoke    = make_invoke_for_member(spec, bench_call_expr);
@@ -378,6 +397,8 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "            ::gentest::detail::FixtureHandle<" + spec.callee + "> fx_{::gentest::detail::FixtureHandle<" + spec.callee
             + ">::empty()};\n";
         out += bench_decls;
+        out += "            bool fx_setup_complete = false;\n";
+        out += bench_setup_flags;
         out += "            bool ready = false;\n";
         out += "        };\n";
         out += "        static thread_local BenchState bench_state{};\n";
@@ -385,16 +406,15 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "            bench_state = BenchState{};\n";
         out += "            if (!gentest_init_fixture(bench_state.fx_, \"" + escape_string(spec.callee) + "\")) return;\n";
         out += "            gentest_maybe_setup(bench_state.fx_.ref());\n";
+        out += "            bench_state.fx_setup_complete = true;\n";
         out += bench_inits;
         out += bench_setup;
         out += "            bench_state.ready = true;\n";
         out += "            return;\n";
         out += "        }\n";
         out += "        if (phase == ::gentest::detail::BenchPhase::Teardown) {\n";
-        out += "            if (bench_state.ready) {\n";
         out += bench_teardown;
-        out += "                gentest_maybe_teardown(bench_state.fx_.ref());\n";
-        out += "            }\n";
+        out += "            if (bench_state.fx_setup_complete) gentest_maybe_teardown(bench_state.fx_.ref());\n";
         out += "            bench_state = BenchState{};\n";
         out += "            return;\n";
         out += "        }\n";
@@ -435,10 +455,13 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string call_expr = fmt::format("fx_->{}({})", spec.method, combined);
         const auto invoke = make_invoke_for_member(spec, call_expr);
 
-        const std::string bench_decls    = build_fixture_state_decls(spec.fixtures);
+        const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
+        const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits    = build_fixture_bench_inits(spec.fixtures);
-        const std::string bench_setup    = build_fixture_setup(spec.fixtures, "bench_state.");
-        const std::string bench_teardown = build_fixture_teardown(spec.fixtures, "bench_state.");
+        const std::string bench_setup =
+            build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
+        const std::string bench_teardown =
+            build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
         const std::string bench_args     = build_bound_arg_list(spec.free_args, "bench_state.");
         const std::string bench_call_expr = fmt::format("fx_->{}({})", spec.method, bench_args);
         const auto        bench_invoke    = make_invoke_for_member(spec, bench_call_expr);
@@ -453,6 +476,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "    if (phase != ::gentest::detail::BenchPhase::None) {\n";
         out += "        struct BenchState {\n";
         out += bench_decls;
+        out += bench_setup_flags;
         out += "            bool ready = false;\n";
         out += "        };\n";
         out += "        static thread_local BenchState bench_state{};\n";
@@ -464,9 +488,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "            return;\n";
         out += "        }\n";
         out += "        if (phase == ::gentest::detail::BenchPhase::Teardown) {\n";
-        out += "            if (bench_state.ready) {\n";
         out += bench_teardown;
-        out += "            }\n";
         out += "            bench_state = BenchState{};\n";
         out += "            return;\n";
         out += "        }\n";
