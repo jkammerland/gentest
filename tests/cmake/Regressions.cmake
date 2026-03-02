@@ -359,7 +359,8 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/measured_local_fixture_partial_setup_teardown/bench --kind=bench
     DEFINES
         "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=bench-second-setup-failed")
+        "EXPECT_SUBSTRING=bench-second-setup-failed"
+        "FORBID_SUBSTRINGS=jitter-second-setup-failed")
 
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_partial_setup_failure_teardown
@@ -368,7 +369,8 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/measured_local_fixture_partial_setup_teardown/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=jitter-second-setup-failed")
+        "EXPECT_SUBSTRING=jitter-second-setup-failed"
+        "FORBID_SUBSTRINGS=bench-second-setup-failed")
 
 gentest_add_cmake_script_test(
     NAME regression_generated_bench_local_fixture_partial_setup_failure_teardown
@@ -378,7 +380,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "EXPECT_SUBSTRING=generated-bench-second-setup-failed"
-        "FORBID_SUBSTRING=regression marker: generated bench local teardown missing after setup failure")
+        "FORBID_SUBSTRINGS=generated-jitter-second-setup-failed|regression marker: generated bench local teardown missing after setup failure")
 
 gentest_add_cmake_script_test(
     NAME regression_generated_jitter_local_fixture_partial_setup_failure_teardown
@@ -388,7 +390,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "EXPECT_SUBSTRING=generated-jitter-second-setup-failed"
-        "FORBID_SUBSTRING=regression marker: generated jitter local teardown missing after setup failure")
+        "FORBID_SUBSTRINGS=generated-bench-second-setup-failed|regression marker: generated jitter local teardown missing after setup failure")
 
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_setup_throw_teardown_armed
@@ -397,7 +399,8 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/measured_local_fixture_setup_throw_teardown_armed/bench --kind=bench
     DEFINES
         "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=bench-setup-throws")
+        "EXPECT_SUBSTRING=bench-setup-throws"
+        "FORBID_SUBSTRINGS=jitter-setup-throws")
 
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_setup_throw_teardown_armed
@@ -406,7 +409,8 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/measured_local_fixture_setup_throw_teardown_armed/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=jitter-setup-throws")
+        "EXPECT_SUBSTRING=jitter-setup-throws"
+        "FORBID_SUBSTRINGS=bench-setup-throws")
 
 gentest_add_cmake_script_test(
     NAME regression_generated_bench_local_fixture_setup_throw_teardown_armed
@@ -416,7 +420,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "EXPECT_SUBSTRING=generated-bench-setup-throws"
-        "FORBID_SUBSTRING=regression marker: generated bench teardown not armed before setup")
+        "FORBID_SUBSTRINGS=generated-jitter-setup-throws|regression marker: generated bench teardown not armed before setup")
 
 gentest_add_cmake_script_test(
     NAME regression_generated_jitter_local_fixture_setup_throw_teardown_armed
@@ -426,7 +430,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "EXPECT_SUBSTRING=generated-jitter-setup-throws"
-        "FORBID_SUBSTRING=regression marker: generated jitter teardown not armed before setup")
+        "FORBID_SUBSTRINGS=generated-bench-setup-throws|regression marker: generated jitter teardown not armed before setup")
 
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_reentry_no_timeout

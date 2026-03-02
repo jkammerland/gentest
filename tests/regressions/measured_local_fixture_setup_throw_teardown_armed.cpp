@@ -2,22 +2,29 @@
 
 #include <atomic>
 #include <cstdlib>
-#include <cstring>
 #include <stdexcept>
 #include <string_view>
 
 namespace {
 
+std::atomic<bool> g_bench_setup_entered{false};
 std::atomic<int> g_bench_teardown_count{0};
+std::atomic<bool> g_jitter_setup_entered{false};
 std::atomic<int> g_jitter_teardown_count{0};
 
 struct BenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
-    void setUp() override { throw std::runtime_error("bench-setup-throws"); }
+    void setUp() override {
+        g_bench_setup_entered.store(true, std::memory_order_relaxed);
+        throw std::runtime_error("bench-setup-throws");
+    }
     void tearDown() override { g_bench_teardown_count.fetch_add(1, std::memory_order_relaxed); }
 };
 
 struct JitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
-    void setUp() override { throw std::runtime_error("jitter-setup-throws"); }
+    void setUp() override {
+        g_jitter_setup_entered.store(true, std::memory_order_relaxed);
+        throw std::runtime_error("jitter-setup-throws");
+    }
     void tearDown() override { g_jitter_teardown_count.fetch_add(1, std::memory_order_relaxed); }
 };
 
@@ -127,26 +134,15 @@ gentest::Case kCases[] = {
     },
 };
 
-bool arg_contains(int argc, char **argv, std::string_view needle) {
-    for (int i = 0; i < argc; ++i) {
-        if (std::strstr(argv[i], needle.data()) != nullptr)
-            return true;
-    }
-    return false;
-}
-
 } // namespace
 
 int main(int argc, char **argv) {
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     const int rc = gentest::run_all_tests(argc, argv);
 
-    const bool run_bench_case  = arg_contains(argc, argv, kBenchCaseName);
-    const bool run_jitter_case = arg_contains(argc, argv, kJitterCaseName);
-
-    if (run_bench_case && g_bench_teardown_count.load(std::memory_order_relaxed) != 1)
+    if (g_bench_setup_entered.load(std::memory_order_relaxed) && g_bench_teardown_count.load(std::memory_order_relaxed) != 1)
         return 3;
-    if (run_jitter_case && g_jitter_teardown_count.load(std::memory_order_relaxed) != 1)
+    if (g_jitter_setup_entered.load(std::memory_order_relaxed) && g_jitter_teardown_count.load(std::memory_order_relaxed) != 1)
         return 3;
     return rc;
 }
