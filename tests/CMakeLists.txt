@@ -176,6 +176,16 @@ add_test(NAME gentest_codegen_check_valid
            -I${PROJECT_SOURCE_DIR}/include
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
+add_test(NAME gentest_codegen_check_namespaced_attrs
+    COMMAND ${_gentest_codegen_prog}
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
 add_test(NAME gentest_codegen_check_invalid
     COMMAND ${_gentest_codegen_prog}
         --check
@@ -509,6 +519,7 @@ gentest_add_check_death(
 # Label codegen/clang-tooling checks so valgrind workflows can exclude them by default.
 set_tests_properties(
     gentest_codegen_check_valid
+    gentest_codegen_check_namespaced_attrs
     gentest_codegen_check_invalid
     gentest_codegen_baseline_requires_bench
     gentest_codegen_mock_incomplete_virtual_msg
