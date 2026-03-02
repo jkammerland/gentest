@@ -2,7 +2,15 @@
 
 `gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
 
-Write tests with standard C++ attributes (`[[gentest::...]]` or `[[using gentest: ...]]`). During the build, `gentest_codegen` scans your sources and generates registrations/wrappers from those attributes. This avoids macro-heavy registration and keeps test declarations in normal C++ syntax. The tradeoff is higher tooling complexity.
+Write tests with standard C++ attributes (`[[gentest::...]]` or `[[using gentest: ...]]`). During the build, `gentest_codegen` scans your sources and generates registrations/wrappers from those attributes. This avoids macro-heavy registration and keeps test declarations in normal C++ syntax. The tradeoff is higher tooling complexity, but it enables orthogonal code generation and additional features.
+
+Features include:
+- Arbitrary mocking with no extra declarations
+- Easy syntax for multi-dimensional parameterized and templated cases
+- Support for multiple fixtures per test case
+- Sharing fixtures between test cases
+- Native syntax for tags, requirements, and custom labels
+- Unified APIs for other test kinds (for example, benchmark, jitter, and coroutine cases)
 
 >[!NOTE]
 > Start at [`docs/index.md`](docs/index.md) for the rest of the docs.
@@ -58,11 +66,8 @@ find_package(gentest CONFIG REQUIRED)
 add_executable(my_tests cases.cpp)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
-# Default (recommended): per-TU registration (gtest/catch/doctest-like).
-# NOTE: This mode requires a single-config generator/build dir (e.g. Ninja).
+# NOTE: This mode requires a single-config generator/build dir.
 gentest_attach_codegen(my_tests)
-# Per-TU mode enforces case-insensitive uniqueness for generated TU headers.
-# If two sources map to the same header name ignoring case, codegen fails fast.
 # Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via
 # `gentest_attach_codegen(... CLANG_ARGS ...)` or override
 # `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`.
@@ -121,7 +126,6 @@ Tags/metadata:
 - `req("...")` is the requirement-to-test mapping hook for traceability workflows (see [docs/traceability_standards.md](docs/traceability_standards.md)).
 - Requirement IDs are shown in `--list` output as `requires=...` and exported in JUnit as
   `<property name="requirement" value="...">`, so you can build a trace matrix from CI artifacts (example flow: [docs/traceability_standards.md](docs/traceability_standards.md)).
-- Source standards links: [ISO 26262-6](https://www.iso.org/standard/68388.html), [ISO 26262-8](https://www.iso.org/standard/68390.html), [IEC 61508-1](https://webstore.iec.ch/en/publication/5515), [IEC 61508-3](https://webstore.iec.ch/en/publication/5517), [IEC TS 61508-3-1](https://webstore.iec.ch/en/publication/25410).
 - `death`-tagged tests are excluded from the default run; pass `--include-death` to execute them.
 - The death-test harness treats non-zero exit as success (and fails on normal test failures); set `EXPECT_SUBSTRING` to assert output.
 - Full death-test docs: [docs/death_tests.md](docs/death_tests.md).
@@ -254,10 +258,6 @@ Assertions must run under an active test context. When you spawn threads/corouti
 `EXPECT_*` failures are attributed to the right test. Use `gentest::log_on_fail(true)` + `gentest::log(...)` for
 lightweight attachments.
 
-Completion semantics are strict by design: runner phase completion waits until all adopted contexts are released.
-If adopted work is detached/stuck and never releases `gentest::ctx::Adopt`, the test/run blocks intentionally.
-Always join/cancel adopted work before returning from the test body.
-
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
@@ -278,6 +278,11 @@ void adopt_and_log() {
     t.join();
 }
 ```
+
+Completion semantics are strict by design: runner phase completion waits until all adopted contexts are released.
+
+>[!WARNING]
+> If adopted work is detached or stuck and never releases `gentest::ctx::Adopt`, the test/run blocks forever.
 
 ### Parameters (value matrices)
 
@@ -356,6 +361,7 @@ struct [[gentest::fixture(global)]] GlobalCounter : gentest::FixtureSetup {
     void setUp() override { ++set_up_calls; }
 };
 
+// Globals are for demo only; we also capture these in args below.
 inline SuiteCounter*  first_suite_instance  = nullptr;
 inline GlobalCounter* first_global_instance = nullptr;
 

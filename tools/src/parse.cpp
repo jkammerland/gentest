@@ -24,14 +24,169 @@ std::string_view trim_view(std::string_view text) {
     return text;
 }
 
-bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std::string_view &namespace_name, std::string_view &args_text) {
+bool try_start_raw_string(std::string_view text, std::size_t index, std::string &delimiter, std::size_t &open_paren);
+
+bool is_gentest_scoped_attribute_token(std::string_view token) {
+    token = trim_view(token);
+    if (token.empty()) {
+        return false;
+    }
+
+    std::size_t cursor = 0;
+    if (!std::isalpha(static_cast<unsigned char>(token[cursor])) && token[cursor] != '_') {
+        return false;
+    }
+    ++cursor;
+    while (cursor < token.size() && is_identifier_char(token[cursor])) {
+        ++cursor;
+    }
+    const std::string_view namespace_name = token.substr(0, cursor);
+    while (cursor < token.size() && std::isspace(static_cast<unsigned char>(token[cursor])) != 0) {
+        ++cursor;
+    }
+
+    return namespace_name == "gentest" && cursor + 1 < token.size() && token[cursor] == ':' && token[cursor + 1] == ':';
+}
+
+bool extract_gentest_scoped_payload(std::string_view list, std::string &payload) {
+    payload.clear();
+
+    auto append_if_gentest = [&](std::size_t start, std::size_t end) {
+        if (end < start) {
+            return;
+        }
+        const std::string_view token = trim_view(list.substr(start, end - start));
+        if (token.empty() || !is_gentest_scoped_attribute_token(token)) {
+            return;
+        }
+        if (!payload.empty()) {
+            payload += ", ";
+        }
+        payload.append(token.data(), token.size());
+    };
+
+    bool        in_string        = false;
+    bool        in_char          = false;
+    bool        in_line_comment  = false;
+    bool        in_block_comment = false;
+    bool        in_raw_string    = false;
+    bool        escape           = false;
+    int         nesting_depth    = 0;
+    std::string raw_delimiter;
+
+    std::size_t token_start = 0;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const char ch   = list[i];
+        const char next = (i + 1 < list.size()) ? list[i + 1] : '\0';
+
+        if (in_line_comment) {
+            if (ch == '\n' || ch == '\r') {
+                in_line_comment = false;
+            }
+            continue;
+        }
+        if (in_block_comment) {
+            if (ch == '*' && next == '/') {
+                in_block_comment = false;
+                ++i;
+            }
+            continue;
+        }
+        if (in_raw_string) {
+            if (ch == ')') {
+                const std::size_t quote_index = i + raw_delimiter.size() + 1;
+                if (quote_index < list.size()) {
+                    bool delimiter_matches = true;
+                    for (std::size_t j = 0; j < raw_delimiter.size(); ++j) {
+                        if (list[i + 1 + j] != raw_delimiter[j]) {
+                            delimiter_matches = false;
+                            break;
+                        }
+                    }
+                    if (delimiter_matches && list[quote_index] == '"') {
+                        in_raw_string = false;
+                        i             = quote_index;
+                    }
+                }
+            }
+            continue;
+        }
+        if (in_string) {
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        if (in_char) {
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '\'') {
+                in_char = false;
+            }
+            continue;
+        }
+
+        if (ch == '/' && next == '/') {
+            in_line_comment = true;
+            ++i;
+            continue;
+        }
+        if (ch == '/' && next == '*') {
+            in_block_comment = true;
+            ++i;
+            continue;
+        }
+        std::size_t raw_open_paren = 0;
+        if (try_start_raw_string(list, i, raw_delimiter, raw_open_paren)) {
+            in_raw_string = true;
+            i             = raw_open_paren;
+            continue;
+        }
+        if (ch == '"') {
+            in_string = true;
+            continue;
+        }
+        if (ch == '\'') {
+            in_char = true;
+            continue;
+        }
+
+        if (ch == '(' || ch == '[' || ch == '{') {
+            ++nesting_depth;
+            continue;
+        }
+        if (ch == ')' || ch == ']' || ch == '}') {
+            if (nesting_depth > 0) {
+                --nesting_depth;
+            }
+            continue;
+        }
+        if (ch == ',' && nesting_depth == 0) {
+            append_if_gentest(token_start, i);
+            token_start = i + 1;
+        }
+    }
+
+    append_if_gentest(token_start, list.size());
+    return !payload.empty();
+}
+
+bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std::string_view &namespace_name, std::string_view &args_text,
+                                           std::string &owned_args_text) {
     std::string_view view = trim_view(attribute_text);
     if (!view.starts_with("[[") || !view.ends_with("]]")) {
         return false;
     }
     view.remove_prefix(2);
     view.remove_suffix(2);
-    view = trim_view(view);
+    view                                  = trim_view(view);
+    const std::string_view attribute_list = view;
 
     if (view.starts_with("using")) {
         view.remove_prefix(5);
@@ -62,14 +217,32 @@ bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std:
         ++ns_len;
     }
     if (ns_len == 0) {
-        return false;
+        if (!extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+            return false;
+        }
+        namespace_name = "gentest";
+        args_text      = owned_args_text;
+        return true;
     }
 
     namespace_name = view.substr(0, ns_len);
     view.remove_prefix(ns_len);
     view = trim_view(view);
     if (view.size() < 2 || view.substr(0, 2) != "::") {
-        return false;
+        if (!extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+            return false;
+        }
+        namespace_name = "gentest";
+        args_text      = owned_args_text;
+        return true;
+    }
+
+    if (namespace_name != "gentest") {
+        if (extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+            namespace_name = "gentest";
+            args_text      = owned_args_text;
+            return true;
+        }
     }
 
     view.remove_prefix(2);
@@ -349,8 +522,9 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
         const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
         std::string_view      namespace_name;
         std::string_view      args_text;
+        std::string           owned_args_text;
         if (!parse_attribute_namespace_and_payload(std::string_view(attribute_text.data(), attribute_text.size()), namespace_name,
-                                                   args_text)) {
+                                                   args_text, owned_args_text)) {
             cursor = open;
             continue;
         }
@@ -500,8 +674,9 @@ auto collect_gentest_attributes_for(const NamespaceDecl &ns, const SourceManager
             const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
             std::string_view      namespace_name;
             std::string_view      args_text;
+            std::string           owned_args_text;
             if (!parse_attribute_namespace_and_payload(std::string_view(attribute_text.data(), attribute_text.size()), namespace_name,
-                                                       args_text)) {
+                                                       args_text, owned_args_text)) {
                 cursor = static_cast<unsigned>(open);
                 continue;
             }

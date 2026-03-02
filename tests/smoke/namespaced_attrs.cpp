@@ -30,4 +30,10 @@ void namespaced_second(SuiteFixture &suite_fx, std::shared_ptr<GlobalFixture> gl
     ++global_fx->touched;
 }
 
+[[maybe_unused, gentest::test("smoke/namespaced/mixed/std_first"), gentest::fast]]
+void namespaced_mixed_standard_first() {}
+
+[[clang::annotate("smoke-mixed-scoped"), gentest::test("smoke/namespaced/mixed/scoped_first"), gentest::slow]]
+void namespaced_mixed_scoped_first() {}
+
 } // namespace smoke::namespaced
