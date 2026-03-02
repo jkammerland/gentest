@@ -688,31 +688,68 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
         return false;
     }
 
-    bool        allocation_failure = false;
-    bool        runtime_skipped    = false;
-    std::string skip_reason;
-    auto        runtime_skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
-    auto        unwind_setup_failure = [&]() {
-        bool        teardown_allocation_failure = false;
-        bool        teardown_runtime_skipped    = false;
-        std::string teardown_reason;
-        std::string teardown_skip_reason;
-        auto        teardown_skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
-        (void)run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, teardown_reason, teardown_allocation_failure,
-                                    teardown_runtime_skipped, teardown_skip_reason, teardown_skip_kind);
+    struct MeasurementPhaseResult {
+        bool   ok                 = false;
+        bool   allocation_failure = false;
+        bool   runtime_skipped    = false;
+        std::string reason;
+        std::string skip_reason;
+        gentest::detail::TestContextInfo::RuntimeSkipKind skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
     };
-    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure, runtime_skipped, skip_reason,
-                               runtime_skip_kind)) {
-        unwind_setup_failure();
-        if (runtime_skipped) {
-            out_failure.reason        = std::move(skip_reason);
+
+    auto run_phase = [&](gentest::detail::BenchPhase phase) {
+        MeasurementPhaseResult pr{};
+        pr.ok = run_measurement_phase(c, ctx, phase, pr.reason, pr.allocation_failure, pr.runtime_skipped, pr.skip_reason, pr.skip_kind);
+        return pr;
+    };
+
+    const MeasurementPhaseResult setup_phase = run_phase(gentest::detail::BenchPhase::Setup);
+    if (!setup_phase.ok) {
+        const MeasurementPhaseResult teardown_after_setup = run_phase(gentest::detail::BenchPhase::Teardown);
+        if (!teardown_after_setup.ok) {
+            if (setup_phase.runtime_skipped && teardown_after_setup.runtime_skipped) {
+                const std::string setup_issue = setup_phase.skip_reason.empty() ? std::string("setup requested skip") : setup_phase.skip_reason;
+                const std::string teardown_issue =
+                    teardown_after_setup.skip_reason.empty() ? std::string("teardown requested skip") : teardown_after_setup.skip_reason;
+                out_failure.reason = (setup_issue == teardown_issue)
+                                         ? setup_issue
+                                         : fmt::format("{}; teardown: {}", std::move(setup_issue), std::move(teardown_issue));
+                out_failure.skipped       = true;
+                out_failure.infra_failure = (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) ||
+                                            (teardown_after_setup.skip_kind ==
+                                             gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+                out_failure.phase         = "setup+teardown";
+                return false;
+            }
+            const std::string setup_issue = setup_phase.runtime_skipped
+                                                ? (setup_phase.skip_reason.empty() ? std::string("setup requested skip")
+                                                                                   : setup_phase.skip_reason)
+                                                : (setup_phase.reason.empty() ? std::string("setup failed") : setup_phase.reason);
+            const std::string teardown_issue =
+                teardown_after_setup.runtime_skipped
+                    ? (teardown_after_setup.skip_reason.empty() ? std::string("teardown requested skip")
+                                                                : teardown_after_setup.skip_reason)
+                    : (teardown_after_setup.reason.empty() ? std::string("teardown failed") : teardown_after_setup.reason);
+            out_failure.reason =
+                fmt::format("setup issue: {}; teardown issue: {}", std::move(setup_issue), std::move(teardown_issue));
+            out_failure.allocation_failure = setup_phase.allocation_failure || teardown_after_setup.allocation_failure;
+            out_failure.skipped            = false;
+            out_failure.infra_failure      = (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) ||
+                                        (teardown_after_setup.skip_kind ==
+                                         gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.phase = "setup+teardown";
+            return false;
+        }
+
+        if (setup_phase.runtime_skipped) {
+            out_failure.reason        = setup_phase.skip_reason;
             out_failure.skipped       = true;
-            out_failure.infra_failure = (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.infra_failure = (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
             out_failure.phase         = "setup";
             return false;
         }
-        out_failure.reason             = std::move(reason);
-        out_failure.allocation_failure = allocation_failure;
+        out_failure.reason             = setup_phase.reason;
+        out_failure.allocation_failure = setup_phase.allocation_failure;
         out_failure.phase              = "setup";
         return false;
     }
@@ -724,17 +761,17 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
         call_error = gentest::detail::take_bench_error();
     }
 
-    if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, reason, allocation_failure, runtime_skipped, skip_reason,
-                               runtime_skip_kind)) {
-        if (runtime_skipped) {
-            out_failure.reason             = skip_reason.empty() ? std::string("teardown requested skip") : std::move(skip_reason);
+    const MeasurementPhaseResult teardown_phase = run_phase(gentest::detail::BenchPhase::Teardown);
+    if (!teardown_phase.ok) {
+        if (teardown_phase.runtime_skipped) {
+            out_failure.reason = teardown_phase.skip_reason.empty() ? std::string("teardown requested skip") : teardown_phase.skip_reason;
             out_failure.allocation_failure = false;
-            out_failure.infra_failure      = (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.infra_failure      = (teardown_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
             out_failure.phase              = "teardown";
             return false;
         }
-        out_failure.reason             = std::move(reason);
-        out_failure.allocation_failure = allocation_failure;
+        out_failure.reason             = teardown_phase.reason;
+        out_failure.allocation_failure = teardown_phase.allocation_failure;
         out_failure.phase              = "teardown";
         return false;
     }

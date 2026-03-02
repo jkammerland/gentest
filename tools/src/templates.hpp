@@ -403,18 +403,20 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
     if (phase != ::gentest::detail::BenchPhase::None) {{
         struct BenchState {{
             ::gentest::detail::FixtureHandle<{fixture}> fx_{{::gentest::detail::FixtureHandle<{fixture}>::empty()}};
+            bool teardown_armed = false;
             bool ready = false;
         }};
         static thread_local BenchState bench_state{{}};
         if (phase == ::gentest::detail::BenchPhase::Setup) {{
             bench_state = BenchState{{}};
             if (!gentest_init_fixture(bench_state.fx_, "{fixture}")) return;
+            bench_state.teardown_armed = true;
             gentest_maybe_setup(bench_state.fx_.ref());
             bench_state.ready = true;
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Teardown) {{
-            if (bench_state.ready) gentest_maybe_teardown(bench_state.fx_.ref());
+            if (bench_state.teardown_armed) gentest_maybe_teardown(bench_state.fx_.ref());
             bench_state = BenchState{{}};
             return;
         }}
@@ -427,15 +429,15 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
     }}
     auto fx_ = ::gentest::detail::FixtureHandle<{fixture}>::empty();
     if (!gentest_init_fixture(fx_, "{fixture}")) return;
-    bool fx_setup_complete = false;
+    bool fx_teardown_armed = false;
     gentest_run_with_local_teardown(
         [&] {{
+            fx_teardown_armed = true;
             gentest_maybe_setup(fx_.ref());
-            fx_setup_complete = true;
             {invoke}
         }},
         [&] {{
-            if (fx_setup_complete) gentest_maybe_teardown(fx_.ref());
+            if (fx_teardown_armed) gentest_maybe_teardown(fx_.ref());
         }});
 }}
 

@@ -176,6 +176,14 @@ target_include_directories(gentest_regression_measured_local_fixture_partial_set
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_measured_local_fixture_setup_throw_teardown_armed
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_setup_throw_teardown_armed.cpp)
+target_link_libraries(gentest_regression_measured_local_fixture_setup_throw_teardown_armed PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_measured_local_fixture_setup_throw_teardown_armed PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_measured_local_fixture_setup_throw_teardown_armed PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 gentest_add_suite(regression_local_fixture_teardown
     TARGET gentest_regression_local_fixture_teardown
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_on_throw.cpp
@@ -212,6 +220,12 @@ gentest_add_suite(regression_measured_generated_local_fixture_partial_setup_tear
     TARGET gentest_regression_measured_generated_local_fixture_partial_setup_teardown
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_generated_local_fixture_partial_setup_teardown.cpp
     OUTPUT_DIR regressions/measured_generated_local_fixture_partial_setup_teardown
+    NO_CTEST)
+
+gentest_add_suite(regression_measured_generated_local_fixture_setup_throw_teardown_armed
+    TARGET gentest_regression_measured_generated_local_fixture_setup_throw_teardown_armed
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_generated_local_fixture_setup_throw_teardown_armed.cpp
+    OUTPUT_DIR regressions/measured_generated_local_fixture_setup_throw_teardown_armed
     NO_CTEST)
 
 add_executable(gentest_regression_time_unit_scaling
@@ -338,29 +352,81 @@ gentest_add_run_and_check_file(
     EXPECT_RC 0
     ARGS --run=regressions/jitter_setup_skip_should_not_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_setup_skip_noninfra_junit.xml)
 
-gentest_add_check_exit_code(
+gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_partial_setup_failure_teardown
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_partial_setup_teardown>
-    EXPECT_RC 1
-    ARGS --run=regressions/measured_local_fixture_partial_setup_teardown/bench --kind=bench)
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_local_fixture_partial_setup_teardown/bench --kind=bench
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=bench-second-setup-failed")
 
-gentest_add_check_exit_code(
+gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_partial_setup_failure_teardown
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_partial_setup_teardown>
-    EXPECT_RC 1
-    ARGS --run=regressions/measured_local_fixture_partial_setup_teardown/jitter --kind=jitter)
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_local_fixture_partial_setup_teardown/jitter --kind=jitter
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=jitter-second-setup-failed")
 
-gentest_add_check_exit_code(
+gentest_add_cmake_script_test(
     NAME regression_generated_bench_local_fixture_partial_setup_failure_teardown
     PROG $<TARGET_FILE:gentest_regression_measured_generated_local_fixture_partial_setup_teardown>
-    EXPECT_RC 1
-    ARGS --run=regressions/measured_generated_local_fixture_partial_setup_teardown/bench --kind=bench)
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_generated_local_fixture_partial_setup_teardown/bench --kind=bench
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=generated-bench-second-setup-failed"
+        "FORBID_SUBSTRING=regression marker: generated bench local teardown missing after setup failure")
 
-gentest_add_check_exit_code(
+gentest_add_cmake_script_test(
     NAME regression_generated_jitter_local_fixture_partial_setup_failure_teardown
     PROG $<TARGET_FILE:gentest_regression_measured_generated_local_fixture_partial_setup_teardown>
-    EXPECT_RC 1
-    ARGS --run=regressions/measured_generated_local_fixture_partial_setup_teardown/jitter --kind=jitter)
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_generated_local_fixture_partial_setup_teardown/jitter --kind=jitter
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=generated-jitter-second-setup-failed"
+        "FORBID_SUBSTRING=regression marker: generated jitter local teardown missing after setup failure")
+
+gentest_add_cmake_script_test(
+    NAME regression_bench_local_fixture_setup_throw_teardown_armed
+    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_throw_teardown_armed>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_local_fixture_setup_throw_teardown_armed/bench --kind=bench
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=bench-setup-throws")
+
+gentest_add_cmake_script_test(
+    NAME regression_jitter_local_fixture_setup_throw_teardown_armed
+    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_throw_teardown_armed>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_local_fixture_setup_throw_teardown_armed/jitter --kind=jitter
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=jitter-setup-throws")
+
+gentest_add_cmake_script_test(
+    NAME regression_generated_bench_local_fixture_setup_throw_teardown_armed
+    PROG $<TARGET_FILE:gentest_regression_measured_generated_local_fixture_setup_throw_teardown_armed>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_generated_local_fixture_setup_throw_teardown_armed/bench --kind=bench
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=generated-bench-setup-throws"
+        "FORBID_SUBSTRING=regression marker: generated bench teardown not armed before setup")
+
+gentest_add_cmake_script_test(
+    NAME regression_generated_jitter_local_fixture_setup_throw_teardown_armed
+    PROG $<TARGET_FILE:gentest_regression_measured_generated_local_fixture_setup_throw_teardown_armed>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_generated_local_fixture_setup_throw_teardown_armed/jitter --kind=jitter
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=generated-jitter-setup-throws"
+        "FORBID_SUBSTRING=regression marker: generated jitter teardown not armed before setup")
 
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_reentry_no_timeout
@@ -686,4 +752,3 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_regression_time_unit_scaling>
     EXPECT_SUBSTRING "error: duplicate --time-unit"
     ARGS --time-unit=auto --time-unit=ns)
-
