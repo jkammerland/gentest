@@ -9,7 +9,7 @@ Test annotation with requirement ID:
 ```cpp
 #include "gentest/attributes.h"
 
-[[using gentest: test("math/add"), req("SSR-001"), owner("team-runtime")]]
+[[gentest::test("math/add"), req("SSR-001"), owner("team-runtime")]]
 void add_test();
 ```
 

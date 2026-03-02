@@ -2,7 +2,7 @@
 
 `gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
 
-Write tests with standard C++ attributes (`[[using gentest: ...]]`). During the build, `gentest_codegen` scans your sources and generates registrations/wrappers from those attributes. This avoids macro-heavy registration and keeps test declarations in normal C++ syntax. The tradeoff is higher tooling complexity.
+Write tests with standard C++ attributes (`[[gentest::...]]` or `[[using gentest: ...]]`). During the build, `gentest_codegen` scans your sources and generates registrations/wrappers from those attributes. This avoids macro-heavy registration and keeps test declarations in normal C++ syntax. The tradeoff is higher tooling complexity.
 
 >[!NOTE]
 > Start at [`docs/index.md`](docs/index.md) for the rest of the docs.
@@ -35,7 +35,7 @@ using namespace gentest::asserts;
 
 namespace demo {
 
-[[using gentest: test]]
+[[gentest::test]]
 void basic() { 
     EXPECT_TRUE(1 + 1 == 2); 
 }
@@ -107,10 +107,12 @@ Run:
 `--list-tests` prints only resolved test names (one per line).
 `--list` prints the richer listing format (name plus metadata such as tags/owner when present).
 `--kind` restricts execution/filtering to `all|test|bench|jitter` (default `all`).
+Examples below use the concise `[[gentest::...]]` spelling.
 
 Naming:
 - Any gentest function-level attribute marks the declaration as a case.
-- `test("...")` is optional; if omitted, the base name defaults to the C++ function name (or `FixtureType/method` for member tests).
+- `test("...")` is optional; if omitted, the base name defaults to the C++ function name.
+- Member tests are a legacy path and should be avoided in new code.
 - Use `test("...")` to disambiguate overloads and keep names stable across refactors.
 
 Tags/metadata:
@@ -137,7 +139,7 @@ using namespace gentest::asserts;
 
 namespace math {
 
-[[using gentest: test]]
+[[gentest::test]]
 void add() {
     EXPECT_EQ(1 + 1, 2);
     ASSERT_TRUE(2 + 2 == 4, "fatal: aborts the current test");
@@ -157,7 +159,7 @@ using namespace gentest::asserts;
 
 #include <stdexcept>
 
-[[using gentest: test("exceptions/macros")]]
+[[gentest::test("exceptions/macros")]]
 void macros() {
     EXPECT_THROW(throw std::runtime_error("boom"), std::runtime_error);
     EXPECT_THROW(throw 123, int);
@@ -174,7 +176,7 @@ void macros() {
 #include <exception>
 #include <string_view>
 
-[[using gentest: test("exceptions/handled")]]
+[[gentest::test("exceptions/handled")]]
 void handled() {
     try {
         might_throw();
@@ -204,7 +206,7 @@ target_compile_definitions(my_tests PRIVATE FMT_EXCEPTIONS=0) # and on MSVC STL:
 To test these “death” paths, tag them and run them in their own process:
 
 ```cpp
-[[using gentest: test("death/fatal_path"), death]]
+[[gentest::test("death/fatal_path"), death]]
 void fatal_path();
 ```
 
@@ -234,12 +236,12 @@ throws, it’s reported as XFAIL; if it passes, it’s reported as XPASS (failur
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
-[[using gentest: test("outcomes/skip")]]
+[[gentest::test("outcomes/skip")]]
 void skip_example() {
     gentest::skip("not supported on this configuration");
 }
 
-[[using gentest: test("outcomes/xfail")]]
+[[gentest::test("outcomes/xfail")]]
 void xfail_example() {
     gentest::xfail("BUG-123: known issue");
     EXPECT_EQ(1, 2, "expected to fail");
@@ -263,7 +265,7 @@ using namespace gentest::asserts;
 
 #include <thread>
 
-[[using gentest: test("concurrency/adopt_and_log")]]
+[[gentest::test("concurrency/adopt_and_log")]]
 void adopt_and_log() {
     gentest::log_on_fail(true);
     auto tok = gentest::ctx::current();
@@ -285,15 +287,15 @@ Use named parameter axes to generate a Cartesian product of value sets:
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 
-[[using gentest: test("params/pairs")]]
-[[using gentest: parameters(a, 1, 2)]]
-[[using gentest: parameters(b, 10, 20)]]
+[[gentest::test("params/pairs")]]
+[[gentest::parameters(a, 1, 2)]]
+[[gentest::parameters(b, 10, 20)]]
 void pairs(int a, int b) {
     gentest::expect((a == 1 || a == 2) && (b == 10 || b == 20), "values from axes");
 }
 
 // “Row” style instead of a Cartesian product:
-[[using gentest: test("params/rows"), parameters_pack((a, b), (1, 10), (2, 20))]]
+[[gentest::test("params/rows"), parameters_pack((a, b), (1, 10), (2, 20))]]
 void rows(int a, int b) {
     gentest::expect((a == 1 && b == 10) || (a == 2 && b == 20), "row values");
 }
@@ -311,7 +313,7 @@ Generate statically-typed matrices for function templates:
 #include "gentest/runner.h"
 
 template <typename T, int N>
-[[using gentest: test("templates/matrix"), template(T, int, long), template(N, 1, 2)]]
+[[gentest::test("templates/matrix"), template(T, int, long), template(N, 1, 2)]]
 void matrix() {
     gentest::expect(true, "instantiated");
 }
@@ -321,6 +323,7 @@ void matrix() {
 
 Fixture arguments are inferred from the free-function signature. If a fixture implements
 `gentest::FixtureSetup`/`gentest::FixtureTearDown`, hooks run automatically.
+Prefer free-function tests/benches/jitters; member tests are legacy.
 
 Supported fixture argument forms:
 - `T&`
@@ -339,15 +342,42 @@ deallocation.
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
-struct Counter : gentest::FixtureSetup {
-    int x = 0;
-    void setUp() override { x = 1; }
+namespace fx::shared {
+
+struct [[gentest::fixture(suite)]] SuiteCounter : gentest::FixtureSetup {
+    inline static int set_up_calls = 0;
+    int               touches      = 0;
+    void setUp() override { ++set_up_calls; }
 };
 
-[[using gentest: test("fx/counter")]]
-void counter(Counter& c) {
-    EXPECT_EQ(c.x, 1);
+struct [[gentest::fixture(global)]] GlobalCounter : gentest::FixtureSetup {
+    inline static int set_up_calls = 0;
+    int               touches      = 0;
+    void setUp() override { ++set_up_calls; }
+};
+
+inline SuiteCounter*  first_suite_instance  = nullptr;
+inline GlobalCounter* first_global_instance = nullptr;
+
+[[gentest::test("fx/shared/first")]]
+void first(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
+    first_suite_instance  = &suite_fx;
+    first_global_instance = &global_fx;
+    ++suite_fx.touches;
+    ++global_fx.touches;
 }
+
+[[gentest::test("fx/shared/second")]]
+void second(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
+    EXPECT_EQ(&suite_fx, first_suite_instance, "suite fixture instance is reused");
+    EXPECT_EQ(&global_fx, first_global_instance, "global fixture instance is reused");
+    EXPECT_EQ(suite_fx.touches, 1);
+    EXPECT_EQ(global_fx.touches, 1);
+    EXPECT_EQ(SuiteCounter::set_up_calls, 1);
+    EXPECT_EQ(GlobalCounter::set_up_calls, 1);
+}
+
+} // namespace fx::shared
 ```
 
 See [docs/fixtures_allocation.md](docs/fixtures_allocation.md) for the full allocation and ownership model.
@@ -365,13 +395,13 @@ Virtual interface example:
 #include "gentest/mock.h"
 using namespace gentest::asserts;
 
-int read_now(Clock& c) { return c.now(); }
+int read_now(const Clock* c) { return c->now(); }
 
-[[using gentest: test("mock/clock")]]
+[[gentest::test("mock/clock")]]
 void mock_clock() {
     gentest::mock<Clock> clock;
     EXPECT_CALL(clock, now).times(1).returns(123);
-    EXPECT_EQ(read_now(clock), 123);
+    EXPECT_EQ(read_now(&clock), 123);
 }
 ```
 
@@ -401,15 +431,15 @@ Test file (`cases.cpp`):
 using namespace gentest::asserts;
 
 template <class SinkLike>
-void emit(SinkLike& s) {
-    s.write(7);
+void emit(SinkLike* s) {
+    s->write(7);
 }
 
-[[using gentest: test("mock/nonvirtual")]]
+[[gentest::test("mock/nonvirtual")]]
 void mock_nonvirtual() {
     gentest::mock<Sink> sink;
     EXPECT_CALL(sink, write).times(1).with(7);
-    emit(sink);
+    emit(&sink);
 }
 ```
 
@@ -422,6 +452,8 @@ using namespace gentest::match;
 
 gentest::mock<Sink> sink;
 EXPECT_CALL(sink, write).times(2).where(InRange(10, 20));
+Sink* sink_ptr = &sink;
+sink_ptr->write(12);
 ```
 
 Static member functions can be mocked too. Example type:
@@ -449,14 +481,14 @@ Define microbenchmarks and jitter benchmarks (for timing variance):
 #include <cmath>
 #include <string>
 
-[[using gentest: bench("bench/concat")]]
+[[gentest::bench("bench/concat")]]
 void bench_concat() {
     std::string s = "hello";
     s += " world";
     gentest::doNotOptimizeAway(s);
 }
 
-[[using gentest: jitter("bench/sin")]]
+[[gentest::jitter("bench/sin")]]
 void jitter_sin() {
     volatile double x = 1.2345;
     gentest::doNotOptimizeAway(std::sin(x));

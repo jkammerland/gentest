@@ -24,6 +24,59 @@ std::string_view trim_view(std::string_view text) {
     return text;
 }
 
+bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std::string_view &namespace_name, std::string_view &args_text) {
+    std::string_view view = trim_view(attribute_text);
+    if (!view.starts_with("[[") || !view.ends_with("]]")) {
+        return false;
+    }
+    view.remove_prefix(2);
+    view.remove_suffix(2);
+    view = trim_view(view);
+
+    if (view.starts_with("using")) {
+        view.remove_prefix(5);
+        view = trim_view(view);
+
+        std::size_t ns_len = 0;
+        while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
+            ++ns_len;
+        }
+        if (ns_len == 0) {
+            return false;
+        }
+
+        namespace_name = view.substr(0, ns_len);
+        view.remove_prefix(ns_len);
+        view = trim_view(view);
+        if (view.empty() || view.front() != ':') {
+            return false;
+        }
+
+        view.remove_prefix(1);
+        args_text = trim_view(view);
+        return true;
+    }
+
+    std::size_t ns_len = 0;
+    while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
+        ++ns_len;
+    }
+    if (ns_len == 0) {
+        return false;
+    }
+
+    namespace_name = view.substr(0, ns_len);
+    view.remove_prefix(ns_len);
+    view = trim_view(view);
+    if (view.size() < 2 || view.substr(0, 2) != "::") {
+        return false;
+    }
+
+    view.remove_prefix(2);
+    args_text = trim_view(view);
+    return true;
+}
+
 bool is_raw_string_delimiter_char(char ch) {
     if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
         return false;
@@ -59,12 +112,12 @@ std::size_t find_attribute_open_for_close(llvm::StringRef buffer, std::size_t cl
 
     const std::string_view text(buffer.data(), buffer.size());
 
-    bool in_string        = false;
-    bool in_char          = false;
-    bool in_line_comment  = false;
-    bool in_block_comment = false;
-    bool in_raw_string    = false;
-    bool escape           = false;
+    bool        in_string        = false;
+    bool        in_char          = false;
+    bool        in_line_comment  = false;
+    bool        in_block_comment = false;
+    bool        in_raw_string    = false;
+    bool        escape           = false;
     std::string raw_delimiter;
 
     std::size_t open_marker = llvm::StringRef::npos;
@@ -294,44 +347,13 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
         }
 
         const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
-        std::string_view      view(attribute_text.data(), attribute_text.size());
-        if (!view.starts_with("[[")) {
+        std::string_view      namespace_name;
+        std::string_view      args_text;
+        if (!parse_attribute_namespace_and_payload(std::string_view(attribute_text.data(), attribute_text.size()), namespace_name,
+                                                   args_text)) {
             cursor = open;
             continue;
         }
-        view.remove_prefix(2);
-        while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-            view.remove_prefix(1);
-        }
-        if (!view.starts_with("using")) {
-            cursor = open;
-            continue;
-        }
-        view.remove_prefix(5);
-        while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-            view.remove_prefix(1);
-        }
-        std::size_t ns_len = 0;
-        while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
-            ++ns_len;
-        }
-        std::string_view namespace_name(view.substr(0, ns_len));
-        view.remove_prefix(ns_len);
-        while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-            view.remove_prefix(1);
-        }
-        if (view.empty() || view.front() != ':') {
-            cursor = open;
-            continue;
-        }
-        view.remove_prefix(1);
-
-        if (view.size() < 2 || !view.ends_with("]]")) {
-            cursor = open;
-            continue;
-        }
-        view.remove_suffix(2);
-        std::string_view args_text = trim_view(view);
 
         if (namespace_name != "gentest") {
             collected.other_namespaces.push_back(attribute_text.str());
@@ -476,44 +498,13 @@ auto collect_gentest_attributes_for(const NamespaceDecl &ns, const SourceManager
                 break;
             }
             const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
-            std::string_view      view(attribute_text.data(), attribute_text.size());
-            if (!view.starts_with("[[")) {
+            std::string_view      namespace_name;
+            std::string_view      args_text;
+            if (!parse_attribute_namespace_and_payload(std::string_view(attribute_text.data(), attribute_text.size()), namespace_name,
+                                                       args_text)) {
                 cursor = static_cast<unsigned>(open);
                 continue;
             }
-            view.remove_prefix(2);
-            while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-                view.remove_prefix(1);
-            }
-            if (!view.starts_with("using")) {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            view.remove_prefix(5);
-            while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-                view.remove_prefix(1);
-            }
-            std::size_t ns_len = 0;
-            while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
-                ++ns_len;
-            }
-            std::string_view namespace_name(view.substr(0, ns_len));
-            view.remove_prefix(ns_len);
-            while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-                view.remove_prefix(1);
-            }
-            if (view.empty() || view.front() != ':') {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            view.remove_prefix(1);
-
-            std::size_t args_end = view.rfind("]]");
-            if (args_end == std::string_view::npos) {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            std::string_view args_text = trim_view(view.substr(0, args_end));
 
             if (namespace_name != "gentest") {
                 collected.other_namespaces.push_back(attribute_text.str());
