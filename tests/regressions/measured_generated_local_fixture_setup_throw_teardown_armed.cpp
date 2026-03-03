@@ -3,7 +3,6 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
-#include <stdexcept>
 
 namespace regressions::measured_generated_local_fixture_setup_throw_teardown_armed {
 
@@ -15,7 +14,7 @@ std::atomic<int>  g_jitter_teardown_count{0};
 struct BenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() override {
         g_bench_setup_entered.store(true, std::memory_order_relaxed);
-        throw std::runtime_error("generated-bench-setup-throws");
+        gentest::asserts::EXPECT_TRUE(false, "generated-bench-setup-throws");
     }
     void tearDown() override { g_bench_teardown_count.fetch_add(1, std::memory_order_relaxed); }
 };
@@ -23,7 +22,7 @@ struct BenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
 struct JitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() override {
         g_jitter_setup_entered.store(true, std::memory_order_relaxed);
-        throw std::runtime_error("generated-jitter-setup-throws");
+        gentest::asserts::EXPECT_TRUE(false, "generated-jitter-setup-throws");
     }
     void tearDown() override { g_jitter_teardown_count.fetch_add(1, std::memory_order_relaxed); }
 };
