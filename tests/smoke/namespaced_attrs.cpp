@@ -36,4 +36,10 @@ void namespaced_mixed_standard_first() {}
 [[clang::annotate("smoke-mixed-scoped"), gentest::test("smoke/namespaced/mixed/scoped_first"), gentest::slow]]
 void namespaced_mixed_scoped_first() {}
 
+[[gentest::test("smoke/namespaced/mixed/gentest_first_foreign_after"), clang::annotate("smoke-mixed-after"), gentest::fast]]
+void namespaced_mixed_gentest_first_foreign_after() {}
+
+[[gentest::test("smoke/namespaced/mixed/gentest_first_unscoped_foreign"), maybe_unused, gentest::slow]]
+void namespaced_mixed_gentest_first_unscoped_foreign() {}
+
 } // namespace smoke::namespaced

@@ -26,6 +26,24 @@ std::string_view trim_view(std::string_view text) {
 
 bool try_start_raw_string(std::string_view text, std::size_t index, std::string &delimiter, std::size_t &open_paren);
 
+std::string to_lower_copy(std::string_view text) {
+    std::string lowered(text);
+    for (char &ch : lowered) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return lowered;
+}
+
+bool is_known_gentest_attribute_name(std::string_view name) {
+    const std::string lowered = to_lower_copy(name);
+    return lowered == "test" || lowered == "bench" || lowered == "benchmark" || lowered == "baseline" || lowered == "jitter" ||
+           lowered == "req" || lowered == "requires" || lowered == "skip" || lowered == "template" || lowered == "parameters" ||
+           lowered == "range" || lowered == "linspace" || lowered == "geom" || lowered == "geomspace" || lowered == "geospace" ||
+           lowered == "logspace" || lowered == "parameters_pack" || lowered == "fixtures" || lowered == "fast" || lowered == "slow" ||
+           lowered == "linux" || lowered == "windows" || lowered == "death" || lowered == "owner" || lowered == "fixture" ||
+           lowered == "suite";
+}
+
 bool is_gentest_scoped_attribute_token(std::string_view token) {
     token = trim_view(token);
     if (token.empty()) {
@@ -48,17 +66,60 @@ bool is_gentest_scoped_attribute_token(std::string_view token) {
     return namespace_name == "gentest" && cursor + 1 < token.size() && token[cursor] == ':' && token[cursor + 1] == ':';
 }
 
+bool is_known_gentest_unscoped_token(std::string_view token) {
+    token = trim_view(token);
+    if (token.empty()) {
+        return false;
+    }
+
+    std::size_t cursor = 0;
+    if (!std::isalpha(static_cast<unsigned char>(token[cursor])) && token[cursor] != '_') {
+        return false;
+    }
+    ++cursor;
+    while (cursor < token.size() && is_identifier_char(token[cursor])) {
+        ++cursor;
+    }
+    const std::string_view name = token.substr(0, cursor);
+    while (cursor < token.size() && std::isspace(static_cast<unsigned char>(token[cursor])) != 0) {
+        ++cursor;
+    }
+    if (cursor + 1 < token.size() && token[cursor] == ':' && token[cursor + 1] == ':') {
+        return false;
+    }
+
+    return is_known_gentest_attribute_name(name);
+}
+
 bool extract_gentest_scoped_payload(std::string_view list, std::string &payload) {
     payload.clear();
 
-    auto append_if_gentest = [&](std::size_t start, std::size_t end) {
+    struct CandidateToken {
+        std::string_view token;
+    };
+
+    std::vector<CandidateToken> candidates;
+    bool                        saw_gentest_scoped = false;
+
+    auto collect_if_gentest_related = [&](std::size_t start, std::size_t end) {
         if (end < start) {
             return;
         }
         const std::string_view token = trim_view(list.substr(start, end - start));
-        if (token.empty() || !is_gentest_scoped_attribute_token(token)) {
+        if (token.empty()) {
             return;
         }
+        if (is_gentest_scoped_attribute_token(token)) {
+            candidates.push_back(CandidateToken{.token = token});
+            saw_gentest_scoped = true;
+            return;
+        }
+        if (is_known_gentest_unscoped_token(token)) {
+            candidates.push_back(CandidateToken{.token = token});
+        }
+    };
+
+    auto append_candidate = [&](std::string_view token) {
         if (!payload.empty()) {
             payload += ", ";
         }
@@ -168,12 +229,19 @@ bool extract_gentest_scoped_payload(std::string_view list, std::string &payload)
             continue;
         }
         if (ch == ',' && nesting_depth == 0) {
-            append_if_gentest(token_start, i);
+            collect_if_gentest_related(token_start, i);
             token_start = i + 1;
         }
     }
 
-    append_if_gentest(token_start, list.size());
+    collect_if_gentest_related(token_start, list.size());
+    if (!saw_gentest_scoped) {
+        return false;
+    }
+
+    for (const auto &candidate : candidates) {
+        append_candidate(candidate.token);
+    }
     return !payload.empty();
 }
 
@@ -243,6 +311,15 @@ bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std:
             args_text      = owned_args_text;
             return true;
         }
+        return false;
+    }
+
+    // For gentest:: lists, normalize mixed tokens so foreign namespaces (or
+    // unrelated standard attributes) are ignored regardless of token order.
+    if (extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+        namespace_name = "gentest";
+        args_text      = owned_args_text;
+        return true;
     }
 
     view.remove_prefix(2);

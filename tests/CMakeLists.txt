@@ -226,6 +226,46 @@ gentest_add_cmake_script_test(
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_scoped_first.gentest.cpp"
         "EXPECT_SUBSTRING=smoke/namespaced/mixed/scoped_first")
 
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_emit_namespaced_attrs_gentest_first_foreign_after
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake"
+    ARGS
+        --output
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_foreign_after.gentest.cpp
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+    DEFINES
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_foreign_after.gentest.cpp"
+        "EXPECT_SUBSTRING=smoke/namespaced/mixed/gentest_first_foreign_after")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_emit_namespaced_attrs_gentest_first_unscoped_foreign
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake"
+    ARGS
+        --output
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign.gentest.cpp
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+    DEFINES
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign.gentest.cpp"
+        "EXPECT_SUBSTRING=smoke/namespaced/mixed/gentest_first_unscoped_foreign")
+
 add_test(NAME gentest_codegen_check_invalid
     COMMAND ${_gentest_codegen_prog}
         --check
