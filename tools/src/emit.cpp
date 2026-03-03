@@ -9,6 +9,7 @@
 #include "templates.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -17,7 +18,6 @@
 #include <fstream>
 #include <iterator>
 #include <map>
-#include <random>
 #include <set>
 #include <string>
 #include <string_view>
@@ -156,14 +156,11 @@ std::optional<std::uint32_t> parse_tu_index(std::string_view filename) {
 }
 
 auto make_unique_tmp_path(const fs::path &path) -> fs::path {
-    const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-    const auto rand_hi = static_cast<std::uint64_t>(std::random_device{}());
-    const auto rand_lo = static_cast<std::uint64_t>(std::random_device{}());
-    const auto nonce   = (rand_hi << 32) ^ rand_lo;
-
+    static std::atomic<std::uint32_t> seq{0};
+    const auto                        nonce = seq.fetch_add(1u, std::memory_order_relaxed);
     fs::path tmp_path = path;
-    tmp_path += fmt::format(".tmp.{}.{}", now_ns, nonce);
+    // Keep temp suffix short to avoid MAX_PATH failures on Windows for long output paths.
+    tmp_path += fmt::format(".tmp.{:08x}", nonce);
     return tmp_path;
 }
 
@@ -182,12 +179,27 @@ bool write_file_atomic_if_changed(const fs::path &path, std::string_view content
         return true;
     }
 
+    auto write_file_direct = [&](const fs::path &target_path) -> bool {
+        std::ofstream out(target_path, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            log_err("gentest_codegen: failed to open output file '{}'\n", target_path.string());
+            return false;
+        }
+        out.write(content.data(), static_cast<std::streamsize>(content.size()));
+        out.close();
+        if (!out) {
+            log_err("gentest_codegen: failed to write output file '{}'\n", target_path.string());
+            return false;
+        }
+        return true;
+    };
+
     const fs::path tmp_path = make_unique_tmp_path(path);
     {
         std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
         if (!out) {
-            log_err("gentest_codegen: failed to open output file '{}'\n", tmp_path.string());
-            return false;
+            // Some Windows paths can open the final file but fail once temp suffix is appended.
+            return write_file_direct(path);
         }
         out.write(content.data(), static_cast<std::streamsize>(content.size()));
         out.close();
