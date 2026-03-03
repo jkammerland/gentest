@@ -692,8 +692,18 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
     bool        runtime_skipped    = false;
     std::string skip_reason;
     auto        runtime_skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
+    auto        unwind_setup_failure = [&]() {
+        bool        teardown_allocation_failure = false;
+        bool        teardown_runtime_skipped    = false;
+        std::string teardown_reason;
+        std::string teardown_skip_reason;
+        auto        teardown_skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
+        (void)run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Teardown, teardown_reason, teardown_allocation_failure,
+                                    teardown_runtime_skipped, teardown_skip_reason, teardown_skip_kind);
+    };
     if (!run_measurement_phase(c, ctx, gentest::detail::BenchPhase::Setup, reason, allocation_failure, runtime_skipped, skip_reason,
                                runtime_skip_kind)) {
+        unwind_setup_failure();
         if (runtime_skipped) {
             out_failure.reason        = std::move(skip_reason);
             out_failure.skipped       = true;

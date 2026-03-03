@@ -6,17 +6,20 @@ construction. This is useful for fixtures that require virtual inheritance,
 custom allocation, or shared ownership across tests.
 
 This document describes the allocation hook, supported return types, and how
-fixture arguments are wired for free-function fixtures and member fixtures.
+fixture arguments are wired for free-function fixtures (recommended) and legacy
+member fixtures.
 
 ## Parameter-based fixture inference
 
+- Prefer free-function tests/benches/jitters in new code. Member tests are a
+  legacy path and should be avoided.
 - Fixture arguments are inferred from test/bench/jitter function signatures.
 - Any parameter not listed by `parameters(...)`, `parameters_pack(...)`,
   `range(...)`, `linspace(...)`, `geom(...)`, or `logspace(...)` is treated as
   a fixture argument.
 - Trailing C++ default-argument parameters are treated as normal defaulted
   values (not fixture-inferred).
-- This rule applies to both free-function cases and member test methods.
+- This rule applies to free-function cases and legacy member test methods.
 - Legacy `[[using gentest: fixtures(...)]]` is removed and rejected by
   `gentest_codegen`.
 
@@ -64,9 +67,9 @@ When the test wrapper is invoked:
 
 This behavior is uniform across:
 - free-function fixture arguments
-- member test method fixture arguments
-- suite fixtures (`[[using gentest: fixture(suite)]]`)
-- global fixtures (`[[using gentest: fixture(global)]]`)
+- legacy member test method fixture arguments
+- suite fixtures (`[[gentest::fixture(suite)]]`)
+- global fixtures (`[[gentest::fixture(global)]]`)
 
 ## Examples
 
@@ -79,7 +82,7 @@ struct MyFx {
     }
 };
 
-[[using gentest: test("free/unique")]]
+[[gentest::test("free/unique")]]
 void free_unique(MyFx& fx) {
     // uses the unique instance
 }
@@ -94,7 +97,7 @@ struct SharedFx {
     }
 };
 
-[[using gentest: test("free/shared")]]
+[[gentest::test("free/shared")]]
 void free_shared(std::shared_ptr<SharedFx> fx) {
     // shared ownership of the fixture instance
 }
@@ -117,7 +120,7 @@ struct CustomFx {
 ### Suite-aware allocation
 
 ```cpp
-struct [[using gentest: fixture(suite)]] SuiteFx {
+struct [[gentest::fixture(suite)]] SuiteFx {
     static std::unique_ptr<SuiteFx> gentest_allocate(std::string_view suite) {
         // suite is the prefix in test names (e.g. "suite_fx")
         return std::make_unique<SuiteFx>();
@@ -134,7 +137,7 @@ struct RawFx {
     }
 };
 
-[[using gentest: test("free/pointer")]]
+[[gentest::test("free/pointer")]]
 void free_pointer(RawFx* fx) {
     // gentest adopts and owns the pointer
 }

@@ -9,7 +9,7 @@
   - Manifest mode (`gentest_attach_codegen(... OUTPUT ...)`): emits a single generated TU (legacy).
   - Per-TU registration mode (default): emits per-TU registration headers (`tu_*.gentest.h`), and CMake generates shim TUs (`tu_*.gentest.cpp`) that include the original source and the generated header.
 - In per-TU registration mode, `gentest_attach_codegen()` replaces the original test TUs in the target with the generated shim TUs to avoid ODR issues.
-- Each suite under `tests/<suite>/` provides handwritten `cases.cpp` + `support/test_entry.cpp`; generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).
+- Each suite under `tests/<suite>/` provides handwritten `cases.cpp`; shared test entry lives in `tests/support/test_entry.cpp`. Generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).
 
 ## Architecture & Execution Model
 - Source annotations (`[[using gentest: ...]]`) are discovered by `gentest_codegen`; it emits wrappers and a `gentest::Case` table per target.
@@ -71,7 +71,7 @@
 
 ## Testing Guidelines
 - Author cases in `tests/<suite>/cases.cpp` and annotate with `[[using gentest : test("suite/name"), ...]]` so the generator discovers them.
-- Attach codegen in `tests/CMakeLists.txt` with `gentest_attach_codegen(TARGET <target>)`.
+- Attach codegen in `tests/CMakeLists.txt` with `gentest_attach_codegen(<target>)`.
 - Executables return non‑zero on any `gentest::failure`; always run `ctest` before pushing.
 - Prefer free-function tests/benches/jitters with fixture parameters inferred from function signatures. The legacy `fixtures(...)` attribute is removed. Member tests are deprecated; they are treated as suite-level fixtures (shared instance across methods) and should be avoided in new code.
 - Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace that owns the tests.

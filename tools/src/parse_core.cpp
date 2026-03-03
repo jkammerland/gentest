@@ -148,6 +148,47 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
         }
         std::string name = std::string(list.substr(name_start, index - name_start));
 
+        // Support scoped attribute tokens inside a list, e.g.
+        // [[gentest::test("x"), gentest::fast]].
+        // For gentest-qualified tokens we keep only the attribute name ("test",
+        // "fast"), while other namespaces are preserved as "ns::attr" so
+        // validation can reject them explicitly.
+        while (true) {
+            std::size_t scope_cursor = index;
+            while (scope_cursor < list.size() && std::isspace(static_cast<unsigned char>(list[scope_cursor])) != 0) {
+                ++scope_cursor;
+            }
+            if (scope_cursor + 1 >= list.size() || list[scope_cursor] != ':' || list[scope_cursor + 1] != ':') {
+                break;
+            }
+
+            scope_cursor += 2;
+            while (scope_cursor < list.size() && std::isspace(static_cast<unsigned char>(list[scope_cursor])) != 0) {
+                ++scope_cursor;
+            }
+            if (scope_cursor >= list.size()) {
+                break;
+            }
+            if (!std::isalpha(static_cast<unsigned char>(list[scope_cursor])) && list[scope_cursor] != '_') {
+                break;
+            }
+
+            const std::size_t scoped_name_start = scope_cursor;
+            ++scope_cursor;
+            while (scope_cursor < list.size() && is_identifier_char(list[scope_cursor])) {
+                ++scope_cursor;
+            }
+
+            const std::string scoped_name = std::string(list.substr(scoped_name_start, scope_cursor - scoped_name_start));
+            if (name == "gentest") {
+                name = scoped_name;
+            } else {
+                name += "::";
+                name += scoped_name;
+            }
+            index = scope_cursor;
+        }
+
         skip_whitespace(index);
 
         std::vector<std::string> args;

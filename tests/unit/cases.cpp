@@ -15,7 +15,7 @@ namespace unit {
 inline void throw_runtime_error() { throw std::runtime_error("boom"); }
 inline void no_throw() {}
 
-[[using gentest: test("arithmetic/sum"), fast]]
+[[gentest::test("arithmetic/sum"), fast]]
 void sum_is_computed() {
     std::array values{1, 2, 3, 4};
     const auto result = std::accumulate(values.begin(), values.end(), 0);
@@ -48,7 +48,7 @@ void approx_relative_negative() {
     EXPECT_EQ(Approx(-200.0).rel(1.0), -198.5); // 0.75% diff within 1%
 }
 
-[[using gentest: test("strings/concatenate"), req("#42"), slow]]
+[[gentest::test("strings/concatenate"), req("#42"), slow]]
 void concatenate_strings() {
     std::string greeting = "hello";
     EXPECT_EQ(greeting.size(), std::size_t{5}, "initial size");
@@ -59,7 +59,7 @@ void concatenate_strings() {
     EXPECT_TRUE(greeting == "hello world");
 }
 
-[[using gentest: test("conditions/negate"), linux]]
+[[gentest::test("conditions/negate"), linux]]
 void negate_condition() {
     bool flag = false;
     ASSERT_EQ(flag, false, "starts false");
@@ -91,7 +91,7 @@ void false_and_relations() {
     ASSERT_GE(2, 2);
 }
 
-[[using gentest: fast]]
+[[gentest::fast]]
 void default_name_free() {
     EXPECT_TRUE(true);
 }
@@ -116,7 +116,7 @@ void attribute_name_with_close_marker_after_block_comment() {
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("exceptions/expect_throw")]]
+[[gentest::test("exceptions/expect_throw")]]
 void expect_throw_simple() {
     EXPECT_THROW(throw_runtime_error(), std::runtime_error);
     EXPECT_THROW(throw 123, int);
@@ -140,7 +140,7 @@ void assert_no_throw_simple() {
 }
 
 struct DefaultNameFixture {
-    [[using gentest: fast]]
+    [[gentest::fast]]
     void default_name_member() {
         EXPECT_TRUE(true);
     }

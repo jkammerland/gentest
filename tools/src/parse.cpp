@@ -24,6 +24,309 @@ std::string_view trim_view(std::string_view text) {
     return text;
 }
 
+bool try_start_raw_string(std::string_view text, std::size_t index, std::string &delimiter, std::size_t &open_paren);
+
+std::string to_lower_copy(std::string_view text) {
+    std::string lowered(text);
+    for (char &ch : lowered) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return lowered;
+}
+
+bool is_known_gentest_attribute_name(std::string_view name) {
+    const std::string lowered = to_lower_copy(name);
+    return lowered == "test" || lowered == "bench" || lowered == "benchmark" || lowered == "baseline" || lowered == "jitter" ||
+           lowered == "req" || lowered == "requires" || lowered == "skip" || lowered == "template" || lowered == "parameters" ||
+           lowered == "range" || lowered == "linspace" || lowered == "geom" || lowered == "geomspace" || lowered == "geospace" ||
+           lowered == "logspace" || lowered == "parameters_pack" || lowered == "fixtures" || lowered == "fast" || lowered == "slow" ||
+           lowered == "linux" || lowered == "windows" || lowered == "death" || lowered == "owner" || lowered == "fixture" ||
+           lowered == "suite";
+}
+
+bool is_gentest_scoped_attribute_token(std::string_view token) {
+    token = trim_view(token);
+    if (token.empty()) {
+        return false;
+    }
+
+    std::size_t cursor = 0;
+    if (!std::isalpha(static_cast<unsigned char>(token[cursor])) && token[cursor] != '_') {
+        return false;
+    }
+    ++cursor;
+    while (cursor < token.size() && is_identifier_char(token[cursor])) {
+        ++cursor;
+    }
+    const std::string_view namespace_name = token.substr(0, cursor);
+    while (cursor < token.size() && std::isspace(static_cast<unsigned char>(token[cursor])) != 0) {
+        ++cursor;
+    }
+
+    return namespace_name == "gentest" && cursor + 1 < token.size() && token[cursor] == ':' && token[cursor + 1] == ':';
+}
+
+bool is_known_gentest_unscoped_token(std::string_view token) {
+    token = trim_view(token);
+    if (token.empty()) {
+        return false;
+    }
+
+    std::size_t cursor = 0;
+    if (!std::isalpha(static_cast<unsigned char>(token[cursor])) && token[cursor] != '_') {
+        return false;
+    }
+    ++cursor;
+    while (cursor < token.size() && is_identifier_char(token[cursor])) {
+        ++cursor;
+    }
+    const std::string_view name = token.substr(0, cursor);
+    while (cursor < token.size() && std::isspace(static_cast<unsigned char>(token[cursor])) != 0) {
+        ++cursor;
+    }
+    if (cursor + 1 < token.size() && token[cursor] == ':' && token[cursor + 1] == ':') {
+        return false;
+    }
+
+    return is_known_gentest_attribute_name(name);
+}
+
+bool extract_gentest_scoped_payload(std::string_view list, std::string &payload) {
+    payload.clear();
+
+    struct CandidateToken {
+        std::string_view token;
+    };
+
+    std::vector<CandidateToken> candidates;
+    bool                        saw_gentest_scoped = false;
+
+    auto collect_if_gentest_related = [&](std::size_t start, std::size_t end) {
+        if (end < start) {
+            return;
+        }
+        const std::string_view token = trim_view(list.substr(start, end - start));
+        if (token.empty()) {
+            return;
+        }
+        if (is_gentest_scoped_attribute_token(token)) {
+            candidates.push_back(CandidateToken{.token = token});
+            saw_gentest_scoped = true;
+            return;
+        }
+        if (is_known_gentest_unscoped_token(token)) {
+            candidates.push_back(CandidateToken{.token = token});
+        }
+    };
+
+    auto append_candidate = [&](std::string_view token) {
+        if (!payload.empty()) {
+            payload += ", ";
+        }
+        payload.append(token.data(), token.size());
+    };
+
+    bool        in_string        = false;
+    bool        in_char          = false;
+    bool        in_line_comment  = false;
+    bool        in_block_comment = false;
+    bool        in_raw_string    = false;
+    bool        escape           = false;
+    int         nesting_depth    = 0;
+    std::string raw_delimiter;
+
+    std::size_t token_start = 0;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const char ch   = list[i];
+        const char next = (i + 1 < list.size()) ? list[i + 1] : '\0';
+
+        if (in_line_comment) {
+            if (ch == '\n' || ch == '\r') {
+                in_line_comment = false;
+            }
+            continue;
+        }
+        if (in_block_comment) {
+            if (ch == '*' && next == '/') {
+                in_block_comment = false;
+                ++i;
+            }
+            continue;
+        }
+        if (in_raw_string) {
+            if (ch == ')') {
+                const std::size_t quote_index = i + raw_delimiter.size() + 1;
+                if (quote_index < list.size()) {
+                    bool delimiter_matches = true;
+                    for (std::size_t j = 0; j < raw_delimiter.size(); ++j) {
+                        if (list[i + 1 + j] != raw_delimiter[j]) {
+                            delimiter_matches = false;
+                            break;
+                        }
+                    }
+                    if (delimiter_matches && list[quote_index] == '"') {
+                        in_raw_string = false;
+                        i             = quote_index;
+                    }
+                }
+            }
+            continue;
+        }
+        if (in_string) {
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        if (in_char) {
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '\'') {
+                in_char = false;
+            }
+            continue;
+        }
+
+        if (ch == '/' && next == '/') {
+            in_line_comment = true;
+            ++i;
+            continue;
+        }
+        if (ch == '/' && next == '*') {
+            in_block_comment = true;
+            ++i;
+            continue;
+        }
+        std::size_t raw_open_paren = 0;
+        if (try_start_raw_string(list, i, raw_delimiter, raw_open_paren)) {
+            in_raw_string = true;
+            i             = raw_open_paren;
+            continue;
+        }
+        if (ch == '"') {
+            in_string = true;
+            continue;
+        }
+        if (ch == '\'') {
+            in_char = true;
+            continue;
+        }
+
+        if (ch == '(' || ch == '[' || ch == '{') {
+            ++nesting_depth;
+            continue;
+        }
+        if (ch == ')' || ch == ']' || ch == '}') {
+            if (nesting_depth > 0) {
+                --nesting_depth;
+            }
+            continue;
+        }
+        if (ch == ',' && nesting_depth == 0) {
+            collect_if_gentest_related(token_start, i);
+            token_start = i + 1;
+        }
+    }
+
+    collect_if_gentest_related(token_start, list.size());
+    if (!saw_gentest_scoped) {
+        return false;
+    }
+
+    for (const auto &candidate : candidates) {
+        append_candidate(candidate.token);
+    }
+    return !payload.empty();
+}
+
+bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std::string_view &namespace_name, std::string_view &args_text,
+                                           std::string &owned_args_text) {
+    std::string_view view = trim_view(attribute_text);
+    if (!view.starts_with("[[") || !view.ends_with("]]")) {
+        return false;
+    }
+    view.remove_prefix(2);
+    view.remove_suffix(2);
+    view                                  = trim_view(view);
+    const std::string_view attribute_list = view;
+
+    if (view.starts_with("using")) {
+        view.remove_prefix(5);
+        view = trim_view(view);
+
+        std::size_t ns_len = 0;
+        while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
+            ++ns_len;
+        }
+        if (ns_len == 0) {
+            return false;
+        }
+
+        namespace_name = view.substr(0, ns_len);
+        view.remove_prefix(ns_len);
+        view = trim_view(view);
+        if (view.empty() || view.front() != ':') {
+            return false;
+        }
+
+        view.remove_prefix(1);
+        args_text = trim_view(view);
+        return true;
+    }
+
+    std::size_t ns_len = 0;
+    while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
+        ++ns_len;
+    }
+    if (ns_len == 0) {
+        if (!extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+            return false;
+        }
+        namespace_name = "gentest";
+        args_text      = owned_args_text;
+        return true;
+    }
+
+    namespace_name = view.substr(0, ns_len);
+    view.remove_prefix(ns_len);
+    view = trim_view(view);
+    if (view.size() < 2 || view.substr(0, 2) != "::") {
+        if (!extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+            return false;
+        }
+        namespace_name = "gentest";
+        args_text      = owned_args_text;
+        return true;
+    }
+
+    if (namespace_name != "gentest") {
+        if (extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+            namespace_name = "gentest";
+            args_text      = owned_args_text;
+            return true;
+        }
+        return false;
+    }
+
+    // For gentest:: lists, normalize mixed tokens so foreign namespaces (or
+    // unrelated standard attributes) are ignored regardless of token order.
+    if (extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+        namespace_name = "gentest";
+        args_text      = owned_args_text;
+        return true;
+    }
+
+    view.remove_prefix(2);
+    args_text = trim_view(view);
+    return true;
+}
+
 bool is_raw_string_delimiter_char(char ch) {
     if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
         return false;
@@ -59,12 +362,12 @@ std::size_t find_attribute_open_for_close(llvm::StringRef buffer, std::size_t cl
 
     const std::string_view text(buffer.data(), buffer.size());
 
-    bool in_string        = false;
-    bool in_char          = false;
-    bool in_line_comment  = false;
-    bool in_block_comment = false;
-    bool in_raw_string    = false;
-    bool escape           = false;
+    bool        in_string        = false;
+    bool        in_char          = false;
+    bool        in_line_comment  = false;
+    bool        in_block_comment = false;
+    bool        in_raw_string    = false;
+    bool        escape           = false;
     std::string raw_delimiter;
 
     std::size_t open_marker = llvm::StringRef::npos;
@@ -294,44 +597,14 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
         }
 
         const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
-        std::string_view      view(attribute_text.data(), attribute_text.size());
-        if (!view.starts_with("[[")) {
+        std::string_view      namespace_name;
+        std::string_view      args_text;
+        std::string           owned_args_text;
+        if (!parse_attribute_namespace_and_payload(std::string_view(attribute_text.data(), attribute_text.size()), namespace_name,
+                                                   args_text, owned_args_text)) {
             cursor = open;
             continue;
         }
-        view.remove_prefix(2);
-        while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-            view.remove_prefix(1);
-        }
-        if (!view.starts_with("using")) {
-            cursor = open;
-            continue;
-        }
-        view.remove_prefix(5);
-        while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-            view.remove_prefix(1);
-        }
-        std::size_t ns_len = 0;
-        while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
-            ++ns_len;
-        }
-        std::string_view namespace_name(view.substr(0, ns_len));
-        view.remove_prefix(ns_len);
-        while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-            view.remove_prefix(1);
-        }
-        if (view.empty() || view.front() != ':') {
-            cursor = open;
-            continue;
-        }
-        view.remove_prefix(1);
-
-        if (view.size() < 2 || !view.ends_with("]]")) {
-            cursor = open;
-            continue;
-        }
-        view.remove_suffix(2);
-        std::string_view args_text = trim_view(view);
 
         if (namespace_name != "gentest") {
             collected.other_namespaces.push_back(attribute_text.str());
@@ -476,44 +749,14 @@ auto collect_gentest_attributes_for(const NamespaceDecl &ns, const SourceManager
                 break;
             }
             const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
-            std::string_view      view(attribute_text.data(), attribute_text.size());
-            if (!view.starts_with("[[")) {
+            std::string_view      namespace_name;
+            std::string_view      args_text;
+            std::string           owned_args_text;
+            if (!parse_attribute_namespace_and_payload(std::string_view(attribute_text.data(), attribute_text.size()), namespace_name,
+                                                       args_text, owned_args_text)) {
                 cursor = static_cast<unsigned>(open);
                 continue;
             }
-            view.remove_prefix(2);
-            while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-                view.remove_prefix(1);
-            }
-            if (!view.starts_with("using")) {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            view.remove_prefix(5);
-            while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-                view.remove_prefix(1);
-            }
-            std::size_t ns_len = 0;
-            while (ns_len < view.size() && is_identifier_char(view[ns_len])) {
-                ++ns_len;
-            }
-            std::string_view namespace_name(view.substr(0, ns_len));
-            view.remove_prefix(ns_len);
-            while (!view.empty() && std::isspace(static_cast<unsigned char>(view.front())) != 0) {
-                view.remove_prefix(1);
-            }
-            if (view.empty() || view.front() != ':') {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            view.remove_prefix(1);
-
-            std::size_t args_end = view.rfind("]]");
-            if (args_end == std::string_view::npos) {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-            std::string_view args_text = trim_view(view.substr(0, args_end));
 
             if (namespace_name != "gentest") {
                 collected.other_namespaces.push_back(attribute_text.str());
