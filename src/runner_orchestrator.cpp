@@ -111,8 +111,10 @@ void record_measured_failure_report_item(OrchestratorState &state, const gentest
             item.failures.push_back(issue);
         }
     } else if (!failure_message.empty()) {
+        item.outcome = Outcome::Fail;
         item.failures.emplace_back(failure_message);
     } else if (!failure.reason.empty()) {
+        item.outcome = Outcome::Fail;
         item.failures.push_back(failure.reason);
     }
 

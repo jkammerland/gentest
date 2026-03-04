@@ -763,6 +763,18 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
 
     const MeasurementPhaseResult teardown_phase = run_phase(gentest::detail::BenchPhase::Teardown);
     if (!teardown_phase.ok) {
+        if (!call_error.empty()) {
+            const std::string teardown_issue =
+                teardown_phase.runtime_skipped
+                    ? (teardown_phase.skip_reason.empty() ? std::string("teardown requested skip") : teardown_phase.skip_reason)
+                    : (teardown_phase.reason.empty() ? std::string("teardown failed") : teardown_phase.reason);
+            out_failure.reason             = fmt::format("call issue: {}; teardown issue: {}", std::move(call_error), teardown_issue);
+            out_failure.allocation_failure = teardown_phase.allocation_failure;
+            out_failure.skipped            = false;
+            out_failure.infra_failure = (teardown_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.phase         = "call+teardown";
+            return false;
+        }
         if (teardown_phase.runtime_skipped) {
             out_failure.reason = teardown_phase.skip_reason.empty() ? std::string("teardown requested skip") : teardown_phase.skip_reason;
             out_failure.allocation_failure = false;

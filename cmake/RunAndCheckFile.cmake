@@ -34,6 +34,10 @@ if(DEFINED ARGS)
   endif()
 endif()
 
+if(EXISTS "${FILE}")
+  file(REMOVE "${FILE}")
+endif()
+
 execute_process(
   COMMAND ${_emu} "${PROG}" ${_args}
   OUTPUT_VARIABLE out
