@@ -1,6 +1,8 @@
 #include "parse_core.hpp"
 #include "validate.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -127,11 +129,44 @@ int main() {
     {
         auto attrs = parse_attribute_list(R"(template(T, std::pair<int, int>), test("templated"))");
         t.expect(attrs.size() == 2, "template regression: expected two attributes");
-        t.expect(attrs[0].name == "template", "template regression: first attribute name");
-        t.expect(attrs[0].arguments.size() == 2, "template regression: template argument count");
-        if (attrs[0].arguments.size() >= 2) {
-            t.expect(attrs[0].arguments[0] == "T", "template regression: parameter name preserved");
-            t.expect(attrs[0].arguments[1] == "std::pair<int, int>", "template regression: template type preserved");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].name == "template", "template regression: first attribute name");
+            t.expect(attrs[0].arguments.size() == 2, "template regression: template argument count");
+            if (attrs[0].arguments.size() >= 2) {
+                auto normalize_ws = [](std::string value) {
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
+                                    return std::isspace(c) != 0;
+                                }),
+                                value.end());
+                    return value;
+                };
+                t.expect(attrs[0].arguments[0] == "T", "template regression: parameter name preserved");
+                t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>",
+                    "template regression: template type preserved");
+            }
+        }
+    }
+
+    // Regression: spaced template argument lists should be preserved as a single argument.
+    {
+        auto attrs = parse_attribute_list(R"(template(T, std::pair <int, int>), test("templated-space"))");
+        t.expect(attrs.size() == 2, "template spacing regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].arguments.size() == 2, "template spacing regression: template argument count");
+        }
+    }
+
+    // Regression: '<' in comparison expressions must not start angle-depth tracking.
+    {
+        auto attrs = parse_attribute_list(R"(parameters(value, 1<2, 3), test("cmp"))");
+        t.expect(attrs.size() == 2, "comparison regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].name == "parameters", "comparison regression: first attribute name");
+            t.expect(attrs[0].arguments.size() == 3, "comparison regression: argument count preserved");
+            if (attrs[0].arguments.size() == 3) {
+                t.expect(attrs[0].arguments[1] == "1<2", "comparison regression: middle argument preserved");
+                t.expect(attrs[0].arguments[2] == "3", "comparison regression: trailing argument preserved");
+            }
         }
     }
 
@@ -149,6 +184,36 @@ int main() {
             if (summary.param_packs[0].rows.size() >= 2) {
                 t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack regression: row0 arity");
                 t.expect(summary.param_packs[0].rows[1].size() == 1, "parameters_pack regression: row1 arity");
+            }
+        }
+    }
+
+    // Regression: parameters_pack must split comparison rows by commas (not treat '<' as template open).
+    {
+        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((a,b), (1<2, 3)))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack comparison regression: no arity mismatch");
+        t.expect(summary.param_packs.size() == 1, "parameters_pack comparison regression: one pack");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack comparison regression: one row");
+            if (summary.param_packs[0].rows.size() == 1) {
+                t.expect(summary.param_packs[0].rows[0].size() == 2, "parameters_pack comparison regression: row arity");
+            }
+        }
+    }
+
+    // Regression: parameters_pack should accept spaced template syntax in tuple rows.
+    {
+        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair <int, int>{1,2})))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack spacing regression: no validation error");
+        t.expect(summary.param_packs.size() == 1, "parameters_pack spacing regression: one pack");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack spacing regression: one row");
+            if (summary.param_packs[0].rows.size() == 1) {
+                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack spacing regression: row arity");
             }
         }
     }

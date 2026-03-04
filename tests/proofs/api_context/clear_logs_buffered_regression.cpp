@@ -25,13 +25,23 @@ int main() {
         return 1;
     }
 
-    const auto fail_it = std::find(ctx->event_lines.begin(), ctx->event_lines.end(), std::string("F-keep"));
-    const auto log_it  = std::find(ctx->event_lines.begin(), ctx->event_lines.end(), std::string("L-before-clear"));
-    if (fail_it == ctx->event_lines.end()) {
+    bool saw_expected_failure = false;
+    bool saw_cleared_log      = false;
+    const auto event_count    = std::min(ctx->event_lines.size(), ctx->event_kinds.size());
+    for (std::size_t idx = 0; idx < event_count; ++idx) {
+        if (ctx->event_kinds[idx] == 'F' && ctx->event_lines[idx].find("F-keep") != std::string::npos) {
+            saw_expected_failure = true;
+        }
+        if (ctx->event_kinds[idx] == 'L' && ctx->event_lines[idx].find("L-before-clear") != std::string::npos) {
+            saw_cleared_log = true;
+        }
+    }
+
+    if (!saw_expected_failure) {
         std::cerr << "FAIL: failure event should remain after clear_logs()\n";
         return 1;
     }
-    if (log_it != ctx->event_lines.end()) {
+    if (saw_cleared_log) {
         std::cerr << "FAIL: cleared log event should not remain in timeline\n";
         return 1;
     }

@@ -23,12 +23,21 @@ if(DEFINED ARGS AND NOT "${ARGS}" STREQUAL "")
   endif()
 endif()
 
+set(_emu)
+if(DEFINED EMU)
+  if(EMU MATCHES ";")
+    set(_emu ${EMU})
+  else()
+    separate_arguments(_emu NATIVE_COMMAND "${EMU}")
+  endif()
+endif()
+
 if(EXISTS "${JUNIT_FILE}")
   file(REMOVE "${JUNIT_FILE}")
 endif()
 
 execute_process(
-  COMMAND "${PROG}" ${_arg_list}
+  COMMAND ${_emu} "${PROG}" ${_arg_list}
   RESULT_VARIABLE rc
   OUTPUT_VARIABLE out
   ERROR_VARIABLE err

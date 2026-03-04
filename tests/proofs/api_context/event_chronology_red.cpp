@@ -19,15 +19,25 @@ int main() {
     ctx->active = false;
     gentest::detail::set_current_test(nullptr);
 
-    const auto fail_it = std::find(ctx->event_lines.begin(), ctx->event_lines.end(), std::string("F-before-log"));
-    const auto log_it  = std::find(ctx->event_lines.begin(), ctx->event_lines.end(), std::string("L-after-failure"));
-    if (fail_it == ctx->event_lines.end() || log_it == ctx->event_lines.end()) {
+    std::size_t fail_index = ctx->event_lines.size();
+    std::size_t log_index  = ctx->event_lines.size();
+    const auto  event_count = std::min(ctx->event_lines.size(), ctx->event_kinds.size());
+    for (std::size_t idx = 0; idx < event_count; ++idx) {
+        if (fail_index == ctx->event_lines.size() && ctx->event_kinds[idx] == 'F' &&
+            ctx->event_lines[idx].find("F-before-log") != std::string::npos) {
+            fail_index = idx;
+        }
+        if (log_index == ctx->event_lines.size() && ctx->event_kinds[idx] == 'L' &&
+            ctx->event_lines[idx].find("L-after-failure") != std::string::npos) {
+            log_index = idx;
+        }
+    }
+
+    if (fail_index == ctx->event_lines.size() || log_index == ctx->event_lines.size()) {
         std::cerr << "RED: expected both failure and log events to be present\n";
         return 1;
     }
 
-    const auto fail_index = static_cast<std::size_t>(fail_it - ctx->event_lines.begin());
-    const auto log_index  = static_cast<std::size_t>(log_it - ctx->event_lines.begin());
     if (fail_index < log_index) {
         std::cout << "PASS: chronology preserved (failure before later log)\n";
         return 0;

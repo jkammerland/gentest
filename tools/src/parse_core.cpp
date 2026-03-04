@@ -55,6 +55,103 @@ std::string unquote(std::string_view value) {
     return trimmed;
 }
 
+char previous_non_space(std::string_view text) {
+    for (std::size_t idx = text.size(); idx > 0; --idx) {
+        const char ch = text[idx - 1];
+        if (std::isspace(static_cast<unsigned char>(ch)) == 0) {
+            return ch;
+        }
+    }
+    return '\0';
+}
+
+char next_non_space(std::string_view text, std::size_t index) {
+    while (index < text.size()) {
+        const char ch = text[index];
+        if (std::isspace(static_cast<unsigned char>(ch)) == 0) {
+            return ch;
+        }
+        ++index;
+    }
+    return '\0';
+}
+
+bool is_likely_template_left(char ch) {
+    return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == ':' || ch == '>' || ch == ')' || ch == ']';
+}
+
+bool is_likely_template_right(char ch) {
+    return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == ':' || ch == '(';
+}
+
+bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
+    int  depth        = 0;
+    int  nested_angle = 0;
+    bool in_string    = false;
+    bool escape_next  = false;
+
+    for (std::size_t idx = open_index + 1; idx < text.size(); ++idx) {
+        const char ch = text[idx];
+        if (in_string) {
+            if (escape_next) {
+                escape_next = false;
+            } else if (ch == '\\') {
+                escape_next = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (ch == '"') {
+            in_string = true;
+            continue;
+        }
+
+        if (ch == '(' || ch == '[' || ch == '{') {
+            ++depth;
+            continue;
+        }
+        if (ch == ')' || ch == ']' || ch == '}') {
+            if (depth > 0) {
+                --depth;
+            }
+            continue;
+        }
+        if (depth > 0) {
+            continue;
+        }
+
+        if (ch == '<') {
+            ++nested_angle;
+            continue;
+        }
+        if (ch == '>') {
+            if (nested_angle == 0) {
+                const char follower = next_non_space(text, idx + 1);
+                if (follower == '\0') {
+                    return true;
+                }
+                switch (follower) {
+                case ',':
+                case ')':
+                case ']':
+                case '}':
+                case '{':
+                case '(':
+                case ':':
+                case ';':
+                case '*':
+                case '&': return true;
+                default: return false;
+                }
+            }
+            --nested_angle;
+        }
+    }
+    return false;
+}
+
 std::vector<std::string> split_arguments(std::string_view arguments) {
     std::vector<std::string> parts;
     std::string              current;
@@ -64,25 +161,15 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
     bool                     escape_next = false;
 
     auto should_open_angle = [&](std::size_t idx) {
-        if (current.empty()) {
+        const char prev = previous_non_space(current);
+        if (prev == '\0' || !is_likely_template_left(prev)) {
             return false;
         }
-        const char prev = current.back();
-        if (std::isspace(static_cast<unsigned char>(prev)) != 0) {
+        const char next = next_non_space(arguments, idx + 1);
+        if (next == '\0' || next == '<' || next == '=' || !is_likely_template_right(next)) {
             return false;
         }
-        const bool prev_ok =
-            std::isalnum(static_cast<unsigned char>(prev)) != 0 || prev == '_' || prev == ':' || prev == '>' || prev == ')' || prev == ']';
-        if (!prev_ok) {
-            return false;
-        }
-        if (idx + 1 < arguments.size()) {
-            const char next = arguments[idx + 1];
-            if (next == '<' || next == '=') {
-                return false;
-            }
-        }
-        return true;
+        return has_matching_angle_close(arguments, idx);
     };
 
     for (std::size_t idx = 0; idx < arguments.size(); ++idx) {
