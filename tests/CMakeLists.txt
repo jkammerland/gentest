@@ -138,8 +138,8 @@ unset(_gentest_name)
 unset(_gentest_run)
 
 option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
-if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
-    set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
+if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
+    set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 
 set(_gentest_codegen_prog "")
@@ -1247,6 +1247,24 @@ _gentest_add_cmake_helper_test(
     -DPROG=${_gentest_codegen_prog}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_tu_register_symbol_collision APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_outcome_matrix_stale_junit_guard
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_windows_debug_death_skip_gate
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckWindowsDebugDeathSkipGate.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_package_workflow_preset
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPackageWorkflowPreset.cmake
+    cmake)
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)

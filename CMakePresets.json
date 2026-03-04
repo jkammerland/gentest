@@ -940,6 +940,14 @@
       }
     }
   ],
+  "packagePresets": [
+    {
+      "name": "release",
+      "displayName": "Release Package",
+      "description": "Create release artifacts with CPack",
+      "configurePreset": "release"
+    }
+  ],
   "workflowPresets": [
     {
       "name": "debug",
@@ -1189,6 +1197,10 @@
         },
         {
           "type": "test",
+          "name": "release"
+        },
+        {
+          "type": "package",
           "name": "release"
         }
       ]
