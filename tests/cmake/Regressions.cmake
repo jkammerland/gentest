@@ -286,6 +286,14 @@ target_include_directories(gentest_regression_time_unit_scaling PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_runtime_reporting
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/runtime_reporting_regressions.cpp)
+target_link_libraries(gentest_regression_runtime_reporting PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_runtime_reporting PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_runtime_reporting PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 gentest_add_check_death(
     NAME regression_bench_assert_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
@@ -333,6 +341,58 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
     EXPECT_SUBSTRING "jitter call failed for regressions/jitter_skip_should_fail"
     ARGS --run=regressions/jitter_skip_should_fail --kind=jitter)
+
+gentest_add_run_and_check_file(
+    NAME regression_runtime_reporting_fallback_assertion_junit_reports_failure
+    PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/runtime_reporting_fallback_assertion.xml
+    EXPECT_SUBSTRING "failures=\"1\""
+    EXPECT_RC 1
+    ARGS --run=regressions/runtime_reporting/fallback_assertion_failure --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/runtime_reporting_fallback_assertion.xml)
+
+gentest_add_cmake_script_test(
+    NAME regression_runtime_reporting_github_annotation_escapes_file_title
+    PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/runtime_reporting/gha,title:punct --kind=test --github-annotations
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=::error file=C%3A/repo%2Cwin/src/runtime_reporting_case.cpp,line=77,title=regressions/runtime_reporting/gha%2Ctitle%3Apunct::"
+        "FORBID_SUBSTRING=::error file=C:/repo,win/src/runtime_reporting_case.cpp,line=77,title=regressions/runtime_reporting/gha,title:punct::")
+
+gentest_add_cmake_script_test(
+    NAME regression_runtime_reporting_junit_cdata_token_split
+    PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckRuntimeReportingCdata.cmake"
+    ARGS --run=regressions/runtime_reporting/junit_cdata_close_token_failure --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/runtime_reporting_cdata_token.xml
+    DEFINES
+        "JUNIT_FILE=${CMAKE_CURRENT_BINARY_DIR}/runtime_reporting_cdata_token.xml"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_runtime_reporting_junit_open_failure_is_visible
+    PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/runtime_reporting/pass_for_junit_io_visibility --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=failed to open JUnit report:")
+
+set(_gentest_measured_line_files
+    "${CMAKE_CURRENT_SOURCE_DIR}/regressions/bench_assert_propagation.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_call_teardown_dualfail.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_partial_setup_teardown.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_setup_skip_teardown_fail.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_setup_skip_teardown_skip.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_setup_throw_teardown_armed.cpp")
+string(JOIN "|" _gentest_measured_line_files_arg ${_gentest_measured_line_files})
+add_test(NAME regression_runtime_reporting_measured_case_lines_use___line__
+    COMMAND ${CMAKE_COMMAND}
+        -DFILES=${_gentest_measured_line_files_arg}
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckNoLiteralCaseLines.cmake)
+set_property(TEST regression_runtime_reporting_measured_case_lines_use___line__ APPEND PROPERTY LABELS "cmake")
+unset(_gentest_measured_line_files_arg)
+unset(_gentest_measured_line_files)
 
 gentest_add_check_counts(
     NAME regression_orchestrator_fail_fast_blocks_measured

@@ -28,6 +28,7 @@ struct JitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void tearDown() override { g_jitter_teardown_count.fetch_add(1, std::memory_order_relaxed); }
 };
 
+constexpr unsigned kBenchSetupThrowTeardownArmedLine = __LINE__ + 1;
 void bench_setup_throw_teardown_armed(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
@@ -62,6 +63,7 @@ void bench_setup_throw_teardown_armed(void *) {
     }
 }
 
+constexpr unsigned kJitterSetupThrowTeardownArmedLine = __LINE__ + 1;
 void jitter_setup_throw_teardown_armed(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
@@ -104,7 +106,7 @@ gentest::Case kCases[] = {
         .name             = kBenchCaseName,
         .fn               = &bench_setup_throw_teardown_armed,
         .file             = __FILE__,
-        .line             = 24,
+        .line             = kBenchSetupThrowTeardownArmedLine,
         .is_benchmark     = true,
         .is_jitter        = false,
         .is_baseline      = false,
@@ -120,7 +122,7 @@ gentest::Case kCases[] = {
         .name             = kJitterCaseName,
         .fn               = &jitter_setup_throw_teardown_armed,
         .file             = __FILE__,
-        .line             = 58,
+        .line             = kJitterSetupThrowTeardownArmedLine,
         .is_benchmark     = false,
         .is_jitter        = true,
         .is_baseline      = false,

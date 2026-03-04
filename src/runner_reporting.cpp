@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fmt/format.h>
 #include <fstream>
+#include <ostream>
 
 #ifdef GENTEST_USE_BOOST_JSON
 #include <boost/json.hpp>
@@ -12,7 +13,7 @@
 namespace gentest::runner {
 
 namespace {
-std::string gha_escape(std::string_view s) {
+std::string gha_escape_message(std::string_view s) {
     std::string out;
     out.reserve(s.size());
     for (char ch : s) {
@@ -20,6 +21,22 @@ std::string gha_escape(std::string_view s) {
         case '%': out += "%25"; break;
         case '\r': out += "%0D"; break;
         case '\n': out += "%0A"; break;
+        default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
+
+std::string gha_escape_property(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char ch : s) {
+        switch (ch) {
+        case '%': out += "%25"; break;
+        case '\r': out += "%0D"; break;
+        case '\n': out += "%0A"; break;
+        case ':': out += "%3A"; break;
+        case ',': out += "%2C"; break;
         default: out.push_back(ch); break;
         }
     }
@@ -39,6 +56,22 @@ std::string escape_xml(std::string_view s) {
         }
     }
     return out;
+}
+
+void write_xml_cdata(std::ostream &out, std::string_view s) {
+    out << "<![CDATA[";
+    std::size_t pos = 0;
+    while (true) {
+        const std::size_t end = s.find("]]>", pos);
+        if (end == std::string_view::npos) {
+            out.write(s.data() + pos, static_cast<std::streamsize>(s.size() - pos));
+            break;
+        }
+        out.write(s.data() + pos, static_cast<std::streamsize>(end - pos));
+        out << "]]]]><![CDATA[>";
+        pos = end + 3;
+    }
+    out << "]]>";
 }
 } // namespace
 
@@ -64,14 +97,21 @@ void add_error_annotation(RunAccumulator &acc, std::string_view file, unsigned l
 
 void emit_github_annotations(const RunAccumulator &acc) {
     for (const auto &it : acc.github_annotations) {
-        fmt::print("::error file={},line={},title={}::{}\n", it.file, it.line, gha_escape(it.title), gha_escape(it.message));
+        fmt::print("::error file={},line={},title={}::{}\n", gha_escape_property(it.file), it.line, gha_escape_property(it.title),
+                   gha_escape_message(it.message));
     }
 }
 
-void write_reports(const RunAccumulator &acc, const ReportConfig &cfg) {
+bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
+    bool report_ok = true;
+
     if (cfg.junit_path) {
         std::ofstream out(cfg.junit_path, std::ios::binary);
-        if (out) {
+        if (!out) {
+            record_runner_level_failure(acc, "gentest/reporting/junit",
+                                        fmt::format("failed to open JUnit report: {}", cfg.junit_path));
+            report_ok = false;
+        } else {
             std::size_t total_tests = acc.report_items.size();
             std::size_t total_fail  = 0;
             std::size_t total_skip  = 0;
@@ -102,18 +142,31 @@ void write_reports(const RunAccumulator &acc, const ReportConfig &cfg) {
                     out << "/>\n";
                 }
                 for (const auto &f : it.failures) {
-                    out << "    <failure><![CDATA[" << f << "]]></failure>\n";
+                    out << "    <failure>";
+                    write_xml_cdata(out, f);
+                    out << "</failure>\n";
                 }
                 out << "  </testcase>\n";
             }
             if (!acc.infra_errors.empty()) {
-                out << "  <system-err><![CDATA[";
+                out << "  <system-err>";
+                bool wrote_newline = false;
                 for (const auto &msg : acc.infra_errors) {
-                    out << msg << "\n";
+                    write_xml_cdata(out, msg);
+                    out << "\n";
+                    wrote_newline = true;
                 }
-                out << "]]></system-err>\n";
+                if (!wrote_newline)
+                    write_xml_cdata(out, "");
+                out << "</system-err>\n";
             }
             out << "</testsuite>\n";
+            out.flush();
+            if (!out) {
+                record_runner_level_failure(acc, "gentest/reporting/junit",
+                                            fmt::format("failed to write JUnit report: {}", cfg.junit_path));
+                report_ok = false;
+            }
         }
     }
 
@@ -183,6 +236,7 @@ void write_reports(const RunAccumulator &acc, const ReportConfig &cfg) {
 #else
     (void)cfg.allure_dir;
 #endif
+    return report_ok;
 }
 
 } // namespace gentest::runner

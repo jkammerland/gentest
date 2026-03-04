@@ -212,6 +212,8 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         rr.outcome = Outcome::Fail;
         ++c.failed;
         ++c.failures;
+        std::string fallback_issue = inv.message.empty() ? "fatal assertion or exception (no message)" : inv.message;
+        rr.failures.push_back(fallback_issue);
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
             fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
@@ -220,7 +222,9 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
             fmt::print(stderr, "[ FAIL ] {} ({} ms)\n", test.name, dur_ms);
         }
         fmt::print(stderr, "\n");
-        record_failure_summary(state, test.name, std::vector<std::string>{"fatal assertion or exception (no message)"});
+        record_failure_summary(state, test.name, std::vector<std::string>{fallback_issue});
+        if (state.acc)
+            gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, fallback_issue);
     }
     return rr;
 }
