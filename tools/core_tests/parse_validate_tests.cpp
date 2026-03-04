@@ -122,6 +122,37 @@ int main() {
         t.expect(!diags.empty(), "unknown value attribute reports a diagnostic");
     }
 
+    // Regression: split_arguments must treat '<...>' as a nesting delimiter so template commas
+    // do not split a single argument into multiple pieces.
+    {
+        auto attrs = parse_attribute_list(R"(template(T, std::pair<int, int>), test("templated"))");
+        t.expect(attrs.size() == 2, "template regression: expected two attributes");
+        t.expect(attrs[0].name == "template", "template regression: first attribute name");
+        t.expect(attrs[0].arguments.size() == 2, "template regression: template argument count");
+        if (attrs[0].arguments.size() >= 2) {
+            t.expect(attrs[0].arguments[0] == "T", "template regression: parameter name preserved");
+            t.expect(attrs[0].arguments[1] == "std::pair<int, int>", "template regression: template type preserved");
+        }
+    }
+
+    // Regression: parameters_pack tuple splitting must also keep '<...>' intact.
+    {
+        auto attrs = parse_attribute_list(
+            R"(test("x"), parameters_pack((value), (std::pair<int, int>{1, 2}), (std::pair<int, int>{3, 4})))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack regression: template commas must not trigger arity mismatch");
+        t.expect(!summary.param_packs.empty(), "parameters_pack regression: pack parsed");
+        if (!summary.param_packs.empty()) {
+            t.expect(summary.param_packs[0].names.size() == 1, "parameters_pack regression: one parameter name");
+            t.expect(summary.param_packs[0].rows.size() == 2, "parameters_pack regression: two rows");
+            if (summary.param_packs[0].rows.size() >= 2) {
+                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack regression: row0 arity");
+                t.expect(summary.param_packs[0].rows[1].size() == 1, "parameters_pack regression: row1 arity");
+            }
+        }
+    }
+
     if (t.failures) {
         std::cerr << "Total failures: " << t.failures << "\n";
         return 1;
