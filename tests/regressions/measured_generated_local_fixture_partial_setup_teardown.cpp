@@ -3,7 +3,12 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
-#include <stdexcept>
+
+#if defined(GENTEST_EXPECT_NO_EXCEPTIONS)
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+#error "GENTEST_EXPECT_NO_EXCEPTIONS requires exceptions to be disabled for this TU"
+#endif
+#endif
 
 namespace regressions::measured_generated_local_fixture_partial_setup_teardown {
 
@@ -18,7 +23,7 @@ struct BenchFirstFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
 };
 
 struct BenchSecondFixture : gentest::FixtureSetup {
-    void setUp() override { throw std::runtime_error("generated-bench-second-setup-failed"); }
+    void setUp() override { gentest::asserts::EXPECT_TRUE(false, "generated-bench-second-setup-failed"); }
 };
 
 struct JitterFirstFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
@@ -27,7 +32,7 @@ struct JitterFirstFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
 };
 
 struct JitterSecondFixture : gentest::FixtureSetup {
-    void setUp() override { throw std::runtime_error("generated-jitter-second-setup-failed"); }
+    void setUp() override { gentest::asserts::EXPECT_TRUE(false, "generated-jitter-second-setup-failed"); }
 };
 
 [[using gentest: bench("regressions/measured_generated_local_fixture_partial_setup_teardown/bench")]]

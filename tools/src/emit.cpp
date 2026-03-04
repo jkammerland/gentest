@@ -9,6 +9,7 @@
 #include "templates.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -17,12 +18,17 @@
 #include <fstream>
 #include <iterator>
 #include <map>
-#include <random>
 #include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace gentest::codegen {
 
@@ -156,14 +162,38 @@ std::optional<std::uint32_t> parse_tu_index(std::string_view filename) {
 }
 
 auto make_unique_tmp_path(const fs::path &path) -> fs::path {
-    const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-    const auto rand_hi = static_cast<std::uint64_t>(std::random_device{}());
-    const auto rand_lo = static_cast<std::uint64_t>(std::random_device{}());
-    const auto nonce   = (rand_hi << 32) ^ rand_lo;
-
+    auto current_process_id = []() -> std::uint32_t {
+#if defined(_WIN32)
+        return static_cast<std::uint32_t>(::_getpid());
+#else
+        return static_cast<std::uint32_t>(::getpid());
+#endif
+    };
+    static std::atomic<std::uint32_t> seq{0};
+    const std::uint32_t               nonce = seq.fetch_add(1u, std::memory_order_relaxed);
+    const std::uint32_t               pid   = current_process_id();
     fs::path tmp_path = path;
-    tmp_path += fmt::format(".tmp.{}.{}", now_ns, nonce);
+    // Keep temp suffix short to avoid MAX_PATH failures on Windows for long output paths.
+    tmp_path += fmt::format(".tmp.{:06x}.{:06x}", pid & 0xFFFFFFu, nonce & 0xFFFFFFu);
+    return tmp_path;
+}
+
+auto make_short_unique_tmp_path_near(const fs::path &path) -> fs::path {
+    auto current_process_id = []() -> std::uint32_t {
+#if defined(_WIN32)
+        return static_cast<std::uint32_t>(::_getpid());
+#else
+        return static_cast<std::uint32_t>(::getpid());
+#endif
+    };
+    static std::atomic<std::uint32_t> seq{0};
+    const std::uint32_t               nonce = seq.fetch_add(1u, std::memory_order_relaxed);
+    const std::uint32_t               pid   = current_process_id();
+    fs::path                          tmp_path;
+    if (path.has_parent_path()) {
+        tmp_path = path.parent_path();
+    }
+    tmp_path /= fmt::format(".gtmp.{:06x}.{:06x}", pid & 0xFFFFFFu, nonce & 0xFFFFFFu);
     return tmp_path;
 }
 
@@ -182,18 +212,37 @@ bool write_file_atomic_if_changed(const fs::path &path, std::string_view content
         return true;
     }
 
-    const fs::path tmp_path = make_unique_tmp_path(path);
-    {
-        std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+    auto write_file_direct = [&](const fs::path &target_path) -> bool {
+        std::ofstream out(target_path, std::ios::binary | std::ios::trunc);
         if (!out) {
-            log_err("gentest_codegen: failed to open output file '{}'\n", tmp_path.string());
+            log_err("gentest_codegen: failed to open output file '{}'\n", target_path.string());
             return false;
         }
         out.write(content.data(), static_cast<std::streamsize>(content.size()));
         out.close();
         if (!out) {
-            log_err("gentest_codegen: failed to write output file '{}'\n", tmp_path.string());
+            log_err("gentest_codegen: failed to write output file '{}'\n", target_path.string());
             return false;
+        }
+        return true;
+    };
+
+    auto try_write_tmp = [&](const fs::path &tmp_path) -> bool {
+        std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            return false;
+        }
+        out.write(content.data(), static_cast<std::streamsize>(content.size()));
+        out.close();
+        return static_cast<bool>(out);
+    };
+
+    fs::path tmp_path = make_unique_tmp_path(path);
+    if (!try_write_tmp(tmp_path)) {
+        // Some Windows paths can open the final file but fail once full filename + temp suffix is appended.
+        tmp_path = make_short_unique_tmp_path_near(path);
+        if (!try_write_tmp(tmp_path)) {
+            return write_file_direct(path);
         }
     }
 

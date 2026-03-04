@@ -169,7 +169,7 @@ std::string build_fixture_setup_flags(const std::vector<FreeFixtureUse> &types, 
         if (types[i].scope != FixtureScope::Local) {
             continue;
         }
-        append_format(flags, "    bool {}fx{}_setup_complete = false;\n", prefix, i);
+        append_format(flags, "    bool {}fx{}_teardown_armed = false;\n", prefix, i);
     }
     return flags;
 }
@@ -178,13 +178,13 @@ std::string build_fixture_setup_tracked(const std::vector<FreeFixtureUse> &types
                                         std::string_view fixture_prefix = {},
                                         std::string_view flag_prefix = {}) {
     std::string setup;
-    setup.reserve(types.size() * 64);
+    setup.reserve(types.size() * 80);
     for (std::size_t i = 0; i < types.size(); ++i) {
         if (types[i].scope != FixtureScope::Local) {
             continue;
         }
+        append_format(setup, "    {}fx{}_teardown_armed = true;\n", flag_prefix, i);
         append_format(setup, "    gentest_maybe_setup({}fx{}_.ref());\n", fixture_prefix, i);
-        append_format(setup, "    {}fx{}_setup_complete = true;\n", flag_prefix, i);
     }
     return setup;
 }
@@ -212,7 +212,7 @@ std::string build_fixture_teardown_guarded(const std::vector<FreeFixtureUse> &ty
             continue;
         }
         append_format(td,
-                      "    if ({}fx{}_setup_complete) gentest_maybe_teardown({}fx{}_.ref());\n",
+                      "    if ({}fx{}_teardown_armed) gentest_maybe_teardown({}fx{}_.ref());\n",
                       flag_prefix,
                       i,
                       fixture_prefix,
@@ -254,7 +254,7 @@ std::string build_fixture_state_setup_flags(const std::vector<FreeFixtureUse> &t
         if (types[i].scope != FixtureScope::Local) {
             continue;
         }
-        append_format(flags, "        bool fx{}_setup_complete = false;\n", i);
+        append_format(flags, "        bool fx{}_teardown_armed = false;\n", i);
     }
     return flags;
 }
@@ -397,7 +397,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "            ::gentest::detail::FixtureHandle<" + spec.callee + "> fx_{::gentest::detail::FixtureHandle<" + spec.callee
             + ">::empty()};\n";
         out += bench_decls;
-        out += "            bool fx_setup_complete = false;\n";
+        out += "            bool fx_teardown_armed = false;\n";
         out += bench_setup_flags;
         out += "            bool ready = false;\n";
         out += "        };\n";
@@ -405,8 +405,8 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "        if (phase == ::gentest::detail::BenchPhase::Setup) {\n";
         out += "            bench_state = BenchState{};\n";
         out += "            if (!gentest_init_fixture(bench_state.fx_, \"" + escape_string(spec.callee) + "\")) return;\n";
+        out += "            bench_state.fx_teardown_armed = true;\n";
         out += "            gentest_maybe_setup(bench_state.fx_.ref());\n";
-        out += "            bench_state.fx_setup_complete = true;\n";
         out += bench_inits;
         out += bench_setup;
         out += "            bench_state.ready = true;\n";
@@ -414,7 +414,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "        }\n";
         out += "        if (phase == ::gentest::detail::BenchPhase::Teardown) {\n";
         out += bench_teardown;
-        out += "            if (bench_state.fx_setup_complete) gentest_maybe_teardown(bench_state.fx_.ref());\n";
+        out += "            if (bench_state.fx_teardown_armed) gentest_maybe_teardown(bench_state.fx_.ref());\n";
         out += "            bench_state = BenchState{};\n";
         out += "            return;\n";
         out += "        }\n";
@@ -427,20 +427,20 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "    }\n";
         out += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
         out += "    if (!gentest_init_fixture(fx_, \"" + escape_string(spec.callee) + "\")) return;\n";
-        out += "    bool fx_setup_complete = false;\n";
+        out += "    bool fx_teardown_armed = false;\n";
         out += decls;
         out += inits;
         out += setup_flags;
         out += "    gentest_run_with_local_teardown(\n";
         out += "        [&] {\n";
+        out += "            fx_teardown_armed = true;\n";
         out += "            gentest_maybe_setup(fx_.ref());\n";
-        out += "            fx_setup_complete = true;\n";
         out += setup_tracked;
         out += "            " + invoke + "\n";
         out += "        },\n";
         out += "        [&] {\n";
         out += teardown_guarded;
-        out += "            if (fx_setup_complete) gentest_maybe_teardown(fx_.ref());\n";
+        out += "            if (fx_teardown_armed) gentest_maybe_teardown(fx_.ref());\n";
         out += "        });\n";
         out += "}\n\n";
         return;

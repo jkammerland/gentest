@@ -5,6 +5,7 @@
 #  -DEXPECT_RC=<expected numeric exit code>
 #  -DEXPECT_SUBSTRING=<substring that must be present in combined output>
 #  -DFORBID_SUBSTRING=<substring that must NOT be present in combined output>
+#  -DFORBID_SUBSTRINGS=<substrings delimited by '|' that must NOT be present in combined output>
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "CheckNoSubstring.cmake: PROG not set")
@@ -51,9 +52,19 @@ if(DEFINED EXPECT_SUBSTRING AND NOT "${EXPECT_SUBSTRING}" STREQUAL "")
   endif()
 endif()
 
-if(DEFINED FORBID_SUBSTRING AND NOT "${FORBID_SUBSTRING}" STREQUAL "")
-  string(FIND "${_all}" "${FORBID_SUBSTRING}" _forbid_pos)
-  if(NOT _forbid_pos EQUAL -1)
-    message(FATAL_ERROR "Forbidden substring found: '${FORBID_SUBSTRING}'. Output:\n${_all}")
-  endif()
+set(_forbidden_substrings)
+if(DEFINED FORBID_SUBSTRINGS AND NOT "${FORBID_SUBSTRINGS}" STREQUAL "")
+  set(_forbid_values "${FORBID_SUBSTRINGS}")
+  string(REPLACE "|" ";" _forbid_values "${_forbid_values}")
+  list(APPEND _forbidden_substrings ${_forbid_values})
 endif()
+if(DEFINED FORBID_SUBSTRING AND NOT "${FORBID_SUBSTRING}" STREQUAL "")
+  list(APPEND _forbidden_substrings "${FORBID_SUBSTRING}")
+endif()
+
+foreach(_forbid IN LISTS _forbidden_substrings)
+  string(FIND "${_all}" "${_forbid}" _forbid_pos)
+  if(NOT _forbid_pos EQUAL -1)
+    message(FATAL_ERROR "Forbidden substring found: '${_forbid}'. Output:\n${_all}")
+  endif()
+endforeach()
