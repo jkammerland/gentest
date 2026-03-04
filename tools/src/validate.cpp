@@ -261,9 +261,32 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 std::vector<std::string> parts;
                 std::string              cur;
                 int                      depth  = 0;
+                int                      angle_depth = 0;
                 bool                     in_str = false;
                 bool                     esc    = false;
-                for (char ch : s) {
+                auto should_open_angle = [&](std::size_t idx) {
+                    if (cur.empty()) {
+                        return false;
+                    }
+                    const char prev = cur.back();
+                    if (std::isspace(static_cast<unsigned char>(prev)) != 0) {
+                        return false;
+                    }
+                    const bool prev_ok = std::isalnum(static_cast<unsigned char>(prev)) != 0 || prev == '_' || prev == ':' ||
+                                         prev == '>' || prev == ')' || prev == ']';
+                    if (!prev_ok) {
+                        return false;
+                    }
+                    if (idx + 1 < s.size()) {
+                        const char next = s[idx + 1];
+                        if (next == '<' || next == '=') {
+                            return false;
+                        }
+                    }
+                    return true;
+                };
+                for (std::size_t idx = 0; idx < s.size(); ++idx) {
+                    const char ch = s[idx];
                     if (in_str) {
                         cur.push_back(ch);
                         if (esc)
@@ -290,7 +313,21 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                         cur.push_back(ch);
                         continue;
                     }
-                    if (ch == ',' && depth == 0) {
+                    if (ch == '<') {
+                        if (should_open_angle(idx)) {
+                            ++angle_depth;
+                        }
+                        cur.push_back(ch);
+                        continue;
+                    }
+                    if (ch == '>') {
+                        if (angle_depth > 0) {
+                            --angle_depth;
+                        }
+                        cur.push_back(ch);
+                        continue;
+                    }
+                    if (ch == ',' && depth == 0 && angle_depth == 0) {
                         if (!cur.empty()) {
                             const auto l = cur.find_first_not_of(" \t\n\r");
                             const auto r = cur.find_last_not_of(" \t\n\r");

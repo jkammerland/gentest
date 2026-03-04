@@ -59,10 +59,34 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
     std::vector<std::string> parts;
     std::string              current;
     int                      depth       = 0;
+    int                      angle_depth = 0;
     bool                     in_string   = false;
     bool                     escape_next = false;
 
-    for (char ch : arguments) {
+    auto should_open_angle = [&](std::size_t idx) {
+        if (current.empty()) {
+            return false;
+        }
+        const char prev = current.back();
+        if (std::isspace(static_cast<unsigned char>(prev)) != 0) {
+            return false;
+        }
+        const bool prev_ok =
+            std::isalnum(static_cast<unsigned char>(prev)) != 0 || prev == '_' || prev == ':' || prev == '>' || prev == ')' || prev == ']';
+        if (!prev_ok) {
+            return false;
+        }
+        if (idx + 1 < arguments.size()) {
+            const char next = arguments[idx + 1];
+            if (next == '<' || next == '=') {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    for (std::size_t idx = 0; idx < arguments.size(); ++idx) {
+        const char ch = arguments[idx];
         if (in_string) {
             current.push_back(ch);
             if (escape_next) {
@@ -94,8 +118,20 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
             }
             current.push_back(ch);
             break;
+        case '<':
+            if (should_open_angle(idx)) {
+                ++angle_depth;
+            }
+            current.push_back(ch);
+            break;
+        case '>':
+            if (angle_depth > 0) {
+                --angle_depth;
+            }
+            current.push_back(ch);
+            break;
         case ',':
-            if (depth == 0) {
+            if (depth == 0 && angle_depth == 0) {
                 auto token = trim_copy(current);
                 if (!token.empty()) {
                     parts.push_back(unquote(token));
