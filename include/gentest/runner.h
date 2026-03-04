@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <algorithm>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -450,11 +451,14 @@ inline void expect_throw(Fn&& fn, std::string_view expected_name, const std::sou
     } catch (const gentest::detail::skip_exception&) {
         throw;
     } catch (const gentest::failure&) {
+        // Preserve framework control flow: internal gentest failures are never
+        // consumed by EXPECT_THROW when Expected is broader (for example std::exception).
         if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::failure>) {
             return;
         }
         throw;
     } catch (const gentest::assertion&) {
+        // Preserve framework control flow for fatal assertions as well.
         if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::assertion>) {
             return;
         }
@@ -539,11 +543,14 @@ inline void require_throw(Fn&& fn, std::string_view expected_name, const std::so
     } catch (const gentest::detail::skip_exception&) {
         throw;
     } catch (const gentest::failure&) {
+        // Preserve framework control flow: internal gentest failures are never
+        // consumed by ASSERT_THROW when Expected is broader (for example std::exception).
         if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::failure>) {
             return;
         }
         throw;
     } catch (const gentest::assertion&) {
+        // Preserve framework control flow for fatal assertions as well.
         if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::assertion>) {
             return;
         }
@@ -623,6 +630,9 @@ inline Token current() { return detail::current_test(); }
 struct Adopt {
     Token prev;
     Token adopted;
+    Adopt(const Adopt&)            = delete;
+    Adopt& operator=(const Adopt&) = delete;
+
     explicit Adopt(const Token &t) : prev(detail::current_test()), adopted(t) {
         if (adopted) {
             adopted->adopted_tokens.fetch_add(1, std::memory_order_acq_rel);
@@ -645,11 +655,21 @@ inline void log(std::string_view message) {
     auto ctx = detail::g_current_test;
     if (!ctx || !ctx->active.load(std::memory_order_relaxed))
         return;
-    std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->logs.emplace_back(message);
-    if (ctx->dump_logs_on_failure) {
-        ctx->event_lines.emplace_back(message);
-        ctx->event_kinds.push_back('L');
+    if (detail::g_current_buffer.owner != ctx.get()) {
+        detail::flush_current_buffer_for(detail::g_current_buffer.owner);
+        detail::g_current_buffer.owner = ctx.get();
+    }
+
+    bool dump_logs_on_failure = false;
+    {
+        std::lock_guard<std::mutex> lk(ctx->mtx);
+        dump_logs_on_failure = ctx->dump_logs_on_failure;
+    }
+
+    detail::g_current_buffer.logs.emplace_back(message);
+    if (dump_logs_on_failure) {
+        detail::g_current_buffer.event_lines.emplace_back(message);
+        detail::g_current_buffer.event_kinds.push_back('L');
     }
 }
 inline void log_on_fail(bool enable = true) {
@@ -663,10 +683,38 @@ inline void clear_logs() {
     auto ctx = detail::g_current_test;
     if (!ctx || !ctx->active.load(std::memory_order_relaxed))
         return;
+
+    if (detail::g_current_buffer.owner != ctx.get()) {
+        detail::flush_current_buffer_for(detail::g_current_buffer.owner);
+        detail::g_current_buffer.owner = ctx.get();
+    }
+
+    detail::g_current_buffer.logs.clear();
+
+    const std::size_t local_n = std::min(detail::g_current_buffer.event_lines.size(), detail::g_current_buffer.event_kinds.size());
+    if (detail::g_current_buffer.event_lines.size() != detail::g_current_buffer.event_kinds.size()) {
+        detail::g_current_buffer.event_lines.resize(local_n);
+        detail::g_current_buffer.event_kinds.resize(local_n);
+    }
+    if (local_n != 0) {
+        std::vector<std::string> kept_lines;
+        std::vector<char>        kept_kinds;
+        kept_lines.reserve(local_n);
+        kept_kinds.reserve(local_n);
+        for (std::size_t i = 0; i < local_n; ++i) {
+            if (detail::g_current_buffer.event_kinds[i] == 'F') {
+                kept_lines.push_back(std::move(detail::g_current_buffer.event_lines[i]));
+                kept_kinds.push_back('F');
+            }
+        }
+        detail::g_current_buffer.event_lines.swap(kept_lines);
+        detail::g_current_buffer.event_kinds.swap(kept_kinds);
+    }
+
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->logs.clear();
     // Remove any pending log events; keep failure events
-    const std::size_t n = ctx->event_lines.size() < ctx->event_kinds.size() ? ctx->event_lines.size() : ctx->event_kinds.size();
+    const std::size_t n = std::min(ctx->event_lines.size(), ctx->event_kinds.size());
     if (ctx->event_lines.size() != ctx->event_kinds.size()) {
         ctx->event_lines.resize(n);
         ctx->event_kinds.resize(n);
@@ -677,7 +725,10 @@ inline void clear_logs() {
         kept_lines.reserve(n);
         kept_kinds.reserve(n);
         for (std::size_t i = 0; i < n; ++i) {
-            if (ctx->event_kinds[i] == 'F') { kept_lines.push_back(std::move(ctx->event_lines[i])); kept_kinds.push_back('F'); }
+            if (ctx->event_kinds[i] == 'F') {
+                kept_lines.push_back(std::move(ctx->event_lines[i]));
+                kept_kinds.push_back('F');
+            }
         }
         ctx->event_lines.swap(kept_lines);
         ctx->event_kinds.swap(kept_kinds);
