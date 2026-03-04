@@ -138,8 +138,8 @@ unset(_gentest_name)
 unset(_gentest_run)
 
 option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
-if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
-    set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
+if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
+    set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 
 set(_gentest_codegen_prog "")
@@ -265,6 +265,26 @@ gentest_add_cmake_script_test(
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign.gentest.cpp"
         "EXPECT_SUBSTRING=smoke/namespaced/mixed/gentest_first_unscoped_foreign")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_namespace_suite_attr_with_trailing_comment
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake"
+    ARGS
+        --output
+        ${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment.gentest.cpp
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespace_suite_comment.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+    DEFINES
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment.gentest.cpp"
+        "EXPECT_SUBSTRING=suite_override/comment_backscan/trailing_comment_suite_attr_case")
 
 add_test(NAME gentest_codegen_check_invalid
     COMMAND ${_gentest_codegen_prog}
@@ -600,6 +620,7 @@ gentest_add_check_death(
 set_tests_properties(
     gentest_codegen_check_valid
     gentest_codegen_check_namespaced_attrs
+    gentest_codegen_namespace_suite_attr_with_trailing_comment
     gentest_codegen_check_invalid
     gentest_codegen_baseline_requires_bench
     gentest_codegen_mock_incomplete_virtual_msg
@@ -1217,6 +1238,39 @@ _gentest_add_cmake_helper_test(
     -DPROG=${_gentest_codegen_prog}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_tu_header_case_collision APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_tu_register_symbol_collision
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_register_symbol_collision
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTuRegisterSymbolCollision.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_tu_register_symbol_collision APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_outcome_matrix_stale_junit_guard
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_windows_debug_death_skip_gate
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckWindowsDebugDeathSkipGate.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_cross_compile_emulator_serialization
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCrossCompileEmulatorSerialization.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_package_workflow_preset
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPackageWorkflowPreset.cmake
+    cmake)
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)

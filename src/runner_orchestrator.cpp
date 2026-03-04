@@ -286,7 +286,8 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         fmt::print("{}", summary);
     }
 
-    const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok();
+    const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() &&
+                    state.acc.infra_errors.empty();
     return ok ? 0 : 1;
 }
 

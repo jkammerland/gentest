@@ -27,6 +27,7 @@ struct JitterDualFailFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     }
 };
 
+constexpr unsigned kBenchCallAndTeardownFailLine = __LINE__ + 1;
 void bench_call_and_teardown_fail(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
@@ -61,6 +62,7 @@ void bench_call_and_teardown_fail(void *) {
     }
 }
 
+constexpr unsigned kJitterCallAndTeardownFailLine = __LINE__ + 1;
 void jitter_call_and_teardown_fail(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
@@ -103,7 +105,7 @@ gentest::Case kCases[] = {
         .name             = kBenchCaseName,
         .fn               = &bench_call_and_teardown_fail,
         .file             = __FILE__,
-        .line             = 8,
+        .line             = kBenchCallAndTeardownFailLine,
         .is_benchmark     = true,
         .is_jitter        = false,
         .is_baseline      = false,
@@ -119,7 +121,7 @@ gentest::Case kCases[] = {
         .name             = kJitterCaseName,
         .fn               = &jitter_call_and_teardown_fail,
         .file             = __FILE__,
-        .line             = 57,
+        .line             = kJitterCallAndTeardownFailLine,
         .is_benchmark     = false,
         .is_jitter        = true,
         .is_baseline      = false,
