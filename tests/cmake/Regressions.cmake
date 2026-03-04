@@ -200,6 +200,14 @@ target_include_directories(gentest_regression_measured_local_fixture_setup_skip_
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(gentest_regression_measured_local_fixture_setup_skip_teardown_skip
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_setup_skip_teardown_skip.cpp)
+target_link_libraries(gentest_regression_measured_local_fixture_setup_skip_teardown_skip PRIVATE gentest_runtime)
+target_compile_features(gentest_regression_measured_local_fixture_setup_skip_teardown_skip PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_measured_local_fixture_setup_skip_teardown_skip PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
 gentest_add_suite(regression_local_fixture_teardown
     TARGET gentest_regression_local_fixture_teardown
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_on_throw.cpp
@@ -213,8 +221,8 @@ gentest_add_suite(regression_local_fixture_teardown_noexceptions
     NO_CTEST)
 target_compile_options(gentest_regression_local_fixture_teardown_noexceptions
     PRIVATE
-        $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:AppleClang>>:-fno-exceptions>
-        $<$<CXX_COMPILER_ID:MSVC>:/EHs-c->)
+        $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:/EHs-c->
+        $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
 target_compile_definitions(gentest_regression_local_fixture_teardown_noexceptions
     PRIVATE
         FMT_EXCEPTIONS=0
@@ -261,12 +269,13 @@ foreach(_gentest_noexc_target
         gentest_regression_mg_lf_setup_throw_teardown_noexc)
     target_compile_options(${_gentest_noexc_target}
         PRIVATE
-            $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:AppleClang>>:-fno-exceptions>
-            $<$<CXX_COMPILER_ID:MSVC>:/EHs-c->)
+            $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:/EHs-c->
+            $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
     target_compile_definitions(${_gentest_noexc_target}
         PRIVATE
             FMT_EXCEPTIONS=0
-            _HAS_EXCEPTIONS=0)
+            _HAS_EXCEPTIONS=0
+            GENTEST_EXPECT_NO_EXCEPTIONS=1)
 endforeach()
 
 add_executable(gentest_regression_time_unit_scaling
@@ -631,12 +640,52 @@ gentest_add_run_and_check_file(
     EXPECT_RC 1
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_skip_teardown_fail_not_skipped.xml)
 
+gentest_add_cmake_script_test(
+    NAME regression_bench_local_fixture_setup_skip_teardown_skip_reports_setup_issue
+    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_skip>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_skip/bench --kind=bench
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=bench-setup-skip-only-marker"
+        "FORBID_SUBSTRINGS=regression marker: bench call executed after setup skip/teardown skip")
+
+gentest_add_cmake_script_test(
+    NAME regression_bench_local_fixture_setup_skip_teardown_skip_reports_teardown_issue
+    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_skip>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_skip/bench --kind=bench
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=bench-teardown-skip-only-marker"
+        "FORBID_SUBSTRINGS=regression marker: bench call executed after setup skip/teardown skip")
+
+gentest_add_cmake_script_test(
+    NAME regression_jitter_local_fixture_setup_skip_teardown_skip_reports_setup_issue
+    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_skip>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_skip/jitter --kind=jitter
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=jitter-setup-skip-only-marker"
+        "FORBID_SUBSTRINGS=regression marker: jitter call executed after setup skip/teardown skip")
+
+gentest_add_cmake_script_test(
+    NAME regression_jitter_local_fixture_setup_skip_teardown_skip_reports_teardown_issue
+    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_skip>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_skip/jitter --kind=jitter
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=jitter-teardown-skip-only-marker"
+        "FORBID_SUBSTRINGS=regression marker: jitter call executed after setup skip/teardown skip")
+
 if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME regression_bench_local_fixture_call_teardown_dualfail_allure_reports_failure
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail/result-0-result.json
-        EXPECT_SUBSTRING "status\": \"failed"
+        EXPECT_SUBSTRING "\"status\":\"failed\""
         EXPECT_RC 1
         ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail)
 
@@ -644,7 +693,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME regression_jitter_local_fixture_call_teardown_dualfail_allure_reports_failure
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail/result-0-result.json
-        EXPECT_SUBSTRING "status\": \"failed"
+        EXPECT_SUBSTRING "\"status\":\"failed\""
         EXPECT_RC 1
         ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail)
 
@@ -652,7 +701,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME regression_bench_local_fixture_setup_skip_teardown_fail_allure_reports_failure
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_setup_skip_teardown_fail/result-0-result.json
-        EXPECT_SUBSTRING "status\": \"failed"
+        EXPECT_SUBSTRING "\"status\":\"failed\""
         EXPECT_RC 1
         ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/bench --kind=bench --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_setup_skip_teardown_fail)
 
@@ -660,7 +709,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME regression_jitter_local_fixture_setup_skip_teardown_fail_allure_reports_failure
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_setup_skip_teardown_fail/result-0-result.json
-        EXPECT_SUBSTRING "status\": \"failed"
+        EXPECT_SUBSTRING "\"status\":\"failed\""
         EXPECT_RC 1
         ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/jitter --kind=jitter --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_setup_skip_teardown_fail)
 endif()
@@ -741,26 +790,26 @@ gentest_add_check_death(
 gentest_add_run_and_check_file(
     NAME regression_shared_fixture_teardown_failure_junit_reports_failure
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_teardown_exit>
-    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure.xml
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure_reports_failure.xml
     EXPECT_SUBSTRING "errors=\"1\""
     EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure.xml)
+    ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure_reports_failure.xml)
 
 gentest_add_run_and_check_file(
     NAME regression_shared_fixture_teardown_failure_junit_preserves_case_count
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_teardown_exit>
-    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure.xml
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure_preserves_case_count.xml
     EXPECT_SUBSTRING "tests=\"1\""
     EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure.xml)
+    ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure_preserves_case_count.xml)
 
 gentest_add_run_and_check_file(
     NAME regression_shared_fixture_teardown_failure_junit_reports_detail
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_teardown_exit>
-    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure.xml
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure_reports_detail.xml
     EXPECT_SUBSTRING "fixture teardown failed for regressions::TeardownFailureFixture: intentional shared fixture teardown failure"
     EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure.xml)
+    ARGS --run=regressions/shared_fixture_teardown_failure_exit --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_teardown_failure_reports_detail.xml)
 
 gentest_add_check_death(
     NAME regression_shared_fixture_teardown_failure_summary_failed_count

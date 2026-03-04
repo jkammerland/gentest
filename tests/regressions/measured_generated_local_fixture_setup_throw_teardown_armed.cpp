@@ -4,6 +4,12 @@
 #include <cstdio>
 #include <cstdlib>
 
+#if defined(GENTEST_EXPECT_NO_EXCEPTIONS)
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+#error "GENTEST_EXPECT_NO_EXCEPTIONS requires exceptions to be disabled for this TU"
+#endif
+#endif
+
 namespace regressions::measured_generated_local_fixture_setup_throw_teardown_armed {
 
 std::atomic<bool> g_bench_setup_entered{false};

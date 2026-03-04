@@ -208,7 +208,8 @@
       "displayName": "Debug (system LLVM/Clang, Allure tests)",
       "description": "Debug build enabling Allure writer tests",
       "cacheVariables": {
-        "GENTEST_ENABLE_ALLURE_TESTS": "ON"
+        "GENTEST_ENABLE_ALLURE_TESTS": "ON",
+        "GENTEST_USE_BOOST_JSON": "ON"
       }
     },
     {

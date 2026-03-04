@@ -24,6 +24,12 @@
 #include <unordered_map>
 #include <utility>
 
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace gentest::codegen {
 
 namespace {
@@ -156,11 +162,38 @@ std::optional<std::uint32_t> parse_tu_index(std::string_view filename) {
 }
 
 auto make_unique_tmp_path(const fs::path &path) -> fs::path {
+    auto current_process_id = []() -> std::uint32_t {
+#if defined(_WIN32)
+        return static_cast<std::uint32_t>(::_getpid());
+#else
+        return static_cast<std::uint32_t>(::getpid());
+#endif
+    };
     static std::atomic<std::uint32_t> seq{0};
-    const auto                        nonce = seq.fetch_add(1u, std::memory_order_relaxed);
+    const std::uint32_t               nonce = seq.fetch_add(1u, std::memory_order_relaxed);
+    const std::uint32_t               pid   = current_process_id();
     fs::path tmp_path = path;
     // Keep temp suffix short to avoid MAX_PATH failures on Windows for long output paths.
-    tmp_path += fmt::format(".tmp.{:08x}", nonce);
+    tmp_path += fmt::format(".tmp.{:06x}.{:06x}", pid & 0xFFFFFFu, nonce & 0xFFFFFFu);
+    return tmp_path;
+}
+
+auto make_short_unique_tmp_path_near(const fs::path &path) -> fs::path {
+    auto current_process_id = []() -> std::uint32_t {
+#if defined(_WIN32)
+        return static_cast<std::uint32_t>(::_getpid());
+#else
+        return static_cast<std::uint32_t>(::getpid());
+#endif
+    };
+    static std::atomic<std::uint32_t> seq{0};
+    const std::uint32_t               nonce = seq.fetch_add(1u, std::memory_order_relaxed);
+    const std::uint32_t               pid   = current_process_id();
+    fs::path                          tmp_path;
+    if (path.has_parent_path()) {
+        tmp_path = path.parent_path();
+    }
+    tmp_path /= fmt::format(".gtmp.{:06x}.{:06x}", pid & 0xFFFFFFu, nonce & 0xFFFFFFu);
     return tmp_path;
 }
 
@@ -194,18 +227,22 @@ bool write_file_atomic_if_changed(const fs::path &path, std::string_view content
         return true;
     };
 
-    const fs::path tmp_path = make_unique_tmp_path(path);
-    {
+    auto try_write_tmp = [&](const fs::path &tmp_path) -> bool {
         std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
         if (!out) {
-            // Some Windows paths can open the final file but fail once temp suffix is appended.
-            return write_file_direct(path);
+            return false;
         }
         out.write(content.data(), static_cast<std::streamsize>(content.size()));
         out.close();
-        if (!out) {
-            log_err("gentest_codegen: failed to write output file '{}'\n", tmp_path.string());
-            return false;
+        return static_cast<bool>(out);
+    };
+
+    fs::path tmp_path = make_unique_tmp_path(path);
+    if (!try_write_tmp(tmp_path)) {
+        // Some Windows paths can open the final file but fail once full filename + temp suffix is appended.
+        tmp_path = make_short_unique_tmp_path_near(path);
+        if (!try_write_tmp(tmp_path)) {
+            return write_file_direct(path);
         }
     }
 
