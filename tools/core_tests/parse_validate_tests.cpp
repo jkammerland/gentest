@@ -153,6 +153,17 @@ int main() {
         t.expect(attrs.size() == 2, "template spacing regression: expected two attributes");
         if (!attrs.empty()) {
             t.expect(attrs[0].arguments.size() == 2, "template spacing regression: template argument count");
+            if (attrs[0].arguments.size() == 2) {
+                auto normalize_ws = [](std::string value) {
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
+                                    return std::isspace(c) != 0;
+                                }),
+                                value.end());
+                    return value;
+                };
+                t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>",
+                    "template spacing regression: template type preserved");
+            }
         }
     }
 
@@ -210,6 +221,91 @@ int main() {
         }
     }
 
+    // Regression: identifier-based relational expressions must also split correctly.
+    {
+        auto attrs = parse_attribute_list(R"(parameters(v, a < b, c > d, 42), test("cmp-ident"))");
+        t.expect(attrs.size() == 2, "comparison identifier regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].name == "parameters", "comparison identifier regression: first attribute name");
+            t.expect(attrs[0].arguments.size() == 4, "comparison identifier regression: argument count preserved");
+            if (attrs[0].arguments.size() == 4) {
+                t.expect(attrs[0].arguments[1] == "a < b", "comparison identifier regression: arg1");
+                t.expect(attrs[0].arguments[2] == "c > d", "comparison identifier regression: arg2");
+                t.expect(attrs[0].arguments[3] == "42", "comparison identifier regression: arg3");
+            }
+        }
+    }
+
+    // Regression: compact identifier comparisons must also split correctly.
+    {
+        auto attrs = parse_attribute_list(R"(parameters(v, a<b, c>d, 42), test("cmp-ident-compact"))");
+        t.expect(attrs.size() == 2, "comparison compact identifier regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].name == "parameters", "comparison compact identifier regression: first attribute name");
+            t.expect(attrs[0].arguments.size() == 4, "comparison compact identifier regression: argument count preserved");
+            if (attrs[0].arguments.size() == 4) {
+                t.expect(attrs[0].arguments[1] == "a<b", "comparison compact identifier regression: arg1");
+                t.expect(attrs[0].arguments[2] == "c>d", "comparison compact identifier regression: arg2");
+                t.expect(attrs[0].arguments[3] == "42", "comparison compact identifier regression: arg3");
+            }
+        }
+    }
+
+    // Regression: digit separators must not be treated as char-literal delimiters.
+    {
+        auto attrs = parse_attribute_list(R"(parameters(v, 1'000, 2), test("digit-sep"))");
+        t.expect(attrs.size() == 2, "digit separator regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].name == "parameters", "digit separator regression: first attribute name");
+            t.expect(attrs[0].arguments.size() == 3, "digit separator regression: argument count preserved");
+            if (attrs[0].arguments.size() == 3) {
+                t.expect(attrs[0].arguments[1] == "1'000", "digit separator regression: middle argument preserved");
+                t.expect(attrs[0].arguments[2] == "2", "digit separator regression: trailing argument preserved");
+            }
+        }
+    }
+
+    // Regression: template first argument can be non-type literals.
+    {
+        auto attrs = parse_attribute_list(R"(template(T, Mat<3,4>), test("templated-nontype"))");
+        t.expect(attrs.size() == 2, "template non-type regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].arguments.size() == 2, "template non-type regression: template argument count");
+            if (attrs[0].arguments.size() == 2) {
+                auto normalize_ws = [](std::string value) {
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
+                                    return std::isspace(c) != 0;
+                                }),
+                                value.end());
+                    return value;
+                };
+                t.expect(normalize_ws(attrs[0].arguments[1]) == "Mat<3,4>",
+                    "template non-type regression: value preserved");
+            }
+        }
+    }
+
+    // Regression: char literals containing '>' must not terminate template parsing.
+    {
+        auto attrs = parse_attribute_list(
+            R"(template(T, std::integral_constant<char, '>'>), test("templated-char-literal"))");
+        t.expect(attrs.size() == 2, "template char literal regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].arguments.size() == 2, "template char literal regression: template argument count");
+            if (attrs[0].arguments.size() == 2) {
+                auto normalize_ws = [](std::string value) {
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
+                                    return std::isspace(c) != 0;
+                                }),
+                                value.end());
+                    return value;
+                };
+                t.expect(normalize_ws(attrs[0].arguments[1]) == "std::integral_constant<char,'>'>",
+                    "template char literal regression: type preserved");
+            }
+        }
+    }
+
     // Regression: parameters_pack tuple splitting must also keep '<...>' intact.
     {
         auto attrs = parse_attribute_list(
@@ -243,6 +339,38 @@ int main() {
         }
     }
 
+    // Regression: parameters_pack identifier comparisons should split into two cells.
+    {
+        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((a,b), (x < y, z > w)))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack identifier comparison regression: no arity mismatch");
+        t.expect(summary.param_packs.size() == 1, "parameters_pack identifier comparison regression: one pack");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack identifier comparison regression: one row");
+            if (summary.param_packs[0].rows.size() == 1) {
+                t.expect(summary.param_packs[0].rows[0].size() == 2,
+                    "parameters_pack identifier comparison regression: row arity");
+            }
+        }
+    }
+
+    // Regression: parameters_pack must split tuples containing digit separators.
+    {
+        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((a,b), (1'000, 2)))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack digit separator regression: no validation error");
+        t.expect(summary.param_packs.size() == 1, "parameters_pack digit separator regression: one pack");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack digit separator regression: one row");
+            if (summary.param_packs[0].rows.size() == 1) {
+                t.expect(summary.param_packs[0].rows[0].size() == 2,
+                    "parameters_pack digit separator regression: row arity");
+            }
+        }
+    }
+
     // Regression: parameters_pack should accept spaced template syntax in tuple rows.
     {
         auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair <int, int>{1,2})))");
@@ -269,6 +397,70 @@ int main() {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack qualifier regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
                 t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack qualifier regression: row arity");
+            }
+        }
+    }
+
+    // Regression: parameters_pack should accept nested templates with qualifier after closing '>>'.
+    {
+        auto attrs = parse_attribute_list(
+            R"(test("x"), parameters_pack((v), (std::vector<std::array<int,2>> const{1,2})))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack nested qualifier regression: no validation error");
+        t.expect(summary.param_packs.size() == 1, "parameters_pack nested qualifier regression: one pack");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack nested qualifier regression: one row");
+            if (summary.param_packs[0].rows.size() == 1) {
+                t.expect(summary.param_packs[0].rows[0].size() == 1,
+                    "parameters_pack nested qualifier regression: row arity");
+            }
+        }
+    }
+
+    // Regression: parameters_pack should keep scoped template + declarator rows as a single cell.
+    {
+        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair<int, int> value{1,2})))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack declarator regression: no validation error");
+        t.expect(summary.param_packs.size() == 1, "parameters_pack declarator regression: one pack");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack declarator regression: one row");
+            if (summary.param_packs[0].rows.size() == 1) {
+                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack declarator regression: row arity");
+            }
+        }
+    }
+
+    // Regression: parameters_pack should also keep spaced template declarator rows intact.
+    {
+        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair <int, int> value{1,2})))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack spaced declarator regression: no validation error");
+        t.expect(summary.param_packs.size() == 1, "parameters_pack spaced declarator regression: one pack");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack spaced declarator regression: one row");
+            if (summary.param_packs[0].rows.size() == 1) {
+                t.expect(summary.param_packs[0].rows[0].size() == 1,
+                    "parameters_pack spaced declarator regression: row arity");
+            }
+        }
+    }
+
+    // Regression: parameters_pack should handle char literals containing '>' in template args.
+    {
+        auto attrs = parse_attribute_list(
+            R"(test("x"), parameters_pack((v), (std::integral_constant<char, '>'>{})))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack char literal regression: no validation error");
+        t.expect(summary.param_packs.size() == 1, "parameters_pack char literal regression: one pack");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack char literal regression: one row");
+            if (summary.param_packs[0].rows.size() == 1) {
+                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack char literal regression: row arity");
             }
         }
     }

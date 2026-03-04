@@ -1261,6 +1261,12 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_cross_compile_emulator_serialization
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCrossCompileEmulatorSerialization.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_package_workflow_preset
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckPackageWorkflowPreset.cmake
