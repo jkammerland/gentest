@@ -133,6 +133,7 @@ bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
                     return true;
                 }
                 switch (follower) {
+                case '_': return true;
                 case ',':
                 case ')':
                 case ']':
@@ -143,7 +144,7 @@ bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
                 case ';':
                 case '*':
                 case '&': return true;
-                default: return false;
+                default: return std::isalnum(static_cast<unsigned char>(follower)) != 0;
                 }
             }
             --nested_angle;

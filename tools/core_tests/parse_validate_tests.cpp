@@ -156,6 +156,46 @@ int main() {
         }
     }
 
+    // Regression: qualifiers after closing angle must still keep a single template argument.
+    {
+        auto attrs = parse_attribute_list(R"(template(T, std::pair<int, int> const&), test("templated-qual"))");
+        t.expect(attrs.size() == 2, "template qualifier regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].arguments.size() == 2, "template qualifier regression: template argument count");
+            if (attrs[0].arguments.size() == 2) {
+                auto normalize_ws = [](std::string value) {
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
+                                    return std::isspace(c) != 0;
+                                }),
+                                value.end());
+                    return value;
+                };
+                t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>const&",
+                    "template qualifier regression: type preserved");
+            }
+        }
+    }
+
+    // Regression: nested templates with trailing qualifiers should remain a single argument.
+    {
+        auto attrs = parse_attribute_list(R"(template(T, std::vector<std::array<int,2>> const), test("templated-nested"))");
+        t.expect(attrs.size() == 2, "template nested regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].arguments.size() == 2, "template nested regression: template argument count");
+            if (attrs[0].arguments.size() == 2) {
+                auto normalize_ws = [](std::string value) {
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
+                                    return std::isspace(c) != 0;
+                                }),
+                                value.end());
+                    return value;
+                };
+                t.expect(normalize_ws(attrs[0].arguments[1]) == "std::vector<std::array<int,2>>const",
+                    "template nested regression: type preserved");
+            }
+        }
+    }
+
     // Regression: '<' in comparison expressions must not start angle-depth tracking.
     {
         auto attrs = parse_attribute_list(R"(parameters(value, 1<2, 3), test("cmp"))");
@@ -214,6 +254,21 @@ int main() {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack spacing regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
                 t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack spacing regression: row arity");
+            }
+        }
+    }
+
+    // Regression: parameters_pack should accept qualified template expressions in rows.
+    {
+        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair<int, int> const{1,2})))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "parameters_pack qualifier regression: no validation error");
+        t.expect(summary.param_packs.size() == 1, "parameters_pack qualifier regression: one pack");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack qualifier regression: one row");
+            if (summary.param_packs[0].rows.size() == 1) {
+                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack qualifier regression: row arity");
             }
         }
     }
