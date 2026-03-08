@@ -139,11 +139,13 @@ std::string normalize_case_file(const CollectorOptions &opts, std::string_view f
 }
 
 std::optional<std::uint32_t> parse_tu_index(std::string_view filename) {
-    const auto pos = filename.find("tu_");
-    if (pos == std::string_view::npos) {
+    // Only accept generated TU wrapper names that start with "tu_".
+    // Parsing interior "tu_####" fragments from arbitrary basenames can
+    // produce duplicate register symbol names for different source files.
+    if (!filename.starts_with("tu_")) {
         return std::nullopt;
     }
-    std::size_t i = pos + 3;
+    std::size_t i = 3;
     std::uint32_t value = 0;
     std::size_t digits = 0;
     while (i < filename.size()) {

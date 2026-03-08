@@ -31,6 +31,8 @@ file(MAKE_DIRECTORY "${OUT_DIR}")
 
 function(run_matrix_case _label _prog _expect_rc _expect_summary _expect_junit)
   set(_junit "${OUT_DIR}/${_label}.xml")
+  # Guard against stale files masking missing JUnit output from the current run.
+  file(REMOVE "${_junit}")
 
   execute_process(
     COMMAND ${_emu} "${_prog}" ${ARGN} --junit=${_junit}

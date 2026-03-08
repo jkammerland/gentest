@@ -35,6 +35,7 @@ struct JitterSkipThenTeardownFailFixture : gentest::FixtureSetup, gentest::Fixtu
     }
 };
 
+constexpr unsigned kBenchSetupSkipTeardownFailLine = __LINE__ + 1;
 void bench_setup_skip_teardown_fail(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
@@ -68,6 +69,7 @@ void bench_setup_skip_teardown_fail(void *) {
     }
 }
 
+constexpr unsigned kJitterSetupSkipTeardownFailLine = __LINE__ + 1;
 void jitter_setup_skip_teardown_fail(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
@@ -109,7 +111,7 @@ gentest::Case kCases[] = {
         .name             = kBenchCaseName,
         .fn               = &bench_setup_skip_teardown_fail,
         .file             = __FILE__,
-        .line             = 18,
+        .line             = kBenchSetupSkipTeardownFailLine,
         .is_benchmark     = true,
         .is_jitter        = false,
         .is_baseline      = false,
@@ -125,7 +127,7 @@ gentest::Case kCases[] = {
         .name             = kJitterCaseName,
         .fn               = &jitter_setup_skip_teardown_fail,
         .file             = __FILE__,
-        .line             = 53,
+        .line             = kJitterSetupSkipTeardownFailLine,
         .is_benchmark     = false,
         .is_jitter        = true,
         .is_baseline      = false,

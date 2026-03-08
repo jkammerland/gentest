@@ -55,14 +55,214 @@ std::string unquote(std::string_view value) {
     return trimmed;
 }
 
+char previous_non_space(std::string_view text) {
+    for (std::size_t idx = text.size(); idx > 0; --idx) {
+        const char ch = text[idx - 1];
+        if (std::isspace(static_cast<unsigned char>(ch)) == 0) {
+            return ch;
+        }
+    }
+    return '\0';
+}
+
+char next_non_space(std::string_view text, std::size_t index) {
+    while (index < text.size()) {
+        const char ch = text[index];
+        if (std::isspace(static_cast<unsigned char>(ch)) == 0) {
+            return ch;
+        }
+        ++index;
+    }
+    return '\0';
+}
+
+bool is_likely_template_left(char ch) {
+    return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == ':' || ch == '>' || ch == ')' || ch == ']';
+}
+
+bool is_likely_template_right(char ch) {
+    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == ':' || ch == '(' || ch == '+' || ch == '-' || ch == '\'';
+}
+
+bool is_word_char(char ch) {
+    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+bool is_char_literal_prefix(std::string_view text, std::size_t index) {
+    if (index >= 1 && (text[index - 1] == 'L' || text[index - 1] == 'u' || text[index - 1] == 'U')) {
+        return index == 1 || !is_word_char(text[index - 2]);
+    }
+    if (index >= 2 && text[index - 2] == 'u' && text[index - 1] == '8') {
+        return index == 2 || !is_word_char(text[index - 3]);
+    }
+    return false;
+}
+
+bool should_enter_char_literal(std::string_view text, std::size_t index) {
+    if (index >= text.size() || text[index] != '\'') {
+        return false;
+    }
+    if (is_char_literal_prefix(text, index)) {
+        return true;
+    }
+
+    const char prev = index > 0 ? text[index - 1] : '\0';
+    const char next = index + 1 < text.size() ? text[index + 1] : '\0';
+    if (next == '\0') {
+        return false;
+    }
+    if (std::isalnum(static_cast<unsigned char>(prev)) != 0 && std::isalnum(static_cast<unsigned char>(next)) != 0) {
+        return false;
+    }
+    return true;
+}
+
+std::string next_identifier_token(std::string_view text, std::size_t index) {
+    while (index < text.size() && std::isspace(static_cast<unsigned char>(text[index])) != 0) {
+        ++index;
+    }
+    if (index >= text.size()) {
+        return {};
+    }
+    const char first = text[index];
+    if (std::isalpha(static_cast<unsigned char>(first)) == 0 && first != '_') {
+        return {};
+    }
+
+    std::size_t end = index + 1;
+    while (end < text.size()) {
+        const char ch = text[end];
+        if (std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_') {
+            ++end;
+            continue;
+        }
+        break;
+    }
+    return std::string(text.substr(index, end - index));
+}
+
+bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
+    int  depth        = 0;
+    int  nested_angle = 0;
+    bool in_string    = false;
+    bool in_char      = false;
+    bool escape_next  = false;
+
+    for (std::size_t idx = open_index + 1; idx < text.size(); ++idx) {
+        const char ch = text[idx];
+        if (in_string) {
+            if (escape_next) {
+                escape_next = false;
+            } else if (ch == '\\') {
+                escape_next = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        if (in_char) {
+            if (escape_next) {
+                escape_next = false;
+            } else if (ch == '\\') {
+                escape_next = true;
+            } else if (ch == '\'') {
+                in_char = false;
+            }
+            continue;
+        }
+
+        if (ch == '"') {
+            in_string = true;
+            continue;
+        }
+        if (ch == '\'' && should_enter_char_literal(text, idx)) {
+            in_char = true;
+            continue;
+        }
+
+        if (ch == '(' || ch == '[' || ch == '{') {
+            ++depth;
+            continue;
+        }
+        if (ch == ')' || ch == ']' || ch == '}') {
+            if (depth > 0) {
+                --depth;
+            }
+            continue;
+        }
+        if (depth > 0) {
+            continue;
+        }
+
+        if (ch == '<') {
+            ++nested_angle;
+            continue;
+        }
+        if (ch == '>') {
+            if (nested_angle == 0) {
+                const char follower = next_non_space(text, idx + 1);
+                if (follower == '\0') {
+                    return true;
+                }
+                switch (follower) {
+                case '_': return true;
+                case ',':
+                case ')':
+                case ']':
+                case '}':
+                case '{':
+                case '(':
+                case ':':
+                case ';':
+                case '*':
+                case '&': return true;
+                default: {
+                    const std::string token = next_identifier_token(text, idx + 1);
+                    if (token == "const" || token == "volatile") {
+                        return true;
+                    }
+                    if (token.empty()) {
+                        return false;
+                    }
+                    std::size_t token_start = idx + 1;
+                    while (token_start < text.size() && std::isspace(static_cast<unsigned char>(text[token_start])) != 0) {
+                        ++token_start;
+                    }
+                    const std::size_t token_end = token_start + token.size();
+                    const char        after     = next_non_space(text, token_end);
+                    return after == '{';
+                }
+                }
+            }
+            --nested_angle;
+        }
+    }
+    return false;
+}
+
 std::vector<std::string> split_arguments(std::string_view arguments) {
     std::vector<std::string> parts;
     std::string              current;
     int                      depth       = 0;
+    int                      angle_depth = 0;
     bool                     in_string   = false;
+    bool                     in_char     = false;
     bool                     escape_next = false;
 
-    for (char ch : arguments) {
+    auto should_open_angle = [&](std::size_t idx) {
+        const char prev = previous_non_space(current);
+        if (prev == '\0' || !is_likely_template_left(prev)) {
+            return false;
+        }
+        const char next = next_non_space(arguments, idx + 1);
+        if (next == '\0' || next == '<' || next == '=' || !is_likely_template_right(next)) {
+            return false;
+        }
+        return has_matching_angle_close(arguments, idx);
+    };
+
+    for (std::size_t idx = 0; idx < arguments.size(); ++idx) {
+        const char ch = arguments[idx];
         if (in_string) {
             current.push_back(ch);
             if (escape_next) {
@@ -74,10 +274,27 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
             }
             continue;
         }
+        if (in_char) {
+            current.push_back(ch);
+            if (escape_next) {
+                escape_next = false;
+            } else if (ch == '\\') {
+                escape_next = true;
+            } else if (ch == '\'') {
+                in_char = false;
+            }
+            continue;
+        }
 
         switch (ch) {
         case '"':
             in_string = true;
+            current.push_back(ch);
+            break;
+        case '\'':
+            if (should_enter_char_literal(arguments, idx)) {
+                in_char = true;
+            }
             current.push_back(ch);
             break;
         case '(':
@@ -94,8 +311,20 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
             }
             current.push_back(ch);
             break;
+        case '<':
+            if (should_open_angle(idx)) {
+                ++angle_depth;
+            }
+            current.push_back(ch);
+            break;
+        case '>':
+            if (angle_depth > 0) {
+                --angle_depth;
+            }
+            current.push_back(ch);
+            break;
         case ',':
-            if (depth == 0) {
+            if (depth == 0 && angle_depth == 0) {
                 auto token = trim_copy(current);
                 if (!token.empty()) {
                     parts.push_back(unquote(token));

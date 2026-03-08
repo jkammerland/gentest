@@ -728,53 +728,8 @@ auto collect_gentest_attributes_for(const NamespaceDecl &ns, const SourceManager
     }
 
     const llvm::StringRef buffer = sm.getBufferData(file_id);
-
-    auto scan_back_from = [&](unsigned start_offset) {
-        std::size_t cursor = start_offset;
-        while (cursor > 0) {
-            std::size_t position = cursor;
-            while (position > 0 && std::isspace(static_cast<unsigned char>(buffer[position - 1])) != 0) {
-                --position;
-            }
-            if (position < 2 || buffer[position - 1] != ']' || buffer[position - 2] != ']') {
-                break;
-            }
-            const llvm::StringRef prefix = buffer.take_front(position);
-            const std::size_t     open   = prefix.rfind("[[");
-            if (open == llvm::StringRef::npos) {
-                break;
-            }
-            const std::size_t close_marker = buffer.find("]]", open);
-            if (close_marker == llvm::StringRef::npos) {
-                break;
-            }
-            const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
-            std::string_view      namespace_name;
-            std::string_view      args_text;
-            std::string           owned_args_text;
-            if (!parse_attribute_namespace_and_payload(std::string_view(attribute_text.data(), attribute_text.size()), namespace_name,
-                                                       args_text, owned_args_text)) {
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-
-            if (namespace_name != "gentest") {
-                collected.other_namespaces.push_back(attribute_text.str());
-                cursor = static_cast<unsigned>(open);
-                continue;
-            }
-
-            auto parsed = parse_attribute_list(args_text);
-            if (!parsed.empty()) {
-                collected.gentest.insert(collected.gentest.begin(), parsed.begin(), parsed.end());
-            }
-
-            cursor = static_cast<unsigned>(open);
-        }
-    };
-
     const unsigned loc_offset = sm.getFileOffset(sm.getSpellingLoc(ns.getLocation()));
-    scan_back_from(loc_offset);
+    scan_attributes_before(collected, buffer, loc_offset);
 
     return collected;
 }

@@ -30,6 +30,7 @@ struct JitterSecondFixture : gentest::FixtureSetup {
     void setUp() override { throw std::runtime_error("jitter-second-setup-failed"); }
 };
 
+constexpr unsigned kBenchPartialSetupTeardownLine = __LINE__ + 1;
 void bench_partial_setup_teardown(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
@@ -68,6 +69,7 @@ void bench_partial_setup_teardown(void *) {
     }
 }
 
+constexpr unsigned kJitterPartialSetupTeardownLine = __LINE__ + 1;
 void jitter_partial_setup_teardown(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
@@ -114,7 +116,7 @@ gentest::Case kCases[] = {
         .name             = kBenchCaseName,
         .fn               = &bench_partial_setup_teardown,
         .file             = __FILE__,
-        .line             = 31,
+        .line             = kBenchPartialSetupTeardownLine,
         .is_benchmark     = true,
         .is_jitter        = false,
         .is_baseline      = false,
@@ -130,7 +132,7 @@ gentest::Case kCases[] = {
         .name             = kJitterCaseName,
         .fn               = &jitter_partial_setup_teardown,
         .file             = __FILE__,
-        .line             = 73,
+        .line             = kJitterPartialSetupTeardownLine,
         .is_benchmark     = false,
         .is_jitter        = true,
         .is_baseline      = false,

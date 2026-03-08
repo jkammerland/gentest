@@ -100,8 +100,19 @@ function(gentest_add_cmake_script_test)
 
     set(_emu_def "")
     if(NOT GENTEST_NO_EMULATOR AND CMAKE_CROSSCOMPILING AND DEFINED CMAKE_CROSSCOMPILING_EMULATOR AND NOT CMAKE_CROSSCOMPILING_EMULATOR STREQUAL "")
-        string(JOIN " " _gentest_emu_joined ${CMAKE_CROSSCOMPILING_EMULATOR})
-        set(_emu_def "-DEMU=${_gentest_emu_joined}")
+        set(_gentest_emu_items ${CMAKE_CROSSCOMPILING_EMULATOR})
+        list(LENGTH _gentest_emu_items _gentest_emu_count)
+        string(JOIN ";" _gentest_emu_joined ${_gentest_emu_items})
+        if(_gentest_emu_count EQUAL 1)
+            # Keep the encoded value list-shaped so helper scripts never fall back
+            # to shell-style splitting for single paths containing spaces.
+            string(APPEND _gentest_emu_joined ";")
+        endif()
+        string(REPLACE ";" "\\;" _gentest_emu_escaped "${_gentest_emu_joined}")
+        set(_emu_def "-DEMU=${_gentest_emu_escaped}")
+        unset(_gentest_emu_count)
+        unset(_gentest_emu_items)
+        unset(_gentest_emu_escaped)
         unset(_gentest_emu_joined)
     endif()
 

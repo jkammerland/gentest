@@ -52,6 +52,6 @@ void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vec
 void record_runner_level_failure(RunAccumulator &acc, std::string_view name, std::string message);
 void add_error_annotation(RunAccumulator &acc, std::string_view file, unsigned line, std::string_view title, std::string_view message);
 void emit_github_annotations(const RunAccumulator &acc);
-void write_reports(const RunAccumulator &acc, const ReportConfig &cfg);
+bool write_reports(RunAccumulator &acc, const ReportConfig &cfg);
 
 } // namespace gentest::runner
