@@ -698,12 +698,41 @@ if(WIN32)
     set_property(TEST gentest_codegen_mock_cross_root_include_windows APPEND PROPERTY LABELS "codegen")
 endif()
 
-# End-to-end behavioral checks with robust counting
-gentest_add_check_counts(NAME unit_counts PROG $<TARGET_FILE:gentest_unit_tests> PASS 19 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME unit_list_counts PROG $<TARGET_FILE:gentest_unit_tests> LIST CASES 19)
+# End-to-end behavioral checks with structured suite inventory
+set(_gentest_suite_inventory_checks
+    "unit|gentest_unit_tests|19|19|0|0"
+    "integration|gentest_integration_tests|4|3|0|1"
+    "skiponly|gentest_skiponly_tests|2|0|0|2"
+    "fixtures|gentest_fixtures_tests|33|33|0|0"
+    "templates|gentest_templates_tests|93|93|0|0"
+    "mocking|gentest_mocking_tests|26|26|0|0")
 
-gentest_add_check_counts(NAME integration_counts PROG $<TARGET_FILE:gentest_integration_tests> PASS 3 FAIL 0 SKIP 1)
-gentest_add_check_counts(NAME integration_list_counts PROG $<TARGET_FILE:gentest_integration_tests> LIST CASES 4)
+foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
+    string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
+    list(GET _gentest_inventory_fields 0 _gentest_inventory_name)
+    list(GET _gentest_inventory_fields 1 _gentest_inventory_prog)
+    list(GET _gentest_inventory_fields 2 _gentest_inventory_cases)
+    list(GET _gentest_inventory_fields 3 _gentest_inventory_pass)
+    list(GET _gentest_inventory_fields 4 _gentest_inventory_fail)
+    list(GET _gentest_inventory_fields 5 _gentest_inventory_skip)
+
+    gentest_add_check_inventory(
+        NAME ${_gentest_inventory_name}_inventory
+        PROG ${_gentest_inventory_prog}
+        CASES ${_gentest_inventory_cases}
+        PASS ${_gentest_inventory_pass}
+        FAIL ${_gentest_inventory_fail}
+        SKIP ${_gentest_inventory_skip})
+endforeach()
+unset(_gentest_suite_inventory_checks)
+unset(_gentest_inventory)
+unset(_gentest_inventory_fields)
+unset(_gentest_inventory_name)
+unset(_gentest_inventory_prog)
+unset(_gentest_inventory_cases)
+unset(_gentest_inventory_pass)
+unset(_gentest_inventory_fail)
+unset(_gentest_inventory_skip)
 
 gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 6 SKIP 2)
 
@@ -730,18 +759,6 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "fixture 'failing::NullGlobalFixture' fixture allocation returned null"
     ARGS --run=failing/alloc/global_null)
 
-
-gentest_add_check_counts(NAME skiponly_counts PROG $<TARGET_FILE:gentest_skiponly_tests> PASS 0 FAIL 0 SKIP 2)
-gentest_add_check_counts(NAME skiponly_list_counts PROG $<TARGET_FILE:gentest_skiponly_tests> LIST CASES 2)
-
-gentest_add_check_counts(NAME fixtures_counts PROG $<TARGET_FILE:gentest_fixtures_tests> PASS 33 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME fixtures_list_counts PROG $<TARGET_FILE:gentest_fixtures_tests> LIST CASES 33)
-
-gentest_add_check_counts(NAME templates_counts PROG $<TARGET_FILE:gentest_templates_tests> PASS 93 FAIL 0 SKIP 0)
-gentest_add_check_lines(NAME templates_list_tests_lines PROG $<TARGET_FILE:gentest_templates_tests> LINES 93 ARGS --list-tests)
-
-gentest_add_check_counts(NAME mocking_counts PROG $<TARGET_FILE:gentest_mocking_tests> PASS 26 FAIL 0 SKIP 0)
-gentest_add_check_counts(NAME mocking_list_counts PROG $<TARGET_FILE:gentest_mocking_tests> LIST CASES 26)
 
 # Runtime skip/xfail/XPASS outcome checks
 set(_gentest_outcomes_runtime_checks
@@ -896,10 +913,8 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Regressions.cmake)
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "--time-unit=<mode>" ARGS --help)
-gentest_add_check_lines(NAME unit_list_tests_lines PROG $<TARGET_FILE:gentest_unit_tests> LINES 19 ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_contains_attr_close_marker_name_prefix PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "unit/attributes/close_marker_in_string_" ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "tags=fast" ARGS --list)
-gentest_add_check_lines(NAME integration_list_tests_lines PROG $<TARGET_FILE:gentest_integration_tests> LINES 4 ARGS --list-tests)
 gentest_add_check_contains(NAME integration_list_tags_owner PROG $<TARGET_FILE:gentest_integration_tests> EXPECT_SUBSTRING "owner=team-runtime" ARGS --list)
 
 gentest_add_check_counts(
@@ -939,8 +954,6 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --filter=*strings*)
-
-gentest_add_check_lines(NAME fixtures_list_tests_lines PROG $<TARGET_FILE:gentest_fixtures_tests> LINES 33 ARGS --list-tests)
 
 # JUnit XML smoke test: generate and validate basic content
 gentest_add_check_file_contains(

@@ -195,6 +195,43 @@ function(gentest_add_check_counts)
         DEFINES ${_defines})
 endfunction()
 
+function(gentest_add_check_inventory)
+    set(one_value_args NAME PROG CASES PASS FAIL SKIP XFAIL XPASS EXPECT_RC)
+    set(multi_value_args ARGS)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    if(NOT GENTEST_NAME OR NOT GENTEST_PROG)
+        message(FATAL_ERROR "gentest_add_check_inventory: NAME and PROG are required")
+    endif()
+    if(GENTEST_CASES STREQUAL "")
+        message(FATAL_ERROR "gentest_add_check_inventory: CASES is required")
+    endif()
+
+    set(_defines "CASES=${GENTEST_CASES}")
+    if(NOT "${GENTEST_PASS}" STREQUAL "" OR NOT "${GENTEST_FAIL}" STREQUAL "" OR NOT "${GENTEST_SKIP}" STREQUAL "")
+        if(GENTEST_PASS STREQUAL "" OR GENTEST_FAIL STREQUAL "" OR GENTEST_SKIP STREQUAL "")
+            message(FATAL_ERROR "gentest_add_check_inventory: PASS, FAIL, and SKIP must all be provided together")
+        endif()
+        list(APPEND _defines "PASS=${GENTEST_PASS}" "FAIL=${GENTEST_FAIL}" "SKIP=${GENTEST_SKIP}")
+        if(NOT "${GENTEST_XFAIL}" STREQUAL "")
+            list(APPEND _defines "XFAIL=${GENTEST_XFAIL}")
+        endif()
+        if(NOT "${GENTEST_XPASS}" STREQUAL "")
+            list(APPEND _defines "XPASS=${GENTEST_XPASS}")
+        endif()
+        if(NOT "${GENTEST_EXPECT_RC}" STREQUAL "")
+            list(APPEND _defines "EXPECT_RC=${GENTEST_EXPECT_RC}")
+        endif()
+    endif()
+
+    gentest_add_cmake_script_test(
+        NAME ${GENTEST_NAME}
+        PROG ${GENTEST_PROG}
+        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTestInventory.cmake"
+        ARGS ${GENTEST_ARGS}
+        DEFINES ${_defines})
+endfunction()
+
 function(gentest_add_check_exit_code)
     set(one_value_args NAME PROG EXPECT_RC)
     set(multi_value_args ARGS)
