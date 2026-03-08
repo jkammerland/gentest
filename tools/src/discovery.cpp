@@ -59,6 +59,8 @@ std::string mis_scoped_gentest_message(std::string_view attribute) {
     return fmt::format("attribute '{}' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification", attribute);
 }
 
+using SuiteAttributeCache = std::unordered_map<const NamespaceDecl *, SuiteAttributeSummary>;
+
 bool should_report_namespace_diag_once(const NamespaceDecl &ns, const SourceManager &sm, std::string_view message) {
     SourceLocation loc = sm.getSpellingLoc(ns.getBeginLoc());
     if (loc.isInvalid()) {
@@ -77,6 +79,64 @@ bool should_report_namespace_diag_once(const NamespaceDecl &ns, const SourceMana
 
     std::scoped_lock lock(mutex);
     return seen.insert(key).second;
+}
+
+void report_namespace_diag(const NamespaceDecl &ns, const SourceManager &sm, std::string_view message) {
+    SourceLocation loc = sm.getSpellingLoc(ns.getBeginLoc());
+    if (loc.isInvalid()) {
+        loc = sm.getSpellingLoc(ns.getLocation());
+    }
+    const llvm::StringRef file = sm.getFilename(loc);
+    const unsigned        line = sm.getSpellingLineNumber(loc);
+    std::string           name = ns.getQualifiedNameAsString();
+    if (name.empty() && ns.isAnonymousNamespace()) {
+        name = "(anonymous namespace)";
+    }
+
+    std::string locpfx;
+    if (!file.empty()) {
+        locpfx.reserve(file.size() + 24);
+        fmt::format_to(std::back_inserter(locpfx), "{}:{}: ", file.str(), line);
+    }
+    std::string subj;
+    if (!name.empty()) {
+        subj.reserve(name.size() + 16);
+        fmt::format_to(std::back_inserter(subj), " (namespace {})", name);
+    }
+    log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
+}
+
+auto find_suite_override(const DeclContext *ctx, const SourceManager &sm, SuiteAttributeCache &suite_cache, bool &had_error)
+    -> std::optional<std::string> {
+    const DeclContext *current = ctx;
+    while (current != nullptr) {
+        if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
+            auto it = suite_cache.find(ns);
+            if (it == suite_cache.end()) {
+                auto ns_attrs = collect_gentest_attributes_for(*ns, sm);
+                for (const auto &msg : ns_attrs.mis_scoped_gentest) {
+                    had_error = true;
+                    const auto diag = mis_scoped_gentest_message(msg);
+                    if (should_report_namespace_diag_once(*ns, sm, diag)) {
+                        report_namespace_diag(*ns, sm, diag);
+                    }
+                }
+                for (const auto &msg : ns_attrs.other_namespaces) {
+                    report_namespace_diag(*ns, sm, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", msg));
+                }
+                auto summary_ns = validate_namespace_attributes(ns_attrs.gentest, [&](const std::string &m) {
+                    had_error = true;
+                    report_namespace_diag(*ns, sm, m);
+                });
+                it = suite_cache.emplace(ns, std::move(summary_ns)).first;
+            }
+            if (it->second.suite_name.has_value()) {
+                return it->second.suite_name;
+            }
+        }
+        current = current->getParent();
+    }
+    return std::nullopt;
 }
 
 [[nodiscard]] std::string derive_namespace_path(const DeclContext *ctx) {
@@ -306,60 +366,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (!func->doesThisDeclarationHaveABody())
         return;
 
-    auto report_namespace = [&](const NamespaceDecl &ns, std::string_view message) {
-        SourceLocation loc = sm->getSpellingLoc(ns.getBeginLoc());
-        if (loc.isInvalid())
-            loc = sm->getSpellingLoc(ns.getLocation());
-        const llvm::StringRef file = sm->getFilename(loc);
-        const unsigned        line = sm->getSpellingLineNumber(loc);
-        std::string           name = ns.getQualifiedNameAsString();
-        if (name.empty() && ns.isAnonymousNamespace())
-            name = "(anonymous namespace)";
-        std::string locpfx;
-        if (!file.empty()) {
-            locpfx.reserve(file.size() + 24);
-            fmt::format_to(std::back_inserter(locpfx), "{}:{}: ", file.str(), line);
-        }
-        std::string subj;
-        if (!name.empty()) {
-            subj.reserve(name.size() + 16);
-            fmt::format_to(std::back_inserter(subj), " (namespace {})", name);
-        }
-        log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
-    };
-
-    auto find_suite = [&](const DeclContext *ctx) -> std::optional<std::string> {
-        const DeclContext *current = ctx;
-        while (current != nullptr) {
-            if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
-                auto it = suite_cache_.find(ns);
-                if (it == suite_cache_.end()) {
-                    auto ns_attrs = collect_gentest_attributes_for(*ns, *sm);
-                    for (const auto &msg : ns_attrs.mis_scoped_gentest) {
-                        had_error_ = true;
-                        const auto diag = mis_scoped_gentest_message(msg);
-                        if (should_report_namespace_diag_once(*ns, *sm, diag)) {
-                            report_namespace(*ns, diag);
-                        }
-                    }
-                    for (const auto &msg : ns_attrs.other_namespaces) {
-                        report_namespace(*ns, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", msg));
-                    }
-                    auto summary_ns = validate_namespace_attributes(ns_attrs.gentest, [&](const std::string &m) {
-                        had_error_ = true;
-                        report_namespace(*ns, m);
-                    });
-                    it              = suite_cache_.emplace(ns, std::move(summary_ns)).first;
-                }
-                if (it->second.suite_name.has_value()) {
-                    return it->second.suite_name; // explicit override
-                }
-            }
-            current = current->getParent();
-        }
-        return std::nullopt;
-    };
-
     std::string qualified = func->getQualifiedNameAsString();
     if (qualified.empty())
         qualified = func->getNameAsString();
@@ -446,7 +452,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     };
     const std::vector<std::string> namespace_parts = collect_namespace_parts(func->getDeclContext());
 
-    const auto  suite_override = find_suite(func->getDeclContext());
+    const auto  suite_override = find_suite_override(func->getDeclContext(), *sm, suite_cache_, had_error_);
     std::string suite_path     = suite_override.value_or(derive_namespace_path(func->getDeclContext()));
     std::string base_case_name;
     if (summary.case_name.has_value()) {
@@ -1080,51 +1086,7 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
 
     unsigned line = sm.getSpellingLineNumber(file_loc);
 
-    auto report_namespace = [&](const NamespaceDecl &ns, std::string_view message) {
-        SourceLocation loc = sm.getSpellingLoc(ns.getBeginLoc());
-        if (loc.isInvalid())
-            loc = sm.getSpellingLoc(ns.getLocation());
-        const llvm::StringRef file = sm.getFilename(loc);
-        const unsigned        lnum = sm.getSpellingLineNumber(loc);
-        std::string           name = ns.getQualifiedNameAsString();
-        if (name.empty() && ns.isAnonymousNamespace())
-            name = "(anonymous namespace)";
-        const std::string locpfx = !file.empty() ? fmt::format("{}:{}: ", file.str(), lnum) : std::string{};
-        const std::string subj   = !name.empty() ? fmt::format(" (namespace {})", name) : std::string{};
-        log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
-    };
-
-    const auto suite_override = [&]() -> std::optional<std::string> {
-        const DeclContext *current = func.getDeclContext();
-        while (current != nullptr) {
-            if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
-                auto it = suite_cache_.find(ns);
-                if (it == suite_cache_.end()) {
-                    auto ns_attrs = collect_gentest_attributes_for(*ns, sm);
-                    for (const auto &msg : ns_attrs.mis_scoped_gentest) {
-                        had_error_ = true;
-                        const auto diag = mis_scoped_gentest_message(msg);
-                        if (should_report_namespace_diag_once(*ns, sm, diag)) {
-                            report_namespace(*ns, diag);
-                        }
-                    }
-                    for (const auto &msg : ns_attrs.other_namespaces) {
-                        report_namespace(*ns, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", msg));
-                    }
-                    auto summary_ns = validate_namespace_attributes(ns_attrs.gentest, [&](const std::string &m) {
-                        had_error_ = true;
-                        report_namespace(*ns, m);
-                    });
-                    it              = suite_cache_.emplace(ns, std::move(summary_ns)).first;
-                }
-                if (it->second.suite_name) {
-                    return it->second.suite_name;
-                }
-            }
-            current = current->getParent();
-        }
-        return std::nullopt;
-    }();
+    const auto suite_override = find_suite_override(func.getDeclContext(), sm, suite_cache_, had_error_);
 
     const std::string suite_path = suite_override.value_or(derive_namespace_path(func.getDeclContext()));
 
@@ -1264,52 +1226,7 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
         return; // not a shared fixture declaration
     }
 
-    auto report_namespace = [&](const NamespaceDecl &ns, std::string_view message) {
-        SourceLocation loc = sm->getSpellingLoc(ns.getBeginLoc());
-        if (loc.isInvalid())
-            loc = sm->getSpellingLoc(ns.getLocation());
-        const llvm::StringRef file = sm->getFilename(loc);
-        const unsigned        lnum = sm->getSpellingLineNumber(loc);
-        std::string           name = ns.getQualifiedNameAsString();
-        if (name.empty() && ns.isAnonymousNamespace())
-            name = "(anonymous namespace)";
-        const std::string locpfx = !file.empty() ? fmt::format("{}:{}: ", file.str(), lnum) : std::string{};
-        const std::string subj   = !name.empty() ? fmt::format(" (namespace {})", name) : std::string{};
-        log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
-    };
-
-    const auto suite_override = [&]() -> std::optional<std::string> {
-        const DeclContext *current = record->getDeclContext();
-        while (current != nullptr) {
-            if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
-                auto it = suite_cache_.find(ns);
-                if (it == suite_cache_.end()) {
-                    auto ns_attrs = collect_gentest_attributes_for(*ns, *sm);
-                    for (const auto &msg : ns_attrs.mis_scoped_gentest) {
-                        had_error_ = true;
-                        const auto diag = mis_scoped_gentest_message(msg);
-                        if (should_report_namespace_diag_once(*ns, *sm, diag)) {
-                            report_namespace(*ns, diag);
-                        }
-                    }
-                    for (const auto &msg : ns_attrs.other_namespaces) {
-                        report_namespace(*ns, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", msg));
-                    }
-                    auto summary_ns = validate_namespace_attributes(ns_attrs.gentest, [&](const std::string &m) {
-                        had_error_ = true;
-                        report_namespace(*ns, m);
-                    });
-                    it = suite_cache_.emplace(ns, std::move(summary_ns)).first;
-                }
-                if (it->second.suite_name) {
-                    return it->second.suite_name;
-                }
-            }
-            current = current->getParent();
-        }
-        return std::nullopt;
-    }();
-
+    const auto suite_override = find_suite_override(record->getDeclContext(), *sm, suite_cache_, had_error_);
     const std::string suite_path = suite_override.value_or(derive_namespace_path(record->getDeclContext()));
     if (summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
         had_error_ = true;
@@ -1345,6 +1262,11 @@ struct ParsedFixtureType {
     std::string suffix;
     std::string full;
     bool        qualified = false;
+};
+
+struct FixtureLookup {
+    std::unordered_map<std::string, std::vector<const FixtureDeclInfo *>> by_base;
+    std::unordered_map<std::string, const FixtureDeclInfo *> by_qualified;
 };
 
 std::string trim_copy(std::string_view text) {
@@ -1415,14 +1337,8 @@ std::string join_namespace(const std::vector<std::string> &parts) {
     }
     return out;
 }
-} // namespace
 
-bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures) {
-    struct FixtureLookup {
-        std::unordered_map<std::string, std::vector<const FixtureDeclInfo*>> by_base;
-        std::unordered_map<std::string, const FixtureDeclInfo*> by_qualified;
-    };
-
+auto build_fixture_lookups(const std::vector<FixtureDeclInfo> &fixtures) -> std::unordered_map<std::string, FixtureLookup> {
     std::unordered_map<std::string, FixtureLookup> lookups;
     for (const auto &fixture : fixtures) {
         auto &lookup = lookups[fixture.tu_filename];
@@ -1431,6 +1347,47 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
             lookup.by_qualified[fixture.qualified_name] = &fixture;
         }
     }
+    return lookups;
+}
+
+bool is_visible_fixture_for_test(const FixtureDeclInfo &fixture, const TestCaseInfo &test) {
+    return is_prefix(fixture.namespace_parts, test.namespace_parts);
+}
+
+auto find_best_visible_fixture(const FixtureLookup &lookup, const std::string &base_name, const TestCaseInfo &test)
+    -> const FixtureDeclInfo * {
+    const auto it = lookup.by_base.find(base_name);
+    if (it == lookup.by_base.end()) {
+        return nullptr;
+    }
+
+    const FixtureDeclInfo *best = nullptr;
+    for (const auto *decl : it->second) {
+        if (!is_visible_fixture_for_test(*decl, test)) {
+            continue;
+        }
+        if (!best || decl->namespace_parts.size() > best->namespace_parts.size()) {
+            best = decl;
+        }
+    }
+    return best;
+}
+
+std::string derive_local_fixture_type_name(const ParsedFixtureType &parsed, const TestCaseInfo &test) {
+    if (parsed.qualified) {
+        return parsed.full;
+    }
+
+    const std::string ns_prefix = join_namespace(test.namespace_parts);
+    if (ns_prefix.empty()) {
+        return parsed.base + parsed.suffix;
+    }
+    return ns_prefix + "::" + parsed.base + parsed.suffix;
+}
+} // namespace
+
+bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures) {
+    const auto lookups = build_fixture_lookups(fixtures);
 
     bool ok = true;
     const auto report = [&](const TestCaseInfo &test, const std::string &message) {
@@ -1499,7 +1456,7 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
                     const auto qit = lookup->by_qualified.find(base_no_colons);
                     if (qit != lookup->by_qualified.end()) {
                         const FixtureDeclInfo *decl = qit->second;
-                        if (!is_prefix(decl->namespace_parts, test.namespace_parts)) {
+                        if (!is_visible_fixture_for_test(*decl, test)) {
                             report(test, fmt::format("fixture '{}' is not in an ancestor namespace of this test", base_no_colons));
                             continue;
                         }
@@ -1510,36 +1467,18 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
                     continue;
                 }
 
-                const auto bit = lookup->by_base.find(parsed.base);
-                const FixtureDeclInfo *best = nullptr;
-                if (bit != lookup->by_base.end()) {
-                    for (const auto *decl : bit->second) {
-                        if (!is_prefix(decl->namespace_parts, test.namespace_parts)) {
-                            continue;
-                        }
-                        if (!best || decl->namespace_parts.size() > best->namespace_parts.size()) {
-                            best = decl;
-                        }
-                    }
-                    if (!best) {
-                        report(test, fmt::format("fixture '{}' is not in an ancestor namespace of this test", parsed.base));
-                        continue;
-                    }
+                const FixtureDeclInfo *best = find_best_visible_fixture(*lookup, parsed.base, test);
+                if (best) {
                     emit_declared(best);
+                    continue;
+                }
+                if (lookup->by_base.contains(parsed.base)) {
+                    report(test, fmt::format("fixture '{}' is not in an ancestor namespace of this test", parsed.base));
                     continue;
                 }
             }
 
-            if (parsed.qualified) {
-                emit_local(parsed.full);
-                continue;
-            }
-            const std::string ns_prefix = join_namespace(test.namespace_parts);
-            if (ns_prefix.empty()) {
-                emit_local(parsed.base + parsed.suffix);
-            } else {
-                emit_local(ns_prefix + "::" + parsed.base + parsed.suffix);
-            }
+            emit_local(derive_local_fixture_type_name(parsed, test));
         }
     }
 
