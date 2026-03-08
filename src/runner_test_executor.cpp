@@ -19,13 +19,6 @@ namespace {
 
 using Outcome   = gentest::runner::Outcome;
 using RunResult = gentest::runner::RunResult;
-using ReportItem = gentest::runner::ReportItem;
-
-void record_failure_summary(TestRunContext &state, std::string_view name, std::vector<std::string> issues) {
-    if (!state.acc)
-        return;
-    gentest::runner::record_failure_summary(*state.acc, name, std::move(issues));
-}
 
 RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c) {
     RunResult rr;
@@ -86,9 +79,9 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         if (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) {
             const std::string issue = rr.skip_reason.empty() ? std::string("shared fixture unavailable") : rr.skip_reason;
             rr.failures.push_back(issue);
+            rr.summary_issues.push_back(issue);
             ++c.failed;
             ++c.failures;
-            record_failure_summary(state, test.name, std::vector<std::string>{issue});
             if (state.acc)
                 gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, issue);
         }
@@ -151,7 +144,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         }
         fmt::print(stderr, "{}\n\n", rr.failures.front());
         std::string xpass_issue = rr.xfail_reason.empty() ? "XPASS" : std::string("XPASS: ") + rr.xfail_reason;
-        record_failure_summary(state, test.name, std::vector<std::string>{std::move(xpass_issue)});
+        rr.summary_issues.push_back(std::move(xpass_issue));
         if (state.acc)
             gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, rr.failures.front());
         return rr;
@@ -197,7 +190,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         fmt::print(stderr, "\n");
         if (failure_lines.empty() && !ctxinfo->failures.empty())
             failure_lines.push_back(ctxinfo->failures.front());
-        record_failure_summary(state, test.name, std::move(failure_lines));
+        rr.summary_issues = std::move(failure_lines);
     } else if (!threw_non_skip) {
         const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
         if (state.color_output) {
@@ -222,7 +215,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
             fmt::print(stderr, "[ FAIL ] {} ({} ms)\n", test.name, dur_ms);
         }
         fmt::print(stderr, "\n");
-        record_failure_summary(state, test.name, std::vector<std::string>{fallback_issue});
+        rr.summary_issues.push_back(fallback_issue);
         if (state.acc)
             gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, fallback_issue);
     }
@@ -231,23 +224,9 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
 
 void execute_and_record(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c) {
     RunResult rr = execute_one(state, test, ctx, c);
-    if (!state.record_results || !state.acc)
+    if (!state.acc)
         return;
-    ReportItem item;
-    item.suite       = std::string(test.suite);
-    item.name        = std::string(test.name);
-    item.time_s      = rr.time_s;
-    item.skipped     = rr.skipped;
-    item.skip_reason = rr.skip_reason.empty() ? std::string(test.skip_reason) : rr.skip_reason;
-    item.outcome     = rr.outcome;
-    item.failures    = std::move(rr.failures);
-    item.logs        = std::move(rr.logs);
-    item.timeline    = std::move(rr.timeline);
-    for (auto sv : test.tags)
-        item.tags.emplace_back(sv);
-    for (auto sv : test.requirements)
-        item.requirements.emplace_back(sv);
-    state.acc->report_items.push_back(std::move(item));
+    gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
 }
 
 void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std::string reason, TestCounters &c,
@@ -274,27 +253,21 @@ void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std
     if (infra_failure) {
         ++c.failed;
         ++c.failures;
-        record_failure_summary(state, test.name, std::vector<std::string>{issue});
         if (state.acc)
             gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, issue);
     }
-    if (!state.record_results || !state.acc)
+    if (!state.acc)
         return;
 
-    ReportItem item;
-    item.suite       = std::string(test.suite);
-    item.name        = std::string(test.name);
-    item.time_s      = 0.0;
-    item.skipped     = true;
-    item.outcome     = Outcome::Skip;
-    item.skip_reason = std::move(reason);
-    if (infra_failure)
-        item.failures.push_back(issue);
-    for (auto sv : test.tags)
-        item.tags.emplace_back(sv);
-    for (auto sv : test.requirements)
-        item.requirements.emplace_back(sv);
-    state.acc->report_items.push_back(std::move(item));
+    RunResult rr;
+    rr.skipped     = true;
+    rr.outcome     = Outcome::Skip;
+    rr.skip_reason = std::move(reason);
+    if (infra_failure) {
+        rr.failures.push_back(issue);
+        rr.summary_issues.push_back(issue);
+    }
+    gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
 }
 
 } // namespace

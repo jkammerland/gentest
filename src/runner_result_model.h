@@ -20,6 +20,7 @@ struct RunResult {
     std::string              skip_reason;
     std::string              xfail_reason;
     std::vector<std::string> failures;
+    std::vector<std::string> summary_issues;
     std::vector<std::string> logs;
     std::vector<std::string> timeline;
 };

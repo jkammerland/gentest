@@ -86,6 +86,31 @@ void record_runner_level_failure(RunAccumulator &acc, std::string_view name, std
     acc.infra_errors.push_back(std::move(message));
 }
 
+void record_case_result(RunAccumulator &acc, const gentest::Case &test, RunResult result, bool include_report_item) {
+    if (!result.summary_issues.empty()) {
+        record_failure_summary(acc, test.name, std::move(result.summary_issues));
+    }
+    if (!include_report_item) {
+        return;
+    }
+
+    ReportItem item;
+    item.suite       = std::string(test.suite);
+    item.name        = std::string(test.name);
+    item.time_s      = result.time_s;
+    item.skipped     = result.skipped;
+    item.skip_reason = result.skip_reason.empty() ? std::string(test.skip_reason) : std::move(result.skip_reason);
+    item.outcome     = result.outcome;
+    item.failures    = std::move(result.failures);
+    item.logs        = std::move(result.logs);
+    item.timeline    = std::move(result.timeline);
+    for (auto sv : test.tags)
+        item.tags.emplace_back(sv);
+    for (auto sv : test.requirements)
+        item.requirements.emplace_back(sv);
+    acc.report_items.push_back(std::move(item));
+}
+
 void add_error_annotation(RunAccumulator &acc, std::string_view file, unsigned line, std::string_view title, std::string_view message) {
     GitHubAnnotation item;
     item.file    = std::string(file);
