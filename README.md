@@ -112,7 +112,7 @@ Run:
 `--list-tests` prints only resolved test names (one per line).
 `--list` prints the richer listing format (name plus metadata such as tags/owner when present).
 `--kind` restricts execution/filtering to `all|test|bench|jitter` (default `all`).
-Examples below use the concise `[[gentest::...]]` spelling.
+Examples below use the concise `[[gentest::...]]` spelling for single attributes and `[[using gentest: ...]]` for multi-attribute lists.
 
 Naming:
 - Any gentest function-level attribute marks the declaration as a case.
@@ -210,7 +210,7 @@ target_compile_definitions(my_tests PRIVATE FMT_EXCEPTIONS=0) # and on MSVC STL:
 To test these “death” paths, tag them and run them in their own process:
 
 ```cpp
-[[gentest::test("death/fatal_path"), death]]
+[[using gentest: test("death/fatal_path"), death]]
 void fatal_path();
 ```
 
@@ -300,7 +300,7 @@ void pairs(int a, int b) {
 }
 
 // “Row” style instead of a Cartesian product:
-[[gentest::test("params/rows"), parameters_pack((a, b), (1, 10), (2, 20))]]
+[[using gentest: test("params/rows"), parameters_pack((a, b), (1, 10), (2, 20))]]
 void rows(int a, int b) {
     gentest::expect((a == 1 && b == 10) || (a == 2 && b == 20), "row values");
 }
@@ -318,7 +318,7 @@ Generate statically-typed matrices for function templates:
 #include "gentest/runner.h"
 
 template <typename T, int N>
-[[gentest::test("templates/matrix"), template(T, int, long), template(N, 1, 2)]]
+[[using gentest: test("templates/matrix"), template(T, int, long), template(N, 1, 2)]]
 void matrix() {
     gentest::expect(true, "instantiated");
 }

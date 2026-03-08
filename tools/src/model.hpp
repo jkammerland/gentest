@@ -68,6 +68,7 @@ struct ParsedAttribute {
 struct AttributeCollection {
     std::vector<ParsedAttribute> gentest;
     std::vector<std::string>     other_namespaces;
+    std::vector<std::string>     mis_scoped_gentest;
 };
 
 // Options consumed by the generator tool entry point.

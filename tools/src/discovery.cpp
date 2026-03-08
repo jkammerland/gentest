@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <iterator>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -52,6 +53,30 @@ bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
 
 bool has_cpp_extension(llvm::StringRef path) {
     return ends_with_ci(path, ".cc") || ends_with_ci(path, ".cpp") || ends_with_ci(path, ".cxx");
+}
+
+std::string mis_scoped_gentest_message(std::string_view attribute) {
+    return fmt::format("attribute '{}' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification", attribute);
+}
+
+bool should_report_namespace_diag_once(const NamespaceDecl &ns, const SourceManager &sm, std::string_view message) {
+    SourceLocation loc = sm.getSpellingLoc(ns.getBeginLoc());
+    if (loc.isInvalid()) {
+        loc = sm.getSpellingLoc(ns.getLocation());
+    }
+    const llvm::StringRef file = sm.getFilename(loc);
+    const unsigned        line = sm.getSpellingLineNumber(loc);
+    std::string           name = ns.getQualifiedNameAsString();
+    if (name.empty() && ns.isAnonymousNamespace()) {
+        name = "(anonymous namespace)";
+    }
+
+    static std::mutex                     mutex;
+    static std::unordered_set<std::string> seen;
+    const std::string key = fmt::format("{}:{}:{}:{}", file.str(), line, name, message);
+
+    std::scoped_lock lock(mutex);
+    return seen.insert(key).second;
 }
 
 [[nodiscard]] std::string derive_namespace_path(const DeclContext *ctx) {
@@ -263,6 +288,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
+    for (const auto &message : collected.mis_scoped_gentest) {
+        had_error_ = true;
+        report(mis_scoped_gentest_message(message));
+    }
     for (const auto &message : collected.other_namespaces) {
         report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
     }
@@ -306,6 +335,13 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 auto it = suite_cache_.find(ns);
                 if (it == suite_cache_.end()) {
                     auto ns_attrs = collect_gentest_attributes_for(*ns, *sm);
+                    for (const auto &msg : ns_attrs.mis_scoped_gentest) {
+                        had_error_ = true;
+                        const auto diag = mis_scoped_gentest_message(msg);
+                        if (should_report_namespace_diag_once(*ns, *sm, diag)) {
+                            report_namespace(*ns, diag);
+                        }
+                    }
                     for (const auto &msg : ns_attrs.other_namespaces) {
                         report_namespace(*ns, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", msg));
                     }
@@ -459,6 +495,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
         if (const auto *record = method->getParent()) {
             const auto class_attrs = collect_gentest_attributes_for(*record, *sm);
+            for (const auto &message : class_attrs.mis_scoped_gentest) {
+                had_error_ = true;
+                report(mis_scoped_gentest_message(message));
+            }
             for (const auto &message : class_attrs.other_namespaces)
                 report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
             auto fixture_summary = validate_fixture_attributes(class_attrs.gentest, [&](const std::string &m) {
@@ -998,6 +1038,10 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
         log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
     };
 
+    for (const auto &message : collected.mis_scoped_gentest) {
+        had_error_ = true;
+        report(mis_scoped_gentest_message(message));
+    }
     for (const auto &message : collected.other_namespaces) {
         report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
     }
@@ -1057,6 +1101,13 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
                 auto it = suite_cache_.find(ns);
                 if (it == suite_cache_.end()) {
                     auto ns_attrs = collect_gentest_attributes_for(*ns, sm);
+                    for (const auto &msg : ns_attrs.mis_scoped_gentest) {
+                        had_error_ = true;
+                        const auto diag = mis_scoped_gentest_message(msg);
+                        if (should_report_namespace_diag_once(*ns, sm, diag)) {
+                            report_namespace(*ns, diag);
+                        }
+                    }
                     for (const auto &msg : ns_attrs.other_namespaces) {
                         report_namespace(*ns, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", msg));
                     }
@@ -1120,6 +1171,10 @@ std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func
     if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {
         if (const auto *record = method->getParent()) {
             const auto class_attrs = collect_gentest_attributes_for(*record, sm);
+            for (const auto &message : class_attrs.mis_scoped_gentest) {
+                had_error_ = true;
+                report(mis_scoped_gentest_message(message));
+            }
             for (const auto &message : class_attrs.other_namespaces) {
                 report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
             }
@@ -1188,6 +1243,10 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
     }
 
     const auto attrs = collect_gentest_attributes_for(*record, *sm);
+    for (const auto &message : attrs.mis_scoped_gentest) {
+        had_error_ = true;
+        report(*record, *sm, mis_scoped_gentest_message(message));
+    }
     for (const auto &message : attrs.other_namespaces) {
         report(*record, *sm, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
     }
@@ -1226,6 +1285,13 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
                 auto it = suite_cache_.find(ns);
                 if (it == suite_cache_.end()) {
                     auto ns_attrs = collect_gentest_attributes_for(*ns, *sm);
+                    for (const auto &msg : ns_attrs.mis_scoped_gentest) {
+                        had_error_ = true;
+                        const auto diag = mis_scoped_gentest_message(msg);
+                        if (should_report_namespace_diag_once(*ns, *sm, diag)) {
+                            report_namespace(*ns, diag);
+                        }
+                    }
                     for (const auto &msg : ns_attrs.other_namespaces) {
                         report_namespace(*ns, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", msg));
                     }

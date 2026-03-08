@@ -15,7 +15,7 @@ namespace unit {
 inline void throw_runtime_error() { throw std::runtime_error("boom"); }
 inline void no_throw() {}
 
-[[gentest::test("arithmetic/sum"), fast]]
+[[using gentest: test("arithmetic/sum"), fast]]
 void sum_is_computed() {
     std::array values{1, 2, 3, 4};
     const auto result = std::accumulate(values.begin(), values.end(), 0);
@@ -48,7 +48,7 @@ void approx_relative_negative() {
     EXPECT_EQ(Approx(-200.0).rel(1.0), -198.5); // 0.75% diff within 1%
 }
 
-[[gentest::test("strings/concatenate"), req("#42"), slow]]
+[[using gentest: test("strings/concatenate"), req("#42"), slow]]
 void concatenate_strings() {
     std::string greeting = "hello";
     EXPECT_EQ(greeting.size(), std::size_t{5}, "initial size");
@@ -59,7 +59,7 @@ void concatenate_strings() {
     EXPECT_TRUE(greeting == "hello world");
 }
 
-[[gentest::test("conditions/negate"), linux]]
+[[using gentest: test("conditions/negate"), linux]]
 void negate_condition() {
     bool flag = false;
     ASSERT_EQ(flag, false, "starts false");
