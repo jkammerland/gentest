@@ -14,7 +14,6 @@ Eliminate the highest-risk correctness issues (data races/UB and known logic bug
 
 1. **Runner logging thread-safety**
    - Fix the unsynchronized `dump_logs_on_failure` toggle.
-   - Harden `clear_logs()` against `event_lines` / `event_kinds` size mismatches.
 
 2. **Approximate equality correctness**
    - Fix `gentest::approx::Approx::rel()` so relative matching behaves correctly for negative values (scale must be non-negative).
@@ -44,4 +43,3 @@ Eliminate the highest-risk correctness issues (data races/UB and known logic bug
 ## Notes / references
 
 - See `results/01_public_api_and_runtime.md:1` and `results/06_bug_risks.md:1` for the initial findings and file locations.
-

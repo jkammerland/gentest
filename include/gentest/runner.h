@@ -679,61 +679,6 @@ inline void log_on_fail(bool enable = true) {
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->dump_logs_on_failure = enable;
 }
-inline void clear_logs() {
-    auto ctx = detail::g_current_test;
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed))
-        return;
-
-    if (detail::g_current_buffer.owner != ctx.get()) {
-        detail::flush_current_buffer_for(detail::g_current_buffer.owner);
-        detail::g_current_buffer.owner = ctx.get();
-    }
-
-    detail::g_current_buffer.logs.clear();
-
-    const std::size_t local_n = std::min(detail::g_current_buffer.event_lines.size(), detail::g_current_buffer.event_kinds.size());
-    if (detail::g_current_buffer.event_lines.size() != detail::g_current_buffer.event_kinds.size()) {
-        detail::g_current_buffer.event_lines.resize(local_n);
-        detail::g_current_buffer.event_kinds.resize(local_n);
-    }
-    if (local_n != 0) {
-        std::vector<std::string> kept_lines;
-        std::vector<char>        kept_kinds;
-        kept_lines.reserve(local_n);
-        kept_kinds.reserve(local_n);
-        for (std::size_t i = 0; i < local_n; ++i) {
-            if (detail::g_current_buffer.event_kinds[i] == 'F') {
-                kept_lines.push_back(std::move(detail::g_current_buffer.event_lines[i]));
-                kept_kinds.push_back('F');
-            }
-        }
-        detail::g_current_buffer.event_lines.swap(kept_lines);
-        detail::g_current_buffer.event_kinds.swap(kept_kinds);
-    }
-
-    std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->logs.clear();
-    // Remove any pending log events; keep failure events
-    const std::size_t n = std::min(ctx->event_lines.size(), ctx->event_kinds.size());
-    if (ctx->event_lines.size() != ctx->event_kinds.size()) {
-        ctx->event_lines.resize(n);
-        ctx->event_kinds.resize(n);
-    }
-    if (n != 0) {
-        std::vector<std::string> kept_lines;
-        std::vector<char>        kept_kinds;
-        kept_lines.reserve(n);
-        kept_kinds.reserve(n);
-        for (std::size_t i = 0; i < n; ++i) {
-            if (ctx->event_kinds[i] == 'F') {
-                kept_lines.push_back(std::move(ctx->event_lines[i]));
-                kept_kinds.push_back('F');
-            }
-        }
-        ctx->event_lines.swap(kept_lines);
-        ctx->event_kinds.swap(kept_kinds);
-    }
-}
 
 // Approximate equality helper usable with EXPECT_EQ/ASSERT_EQ via operator==.
 // Example: EXPECT_EQ(3.1415, gentest::approx::Approx(3.14).abs(0.01));
