@@ -32,7 +32,7 @@ Optional:
 Death tests are tagged in code with the `death` tag:
 
 ```cpp
-[[gentest::test("suite/crash_on_x"), death]]
+[[using gentest: test("suite/crash_on_x"), death]]
 void crash_on_x();
 ```
 

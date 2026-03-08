@@ -91,8 +91,9 @@ bool is_known_gentest_unscoped_token(std::string_view token) {
     return is_known_gentest_attribute_name(name);
 }
 
-bool extract_gentest_scoped_payload(std::string_view list, std::string &payload) {
+bool extract_gentest_scoped_payload(std::string_view list, std::string &payload, std::vector<std::string> &mis_scoped_gentest) {
     payload.clear();
+    mis_scoped_gentest.clear();
 
     struct CandidateToken {
         std::string_view token;
@@ -115,7 +116,7 @@ bool extract_gentest_scoped_payload(std::string_view list, std::string &payload)
             return;
         }
         if (is_known_gentest_unscoped_token(token)) {
-            candidates.push_back(CandidateToken{.token = token});
+            mis_scoped_gentest.emplace_back(token);
         }
     };
 
@@ -246,7 +247,8 @@ bool extract_gentest_scoped_payload(std::string_view list, std::string &payload)
 }
 
 bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std::string_view &namespace_name, std::string_view &args_text,
-                                           std::string &owned_args_text) {
+                                           std::string &owned_args_text, std::vector<std::string> &mis_scoped_gentest) {
+    mis_scoped_gentest.clear();
     std::string_view view = trim_view(attribute_text);
     if (!view.starts_with("[[") || !view.ends_with("]]")) {
         return false;
@@ -285,7 +287,7 @@ bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std:
         ++ns_len;
     }
     if (ns_len == 0) {
-        if (!extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+        if (!extract_gentest_scoped_payload(attribute_list, owned_args_text, mis_scoped_gentest)) {
             return false;
         }
         namespace_name = "gentest";
@@ -297,7 +299,7 @@ bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std:
     view.remove_prefix(ns_len);
     view = trim_view(view);
     if (view.size() < 2 || view.substr(0, 2) != "::") {
-        if (!extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+        if (!extract_gentest_scoped_payload(attribute_list, owned_args_text, mis_scoped_gentest)) {
             return false;
         }
         namespace_name = "gentest";
@@ -306,7 +308,7 @@ bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std:
     }
 
     if (namespace_name != "gentest") {
-        if (extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+        if (extract_gentest_scoped_payload(attribute_list, owned_args_text, mis_scoped_gentest)) {
             namespace_name = "gentest";
             args_text      = owned_args_text;
             return true;
@@ -315,8 +317,9 @@ bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std:
     }
 
     // For gentest:: lists, normalize mixed tokens so foreign namespaces (or
-    // unrelated standard attributes) are ignored regardless of token order.
-    if (extract_gentest_scoped_payload(attribute_list, owned_args_text)) {
+    // unrelated standard attributes) are ignored regardless of token order,
+    // but bare gentest-like tokens still diagnose as mis-scoped.
+    if (extract_gentest_scoped_payload(attribute_list, owned_args_text, mis_scoped_gentest)) {
         namespace_name = "gentest";
         args_text      = owned_args_text;
         return true;
@@ -596,14 +599,23 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
             break;
         }
 
-        const llvm::StringRef attribute_text = buffer.slice(open, close_marker + 2);
-        std::string_view      namespace_name;
-        std::string_view      args_text;
-        std::string           owned_args_text;
+        const llvm::StringRef    attribute_text = buffer.slice(open, close_marker + 2);
+        std::string_view         namespace_name;
+        std::string_view         args_text;
+        std::string              owned_args_text;
+        std::vector<std::string> mis_scoped_gentest;
         if (!parse_attribute_namespace_and_payload(std::string_view(attribute_text.data(), attribute_text.size()), namespace_name,
-                                                   args_text, owned_args_text)) {
+                                                   args_text, owned_args_text, mis_scoped_gentest)) {
+            if (!mis_scoped_gentest.empty()) {
+                collected.mis_scoped_gentest.insert(collected.mis_scoped_gentest.end(), mis_scoped_gentest.begin(),
+                                                    mis_scoped_gentest.end());
+            }
             cursor = open;
             continue;
+        }
+
+        if (!mis_scoped_gentest.empty()) {
+            collected.mis_scoped_gentest.insert(collected.mis_scoped_gentest.end(), mis_scoped_gentest.begin(), mis_scoped_gentest.end());
         }
 
         if (namespace_name != "gentest") {
@@ -727,8 +739,8 @@ auto collect_gentest_attributes_for(const NamespaceDecl &ns, const SourceManager
         return collected;
     }
 
-    const llvm::StringRef buffer = sm.getBufferData(file_id);
-    const unsigned loc_offset = sm.getFileOffset(sm.getSpellingLoc(ns.getLocation()));
+    const llvm::StringRef buffer     = sm.getBufferData(file_id);
+    const unsigned        loc_offset = sm.getFileOffset(sm.getSpellingLoc(ns.getLocation()));
     scan_attributes_before(collected, buffer, loc_offset);
 
     return collected;

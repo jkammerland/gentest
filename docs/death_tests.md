@@ -8,7 +8,7 @@ This doc explains how gentest marks, discovers, and runs death tests. The short 
 ## Tagging in code
 
 ```cpp
-[[gentest::test("death/fatal_path"), death]]
+[[using gentest: test("death/fatal_path"), death]]
 void fatal_path();
 ```
 

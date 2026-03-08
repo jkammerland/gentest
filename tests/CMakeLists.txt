@@ -186,6 +186,54 @@ add_test(NAME gentest_codegen_check_namespaced_attrs
            -I${PROJECT_SOURCE_DIR}/include
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
+gentest_add_check_death(
+    NAME gentest_codegen_mis_scoped_attr_keyword
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "attribute 'death' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/mis_scoped_attrs.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_mis_scoped_attr_value_keyword
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "attribute 'req(\"REQ-MIS-SCOPED\")' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/mis_scoped_attrs.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_mis_scoped_attr_unqualified_test
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "attribute 'test(\"smoke/mis_scoped/plain\")' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/mis_scoped_attrs.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
 gentest_add_cmake_script_test(
     NAME gentest_codegen_emit_namespaced_attrs_mixed_std_first
     NO_EMULATOR
@@ -620,6 +668,9 @@ gentest_add_check_death(
 set_tests_properties(
     gentest_codegen_check_valid
     gentest_codegen_check_namespaced_attrs
+    gentest_codegen_mis_scoped_attr_keyword
+    gentest_codegen_mis_scoped_attr_value_keyword
+    gentest_codegen_mis_scoped_attr_unqualified_test
     gentest_codegen_namespace_suite_attr_with_trailing_comment
     gentest_codegen_check_invalid
     gentest_codegen_baseline_requires_bench
