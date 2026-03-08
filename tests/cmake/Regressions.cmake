@@ -1,212 +1,106 @@
 # Extracted from tests/CMakeLists.txt to keep the top-level test list manageable.
 # Regression binaries (manual runtime registration to isolate runner edge cases)
-add_executable(gentest_regression_bench_assert
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/bench_assert_propagation.cpp)
-target_link_libraries(gentest_regression_bench_assert PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_bench_assert PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_bench_assert PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+function(_gentest_add_measured_pair_no_substring_checks)
+    set(one_value_args BENCH_NAME JITTER_NAME PROG RUN_PREFIX EXPECT_RC BENCH_SUBSTRING JITTER_SUBSTRING BENCH_EXTRA_FORBID JITTER_EXTRA_FORBID)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "" ${ARGN})
 
-add_executable(gentest_regression_shared_fixture_reentry
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_reentry.cpp)
-target_link_libraries(gentest_regression_shared_fixture_reentry PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_reentry PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_reentry PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+    foreach(_gentest_kind IN ITEMS bench jitter)
+        if(_gentest_kind STREQUAL "bench")
+            set(_gentest_name "${GENTEST_BENCH_NAME}")
+            set(_gentest_expect "${GENTEST_BENCH_SUBSTRING}")
+            set(_gentest_opposite "${GENTEST_JITTER_SUBSTRING}")
+            set(_gentest_extra_forbid "${GENTEST_BENCH_EXTRA_FORBID}")
+        else()
+            set(_gentest_name "${GENTEST_JITTER_NAME}")
+            set(_gentest_expect "${GENTEST_JITTER_SUBSTRING}")
+            set(_gentest_opposite "${GENTEST_BENCH_SUBSTRING}")
+            set(_gentest_extra_forbid "${GENTEST_JITTER_EXTRA_FORBID}")
+        endif()
 
-add_executable(gentest_regression_shared_fixture_teardown_exit
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_teardown_exit.cpp)
-target_link_libraries(gentest_regression_shared_fixture_teardown_exit PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_teardown_exit PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_teardown_exit PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+        set(_gentest_forbid "${_gentest_opposite}")
+        if(NOT "${_gentest_extra_forbid}" STREQUAL "")
+            if(NOT "${_gentest_forbid}" STREQUAL "")
+                string(APPEND _gentest_forbid "|")
+            endif()
+            string(APPEND _gentest_forbid "${_gentest_extra_forbid}")
+        endif()
 
-add_executable(gentest_regression_member_shared_fixture_setup_skip
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/member_shared_fixture_setup_skip.cpp)
-target_link_libraries(gentest_regression_member_shared_fixture_setup_skip PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_member_shared_fixture_setup_skip PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_member_shared_fixture_setup_skip PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+        gentest_add_cmake_script_test(
+            NAME ${_gentest_name}
+            PROG ${GENTEST_PROG}
+            SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+            ARGS --run=${GENTEST_RUN_PREFIX}/${_gentest_kind} --kind=${_gentest_kind}
+            DEFINES
+                "EXPECT_RC=${GENTEST_EXPECT_RC}"
+                "EXPECT_SUBSTRING=${_gentest_expect}"
+                "FORBID_SUBSTRINGS=${_gentest_forbid}")
+    endforeach()
+endfunction()
 
-add_executable(gentest_regression_member_shared_fixture_setup_skip_bench_jitter
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/member_shared_fixture_setup_skip_bench_jitter.cpp)
-target_link_libraries(gentest_regression_member_shared_fixture_setup_skip_bench_jitter PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_member_shared_fixture_setup_skip_bench_jitter PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_member_shared_fixture_setup_skip_bench_jitter PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+function(_gentest_add_shared_fixture_skip_reason_regression)
+    set(one_value_args NAME_PREFIX PROG RUN EXPECT_SUBSTRING)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "" ${ARGN})
 
-add_executable(gentest_regression_shared_fixture_duplicate_registration
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_duplicate_registration.cpp)
-target_link_libraries(gentest_regression_shared_fixture_duplicate_registration PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_duplicate_registration PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_duplicate_registration PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+    gentest_add_check_counts(
+        NAME ${GENTEST_NAME_PREFIX}_skips
+        PROG ${GENTEST_PROG}
+        PASS 0
+        FAIL 0
+        SKIP 1
+        EXPECT_RC 1
+        ARGS --run=${GENTEST_RUN} --kind=test)
 
-add_executable(gentest_regression_shared_fixture_duplicate_registration_idempotent
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_duplicate_registration_idempotent.cpp)
-target_link_libraries(gentest_regression_shared_fixture_duplicate_registration_idempotent PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_duplicate_registration_idempotent PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_duplicate_registration_idempotent PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+    gentest_add_check_death(
+        NAME ${GENTEST_NAME_PREFIX}_reports_reason
+        PROG ${GENTEST_PROG}
+        EXPECT_SUBSTRING ${GENTEST_EXPECT_SUBSTRING}
+        ARGS --run=${GENTEST_RUN} --kind=test)
+endfunction()
 
-add_executable(gentest_regression_shared_fixture_scope_conflict
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_scope_conflict.cpp)
-target_link_libraries(gentest_regression_shared_fixture_scope_conflict PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_scope_conflict PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_scope_conflict PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+set(_gentest_manual_regressions
+    "gentest_regression_bench_assert|bench_assert_propagation.cpp"
+    "gentest_regression_shared_fixture_reentry|shared_fixture_reentry.cpp"
+    "gentest_regression_shared_fixture_teardown_exit|shared_fixture_teardown_exit.cpp"
+    "gentest_regression_member_shared_fixture_setup_skip|member_shared_fixture_setup_skip.cpp"
+    "gentest_regression_member_shared_fixture_setup_skip_bench_jitter|member_shared_fixture_setup_skip_bench_jitter.cpp"
+    "gentest_regression_shared_fixture_duplicate_registration|shared_fixture_duplicate_registration.cpp"
+    "gentest_regression_shared_fixture_duplicate_registration_idempotent|shared_fixture_duplicate_registration_idempotent.cpp"
+    "gentest_regression_shared_fixture_scope_conflict|shared_fixture_scope_conflict.cpp"
+    "gentest_regression_shared_fixture_ordering|shared_fixture_ordering.cpp"
+    "gentest_regression_fixture_group_shuffle_invariants|fixture_group_shuffle_invariants.cpp"
+    "gentest_regression_shared_fixture_manual_create_throw_skip|shared_fixture_manual_create_throw_skip.cpp"
+    "gentest_regression_shared_fixture_manual_setup_throw_skip|shared_fixture_manual_setup_throw_skip.cpp"
+    "gentest_regression_shared_fixture_missing_factory_skip|shared_fixture_missing_factory_skip.cpp"
+    "gentest_regression_shared_fixture_runtime_registration_during_run|shared_fixture_runtime_registration_during_run.cpp"
+    "gentest_regression_shared_fixture_runtime_reentry_rejected|shared_fixture_runtime_reentry_rejected.cpp"
+    "gentest_regression_shared_fixture_suite_scope_descendant|shared_fixture_suite_scope_descendant.cpp"
+    "gentest_regression_shared_fixture_suite_scope_most_specific|shared_fixture_suite_scope_most_specific.cpp"
+    "gentest_regression_shared_fixture_suite_scope_prefix_collision|shared_fixture_suite_scope_prefix_collision.cpp"
+    "gentest_regression_shared_fixture_manual_teardown_throw_exit|shared_fixture_manual_teardown_throw_exit.cpp"
+    "gentest_regression_cli_suffix_ambiguity|cli_suffix_ambiguity.cpp"
+    "gentest_regression_orchestrator_fail_fast_blocks_measured|orchestrator_fail_fast_blocks_measured.cpp"
+    "gentest_regression_measured_local_fixture_partial_setup_teardown|measured_local_fixture_partial_setup_teardown.cpp"
+    "gentest_regression_measured_local_fixture_setup_throw_teardown_armed|measured_local_fixture_setup_throw_teardown_armed.cpp"
+    "gentest_regression_measured_local_fixture_call_teardown_dualfail|measured_local_fixture_call_teardown_dualfail.cpp"
+    "gentest_regression_measured_local_fixture_setup_skip_teardown_fail|measured_local_fixture_setup_skip_teardown_fail.cpp"
+    "gentest_regression_measured_local_fixture_setup_skip_teardown_skip|measured_local_fixture_setup_skip_teardown_skip.cpp"
+    "gentest_regression_time_unit_scaling|time_unit_scaling.cpp"
+    "gentest_regression_runtime_reporting|runtime_reporting_regressions.cpp")
 
-add_executable(gentest_regression_shared_fixture_ordering
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_ordering.cpp)
-target_link_libraries(gentest_regression_shared_fixture_ordering PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_ordering PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_ordering PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+foreach(_gentest_manual_regression IN LISTS _gentest_manual_regressions)
+    string(REPLACE "|" ";" _gentest_manual_regression_fields "${_gentest_manual_regression}")
+    list(GET _gentest_manual_regression_fields 0 _gentest_manual_target)
+    list(GET _gentest_manual_regression_fields 1 _gentest_manual_source)
 
-add_executable(gentest_regression_fixture_group_shuffle_invariants
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/fixture_group_shuffle_invariants.cpp)
-target_link_libraries(gentest_regression_fixture_group_shuffle_invariants PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_fixture_group_shuffle_invariants PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_fixture_group_shuffle_invariants PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_shared_fixture_manual_create_throw_skip
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_create_throw_skip.cpp)
-target_link_libraries(gentest_regression_shared_fixture_manual_create_throw_skip PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_manual_create_throw_skip PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_manual_create_throw_skip PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_shared_fixture_manual_setup_throw_skip
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_setup_throw_skip.cpp)
-target_link_libraries(gentest_regression_shared_fixture_manual_setup_throw_skip PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_manual_setup_throw_skip PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_manual_setup_throw_skip PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_shared_fixture_missing_factory_skip
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_missing_factory_skip.cpp)
-target_link_libraries(gentest_regression_shared_fixture_missing_factory_skip PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_missing_factory_skip PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_missing_factory_skip PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_shared_fixture_runtime_registration_during_run
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_runtime_registration_during_run.cpp)
-target_link_libraries(gentest_regression_shared_fixture_runtime_registration_during_run PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_runtime_registration_during_run PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_runtime_registration_during_run PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_shared_fixture_runtime_reentry_rejected
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_runtime_reentry_rejected.cpp)
-target_link_libraries(gentest_regression_shared_fixture_runtime_reentry_rejected PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_runtime_reentry_rejected PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_runtime_reentry_rejected PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_shared_fixture_suite_scope_descendant
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_suite_scope_descendant.cpp)
-target_link_libraries(gentest_regression_shared_fixture_suite_scope_descendant PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_suite_scope_descendant PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_suite_scope_descendant PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_shared_fixture_suite_scope_most_specific
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_suite_scope_most_specific.cpp)
-target_link_libraries(gentest_regression_shared_fixture_suite_scope_most_specific PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_suite_scope_most_specific PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_suite_scope_most_specific PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_shared_fixture_suite_scope_prefix_collision
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_suite_scope_prefix_collision.cpp)
-target_link_libraries(gentest_regression_shared_fixture_suite_scope_prefix_collision PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_suite_scope_prefix_collision PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_suite_scope_prefix_collision PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_shared_fixture_manual_teardown_throw_exit
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/shared_fixture_manual_teardown_throw_exit.cpp)
-target_link_libraries(gentest_regression_shared_fixture_manual_teardown_throw_exit PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_shared_fixture_manual_teardown_throw_exit PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_shared_fixture_manual_teardown_throw_exit PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_cli_suffix_ambiguity
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/cli_suffix_ambiguity.cpp)
-target_link_libraries(gentest_regression_cli_suffix_ambiguity PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_cli_suffix_ambiguity PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_cli_suffix_ambiguity PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_orchestrator_fail_fast_blocks_measured
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/orchestrator_fail_fast_blocks_measured.cpp)
-target_link_libraries(gentest_regression_orchestrator_fail_fast_blocks_measured PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_orchestrator_fail_fast_blocks_measured PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_orchestrator_fail_fast_blocks_measured PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_measured_local_fixture_partial_setup_teardown
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_partial_setup_teardown.cpp)
-target_link_libraries(gentest_regression_measured_local_fixture_partial_setup_teardown PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_measured_local_fixture_partial_setup_teardown PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_measured_local_fixture_partial_setup_teardown PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_measured_local_fixture_setup_throw_teardown_armed
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_setup_throw_teardown_armed.cpp)
-target_link_libraries(gentest_regression_measured_local_fixture_setup_throw_teardown_armed PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_measured_local_fixture_setup_throw_teardown_armed PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_measured_local_fixture_setup_throw_teardown_armed PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_measured_local_fixture_call_teardown_dualfail
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_call_teardown_dualfail.cpp)
-target_link_libraries(gentest_regression_measured_local_fixture_call_teardown_dualfail PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_measured_local_fixture_call_teardown_dualfail PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_measured_local_fixture_call_teardown_dualfail PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_measured_local_fixture_setup_skip_teardown_fail
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_setup_skip_teardown_fail.cpp)
-target_link_libraries(gentest_regression_measured_local_fixture_setup_skip_teardown_fail PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_measured_local_fixture_setup_skip_teardown_fail PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_measured_local_fixture_setup_skip_teardown_fail PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_measured_local_fixture_setup_skip_teardown_skip
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_setup_skip_teardown_skip.cpp)
-target_link_libraries(gentest_regression_measured_local_fixture_setup_skip_teardown_skip PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_measured_local_fixture_setup_skip_teardown_skip PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_measured_local_fixture_setup_skip_teardown_skip PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
+    gentest_add_manual_regression(
+        TARGET ${_gentest_manual_target}
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/${_gentest_manual_source})
+endforeach()
+unset(_gentest_manual_regressions)
+unset(_gentest_manual_regression)
+unset(_gentest_manual_regression_fields)
+unset(_gentest_manual_target)
+unset(_gentest_manual_source)
 
 gentest_add_suite(regression_local_fixture_teardown
     TARGET gentest_regression_local_fixture_teardown
@@ -277,22 +171,6 @@ foreach(_gentest_noexc_target
             _HAS_EXCEPTIONS=0
             GENTEST_EXPECT_NO_EXCEPTIONS=1)
 endforeach()
-
-add_executable(gentest_regression_time_unit_scaling
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/time_unit_scaling.cpp)
-target_link_libraries(gentest_regression_time_unit_scaling PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_time_unit_scaling PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_time_unit_scaling PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(gentest_regression_runtime_reporting
-    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/runtime_reporting_regressions.cpp)
-target_link_libraries(gentest_regression_runtime_reporting PRIVATE gentest_runtime)
-target_compile_features(gentest_regression_runtime_reporting PRIVATE cxx_std_20)
-target_include_directories(gentest_regression_runtime_reporting PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
 
 gentest_add_check_death(
     NAME regression_bench_assert_failure_propagates
@@ -462,65 +340,34 @@ gentest_add_run_and_check_file(
     EXPECT_RC 0
     ARGS --run=regressions/jitter_setup_skip_should_not_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_setup_skip_noninfra_junit.xml)
 
-gentest_add_cmake_script_test(
-    NAME regression_bench_local_fixture_partial_setup_failure_teardown
+_gentest_add_measured_pair_no_substring_checks(
+    BENCH_NAME regression_bench_local_fixture_partial_setup_failure_teardown
+    JITTER_NAME regression_jitter_local_fixture_partial_setup_failure_teardown
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_partial_setup_teardown>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_local_fixture_partial_setup_teardown/bench --kind=bench
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=bench-second-setup-failed"
-        "FORBID_SUBSTRINGS=jitter-second-setup-failed")
+    RUN_PREFIX regressions/measured_local_fixture_partial_setup_teardown
+    EXPECT_RC 1
+    BENCH_SUBSTRING bench-second-setup-failed
+    JITTER_SUBSTRING jitter-second-setup-failed)
 
-gentest_add_cmake_script_test(
-    NAME regression_jitter_local_fixture_partial_setup_failure_teardown
-    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_partial_setup_teardown>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_local_fixture_partial_setup_teardown/jitter --kind=jitter
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=jitter-second-setup-failed"
-        "FORBID_SUBSTRINGS=bench-second-setup-failed")
-
-gentest_add_cmake_script_test(
-    NAME regression_generated_bench_local_fixture_partial_setup_failure_teardown
+_gentest_add_measured_pair_no_substring_checks(
+    BENCH_NAME regression_generated_bench_local_fixture_partial_setup_failure_teardown
+    JITTER_NAME regression_generated_jitter_local_fixture_partial_setup_failure_teardown
     PROG $<TARGET_FILE:gentest_regression_mg_lf_partial_teardown>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_generated_local_fixture_partial_setup_teardown/bench --kind=bench
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=generated-bench-second-setup-failed"
-        "FORBID_SUBSTRINGS=generated-jitter-second-setup-failed|regression marker: generated bench local teardown missing after setup failure")
+    RUN_PREFIX regressions/measured_generated_local_fixture_partial_setup_teardown
+    EXPECT_RC 1
+    BENCH_SUBSTRING generated-bench-second-setup-failed
+    JITTER_SUBSTRING generated-jitter-second-setup-failed
+    BENCH_EXTRA_FORBID "regression marker: generated bench local teardown missing after setup failure"
+    JITTER_EXTRA_FORBID "regression marker: generated jitter local teardown missing after setup failure")
 
-gentest_add_cmake_script_test(
-    NAME regression_generated_jitter_local_fixture_partial_setup_failure_teardown
-    PROG $<TARGET_FILE:gentest_regression_mg_lf_partial_teardown>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_generated_local_fixture_partial_setup_teardown/jitter --kind=jitter
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=generated-jitter-second-setup-failed"
-        "FORBID_SUBSTRINGS=generated-bench-second-setup-failed|regression marker: generated jitter local teardown missing after setup failure")
-
-gentest_add_cmake_script_test(
-    NAME regression_bench_local_fixture_setup_throw_teardown_armed
+_gentest_add_measured_pair_no_substring_checks(
+    BENCH_NAME regression_bench_local_fixture_setup_throw_teardown_armed
+    JITTER_NAME regression_jitter_local_fixture_setup_throw_teardown_armed
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_throw_teardown_armed>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_local_fixture_setup_throw_teardown_armed/bench --kind=bench
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=bench-setup-throws"
-        "FORBID_SUBSTRINGS=jitter-setup-throws")
-
-gentest_add_cmake_script_test(
-    NAME regression_jitter_local_fixture_setup_throw_teardown_armed
-    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_throw_teardown_armed>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_local_fixture_setup_throw_teardown_armed/jitter --kind=jitter
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=jitter-setup-throws"
-        "FORBID_SUBSTRINGS=bench-setup-throws")
+    RUN_PREFIX regressions/measured_local_fixture_setup_throw_teardown_armed
+    EXPECT_RC 1
+    BENCH_SUBSTRING bench-setup-throws
+    JITTER_SUBSTRING jitter-setup-throws)
 
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_call_teardown_dualfail_reports_teardown_detail
@@ -774,65 +621,38 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/jitter --kind=jitter --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_setup_skip_teardown_fail)
 endif()
 
-gentest_add_cmake_script_test(
-    NAME regression_generated_bench_local_fixture_setup_throw_teardown_armed
+_gentest_add_measured_pair_no_substring_checks(
+    BENCH_NAME regression_generated_bench_local_fixture_setup_throw_teardown_armed
+    JITTER_NAME regression_generated_jitter_local_fixture_setup_throw_teardown_armed
     PROG $<TARGET_FILE:gentest_regression_mg_lf_setup_throw_teardown>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_generated_local_fixture_setup_throw_teardown_armed/bench --kind=bench
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=generated-bench-setup-throws"
-        "FORBID_SUBSTRINGS=generated-jitter-setup-throws|regression marker: generated bench teardown not armed before setup")
+    RUN_PREFIX regressions/measured_generated_local_fixture_setup_throw_teardown_armed
+    EXPECT_RC 1
+    BENCH_SUBSTRING generated-bench-setup-throws
+    JITTER_SUBSTRING generated-jitter-setup-throws
+    BENCH_EXTRA_FORBID "regression marker: generated bench teardown not armed before setup"
+    JITTER_EXTRA_FORBID "regression marker: generated jitter teardown not armed before setup")
 
-gentest_add_cmake_script_test(
-    NAME regression_generated_jitter_local_fixture_setup_throw_teardown_armed
-    PROG $<TARGET_FILE:gentest_regression_mg_lf_setup_throw_teardown>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_generated_local_fixture_setup_throw_teardown_armed/jitter --kind=jitter
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=generated-jitter-setup-throws"
-        "FORBID_SUBSTRINGS=generated-bench-setup-throws|regression marker: generated jitter teardown not armed before setup")
-
-gentest_add_cmake_script_test(
-    NAME regression_generated_noexceptions_bench_local_fixture_partial_setup_failure_teardown
+_gentest_add_measured_pair_no_substring_checks(
+    BENCH_NAME regression_generated_noexceptions_bench_local_fixture_partial_setup_failure_teardown
+    JITTER_NAME regression_generated_noexceptions_jitter_local_fixture_partial_setup_failure_teardown
     PROG $<TARGET_FILE:gentest_regression_mg_lf_partial_teardown_noexc>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_generated_local_fixture_partial_setup_teardown/bench --kind=bench
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=generated-bench-second-setup-failed"
-        "FORBID_SUBSTRINGS=generated-jitter-second-setup-failed|regression marker: generated bench local teardown missing after setup failure")
+    RUN_PREFIX regressions/measured_generated_local_fixture_partial_setup_teardown
+    EXPECT_RC 1
+    BENCH_SUBSTRING generated-bench-second-setup-failed
+    JITTER_SUBSTRING generated-jitter-second-setup-failed
+    BENCH_EXTRA_FORBID "regression marker: generated bench local teardown missing after setup failure"
+    JITTER_EXTRA_FORBID "regression marker: generated jitter local teardown missing after setup failure")
 
-gentest_add_cmake_script_test(
-    NAME regression_generated_noexceptions_jitter_local_fixture_partial_setup_failure_teardown
-    PROG $<TARGET_FILE:gentest_regression_mg_lf_partial_teardown_noexc>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_generated_local_fixture_partial_setup_teardown/jitter --kind=jitter
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=generated-jitter-second-setup-failed"
-        "FORBID_SUBSTRINGS=generated-bench-second-setup-failed|regression marker: generated jitter local teardown missing after setup failure")
-
-gentest_add_cmake_script_test(
-    NAME regression_generated_noexceptions_bench_local_fixture_setup_throw_teardown_armed
+_gentest_add_measured_pair_no_substring_checks(
+    BENCH_NAME regression_generated_noexceptions_bench_local_fixture_setup_throw_teardown_armed
+    JITTER_NAME regression_generated_noexceptions_jitter_local_fixture_setup_throw_teardown_armed
     PROG $<TARGET_FILE:gentest_regression_mg_lf_setup_throw_teardown_noexc>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_generated_local_fixture_setup_throw_teardown_armed/bench --kind=bench
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=generated-bench-setup-throws"
-        "FORBID_SUBSTRINGS=generated-jitter-setup-throws|regression marker: generated bench teardown not armed before setup")
-
-gentest_add_cmake_script_test(
-    NAME regression_generated_noexceptions_jitter_local_fixture_setup_throw_teardown_armed
-    PROG $<TARGET_FILE:gentest_regression_mg_lf_setup_throw_teardown_noexc>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
-    ARGS --run=regressions/measured_generated_local_fixture_setup_throw_teardown_armed/jitter --kind=jitter
-    DEFINES
-        "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=generated-jitter-setup-throws"
-        "FORBID_SUBSTRINGS=generated-bench-setup-throws|regression marker: generated jitter teardown not armed before setup")
+    RUN_PREFIX regressions/measured_generated_local_fixture_setup_throw_teardown_armed
+    EXPECT_RC 1
+    BENCH_SUBSTRING generated-bench-setup-throws
+    JITTER_SUBSTRING generated-jitter-setup-throws
+    BENCH_EXTRA_FORBID "regression marker: generated bench teardown not armed before setup"
+    JITTER_EXTRA_FORBID "regression marker: generated jitter teardown not armed before setup")
 
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_reentry_no_timeout
@@ -1048,50 +868,31 @@ gentest_add_check_counts(
     SKIP 0
     ARGS --run=regressions/shared_fixture_ordering/uses_b --kind=test)
 
-gentest_add_check_counts(
-    NAME regression_shared_fixture_manual_create_throw_skips
-    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_throw_skip>
-    PASS 0
-    FAIL 0
-    SKIP 1
-    EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_manual_create_throw_skip/member_case --kind=test)
+set(_gentest_shared_fixture_skip_reason_regressions
+    "regression_shared_fixture_manual_create_throw|gentest_regression_shared_fixture_manual_create_throw_skip|regressions/shared_fixture_manual_create_throw_skip/member_case|manual-create-throw"
+    "regression_shared_fixture_manual_setup_throw|gentest_regression_shared_fixture_manual_setup_throw_skip|regressions/shared_fixture_manual_setup_throw_skip/member_case|manual-setup-throw"
+    "regression_shared_fixture_missing_factory|gentest_regression_shared_fixture_missing_factory_skip|regressions/shared_fixture_missing_factory_skip/member_case|missing factory")
 
-gentest_add_check_death(
-    NAME regression_shared_fixture_manual_create_throw_reports_reason
-    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_throw_skip>
-    EXPECT_SUBSTRING "manual-create-throw"
-    ARGS --run=regressions/shared_fixture_manual_create_throw_skip/member_case --kind=test)
+foreach(_gentest_shared_fixture_skip_reason_regression IN LISTS _gentest_shared_fixture_skip_reason_regressions)
+    string(REPLACE "|" ";" _gentest_shared_fixture_skip_reason_fields "${_gentest_shared_fixture_skip_reason_regression}")
+    list(GET _gentest_shared_fixture_skip_reason_fields 0 _gentest_shared_fixture_skip_reason_name)
+    list(GET _gentest_shared_fixture_skip_reason_fields 1 _gentest_shared_fixture_skip_reason_prog)
+    list(GET _gentest_shared_fixture_skip_reason_fields 2 _gentest_shared_fixture_skip_reason_run)
+    list(GET _gentest_shared_fixture_skip_reason_fields 3 _gentest_shared_fixture_skip_reason_substring)
 
-gentest_add_check_counts(
-    NAME regression_shared_fixture_manual_setup_throw_skips
-    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_throw_skip>
-    PASS 0
-    FAIL 0
-    SKIP 1
-    EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_manual_setup_throw_skip/member_case --kind=test)
-
-gentest_add_check_death(
-    NAME regression_shared_fixture_manual_setup_throw_reports_reason
-    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_throw_skip>
-    EXPECT_SUBSTRING "manual-setup-throw"
-    ARGS --run=regressions/shared_fixture_manual_setup_throw_skip/member_case --kind=test)
-
-gentest_add_check_counts(
-    NAME regression_shared_fixture_missing_factory_skips
-    PROG $<TARGET_FILE:gentest_regression_shared_fixture_missing_factory_skip>
-    PASS 0
-    FAIL 0
-    SKIP 1
-    EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_missing_factory_skip/member_case --kind=test)
-
-gentest_add_check_death(
-    NAME regression_shared_fixture_missing_factory_reports_reason
-    PROG $<TARGET_FILE:gentest_regression_shared_fixture_missing_factory_skip>
-    EXPECT_SUBSTRING "missing factory"
-    ARGS --run=regressions/shared_fixture_missing_factory_skip/member_case --kind=test)
+    _gentest_add_shared_fixture_skip_reason_regression(
+        NAME_PREFIX ${_gentest_shared_fixture_skip_reason_name}
+        PROG ${_gentest_shared_fixture_skip_reason_prog}
+        RUN ${_gentest_shared_fixture_skip_reason_run}
+        EXPECT_SUBSTRING ${_gentest_shared_fixture_skip_reason_substring})
+endforeach()
+unset(_gentest_shared_fixture_skip_reason_regressions)
+unset(_gentest_shared_fixture_skip_reason_regression)
+unset(_gentest_shared_fixture_skip_reason_fields)
+unset(_gentest_shared_fixture_skip_reason_name)
+unset(_gentest_shared_fixture_skip_reason_prog)
+unset(_gentest_shared_fixture_skip_reason_run)
+unset(_gentest_shared_fixture_skip_reason_substring)
 
 gentest_add_check_counts(
     NAME regression_shared_fixture_runtime_registration_during_run_rejected

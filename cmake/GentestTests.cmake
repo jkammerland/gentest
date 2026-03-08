@@ -75,6 +75,23 @@ function(gentest_add_suite suite)
     endif()
 endfunction()
 
+function(gentest_add_manual_regression)
+    set(one_value_args TARGET SOURCE)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "" ${ARGN})
+
+    if(NOT GENTEST_TARGET OR NOT GENTEST_SOURCE)
+        message(FATAL_ERROR "gentest_add_manual_regression: TARGET and SOURCE are required")
+    endif()
+
+    add_executable(${GENTEST_TARGET}
+        ${GENTEST_SOURCE})
+    target_link_libraries(${GENTEST_TARGET} PRIVATE gentest_runtime)
+    target_compile_features(${GENTEST_TARGET} PRIVATE cxx_std_20)
+    target_include_directories(${GENTEST_TARGET} PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+endfunction()
+
 function(gentest_add_cmake_script_test)
     set(options NO_EMULATOR)
     set(one_value_args NAME PROG SCRIPT)
