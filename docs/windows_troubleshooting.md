@@ -22,7 +22,7 @@ issues come from LLVM/Clang discovery or the chosen CMake generator.
 From `B:\\repos\\gentest` in PowerShell:
 
 ```pwsh
-$llvm = 'C:\Tools\llvm-21.1.4'
+$llvm = 'C:\Tools\llvm-22.1.0'
 $env:LLVM_BIN = "$llvm\bin"; $env:PATH = "$env:LLVM_BIN;$env:PATH"
 $env:LLVM_DIR = "$llvm\lib\cmake\llvm"; $env:Clang_DIR = "$llvm\lib\cmake\clang"
 
