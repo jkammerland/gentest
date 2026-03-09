@@ -23,7 +23,7 @@ jobs:
     strategy:
         fail-fast: false
         matrix:
-            compiler: ["appleclang", "llvm@20", "llvm@22"]
+            compiler: ["appleclang", "llvm@20", "llvm@21", "llvm"]
             build-type: ["debug", "release"]
     steps:
       - name: Checkout
@@ -45,20 +45,24 @@ jobs:
           brew update
           if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             brew install llvm@20 ninja ccache
+          elif [ "${{ matrix.compiler }}" = "llvm@21" ]; then
+            brew install llvm@21 ninja ccache
           else
-            brew install llvm@22 ninja ccache
+            brew install llvm ninja ccache
           fi
 
       - name: Configure LLVM environment
         run: |
           if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             LLVM_PREFIX="$(brew --prefix llvm@20)"
+          elif [ "${{ matrix.compiler }}" = "llvm@21" ]; then
+            LLVM_PREFIX="$(brew --prefix llvm@21)"
           else
-            LLVM_PREFIX="$(brew --prefix llvm@22)"
+            LLVM_PREFIX="$(brew --prefix llvm)"
           fi
           echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
           echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
-          if [ "${{ matrix.compiler }}" = "llvm@22" ] || [ "${{ matrix.compiler }}" = "llvm@20" ]; then
+          if [ "${{ matrix.compiler }}" = "llvm" ] || [ "${{ matrix.compiler }}" = "llvm@21" ] || [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
           fi
 
