@@ -13,6 +13,7 @@ set(_gentest_test_suites
     failing
     skiponly
     fixtures
+    readme_fixtures
     templates
     mocking
     ctor
@@ -52,6 +53,7 @@ add_library(gentest_codegen_parallel_bench_obj OBJECT EXCLUDE_FROM_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/failing/cases.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/skiponly/cases.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cases.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/readme_fixtures/cases.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/templates/cases.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mocking/cases.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ctor/cases.cpp
@@ -704,6 +706,7 @@ set(_gentest_suite_inventory_checks
     "integration|gentest_integration_tests|4|3|0|1"
     "skiponly|gentest_skiponly_tests|2|0|0|2"
     "fixtures|gentest_fixtures_tests|33|33|0|0"
+    "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0"
     "templates|gentest_templates_tests|93|93|0|0"
     "mocking|gentest_mocking_tests|26|26|0|0")
 
