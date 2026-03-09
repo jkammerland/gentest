@@ -331,8 +331,8 @@ Fixture arguments are inferred from the free-function signature. If a fixture im
 Prefer free-function tests/benches/jitters; member tests are legacy.
 
 Supported fixture argument forms:
-- `T&`
-- `T*`
+- `T&` (reference to the managed fixture instance)
+- `T*` (pointer to the managed fixture instance)
 - `std::shared_ptr<T>`
 
 Allocation hooks can return `std::unique_ptr<T>` (or custom-deleter unique ptr),
@@ -340,6 +340,14 @@ Allocation hooks can return `std::unique_ptr<T>` (or custom-deleter unique ptr),
 internally. Raw-pointer returns are adopted into managed ownership (same lifetime
 semantics as returning `std::unique_ptr<T>`), and the framework handles
 deallocation.
+
+`std::unique_ptr<T>` is an allocation-hook return form, not a test-parameter
+form.
+
+>[!NOTE]
+>This example's teardown assertions assume the three cases below run together:
+>`fx/local/one`, `fx/shared/first`, and `fx/shared/second`. If you run only a
+>subset, the shared-fixture touch-count checks will fail by design.
 
 ```cpp
 #include "gentest/attributes.h"
