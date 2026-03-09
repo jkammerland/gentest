@@ -19,6 +19,11 @@ set(_gentest_test_suites
     ctor
     benchmarks)
 
+# coord suite depends on coord::coord and JSON support
+if(COORD_BUILD AND COORD_ENABLE_JSON)
+    list(APPEND _gentest_test_suites coord)
+endif()
+
 # Optionally include libassert integration suite
 if(GENTEST_WITH_LIBASSERT)
     list(APPEND _gentest_test_suites libassert)
@@ -27,6 +32,10 @@ endif()
 foreach(suite IN LISTS _gentest_test_suites)
     gentest_add_suite(${suite})
 endforeach()
+
+if(TARGET gentest_coord_tests)
+    target_link_libraries(gentest_coord_tests PRIVATE coord::coord)
+endif()
 
 unset(_gentest_test_suites)
 
@@ -762,6 +771,16 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "fixture 'failing::NullGlobalFixture' fixture allocation returned null"
     ARGS --run=failing/alloc/global_null)
 
+
+if(TARGET gentest_coord_tests)
+    set(_coord_expected_count 10)
+    if(WIN32)
+        set(_coord_expected_count 7)
+    endif()
+    gentest_add_check_counts(NAME coord_counts PROG $<TARGET_FILE:gentest_coord_tests> PASS ${_coord_expected_count} FAIL 0 SKIP 0)
+    gentest_add_check_counts(NAME coord_list_counts PROG $<TARGET_FILE:gentest_coord_tests> LIST CASES ${_coord_expected_count})
+    unset(_coord_expected_count)
+endif()
 
 # Runtime skip/xfail/XPASS outcome checks
 set(_gentest_outcomes_runtime_checks
