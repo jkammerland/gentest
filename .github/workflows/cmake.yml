@@ -529,13 +529,13 @@ jobs:
             libfmt-dev
           if [ "${{ matrix.setup_mode }}" = "apt-llvm-org" ]; then
             curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-            cat <<'EOF' >/etc/apt/sources.list.d/apt-llvm-22.sources
-            Types: deb
-            URIs: https://apt.llvm.org/noble/
-            Suites: llvm-toolchain-noble-22
-            Components: main
-            Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-            EOF
+            printf '%s\n' \
+              'Types: deb' \
+              'URIs: https://apt.llvm.org/noble/' \
+              'Suites: llvm-toolchain-noble-22' \
+              'Components: main' \
+              'Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc' \
+              >/etc/apt/sources.list.d/apt-llvm-22.sources
             apt-get update
           fi
           apt-get install -y --no-install-recommends \
