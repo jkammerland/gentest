@@ -331,8 +331,8 @@ Fixture arguments are inferred from the free-function signature. If a fixture im
 Prefer free-function tests/benches/jitters; member tests are legacy.
 
 Supported fixture argument forms:
-- `T&`
-- `T*`
+- `T&` (reference to the managed fixture instance)
+- `T*` (pointer to the managed fixture instance)
 - `std::shared_ptr<T>`
 
 Allocation hooks can return `std::unique_ptr<T>` (or custom-deleter unique ptr),
@@ -341,49 +341,80 @@ internally. Raw-pointer returns are adopted into managed ownership (same lifetim
 semantics as returning `std::unique_ptr<T>`), and the framework handles
 deallocation.
 
+`std::unique_ptr<T>` is an allocation-hook return form, not a test-parameter
+form.
+
+>[!NOTE]
+>This example's teardown assertions assume the three cases below run together:
+>`fx/local/one`, `fx/shared/first`, and `fx/shared/second`. If you run only a
+>subset, the shared-fixture touch-count checks will fail by design.
+
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/fixture.h"
 #include "gentest/runner.h"
+
 using namespace gentest::asserts;
 
-namespace fx::shared {
+namespace fx {
 
-struct [[gentest::fixture(suite)]] SuiteCounter : gentest::FixtureSetup {
-    inline static int set_up_calls = 0;
-    int               touches      = 0;
+struct CounterBase : gentest::FixtureSetup, gentest::FixtureTearDown {
+    int set_up_calls = 0;
+    int touches      = 0;
+
     void setUp() override { ++set_up_calls; }
+
+    void touch() { ++touches; }
+
+    void tearDown() override {
+        EXPECT_EQ(set_up_calls, 1, "fixture setup runs once");
+        EXPECT_EQ(touches, 1, "local fixture is touched once");
+    }
 };
 
-struct [[gentest::fixture(global)]] GlobalCounter : gentest::FixtureSetup {
-    inline static int set_up_calls = 0;
-    int               touches      = 0;
-    void setUp() override { ++set_up_calls; }
+template <int ExpectedTouches>
+struct SharedCounterBase : CounterBase {
+    void tearDown() override {
+        EXPECT_EQ(this->set_up_calls, 1, "shared fixture setup runs once");
+        EXPECT_EQ(this->touches, ExpectedTouches, "shared fixture collected all touches");
+    }
 };
 
-// Globals are for demo only; we also capture these in args below.
-inline SuiteCounter*  first_suite_instance  = nullptr;
-inline GlobalCounter* first_global_instance = nullptr;
+// Declare the global fixture in the common ancestor namespace so it is visible
+// to both `fx::local` and `fx::shared`.
+struct [[gentest::fixture(global)]] GlobalCounter : SharedCounterBase<3> {};
 
-[[gentest::test("fx/shared/first")]]
+namespace local {
+
+struct LocalCounter : CounterBase {};
+
+[[gentest::test]]
+void one(LocalCounter& local_fx, GlobalCounter& global_fx) {
+    local_fx.touch();
+    global_fx.touch();
+}
+
+} // namespace local
+
+namespace shared {
+
+struct [[gentest::fixture(suite)]] SuiteCounter : SharedCounterBase<2> {};
+
+[[gentest::test]]
 void first(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
-    first_suite_instance  = &suite_fx;
-    first_global_instance = &global_fx;
-    ++suite_fx.touches;
-    ++global_fx.touches;
+    suite_fx.touch();
+    global_fx.touch();
 }
 
-[[gentest::test("fx/shared/second")]]
+[[gentest::test]]
 void second(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
-    EXPECT_EQ(&suite_fx, first_suite_instance, "suite fixture instance is reused");
-    EXPECT_EQ(&global_fx, first_global_instance, "global fixture instance is reused");
-    EXPECT_EQ(suite_fx.touches, 1);
-    EXPECT_EQ(global_fx.touches, 1);
-    EXPECT_EQ(SuiteCounter::set_up_calls, 1);
-    EXPECT_EQ(GlobalCounter::set_up_calls, 1);
+    suite_fx.touch();
+    global_fx.touch();
 }
 
-} // namespace fx::shared
+} // namespace shared
+
+} // namespace fx
 ```
 
 See [docs/fixtures_allocation.md](docs/fixtures_allocation.md) for the full allocation and ownership model.
