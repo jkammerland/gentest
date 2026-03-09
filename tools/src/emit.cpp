@@ -340,6 +340,7 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     std::string fixture_registrations = render::render_fixture_registrations(fixtures);
 
     std::string output = template_content;
+    replace_all(output, "{{REGISTRATION_COMMON}}", tpl::registration_common);
     replace_all(output, "{{FORWARD_DECLS}}", forward_decl_block);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(cases.size()));
     replace_all(output, "{{TRAIT_DECLS}}", trait_declarations);
@@ -510,6 +511,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
             }
             std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
 
+            replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
             replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
             replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
             replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);

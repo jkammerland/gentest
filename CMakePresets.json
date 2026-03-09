@@ -776,7 +776,7 @@
       },
       "filter": {
         "include": {
-          "name": "^(gentest_codegen_check_valid|unit|unit_counts|unit_list_counts)$"
+          "name": "^(gentest_codegen_check_valid|unit|unit_inventory)$"
         }
       }
     },

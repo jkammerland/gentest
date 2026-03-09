@@ -23,6 +23,8 @@ libgentest_runtime = static_library(
     'src/runner_cli.cpp',
     'src/runner_fixture_runtime.cpp',
     'src/runner_measured_executor.cpp',
+    'src/runner_measured_format.cpp',
+    'src/runner_measured_report.cpp',
     'src/runner_impl.cpp',
     'src/runner_orchestrator.cpp',
     'src/runner_reporting.cpp',

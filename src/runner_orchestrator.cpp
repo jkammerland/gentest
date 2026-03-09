@@ -18,7 +18,7 @@ namespace gentest::runner {
 namespace {
 
 using Outcome = gentest::runner::Outcome;
-using ReportItem = gentest::runner::ReportItem;
+using RunResult = gentest::runner::RunResult;
 using SelectionStatus = gentest::runner::SelectionStatus;
 
 struct SharedFixtureRunGuard {
@@ -84,84 +84,53 @@ std::string join_span(std::span<const std::string_view> items, char sep) {
     return out;
 }
 
-void record_failure_summary(OrchestratorState &state, std::string_view name, std::vector<std::string> issues) {
-    gentest::runner::record_failure_summary(state.acc, name, std::move(issues));
-}
-
 void record_runner_level_failure(OrchestratorState &state, std::string_view name, std::string message) {
     gentest::runner::record_runner_level_failure(state.acc, name, std::move(message));
 }
 
-void record_measured_failure_report_item(OrchestratorState &state, const gentest::Case &c, const MeasurementCaseFailure &failure,
-                                         std::string_view failure_message) {
-    if (!state.record_results)
-        return;
-
-    ReportItem item;
-    item.suite  = std::string(c.suite);
-    item.name   = std::string(c.name);
-    item.time_s = 0.0;
-
+RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, std::string_view failure_message) {
+    RunResult result;
     if (failure.skipped) {
-        item.skipped     = true;
-        item.outcome     = Outcome::Skip;
-        item.skip_reason = failure.reason;
+        result.skipped     = true;
+        result.outcome     = Outcome::Skip;
+        result.skip_reason = failure.reason;
         if (failure.infra_failure) {
-            const std::string issue = item.skip_reason.empty() ? std::string("shared fixture unavailable") : item.skip_reason;
-            item.failures.push_back(issue);
+            const std::string issue = result.skip_reason.empty() ? std::string("shared fixture unavailable") : result.skip_reason;
+            result.failures.push_back(issue);
+            result.summary_issues.push_back(issue);
         }
-    } else if (!failure_message.empty()) {
-        item.outcome = Outcome::Fail;
-        item.failures.emplace_back(failure_message);
-    } else if (!failure.reason.empty()) {
-        item.outcome = Outcome::Fail;
-        item.failures.push_back(failure.reason);
+        return result;
     }
 
-    for (auto sv : c.tags)
-        item.tags.emplace_back(sv);
-    for (auto sv : c.requirements)
-        item.requirements.emplace_back(sv);
-
-    state.acc.report_items.push_back(std::move(item));
-}
-
-void record_measured_failure_summary(OrchestratorState &state, const gentest::Case &c, const MeasurementCaseFailure &failure,
-                                     std::string_view failure_message) {
-    if (failure.skipped && !failure.infra_failure)
-        return;
-
+    result.outcome = Outcome::Fail;
     std::string issue;
     if (!failure_message.empty()) {
         issue = std::string(failure_message);
     } else if (!failure.reason.empty()) {
         issue = failure.reason;
-    } else if (failure.skipped) {
-        issue = "measured case skipped";
     } else {
         issue = "measured case failed";
     }
-
-    record_failure_summary(state, c.name, std::vector<std::string>{issue});
-    ++state.acc.measured_failures;
+    result.failures.push_back(issue);
+    result.summary_issues.push_back(issue);
+    return result;
 }
 
-template <typename Result> void record_measured_success_report_item(OrchestratorState &state, const gentest::Case &c, const Result &result) {
-    if (!state.record_results)
+template <typename Result> RunResult make_measured_success_result(const Result &result) {
+    RunResult run_result;
+    run_result.time_s  = result.wall_time_s;
+    run_result.outcome = Outcome::Pass;
+    return run_result;
+}
+
+void record_measured_result(OrchestratorState &state, const gentest::Case &c, RunResult result) {
+    if (!result.summary_issues.empty()) {
+        ++state.acc.measured_failures;
+    }
+    if (!state.record_results && result.summary_issues.empty()) {
         return;
-
-    ReportItem item;
-    item.suite   = std::string(c.suite);
-    item.name    = std::string(c.name);
-    item.time_s  = result.wall_time_s;
-    item.outcome = Outcome::Pass;
-
-    for (auto sv : c.tags)
-        item.tags.emplace_back(sv);
-    for (auto sv : c.requirements)
-        item.requirements.emplace_back(sv);
-
-    state.acc.report_items.push_back(std::move(item));
+    }
+    gentest::runner::record_case_result(state.acc, c, std::move(result), state.record_results);
 }
 
 int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, const SelectionResult &selection, bool has_selection) {
@@ -209,22 +178,20 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         bench_status = gentest::runner::run_selected_benches(
             kCases, std::span<const std::size_t>{bench_idxs.data(), bench_idxs.size()}, opt, opt.fail_fast,
             [&](const gentest::Case &measured, const gentest::runner::BenchResult &result) {
-                record_measured_success_report_item(state, measured, result);
+                record_measured_result(state, measured, make_measured_success_result(result));
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
-                record_measured_failure_summary(state, measured, failure, failure_message);
-                record_measured_failure_report_item(state, measured, failure, failure_message);
+                record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));
             });
     }
     if (!fixture_runtime_blocked && !(opt.fail_fast && (tests_stopped || bench_status.stopped))) {
         jitter_status = gentest::runner::run_selected_jitters(
             kCases, std::span<const std::size_t>{jitter_idxs.data(), jitter_idxs.size()}, opt, opt.fail_fast,
             [&](const gentest::Case &measured, const gentest::runner::JitterResult &result) {
-                record_measured_success_report_item(state, measured, result);
+                record_measured_result(state, measured, make_measured_success_result(result));
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
-                record_measured_failure_summary(state, measured, failure, failure_message);
-                record_measured_failure_report_item(state, measured, failure, failure_message);
+                record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));
             });
     }
 

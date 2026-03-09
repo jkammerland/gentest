@@ -137,4 +137,4 @@ fi
 # - host tool check (runs natively)
 # - unit suite + script-based checks (run via qemu-aarch64)
 ctest --test-dir "${target_build_dir}" --output-on-failure \
-  -R '^(gentest_codegen_check_valid|unit|unit_counts|unit_list_counts)$'
+  -R '^(gentest_codegen_check_valid|unit|unit_inventory)$'

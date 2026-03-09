@@ -75,6 +75,23 @@ function(gentest_add_suite suite)
     endif()
 endfunction()
 
+function(gentest_add_manual_regression)
+    set(one_value_args TARGET SOURCE)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "" ${ARGN})
+
+    if(NOT GENTEST_TARGET OR NOT GENTEST_SOURCE)
+        message(FATAL_ERROR "gentest_add_manual_regression: TARGET and SOURCE are required")
+    endif()
+
+    add_executable(${GENTEST_TARGET}
+        ${GENTEST_SOURCE})
+    target_link_libraries(${GENTEST_TARGET} PRIVATE gentest_runtime)
+    target_compile_features(${GENTEST_TARGET} PRIVATE cxx_std_20)
+    target_include_directories(${GENTEST_TARGET} PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+endfunction()
+
 function(gentest_add_cmake_script_test)
     set(options NO_EMULATOR)
     set(one_value_args NAME PROG SCRIPT)
@@ -191,6 +208,43 @@ function(gentest_add_check_counts)
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake"
+        ARGS ${GENTEST_ARGS}
+        DEFINES ${_defines})
+endfunction()
+
+function(gentest_add_check_inventory)
+    set(one_value_args NAME PROG CASES PASS FAIL SKIP XFAIL XPASS EXPECT_RC)
+    set(multi_value_args ARGS)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    if(NOT GENTEST_NAME OR NOT GENTEST_PROG)
+        message(FATAL_ERROR "gentest_add_check_inventory: NAME and PROG are required")
+    endif()
+    if(GENTEST_CASES STREQUAL "")
+        message(FATAL_ERROR "gentest_add_check_inventory: CASES is required")
+    endif()
+
+    set(_defines "CASES=${GENTEST_CASES}")
+    if(NOT "${GENTEST_PASS}" STREQUAL "" OR NOT "${GENTEST_FAIL}" STREQUAL "" OR NOT "${GENTEST_SKIP}" STREQUAL "")
+        if(GENTEST_PASS STREQUAL "" OR GENTEST_FAIL STREQUAL "" OR GENTEST_SKIP STREQUAL "")
+            message(FATAL_ERROR "gentest_add_check_inventory: PASS, FAIL, and SKIP must all be provided together")
+        endif()
+        list(APPEND _defines "PASS=${GENTEST_PASS}" "FAIL=${GENTEST_FAIL}" "SKIP=${GENTEST_SKIP}")
+        if(NOT "${GENTEST_XFAIL}" STREQUAL "")
+            list(APPEND _defines "XFAIL=${GENTEST_XFAIL}")
+        endif()
+        if(NOT "${GENTEST_XPASS}" STREQUAL "")
+            list(APPEND _defines "XPASS=${GENTEST_XPASS}")
+        endif()
+        if(NOT "${GENTEST_EXPECT_RC}" STREQUAL "")
+            list(APPEND _defines "EXPECT_RC=${GENTEST_EXPECT_RC}")
+        endif()
+    endif()
+
+    gentest_add_cmake_script_test(
+        NAME ${GENTEST_NAME}
+        PROG ${GENTEST_PROG}
+        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTestInventory.cmake"
         ARGS ${GENTEST_ARGS}
         DEFINES ${_defines})
 endfunction()
