@@ -58,7 +58,7 @@ cmake -S . -B build/aarch64-qemu -G Ninja \
 ```bash
 cmake --build build/aarch64-qemu --target gentest_unit_tests
 ctest --test-dir build/aarch64-qemu --output-on-failure \
-  -R '^(gentest_codegen_check_valid|unit|unit_counts|unit_list_counts)$'
+  -R '^(gentest_codegen_check_valid|unit|unit_inventory)$'
 ```
 
 ## CMake presets
