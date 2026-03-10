@@ -301,7 +301,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "EXPECT_SUBSTRING=orchestrator-fail-fast-test-failure"
-        "FORBID_SUBSTRING=orchestrator-fail-fast-bench-ran")
+        "FORBID_SUBSTRING=orchestrator-fail-fast-bench-phase-ran")
 
 gentest_add_cmake_script_test(
     NAME regression_orchestrator_fail_fast_blocks_measured_no_jitter_call
@@ -311,7 +311,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "EXPECT_SUBSTRING=orchestrator-fail-fast-test-failure"
-        "FORBID_SUBSTRING=orchestrator-fail-fast-jitter-ran")
+        "FORBID_SUBSTRING=orchestrator-fail-fast-jitter-phase-ran")
 
 gentest_add_check_exit_code(
     NAME regression_bench_setup_skip_noninfra_exit_zero
