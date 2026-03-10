@@ -91,6 +91,7 @@ set(_gentest_concurrency_count_checks
     "concurrency_pass_single|1|0|0|concurrency/child_expect_pass"
     "concurrency_pass_throw_single|1|0|0|concurrency/child_expect_throw_pass"
     "concurrency_multi_pass_single|1|0|0|concurrency/multi_adopt_expect_pass"
+    "concurrency_mock_dispatch_single|1|0|0|concurrency/mock_adopt_dispatch"
     "concurrency_multi_fail_single|0|1|0|concurrency/multi_adopt_expect_fail")
 
 foreach(_gentest_check IN LISTS _gentest_concurrency_count_checks)
