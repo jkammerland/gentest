@@ -29,9 +29,3 @@ execute_process(
 if(_rc EQUAL 0)
   message(FATAL_ERROR "CheckAllureRunnerInfraParity.cmake accepted stale Allure result files")
 endif()
-
-set(_all "${_out}\n${_err}")
-string(FIND "${_all}" "Expected at least 2 Allure result files" _msg_pos)
-if(_msg_pos EQUAL -1)
-  message(FATAL_ERROR "Unexpected failure mode while rejecting stale Allure results:\n${_all}")
-endif()

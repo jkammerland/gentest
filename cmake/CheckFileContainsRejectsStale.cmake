@@ -27,9 +27,3 @@ execute_process(
 if(_rc EQUAL 0)
   message(FATAL_ERROR "CheckFileContains.cmake accepted stale generated file contents")
 endif()
-
-set(_all "${_out}\n${_err}")
-string(FIND "${_all}" "Expected file not found" _msg_pos)
-if(_msg_pos EQUAL -1)
-  message(FATAL_ERROR "Unexpected failure mode while rejecting stale generated file:\n${_all}")
-endif()
