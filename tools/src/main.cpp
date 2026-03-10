@@ -350,6 +350,19 @@ std::optional<std::string> get_env_value(std::string_view name) {
 #endif
 }
 
+std::string basename_without_extension(std::string_view path) {
+    if (path.empty()) {
+        return {};
+    }
+    return std::filesystem::path{path}.filename().replace_extension().string();
+}
+
+bool is_clang_like_compiler(std::string_view path) {
+    const std::string name = basename_without_extension(path);
+    return name == "clang" || name == "clang++" || name == "clang-cl" || llvm::StringRef{name}.starts_with("clang-") ||
+        llvm::StringRef{name}.starts_with("clang++-");
+}
+
 std::optional<std::size_t> parse_jobs_string(std::string_view raw_value) {
     llvm::StringRef value{raw_value.data(), raw_value.size()};
     value = value.trim();
@@ -400,6 +413,39 @@ bool has_resource_dir_arg(const std::vector<std::string> &args) {
         }
     }
     return false;
+}
+
+bool is_known_compiler_launcher(std::string_view path) {
+    const std::string name = basename_without_extension(path);
+    return name == "ccache" || name == "sccache" || name == "distcc" || name == "icecc" || name == "buildcache";
+}
+
+std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line) {
+    if (command_line.empty()) {
+        return std::nullopt;
+    }
+    if (is_clang_like_compiler(command_line.front())) {
+        return 0;
+    }
+    if (command_line.size() >= 3 && command_line[1] == "--" && is_clang_like_compiler(command_line[2])) {
+        return 2;
+    }
+    if (command_line.size() >= 2 && is_clang_like_compiler(command_line[1])) {
+        return 1;
+    }
+    if (!is_known_compiler_launcher(command_line.front())) {
+        return 0;
+    }
+    return std::nullopt;
+}
+
+std::string compiler_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line,
+                                            const std::string                        &default_compiler_path) {
+    const auto compiler_index = compiler_arg_index_for_resource_dir_probe(command_line);
+    if (!compiler_index) {
+        return default_compiler_path;
+    }
+    return command_line[*compiler_index];
 }
 
 std::string resolve_resource_dir(const std::string &compiler_path) {
@@ -668,15 +714,17 @@ int main(int argc, const char **argv) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
                     // Use compiler and flags from compilation database
-                    adjusted.emplace_back(command_line.front());
-                    const std::string resource_dir = resource_dir_for_compiler(command_line.front());
+                    const auto compiler_index = compiler_arg_index_for_resource_dir_probe(command_line).value_or(0);
+                    adjusted.insert(adjusted.end(), command_line.begin(), command_line.begin() + static_cast<std::ptrdiff_t>(compiler_index + 1));
+                    const std::string resource_dir =
+                        resource_dir_for_compiler(compiler_for_resource_dir_probe(command_line, default_compiler_path));
                     if (!resource_dir.empty()) {
                         adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
                     }
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                     // Copy remaining args, filtering out C++ module flags
                     bool skip_next_arg = false;
-                    for (std::size_t i = 1; i < command_line.size(); ++i) {
+                    for (std::size_t i = compiler_index + 1; i < command_line.size(); ++i) {
                         const auto &arg = command_line[i];
                         if (skip_next_arg) {
                             skip_next_arg = false;

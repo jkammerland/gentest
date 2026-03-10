@@ -22,7 +22,7 @@ set(_bin_dir "${_work_dir}/bin")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_bin_dir}")
 
-set(_fake_script
+string(CONCAT _fake_script
   "#!/bin/sh\n"
   "if [ \"$1\" = \"-print-resource-dir\" ]; then\n"
   "  printf '%s\\n' '/definitely/missing/gentest-resource-dir'\n"
@@ -39,6 +39,22 @@ foreach(_name IN ITEMS clang++ clang++-20 clang++-21 clang++-22)
       WORLD_READ WORLD_EXECUTE)
 endforeach()
 
+string(CONCAT _launcher_script
+  "#!/bin/sh\n"
+  "if [ \"$1\" = \"-print-resource-dir\" ]; then\n"
+  "  printf '%s\\n' '/definitely/missing/gentest-launcher-resource-dir'\n"
+  "  exit 0\n"
+  "fi\n"
+  "real=\"$1\"\n"
+  "shift\n"
+  "exec \"$real\" \"$@\"\n")
+file(WRITE "${_bin_dir}/launcher" "${_launcher_script}")
+file(CHMOD "${_bin_dir}/launcher"
+  PERMISSIONS
+    OWNER_READ OWNER_WRITE OWNER_EXECUTE
+    GROUP_READ GROUP_EXECUTE
+    WORLD_READ WORLD_EXECUTE)
+
 set(_input_cpp "${_work_dir}/resource_dir_input.cpp")
 file(WRITE "${_input_cpp}"
   "#include <stddef.h>\n"
@@ -51,7 +67,7 @@ file(WRITE "${_work_dir}/compile_commands.json"
   "  {\n"
   "    \"directory\": \"${_work_dir}\",\n"
   "    \"file\": \"${_input_cpp_norm}\",\n"
-  "    \"command\": \"${_real_clang_norm} -std=c++20 -I${_source_dir_norm}/include -c ${_input_cpp_norm}\"\n"
+  "    \"command\": \"${_bin_dir}/launcher ${_real_clang_norm} -std=c++20 -I${_source_dir_norm}/include -c ${_input_cpp_norm}\"\n"
   "  }\n"
   "]\n")
 
