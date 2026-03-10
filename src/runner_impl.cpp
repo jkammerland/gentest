@@ -48,27 +48,7 @@ auto snapshot_registered_cases() -> std::vector<Case> { return snapshot_cases();
 } // namespace gentest::detail
 
 namespace gentest {
-const Case *get_cases() {
-    auto                       &reg = case_registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
-    if (!reg.sorted) {
-        std::sort(reg.cases.begin(), reg.cases.end(), [](const Case &lhs, const Case &rhs) {
-            if (lhs.name != rhs.name)
-                return lhs.name < rhs.name;
-            if (lhs.file != rhs.file)
-                return lhs.file < rhs.file;
-            return lhs.line < rhs.line;
-        });
-        reg.sorted = true;
-    }
-    return reg.cases.data();
-}
-
-std::size_t get_case_count() {
-    auto                       &reg = case_registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
-    return reg.cases.size();
-}
+auto registered_cases() -> std::vector<Case> { return snapshot_cases(); }
 
 auto run_all_tests(std::span<const char *> args) -> int {
     gentest::runner::CliOptions opt{};

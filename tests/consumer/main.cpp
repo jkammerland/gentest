@@ -28,6 +28,8 @@ constexpr gentest::Case kCases[] = {
 };
 
 struct Registrar {
+    // Smoke-test the installed internal registration hook used by generated
+    // code. This is registry wiring coverage, not recommended consumer usage.
     Registrar() { gentest::detail::register_cases(std::span{kCases}); }
 };
 [[maybe_unused]] const Registrar kRegistrar{};

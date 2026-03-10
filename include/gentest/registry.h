@@ -19,9 +19,9 @@ GENTEST_RUNTIME_API auto run_all_tests(int argc, char **argv) -> int;
 // Unified test entry (span version). Consumed by generated code.
 GENTEST_RUNTIME_API auto run_all_tests(std::span<const char *> args) -> int;
 
-// Runtime-visible test case description used by the generated manifest.
-// The generator produces a constexpr array of Case entries and provides access
-// via gentest::get_cases()/gentest::get_case_count() defined in the generated TU.
+// Runtime-visible test case description used by generated registration code.
+// The generator produces constexpr Case tables and registers them with the
+// runtime registry during static initialization.
 enum class FixtureLifetime {
     None,
     MemberEphemeral,
@@ -46,18 +46,26 @@ struct Case {
     std::string_view                  suite;
 };
 
-// Provided by the runtime registry; populated by generated translation units.
-GENTEST_RUNTIME_API const Case *get_cases();
-GENTEST_RUNTIME_API std::size_t get_case_count();
+// Returns an owned, sorted snapshot of the currently registered cases.
+//
+// The returned vector owns only the Case objects themselves; the Case metadata
+// remains non-owning and therefore still relies on the backing storage supplied
+// at registration time remaining valid.
+GENTEST_RUNTIME_API auto registered_cases() -> std::vector<Case>;
 
 namespace detail {
 
-// Called by generated sources to register discovered cases. Not intended for
-// direct use in test code.
+// Called by generated sources to register discovered cases. This is an
+// internal/generated-code hook, not a supported consumer API.
+//
+// Case stores non-owning metadata (for example string_view/span fields), so
+// callers must only register Case tables whose backing storage outlives all
+// later registry access. In practice this means static/constexpr generated
+// tables, not temporary or stack-owned strings/arrays.
 GENTEST_RUNTIME_API void register_cases(std::span<const Case> cases);
 
-// Returns an owned, sorted snapshot of the currently registered cases. Used by
-// the runtime to keep an active run insulated from later registrations.
+// Internal alias used by the runtime to keep an active run insulated from later
+// registrations. Consumers should call gentest::registered_cases().
 GENTEST_RUNTIME_API auto snapshot_registered_cases() -> std::vector<Case>;
 
 enum class SharedFixtureScope {
