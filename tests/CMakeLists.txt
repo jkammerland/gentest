@@ -567,6 +567,17 @@ if(WIN32)
             "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
 endif()
 
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_mock_symlink_include
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckMockSymlinkInclude.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}"
+        "PROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "CODEGEN_STD=${_gentest_codegen_std_flag}"
+        "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
+
 gentest_add_check_death(
     NAME gentest_codegen_mock_anonymous_namespace_msg
     NO_EMULATOR

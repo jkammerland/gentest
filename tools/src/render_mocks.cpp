@@ -500,14 +500,16 @@ DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &op
         }
         def_path = def_path.lexically_normal();
 
-        ec.clear();
         fs::path include_path;
-        fs::path rel_path = fs::proximate(def_path, registry_dir, ec);
-        if (!ec && !rel_path.empty() && !rel_path.is_absolute()) {
+        // Avoid std::filesystem::proximate() here: it canonicalizes through the
+        // host filesystem and can rewrite symlink-visible paths into real host
+        // paths that are not usable from sandboxed or source-mounted builds.
+        fs::path rel_path = def_path.lexically_relative(registry_dir);
+        if (!rel_path.empty() && !rel_path.is_absolute()) {
             include_path = std::move(rel_path);
         } else {
-            // Cross-root/drive paths can legitimately yield absolute results.
-            // In that case, fall back to an absolute include instead of failing.
+            // Cross-root/drive paths can legitimately fail to relativize. In
+            // that case, fall back to an absolute include instead of failing.
             include_path = def_path;
         }
         if (include_path.empty()) {

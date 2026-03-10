@@ -193,12 +193,11 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
     if (file_loc.isValid()) {
         const FileID file_id = sm.getFileID(file_loc);
         if (const auto entry_ref = sm.getFileEntryRefForID(file_id)) {
-            const llvm::StringRef real_path = entry_ref->getFileEntry().tryGetRealPathName();
-            if (!real_path.empty()) {
-                resolved = real_path.str();
-            } else {
-                resolved = entry_ref->getName().str();
-            }
+            // Preserve the path spelling visible to the compilation rather than
+            // canonicalizing through the host filesystem. This matches the
+            // wrapper/source include handling in emit.cpp and avoids leaking
+            // sandbox-host realpaths through symlinked source trees.
+            resolved = entry_ref->getName().str();
         }
     }
     if (resolved.empty()) {
