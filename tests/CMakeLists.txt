@@ -705,7 +705,7 @@ set(_gentest_suite_inventory_checks
     "unit|gentest_unit_tests|19|19|0|0"
     "integration|gentest_integration_tests|4|3|0|1"
     "skiponly|gentest_skiponly_tests|2|0|0|2"
-    "fixtures|gentest_fixtures_tests|33|33|0|0"
+    "fixtures|gentest_fixtures_tests|35|35|0|0"
     "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0"
     "templates|gentest_templates_tests|93|93|0|0"
     "mocking|gentest_mocking_tests|26|26|0|0")
