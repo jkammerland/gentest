@@ -5,6 +5,7 @@ mocking/mocking/concrete/predicate_match
 mocking/mocking/concrete/static_member
 mocking/mocking/concrete/template_member_expect_int
 mocking/mocking/concurrency/adopted_ordered_dispatch
+mocking/mocking/concurrency/late_mutation_ignored_after_runtime_start
 mocking/mocking/crtp/bridge
 mocking/mocking/crtp/bridge_matches
 mocking/mocking/interface/non_default_ctor

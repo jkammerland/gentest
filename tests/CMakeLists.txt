@@ -741,7 +741,7 @@ set(_gentest_suite_inventory_checks
     "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
     "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
     "templates|gentest_templates_tests|93|93|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
-    "mocking|gentest_mocking_tests|27|27|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
+    "mocking|gentest_mocking_tests|28|28|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
@@ -1100,6 +1100,19 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_result_write_failure"
             "EXPECT_SUBSTRING=failed to open Allure result:")
     set_tests_properties(regression_allure_result_write_failure_reports_infra PROPERTIES LABELS "allure")
+
+    gentest_add_cmake_script_test(
+        NAME regression_allure_result_write_failure_keeps_junit_in_sync
+        PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckAllureJunitParity.cmake"
+        ARGS
+            --run=regressions/runtime_reporting/pass_for_junit_io_visibility
+            --kind=test
+        DEFINES
+            "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_junit_parity"
+            "JUNIT_PATH=${CMAKE_CURRENT_BINARY_DIR}/allure_junit_parity/result.xml"
+            "EXPECT_SUBSTRING=failed to open Allure result:")
+    set_tests_properties(regression_allure_result_write_failure_keeps_junit_in_sync PROPERTIES LABELS "allure")
 
     gentest_add_cmake_script_test(
         NAME regression_allure_runner_infra_failure_parity

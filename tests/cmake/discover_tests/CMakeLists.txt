@@ -17,26 +17,29 @@ static void list_tests() {
     std::cout << "demo/skip\n";
     std::cout << "demo/has [bracket]\n";
     std::cout << "demo/death\n";
+    std::cout << "demo/death_skip\n";
 }
 
 static void list_meta() {
-    std::cout << "demo/a [tags=fast] (main.cpp:1)\n";
+    std::cout << "demo/a [gentest:tags=fast] (main.cpp:1)\n";
     std::cout << "demo/b (main.cpp:2)\n";
-    std::cout << "demo/skip [skip=not ready] (main.cpp:3)\n";
-    std::cout << "demo/has [bracket] [tags=fast] (main.cpp:4)\n";
-    std::cout << "demo/death [tags=death;owner=ci] (main.cpp:5)\n";
+    std::cout << "demo/skip [gentest:skip=needs [linux]] (main.cpp:3)\n";
+    std::cout << "demo/has [bracket] [gentest:tags=fast] (main.cpp:4)\n";
+    std::cout << "demo/death [gentest:tags=death;owner=ci] (main.cpp:5)\n";
+    std::cout << "demo/death_skip [gentest:tags=death;skip=disabled [debug]] (main.cpp:6)\n";
 }
 
 static int run_one(std::string_view name) {
     if (name == "demo/a") { std::cout << "[ PASS ] demo/a\n"; return 0; }
     if (name == "demo/b") { std::cout << "[ PASS ] demo/b\n"; return 0; }
-    if (name == "demo/skip") { std::cout << "[ SKIP ] demo/skip :: not ready\n"; return 0; }
+    if (name == "demo/skip") { std::cout << "[ SKIP ] demo/skip :: needs [linux]\n"; return 0; }
     if (name == "demo/has [bracket]") { std::cout << "[ PASS ] demo/has [bracket]\n"; return 0; }
     if (name == "demo/death") {
         std::cout << "Case not found: unrelated-diagnostic\n";
         std::cout << "fatal path\n";
         return 3;
     }
+    if (name == "demo/death_skip") { std::cout << "[ SKIP ] demo/death_skip :: disabled [debug]\n"; return 0; }
     std::cerr << "Test not found: " << name << "\n";
     return 1;
 }
@@ -66,6 +69,7 @@ int main(int argc, char** argv) {
     (void)run_one("demo/b");
     (void)run_one("demo/skip");
     (void)run_one("demo/has [bracket]");
+    (void)run_one("demo/death_skip");
     return 0;
 }
 ]==])

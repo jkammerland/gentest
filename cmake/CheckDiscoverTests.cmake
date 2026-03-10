@@ -123,6 +123,9 @@ endif()
 if(_list_out MATCHES "(^|\\n)[ \t]*Test #[0-9]+: demo/death([ \t]*$)")
   message(FATAL_ERROR "Death test should not be registered as a normal test: 'demo/death'. ctest -N output:\n${_list_out}")
 endif()
+if(_list_out MATCHES "(^|\\n)[ \t]*Test #[0-9]+: death/demo/death_skip([ \t]*$)")
+  message(FATAL_ERROR "Skipped death test should not be registered as a CTest death case: 'demo/death_skip'. ctest -N output:\n${_list_out}")
+endif()
 
 message(STATUS "Run discovered tests...")
 gentest_check_run_or_fail(

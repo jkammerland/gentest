@@ -2,6 +2,7 @@
 
 #include "gentest/runner.h"
 
+#include <atomic>
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -210,6 +211,7 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
     std::optional<std::tuple<std::decay_t<Args>...>>                expected_args;
     std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>>  arg_predicates;
     std::function<bool(const std::decay_t<Args>&...)>               call_predicate;
+    std::shared_ptr<std::atomic<bool>>                              runtime_started;
     // Configure expectations before worker threads start. Runtime dispatch and
     // verification keep queue/counter mutation in InstanceState and never hold
     // this mutex across user predicates/actions.
@@ -219,35 +221,54 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
         verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified);
     }
 
-    void set_expected_calls(std::size_t expected) {
+    bool allow_mutation(std::string_view method_name) const {
+        (void)method_name;
+        if (runtime_started && runtime_started->load(std::memory_order_acquire)) {
+            return false;
+        }
+        return true;
+    }
+
+    void set_expected_calls(std::string_view method_name, std::size_t expected) {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
+        if (!allow_mutation(method_name))
+            return;
         expected_calls = expected;
     }
 
     template <typename... X>
-    void set_expected(X &&...values) {
+    void set_expected(std::string_view method_name, X &&...values) {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
+        if (!allow_mutation(method_name))
+            return;
         expected_args = std::tuple<std::decay_t<Args>...>(std::forward<X>(values)...);
     }
 
     template <typename... P>
-    void set_predicates(P &&...preds) {
+    void set_predicates(std::string_view method_name, P &&...preds) {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
+        if (!allow_mutation(method_name))
+            return;
         arg_predicates = std::tuple<ArgPredicate<std::decay_t<Args>>...>(
             to_arg_predicate<std::decay_t<Args>>(std::forward<P>(preds))...);
     }
 
-    void set_call_predicate(std::function<bool(const std::decay_t<Args>&...)> predicate) {
+    void set_call_predicate(std::string_view method_name, std::function<bool(const std::decay_t<Args>&...)> predicate) {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
+        if (!allow_mutation(method_name))
+            return;
         call_predicate = std::move(predicate);
     }
 
-    void set_allow_excess(bool enabled) {
+    void set_allow_excess(std::string_view method_name, bool enabled) {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
+        if (!allow_mutation(method_name))
+            return;
         allow_excess = enabled;
     }
 
     bool check_args(std::string_view method_name, const std::decay_t<Args> &...actual) {
+        std::lock_guard<std::recursive_mutex> lk(state_mtx_);
         if (call_predicate) {
             if (!call_predicate(actual...)) {
                 ::gentest::detail::record_failure(fmt::format("call predicate mismatch for {}", method_name));
@@ -263,15 +284,22 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
 template <typename R, typename... Args> struct Expectation<R(Args...)> : ExpectationCommon<Args...> {
     std::function<R(const std::decay_t<Args>&...)> action;
 
-    void set_action(std::function<R(const std::decay_t<Args>&...)> next_action) {
+    void set_action(std::string_view method_name, std::function<R(const std::decay_t<Args>&...)> next_action) {
         std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
+        if (!this->allow_mutation(method_name))
+            return;
         action = std::move(next_action);
     }
 
     R invoke(std::string_view method_name, Args... args) {
+        std::function<R(const std::decay_t<Args>&...)> action_snapshot;
+        {
+            std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
+            action_snapshot = action;
+        }
         (void)this->check_args(method_name, std::forward<Args>(args)...);
-        if (action) {
-            return action(args...);
+        if (action_snapshot) {
+            return action_snapshot(args...);
         }
         if constexpr (!std::is_void_v<R>) {
             if constexpr (std::is_reference_v<R>) {
@@ -286,15 +314,22 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
 template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommon<Args...> {
     std::function<void(const std::decay_t<Args>&...)> action;
 
-    void set_action(std::function<void(const std::decay_t<Args>&...)> next_action) {
+    void set_action(std::string_view method_name, std::function<void(const std::decay_t<Args>&...)> next_action) {
         std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
+        if (!this->allow_mutation(method_name))
+            return;
         action = std::move(next_action);
     }
 
     void invoke(std::string_view method_name, Args... args) {
+        std::function<void(const std::decay_t<Args>&...)> action_snapshot;
+        {
+            std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
+            action_snapshot = action;
+        }
         (void)this->check_args(method_name, std::forward<Args>(args)...);
-        if (action) {
-            action(args...);
+        if (action_snapshot) {
+            action_snapshot(args...);
         }
     }
 };
@@ -309,6 +344,8 @@ class InstanceState {
 
     void set_nice(bool v) {
         std::lock_guard<std::mutex> lk(mtx_);
+        if (frozen_)
+            return;
         nice_mode_ = v;
     }
     bool nice() const {
@@ -318,8 +355,10 @@ class InstanceState {
 
     void verify_all() {
         std::lock_guard<std::mutex> lk(mtx_);
+        runtime_started_->store(true, std::memory_order_release);
+        frozen_ = true;
         for (auto &[_, entry] : methods_) {
-            for (auto &expectation : entry.queue) {
+            for (auto &expectation : entry.expectations) {
                 expectation->verify(entry.method_name);
             }
         }
@@ -330,11 +369,15 @@ class InstanceState {
     template <typename R, typename... Args>
     std::shared_ptr<Expectation<R(Args...)>> push_expectation(const MethodIdentity &id, std::string method_name) {
         std::lock_guard<std::mutex> lk(mtx_);
+        if (frozen_)
+            return {};
         auto &entry = methods_[id];
         if (entry.method_name.empty())
             entry.method_name = std::move(method_name);
         auto expectation = std::make_shared<Expectation<R(Args...)>>();
+        expectation->runtime_started = runtime_started_;
         entry.queue.push_back(expectation);
+        entry.expectations.push_back(expectation);
         return expectation;
     }
 
@@ -344,6 +387,8 @@ class InstanceState {
         bool                             unexpected = false;
         {
             std::lock_guard<std::mutex> lk(mtx_);
+            runtime_started_->store(true, std::memory_order_release);
+            frozen_ = true;
             auto                       it = methods_.find(id);
             if (it != methods_.end() && !it->second.queue.empty()) {
                 base_expectation = it->second.queue.front();
@@ -388,11 +433,14 @@ class InstanceState {
     struct MethodEntry {
         std::string                                  method_name;
         std::deque<std::shared_ptr<ExpectationBase>> queue;
+        std::vector<std::shared_ptr<ExpectationBase>> expectations;
     };
 
     mutable std::mutex                                                mtx_;
     std::unordered_map<MethodIdentity, MethodEntry, MethodIdentityHash> methods_;
-    bool nice_mode_ = false;
+    std::shared_ptr<std::atomic<bool>>                                 runtime_started_ = std::make_shared<std::atomic<bool>>(false);
+    bool                                                               nice_mode_       = false;
+    bool                                                               frozen_          = false;
 };
 
 template <typename Signature> class ExpectationHandle;
@@ -413,7 +461,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
 
     ExpectationHandle &times(std::size_t expected) {
         if (expectation_)
-            expectation_->set_expected_calls(expected);
+            expectation_->set_expected_calls(method_name_, expected);
         return *this;
     }
 
@@ -422,7 +470,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
             using DArgs = std::tuple<std::decay_t<Args>...>;
             (void)sizeof(DArgs);
             auto wrapper = [fn = std::forward<Callable>(callable)](const std::decay_t<Args> &...a) -> R { return fn(a...); };
-            expectation_->set_action(std::move(wrapper));
+            expectation_->set_action(method_name_, std::move(wrapper));
         }
         return *this;
     }
@@ -430,7 +478,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     template <typename... X>
     ExpectationHandle &with(X &&... expected) {
         if (expectation_) {
-            expectation_->set_expected(std::forward<X>(expected)...);
+            expectation_->set_expected(method_name_, std::forward<X>(expected)...);
         }
         return *this;
     }
@@ -439,7 +487,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     ExpectationHandle &where_args(P &&... predicates) {
         static_assert(sizeof...(P) == sizeof...(Args), "where_args arity must match mocked method");
         if (expectation_) {
-            expectation_->set_predicates(std::forward<P>(predicates)...);
+            expectation_->set_predicates(method_name_, std::forward<P>(predicates)...);
         }
         return *this;
     }
@@ -453,7 +501,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     template <typename Callable>
     ExpectationHandle &where_call(Callable &&call_pred) {
         if (expectation_) {
-            expectation_->set_call_predicate(std::function<bool(const std::decay_t<Args>&...)>(std::forward<Callable>(call_pred)));
+            expectation_->set_call_predicate(method_name_, std::function<bool(const std::decay_t<Args>&...)>(std::forward<Callable>(call_pred)));
         }
         return *this;
     }
@@ -465,7 +513,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
             static_assert(!std::is_reference_v<R>, "returns() is not available for reference-returning methods; use returns_ref()");
         } else {
             if (expectation_) {
-                expectation_->set_action([captured = std::forward<Value>(value)](const std::decay_t<Args> &... a) -> R {
+                expectation_->set_action(method_name_, [captured = std::forward<Value>(value)](const std::decay_t<Args> &... a) -> R {
                     (void)sizeof...(a);
                     return captured;
                 });
@@ -481,7 +529,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
         } else {
             if (expectation_) {
                 auto *ptr            = std::addressof(value);
-                expectation_->set_action([ptr](const std::decay_t<Args> &... a) -> R {
+                expectation_->set_action(method_name_, [ptr](const std::decay_t<Args> &... a) -> R {
                     (void)sizeof...(a);
                     return *ptr;
                 });
@@ -492,7 +540,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
 
     ExpectationHandle &allow_more(bool enabled = true) {
         if (expectation_)
-            expectation_->set_allow_excess(enabled);
+            expectation_->set_allow_excess(method_name_, enabled);
         return *this;
     }
 

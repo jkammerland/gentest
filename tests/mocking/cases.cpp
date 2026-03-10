@@ -407,6 +407,62 @@ void concurrency_adopted_ordered_dispatch() {
     EXPECT_EQ(results[1], 22);
 }
 
+[[using gentest: test("mocking/concurrency/late_mutation_ignored_after_runtime_start")]]
+void concurrency_late_mutation_ignored_after_runtime_start() {
+    gentest::mock<Calculator> mock_calc;
+    std::mutex                gate_mtx;
+    std::condition_variable   gate_cv;
+    bool                      first_entered = false;
+    bool                      first_release = false;
+    std::array<int, 2>        results{0, 0};
+
+    EXPECT_CALL(mock_calc, compute).times(1).with(1, 1).invokes([&](int lhs, int rhs) {
+        EXPECT_EQ(lhs, 1);
+        EXPECT_EQ(rhs, 1);
+        {
+            std::lock_guard<std::mutex> lk(gate_mtx);
+            first_entered = true;
+        }
+        gate_cv.notify_all();
+        std::unique_lock<std::mutex> lk(gate_mtx);
+        gate_cv.wait(lk, [&] { return first_release; });
+        return 11;
+    });
+    auto second = EXPECT_CALL(mock_calc, compute);
+    second.times(1).with(1, 1).returns(22);
+
+    auto        tok   = gentest::ctx::current();
+    Calculator *iface = &mock_calc;
+    std::thread t1([&] {
+        gentest::ctx::Adopt guard(tok);
+        results[0] = iface->compute(1, 1);
+    });
+
+    {
+        std::unique_lock<std::mutex> lk(gate_mtx);
+        gate_cv.wait(lk, [&] { return first_entered; });
+    }
+
+    second.returns(99);
+
+    std::thread t2([&] {
+        gentest::ctx::Adopt guard(tok);
+        results[1] = iface->compute(1, 1);
+    });
+
+    {
+        std::lock_guard<std::mutex> lk(gate_mtx);
+        first_release = true;
+    }
+    gate_cv.notify_all();
+
+    t1.join();
+    t2.join();
+
+    EXPECT_EQ(results[0], 11);
+    EXPECT_EQ(results[1], 22);
+}
+
 [[using gentest: test("mocking/nice/unexpected_ok")]]
 void nice_unexpected_ok() {
     gentest::mock<Ticker> mock_tick;

@@ -309,7 +309,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
             std::string sections;
             if (!test.tags.empty() || !test.requirements.empty() || test.should_skip) {
                 sections.push_back(' ');
-                sections.push_back('[');
+                sections.append("[gentest:");
                 bool first = true;
                 if (!test.tags.empty()) {
                     sections.append("tags=");
