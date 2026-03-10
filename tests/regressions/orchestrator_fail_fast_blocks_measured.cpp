@@ -9,13 +9,21 @@ namespace {
 void test_fail(void *) { EXPECT_TRUE(false, "orchestrator-fail-fast-test-failure"); }
 
 void bench_should_not_run(void *) {
-    if (gentest::detail::bench_phase() == gentest::detail::BenchPhase::Call)
-        throw std::runtime_error("orchestrator-fail-fast-bench-ran");
+    switch (gentest::detail::bench_phase()) {
+    case gentest::detail::BenchPhase::Setup: throw std::runtime_error("orchestrator-fail-fast-bench-phase-ran/setup");
+    case gentest::detail::BenchPhase::Call: throw std::runtime_error("orchestrator-fail-fast-bench-phase-ran/call");
+    case gentest::detail::BenchPhase::Teardown: throw std::runtime_error("orchestrator-fail-fast-bench-phase-ran/teardown");
+    case gentest::detail::BenchPhase::None: return;
+    }
 }
 
 void jitter_should_not_run(void *) {
-    if (gentest::detail::bench_phase() == gentest::detail::BenchPhase::Call)
-        throw std::runtime_error("orchestrator-fail-fast-jitter-ran");
+    switch (gentest::detail::bench_phase()) {
+    case gentest::detail::BenchPhase::Setup: throw std::runtime_error("orchestrator-fail-fast-jitter-phase-ran/setup");
+    case gentest::detail::BenchPhase::Call: throw std::runtime_error("orchestrator-fail-fast-jitter-phase-ran/call");
+    case gentest::detail::BenchPhase::Teardown: throw std::runtime_error("orchestrator-fail-fast-jitter-phase-ran/teardown");
+    case gentest::detail::BenchPhase::None: return;
+    }
 }
 
 gentest::Case kCases[] = {

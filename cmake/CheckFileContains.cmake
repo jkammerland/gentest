@@ -29,6 +29,8 @@ if(DEFINED ARGS)
   endif()
 endif()
 
+file(REMOVE "${FILE}")
+
 execute_process(
   COMMAND ${_emu} "${PROG}" ${_args}
   OUTPUT_VARIABLE out

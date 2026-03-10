@@ -101,13 +101,20 @@ typename FixtureAllocation<T>::UniquePtr adopt_unique(std::unique_ptr<U, D>&& pt
     return typename FixtureAllocation<T>::UniquePtr(raw, ErasedDeleter<T>(std::in_place_type<U>, std::move(deleter)));
 }
 
+template <typename T, typename U>
+typename FixtureAllocation<T>::UniquePtr adopt_raw(U* ptr) {
+    static_assert(std::is_convertible_v<U*, T*>, "gentest_allocate raw pointer must be convertible to T*");
+    T* raw = static_cast<T*>(ptr);
+    return typename FixtureAllocation<T>::UniquePtr(raw, ErasedDeleter<T>(std::in_place_type<U>, std::default_delete<U>{}));
+}
+
 template <typename T, typename Result>
 void assign_allocation(FixtureAllocation<T>& out, Result&& result) {
     using ResultT = std::decay_t<Result>;
     if constexpr (IsUniquePtr<ResultT>::value) {
         out.unique = adopt_unique<T>(std::forward<Result>(result));
     } else if constexpr (std::is_pointer_v<ResultT> && std::is_convertible_v<ResultT, T*>) {
-        out.unique = typename FixtureAllocation<T>::UniquePtr(static_cast<T*>(result));
+        out.unique = adopt_raw<T>(result);
     } else if constexpr (std::is_constructible_v<std::shared_ptr<T>, ResultT>) {
         out.shared = std::shared_ptr<T>(std::forward<Result>(result));
     } else {

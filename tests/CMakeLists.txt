@@ -336,8 +336,12 @@ gentest_add_cmake_script_test(
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment.gentest.cpp"
         "EXPECT_SUBSTRING=suite_override/comment_backscan/trailing_comment_suite_attr_case")
 
-add_test(NAME gentest_codegen_check_invalid
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_death(
+    NAME gentest_codegen_check_invalid_unknown_attr
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "unknown gentest attribute 'unknown' (will_fail)"
+    ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
@@ -346,7 +350,19 @@ add_test(NAME gentest_codegen_check_invalid
            -I${PROJECT_SOURCE_DIR}/include
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
-set_tests_properties(gentest_codegen_check_invalid PROPERTIES WILL_FAIL TRUE)
+gentest_add_check_death(
+    NAME gentest_codegen_check_invalid_duplicate_template_attr
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "duplicate 'template' attribute for the same parameter (duplicate_template_attr)"
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
 
 gentest_add_check_death(
     NAME gentest_codegen_baseline_requires_bench
@@ -567,6 +583,17 @@ if(WIN32)
             "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
 endif()
 
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_mock_symlink_include
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckMockSymlinkInclude.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}"
+        "PROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "CODEGEN_STD=${_gentest_codegen_std_flag}"
+        "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
+
 gentest_add_check_death(
     NAME gentest_codegen_mock_anonymous_namespace_msg
     NO_EMULATOR
@@ -674,7 +701,8 @@ set_tests_properties(
     gentest_codegen_mis_scoped_attr_value_keyword
     gentest_codegen_mis_scoped_attr_unqualified_test
     gentest_codegen_namespace_suite_attr_with_trailing_comment
-    gentest_codegen_check_invalid
+    gentest_codegen_check_invalid_unknown_attr
+    gentest_codegen_check_invalid_duplicate_template_attr
     gentest_codegen_baseline_requires_bench
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
@@ -702,13 +730,13 @@ endif()
 
 # End-to-end behavioral checks with structured suite inventory
 set(_gentest_suite_inventory_checks
-    "unit|gentest_unit_tests|19|19|0|0"
-    "integration|gentest_integration_tests|4|3|0|1"
-    "skiponly|gentest_skiponly_tests|2|0|0|2"
-    "fixtures|gentest_fixtures_tests|33|33|0|0"
-    "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0"
-    "templates|gentest_templates_tests|93|93|0|0"
-    "mocking|gentest_mocking_tests|26|26|0|0")
+    "unit|gentest_unit_tests|20|20|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/unit.list"
+    "integration|gentest_integration_tests|4|3|0|1|${CMAKE_CURRENT_SOURCE_DIR}/expected/integration.list"
+    "skiponly|gentest_skiponly_tests|2|0|0|2|${CMAKE_CURRENT_SOURCE_DIR}/expected/skiponly.list"
+    "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
+    "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
+    "templates|gentest_templates_tests|93|93|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
+    "mocking|gentest_mocking_tests|26|26|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
@@ -718,11 +746,13 @@ foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     list(GET _gentest_inventory_fields 3 _gentest_inventory_pass)
     list(GET _gentest_inventory_fields 4 _gentest_inventory_fail)
     list(GET _gentest_inventory_fields 5 _gentest_inventory_skip)
+    list(GET _gentest_inventory_fields 6 _gentest_inventory_expected_list)
 
     gentest_add_check_inventory(
         NAME ${_gentest_inventory_name}_inventory
         PROG ${_gentest_inventory_prog}
         CASES ${_gentest_inventory_cases}
+        EXPECTED_LIST_FILE ${_gentest_inventory_expected_list}
         PASS ${_gentest_inventory_pass}
         FAIL ${_gentest_inventory_fail}
         SKIP ${_gentest_inventory_skip})
@@ -736,6 +766,7 @@ unset(_gentest_inventory_cases)
 unset(_gentest_inventory_pass)
 unset(_gentest_inventory_fail)
 unset(_gentest_inventory_skip)
+unset(_gentest_inventory_expected_list)
 
 gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 6 SKIP 2)
 
@@ -973,7 +1004,7 @@ gentest_add_check_file_contains(
     EXPECT_SUBSTRING "<property name=\"requirement\" value=\"#42\""
     ARGS --junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml)
 
-gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 38 FAIL 0 SKIP 0 ARGS --repeat=2)
+gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 40 FAIL 0 SKIP 0 ARGS --repeat=2)
 
 gentest_add_check_counts(NAME failing_fail_fast PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 1 SKIP 0 ARGS --fail-fast)
 
@@ -986,6 +1017,12 @@ gentest_add_check_contains(
         --shuffle
         --seed
         42)
+
+gentest_add_check_exit_code(
+    NAME fixtures_raw_pointer_polymorphic_exact_repeat
+    PROG $<TARGET_FILE:gentest_fixtures_tests>
+    EXPECT_RC 0
+    ARGS --run=fixtures/free/raw_pointer_polymorphic_b_after_first --kind=test --repeat=2)
 
 gentest_add_check_counts(
     NAME regression_fixture_group_shuffle_invariants
@@ -1050,6 +1087,22 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             "INFRA_SUBSTRING=registered multiple times with conflicting callbacks")
     set_tests_properties(regression_allure_runner_infra_failure_parity PROPERTIES LABELS "allure")
 endif()
+
+gentest_add_cmake_script_test(
+    NAME helper_check_file_contains_rejects_stale_output
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckFileContainsRejectsStale.cmake"
+    DEFINES
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/cmake_stale_file_contains")
+
+gentest_add_cmake_script_test(
+    NAME helper_allure_runner_infra_parity_rejects_stale_output
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckAllureRunnerInfraParityRejectsStale.cmake"
+    DEFINES
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/cmake_stale_allure")
 
 # Capture JUnit artifact example: unit suite emits JUnit; this smoke ensures the file is generated in build tree
 gentest_add_check_file_contains(
@@ -1277,6 +1330,22 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake
     cmake)
 
+_gentest_add_cmake_helper_test(
+    gentest_codegen_genex_sources_rejected
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_genex_sources
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake
+    cmake
+    -DEXPECT_SUBSTRING=generator-expression SOURCES entries are not supported)
+set_property(TEST gentest_codegen_genex_sources_rejected APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_output_genex_rejected
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_genex
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake
+    cmake
+    -DEXPECT_SUBSTRING=OUTPUT with generator expressions is not supported in manifest mode)
+set_property(TEST gentest_codegen_output_genex_rejected APPEND PROPERTY LABELS "codegen")
+
 set(_gentest_discover_tests_config "")
 if(CMAKE_CONFIGURATION_TYPES)
     set(_gentest_discover_tests_config "Debug")
@@ -1316,6 +1385,30 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_tu_register_symbol_collision APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_resource_dir_from_compdb_compiler
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenResourceDirFromCompdbCompiler.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog})
+set_property(TEST gentest_codegen_resource_dir_from_compdb_compiler APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_incremental_dependencies
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_incremental_deps
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenIncrementalDependencies.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_incremental_dependencies APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_manifest_depfile_aggregation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenManifestDepfileAggregation.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog})
+set_property(TEST gentest_codegen_manifest_depfile_aggregation APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_outcome_matrix_stale_junit_guard
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake
@@ -1334,9 +1427,27 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_missing_host_codegen_path
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckMissingHostCodegenPath.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_qemu_workflow_presets
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckQemuWorkflowPresets.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_package_workflow_preset
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckPackageWorkflowPreset.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_vcpkg_manifest_metadata
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckVcpkgManifestMetadata.cmake
     cmake)
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)

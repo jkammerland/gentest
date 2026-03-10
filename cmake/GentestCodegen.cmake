@@ -50,6 +50,11 @@ function(_gentest_resolve_codegen_backend)
             "Set -DGENTEST_CODEGEN_EXECUTABLE=<path> or -DGENTEST_CODEGEN_TARGET=<target>.")
     endif()
     if(GENTEST_CODEGEN_EXECUTABLE)
+        if(NOT EXISTS "${GENTEST_CODEGEN_EXECUTABLE}" OR IS_DIRECTORY "${GENTEST_CODEGEN_EXECUTABLE}")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${GENTEST_TARGET}): GENTEST_CODEGEN_EXECUTABLE='${GENTEST_CODEGEN_EXECUTABLE}' does not exist "
+                "or is not a file")
+        endif()
         set(_gentest_codegen_executable "${GENTEST_CODEGEN_EXECUTABLE}")
     elseif(GENTEST_CODEGEN_TARGET)
         if(NOT TARGET ${GENTEST_CODEGEN_TARGET})
@@ -82,8 +87,9 @@ function(_gentest_configure_manifest_mode)
     endif()
 
     if("${_gentest_output}" MATCHES "\\$<")
-        message(WARNING
-            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT contains generator expressions; collision checks skipped: '${_gentest_output}'")
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT with generator expressions is not supported in manifest mode. "
+            "Use a concrete OUTPUT path instead: '${_gentest_output}'")
     else()
         _gentest_normalize_path_and_key("${_gentest_output}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_output_abs _gentest_output_key)
         _gentest_reserve_unique_owner("GENTEST_CODEGEN_OUTPUT_OWNER" "${_gentest_output_key}" "${GENTEST_TARGET}" _gentest_prev_owner)
@@ -341,10 +347,10 @@ function(gentest_attach_codegen target)
     endforeach()
 
     if(_gentest_skipped_genex_sources)
-        list(LENGTH _gentest_skipped_genex_sources _gentest_skipped_genex_count)
-        message(WARNING
-            "gentest_attach_codegen(${target}): skipping ${_gentest_skipped_genex_count} generator-expression SOURCES entries. "
-            "Pass concrete files via SOURCES=... if you need those scanned/wrapped.")
+        string(JOIN "', '" _gentest_skipped_genex_joined ${_gentest_skipped_genex_sources})
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${target}): generator-expression SOURCES entries are not supported because they can be skipped by "
+            "codegen. Pass concrete files via SOURCES=... instead. Offending entries: '${_gentest_skipped_genex_joined}'")
     endif()
 
     if(NOT _gentest_tus)
@@ -399,6 +405,7 @@ function(gentest_attach_codegen target)
     # Generate inline mock implementations as a header; it will be included by
     # the generated wrapper translation units after including sources.
     set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
+    set(_gentest_depfile "${_gentest_output_dir}/${_gentest_target_id}.gentest.d")
 
     set(_command_launcher ${_gentest_codegen_executable})
     if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
@@ -414,6 +421,7 @@ function(gentest_attach_codegen target)
     set(_command ${_command_launcher}
         --mock-registry ${_gentest_mock_registry}
         --mock-impl ${_gentest_mock_impl}
+        --depfile ${_gentest_depfile}
         --compdb ${CMAKE_BINARY_DIR}
         --source-root ${CMAKE_SOURCE_DIR})
 
@@ -475,6 +483,9 @@ function(gentest_attach_codegen target)
     if(_gentest_codegen_target)
         list(APPEND _gentest_codegen_deps ${_gentest_codegen_target})
     endif()
+    if(EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
+        list(APPEND _gentest_codegen_deps "${CMAKE_BINARY_DIR}/compile_commands.json")
+    endif()
 
     cmake_policy(PUSH)
     if(POLICY CMP0171)
@@ -494,6 +505,9 @@ function(gentest_attach_codegen target)
         DEPENDS ${_gentest_codegen_deps} ${_gentest_tus} ${GENTEST_DEPENDS}
         COMMENT "Running gentest_codegen for target ${target}"
         VERBATIM)
+    if(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+        list(APPEND _gentest_custom_command_args DEPFILE ${_gentest_depfile})
+    endif()
     if(POLICY CMP0171)
         list(APPEND _gentest_custom_command_args CODEGEN)
     endif()

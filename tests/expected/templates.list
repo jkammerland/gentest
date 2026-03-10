@@ -1,0 +1,93 @@
+enum_value<Color::Blue>
+enum_value<Color::Red>
+local_struct/axis(LocalPoint{1, 2})
+local_struct/axis(LocalPoint{3, 4})
+local_struct/pack(LocalPoint{1, 2}, LocalPoint{3, 4})
+local_struct/pack(LocalPoint{5, 6}, LocalPoint{7, 8})
+multi_blocks/mixed_split<int,7>("Hello")
+multi_blocks/mixed_split<int,7>("World")
+multi_blocks/pack_split(1, 2, 5)
+multi_blocks/pack_split(3, 4, 5)
+multi_blocks/params_split(1, 10)
+multi_blocks/params_split(2, 10)
+templates/bar<int>("x")
+templates/bar<int>("y")
+templates/bar<long>("x")
+templates/bar<long>("y")
+templates/bool_and_str(false, "Hello")
+templates/bool_and_str(false, "World")
+templates/bool_and_str(true, "Hello")
+templates/bool_and_str(true, "World")
+templates/bool_params(false)
+templates/bool_params(true)
+templates/chars('a')
+templates/chars('z')
+templates/cstr_params("baz")
+templates/cstr_params("qux")
+templates/enum_value_scoped<templates::ns_outer::ns_inner::Shade::Dark>
+templates/enum_value_scoped<templates::ns_outer::ns_inner::Shade::Light>
+templates/hello<int,double>
+templates/hello<int,float>
+templates/hello<long,double>
+templates/hello<long,float>
+templates/interleaved2<long,1,3>
+templates/interleaved2<long,1,4>
+templates/interleaved<1,int>
+templates/interleaved<1,long>
+templates/interleaved<2,int>
+templates/interleaved<2,long>
+templates/mix/2x1x2<int,float,5>
+templates/mix/2x1x2<int,float,9>
+templates/mix/2x1x2<long,float,5>
+templates/mix/2x1x2<long,float,9>
+templates/mix/nttp_bool_mix<4,true>
+templates/mix/type_nttp_value<int,16>(3)
+templates/nttp<int,1>
+templates/nttp<int,2>
+templates/nttp_bool<false>
+templates/nttp_bool<true>
+templates/nttp_pair<1,5>
+templates/nttp_pair<2,5>
+templates/pack(42, "a")
+templates/pack(7, "b")
+templates/pack_cstr_bool("Alpha", true)
+templates/pack_cstr_bool("Beta", false)
+templates/pairs(1, 5)
+templates/pairs(1, 6)
+templates/pairs(2, 5)
+templates/pairs(2, 6)
+templates/params(0)
+templates/params(10)
+templates/params(100)
+templates/raw(std::chrono::milliseconds{10})
+templates/size_value<16>
+templates/size_value<32>
+templates/strs("a")
+templates/strs("b")
+templates/sv_params("hello")
+templates/sv_params("world")
+templates/triad<int,float,char>
+templates/triad<long,float,char>
+templates/triad_interleaved<7,int,double>
+templates/triad_interleaved<7,long,double>
+templates/triad_interleaved<8,int,double>
+templates/triad_interleaved<8,long,double>
+templates/typed_values<int>(2)
+templates/typed_values<int>(4)
+templates/typed_values<long>(2)
+templates/typed_values<long>(4)
+templates/u16cstr_params(u"hello")
+templates/u16cstr_params(u"w")
+templates/u16strs(u"alpha")
+templates/u16strs(u"beta")
+templates/u32cstr_params(U"Cat")
+templates/u32cstr_params(U"Dog")
+templates/u32sv_params(U"One")
+templates/u32sv_params(U"Two")
+templates/u8strs(u8"alpha")
+templates/u8strs(u8"beta")
+templates/wcstr_params(L"Wide")
+templates/wcstr_params(L"X")
+templates/wstrs(L"Alpha")
+templates/wsv_params(L"Alpha")
+templates/wsv_params(L"Beta")

@@ -66,6 +66,8 @@ inline void doNotOptimizeAway(T&& value) {
     asm volatile("" : "+r,m"(value) : : "memory");
 }
 
+inline void clobberMemory() { asm volatile("" : : : "memory"); }
+
 #elif (__GNUC__ >= 5)
 
 template <class T>
@@ -103,6 +105,8 @@ inline typename std::enable_if<!std::is_trivially_copyable<T>::value || (sizeof(
 doNotOptimizeAway(T&& value) {
     asm volatile("" : "+m"(value) : : "memory");
 }
+
+inline void clobberMemory() { asm volatile("" : : : "memory"); }
 
 #else
 

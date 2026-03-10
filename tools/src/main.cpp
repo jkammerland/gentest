@@ -14,7 +14,10 @@
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
+#include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
+#include <clang/Lex/PPCallbacks.h>
+#include <clang/Lex/Preprocessor.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
@@ -31,7 +34,9 @@
 #include <llvm/Support/Program.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -119,6 +124,197 @@ bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
     return ok;
 }
 
+[[nodiscard]] std::string normalize_dependency_path(std::string_view raw_path) {
+    if (raw_path.empty()) {
+        return {};
+    }
+
+    std::error_code       ec;
+    std::filesystem::path path{raw_path};
+    if (path.is_relative()) {
+        const std::filesystem::path abs = std::filesystem::absolute(path, ec);
+        if (!ec) {
+            path = abs;
+        }
+    }
+    return path.lexically_normal().generic_string();
+}
+
+[[nodiscard]] std::string depfile_path_for_build(const std::filesystem::path &path, const std::filesystem::path &base_dir) {
+    std::error_code       ec;
+    std::filesystem::path normalized = path;
+    if (normalized.is_relative()) {
+        const std::filesystem::path abs = std::filesystem::absolute(normalized, ec);
+        if (!ec) {
+            normalized = abs;
+        }
+    }
+    normalized = normalized.lexically_normal();
+
+    std::filesystem::path base = base_dir;
+    if (base.is_relative()) {
+        const std::filesystem::path abs = std::filesystem::absolute(base, ec);
+        if (!ec) {
+            base = abs;
+        }
+    }
+    base = base.lexically_normal();
+
+    const std::filesystem::path rel = normalized.lexically_relative(base);
+    if (!rel.empty() && !rel.is_absolute()) {
+        return rel.generic_string();
+    }
+    return normalized.generic_string();
+}
+
+void append_depfile_escaped(std::string &out, std::string_view path) {
+    for (const char ch : path) {
+        if (ch == ' ' || ch == '#' || ch == '$' || ch == ':') {
+            out.push_back('\\');
+        }
+        out.push_back(ch);
+    }
+}
+
+[[nodiscard]] std::vector<std::filesystem::path> depfile_targets_for(const CollectorOptions &options) {
+    std::vector<std::filesystem::path> targets;
+    if (!options.output_path.empty()) {
+        targets.push_back(options.output_path);
+    } else if (!options.tu_output_dir.empty()) {
+        targets.reserve(options.sources.size() + 2);
+        for (const auto &source : options.sources) {
+            std::filesystem::path header_out = options.tu_output_dir / std::filesystem::path(source).filename();
+            header_out.replace_extension(".h");
+            targets.push_back(std::move(header_out));
+        }
+    }
+    if (!options.mock_registry_path.empty()) {
+        targets.push_back(options.mock_registry_path);
+    }
+    if (!options.mock_impl_path.empty()) {
+        targets.push_back(options.mock_impl_path);
+    }
+    return targets;
+}
+
+[[nodiscard]] bool write_depfile(const CollectorOptions &options, const std::vector<std::string> &dependencies) {
+    if (!options.depfile_path || options.depfile_path->empty()) {
+        return true;
+    }
+
+    const std::filesystem::path build_dir =
+        options.compilation_database ? options.compilation_database->lexically_normal() : std::filesystem::current_path();
+    const std::vector<std::filesystem::path> dep_targets = depfile_targets_for(options);
+    if (dep_targets.empty()) {
+        return true;
+    }
+
+    std::vector<std::string> normalized_deps;
+    normalized_deps.reserve(dependencies.size());
+    for (const auto &dependency : dependencies) {
+        const std::string normalized = normalize_dependency_path(dependency);
+        if (!normalized.empty()) {
+            normalized_deps.push_back(normalized);
+        }
+    }
+    std::sort(normalized_deps.begin(), normalized_deps.end());
+    normalized_deps.erase(std::unique(normalized_deps.begin(), normalized_deps.end()), normalized_deps.end());
+
+    std::string depfile_text;
+    for (const auto &target : dep_targets) {
+        append_depfile_escaped(depfile_text, depfile_path_for_build(target, build_dir));
+        depfile_text += ' ';
+    }
+    depfile_text += ':';
+    for (const auto &dependency : normalized_deps) {
+        depfile_text += ' ';
+        append_depfile_escaped(depfile_text, depfile_path_for_build(dependency, build_dir));
+    }
+    depfile_text += '\n';
+
+    std::error_code ec;
+    llvm::raw_fd_ostream depfile_stream(options.depfile_path->string(), ec, llvm::sys::fs::OF_Text);
+    if (ec) {
+        gentest::codegen::log_err("gentest_codegen: failed to write depfile '{}': {}\n", options.depfile_path->string(), ec.message());
+        return false;
+    }
+    depfile_stream << depfile_text;
+    depfile_stream.close();
+    return true;
+}
+
+class DependencyRecorder final : public clang::PPCallbacks {
+public:
+    DependencyRecorder(clang::SourceManager &source_manager, std::vector<std::string> &dependencies)
+        : source_manager_(source_manager), dependencies_(dependencies) {}
+
+    void FileChanged(clang::SourceLocation loc, clang::PPCallbacks::FileChangeReason reason, clang::SrcMgr::CharacteristicKind,
+                     clang::FileID) override {
+        if (reason != clang::PPCallbacks::FileChangeReason::EnterFile) {
+            return;
+        }
+        record(loc);
+    }
+
+private:
+    void record(clang::SourceLocation loc) {
+        const clang::SourceLocation file_loc = source_manager_.getFileLoc(loc);
+        if (file_loc.isInvalid()) {
+            return;
+        }
+
+        std::string          resolved;
+        const clang::FileID  file_id = source_manager_.getFileID(file_loc);
+        if (const auto entry_ref = source_manager_.getFileEntryRefForID(file_id)) {
+            resolved = entry_ref->getName().str();
+        }
+        if (resolved.empty()) {
+            resolved = source_manager_.getFilename(file_loc).str();
+        }
+
+        const std::string normalized = normalize_dependency_path(resolved);
+        if (!normalized.empty()) {
+            dependencies_.push_back(normalized);
+        }
+    }
+
+    clang::SourceManager   &source_manager_;
+    std::vector<std::string> &dependencies_;
+};
+
+class MatchFinderAction final : public clang::ASTFrontendAction {
+public:
+    MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies)
+        : finder_(finder), dependencies_(dependencies) {}
+
+    std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
+        compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(compiler.getSourceManager(), dependencies_));
+        const std::string normalized = normalize_dependency_path(input_file.str());
+        if (!normalized.empty()) {
+            dependencies_.push_back(normalized);
+        }
+        return finder_.newASTConsumer();
+    }
+
+private:
+    clang::ast_matchers::MatchFinder &finder_;
+    std::vector<std::string>         &dependencies_;
+};
+
+class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
+public:
+    MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies)
+        : finder_(finder), dependencies_(dependencies) {}
+
+    std::unique_ptr<clang::FrontendAction> create() override {
+        return std::make_unique<MatchFinderAction>(finder_, dependencies_);
+    }
+
+private:
+    clang::ast_matchers::MatchFinder &finder_;
+    std::vector<std::string>         &dependencies_;
+};
+
 bool should_strip_compdb_arg(std::string_view arg) {
     // CMake's experimental C++ modules support (and some GCC-based toolchains)
     // can inject GCC-only module/dependency scanning flags into compile commands.
@@ -153,6 +349,19 @@ std::optional<std::string> get_env_value(std::string_view name) {
     }
     return std::string{env_value};
 #endif
+}
+
+std::string basename_without_extension(std::string_view path) {
+    if (path.empty()) {
+        return {};
+    }
+    return std::filesystem::path{path}.filename().replace_extension().string();
+}
+
+bool is_clang_like_compiler(std::string_view path) {
+    const std::string name = basename_without_extension(path);
+    return name == "clang" || name == "clang++" || name == "clang-cl" || llvm::StringRef{name}.starts_with("clang-") ||
+        llvm::StringRef{name}.starts_with("clang++-");
 }
 
 std::optional<std::size_t> parse_jobs_string(std::string_view raw_value) {
@@ -190,21 +399,98 @@ std::string resolve_default_compiler_path() {
     return std::string{kDefault};
 }
 
-bool has_resource_dir_arg(const std::vector<std::string> &args) {
+bool has_option_arg(std::span<const std::string> args, std::string_view option, std::string_view joined_prefix = {}) {
     bool next_is_value = false;
     for (const auto &arg : args) {
         if (next_is_value) {
             return true;
         }
-        if (arg == "-resource-dir") {
+        if (arg == option) {
             next_is_value = true;
             continue;
         }
-        if (arg.starts_with("-resource-dir=")) {
+        if (!joined_prefix.empty() && llvm::StringRef{arg}.starts_with(joined_prefix)) {
             return true;
         }
     }
     return false;
+}
+
+bool has_resource_dir_arg(std::span<const std::string> args) {
+    return has_option_arg(args, "-resource-dir", "-resource-dir=");
+}
+
+bool has_sysroot_arg(std::span<const std::string> args) {
+    return has_option_arg(args, "-isysroot", "-isysroot") || has_option_arg(args, "--sysroot", "--sysroot=");
+}
+
+bool is_known_compiler_launcher(std::string_view path) {
+    const std::string name = basename_without_extension(path);
+    return name == "ccache" || name == "sccache" || name == "distcc" || name == "icecc" || name == "buildcache";
+}
+
+bool is_cmake_env_wrapper_at(const clang::tooling::CommandLineArguments &command_line, std::size_t index) {
+    if (index + 2 >= command_line.size()) {
+        return false;
+    }
+    return basename_without_extension(command_line[index]) == "cmake" && command_line[index + 1] == "-E" && command_line[index + 2] == "env";
+}
+
+bool is_cmake_env_assignment(std::string_view arg) {
+    if (arg.empty() || arg.starts_with("-")) {
+        return false;
+    }
+    const auto eq = arg.find('=');
+    return eq != std::string_view::npos && eq != 0;
+}
+
+std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line) {
+    if (command_line.empty()) {
+        return std::nullopt;
+    }
+
+    std::size_t index = 0;
+    while (index < command_line.size()) {
+        const std::string_view arg = command_line[index];
+        if (arg.empty() || arg == "--") {
+            ++index;
+            continue;
+        }
+        if (is_cmake_env_wrapper_at(command_line, index)) {
+            index += 3;
+            while (index < command_line.size()) {
+                const std::string_view env_arg = command_line[index];
+                if (env_arg == "--") {
+                    ++index;
+                    break;
+                }
+                if (env_arg.starts_with("--unset=") || env_arg.starts_with("--modify-env=") || is_cmake_env_assignment(env_arg)) {
+                    ++index;
+                    continue;
+                }
+                break;
+            }
+            continue;
+        }
+        if (is_known_compiler_launcher(arg)) {
+            ++index;
+            continue;
+        }
+        if (is_clang_like_compiler(arg)) {
+            return index;
+        }
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+std::string compiler_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line,
+                                            const std::string                        &default_compiler_path) {
+    const auto compiler_index = compiler_arg_index_for_resource_dir_probe(command_line);
+    if (!compiler_index) {
+        return default_compiler_path;
+    }
+    return command_line[*compiler_index];
 }
 
 std::string resolve_resource_dir(const std::string &compiler_path) {
@@ -257,6 +543,60 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
     return trimmed.str();
 }
 
+std::string resolve_default_sysroot() {
+#if !defined(__APPLE__)
+    return {};
+#else
+    if (const char *sdkroot = std::getenv("SDKROOT"); sdkroot && *sdkroot) {
+        return std::string(sdkroot);
+    }
+
+    auto xcrun_path = llvm::sys::findProgramByName("xcrun");
+    if (!xcrun_path) {
+        return {};
+    }
+
+    llvm::SmallString<128> tmp_path;
+    int                    tmp_fd = -1;
+    if (const auto ec = llvm::sys::fs::createTemporaryFile("gentest_codegen_sysroot", "txt", tmp_fd, tmp_path)) {
+        gentest::codegen::log_err("gentest_codegen: warning: failed to create temp file for sysroot probe: {}\n", ec.message());
+        return {};
+    }
+    (void)llvm::sys::Process::SafelyCloseFileDescriptor(tmp_fd);
+
+    std::string tmp_path_str = tmp_path.str().str();
+    llvm::StringRef tmp_path_ref{tmp_path_str};
+
+    std::array<llvm::StringRef, 4> xcrun_args = {
+        llvm::StringRef(*xcrun_path),
+        llvm::StringRef("--sdk"),
+        llvm::StringRef("macosx"),
+        llvm::StringRef("--show-sdk-path"),
+    };
+    std::array<std::optional<llvm::StringRef>, 3> redirects = {std::nullopt, tmp_path_ref, std::nullopt};
+
+    std::string err_msg;
+    const int   rc = llvm::sys::ExecuteAndWait(*xcrun_path, xcrun_args, std::nullopt, redirects, 0, 0, &err_msg);
+    if (rc != 0) {
+        if (!err_msg.empty()) {
+            gentest::codegen::log_err("gentest_codegen: warning: failed to query macOS SDK path: {}\n", err_msg);
+        }
+        (void)llvm::sys::fs::remove(tmp_path_str);
+        return {};
+    }
+
+    auto in = llvm::MemoryBuffer::getFile(tmp_path_str);
+    (void)llvm::sys::fs::remove(tmp_path_str);
+    if (!in) {
+        gentest::codegen::log_err("gentest_codegen: warning: failed to read macOS SDK path probe output: {}\n",
+                                  in.getError().message());
+        return {};
+    }
+
+    return llvm::StringRef((*in)->getBuffer()).trim().str();
+#endif
+}
+
 CollectorOptions parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory    category{"gentest codegen"};
     static llvm::cl::opt<std::string>  output_option{"output", llvm::cl::desc("Path to the output source file"), llvm::cl::init(""),
@@ -303,6 +643,8 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
                                                            llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
                                                        llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  depfile_option{"depfile", llvm::cl::desc("Path to the generated depfile"),
+                                                     llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<bool> check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"), llvm::cl::init(false),
                                             llvm::cl::cat(category)};
 
@@ -373,6 +715,9 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     if (!mock_impl_option.getValue().empty()) {
         opts.mock_impl_path = std::filesystem::path{mock_impl_option.getValue()};
     }
+    if (!depfile_option.getValue().empty()) {
+        opts.depfile_path = std::filesystem::path{depfile_option.getValue()};
+    }
     if (!compdb_option.getValue().empty()) {
         opts.compilation_database = std::filesystem::path{compdb_option.getValue()};
     }
@@ -394,7 +739,7 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
 
 int main(int argc, const char **argv) {
     const auto options = parse_arguments(argc, argv);
-    const auto compiler_path = resolve_default_compiler_path();
+    const auto default_compiler_path = resolve_default_compiler_path();
 
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
     std::string                                          db_error;
@@ -430,29 +775,61 @@ int main(int argc, const char **argv) {
 
     const auto extra_args = options.clang_args;
     const bool need_resource_dir = !has_resource_dir_arg(extra_args);
-    const std::string resource_dir = need_resource_dir ? resolve_resource_dir(compiler_path) : std::string{};
+    const std::string default_resource_dir = need_resource_dir ? resolve_resource_dir(default_compiler_path) : std::string{};
+    const bool need_default_sysroot = !has_sysroot_arg(extra_args);
+    const std::string default_sysroot = need_default_sysroot ? resolve_default_sysroot() : std::string{};
+    std::mutex resource_dir_cache_mutex;
+    std::unordered_map<std::string, std::string> resource_dir_cache;
+    if (need_resource_dir && !default_resource_dir.empty()) {
+        resource_dir_cache.emplace(default_compiler_path, default_resource_dir);
+    }
+
+    const auto resource_dir_for_compiler = [&](std::string_view compiler) -> std::string {
+        if (!need_resource_dir) {
+            return {};
+        }
+        const std::string key = compiler.empty() ? default_compiler_path : std::string(compiler);
+        {
+            std::lock_guard<std::mutex> lk(resource_dir_cache_mutex);
+            if (const auto it = resource_dir_cache.find(key); it != resource_dir_cache.end()) {
+                return it->second;
+            }
+        }
+
+        const std::string resolved = resolve_resource_dir(key);
+        std::lock_guard<std::mutex> lk(resource_dir_cache_mutex);
+        return resource_dir_cache.emplace(key, resolved).first->second;
+    };
 
     std::vector<TestCaseInfo>                    cases;
     std::vector<FixtureDeclInfo>                 fixtures;
     const bool                                   allow_includes = !options.tu_output_dir.empty();
     std::vector<gentest::codegen::MockClassInfo> mocks;
+    std::vector<std::string>                     depfile_dependencies;
 
     const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
         if (options.compilation_database) {
             const std::string compdb_dir = options.compilation_database->string();
-            return [compiler_path, resource_dir, need_resource_dir, extra_args, compdb_dir](
+            return [resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args, compdb_dir](
                        const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
                     // Use compiler and flags from compilation database
-                    adjusted.emplace_back(command_line.front());
-                    if (need_resource_dir && !resource_dir.empty()) {
+                    const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(command_line).value_or(0);
+                    adjusted.emplace_back(command_line[compiler_index]);
+                    const std::string resource_dir =
+                        resource_dir_for_compiler(compiler_for_resource_dir_probe(command_line, default_compiler_path));
+                    if (!resource_dir.empty()) {
                         adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+                    }
+                    if (!default_sysroot.empty() && !has_sysroot_arg(command_line)) {
+                        adjusted.emplace_back("-isysroot");
+                        adjusted.emplace_back(default_sysroot);
                     }
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                     // Copy remaining args, filtering out C++ module flags
                     bool skip_next_arg = false;
-                    for (std::size_t i = 1; i < command_line.size(); ++i) {
+                    for (std::size_t i = compiler_index + 1; i < command_line.size(); ++i) {
                         const auto &arg = command_line[i];
                         if (skip_next_arg) {
                             skip_next_arg = false;
@@ -475,12 +852,17 @@ int main(int argc, const char **argv) {
                         "gentest_codegen: warning: no compilation database entry for '{}'; using synthetic clang invocation "
                         "(compdb: '{}')\n",
                         file.str(), compdb_dir);
-                    adjusted.emplace_back(compiler_path);
+                    adjusted.emplace_back(default_compiler_path);
 #if defined(__linux__)
                     adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
-                    if (need_resource_dir && !resource_dir.empty()) {
+                    const std::string resource_dir = resource_dir_for_compiler(default_compiler_path);
+                    if (!resource_dir.empty()) {
                         adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+                    }
+                    if (!default_sysroot.empty()) {
+                        adjusted.emplace_back("-isysroot");
+                        adjusted.emplace_back(default_sysroot);
                     }
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                 }
@@ -490,15 +872,20 @@ int main(int argc, const char **argv) {
 
         // No compilation database - use minimal synthetic command
         // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
-        return [compiler_path, resource_dir, need_resource_dir, extra_args](const clang::tooling::CommandLineArguments &command_line,
-                                                                           llvm::StringRef) {
+        return [default_compiler_path, default_sysroot, resource_dir_for_compiler, extra_args](
+                   const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
             clang::tooling::CommandLineArguments adjusted;
-            adjusted.emplace_back(compiler_path);
+            adjusted.emplace_back(default_compiler_path);
 #if defined(__linux__)
             adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
-            if (need_resource_dir && !resource_dir.empty()) {
+            const std::string resource_dir = resource_dir_for_compiler(default_compiler_path);
+            if (!resource_dir.empty()) {
                 adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+            }
+            if (!default_sysroot.empty()) {
+                adjusted.emplace_back("-isysroot");
+                adjusted.emplace_back(default_sysroot);
             }
             adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
             if (!command_line.empty()) {
@@ -534,6 +921,7 @@ int main(int argc, const char **argv) {
         std::vector<TestCaseInfo>           cases;
         std::vector<FixtureDeclInfo>        fixtures;
         std::vector<gentest::codegen::MockClassInfo> mocks;
+        std::vector<std::string>            dependencies;
     };
 
     const std::size_t parse_jobs = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
@@ -618,20 +1006,23 @@ int main(int argc, const char **argv) {
             FixtureDeclCollector         fixture_collector{local_fixtures};
             std::vector<gentest::codegen::MockClassInfo> local_mocks;
             MockUsageCollector                            mock_collector{local_mocks};
+            std::vector<std::string>                      local_dependencies;
 
             MatchFinder finder;
             finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
             finder.addMatcher(cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("gentest.fixture"), &fixture_collector);
             register_mock_matchers(finder, mock_collector);
+            MatchFinderActionFactory action_factory{finder, local_dependencies};
 
             ParseResult result;
-            result.status = tool.run(newFrontendActionFactory(&finder).get());
+            result.status = tool.run(&action_factory);
             result.had_test_errors = collector.has_errors();
             result.had_fixture_errors = fixture_collector.has_errors();
             result.had_mock_errors = mock_collector.has_errors();
             result.cases = std::move(local_cases);
             result.fixtures = std::move(local_fixtures);
             result.mocks = std::move(local_mocks);
+            result.dependencies = std::move(local_dependencies);
             results[idx] = std::move(result);
 
             diag_stream.flush();
@@ -667,6 +1058,8 @@ int main(int argc, const char **argv) {
             cases.insert(cases.end(), std::make_move_iterator(r.cases.begin()), std::make_move_iterator(r.cases.end()));
             fixtures.insert(fixtures.end(), std::make_move_iterator(r.fixtures.begin()), std::make_move_iterator(r.fixtures.end()));
             mocks.insert(mocks.end(), std::make_move_iterator(r.mocks.begin()), std::make_move_iterator(r.mocks.end()));
+            depfile_dependencies.insert(depfile_dependencies.end(), std::make_move_iterator(r.dependencies.begin()),
+                                        std::make_move_iterator(r.dependencies.end()));
         }
         if (status != 0) {
             return status;
@@ -683,19 +1076,22 @@ int main(int argc, const char **argv) {
         TestCaseCollector  collector{cases, options.strict_fixture, allow_includes};
         FixtureDeclCollector fixture_collector{fixtures};
         MockUsageCollector mock_collector{mocks};
+        std::vector<std::string> depfile_dependencies_local;
 
         MatchFinder finder;
         finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
         finder.addMatcher(cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("gentest.fixture"), &fixture_collector);
         register_mock_matchers(finder, mock_collector);
+        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local};
 
-        const int status = tool.run(newFrontendActionFactory(&finder).get());
+        const int status = tool.run(&action_factory);
         if (status != 0) {
             return status;
         }
         if (collector.has_errors() || fixture_collector.has_errors() || mock_collector.has_errors()) {
             return 1;
         }
+        depfile_dependencies = std::move(depfile_dependencies_local);
     }
 
     if (allow_includes) {
@@ -718,5 +1114,16 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
-    return gentest::codegen::emit(options, cases, fixtures, mocks);
+    if (options.compilation_database) {
+        depfile_dependencies.push_back((options.compilation_database->lexically_normal() / "compile_commands.json").generic_string());
+    }
+
+    const int emit_status = gentest::codegen::emit(options, cases, fixtures, mocks);
+    if (emit_status != 0) {
+        return emit_status;
+    }
+    if (!write_depfile(options, depfile_dependencies)) {
+        return 1;
+    }
+    return 0;
 }

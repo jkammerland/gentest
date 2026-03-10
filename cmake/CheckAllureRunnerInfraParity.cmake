@@ -36,6 +36,7 @@ if(DEFINED ARGS)
   endif()
 endif()
 
+file(REMOVE_RECURSE "${OUT_DIR}")
 file(MAKE_DIRECTORY "${OUT_DIR}")
 
 execute_process(

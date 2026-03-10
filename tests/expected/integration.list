@@ -1,0 +1,4 @@
+integration/errors/errors/recover
+integration/errors/errors/throw
+integration/math/math/fibonacci
+integration/registry/registry/map

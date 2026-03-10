@@ -204,6 +204,25 @@ struct RawFixture {
     int value = 5;
 };
 
+struct RawDerivedFixture;
+
+struct RawPolymorphicFixture {
+    static inline int base_deletes    = 0;
+    static inline int derived_deletes = 0;
+
+    static RawDerivedFixture* gentest_allocate();
+
+    ~RawPolymorphicFixture() { ++base_deletes; }
+
+    int value = 6;
+};
+
+struct RawDerivedFixture : RawPolymorphicFixture {
+    ~RawDerivedFixture() { ++derived_deletes; }
+};
+
+inline RawDerivedFixture* RawPolymorphicFixture::gentest_allocate() { return new RawDerivedFixture(); }
+
 struct SharedFixture {
     static inline int allocations = 0;
     static std::shared_ptr<SharedFixture> gentest_allocate() {
@@ -278,6 +297,27 @@ void free_raw_pointer(RawFixture *fx) {
     gentest::expect(fx != nullptr, "fixture pointer is valid");
     gentest::expect_eq(fx->value, 5, "fixture state available");
     gentest::expect(RawFixture::allocations >= 1, "allocation hook runs for raw pointer fixture");
+}
+
+[[using gentest: test("free/raw_pointer_polymorphic_a_use")]]
+void free_raw_pointer_polymorphic_a_use(RawPolymorphicFixture *fx) {
+    gentest::expect(fx != nullptr, "fixture pointer is valid");
+    gentest::expect_eq(fx->value, 6, "polymorphic fixture state available");
+    gentest::expect_eq(RawPolymorphicFixture::base_deletes, 0, "base destructor has not run before first test");
+    gentest::expect_eq(RawPolymorphicFixture::derived_deletes, 0, "derived destructor has not run before first test");
+}
+
+[[using gentest: test("free/raw_pointer_polymorphic_b_after_first")]]
+void free_raw_pointer_polymorphic_b_after_first(RawPolymorphicFixture *fx) {
+    static int invocations = 0;
+    if (invocations == 0) {
+        RawPolymorphicFixture::base_deletes    = 0;
+        RawPolymorphicFixture::derived_deletes = 0;
+    }
+    gentest::expect(fx != nullptr, "fixture pointer is valid");
+    gentest::expect_eq(RawPolymorphicFixture::base_deletes, invocations, "base destructor count tracks prior exact invocations");
+    gentest::expect_eq(RawPolymorphicFixture::derived_deletes, invocations, "derived destructor count tracks prior exact invocations");
+    ++invocations;
 }
 
 [[using gentest: test("free/shared_ptr")]]

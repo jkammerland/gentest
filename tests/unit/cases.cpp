@@ -1,4 +1,5 @@
 #include "gentest/attributes.h"
+#include "gentest/bench_util.h"
 #include "gentest/detail/bench_stats.h"
 #include "gentest/runner.h"
 using namespace gentest::asserts;
@@ -188,6 +189,15 @@ void bench_stats_hist_skewed() {
     EXPECT_EQ(hist.bins[0].percent, Approx(80.0).abs(0.01));
     EXPECT_EQ(hist.bins[1].percent, Approx(20.0).abs(0.01));
     EXPECT_EQ(hist.bins[1].cumulative_percent, Approx(100.0).abs(0.01));
+}
+
+[[using gentest: test("bench_util/clobber_memory_smoke")]]
+void bench_util_clobber_memory_smoke() {
+    int value = 7;
+    const int &value_ref = value;
+    gentest::doNotOptimizeAway(value_ref);
+    gentest::clobberMemory();
+    EXPECT_EQ(value, 7);
 }
 
 } // namespace unit

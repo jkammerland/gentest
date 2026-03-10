@@ -65,6 +65,11 @@ if(${PROJECT_NAME}_INSTALL)
         EXPORT_NAME ${PROJECT_NAME}
         INCLUDE_ON_FIND_PACKAGE "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
         PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
+
+    set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
+    set(CPACK_PACKAGE_VENDOR "${PROJECT_NAME}")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    include(CPack)
 else()
     message(STATUS "Enable install of ${PROJECT_NAME} with -D${PROJECT_NAME}_INSTALL=ON")
 endif()
