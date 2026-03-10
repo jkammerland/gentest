@@ -87,8 +87,9 @@ function(_gentest_configure_manifest_mode)
     endif()
 
     if("${_gentest_output}" MATCHES "\\$<")
-        message(WARNING
-            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT contains generator expressions; collision checks skipped: '${_gentest_output}'")
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT with generator expressions is not supported in manifest mode. "
+            "Use a concrete OUTPUT path instead: '${_gentest_output}'")
     else()
         _gentest_normalize_path_and_key("${_gentest_output}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_output_abs _gentest_output_key)
         _gentest_reserve_unique_owner("GENTEST_CODEGEN_OUTPUT_OWNER" "${_gentest_output_key}" "${GENTEST_TARGET}" _gentest_prev_owner)
@@ -346,10 +347,10 @@ function(gentest_attach_codegen target)
     endforeach()
 
     if(_gentest_skipped_genex_sources)
-        list(LENGTH _gentest_skipped_genex_sources _gentest_skipped_genex_count)
-        message(WARNING
-            "gentest_attach_codegen(${target}): skipping ${_gentest_skipped_genex_count} generator-expression SOURCES entries. "
-            "Pass concrete files via SOURCES=... if you need those scanned/wrapped.")
+        string(JOIN "', '" _gentest_skipped_genex_joined ${_gentest_skipped_genex_sources})
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${target}): generator-expression SOURCES entries are not supported because they can be skipped by "
+            "codegen. Pass concrete files via SOURCES=... instead. Offending entries: '${_gentest_skipped_genex_joined}'")
     endif()
 
     if(NOT _gentest_tus)

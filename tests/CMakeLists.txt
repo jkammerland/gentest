@@ -1293,6 +1293,28 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake
     cmake)
 
+_gentest_add_cmake_helper_test(
+    gentest_codegen_genex_sources_rejected
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_genex_sources
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake
+    cmake
+    -DEXPECT_SUBSTRING=generator-expression SOURCES entries are not supported)
+set_property(TEST gentest_codegen_genex_sources_rejected APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_output_genex_rejected
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_genex
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenOutputCollision.cmake
+    cmake
+    -DEXPECT_SUBSTRING=OUTPUT with generator expressions is not supported in manifest mode)
+set_property(TEST gentest_codegen_output_genex_rejected APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_genex_sources_rejected
+    ${PROJECT_SOURCE_DIR}/tests/cmake/genex_sources
+    ${PROJECT_SOURCE_DIR}/cmake/CheckGenexSourcesRejected.cmake
+    cmake)
+
 set(_gentest_discover_tests_config "")
 if(CMAKE_CONFIGURATION_TYPES)
     set(_gentest_discover_tests_config "Debug")
