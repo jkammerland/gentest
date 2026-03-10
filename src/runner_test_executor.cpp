@@ -285,18 +285,21 @@ bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases,
 
         const auto run_groups = [&](const std::vector<gentest::runner::FixtureGroupPlan> &groups) -> bool {
             for (const auto &group : groups) {
-                for (auto i : group.idxs) {
-                    const auto &t   = cases[i];
-                    void       *ctx = nullptr;
-                    std::string reason;
-                    if (!gentest::runner::acquire_case_fixture(t, ctx, reason)) {
-                        const std::string msg = reason.empty() ? std::string("fixture allocation returned null") : reason;
-                        record_synthetic_skip(state, t, msg, counters, true);
+                void       *group_ctx = nullptr;
+                std::string group_reason;
+                if (!group.idxs.empty() && !gentest::runner::acquire_case_fixture(cases[group.idxs.front()], group_ctx, group_reason)) {
+                    const std::string msg =
+                        group_reason.empty() ? std::string("fixture allocation returned null") : std::move(group_reason);
+                    for (auto i : group.idxs) {
+                        record_synthetic_skip(state, cases[i], msg, counters, true);
                         if (fail_fast && counters.failures > 0)
                             return true;
-                        continue;
                     }
-                    execute_and_record(state, t, ctx, counters);
+                    continue;
+                }
+
+                for (auto i : group.idxs) {
+                    execute_and_record(state, cases[i], group_ctx, counters);
                     if (fail_fast && counters.failures > 0)
                         return true;
                 }
