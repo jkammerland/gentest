@@ -1348,6 +1348,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_tu_register_symbol_collision APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_resource_dir_from_compdb_compiler
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenResourceDirFromCompdbCompiler.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog})
+set_property(TEST gentest_codegen_resource_dir_from_compdb_compiler APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_outcome_matrix_stale_junit_guard
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake

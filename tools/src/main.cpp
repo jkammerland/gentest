@@ -31,6 +31,7 @@
 #include <llvm/Support/Program.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -394,7 +395,7 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
 
 int main(int argc, const char **argv) {
     const auto options = parse_arguments(argc, argv);
-    const auto compiler_path = resolve_default_compiler_path();
+    const auto default_compiler_path = resolve_default_compiler_path();
 
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
     std::string                                          db_error;
@@ -430,7 +431,29 @@ int main(int argc, const char **argv) {
 
     const auto extra_args = options.clang_args;
     const bool need_resource_dir = !has_resource_dir_arg(extra_args);
-    const std::string resource_dir = need_resource_dir ? resolve_resource_dir(compiler_path) : std::string{};
+    const std::string default_resource_dir = need_resource_dir ? resolve_resource_dir(default_compiler_path) : std::string{};
+    std::mutex resource_dir_cache_mutex;
+    std::unordered_map<std::string, std::string> resource_dir_cache;
+    if (need_resource_dir && !default_resource_dir.empty()) {
+        resource_dir_cache.emplace(default_compiler_path, default_resource_dir);
+    }
+
+    const auto resource_dir_for_compiler = [&](std::string_view compiler) -> std::string {
+        if (!need_resource_dir) {
+            return {};
+        }
+        const std::string key = compiler.empty() ? default_compiler_path : std::string(compiler);
+        {
+            std::lock_guard<std::mutex> lk(resource_dir_cache_mutex);
+            if (const auto it = resource_dir_cache.find(key); it != resource_dir_cache.end()) {
+                return it->second;
+            }
+        }
+
+        const std::string resolved = resolve_resource_dir(key);
+        std::lock_guard<std::mutex> lk(resource_dir_cache_mutex);
+        return resource_dir_cache.emplace(key, resolved).first->second;
+    };
 
     std::vector<TestCaseInfo>                    cases;
     std::vector<FixtureDeclInfo>                 fixtures;
@@ -440,13 +463,14 @@ int main(int argc, const char **argv) {
     const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
         if (options.compilation_database) {
             const std::string compdb_dir = options.compilation_database->string();
-            return [compiler_path, resource_dir, need_resource_dir, extra_args, compdb_dir](
+            return [resource_dir_for_compiler, default_compiler_path, extra_args, compdb_dir](
                        const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
                     // Use compiler and flags from compilation database
                     adjusted.emplace_back(command_line.front());
-                    if (need_resource_dir && !resource_dir.empty()) {
+                    const std::string resource_dir = resource_dir_for_compiler(command_line.front());
+                    if (!resource_dir.empty()) {
                         adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
                     }
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
@@ -475,11 +499,12 @@ int main(int argc, const char **argv) {
                         "gentest_codegen: warning: no compilation database entry for '{}'; using synthetic clang invocation "
                         "(compdb: '{}')\n",
                         file.str(), compdb_dir);
-                    adjusted.emplace_back(compiler_path);
+                    adjusted.emplace_back(default_compiler_path);
 #if defined(__linux__)
                     adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
-                    if (need_resource_dir && !resource_dir.empty()) {
+                    const std::string resource_dir = resource_dir_for_compiler(default_compiler_path);
+                    if (!resource_dir.empty()) {
                         adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
                     }
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
@@ -490,14 +515,15 @@ int main(int argc, const char **argv) {
 
         // No compilation database - use minimal synthetic command
         // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
-        return [compiler_path, resource_dir, need_resource_dir, extra_args](const clang::tooling::CommandLineArguments &command_line,
-                                                                           llvm::StringRef) {
+        return [default_compiler_path, resource_dir_for_compiler, extra_args](const clang::tooling::CommandLineArguments &command_line,
+                                                                             llvm::StringRef) {
             clang::tooling::CommandLineArguments adjusted;
-            adjusted.emplace_back(compiler_path);
+            adjusted.emplace_back(default_compiler_path);
 #if defined(__linux__)
             adjusted.emplace_back("--gcc-toolchain=/usr");
 #endif
-            if (need_resource_dir && !resource_dir.empty()) {
+            const std::string resource_dir = resource_dir_for_compiler(default_compiler_path);
+            if (!resource_dir.empty()) {
                 adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
             }
             adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
