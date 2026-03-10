@@ -85,6 +85,7 @@ struct CollectorOptions {
     std::filesystem::path                tu_output_dir;
     std::filesystem::path                mock_registry_path;
     std::filesystem::path                mock_impl_path;
+    std::optional<std::filesystem::path> depfile_path;
     std::filesystem::path                template_path;
     std::vector<std::string>             sources;
     std::vector<std::string>             clang_args;

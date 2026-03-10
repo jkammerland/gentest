@@ -1384,6 +1384,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_resource_dir_from_compdb_compiler APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_incremental_dependencies
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_incremental_deps
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenIncrementalDependencies.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_incremental_dependencies APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_outcome_matrix_stale_junit_guard
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake

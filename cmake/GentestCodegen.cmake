@@ -405,6 +405,7 @@ function(gentest_attach_codegen target)
     # Generate inline mock implementations as a header; it will be included by
     # the generated wrapper translation units after including sources.
     set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
+    set(_gentest_depfile "${_gentest_output_dir}/${_gentest_target_id}.gentest.d")
 
     set(_command_launcher ${_gentest_codegen_executable})
     if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
@@ -420,6 +421,7 @@ function(gentest_attach_codegen target)
     set(_command ${_command_launcher}
         --mock-registry ${_gentest_mock_registry}
         --mock-impl ${_gentest_mock_impl}
+        --depfile ${_gentest_depfile}
         --compdb ${CMAKE_BINARY_DIR}
         --source-root ${CMAKE_SOURCE_DIR})
 
@@ -481,6 +483,9 @@ function(gentest_attach_codegen target)
     if(_gentest_codegen_target)
         list(APPEND _gentest_codegen_deps ${_gentest_codegen_target})
     endif()
+    if(EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
+        list(APPEND _gentest_codegen_deps "${CMAKE_BINARY_DIR}/compile_commands.json")
+    endif()
 
     cmake_policy(PUSH)
     if(POLICY CMP0171)
@@ -500,6 +505,9 @@ function(gentest_attach_codegen target)
         DEPENDS ${_gentest_codegen_deps} ${_gentest_tus} ${GENTEST_DEPENDS}
         COMMENT "Running gentest_codegen for target ${target}"
         VERBATIM)
+    if(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+        list(APPEND _gentest_custom_command_args DEPFILE ${_gentest_depfile})
+    endif()
     if(POLICY CMP0171)
         list(APPEND _gentest_custom_command_args CODEGEN)
     endif()
