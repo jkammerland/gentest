@@ -7,7 +7,7 @@ endif()
 gentest_resolve_test_std(_gentest_test_std_feature _gentest_codegen_std_flag)
 unset(_gentest_test_std_feature)
 
-set(_gentest_test_suites
+set(_gentest_default_suites
     unit
     integration
     failing
@@ -18,6 +18,8 @@ set(_gentest_test_suites
     mocking
     ctor
     benchmarks)
+
+set(_gentest_test_suites ${_gentest_default_suites})
 
 # Optionally include libassert integration suite
 if(GENTEST_WITH_LIBASSERT)
@@ -47,22 +49,20 @@ gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
 #
 # Build `gentest_codegen_parallel_bench` (custom target below) to run only the
 # codegen step.
-add_library(gentest_codegen_parallel_bench_obj OBJECT EXCLUDE_FROM_ALL
-    ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/integration/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/failing/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/skiponly/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/readme_fixtures/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/templates/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/mocking/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ctor/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/concurrency/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/outcomes/cases.cpp)
+set(_gentest_codegen_parallel_bench_suites
+    ${_gentest_default_suites}
+    concurrency
+    outcomes)
 if(GENTEST_WITH_LIBASSERT)
-    target_sources(gentest_codegen_parallel_bench_obj PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libassert/cases.cpp)
+    list(APPEND _gentest_codegen_parallel_bench_suites libassert)
 endif()
+
+set(_gentest_codegen_parallel_bench_sources "")
+foreach(suite IN LISTS _gentest_codegen_parallel_bench_suites)
+    list(APPEND _gentest_codegen_parallel_bench_sources ${CMAKE_CURRENT_SOURCE_DIR}/${suite}/cases.cpp)
+endforeach()
+
+add_library(gentest_codegen_parallel_bench_obj OBJECT EXCLUDE_FROM_ALL ${_gentest_codegen_parallel_bench_sources})
 
 target_link_libraries(gentest_codegen_parallel_bench_obj PRIVATE gentest_main)
 
@@ -85,6 +85,10 @@ unset(_gentest_parallel_bench_std_feature)
 # multi-TU bench.
 add_custom_target(gentest_codegen_parallel_bench
     DEPENDS gentest_codegen_gentest_codegen_parallel_bench_obj)
+
+unset(_gentest_codegen_parallel_bench_sources)
+unset(_gentest_codegen_parallel_bench_suites)
+unset(_gentest_default_suites)
 
 # Focused checks: ensure pass-only selection passes, and failing selection returns non-zero
 set(_gentest_concurrency_count_checks

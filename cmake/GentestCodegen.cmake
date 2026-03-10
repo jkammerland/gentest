@@ -783,7 +783,7 @@ function(gentest_discover_tests_impl)
 
   cmake_language(EVAL CODE
     "execute_process(
-      COMMAND ${launcher_args} [==[${arg_TEST_EXECUTABLE}]==] --list-tests ${discovery_extra_args}
+      COMMAND ${launcher_args} [==[${arg_TEST_EXECUTABLE}]==] --list ${discovery_extra_args}
       WORKING_DIRECTORY [==[${arg_TEST_WORKING_DIR}]==]
       TIMEOUT ${arg_TEST_DISCOVERY_TIMEOUT}
       OUTPUT_VARIABLE output
@@ -804,41 +804,11 @@ function(gentest_discover_tests_impl)
       "  Path: '${path}'\n"
       "  Working directory: '${arg_TEST_WORKING_DIR}'\n"
       "  Result: ${result}\n"
+      "  Command: --list\n"
       "  Stdout:\n"
       "    ${output}\n"
       "  Stderr:\n"
       "    ${error_output}\n"
-    )
-  endif()
-
-  cmake_language(EVAL CODE
-    "execute_process(
-      COMMAND ${launcher_args} [==[${arg_TEST_EXECUTABLE}]==] --list-death ${discovery_extra_args}
-      WORKING_DIRECTORY [==[${arg_TEST_WORKING_DIR}]==]
-      TIMEOUT ${arg_TEST_DISCOVERY_TIMEOUT}
-      OUTPUT_VARIABLE death_output
-      ERROR_VARIABLE death_error_output
-      RESULT_VARIABLE death_result
-    )"
-  )
-  if(NOT death_result EQUAL 0)
-    string(REPLACE "\n" "\n    " death_output "${death_output}")
-    string(REPLACE "\n" "\n    " death_error_output "${death_error_output}")
-    if(arg_TEST_EXECUTOR)
-      set(path "${arg_TEST_EXECUTOR} ${arg_TEST_EXECUTABLE}")
-    else()
-      set(path "${arg_TEST_EXECUTABLE}")
-    endif()
-    message(FATAL_ERROR
-      "Error running test executable with --list-death.\n"
-      "  Path: '${path}'\n"
-      "  Working directory: '${arg_TEST_WORKING_DIR}'\n"
-      "  Result: ${death_result}\n"
-      "  Stdout:\n"
-      "    ${death_output}\n"
-      "  Stderr:\n"
-      "    ${death_error_output}\n"
-      "  Hint: update the test binary to a gentest version that supports --list-death.\n"
     )
   endif()
 
@@ -847,11 +817,10 @@ function(gentest_discover_tests_impl)
     _gentest_wildcard_to_regex(filter_regex "${arg_TEST_FILTER}")
   endif()
 
-  set(_combined_output "${output}
-${death_output}")
+  set(_combined_output "${output}")
   _gentest_generate_testname_guards("${_combined_output}" open_guard close_guard)
 
-  function(_gentest_parse_list raw_output out_var)
+  function(_gentest_parse_meta_list raw_output out_var out_death_var)
     set(_out "${raw_output}")
     _gentest_escape_square_brackets("${_out}" "[" "__osb" open_sb _out)
     _gentest_escape_square_brackets("${_out}" "]" "__csb" close_sb _out)
@@ -860,6 +829,7 @@ ${death_output}")
     string(REPLACE "\n" ";" _out "${_out}")
 
     set(_cases "")
+    set(_death_cases "")
     foreach(line IN LISTS _out)
       string(STRIP "${line}" case_name_raw)
       if(case_name_raw STREQUAL "")
@@ -876,13 +846,33 @@ ${death_output}")
       # Restore escaped semicolons now that we're processing a single line.
       string(REPLACE "\\;" ";" case_line "${case_line}")
 
-      list(APPEND _cases "${case_line}")
+      set(case_body "${case_line}")
+      if(case_body MATCHES "^(.*) \\(.+:[0-9]+\\)$")
+        set(case_body "${CMAKE_MATCH_1}")
+      endif()
+
+      set(case_name "${case_body}")
+      set(case_meta "")
+      if(case_body MATCHES "^(.*) \\[([^][]+)\\]$")
+        set(_candidate_name "${CMAKE_MATCH_1}")
+        set(_candidate_meta "${CMAKE_MATCH_2}")
+        if(_candidate_meta MATCHES "(^|;)tags=" OR _candidate_meta MATCHES "(^|;)requires=" OR _candidate_meta MATCHES "(^|;)skip($|=)")
+          set(case_name "${_candidate_name}")
+          set(case_meta "${_candidate_meta}")
+        endif()
+      endif()
+
+      if(case_meta MATCHES "(^|;)tags=([^;]*,)?death([,;]|$)")
+        list(APPEND _death_cases "${case_name}")
+      else()
+        list(APPEND _cases "${case_name}")
+      endif()
     endforeach()
     set(${out_var} "${_cases}" PARENT_SCOPE)
+    set(${out_death_var} "${_death_cases}" PARENT_SCOPE)
   endfunction()
 
-  _gentest_parse_list("${output}" normal_cases)
-  _gentest_parse_list("${death_output}" death_cases)
+  _gentest_parse_meta_list("${output}" normal_cases death_cases)
 
   if(death_cases)
     _gentest_ensure_check_death_script(_gentest_check_death_script)
