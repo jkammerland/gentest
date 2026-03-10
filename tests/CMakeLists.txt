@@ -1018,6 +1018,12 @@ gentest_add_check_contains(
         --seed
         42)
 
+gentest_add_check_exit_code(
+    NAME fixtures_raw_pointer_polymorphic_exact_repeat
+    PROG $<TARGET_FILE:gentest_fixtures_tests>
+    EXPECT_RC 0
+    ARGS --run=fixtures/free/raw_pointer_polymorphic_b_after_first --kind=test --repeat=2)
+
 gentest_add_check_counts(
     NAME regression_fixture_group_shuffle_invariants
     PROG $<TARGET_FILE:gentest_regression_fixture_group_shuffle_invariants>

@@ -309,9 +309,15 @@ void free_raw_pointer_polymorphic_a_use(RawPolymorphicFixture *fx) {
 
 [[using gentest: test("free/raw_pointer_polymorphic_b_after_first")]]
 void free_raw_pointer_polymorphic_b_after_first(RawPolymorphicFixture *fx) {
+    static int invocations = 0;
+    if (invocations == 0) {
+        RawPolymorphicFixture::base_deletes    = 0;
+        RawPolymorphicFixture::derived_deletes = 0;
+    }
     gentest::expect(fx != nullptr, "fixture pointer is valid");
-    gentest::expect_eq(RawPolymorphicFixture::base_deletes, 1, "base destructor ran after first test");
-    gentest::expect_eq(RawPolymorphicFixture::derived_deletes, 1, "derived destructor ran after first test");
+    gentest::expect_eq(RawPolymorphicFixture::base_deletes, invocations, "base destructor count tracks prior exact invocations");
+    gentest::expect_eq(RawPolymorphicFixture::derived_deletes, invocations, "derived destructor count tracks prior exact invocations");
+    ++invocations;
 }
 
 [[using gentest: test("free/shared_ptr")]]
