@@ -1,5 +1,5 @@
 # Usage:
-#   cmake -DPROG=<path> -DCASES=<n> [-DPASS=<n> -DFAIL=<n> -DSKIP=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P cmake/CheckTestInventory.cmake
+#   cmake -DPROG=<path> -DCASES=<n> [-DEXPECTED_LIST_FILE=<path>] [-DPASS=<n> -DFAIL=<n> -DSKIP=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P cmake/CheckTestInventory.cmake
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")
@@ -41,6 +41,19 @@ function(_gentest_count_output_lines text out_var)
   set(${out_var} "${_line_count}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_normalize_text text out_var)
+  string(REPLACE "\r" "" _normalized "${text}")
+  string(REGEX REPLACE "\n+$" "" _normalized "${_normalized}")
+  set(${out_var} "${_normalized}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_count_status_lines text status out_var)
+  set(_search_text "\n${text}")
+  string(REGEX MATCHALL "\n\\[ ${status} \\] " _matches "${_search_text}")
+  list(LENGTH _matches _count)
+  set(${out_var} "${_count}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_run_and_capture name out_var err_var rc_var)
   execute_process(
     COMMAND ${_emu} "${PROG}" ${_args} ${ARGN}
@@ -68,6 +81,23 @@ endfunction()
 _gentest_check_list_mode("--list" "${CASES}" --list)
 _gentest_check_list_mode("--list-tests" "${CASES}" --list-tests)
 
+if(DEFINED EXPECTED_LIST_FILE AND NOT "${EXPECTED_LIST_FILE}" STREQUAL "")
+  if(NOT EXISTS "${EXPECTED_LIST_FILE}")
+    message(FATAL_ERROR "Expected list file not found: ${EXPECTED_LIST_FILE}")
+  endif()
+  _gentest_run_and_capture("--list-tests exact" _list_tests_out _list_tests_err _list_tests_rc --list-tests)
+  if(NOT _list_tests_rc EQUAL 0)
+    message(FATAL_ERROR "--list-tests exact failed with code ${_list_tests_rc}. Output:\n${_list_tests_out}\nErrors:\n${_list_tests_err}")
+  endif()
+  file(READ "${EXPECTED_LIST_FILE}" _expected_list_text)
+  _gentest_normalize_text("${_list_tests_out}" _normalized_actual_list)
+  _gentest_normalize_text("${_expected_list_text}" _normalized_expected_list)
+  if(NOT _normalized_actual_list STREQUAL _normalized_expected_list)
+    message(FATAL_ERROR
+      "Expected exact --list-tests output from ${EXPECTED_LIST_FILE}, but it differed.\nExpected:\n${_normalized_expected_list}\nActual:\n${_normalized_actual_list}")
+  endif()
+endif()
+
 if(NOT DEFINED PASS AND NOT DEFINED FAIL AND NOT DEFINED SKIP)
   return()
 endif()
@@ -78,17 +108,12 @@ endif()
 
 _gentest_run_and_capture("default run" out err rc)
 
-set(all "${out}${err}")
-string(REGEX MATCHALL "\\[ PASS \\]" _pass_matches "${all}")
-list(LENGTH _pass_matches pass_count)
-string(REGEX MATCHALL "\\[ FAIL \\]" _fail_matches "${all}")
-list(LENGTH _fail_matches fail_count)
-string(REGEX MATCHALL "\\[ SKIP \\]" _skip_matches "${all}")
-list(LENGTH _skip_matches skip_count)
-string(REGEX MATCHALL "\\[ XFAIL \\]" _xfail_matches "${all}")
-list(LENGTH _xfail_matches xfail_count)
-string(REGEX MATCHALL "\\[ XPASS \\]" _xpass_matches "${all}")
-list(LENGTH _xpass_matches xpass_count)
+_gentest_normalize_text("${out}${err}" all)
+_gentest_count_status_lines("${all}" "PASS" pass_count)
+_gentest_count_status_lines("${all}" "FAIL" fail_count)
+_gentest_count_status_lines("${all}" "SKIP" skip_count)
+_gentest_count_status_lines("${all}" "XFAIL" xfail_count)
+_gentest_count_status_lines("${all}" "XPASS" xpass_count)
 
 set(_ok TRUE)
 if(NOT pass_count EQUAL PASS)

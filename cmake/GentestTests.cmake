@@ -213,7 +213,7 @@ function(gentest_add_check_counts)
 endfunction()
 
 function(gentest_add_check_inventory)
-    set(one_value_args NAME PROG CASES PASS FAIL SKIP XFAIL XPASS EXPECT_RC)
+    set(one_value_args NAME PROG CASES PASS FAIL SKIP XFAIL XPASS EXPECT_RC EXPECTED_LIST_FILE)
     set(multi_value_args ARGS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -225,6 +225,9 @@ function(gentest_add_check_inventory)
     endif()
 
     set(_defines "CASES=${GENTEST_CASES}")
+    if(NOT "${GENTEST_EXPECTED_LIST_FILE}" STREQUAL "")
+        list(APPEND _defines "EXPECTED_LIST_FILE=${GENTEST_EXPECTED_LIST_FILE}")
+    endif()
     if(NOT "${GENTEST_PASS}" STREQUAL "" OR NOT "${GENTEST_FAIL}" STREQUAL "" OR NOT "${GENTEST_SKIP}" STREQUAL "")
         if(GENTEST_PASS STREQUAL "" OR GENTEST_FAIL STREQUAL "" OR GENTEST_SKIP STREQUAL "")
             message(FATAL_ERROR "gentest_add_check_inventory: PASS, FAIL, and SKIP must all be provided together")

@@ -730,13 +730,13 @@ endif()
 
 # End-to-end behavioral checks with structured suite inventory
 set(_gentest_suite_inventory_checks
-    "unit|gentest_unit_tests|20|20|0|0"
-    "integration|gentest_integration_tests|4|3|0|1"
-    "skiponly|gentest_skiponly_tests|2|0|0|2"
-    "fixtures|gentest_fixtures_tests|35|35|0|0"
-    "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0"
-    "templates|gentest_templates_tests|93|93|0|0"
-    "mocking|gentest_mocking_tests|26|26|0|0")
+    "unit|gentest_unit_tests|20|20|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/unit.list"
+    "integration|gentest_integration_tests|4|3|0|1|${CMAKE_CURRENT_SOURCE_DIR}/expected/integration.list"
+    "skiponly|gentest_skiponly_tests|2|0|0|2|${CMAKE_CURRENT_SOURCE_DIR}/expected/skiponly.list"
+    "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
+    "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
+    "templates|gentest_templates_tests|93|93|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
+    "mocking|gentest_mocking_tests|26|26|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
@@ -746,11 +746,13 @@ foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     list(GET _gentest_inventory_fields 3 _gentest_inventory_pass)
     list(GET _gentest_inventory_fields 4 _gentest_inventory_fail)
     list(GET _gentest_inventory_fields 5 _gentest_inventory_skip)
+    list(GET _gentest_inventory_fields 6 _gentest_inventory_expected_list)
 
     gentest_add_check_inventory(
         NAME ${_gentest_inventory_name}_inventory
         PROG ${_gentest_inventory_prog}
         CASES ${_gentest_inventory_cases}
+        EXPECTED_LIST_FILE ${_gentest_inventory_expected_list}
         PASS ${_gentest_inventory_pass}
         FAIL ${_gentest_inventory_fail}
         SKIP ${_gentest_inventory_skip})
@@ -764,6 +766,7 @@ unset(_gentest_inventory_cases)
 unset(_gentest_inventory_pass)
 unset(_gentest_inventory_fail)
 unset(_gentest_inventory_skip)
+unset(_gentest_inventory_expected_list)
 
 gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 6 SKIP 2)
 
