@@ -370,6 +370,16 @@ jobs:
             llvm_dir: /usr/lib/cmake/llvm19
             clang_dir: /usr/lib/cmake/clang19
             build_type: debug
+          - name: Alpine 3.21 • Clang 19
+            container: alpine:3.21
+            pkg_manager: apk
+            compiler: clang
+            cc: clang-19
+            cxx: clang++-19
+            llvm_version: "19"
+            llvm_dir: /usr/lib/cmake/llvm19
+            clang_dir: /usr/lib/cmake/clang19
+            build_type: release
           - name: Alpine 3.23 • Clang 21
             container: alpine:3.23
             pkg_manager: apk
@@ -380,6 +390,16 @@ jobs:
             llvm_dir: /usr/lib/cmake/llvm21
             clang_dir: /usr/lib/cmake/clang21
             build_type: debug
+          - name: Alpine 3.23 • Clang 21
+            container: alpine:3.23
+            pkg_manager: apk
+            compiler: clang
+            cc: clang-21
+            cxx: clang++-21
+            llvm_version: "21"
+            llvm_dir: /usr/lib/cmake/llvm21
+            clang_dir: /usr/lib/cmake/clang21
+            build_type: release
           - name: Fedora 41 • Clang
             container: fedora:41
             pkg_manager: dnf
