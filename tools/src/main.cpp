@@ -420,21 +420,57 @@ bool is_known_compiler_launcher(std::string_view path) {
     return name == "ccache" || name == "sccache" || name == "distcc" || name == "icecc" || name == "buildcache";
 }
 
+bool is_cmake_env_wrapper_at(const clang::tooling::CommandLineArguments &command_line, std::size_t index) {
+    if (index + 2 >= command_line.size()) {
+        return false;
+    }
+    return basename_without_extension(command_line[index]) == "cmake" && command_line[index + 1] == "-E" && command_line[index + 2] == "env";
+}
+
+bool is_cmake_env_assignment(std::string_view arg) {
+    if (arg.empty() || arg.starts_with("-")) {
+        return false;
+    }
+    const auto eq = arg.find('=');
+    return eq != std::string_view::npos && eq != 0;
+}
+
 std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line) {
     if (command_line.empty()) {
         return std::nullopt;
     }
-    if (is_clang_like_compiler(command_line.front())) {
-        return 0;
-    }
-    if (command_line.size() >= 3 && command_line[1] == "--" && is_clang_like_compiler(command_line[2])) {
-        return 2;
-    }
-    if (command_line.size() >= 2 && is_clang_like_compiler(command_line[1])) {
-        return 1;
-    }
-    if (!is_known_compiler_launcher(command_line.front())) {
-        return 0;
+
+    std::size_t index = 0;
+    while (index < command_line.size()) {
+        const std::string_view arg = command_line[index];
+        if (arg.empty() || arg == "--") {
+            ++index;
+            continue;
+        }
+        if (is_cmake_env_wrapper_at(command_line, index)) {
+            index += 3;
+            while (index < command_line.size()) {
+                const std::string_view env_arg = command_line[index];
+                if (env_arg == "--") {
+                    ++index;
+                    break;
+                }
+                if (env_arg.starts_with("--unset=") || env_arg.starts_with("--modify-env=") || is_cmake_env_assignment(env_arg)) {
+                    ++index;
+                    continue;
+                }
+                break;
+            }
+            continue;
+        }
+        if (is_known_compiler_launcher(arg)) {
+            ++index;
+            continue;
+        }
+        if (is_clang_like_compiler(arg)) {
+            return index;
+        }
+        return std::nullopt;
     }
     return std::nullopt;
 }
@@ -714,8 +750,8 @@ int main(int argc, const char **argv) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
                     // Use compiler and flags from compilation database
-                    const auto compiler_index = compiler_arg_index_for_resource_dir_probe(command_line).value_or(0);
-                    adjusted.insert(adjusted.end(), command_line.begin(), command_line.begin() + static_cast<std::ptrdiff_t>(compiler_index + 1));
+                    const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(command_line).value_or(0);
+                    adjusted.emplace_back(command_line[compiler_index]);
                     const std::string resource_dir =
                         resource_dir_for_compiler(compiler_for_resource_dir_probe(command_line, default_compiler_path));
                     if (!resource_dir.empty()) {
