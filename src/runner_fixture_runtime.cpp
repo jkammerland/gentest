@@ -119,6 +119,16 @@ bool shared_fixture_order_less(const SharedFixtureEntry &lhs, const SharedFixtur
     return lhs.suite < rhs.suite;
 }
 
+void reset_shared_fixture_run_state(SharedFixtureRegistry &reg) {
+    for (auto &entry : reg.entries) {
+        entry.instance.reset();
+        entry.initialized  = false;
+        entry.initializing = false;
+        entry.failed       = false;
+        entry.error.clear();
+    }
+}
+
 bool shared_fixture_callbacks_match(const SharedFixtureEntry &entry, const gentest::detail::SharedFixtureRegistration &registration) {
     return entry.create == registration.create && entry.setup == registration.setup && entry.teardown == registration.teardown;
 }
@@ -267,6 +277,7 @@ bool setup_shared_fixtures() {
         if (reg.registration_error) {
             return false;
         }
+        reset_shared_fixture_run_state(reg);
     }
     for (;;) {
         std::size_t target_idx = std::numeric_limits<std::size_t>::max();
