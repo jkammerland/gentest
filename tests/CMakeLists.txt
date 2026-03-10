@@ -1419,6 +1419,12 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckPackageWorkflowPreset.cmake
     cmake)
 
+_gentest_add_cmake_helper_test(
+    gentest_vcpkg_manifest_metadata
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckVcpkgManifestMetadata.cmake
+    cmake)
+
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
     set(_gentest_package_test_config "")
