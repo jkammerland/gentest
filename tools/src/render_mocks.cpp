@@ -460,24 +460,90 @@ struct DefinitionIncludeBlock {
     std::string error;
 };
 
+struct SourcePathAlias {
+    std::filesystem::path canonical_prefix;
+    std::filesystem::path visible_prefix;
+};
+
+[[nodiscard]] std::filesystem::path normalize_absolute_lexical(std::filesystem::path path) {
+    std::error_code ec;
+    if (path.is_relative()) {
+        const std::filesystem::path abs = std::filesystem::absolute(path, ec);
+        if (!ec) {
+            path = abs;
+        }
+    }
+    return path.lexically_normal();
+}
+
+[[nodiscard]] std::vector<SourcePathAlias> build_source_path_aliases(const CollectorOptions &options) {
+    namespace fs = std::filesystem;
+    std::vector<SourcePathAlias> aliases;
+    std::error_code              ec;
+
+    for (const auto &source : options.sources) {
+        fs::path visible = normalize_absolute_lexical(source);
+        ec.clear();
+        const fs::path canonical = fs::weakly_canonical(visible, ec).lexically_normal();
+        if (ec || canonical.empty() || canonical == visible) {
+            ec.clear();
+            continue;
+        }
+
+        fs::path visible_cursor   = visible;
+        fs::path canonical_cursor = canonical;
+        while (!visible_cursor.empty() && !canonical_cursor.empty()) {
+            if (visible_cursor == canonical_cursor) {
+                break;
+            }
+            aliases.push_back(SourcePathAlias{
+                .canonical_prefix = canonical_cursor,
+                .visible_prefix   = visible_cursor,
+            });
+            if (!visible_cursor.has_parent_path() || !canonical_cursor.has_parent_path()) {
+                break;
+            }
+            visible_cursor   = visible_cursor.parent_path();
+            canonical_cursor = canonical_cursor.parent_path();
+        }
+    }
+
+    std::sort(aliases.begin(), aliases.end(), [](const SourcePathAlias &lhs, const SourcePathAlias &rhs) {
+        return lhs.canonical_prefix.generic_string().size() > rhs.canonical_prefix.generic_string().size();
+    });
+    aliases.erase(std::unique(aliases.begin(), aliases.end(), [](const SourcePathAlias &lhs, const SourcePathAlias &rhs) {
+                      return lhs.canonical_prefix == rhs.canonical_prefix && lhs.visible_prefix == rhs.visible_prefix;
+                  }),
+                  aliases.end());
+    return aliases;
+}
+
+[[nodiscard]] std::filesystem::path remap_to_visible_source_path(const std::filesystem::path              &path,
+                                                                 const std::vector<SourcePathAlias> &aliases) {
+    for (const auto &alias : aliases) {
+        const auto rel = path.lexically_relative(alias.canonical_prefix);
+        if (!rel.empty() && !rel.is_absolute()) {
+            return (alias.visible_prefix / rel).lexically_normal();
+        }
+        if (path == alias.canonical_prefix) {
+            return alias.visible_prefix;
+        }
+    }
+    return path;
+}
+
 DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &options, const std::vector<const MockClassInfo *> &classes) {
     namespace fs = std::filesystem;
     DefinitionIncludeBlock result;
     std::set<std::string>  includes;
+    const auto             source_aliases = build_source_path_aliases(options);
 
     fs::path registry_dir = options.mock_registry_path.parent_path();
     if (registry_dir.empty()) {
         registry_dir = ".";
     }
     std::error_code ec;
-    if (registry_dir.is_relative()) {
-        const fs::path abs_registry_dir = fs::absolute(registry_dir, ec);
-        if (!ec) {
-            registry_dir = abs_registry_dir;
-        }
-        ec.clear();
-    }
-    registry_dir = registry_dir.lexically_normal();
+    registry_dir = normalize_absolute_lexical(registry_dir);
 
     for (const auto *cls : classes) {
         if (!cls) {
@@ -489,16 +555,8 @@ DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &op
         }
 
         fs::path def_path{cls->definition_file};
-        if (def_path.is_relative()) {
-            const fs::path abs_def_path = fs::absolute(def_path, ec);
-            if (ec) {
-                result.error = fmt::format("mock renderer: failed to resolve definition path '{}' for '{}': {}", def_path.string(),
-                                           cls->qualified_name, ec.message());
-                return result;
-            }
-            def_path = abs_def_path;
-        }
-        def_path = def_path.lexically_normal();
+        def_path = normalize_absolute_lexical(def_path);
+        def_path = remap_to_visible_source_path(def_path, source_aliases);
 
         fs::path include_path;
         // Avoid std::filesystem::proximate() here: it canonicalizes through the
