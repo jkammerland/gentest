@@ -765,6 +765,8 @@ jobs:
             llvm-20-dev
           python3 -m pip install --break-system-packages --upgrade cmake
           echo "/usr/lib/llvm-20/bin" >> "$GITHUB_PATH"
+          echo "LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm" >> "$GITHUB_ENV"
+          echo "Clang_DIR=/usr/lib/llvm-20/lib/cmake/clang" >> "$GITHUB_ENV"
           echo "CC=clang-20" >> "$GITHUB_ENV"
           echo "CXX=clang++-20" >> "$GITHUB_ENV"
 
