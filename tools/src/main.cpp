@@ -306,7 +306,6 @@ public:
         : finder_(finder), dependencies_(dependencies) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        dependencies_.clear();
         return std::make_unique<MatchFinderAction>(finder_, dependencies_);
     }
 

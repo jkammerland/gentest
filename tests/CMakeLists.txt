@@ -1395,6 +1395,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_incremental_dependencies APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_manifest_depfile_aggregation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenManifestDepfileAggregation.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog})
+set_property(TEST gentest_codegen_manifest_depfile_aggregation APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_outcome_matrix_stale_junit_guard
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake
