@@ -1350,6 +1350,18 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_missing_host_codegen_path
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckMissingHostCodegenPath.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_qemu_workflow_presets
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckQemuWorkflowPresets.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_package_workflow_preset
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckPackageWorkflowPreset.cmake

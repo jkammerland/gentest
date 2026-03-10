@@ -50,6 +50,11 @@ function(_gentest_resolve_codegen_backend)
             "Set -DGENTEST_CODEGEN_EXECUTABLE=<path> or -DGENTEST_CODEGEN_TARGET=<target>.")
     endif()
     if(GENTEST_CODEGEN_EXECUTABLE)
+        if(NOT EXISTS "${GENTEST_CODEGEN_EXECUTABLE}" OR IS_DIRECTORY "${GENTEST_CODEGEN_EXECUTABLE}")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${GENTEST_TARGET}): GENTEST_CODEGEN_EXECUTABLE='${GENTEST_CODEGEN_EXECUTABLE}' does not exist "
+                "or is not a file")
+        endif()
         set(_gentest_codegen_executable "${GENTEST_CODEGEN_EXECUTABLE}")
     elseif(GENTEST_CODEGEN_TARGET)
         if(NOT TARGET ${GENTEST_CODEGEN_TARGET})

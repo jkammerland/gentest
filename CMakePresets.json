@@ -168,7 +168,7 @@
       "name": "aarch64-qemu",
       "inherits": "base-debug",
       "displayName": "Debug (Linux/aarch64, QEMU)",
-      "description": "Cross-compile tests for Linux/aarch64 using aarch64-linux-gnu and run via qemu-aarch64 (requires host-codegen)",
+      "description": "Cross-compile tests for Linux/aarch64 using aarch64-linux-gnu and run via qemu-aarch64 (run the host-codegen workflow first)",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -217,6 +217,15 @@
       "inherits": "base-release",
       "displayName": "Release",
       "description": "Optimized release build (-O3), no debug info, maximum performance for production"
+    },
+    {
+      "name": "release-package",
+      "inherits": "release",
+      "displayName": "Release (package)",
+      "description": "Release build with install/export rules enabled for packaging workflows",
+      "cacheVariables": {
+        "gentest_INSTALL": "ON"
+      }
     },
     {
       "name": "release-ccache",
@@ -513,7 +522,7 @@
       "inherits": "build-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Build (Linux/aarch64, QEMU)",
-      "description": "Cross-build gentest_unit_tests for Linux/aarch64",
+      "description": "Cross-build gentest_unit_tests for Linux/aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -529,7 +538,7 @@
       "inherits": "build-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Build (Linux/aarch64, QEMU, full)",
-      "description": "Cross-build all targets for Linux/aarch64",
+      "description": "Cross-build all targets for Linux/aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -543,6 +552,14 @@
       "configurePreset": "release",
       "displayName": "Release Build",
       "description": "Build with release configuration, full optimizations and no debug symbols",
+      "jobs": 0
+    },
+    {
+      "name": "release-package",
+      "inherits": "build-base",
+      "configurePreset": "release-package",
+      "displayName": "Release Package Build",
+      "description": "Build the install-enabled release configuration used by packaging workflows",
       "jobs": 0
     },
     {
@@ -768,7 +785,7 @@
       "inherits": "test-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Tests (Linux/aarch64, QEMU, smoke)",
-      "description": "Run a small subset of tests under qemu-aarch64 (requires host-codegen)",
+      "description": "Run a small subset of tests under qemu-aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -785,7 +802,7 @@
       "inherits": "test-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Tests (Linux/aarch64, QEMU, full)",
-      "description": "Run all tests under qemu-aarch64 (slow; requires host-codegen)",
+      "description": "Run all tests under qemu-aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -798,6 +815,13 @@
       "configurePreset": "release",
       "displayName": "Release Tests",
       "description": "Run all tests in release mode"
+    },
+    {
+      "name": "release-package",
+      "inherits": "test-base",
+      "configurePreset": "release-package",
+      "displayName": "Release Package Tests",
+      "description": "Run tests in the install-enabled release configuration used by packaging workflows"
     },
     {
       "name": "release-ccache",
@@ -945,7 +969,7 @@
       "name": "release",
       "displayName": "Release Package",
       "description": "Create release artifacts with CPack",
-      "configurePreset": "release"
+      "configurePreset": "release-package"
     }
   ],
   "workflowPresets": [
@@ -1049,7 +1073,7 @@
     {
       "name": "aarch64-qemu",
       "displayName": "Workflow (Linux/aarch64, QEMU, smoke)",
-      "description": "Configure → build → test a small subset under qemu-aarch64 (requires host-codegen)",
+      "description": "Configure → build → test a small subset under qemu-aarch64 after running the host-codegen workflow (CMake workflows only allow one configure step)",
       "steps": [
         { "type": "configure", "name": "aarch64-qemu" },
         { "type": "build",     "name": "aarch64-qemu" },
@@ -1059,7 +1083,7 @@
     {
       "name": "aarch64-qemu-full",
       "displayName": "Workflow (Linux/aarch64, QEMU, full)",
-      "description": "Configure → build → test everything under qemu-aarch64 (slow; requires host-codegen)",
+      "description": "Configure → build → test everything under qemu-aarch64 after running the host-codegen workflow (CMake workflows only allow one configure step)",
       "steps": [
         { "type": "configure", "name": "aarch64-qemu" },
         { "type": "build",     "name": "aarch64-qemu-full" },
@@ -1189,15 +1213,15 @@
       "steps": [
         {
           "type": "configure",
-          "name": "release"
+          "name": "release-package"
         },
         {
           "type": "build",
-          "name": "release"
+          "name": "release-package"
         },
         {
           "type": "test",
-          "name": "release"
+          "name": "release-package"
         },
         {
           "type": "package",

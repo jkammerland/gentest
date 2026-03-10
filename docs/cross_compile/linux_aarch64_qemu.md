@@ -67,8 +67,14 @@ If you prefer presets over the script (defaults assume the host tool is at `buil
 
 ```bash
 cmake --workflow --preset=host-codegen
-cmake --workflow --preset=aarch64-qemu        # smoke subset
-cmake --workflow --preset=aarch64-qemu-full   # full suite (slow)
+cmake --preset=aarch64-qemu
+cmake --build --preset=aarch64-qemu
+ctest --preset=aarch64-qemu --output-on-failure
+
+cmake --workflow --preset=host-codegen
+cmake --preset=aarch64-qemu
+cmake --build --preset=aarch64-qemu-full
+ctest --preset=aarch64-qemu-full --output-on-failure   # full suite (slow)
 ```
 
 ## Invoke from other build systems
