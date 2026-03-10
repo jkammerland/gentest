@@ -702,7 +702,7 @@ endif()
 
 # End-to-end behavioral checks with structured suite inventory
 set(_gentest_suite_inventory_checks
-    "unit|gentest_unit_tests|19|19|0|0"
+    "unit|gentest_unit_tests|20|20|0|0"
     "integration|gentest_integration_tests|4|3|0|1"
     "skiponly|gentest_skiponly_tests|2|0|0|2"
     "fixtures|gentest_fixtures_tests|35|35|0|0"
@@ -973,7 +973,7 @@ gentest_add_check_file_contains(
     EXPECT_SUBSTRING "<property name=\"requirement\" value=\"#42\""
     ARGS --junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml)
 
-gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 38 FAIL 0 SKIP 0 ARGS --repeat=2)
+gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 40 FAIL 0 SKIP 0 ARGS --repeat=2)
 
 gentest_add_check_counts(NAME failing_fail_fast PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 1 SKIP 0 ARGS --fail-fast)
 
@@ -1050,6 +1050,22 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             "INFRA_SUBSTRING=registered multiple times with conflicting callbacks")
     set_tests_properties(regression_allure_runner_infra_failure_parity PROPERTIES LABELS "allure")
 endif()
+
+gentest_add_cmake_script_test(
+    NAME helper_check_file_contains_rejects_stale_output
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckFileContainsRejectsStale.cmake"
+    DEFINES
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/cmake_stale_file_contains")
+
+gentest_add_cmake_script_test(
+    NAME helper_allure_runner_infra_parity_rejects_stale_output
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckAllureRunnerInfraParityRejectsStale.cmake"
+    DEFINES
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/cmake_stale_allure")
 
 # Capture JUnit artifact example: unit suite emits JUnit; this smoke ensures the file is generated in build tree
 gentest_add_check_file_contains(
