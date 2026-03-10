@@ -90,6 +90,35 @@ list(APPEND _args
   "-I${PROJECT_SOURCE_DIR}/include"
   "-I${_view_root}/include")
 
+if(EXISTS "${BUILD_ROOT}/_deps/fmt-src/include")
+  list(APPEND _args "-I${BUILD_ROOT}/_deps/fmt-src/include")
+endif()
+file(GLOB _vcpkg_include_dirs LIST_DIRECTORIES true "${BUILD_ROOT}/vcpkg_installed/*/include")
+foreach(_inc IN LISTS _vcpkg_include_dirs)
+  if(IS_DIRECTORY "${_inc}")
+    list(APPEND _args "-I${_inc}")
+  endif()
+endforeach()
+unset(_inc)
+unset(_vcpkg_include_dirs)
+
+set(_cache_file "${BUILD_ROOT}/CMakeCache.txt")
+if(EXISTS "${_cache_file}")
+  file(STRINGS "${_cache_file}" _fmt_dir_line REGEX "^fmt_DIR:PATH=" LIMIT_COUNT 1)
+  if(_fmt_dir_line)
+    list(GET _fmt_dir_line 0 _fmt_dir_value)
+    string(REGEX REPLACE "^fmt_DIR:PATH=" "" _fmt_dir "${_fmt_dir_value}")
+    get_filename_component(_fmt_prefix "${_fmt_dir}/../../.." ABSOLUTE)
+    if(IS_DIRECTORY "${_fmt_prefix}/include")
+      list(APPEND _args "-I${_fmt_prefix}/include")
+    endif()
+    unset(_fmt_dir)
+    unset(_fmt_dir_value)
+  endif()
+  unset(_fmt_dir_line)
+endif()
+unset(_cache_file)
+
 execute_process(
   COMMAND "${PROG}" ${_args}
   RESULT_VARIABLE _rc
