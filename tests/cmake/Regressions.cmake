@@ -906,10 +906,10 @@ gentest_add_check_counts(
 gentest_add_check_counts(
     NAME regression_runtime_case_snapshot_isolated
     PROG $<TARGET_FILE:gentest_regression_runtime_case_snapshot_isolated>
-    PASS 1
+    PASS 2
     FAIL 0
     SKIP 0
-    ARGS --run=regressions/runtime_case_snapshot_isolated/snapshot --kind=test)
+    ARGS --filter=regressions/runtime_case_snapshot_isolated/* --kind=test)
 
 gentest_add_check_counts(
     NAME regression_shared_fixture_runtime_reentry_is_rejected
