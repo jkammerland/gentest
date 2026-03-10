@@ -36,6 +36,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -398,21 +399,29 @@ std::string resolve_default_compiler_path() {
     return std::string{kDefault};
 }
 
-bool has_resource_dir_arg(const std::vector<std::string> &args) {
+bool has_option_arg(std::span<const std::string> args, std::string_view option, std::string_view joined_prefix = {}) {
     bool next_is_value = false;
     for (const auto &arg : args) {
         if (next_is_value) {
             return true;
         }
-        if (arg == "-resource-dir") {
+        if (arg == option) {
             next_is_value = true;
             continue;
         }
-        if (arg.starts_with("-resource-dir=")) {
+        if (!joined_prefix.empty() && llvm::StringRef{arg}.starts_with(joined_prefix)) {
             return true;
         }
     }
     return false;
+}
+
+bool has_resource_dir_arg(std::span<const std::string> args) {
+    return has_option_arg(args, "-resource-dir", "-resource-dir=");
+}
+
+bool has_sysroot_arg(std::span<const std::string> args) {
+    return has_option_arg(args, "-isysroot", "-isysroot") || has_option_arg(args, "--sysroot", "--sysroot=");
 }
 
 bool is_known_compiler_launcher(std::string_view path) {
@@ -532,6 +541,60 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
     std::string resource_dir = (*in)->getBuffer().str();
     auto        trimmed      = llvm::StringRef(resource_dir).trim();
     return trimmed.str();
+}
+
+std::string resolve_default_sysroot() {
+#if !defined(__APPLE__)
+    return {};
+#else
+    if (const char *sdkroot = std::getenv("SDKROOT"); sdkroot && *sdkroot) {
+        return std::string(sdkroot);
+    }
+
+    auto xcrun_path = llvm::sys::findProgramByName("xcrun");
+    if (!xcrun_path) {
+        return {};
+    }
+
+    llvm::SmallString<128> tmp_path;
+    int                    tmp_fd = -1;
+    if (const auto ec = llvm::sys::fs::createTemporaryFile("gentest_codegen_sysroot", "txt", tmp_fd, tmp_path)) {
+        gentest::codegen::log_err("gentest_codegen: warning: failed to create temp file for sysroot probe: {}\n", ec.message());
+        return {};
+    }
+    (void)llvm::sys::Process::SafelyCloseFileDescriptor(tmp_fd);
+
+    std::string tmp_path_str = tmp_path.str().str();
+    llvm::StringRef tmp_path_ref{tmp_path_str};
+
+    std::array<llvm::StringRef, 4> xcrun_args = {
+        llvm::StringRef(*xcrun_path),
+        llvm::StringRef("--sdk"),
+        llvm::StringRef("macosx"),
+        llvm::StringRef("--show-sdk-path"),
+    };
+    std::array<std::optional<llvm::StringRef>, 3> redirects = {std::nullopt, tmp_path_ref, std::nullopt};
+
+    std::string err_msg;
+    const int   rc = llvm::sys::ExecuteAndWait(*xcrun_path, xcrun_args, std::nullopt, redirects, 0, 0, &err_msg);
+    if (rc != 0) {
+        if (!err_msg.empty()) {
+            gentest::codegen::log_err("gentest_codegen: warning: failed to query macOS SDK path: {}\n", err_msg);
+        }
+        (void)llvm::sys::fs::remove(tmp_path_str);
+        return {};
+    }
+
+    auto in = llvm::MemoryBuffer::getFile(tmp_path_str);
+    (void)llvm::sys::fs::remove(tmp_path_str);
+    if (!in) {
+        gentest::codegen::log_err("gentest_codegen: warning: failed to read macOS SDK path probe output: {}\n",
+                                  in.getError().message());
+        return {};
+    }
+
+    return llvm::StringRef((*in)->getBuffer()).trim().str();
+#endif
 }
 
 CollectorOptions parse_arguments(int argc, const char **argv) {
@@ -713,6 +776,8 @@ int main(int argc, const char **argv) {
     const auto extra_args = options.clang_args;
     const bool need_resource_dir = !has_resource_dir_arg(extra_args);
     const std::string default_resource_dir = need_resource_dir ? resolve_resource_dir(default_compiler_path) : std::string{};
+    const bool need_default_sysroot = !has_sysroot_arg(extra_args);
+    const std::string default_sysroot = need_default_sysroot ? resolve_default_sysroot() : std::string{};
     std::mutex resource_dir_cache_mutex;
     std::unordered_map<std::string, std::string> resource_dir_cache;
     if (need_resource_dir && !default_resource_dir.empty()) {
@@ -745,7 +810,7 @@ int main(int argc, const char **argv) {
     const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
         if (options.compilation_database) {
             const std::string compdb_dir = options.compilation_database->string();
-            return [resource_dir_for_compiler, default_compiler_path, extra_args, compdb_dir](
+            return [resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args, compdb_dir](
                        const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
                 clang::tooling::CommandLineArguments adjusted;
                 if (!command_line.empty()) {
@@ -756,6 +821,10 @@ int main(int argc, const char **argv) {
                         resource_dir_for_compiler(compiler_for_resource_dir_probe(command_line, default_compiler_path));
                     if (!resource_dir.empty()) {
                         adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+                    }
+                    if (!default_sysroot.empty() && !has_sysroot_arg(command_line)) {
+                        adjusted.emplace_back("-isysroot");
+                        adjusted.emplace_back(default_sysroot);
                     }
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                     // Copy remaining args, filtering out C++ module flags
@@ -791,6 +860,10 @@ int main(int argc, const char **argv) {
                     if (!resource_dir.empty()) {
                         adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
                     }
+                    if (!default_sysroot.empty()) {
+                        adjusted.emplace_back("-isysroot");
+                        adjusted.emplace_back(default_sysroot);
+                    }
                     adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
                 }
                 return adjusted;
@@ -799,8 +872,8 @@ int main(int argc, const char **argv) {
 
         // No compilation database - use minimal synthetic command
         // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
-        return [default_compiler_path, resource_dir_for_compiler, extra_args](const clang::tooling::CommandLineArguments &command_line,
-                                                                             llvm::StringRef) {
+        return [default_compiler_path, default_sysroot, resource_dir_for_compiler, extra_args](
+                   const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
             clang::tooling::CommandLineArguments adjusted;
             adjusted.emplace_back(default_compiler_path);
 #if defined(__linux__)
@@ -809,6 +882,10 @@ int main(int argc, const char **argv) {
             const std::string resource_dir = resource_dir_for_compiler(default_compiler_path);
             if (!resource_dir.empty()) {
                 adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+            }
+            if (!default_sysroot.empty()) {
+                adjusted.emplace_back("-isysroot");
+                adjusted.emplace_back(default_sysroot);
             }
             adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
             if (!command_line.empty()) {
