@@ -224,7 +224,8 @@
       "displayName": "Release (package)",
       "description": "Release build with install/export rules enabled for packaging workflows",
       "cacheVariables": {
-        "gentest_INSTALL": "ON"
+        "gentest_INSTALL": "ON",
+        "GENTEST_ENABLE_PACKAGE_TESTS": "ON"
       }
     },
     {
