@@ -64,15 +64,19 @@ execute_process(
 )
 
 set(_all "${_out}\n${_err}")
+set(_all_normalized "${_all}")
+set(_expect_normalized "${EXPECT_SUBSTRING}")
+
+string(REGEX REPLACE "[ \t\r\n]+" " " _all_normalized "${_all_normalized}")
+string(REGEX REPLACE "[ \t\r\n]+" " " _expect_normalized "${_expect_normalized}")
 
 if(_rc EQUAL 0)
   message(FATAL_ERROR "Expected configure to fail due to codegen OUTPUT collision, but exit code was 0. Output:\n${_all}")
 endif()
 
-string(FIND "${_all}" "${EXPECT_SUBSTRING}" _pos)
+string(FIND "${_all_normalized}" "${_expect_normalized}" _pos)
 if(_pos EQUAL -1)
   message(FATAL_ERROR "Expected substring not found in output: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
 endif()
 
 message(STATUS "Codegen output collision check passed (configure failed with expected message)")
-

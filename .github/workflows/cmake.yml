@@ -18,13 +18,20 @@ env:
 
 jobs:
   macos:
-    name: macOS • ${{ matrix.compiler }} • ${{ matrix.build-type }}
+    name: macOS • ${{ matrix.compiler }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
     runs-on: macos-15
     strategy:
         fail-fast: false
         matrix:
-            compiler: ["appleclang", "llvm@20", "llvm"]
+            compiler: ["appleclang", "llvm@20", "llvm@21", "llvm"]
             build-type: ["debug", "release"]
+            variant: ["default"]
+            include:
+              - compiler: "llvm@20"
+                build-type: "debug"
+                variant: "cxx23"
+                test_cxx_standard: "23"
+                enable_package_tests: "ON"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,6 +52,8 @@ jobs:
           brew update
           if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             brew install llvm@20 ninja ccache
+          elif [ "${{ matrix.compiler }}" = "llvm@21" ]; then
+            brew install llvm@21 ninja ccache
           else
             brew install llvm ninja ccache
           fi
@@ -53,12 +62,14 @@ jobs:
         run: |
           if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             LLVM_PREFIX="$(brew --prefix llvm@20)"
+          elif [ "${{ matrix.compiler }}" = "llvm@21" ]; then
+            LLVM_PREFIX="$(brew --prefix llvm@21)"
           else
             LLVM_PREFIX="$(brew --prefix llvm)"
           fi
           echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
           echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
-          if [ "${{ matrix.compiler }}" = "llvm" ] || [ "${{ matrix.compiler }}" = "llvm@20" ]; then
+          if [ "${{ matrix.compiler }}" = "llvm" ] || [ "${{ matrix.compiler }}" = "llvm@21" ] || [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
           fi
 
@@ -98,6 +109,12 @@ jobs:
               CMAKE_ARGS+=("-DClang_DIR=${CLANG_DIR}")
             fi
           fi
+          if [ -n "${{ matrix.test_cxx_standard }}" ]; then
+            CMAKE_ARGS+=("-DGENTEST_TEST_CXX_STANDARD=${{ matrix.test_cxx_standard }}")
+          fi
+          if [ -n "${{ matrix.enable_package_tests }}" ]; then
+            CMAKE_ARGS+=("-DGENTEST_ENABLE_PACKAGE_TESTS=${{ matrix.enable_package_tests }}")
+          fi
           cmake "${CMAKE_ARGS[@]}"
 
       - name: Build
@@ -106,77 +123,19 @@ jobs:
       - name: Test
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure
 
-  macos-cxx23:
-    name: macOS • llvm@20 • C++23 tests
-    runs-on: macos-15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install dependencies (Homebrew)
-        run: |
-          brew update
-          brew install llvm@20 ninja ccache
-
-      - name: Configure LLVM environment
-        run: |
-          LLVM_PREFIX="$(brew --prefix llvm@20)"
-          echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
-          echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
-          echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
-
-      - name: Configure environment
-        run: |
-          echo "SDKROOT=$(xcrun --show-sdk-path)" >> $GITHUB_ENV
-          echo "CCACHE_DISABLE=1" >> $GITHUB_ENV
-          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
-
-      - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v3
-
-      - name: Show tool versions
-        run: |
-          cmake --version
-          ninja --version
-          "${LLVM_BIN}/clang" --version
-
-      - name: Setup vcpkg
-        run: bash scripts/setup-vcpkg.sh
-
-      - name: Configure
-        run: |
-          COMPILER_BIN="${LLVM_BIN}"
-          CMAKE_ARGS=(
-            "--preset=debug"
-            "-DGENTEST_TEST_CXX_STANDARD=23"
-            "-DGENTEST_ENABLE_PACKAGE_TESTS=ON"
-            "-DCMAKE_C_COMPILER=${COMPILER_BIN}/clang"
-            "-DCMAKE_CXX_COMPILER=${COMPILER_BIN}/clang++"
-            "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="
-          )
-          if [ -n "${LLVM_DIR:-}" ]; then
-            CMAKE_ARGS+=("-DLLVM_DIR=${LLVM_DIR}")
-            CLANG_DIR="$(dirname ${LLVM_DIR})/clang"
-            if [ -f "${CLANG_DIR}/ClangConfig.cmake" ]; then
-              CMAKE_ARGS+=("-DClang_DIR=${CLANG_DIR}")
-            fi
-          fi
-          cmake "${CMAKE_ARGS[@]}"
-
-      - name: Build
-        run: cmake --build --preset=debug
-
-      - name: Test
-        run: ctest --preset=debug --output-on-failure
-
   windows:
-    name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.preset }}
+    name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
-        llvm-version: ["21.1.4", "20.1.8"]
+        llvm-version: ["22.1.0", "21.1.4", "20.1.8"]
         preset: ["debug-system", "release-system"]
+        variant: ["default"]
+        include:
+          - llvm-version: "20.1.8"
+            preset: "debug-system-cxx23"
+            variant: "cxx23"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -286,101 +245,8 @@ jobs:
           cmake --build $msvcBuildDir
           ctest --test-dir $msvcBuildDir --output-on-failure
 
-  windows-cxx23:
-    name: Windows • LLVM 20.1.8 • C++23 tests
-    runs-on: windows-2022
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v3
-
-      - name: Cache extracted LLVM toolchain
-        id: cache-llvm
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}\llvm\clang+llvm-20.1.8-x86_64-pc-windows-msvc
-          key: llvm-${{ runner.os }}-20.1.8
-
-      - name: Download LLVM distribution (tarball)
-        if: steps.cache-llvm.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $version = "20.1.8"
-          $archive = "clang+llvm-$version-x86_64-pc-windows-msvc.tar.xz"
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/$archive"
-          Invoke-WebRequest -Uri $url -OutFile $archive
-
-      - name: Extract LLVM toolchain
-        if: steps.cache-llvm.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $version = "20.1.8"
-          $root = Join-Path $env:RUNNER_TEMP "llvm"
-          $null = New-Item -ItemType Directory -Force -Path $root
-          $archive = Get-Item "clang+llvm-$version-x86_64-pc-windows-msvc.tar.xz"
-
-          # bsdtar extraction on windows runners is extremely slow; use 7-Zip instead.
-          $sevenZip = Join-Path $env:ProgramFiles "7-Zip\\7z.exe"
-          if (-not (Test-Path $sevenZip)) { $sevenZip = "7z.exe" }
-
-          & $sevenZip x -y $archive.FullName "-o$root"
-          $tarPath = Join-Path $root "clang+llvm-$version-x86_64-pc-windows-msvc.tar"
-          if (-not (Test-Path $tarPath)) { throw "7-Zip failed to produce tar archive at $tarPath" }
-          & $sevenZip x -y $tarPath "-o$root"
-
-          Remove-Item -Force -ErrorAction SilentlyContinue $tarPath
-          Remove-Item -Force -ErrorAction SilentlyContinue $archive.FullName
-
-      - name: Configure LLVM environment
-        shell: pwsh
-        run: |
-          $version = "20.1.8"
-          $root = Join-Path $env:RUNNER_TEMP "llvm"
-          $extracted = Join-Path $root "clang+llvm-$version-x86_64-pc-windows-msvc"
-          if (-not (Test-Path $extracted)) { throw "Failed to locate extracted LLVM directory at $extracted" }
-          "$extracted\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "LLVM_BIN=$extracted\\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "LLVM_DIR=$extracted\\lib\\cmake\\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "Clang_DIR=$extracted\\lib\\cmake\\clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Show tool versions
-        shell: pwsh
-        run: |
-          cmake --version
-          ninja --version
-          & (Join-Path $env:LLVM_BIN "clang.exe") --version
-          & (Join-Path $env:LLVM_BIN "clang++.exe") --version
-
-      - name: Configure
-        shell: pwsh
-        run: |
-          $cmakeArgs = @(
-            "--preset=debug-system-cxx23",
-            "-DCMAKE_C_COMPILER=$env:LLVM_BIN\\clang.exe",
-            "-DCMAKE_CXX_COMPILER=$env:LLVM_BIN\\clang++.exe",
-            "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON",
-            "-DLLVM_DIR=$env:LLVM_DIR",
-            "-DClang_DIR=$env:Clang_DIR"
-          )
-          cmake @cmakeArgs
-
-      - name: Build
-        shell: pwsh
-        run: cmake --build --preset=debug-system-cxx23
-
-      - name: Test
-        shell: pwsh
-        run: ctest --preset=debug-system-cxx23 --output-on-failure
-
   linux:
-    name: ${{ matrix.name }} • ${{ matrix.build_type }}
+    name: ${{ matrix.name }} • ${{ matrix.preset == 'debug-system-cxx23' && 'C++23 tests' || matrix.build_type }}
     runs-on: ubuntu-24.04
     container: ${{ matrix.container }}
     defaults:
@@ -410,6 +276,17 @@ jobs:
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: release
+          - name: Ubuntu 24.04 • Clang 20
+            container: ubuntu:24.04
+            pkg_manager: apt
+            compiler: clang
+            cc: clang-20
+            cxx: clang++-20
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: debug
+            preset: debug-system-cxx23
           - name: Ubuntu 24.04 • GCC
             container: ubuntu:24.04
             pkg_manager: apt
@@ -470,6 +347,39 @@ jobs:
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: release
+          - name: Ubuntu 24.04 • LLVM 22
+            container: ubuntu:24.04
+            pkg_manager: apt
+            setup_mode: apt-llvm-org
+            compiler: clang
+            cc: clang-22
+            cxx: clang++-22
+            clang_version: "22"
+            llvm_dir: /usr/lib/llvm-22/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-22/lib/cmake/clang
+            build_type: debug
+          # Prefer pinned Alpine releases over `alpine:latest` so the
+          # LLVM/Clang package names and CMake package paths remain stable.
+          - name: Alpine 3.21 • Clang 19
+            container: alpine:3.21
+            pkg_manager: apk
+            compiler: clang
+            cc: clang-19
+            cxx: clang++-19
+            llvm_version: "19"
+            llvm_dir: /usr/lib/cmake/llvm19
+            clang_dir: /usr/lib/cmake/clang19
+            build_type: debug
+          - name: Alpine 3.23 • Clang 21
+            container: alpine:3.23
+            pkg_manager: apk
+            compiler: clang
+            cc: clang-21
+            cxx: clang++-21
+            llvm_version: "21"
+            llvm_dir: /usr/lib/cmake/llvm21
+            clang_dir: /usr/lib/cmake/clang21
+            build_type: debug
           - name: Fedora 41 • Clang
             container: fedora:41
             pkg_manager: dnf
@@ -578,6 +488,17 @@ jobs:
             llvm_dir: /usr/lib64/cmake/llvm
             clang_dir: /usr/lib64/cmake/clang
             build_type: release
+          - name: Fedora 43 • LLVM 22
+            container: fedora:43
+            pkg_manager: dnf
+            setup_mode: upstream-archive
+            llvm_release: "22.1.0"
+            compiler: clang
+            cc: /opt/llvm-22.1.0/bin/clang
+            cxx: /opt/llvm-22.1.0/bin/clang++
+            llvm_dir: /opt/llvm-22.1.0/lib/cmake/llvm
+            clang_dir: /opt/llvm-22.1.0/lib/cmake/clang
+            build_type: debug
     steps:
       - name: Update and install dependencies (apt)
         if: ${{ matrix.pkg_manager == 'apt' }}
@@ -598,13 +519,26 @@ jobs:
             unzip \
             tar \
             ca-certificates \
+            gnupg \
             libffi-dev \
             libxml2-dev \
             zlib1g-dev \
             libzstd-dev \
             libcurl4-openssl-dev \
             libunwind-dev \
-            libfmt-dev \
+            libfmt-dev
+          if [ "${{ matrix.setup_mode }}" = "apt-llvm-org" ]; then
+            curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+            printf '%s\n' \
+              'Types: deb' \
+              'URIs: https://apt.llvm.org/noble/' \
+              'Suites: llvm-toolchain-noble-22' \
+              'Components: main' \
+              'Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc' \
+              >/etc/apt/sources.list.d/apt-llvm-22.sources
+            apt-get update
+          fi
+          apt-get install -y --no-install-recommends \
             clang-${{ matrix.clang_version }} \
             clang-tools-${{ matrix.clang_version }} \
             libclang-${{ matrix.clang_version }}-dev \
@@ -617,36 +551,106 @@ jobs:
         run: |
           set -euxo pipefail
           dnf -y upgrade --refresh
-          dnf -y install \
-            git \
-            which \
-            tar \
-            xz \
-            ccache \
-            ninja-build \
-            python3 \
-            python3-pip \
-            pkg-config \
-            curl \
-            zip \
-            unzip \
-            clang \
-            clang-libs \
-            clang-devel \
-            clang-tools-extra \
-            llvm-devel \
-            fmt-devel \
-            zlib-ng-compat-devel \
-            libunwind-devel \
-            libcurl-devel \
-            libffi-devel \
-            libxml2-devel \
-            gcc \
-            gcc-c++ \
-            make \
-            ca-certificates \
-            ncurses-compat-libs
+          if [ "${{ matrix.setup_mode }}" = "upstream-archive" ]; then
+            dnf -y install \
+              git \
+              which \
+              tar \
+              xz \
+              ccache \
+              ninja-build \
+              python3 \
+              python3-pip \
+              pkg-config \
+              curl \
+              zip \
+              unzip \
+              fmt-devel \
+              zlib-ng-compat-devel \
+              libunwind-devel \
+              libcurl-devel \
+              libffi-devel \
+              libxml2-devel \
+              gcc \
+              gcc-c++ \
+              make \
+              ca-certificates \
+              ncurses-compat-libs
+            curl -L --fail -o /tmp/LLVM-${{ matrix.llvm_release }}-Linux-X64.tar.xz \
+              https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ matrix.llvm_release }}/LLVM-${{ matrix.llvm_release }}-Linux-X64.tar.xz
+            mkdir -p /opt/llvm-${{ matrix.llvm_release }}
+            tar -xf /tmp/LLVM-${{ matrix.llvm_release }}-Linux-X64.tar.xz -C /opt/llvm-${{ matrix.llvm_release }} --strip-components=1
+            echo "/opt/llvm-${{ matrix.llvm_release }}/bin" >> "$GITHUB_PATH"
+          else
+            dnf -y install \
+              git \
+              which \
+              tar \
+              xz \
+              ccache \
+              ninja-build \
+              python3 \
+              python3-pip \
+              pkg-config \
+              curl \
+              zip \
+              unzip \
+              clang \
+              clang-libs \
+              clang-devel \
+              clang-tools-extra \
+              llvm-devel \
+              fmt-devel \
+              zlib-ng-compat-devel \
+              libunwind-devel \
+              libcurl-devel \
+              libffi-devel \
+              libxml2-devel \
+              gcc \
+              gcc-c++ \
+              make \
+              ca-certificates \
+              ncurses-compat-libs
+          fi
           python3 -m pip install --upgrade pip cmake
+      - name: Update and install dependencies (apk)
+        if: ${{ matrix.pkg_manager == 'apk' }}
+        shell: sh
+        run: |
+          set -eux
+          apk update
+          # Alpine splits files referenced by LLVM/Clang's CMake exports across
+          # the base, -static, -gtest, and -extra-tools packages.
+          apk add --no-cache \
+            bash \
+            build-base \
+            ca-certificates \
+            ccache \
+            clang${{ matrix.llvm_version }} \
+            clang${{ matrix.llvm_version }}-dev \
+            clang${{ matrix.llvm_version }}-extra-tools \
+            clang${{ matrix.llvm_version }}-static \
+            cmake \
+            curl \
+            fmt-dev \
+            git \
+            libffi-dev \
+            libxml2-dev \
+            linux-headers \
+            llvm${{ matrix.llvm_version }} \
+            llvm${{ matrix.llvm_version }}-dev \
+            llvm${{ matrix.llvm_version }}-gtest \
+            llvm${{ matrix.llvm_version }}-static \
+            ninja \
+            pkgconf \
+            python3 \
+            tar \
+            unzip \
+            xz \
+            zip \
+            zlib-dev \
+            zstd-dev
+          echo "/usr/lib/llvm${{ matrix.llvm_version }}/bin" >> "$GITHUB_PATH"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Configure environment variables
@@ -655,6 +659,7 @@ jobs:
           echo "Clang_DIR=${{ matrix.clang_dir }}" >> $GITHUB_ENV
           echo "CC=${{ matrix.cc }}" >> $GITHUB_ENV
           echo "CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
+          echo "GENTEST_CMAKE_PRESET=${{ matrix.preset || (matrix.build_type == 'debug' && 'debug-system' || 'release-system') }}" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
           echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
       - name: Show tool versions
@@ -671,7 +676,7 @@ jobs:
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          cmake --preset=${{ matrix.build_type == 'debug' && 'debug-system' || 'release-system' }} \
+          cmake --preset=${GENTEST_CMAKE_PRESET} \
             -DCMAKE_C_COMPILER=${CC} \
             -DCMAKE_CXX_COMPILER=${CXX} \
             -DLLVM_DIR=${LLVM_DIR} \
@@ -679,98 +684,11 @@ jobs:
       - name: Build
         run: |
           set -euxo pipefail
-          cmake --build --preset=${{ matrix.build_type == 'debug' && 'debug-system' || 'release-system' }} --parallel
+          cmake --build --preset=${GENTEST_CMAKE_PRESET} --parallel
       - name: Test
         env:
           LC_ALL: C.UTF-8
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          ctest --preset=${{ matrix.build_type == 'debug' && 'debug-system' || 'release-system' }} --output-on-failure
-
-  linux-cxx23:
-    name: Linux • Ubuntu 24.04 • Clang 20 • C++23 tests
-    runs-on: ubuntu-24.04
-    container: ubuntu:24.04
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Update and install dependencies (apt)
-        run: |
-          set -euxo pipefail
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            git \
-            build-essential \
-            ccache \
-            ninja-build \
-            python3 \
-            python3-pip \
-            pkg-config \
-            curl \
-            zip \
-            unzip \
-            tar \
-            ca-certificates \
-            libffi-dev \
-            libxml2-dev \
-            zlib1g-dev \
-            libzstd-dev \
-            libcurl4-openssl-dev \
-            libunwind-dev \
-            libfmt-dev \
-            clang-20 \
-            clang-tools-20 \
-            libclang-20-dev \
-            libclang-cpp20-dev \
-            llvm-20-dev
-          python3 -m pip install --break-system-packages --upgrade cmake
-          echo "/usr/lib/llvm-20/bin" >> "$GITHUB_PATH"
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure environment variables
-        run: |
-          echo "LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm" >> $GITHUB_ENV
-          echo "Clang_DIR=/usr/lib/llvm-20/lib/cmake/clang" >> $GITHUB_ENV
-          echo "CC=clang-20" >> $GITHUB_ENV
-          echo "CXX=clang++-20" >> $GITHUB_ENV
-          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
-          echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
-
-      - name: Show tool versions
-        run: |
-          set -euxo pipefail
-          cmake --version
-          ninja --version
-          ${CC} --version
-          clang --version || true
-          if command -v llvm-config >/dev/null 2>&1; then llvm-config --version; fi
-
-      - name: Configure
-        env:
-          LC_ALL: C.UTF-8
-          LANG: C.UTF-8
-        run: |
-          set -euxo pipefail
-          cmake --preset=debug-system-cxx23 \
-            -DCMAKE_C_COMPILER=${CC} \
-            -DCMAKE_CXX_COMPILER=${CXX} \
-            -DLLVM_DIR=${LLVM_DIR} \
-            -DClang_DIR=${Clang_DIR}
-
-      - name: Build
-        run: |
-          set -euxo pipefail
-          cmake --build --preset=debug-system-cxx23 --parallel
-
-      - name: Test
-        env:
-          LC_ALL: C.UTF-8
-          LANG: C.UTF-8
-        run: |
-          set -euxo pipefail
-          ctest --preset=debug-system-cxx23 --output-on-failure
+          ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure
