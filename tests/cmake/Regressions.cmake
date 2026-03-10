@@ -72,6 +72,7 @@ set(_gentest_manual_regressions
     "gentest_regression_shared_fixture_manual_setup_throw_skip|shared_fixture_manual_setup_throw_skip.cpp"
     "gentest_regression_shared_fixture_missing_factory_skip|shared_fixture_missing_factory_skip.cpp"
     "gentest_regression_shared_fixture_runtime_registration_during_run|shared_fixture_runtime_registration_during_run.cpp"
+    "gentest_regression_runtime_case_snapshot_isolated|runtime_case_snapshot_isolated.cpp"
     "gentest_regression_shared_fixture_runtime_reentry_rejected|shared_fixture_runtime_reentry_rejected.cpp"
     "gentest_regression_shared_fixture_suite_scope_descendant|shared_fixture_suite_scope_descendant.cpp"
     "gentest_regression_shared_fixture_suite_scope_most_specific|shared_fixture_suite_scope_most_specific.cpp"
@@ -901,6 +902,14 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --run=regressions/shared_fixture_runtime_registration_during_run/late_register --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_runtime_case_snapshot_isolated
+    PROG $<TARGET_FILE:gentest_regression_runtime_case_snapshot_isolated>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=regressions/runtime_case_snapshot_isolated/snapshot --kind=test)
 
 gentest_add_check_counts(
     NAME regression_shared_fixture_runtime_reentry_is_rejected

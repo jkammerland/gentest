@@ -18,6 +18,22 @@ auto case_registry() -> CaseRegistry & {
     static CaseRegistry reg;
     return reg;
 }
+
+auto snapshot_cases() -> std::vector<gentest::Case> {
+    auto                       &reg = case_registry();
+    std::lock_guard<std::mutex> lk(reg.mtx);
+    if (!reg.sorted) {
+        std::sort(reg.cases.begin(), reg.cases.end(), [](const gentest::Case &lhs, const gentest::Case &rhs) {
+            if (lhs.name != rhs.name)
+                return lhs.name < rhs.name;
+            if (lhs.file != rhs.file)
+                return lhs.file < rhs.file;
+            return lhs.line < rhs.line;
+        });
+        reg.sorted = true;
+    }
+    return reg.cases;
+}
 } // namespace
 
 namespace gentest::detail {
@@ -27,6 +43,8 @@ void register_cases(std::span<const Case> cases) {
     reg.cases.insert(reg.cases.end(), cases.begin(), cases.end());
     reg.sorted = false;
 }
+
+auto snapshot_registered_cases() -> std::vector<Case> { return snapshot_cases(); }
 } // namespace gentest::detail
 
 namespace gentest {
@@ -57,9 +75,8 @@ auto run_all_tests(std::span<const char *> args) -> int {
     if (!gentest::runner::parse_cli(args, opt))
         return 1;
 
-    const Case           *cases      = gentest::get_cases();
-    std::size_t           case_count = gentest::get_case_count();
-    std::span<const Case> kCases{cases, case_count};
+    const auto            cases = gentest::detail::snapshot_registered_cases();
+    std::span<const Case> kCases{cases};
     return gentest::runner::run_from_options(kCases, opt);
 }
 
