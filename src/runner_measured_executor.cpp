@@ -50,6 +50,13 @@ struct OverheadEstimate {
     std::size_t samples   = 0;
 };
 
+struct CalibratedEpoch {
+    std::size_t iterations = 1;
+    std::size_t completed  = 0;
+    double      elapsed_s  = 0.0;
+    bool        had_assert = false;
+};
+
 double percentile_sorted(const std::vector<double> &v, double p) {
     if (v.empty())
         return 0.0;
@@ -173,6 +180,32 @@ double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std
         },
         [] {},
         had_assert_fail);
+}
+
+CalibratedEpoch calibrate_epoch_iterations(const gentest::Case &c, void *ctx, const BenchConfig &cfg) {
+    CalibratedEpoch calibration{};
+    while (true) {
+        calibration.elapsed_s = run_epoch_calls(c, ctx, calibration.iterations, calibration.completed, calibration.had_assert);
+        if (calibration.had_assert || calibration.elapsed_s >= cfg.min_epoch_time_s) {
+            return calibration;
+        }
+        calibration.iterations *= 2;
+        if (calibration.iterations == 0 || calibration.iterations > (std::size_t(1) << 30)) {
+            return calibration;
+        }
+    }
+}
+
+double run_warmup_epochs(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t warmup_epochs, std::size_t &iterations_done,
+                         bool &had_assert_fail) {
+    double warmup_time_s = 0.0;
+    for (std::size_t i = 0; i < warmup_epochs; ++i) {
+        warmup_time_s += run_epoch_calls(c, ctx, iters, iterations_done, had_assert_fail);
+        if (had_assert_fail) {
+            break;
+        }
+    }
+    return warmup_time_s;
 }
 
 double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail,
@@ -327,28 +360,14 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
 
 BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg) {
     BenchResult br{};
-    std::size_t iters      = 1;
-    bool        had_assert = false;
-    std::size_t done       = 0;
-    double      calib_s    = 0.0;
-    while (true) {
-        calib_s = run_epoch_calls(c, ctx, iters, done, had_assert);
-        if (had_assert)
-            break;
-        if (calib_s >= cfg.min_epoch_time_s)
-            break;
-        iters *= 2;
-        if (iters == 0 || iters > (std::size_t(1) << 30))
-            break;
-    }
-    br.calibration_time_s = calib_s;
-    br.calibration_iters  = iters;
-
-    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) {
-        br.warmup_time_s += run_epoch_calls(c, ctx, iters, done, had_assert);
-        if (had_assert)
-            break;
-    }
+    auto        calibration = calibrate_epoch_iterations(c, ctx, cfg);
+    auto        iters       = calibration.iterations;
+    auto        done        = calibration.completed;
+    auto        had_assert  = calibration.had_assert;
+    const auto  calib_s     = calibration.elapsed_s;
+    br.calibration_time_s   = calib_s;
+    br.calibration_iters    = iters;
+    br.warmup_time_s        = run_warmup_epochs(c, ctx, iters, cfg.warmup_epochs, done, had_assert);
 
     std::vector<double> epoch_ns;
     auto                start_all  = std::chrono::steady_clock::now();
@@ -389,21 +408,12 @@ BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg)
 
 JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cfg) {
     JitterResult jr{};
-    std::size_t  iters       = 1;
-    bool         had_assert  = false;
-    std::size_t  done        = 0;
+    auto         calibration = calibrate_epoch_iterations(c, ctx, cfg);
+    std::size_t  iters       = calibration.iterations;
+    bool         had_assert  = calibration.had_assert;
+    std::size_t  done        = calibration.completed;
     std::size_t  epoch_count = 0;
-    double       calib_s     = 0.0;
-    while (true) {
-        calib_s = run_epoch_calls(c, ctx, iters, done, had_assert);
-        if (had_assert)
-            break;
-        if (calib_s >= cfg.min_epoch_time_s)
-            break;
-        iters *= 2;
-        if (iters == 0 || iters > (std::size_t(1) << 30))
-            break;
-    }
+    const double calib_s     = calibration.elapsed_s;
     jr.calibration_time_s = calib_s;
     jr.calibration_iters  = iters;
 
@@ -429,11 +439,7 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
     jr.overhead_mean_ns = overhead.mean_ns;
     jr.overhead_sd_ns   = overhead.stddev_ns;
 
-    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) {
-        jr.warmup_time_s += run_epoch_calls(c, ctx, iters, done, had_assert);
-        if (had_assert)
-            break;
-    }
+    jr.warmup_time_s = run_warmup_epochs(c, ctx, iters, cfg.warmup_epochs, done, had_assert);
     auto start_all = std::chrono::steady_clock::now();
     for (;;) {
         if (epoch_count >= cfg.measure_epochs && jr.total_time_s >= cfg.min_total_time_s)
