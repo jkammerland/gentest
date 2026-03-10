@@ -88,12 +88,37 @@ gentest_check_run_or_fail(
   OUTPUT_VARIABLE _list_out
 )
 
-foreach(_name IN ITEMS "demo/a" "demo/b" "demo/skip" "demo/has [bracket]" "death/demo/death")
-  string(FIND "${_list_out}" "${_name}" _pos)
-  if(_pos EQUAL -1)
-    message(FATAL_ERROR "Expected discovered test not found: '${_name}'. ctest -N output:\n${_list_out}")
+set(_expected_tests
+  "demo/a"
+  "demo/b"
+  "demo/skip"
+  "demo/has [bracket]"
+  "death/demo/death")
+
+string(REPLACE "\r" "" _list_out_normalized "${_list_out}")
+string(REPLACE "\n" ";" _list_lines "${_list_out_normalized}")
+set(_discovered_tests)
+foreach(_line IN LISTS _list_lines)
+  if(_line MATCHES "^[ \t]*Test #[0-9]+: (.+)$")
+    list(APPEND _discovered_tests "${CMAKE_MATCH_1}")
   endif()
 endforeach()
+
+list(LENGTH _discovered_tests _discovered_count)
+list(LENGTH _expected_tests _expected_count)
+if(NOT _discovered_count EQUAL _expected_count)
+  message(FATAL_ERROR
+    "Unexpected discovered test count. Expected ${_expected_count}, got ${_discovered_count}. ctest -N output:\n${_list_out}")
+endif()
+
+list(SORT _discovered_tests)
+list(SORT _expected_tests)
+if(NOT _discovered_tests STREQUAL _expected_tests)
+  string(JOIN "\n  " _expected_block ${_expected_tests})
+  string(JOIN "\n  " _actual_block ${_discovered_tests})
+  message(FATAL_ERROR
+    "Discovered test set mismatch.\nExpected:\n  ${_expected_block}\nActual:\n  ${_actual_block}\nFull ctest -N output:\n${_list_out}")
+endif()
 
 if(_list_out MATCHES "(^|\\n)[ \t]*Test #[0-9]+: demo/death([ \t]*$)")
   message(FATAL_ERROR "Death test should not be registered as a normal test: 'demo/death'. ctest -N output:\n${_list_out}")
