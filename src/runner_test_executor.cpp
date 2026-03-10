@@ -272,10 +272,8 @@ void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std
 
 } // namespace
 
-bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const std::size_t> idxs, bool shuffle,
-                    std::uint64_t base_seed, bool fail_fast, TestCounters &counters) {
-    const auto plans = gentest::runner::build_suite_execution_plan(cases, idxs, shuffle, base_seed);
-
+bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans, bool fail_fast,
+                    TestCounters &counters) {
     for (const auto &plan : plans) {
         for (auto i : plan.free_like) {
             execute_and_record(state, cases[i], nullptr, counters);

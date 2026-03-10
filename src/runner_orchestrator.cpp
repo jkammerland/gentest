@@ -158,15 +158,16 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         test_state.color_output   = state.color_output;
         test_state.record_results = state.record_results;
         test_state.acc            = &state.acc;
+        const auto test_plans =
+            gentest::runner::build_suite_execution_plan(kCases, std::span<const std::size_t>{test_idxs.data(), test_idxs.size()},
+                                                        opt.shuffle, opt.shuffle_seed);
 
         if (opt.shuffle && !has_selection)
             fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
         for (std::size_t iter = 0; iter < opt.repeat_n; ++iter) {
             if (opt.shuffle && has_selection)
                 fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
-            tests_stopped = gentest::runner::run_tests_once(
-                test_state, kCases, std::span<const std::size_t>{test_idxs.data(), test_idxs.size()}, opt.shuffle, opt.shuffle_seed,
-                opt.fail_fast, counters);
+            tests_stopped = gentest::runner::run_tests_once(test_state, kCases, test_plans, opt.fail_fast, counters);
             if (tests_stopped)
                 break;
         }
