@@ -3,6 +3,10 @@
 #include "helper.hpp" // use mock<T> in non-annotated helper code
 #include "types.h"
 
+#include <array>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <type_traits>
 #include <vector>
 
@@ -340,6 +344,67 @@ void matchers_ge_anyof() {
     mock_tick.tick(5);
     mock_tick.tick(7);
     EXPECT_EQ(count, 2);
+}
+
+[[using gentest: test("mocking/concurrency/adopted_ordered_dispatch")]]
+void concurrency_adopted_ordered_dispatch() {
+    gentest::mock<Calculator> mock_calc;
+    std::mutex                gate_mtx;
+    std::condition_variable   gate_cv;
+    int                       first_action_entries = 0;
+    bool                      first_release        = false;
+    bool                      second_done          = false;
+    std::array<int, 2>        results{0, 0};
+
+    EXPECT_CALL(mock_calc, compute).times(1).with(1, 1).invokes([&](int lhs, int rhs) {
+        EXPECT_EQ(lhs, 1);
+        EXPECT_EQ(rhs, 1);
+        {
+            std::lock_guard<std::mutex> lk(gate_mtx);
+            ++first_action_entries;
+        }
+        gate_cv.notify_all();
+        std::unique_lock<std::mutex> lk(gate_mtx);
+        gate_cv.wait(lk, [&] { return first_release; });
+        return 11;
+    });
+    EXPECT_CALL(mock_calc, compute).times(1).with(1, 1).returns(22);
+
+    auto        tok = gentest::ctx::current();
+    Calculator *iface = &mock_calc;
+    std::thread t1([&] {
+        gentest::ctx::Adopt guard(tok);
+        results[0] = iface->compute(1, 1);
+    });
+
+    {
+        std::unique_lock<std::mutex> lk(gate_mtx);
+        gate_cv.wait(lk, [&] { return first_action_entries == 1; });
+    }
+
+    std::thread t2([&] {
+        gentest::ctx::Adopt guard(tok);
+        results[1] = iface->compute(1, 1);
+        {
+            std::lock_guard<std::mutex> lk(gate_mtx);
+            second_done = true;
+        }
+        gate_cv.notify_all();
+    });
+
+    {
+        std::unique_lock<std::mutex> lk(gate_mtx);
+        gate_cv.wait(lk, [&] { return first_action_entries == 2 || second_done; });
+        first_release = true;
+    }
+    gate_cv.notify_all();
+
+    t1.join();
+    t2.join();
+
+    EXPECT_EQ(first_action_entries, 1);
+    EXPECT_EQ(results[0], 11);
+    EXPECT_EQ(results[1], 22);
 }
 
 [[using gentest: test("mocking/nice/unexpected_ok")]]

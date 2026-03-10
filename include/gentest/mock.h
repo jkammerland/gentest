@@ -211,21 +211,11 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
     std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>>  arg_predicates;
     std::function<bool(const std::decay_t<Args>&...)>               call_predicate;
     // Configure expectations before worker threads start. Runtime dispatch and
-    // verification still serialize mutable counters and queue state here.
+    // verification keep queue/counter mutation in InstanceState and never hold
+    // this mutex across user predicates/actions.
     mutable std::recursive_mutex                                    state_mtx_;
 
-    bool is_satisfied() const {
-        std::lock_guard<std::recursive_mutex> lk(state_mtx_);
-        return observed_calls >= expected_calls;
-    }
-
-    bool allows_excess_calls() const {
-        std::lock_guard<std::recursive_mutex> lk(state_mtx_);
-        return allow_excess;
-    }
-
     void verify(std::string_view method_name) override {
-        std::lock_guard<std::recursive_mutex> lk(state_mtx_);
         verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified);
     }
 
@@ -279,12 +269,7 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
     }
 
     R invoke(std::string_view method_name, Args... args) {
-        std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
-        if (!this->allow_excess && this->observed_calls >= this->expected_calls) {
-            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name), std::source_location::current());
-        }
         (void)this->check_args(method_name, std::forward<Args>(args)...);
-        ++this->observed_calls;
         if (action) {
             return action(args...);
         }
@@ -307,12 +292,7 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommo
     }
 
     void invoke(std::string_view method_name, Args... args) {
-        std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
-        if (!this->allow_excess && this->observed_calls >= this->expected_calls) {
-            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name), std::source_location::current());
-        }
         (void)this->check_args(method_name, std::forward<Args>(args)...);
-        ++this->observed_calls;
         if (action) {
             action(args...);
         }
@@ -337,17 +317,10 @@ class InstanceState {
     }
 
     void verify_all() {
-        std::vector<std::pair<std::string, std::vector<std::shared_ptr<ExpectationBase>>>> snapshot;
-        {
-            std::lock_guard<std::mutex> lk(mtx_);
-            snapshot.reserve(methods_.size());
-            for (const auto &[_, entry] : methods_) {
-                snapshot.emplace_back(entry.method_name, std::vector<std::shared_ptr<ExpectationBase>>(entry.queue.begin(), entry.queue.end()));
-            }
-        }
-        for (auto &[method_name, queue] : snapshot) {
-            for (auto &expectation : queue) {
-                expectation->verify(method_name);
+        std::lock_guard<std::mutex> lk(mtx_);
+        for (auto &[_, entry] : methods_) {
+            for (auto &expectation : entry.queue) {
+                expectation->verify(entry.method_name);
             }
         }
     }
@@ -368,11 +341,18 @@ class InstanceState {
     template <typename R, typename... Args> R dispatch(const MethodIdentity &id, std::string_view method_name, Args &&...args) {
         std::shared_ptr<ExpectationBase> base_expectation;
         bool                             nice_mode = false;
+        bool                             unexpected = false;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             auto                       it = methods_.find(id);
             if (it != methods_.end() && !it->second.queue.empty()) {
                 base_expectation = it->second.queue.front();
+                auto expectation = std::static_pointer_cast<Expectation<R(Args...)>>(base_expectation);
+                unexpected       = !expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls;
+                ++expectation->observed_calls;
+                if (!expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls) {
+                    it->second.queue.pop_front();
+                }
             } else {
                 nice_mode = nice_mode_;
             }
@@ -394,35 +374,14 @@ class InstanceState {
         }
         using ExpectationT = Expectation<R(Args...)>;
         auto expectation = std::static_pointer_cast<ExpectationT>(std::move(base_expectation));
+        if (unexpected) {
+            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name), std::source_location::current());
+        }
         if constexpr (std::is_void_v<R>) {
             expectation->invoke(method_name, std::forward<Args>(args)...);
-        } else {
-            decltype(auto) result = expectation->invoke(method_name, std::forward<Args>(args)...);
-            const bool should_pop = expectation->is_satisfied() && !expectation->allows_excess_calls();
-            if (should_pop) {
-                std::lock_guard<std::mutex> lk(mtx_);
-                auto                       it = methods_.find(id);
-                if (it != methods_.end() && !it->second.queue.empty() && it->second.queue.front() == expectation) {
-                    it->second.queue.pop_front();
-                }
-            }
-            return result;
+            return;
         }
-        const bool should_pop = expectation->is_satisfied() && !expectation->allows_excess_calls();
-        if (should_pop) {
-            std::lock_guard<std::mutex> lk(mtx_);
-            auto                       it = methods_.find(id);
-            if (it != methods_.end() && !it->second.queue.empty() && it->second.queue.front() == expectation) {
-                it->second.queue.pop_front();
-            }
-        }
-        if constexpr (!std::is_void_v<R>) {
-            if constexpr (std::is_reference_v<R>) {
-                std::terminate();
-            } else {
-                return R{};
-            }
-        }
+        return expectation->invoke(method_name, std::forward<Args>(args)...);
     }
 
   private:
