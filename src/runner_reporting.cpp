@@ -73,6 +73,37 @@ void write_xml_cdata(std::ostream &out, std::string_view s) {
     }
     out << "]]>";
 }
+
+#ifdef GENTEST_USE_BOOST_JSON
+void record_allure_failure(RunAccumulator &acc, std::string message) {
+    record_runner_level_failure(acc, "gentest/reporting/allure", std::move(message));
+}
+
+std::string join_lines(const std::vector<std::string> &lines) {
+    std::string out;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (i != 0)
+            out.push_back('\n');
+        out.append(lines[i]);
+    }
+    return out;
+}
+
+bool write_allure_file(RunAccumulator &acc, const std::filesystem::path &path, std::string_view label, std::string_view contents) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        record_allure_failure(acc, fmt::format("failed to open {}: {}", label, path.string()));
+        return false;
+    }
+    out << contents;
+    out.flush();
+    if (!out) {
+        record_allure_failure(acc, fmt::format("failed to write {}: {}", label, path.string()));
+        return false;
+    }
+    return true;
+}
+#endif
 } // namespace
 
 void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues) {
@@ -197,65 +228,84 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
 
 #ifdef GENTEST_USE_BOOST_JSON
     if (cfg.allure_dir) {
-        std::filesystem::create_directories(cfg.allure_dir);
-        std::size_t idx = 0;
-        for (const auto &it : acc.report_items) {
-            boost::json::object obj;
-            obj["name"]   = it.name;
-            obj["status"] = it.failures.empty() ? (it.skipped ? "skipped" : "passed") : "failed";
-            obj["time"]   = it.time_s;
-            boost::json::array labels;
-            labels.push_back({{"name", "suite"}, {"value", it.suite}});
-            if (it.skipped && it.skip_reason.rfind("xfail", 0) == 0) {
-                std::string_view r = it.skip_reason;
-                if (r.rfind("xfail:", 0) == 0) {
-                    r.remove_prefix(std::string_view("xfail:").size());
-                    while (!r.empty() && r.front() == ' ')
-                        r.remove_prefix(1);
-                } else if (r == "xfail") {
-                    r = std::string_view{};
-                }
-                labels.push_back({{"name", "xfail"}, {"value", std::string(r)}});
-            }
-            obj["labels"] = std::move(labels);
-            if (!it.failures.empty()) {
-                boost::json::object ex;
-                ex["message"]        = it.failures.front();
-                obj["statusDetails"] = std::move(ex);
-            } else if (it.skipped && !it.skip_reason.empty()) {
-                boost::json::object ex;
-                ex["message"]        = it.skip_reason;
-                obj["statusDetails"] = std::move(ex);
-            }
-            const std::string file = std::string(cfg.allure_dir) + "/result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json";
-            std::ofstream     out(file, std::ios::binary);
-            if (out)
-                out << boost::json::serialize(obj);
-            ++idx;
+        std::error_code ec;
+        std::filesystem::create_directories(cfg.allure_dir, ec);
+        if (ec) {
+            record_allure_failure(acc, fmt::format("failed to prepare Allure report directory: {} ({})", cfg.allure_dir, ec.message()));
+            report_ok = false;
         }
+        const std::filesystem::path allure_dir = cfg.allure_dir ? std::filesystem::path(cfg.allure_dir) : std::filesystem::path{};
+        std::size_t idx = 0;
+        if (!ec) {
+            for (const auto &it : acc.report_items) {
+                boost::json::object obj;
+                obj["name"]   = it.name;
+                obj["status"] = it.failures.empty() ? (it.skipped ? "skipped" : "passed") : "failed";
+                obj["time"]   = it.time_s;
+                boost::json::array labels;
+                labels.push_back({{"name", "suite"}, {"value", it.suite}});
+                if (it.skipped && it.skip_reason.rfind("xfail", 0) == 0) {
+                    std::string_view r = it.skip_reason;
+                    if (r.rfind("xfail:", 0) == 0) {
+                        r.remove_prefix(std::string_view("xfail:").size());
+                        while (!r.empty() && r.front() == ' ')
+                            r.remove_prefix(1);
+                    } else if (r == "xfail") {
+                        r = std::string_view{};
+                    }
+                    labels.push_back({{"name", "xfail"}, {"value", std::string(r)}});
+                }
+                obj["labels"] = std::move(labels);
+                if (!it.failures.empty()) {
+                    boost::json::object ex;
+                    ex["message"]        = it.failures.front();
+                    obj["statusDetails"] = std::move(ex);
+                } else if (it.skipped && !it.skip_reason.empty()) {
+                    boost::json::object ex;
+                    ex["message"]        = it.skip_reason;
+                    obj["statusDetails"] = std::move(ex);
+                }
+                if (!it.logs.empty()) {
+                    const std::string attachment_name = "result-" + std::to_string(static_cast<unsigned>(idx)) + "-attachment.txt";
+                    const auto        attachment_path = allure_dir / attachment_name;
+                    if (write_allure_file(acc, attachment_path, "Allure attachment", join_lines(it.logs))) {
+                        boost::json::array attachments;
+                        attachments.push_back({{"name", "logs"}, {"source", attachment_name}});
+                        obj["attachments"] = std::move(attachments);
+                    } else {
+                        report_ok = false;
+                    }
+                }
+                const auto result_path = allure_dir / ("result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json");
+                if (!write_allure_file(acc, result_path, "Allure result", boost::json::serialize(obj))) {
+                    report_ok = false;
+                }
+                ++idx;
+            }
+            const auto infra_errors = acc.infra_errors;
+            std::size_t infra_idx   = 0;
+            for (const auto &message : infra_errors) {
+                boost::json::object obj;
+                obj["name"]   = fmt::format("gentest/infra_error/{}", infra_idx);
+                obj["status"] = "failed";
+                obj["time"]   = 0.0;
 
-        std::size_t infra_idx = 0;
-        for (const auto &message : acc.infra_errors) {
-            boost::json::object obj;
-            obj["name"]   = fmt::format("gentest/infra_error/{}", infra_idx);
-            obj["status"] = "failed";
-            obj["time"]   = 0.0;
+                boost::json::array labels;
+                labels.push_back({{"name", "suite"}, {"value", "gentest/infra"}});
+                obj["labels"] = std::move(labels);
 
-            boost::json::array labels;
-            labels.push_back({{"name", "suite"}, {"value", "gentest/infra"}});
-            obj["labels"] = std::move(labels);
+                boost::json::object details;
+                details["message"]   = message;
+                obj["statusDetails"] = std::move(details);
 
-            boost::json::object details;
-            details["message"]    = message;
-            obj["statusDetails"]  = std::move(details);
+                const auto result_path = allure_dir / ("result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json");
+                if (!write_allure_file(acc, result_path, "Allure result", boost::json::serialize(obj))) {
+                    report_ok = false;
+                }
 
-            const std::string file = std::string(cfg.allure_dir) + "/result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json";
-            std::ofstream     out(file, std::ios::binary);
-            if (out)
-                out << boost::json::serialize(obj);
-
-            ++infra_idx;
-            ++idx;
+                ++infra_idx;
+                ++idx;
+            }
         }
     }
 #else

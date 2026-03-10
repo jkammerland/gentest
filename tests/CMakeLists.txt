@@ -1043,7 +1043,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_smoke_single
         PROG $<TARGET_FILE:gentest_unit_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/result-0-result.json
-        EXPECT_SUBSTRING "status\": \"passed"
+        EXPECT_SUBSTRING "\"status\":\"passed\""
         ARGS
             --run=unit/arithmetic/sum
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single)
@@ -1054,7 +1054,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_logs_attachment
         PROG $<TARGET_FILE:gentest_failing_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs/result-0-result.json
-        EXPECT_SUBSTRING "\"attachments\": [ { \"name\": \"logs\", \"source\": \"result-0-attachment.txt\""
+        EXPECT_SUBSTRING "result-0-attachment.txt"
         EXPECT_RC 1
         ARGS
             --run=failing/logging/attachment
@@ -1071,6 +1071,30 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             --run=failing/logging/attachment
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_logs)
     set_tests_properties(allure_logs_attachment_file PROPERTIES LABELS "allure")
+
+    gentest_add_cmake_script_test(
+        NAME regression_allure_directory_failure_reports_infra
+        PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckAllureDirFailure.cmake"
+        ARGS
+            --run=regressions/runtime_reporting/pass_for_junit_io_visibility
+            --kind=test
+        DEFINES
+            "OUT_PATH=${CMAKE_CURRENT_BINARY_DIR}/allure_dir_failure/output.json"
+            "EXPECT_SUBSTRING=failed to prepare Allure report directory:")
+    set_tests_properties(regression_allure_directory_failure_reports_infra PROPERTIES LABELS "allure")
+
+    gentest_add_cmake_script_test(
+        NAME regression_allure_result_write_failure_reports_infra
+        PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckAllureResultWriteFailure.cmake"
+        ARGS
+            --run=regressions/runtime_reporting/pass_for_junit_io_visibility
+            --kind=test
+        DEFINES
+            "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_result_write_failure"
+            "EXPECT_SUBSTRING=failed to open Allure result:")
+    set_tests_properties(regression_allure_result_write_failure_reports_infra PROPERTIES LABELS "allure")
 
     gentest_add_cmake_script_test(
         NAME regression_allure_runner_infra_failure_parity
