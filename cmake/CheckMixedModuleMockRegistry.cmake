@@ -86,8 +86,10 @@ set(_module_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0001_g
 set(_module_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0001_gentest_mixed_module_cases.hpp")
 set(_extra_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0002_gentest_mixed_module_extra_cases.hpp")
 set(_extra_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0002_gentest_mixed_module_extra_cases.hpp")
-set(_same_block_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0003_gentest_mixed_module_same_block_cases.hpp")
-set(_same_block_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0003_gentest_mixed_module_same_block_cases.hpp")
+set(_manual_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0003_gentest_mixed_module_manual_include_cases.hpp")
+set(_manual_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0003_gentest_mixed_module_manual_include_cases.hpp")
+set(_same_block_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0004_gentest_mixed_module_same_block_cases.hpp")
+set(_same_block_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0004_gentest_mixed_module_same_block_cases.hpp")
 
 foreach(_generated_file IN ITEMS
     "${_dispatcher_registry}"
@@ -98,6 +100,8 @@ foreach(_generated_file IN ITEMS
     "${_module_impl}"
     "${_extra_registry}"
     "${_extra_impl}"
+    "${_manual_registry}"
+    "${_manual_impl}"
     "${_same_block_registry}"
     "${_same_block_impl}")
   if(NOT EXISTS "${_generated_file}")
@@ -108,6 +112,7 @@ endforeach()
 file(READ "${_header_registry}" _header_registry_text)
 file(READ "${_module_registry}" _module_registry_text)
 file(READ "${_extra_registry}" _extra_registry_text)
+file(READ "${_manual_registry}" _manual_registry_text)
 file(READ "${_same_block_registry}" _same_block_registry_text)
 file(READ "${_dispatcher_registry}" _dispatcher_registry_text)
 
@@ -124,6 +129,11 @@ endif()
 string(FIND "${_extra_registry_text}" "extramod::Worker" _extra_pos)
 if(_extra_pos EQUAL -1)
   message(FATAL_ERROR "Expected second module-domain registry to contain extramod::Worker")
+endif()
+
+string(FIND "${_manual_registry_text}" "manualinclude::Service" _manual_pos)
+if(_manual_pos EQUAL -1)
+  message(FATAL_ERROR "Expected manual-include module-domain registry to contain manualinclude::Service")
 endif()
 
 string(FIND "${_same_block_registry_text}" "sameblock::Service" _same_block_pos)
@@ -153,6 +163,10 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 gentest_check_run_or_fail(
   COMMAND "${_prog}" --run=mixed/extra_module_mock
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+gentest_check_run_or_fail(
+  COMMAND "${_prog}" --run=mixed/manual_include_module_mock
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 gentest_check_run_or_fail(

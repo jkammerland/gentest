@@ -189,14 +189,96 @@ fs::path resolve_module_wrapper_output(const CollectorOptions &opts, std::size_t
 
 bool read_file(const fs::path &path, std::string &out);
 
-bool source_has_manual_mock_codegen_include(std::string_view text) {
-    return text.find("gentest/mock_codegen.h") != std::string_view::npos ||
-           text.find("gentest/mock_registry_codegen.h") != std::string_view::npos ||
-           text.find("gentest/mock_impl_codegen.h") != std::string_view::npos;
+std::string strip_comments_for_line_scan(std::string_view line, bool &in_block_comment) {
+    std::string out;
+    out.reserve(line.size());
+
+    for (std::size_t i = 0; i < line.size();) {
+        if (in_block_comment) {
+            const auto end = line.find("*/", i);
+            if (end == std::string_view::npos) {
+                return out;
+            }
+            in_block_comment = false;
+            i = end + 2;
+            continue;
+        }
+        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '*') {
+            in_block_comment = true;
+            i += 2;
+            continue;
+        }
+        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '/') {
+            break;
+        }
+        out.push_back(line[i]);
+        ++i;
+    }
+    return out;
+}
+
+struct SourceMockCodegenIncludes {
+    bool has_mock_codegen = false;
+    bool has_registry_codegen = false;
+    bool has_impl_codegen = false;
+
+    [[nodiscard]] bool any() const { return has_mock_codegen || has_registry_codegen || has_impl_codegen; }
+};
+
+SourceMockCodegenIncludes scan_source_mock_codegen_includes(std::string_view text) {
+    SourceMockCodegenIncludes includes;
+    bool                     in_block_comment = false;
+    std::size_t              cursor = 0;
+
+    while (cursor < text.size()) {
+        const std::size_t line_end = text.find('\n', cursor);
+        const std::size_t next = line_end == std::string_view::npos ? text.size() : line_end + 1;
+        std::string_view   line = text.substr(cursor, next - cursor);
+        if (!line.empty() && line.back() == '\n') {
+            line.remove_suffix(1);
+        }
+        if (!line.empty() && line.back() == '\r') {
+            line.remove_suffix(1);
+        }
+
+        std::string cleaned = strip_comments_for_line_scan(line, in_block_comment);
+        const auto  first = cleaned.find_first_not_of(" \t");
+        if (first != std::string::npos) {
+            cleaned.erase(0, first);
+        } else {
+            cleaned.clear();
+        }
+        if (cleaned.rfind("#include", 0) == 0) {
+            const auto quote = cleaned.find('"');
+            const auto angle = cleaned.find('<');
+            std::size_t begin = std::string::npos;
+            char        end_delim = '\0';
+            if (quote != std::string::npos && (angle == std::string::npos || quote < angle)) {
+                begin = quote + 1;
+                end_delim = '"';
+            } else if (angle != std::string::npos) {
+                begin = angle + 1;
+                end_delim = '>';
+            }
+            if (begin != std::string::npos) {
+                const auto end = cleaned.find(end_delim, begin);
+                if (end != std::string::npos) {
+                    const std::string_view header(cleaned.data() + begin, end - begin);
+                    includes.has_mock_codegen = includes.has_mock_codegen || header == "gentest/mock_codegen.h";
+                    includes.has_registry_codegen = includes.has_registry_codegen || header == "gentest/mock_registry_codegen.h";
+                    includes.has_impl_codegen = includes.has_impl_codegen || header == "gentest/mock_impl_codegen.h";
+                }
+            }
+        }
+        cursor = next;
+    }
+
+    return includes;
 }
 
 std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_view text) {
     bool        seen_module_decl = false;
+    bool        in_block_comment = false;
     std::size_t cursor = 0;
     std::size_t last_after = 0;
 
@@ -210,12 +292,10 @@ std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_v
         if (!line.empty() && line.back() == '\r') {
             line.remove_suffix(1);
         }
-        if (const auto comment_pos = line.find("//"); comment_pos != std::string_view::npos) {
-            line = line.substr(0, comment_pos);
-        }
-        const auto first = line.find_first_not_of(" \t");
-        const auto last = line.find_last_not_of(" \t");
-        const std::string_view trimmed = first == std::string_view::npos ? std::string_view{} : line.substr(first, last - first + 1);
+        const std::string cleaned = strip_comments_for_line_scan(line, in_block_comment);
+        const auto        first = cleaned.find_first_not_of(" \t");
+        const auto        last = cleaned.find_last_not_of(" \t");
+        const std::string_view trimmed = first == std::string::npos ? std::string_view{} : std::string_view(cleaned).substr(first, last - first + 1);
 
         if (!seen_module_decl) {
             if (trimmed == "module;") {
@@ -303,9 +383,7 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
         return std::nullopt;
     }
 
-    if (source_has_manual_mock_codegen_include(original)) {
-        return original;
-    }
+    const SourceMockCodegenIncludes manual_includes = scan_source_mock_codegen_includes(original);
     if (source_mocks.empty() && !needs_mock_codegen_include) {
         return original;
     }
@@ -329,7 +407,7 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
         reserve_extra += mock->qualified_name.size() * 4 + 512;
     }
     std::optional<std::size_t> mock_codegen_include_offset;
-    if (needs_mock_codegen_include) {
+    if (needs_mock_codegen_include && !manual_includes.any()) {
         mock_codegen_include_offset = find_module_mock_codegen_include_offset(original);
         if (!mock_codegen_include_offset.has_value()) {
             log_err("gentest_codegen: failed to locate module mock include insertion point in '{}'\n", source_path.string());

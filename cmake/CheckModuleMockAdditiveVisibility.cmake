@@ -31,10 +31,37 @@ file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
-find_program(_clang NAMES clang)
-find_program(_clangxx NAMES clang++)
-if(NOT _clang OR NOT _clangxx)
-  message(STATUS "Skipping additive module mock visibility regression: clang/clang++ not found")
+function(_gentest_is_clang_like out_var compiler_path)
+  if("${compiler_path}" STREQUAL "")
+    set(${out_var} FALSE PARENT_SCOPE)
+    return()
+  endif()
+  get_filename_component(_compiler_name "${compiler_path}" NAME)
+  if(_compiler_name MATCHES "^clang(\\+\\+)?([-.].*)?$")
+    set(${out_var} TRUE PARENT_SCOPE)
+  else()
+    set(${out_var} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
+_gentest_is_clang_like(_gentest_has_clang_c "${C_COMPILER}")
+if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "" AND _gentest_has_clang_c)
+  set(_effective_c_compiler "${C_COMPILER}")
+else()
+  unset(_effective_c_compiler)
+  find_program(_effective_c_compiler NAMES clang)
+endif()
+
+_gentest_is_clang_like(_gentest_has_clang_cxx "${CXX_COMPILER}")
+if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "" AND _gentest_has_clang_cxx)
+  set(_effective_cxx_compiler "${CXX_COMPILER}")
+else()
+  unset(_effective_cxx_compiler)
+  find_program(_effective_cxx_compiler NAMES clang++)
+endif()
+
+if(NOT _effective_c_compiler OR NOT _effective_cxx_compiler)
+  message(STATUS "Skipping additive module mock visibility regression: no usable C/C++ compiler pair was provided")
   return()
 endif()
 
@@ -48,8 +75,8 @@ endif()
 
 set(_cmake_cache_args
   "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}"
-  "-DCMAKE_C_COMPILER=${_clang}"
-  "-DCMAKE_CXX_COMPILER=${_clangxx}")
+  "-DCMAKE_C_COMPILER=${_effective_c_compiler}"
+  "-DCMAKE_CXX_COMPILER=${_effective_cxx_compiler}")
 if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
 endif()

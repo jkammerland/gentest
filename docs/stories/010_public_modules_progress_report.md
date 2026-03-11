@@ -225,6 +225,17 @@ Current scope:
 - covered and green: header-defined mocks used from named modules
 - not yet covered: mocks of types imported from sibling target-local named modules during codegen
 
+Hardening completed after the first review pass:
+
+- `tools/src/emit.cpp`
+  - no longer treats comments or plain string mentions of `gentest/mock_codegen.h` as if they were real includes
+  - no longer skips direct module-owned mock attachments just because a source manually includes `gentest/mock_codegen.h`
+  - now tolerates block comments in the module/import preamble when choosing the automatic include insertion point
+- `tests/cmake/mixed_module_mock_registry/manual_include_cases.cppm`
+  - proves a manual `gentest/mock_codegen.h` include does not break same-source named-module mocks
+- `tests/cmake/module_mock_additive_visibility/header_consumer.cppm`
+  - proves a comment mentioning `gentest/mock_codegen.h` does not suppress automatic header-domain injection
+
 ### 3. Fixed the installed export relocatability leak
 
 The installed export set was still carrying `${PROJECT_SOURCE_DIR}/third_party/include` through the exported module target metadata, even though that include directory is only needed by a private runtime source file.

@@ -10,6 +10,9 @@ module;
 
 export module gentest.additive_header_consumer;
 
+// Coverage note: this comment should not suppress automatic mock-codegen injection.
+// gentest/mock_codegen.h
+
 #if !defined(GENTEST_CODEGEN)
 import gentest;
 import gentest.mock;
