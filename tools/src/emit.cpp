@@ -221,6 +221,7 @@ struct SourceMockCodegenIncludes {
     bool has_mock_codegen = false;
     bool has_registry_codegen = false;
     bool has_impl_codegen = false;
+    bool has_mock_api_header = false;
 
     [[nodiscard]] bool has_complete_manual_codegen() const { return has_mock_codegen || (has_registry_codegen && has_impl_codegen); }
 };
@@ -267,6 +268,7 @@ SourceMockCodegenIncludes scan_source_mock_codegen_includes(std::string_view tex
                     includes.has_mock_codegen = includes.has_mock_codegen || header == "gentest/mock_codegen.h";
                     includes.has_registry_codegen = includes.has_registry_codegen || header == "gentest/mock_registry_codegen.h";
                     includes.has_impl_codegen = includes.has_impl_codegen || header == "gentest/mock_impl_codegen.h";
+                    includes.has_mock_api_header = includes.has_mock_api_header || header == "gentest/mock.h";
                 }
             }
         }
@@ -324,6 +326,65 @@ std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_v
     return last_after;
 }
 
+std::optional<std::size_t> find_module_global_fragment_include_offset(std::string_view text) {
+    bool        seen_global_fragment = false;
+    bool        in_block_comment = false;
+    std::size_t cursor = 0;
+    std::size_t last_after = 0;
+
+    while (cursor < text.size()) {
+        const std::size_t line_end = text.find('\n', cursor);
+        const std::size_t next = line_end == std::string_view::npos ? text.size() : line_end + 1;
+        std::string_view   line = text.substr(cursor, next - cursor);
+        if (!line.empty() && line.back() == '\n') {
+            line.remove_suffix(1);
+        }
+        if (!line.empty() && line.back() == '\r') {
+            line.remove_suffix(1);
+        }
+
+        const std::string cleaned = strip_comments_for_line_scan(line, in_block_comment);
+        const auto        first = cleaned.find_first_not_of(" \t");
+        const auto        last = cleaned.find_last_not_of(" \t");
+        const std::string_view trimmed = first == std::string::npos ? std::string_view{} : std::string_view(cleaned).substr(first, last - first + 1);
+
+        if (!seen_global_fragment) {
+            if (trimmed.empty()) {
+                cursor = next;
+                continue;
+            }
+            if (trimmed == "module;") {
+                seen_global_fragment = true;
+                last_after = next;
+            }
+            cursor = next;
+            continue;
+        }
+
+        if (trimmed.empty() || trimmed.starts_with("#")) {
+            last_after = next;
+            cursor = next;
+            continue;
+        }
+        if (trimmed.starts_with("export module ") || trimmed.starts_with("module ")) {
+            return last_after;
+        }
+        break;
+    }
+
+    return std::nullopt;
+}
+
+std::string render_module_mock_api_include_block() {
+    std::string out;
+    out.reserve(160);
+    out.append("\n// gentest_codegen: injected mock support include.\n");
+    out.append("#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n");
+    out.append("#include \"gentest/mock.h\"\n");
+    out.append("#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n");
+    return out;
+}
+
 std::string render_module_mock_codegen_include_block() {
     std::string out;
     out.reserve(192);
@@ -344,7 +405,8 @@ bool namespace_chains_equal(const std::vector<MockNamespaceScopeInfo> &lhs, cons
         return false;
     }
     for (std::size_t i = 0; i < lhs.size(); ++i) {
-        if (lhs[i].name != rhs[i].name || lhs[i].is_inline != rhs[i].is_inline || lhs[i].is_exported != rhs[i].is_exported) {
+        if (lhs[i].name != rhs[i].name || lhs[i].is_inline != rhs[i].is_inline || lhs[i].is_exported != rhs[i].is_exported ||
+            lhs[i].lexical_close_group != rhs[i].lexical_close_group || lhs[i].reopen_prefix != rhs[i].reopen_prefix) {
             return false;
         }
     }
@@ -354,8 +416,15 @@ bool namespace_chains_equal(const std::vector<MockNamespaceScopeInfo> &lhs, cons
 std::string render_namespace_scope_close(const std::vector<MockNamespaceScopeInfo> &chain) {
     std::string out;
     out.reserve(chain.size() * 32);
+    std::size_t last_group = 0;
+    bool        have_group = false;
     for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        if (have_group && it->lexical_close_group == last_group) {
+            continue;
+        }
         fmt::format_to(std::back_inserter(out), "\n}} // namespace {}\n", it->name);
+        last_group = it->lexical_close_group;
+        have_group = true;
     }
     return out;
 }
@@ -364,13 +433,13 @@ std::string render_namespace_scope_reopen(const std::vector<MockNamespaceScopeIn
     std::string out;
     out.reserve(chain.size() * 40);
     for (const auto &ns : chain) {
+        if (ns.reopen_prefix.empty()) {
+            continue;
+        }
         if (ns.is_exported) {
             out += "export ";
         }
-        if (ns.is_inline) {
-            out += "inline ";
-        }
-        fmt::format_to(std::back_inserter(out), "namespace {} {{\n", ns.name);
+        fmt::format_to(std::back_inserter(out), "{} {{\n", ns.reopen_prefix);
     }
     return out;
 }
@@ -384,7 +453,8 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
     }
 
     const SourceMockCodegenIncludes manual_includes = scan_source_mock_codegen_includes(original);
-    if (source_mocks.empty() && !needs_mock_codegen_include) {
+    const bool                     needs_mock_api_include = !source_mocks.empty() && !manual_includes.has_mock_api_header;
+    if (source_mocks.empty() && !needs_mock_codegen_include && !needs_mock_api_include) {
         return original;
     }
 
@@ -415,8 +485,17 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
         }
         reserve_extra += 256;
     }
+    std::optional<std::size_t> mock_api_include_offset;
+    if (needs_mock_api_include) {
+        mock_api_include_offset = find_module_global_fragment_include_offset(original);
+        if (!mock_api_include_offset.has_value()) {
+            log_err("gentest_codegen: failed to locate module mock support include insertion point in '{}'\n", source_path.string());
+            return std::nullopt;
+        }
+        reserve_extra += 160;
+    }
 
-    if (mocks_by_offset.empty() && !mock_codegen_include_offset.has_value()) {
+    if (mocks_by_offset.empty() && !mock_codegen_include_offset.has_value() && !mock_api_include_offset.has_value()) {
         return original;
     }
 
@@ -424,6 +503,18 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
     rendered.reserve(original.size() + reserve_extra);
 
     std::size_t cursor = 0;
+    if (mock_api_include_offset.has_value()) {
+        if (*mock_api_include_offset > original.size()) {
+            log_err("gentest_codegen: invalid module mock support include insertion offset {} in '{}'\n", *mock_api_include_offset,
+                    source_path.string());
+            return std::nullopt;
+        }
+        rendered.append(original.data() + cursor, *mock_api_include_offset - cursor);
+        rendered.append(render_module_mock_api_include_block());
+        rendered.push_back('\n');
+        cursor = *mock_api_include_offset;
+    }
+
     for (auto &[offset, group] : mocks_by_offset) {
         if (mock_codegen_include_offset.has_value() && *mock_codegen_include_offset <= offset) {
             if (*mock_codegen_include_offset < cursor || *mock_codegen_include_offset > original.size()) {
@@ -822,35 +913,44 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
             const std::string register_fn =
                 fmt::format("register_tu_{:04d}", parsed_idx.has_value() ? *parsed_idx : static_cast<std::uint32_t>(idx));
 
-            // Registration header (compiled via a CMake-generated shim TU).
-            std::string header_content = std::string(tpl::tu_registration_header);
-
-            // Render test wrappers and cases for this TU.
-            std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
-
-            auto                     traits = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
-            std::string              trait_declarations = std::move(traits.declarations);
-            std::vector<std::string> tag_array_names = std::move(traits.tag_names);
-            std::vector<std::string> requirement_array_names = std::move(traits.req_names);
-
-            std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
-
-            std::string case_entries;
-            if (tu_cases.empty()) {
-                case_entries = "    // No test cases discovered during code generation.\n";
+            std::string header_content;
+            if (tu_cases.empty() && tu_fixtures.empty()) {
+                header_content =
+                    "// This file is auto-generated by gentest_codegen.\n"
+                    "// Do not edit manually.\n\n"
+                    "#pragma once\n\n"
+                    "// No gentest registrations were discovered for this translation unit.\n";
             } else {
-                case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
-            }
-            std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
+                // Registration header (compiled via a CMake-generated shim TU).
+                header_content = std::string(tpl::tu_registration_header);
 
-            replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
-            replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
-            replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
-            replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
-            replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
-            replace_all(header_content, "{{CASE_INITS}}", case_entries);
-            replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
-            replace_all(header_content, "{{REGISTER_FN}}", register_fn);
+                // Render test wrappers and cases for this TU.
+                std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
+
+                auto                     traits = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
+                std::string              trait_declarations = std::move(traits.declarations);
+                std::vector<std::string> tag_array_names = std::move(traits.tag_names);
+                std::vector<std::string> requirement_array_names = std::move(traits.req_names);
+
+                std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
+
+                std::string case_entries;
+                if (tu_cases.empty()) {
+                    case_entries = "    // No test cases discovered during code generation.\n";
+                } else {
+                    case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
+                }
+                std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
+
+                replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
+                replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
+                replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
+                replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
+                replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
+                replace_all(header_content, "{{CASE_INITS}}", case_entries);
+                replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
+                replace_all(header_content, "{{REGISTER_FN}}", register_fn);
+            }
 
             if (!write_file_atomic_if_changed(header_out, header_content)) {
                 statuses[idx] = 1;

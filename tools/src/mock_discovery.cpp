@@ -313,23 +313,57 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
     return location_after_token_offset(sm, lang_opts, record.getEndLoc());
 }
 
-[[nodiscard]] std::vector<MockNamespaceScopeInfo> collect_attachment_namespace_chain(const CXXRecordDecl &record) {
+[[nodiscard]] std::string namespace_reopen_prefix(const NamespaceDecl &ns, const ASTContext &ctx, const SourceManager &sm) {
+    const SourceLocation begin = sm.getFileLoc(ns.getBeginLoc());
+    const SourceLocation rbrace = sm.getFileLoc(ns.getRBraceLoc());
+    if (begin.isInvalid() || rbrace.isInvalid()) {
+        return {};
+    }
+
+    const auto text = Lexer::getSourceText(CharSourceRange::getCharRange(begin, rbrace), sm, ctx.getLangOpts()).str();
+    const auto brace_pos = text.find('{');
+    if (brace_pos == std::string::npos) {
+        return {};
+    }
+    return llvm::StringRef(text).substr(0, brace_pos).rtrim().str();
+}
+
+[[nodiscard]] std::vector<MockNamespaceScopeInfo> collect_attachment_namespace_chain(const CXXRecordDecl &record, const ASTContext &ctx,
+                                                                                      const SourceManager &sm) {
     std::vector<MockNamespaceScopeInfo> chain;
+    std::vector<const NamespaceDecl *>  namespace_decls;
 
     const DeclContext *decl_ctx = record.getDeclContext();
     while (decl_ctx != nullptr) {
         const auto *ns = llvm::dyn_cast<NamespaceDecl>(decl_ctx);
         if (ns != nullptr && !ns->isAnonymousNamespace()) {
-            chain.push_back(MockNamespaceScopeInfo{
-                .name        = ns->getNameAsString(),
-                .is_inline   = ns->isInline(),
-                .is_exported = llvm::isa<ExportDecl>(ns->getLexicalDeclContext()),
-            });
+            namespace_decls.push_back(ns);
         }
         decl_ctx = decl_ctx->getParent();
     }
 
-    std::reverse(chain.begin(), chain.end());
+    std::reverse(namespace_decls.begin(), namespace_decls.end());
+
+    std::size_t current_group = 0;
+    std::optional<std::size_t> current_group_end_offset;
+    for (const auto *ns : namespace_decls) {
+        const std::optional<std::size_t> end_offset = location_offset_in_file(sm, ns->getRBraceLoc());
+        bool                             new_group = false;
+        if (!current_group_end_offset.has_value() || !end_offset.has_value() || *current_group_end_offset != *end_offset) {
+            ++current_group;
+            current_group_end_offset = end_offset;
+            new_group = true;
+        }
+
+        chain.push_back(MockNamespaceScopeInfo{
+            .name                = ns->getNameAsString(),
+            .is_inline           = ns->isInline(),
+            .is_exported         = llvm::isa<ExportDecl>(ns->getLexicalDeclContext()),
+            .lexical_close_group = current_group,
+            .reopen_prefix       = new_group ? namespace_reopen_prefix(*ns, ctx, sm) : std::string{},
+        });
+    }
+
     return chain;
 }
 
@@ -483,7 +517,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     if (definition_module.has_value()) {
         info.definition_module_name = *definition_module;
         info.attachment_insertion_offset = find_attachment_insertion_offset(*record, ctx, sm);
-        info.attachment_namespace_chain  = collect_attachment_namespace_chain(*record);
+        info.attachment_namespace_chain  = collect_attachment_namespace_chain(*record, ctx, sm);
     }
 
     // Capture constructors (excluding the default ctor which is tracked via

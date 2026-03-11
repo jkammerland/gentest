@@ -6,11 +6,27 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(gentest CONFIG REQUIRED)
 
-add_executable(gentest_consumer
-    main.cpp)
+add_executable(gentest_consumer)
 
 target_compile_features(gentest_consumer PRIVATE cxx_std_20)
-target_link_libraries(gentest_consumer PRIVATE gentest::gentest_main gentest::gentest_runtime)
+
+set(GENTEST_CONSUMER_LINK_MODE "double" CACHE STRING
+    "Link mode for the consumer fixture: main_only, runtime_only, or double")
+set_property(CACHE GENTEST_CONSUMER_LINK_MODE PROPERTY STRINGS main_only runtime_only double)
+
+if(GENTEST_CONSUMER_LINK_MODE STREQUAL "main_only")
+    target_link_libraries(gentest_consumer PRIVATE gentest::gentest_main)
+elseif(GENTEST_CONSUMER_LINK_MODE STREQUAL "runtime_only")
+    target_sources(gentest_consumer PRIVATE main.cpp)
+    target_link_libraries(gentest_consumer PRIVATE gentest::gentest_runtime)
+elseif(GENTEST_CONSUMER_LINK_MODE STREQUAL "double")
+    target_sources(gentest_consumer PRIVATE main.cpp)
+    target_link_libraries(gentest_consumer PRIVATE gentest::gentest_main gentest::gentest_runtime)
+else()
+    message(FATAL_ERROR
+        "Unsupported GENTEST_CONSUMER_LINK_MODE='${GENTEST_CONSUMER_LINK_MODE}' "
+        "(expected main_only, runtime_only, or double)")
+endif()
 
 target_sources(gentest_consumer
     PRIVATE

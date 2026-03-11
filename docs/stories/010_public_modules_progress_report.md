@@ -134,7 +134,7 @@ The following checks passed in `build/debug-system`:
 
 ```bash
 cmake --build build/debug-system --target gentest_codegen -j4
-ctest --test-dir build/debug-system -R '^(gentest_public_mock_module_gcc|gentest_mixed_module_mock_registry|gentest_module_auto_discovery|gentest_package_consumer|gentest_codegen_incremental_dependencies|gentest_codegen_manifest_depfile_aggregation)$' --output-on-failure
+ctest --test-dir build/debug-system -R '^(gentest_public_mock_module_gcc|gentest_mixed_module_mock_registry|gentest_module_auto_discovery|gentest_module_mock_additive_visibility|gentest_module_mock_imported_sibling|gentest_package_consumer|gentest_package_consumer_gcc|gentest_codegen_incremental_dependencies|gentest_codegen_manifest_depfile_aggregation)$' --output-on-failure
 ```
 
 Passing meaning:
@@ -164,19 +164,18 @@ Passing meaning:
 - mixed targets can combine legacy/header mocks with multiple named-module mock domains
 - named-module consumers no longer need `#include "gentest/mock_codegen.h"`; target-local mock attachment is injected through generated module wrappers
 - GCC no longer fails on the `gentest.mock` public surface due to TU-local helper leakage
+- sibling named modules imported during codegen are now precompiled into temporary PCMs so target-local mock discovery can resolve `import <sibling-module>;`
 - same-block named-module mock use now works when the mocked type and `gentest::mock<T>` live in the same exported namespace block
 - named modules that mock header-defined types now get the generated header-domain mock code injected automatically, without user includes
 - installed package exports are now checked for relocatability and no longer leak the producer checkout through `third_party/include`
+- installed-package consumers no longer need an external `GENTEST_CODEGEN_EXECUTABLE`; the installed package auto-discovers `bin/gentest_codegen`
+- module consumers can link just `gentest::gentest_main`; it now pulls in `gentest::gentest_runtime`
+- downstream GCC package-consumer module smoke is covered and green
 
 ### Intentionally Still Red / Known Limited
 
 - imported named-module dependency invalidation for codegen outputs
   - still not pinned down by a clean regression in this pass
-- target-local imported named-module mocks during codegen
-  - still blocked by build architecture, not just dispatcher visibility
-  - `gentest_codegen` currently strips module mapping inputs and runs before sibling target BMIs are guaranteed to exist, so parsing `import <sibling-module>;` during codegen is still a separate follow-up
-- GCC package-consumer TU-wrapper module shim path
-  - not claimed fixed here; package smoke currently prefers Clang for the downstream module consumer on Unix
 
 ## Additional Progress After The Initial Pass
 
@@ -223,7 +222,7 @@ Regression:
 Current scope:
 
 - covered and green: header-defined mocks used from named modules
-- not yet covered: mocks of types imported from sibling target-local named modules during codegen
+- covered and green: mocks of types imported from sibling target-local named modules during codegen
 
 Hardening completed after the first review pass:
 
@@ -235,6 +234,50 @@ Hardening completed after the first review pass:
   - proves a manual `gentest/mock_codegen.h` include does not break same-source named-module mocks
 - `tests/cmake/module_mock_additive_visibility/header_consumer.cppm`
   - proves a comment mentioning `gentest/mock_codegen.h` does not suppress automatic header-domain injection
+
+### 4. Fixed sibling named-module imports during codegen
+
+The remaining module-only architecture gap was that `gentest_codegen` parsed named module sources before sibling BMIs existed. If one module mocked a type imported from another module in the same target, codegen failed before it could even discover the mock use.
+
+Fix:
+
+- `tools/src/main.cpp`
+  - snapshots module sources up front
+  - parses the named-module graph from the source files
+  - precompiles sibling modules into temporary PCMs under the codegen output tree
+  - feeds `-fmodule-file=<name>=<pcm>` back into the per-file clang-tooling parse
+- `tools/src/mock_discovery.cpp`
+  - records lexical namespace reopen/close groups so generated module attachments work with nested namespace syntax such as `export namespace a::b { ... }`
+- `tools/src/emit.cpp`
+  - injects codegen-only `gentest/mock.h` support into the global module fragment when a defining module needs direct mock specializations but did not include the mock API itself
+
+Regression:
+
+- `tests/cmake/module_mock_imported_sibling/`
+- `cmake/CheckModuleMockImportedSibling.cmake`
+
+### 5. Fixed the installed package module-consumer follow-ups
+
+The remaining downstream package gaps are also closed in this pass.
+
+Fixes:
+
+- `tools/CMakeLists.txt`
+  - installs `gentest_codegen` with the package
+- `cmake/GentestCodegen.cmake`
+  - auto-discovers the installed `gentest_codegen` binary from the package prefix
+- `src/CMakeLists.txt`
+  - makes `gentest_main` bring in `gentest_runtime`, so module consumers can link only `gentest::gentest_main`
+- `cmake/CheckPackageConsumer.cmake`
+  - now tests the installed package without injecting an external codegen path
+  - supports link-mode selection so the consumer regression proves the `gentest_main`-only path
+- `tests/CMakeLists.txt`
+  - adds the GCC installed-package consumer regression alongside the existing package smoke
+
+Regressions:
+
+- `gentest_package_consumer`
+- `gentest_package_consumer_gcc`
 
 ### 3. Fixed the installed export relocatability leak
 

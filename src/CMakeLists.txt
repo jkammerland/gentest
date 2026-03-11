@@ -27,7 +27,8 @@ add_library(gentest_main STATIC
 
 target_link_libraries(gentest_main
     PUBLIC
-        ${PROJECT_NAME})
+        ${PROJECT_NAME}
+        gentest_runtime)
 
 if(GENTEST_RUNTIME_SHARED)
     # Only set PIC for the shared case
@@ -51,6 +52,7 @@ endif()
 
 target_include_directories(gentest_runtime
     PRIVATE
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/third_party/include>)
 
 target_compile_features(gentest_runtime PUBLIC cxx_std_20)
@@ -82,6 +84,9 @@ set(_gentest_module_interfaces
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/gentest.bench_util.cppm
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/gentest.mock.cppm)
 
+target_link_libraries(${PROJECT_NAME}
+    INTERFACE gentest_runtime)
+
 # Publish headers for dependents (and install/export them via FILE_SET)
 target_sources(gentest_runtime
     PUBLIC
@@ -89,14 +94,18 @@ target_sources(gentest_runtime
             TYPE HEADERS
             BASE_DIRS ${PROJECT_SOURCE_DIR}/include
             FILES ${_gentest_headers}
+)
+
+# Consumers that link only gentest::gentest_main still need the named-module
+# surface as a direct dependency; module file sets do not propagate through the
+# link interface the same way ordinary libraries do.
+target_sources(gentest_main
+    PUBLIC
         FILE_SET cxx_modules
             TYPE CXX_MODULES
             BASE_DIRS ${PROJECT_SOURCE_DIR}/include
             FILES ${_gentest_module_interfaces}
 )
-
-target_link_libraries(${PROJECT_NAME}
-    INTERFACE gentest_runtime)
 
 target_compile_options(${PROJECT_NAME}
     INTERFACE

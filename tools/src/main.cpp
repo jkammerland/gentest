@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <fmt/core.h>
 #include <iterator>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
@@ -450,6 +451,97 @@ bool should_strip_compdb_arg(std::string_view arg) {
         arg == "-Werror" || arg.starts_with("-Werror=") || arg == "-pedantic-errors";
 }
 
+std::string strip_line_comment(std::string line) {
+    if (const auto comment_pos = line.find("//"); comment_pos != std::string::npos) {
+        line.erase(comment_pos);
+    }
+    return llvm::StringRef(line).trim().str();
+}
+
+std::optional<std::string> parse_named_module_name_from_source(const std::filesystem::path &path) {
+    std::ifstream in(path);
+    if (!in) {
+        return std::nullopt;
+    }
+
+    std::string line;
+    while (std::getline(in, line)) {
+        std::string trimmed = strip_line_comment(std::move(line));
+        if (trimmed.empty() || trimmed == "module;") {
+            continue;
+        }
+        if (trimmed.rfind("export module ", 0) == 0) {
+            trimmed.erase(0, std::string("export module ").size());
+        } else if (trimmed.rfind("module ", 0) == 0) {
+            trimmed.erase(0, std::string("module ").size());
+        } else {
+            continue;
+        }
+        const auto semi = trimmed.find(';');
+        if (semi == std::string::npos) {
+            return std::nullopt;
+        }
+        trimmed.erase(semi);
+        trimmed = llvm::StringRef(trimmed).trim().str();
+        if (!trimmed.empty()) {
+            return trimmed;
+        }
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+std::vector<std::string> parse_imported_named_modules_from_source(const std::filesystem::path &path,
+                                                                  const std::unordered_set<std::string> &known_modules) {
+    std::ifstream in(path);
+    if (!in) {
+        return {};
+    }
+
+    std::vector<std::string> imports;
+    std::unordered_set<std::string> seen;
+    std::string line;
+    while (std::getline(in, line)) {
+        std::string trimmed = strip_line_comment(std::move(line));
+        if (trimmed.empty() || trimmed == "module;") {
+            continue;
+        }
+        if (trimmed.rfind("export import ", 0) == 0) {
+            trimmed.erase(0, std::string("export import ").size());
+        } else if (trimmed.rfind("import ", 0) == 0) {
+            trimmed.erase(0, std::string("import ").size());
+        } else {
+            continue;
+        }
+        const auto semi = trimmed.find(';');
+        if (semi == std::string::npos) {
+            continue;
+        }
+        trimmed.erase(semi);
+        trimmed = llvm::StringRef(trimmed).trim().str();
+        if (trimmed.empty() || trimmed.front() == '<' || trimmed.front() == '\"' || trimmed.front() == ':') {
+            continue;
+        }
+        if (known_modules.contains(trimmed) && seen.insert(trimmed).second) {
+            imports.push_back(trimmed);
+        }
+    }
+    return imports;
+}
+
+std::string sanitize_module_filename(std::string value) {
+    for (auto &ch : value) {
+        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
+        if (!ok) {
+            ch = '_';
+        }
+    }
+    if (value.empty()) {
+        return "module";
+    }
+    return value;
+}
+
 std::optional<std::string> get_env_value(std::string_view name) {
     std::string name_str{name};
 #if defined(_WIN32)
@@ -539,6 +631,193 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
         }),
         command.CommandLine.end());
     return command;
+}
+
+bool has_sysroot_arg(std::span<const std::string> args);
+std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line);
+std::string compiler_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line,
+                                            const std::string                        &default_compiler_path);
+
+clang::tooling::CommandLineArguments build_adjusted_command_line(
+    const clang::tooling::CommandLineArguments              &command_line,
+    llvm::StringRef                                          file,
+    const std::function<std::string(const std::string &)>   &resource_dir_for_compiler,
+    std::string_view                                         default_compiler_path,
+    std::string_view                                         default_sysroot,
+    std::span<const std::string>                             extra_args,
+    std::string_view                                         compdb_dir,
+    std::span<const std::string>                             extra_module_args = {},
+    std::string_view                                         forced_compiler_path = {}) {
+    clang::tooling::CommandLineArguments adjusted;
+    if (!command_line.empty()) {
+        const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(command_line).value_or(0);
+        if (!forced_compiler_path.empty()) {
+            adjusted.emplace_back(std::string(forced_compiler_path));
+        } else {
+            adjusted.emplace_back(command_line[compiler_index]);
+        }
+        const std::string resource_dir =
+            resource_dir_for_compiler(compiler_for_resource_dir_probe(command_line, std::string(default_compiler_path)));
+        if (!resource_dir.empty()) {
+            adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+        }
+        if (!default_sysroot.empty() && !has_sysroot_arg(command_line)) {
+            adjusted.emplace_back("-isysroot");
+            adjusted.emplace_back(std::string(default_sysroot));
+        }
+        adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+        bool skip_next_arg = false;
+        for (std::size_t i = compiler_index + 1; i < command_line.size(); ++i) {
+            const auto &arg = command_line[i];
+            if (skip_next_arg) {
+                skip_next_arg = false;
+                continue;
+            }
+            if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
+                arg == "-fconcepts-diagnostics-depth") {
+                skip_next_arg = true;
+                continue;
+            }
+            if (should_strip_compdb_arg(arg)) {
+                continue;
+            }
+            adjusted.push_back(arg);
+        }
+    } else {
+        gentest::codegen::log_err(
+            "gentest_codegen: warning: no compilation database entry for '{}'; using synthetic clang invocation (compdb: '{}')\n",
+            file.str(), std::string(compdb_dir));
+        adjusted.emplace_back(std::string(default_compiler_path));
+#if defined(__linux__)
+        adjusted.emplace_back("--gcc-toolchain=/usr");
+#endif
+        const std::string resource_dir = resource_dir_for_compiler(std::string(default_compiler_path));
+        if (!resource_dir.empty()) {
+            adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
+        }
+        if (!default_sysroot.empty()) {
+            adjusted.emplace_back("-isysroot");
+            adjusted.emplace_back(std::string(default_sysroot));
+        }
+        adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+    }
+
+    adjusted.insert(adjusted.end(), extra_module_args.begin(), extra_module_args.end());
+    return adjusted;
+}
+
+std::filesystem::path resolve_codegen_module_cache_dir(const CollectorOptions &options) {
+    std::filesystem::path base_dir;
+    if (!options.tu_output_dir.empty()) {
+        base_dir = options.tu_output_dir;
+    } else if (!options.output_path.empty()) {
+        base_dir = options.output_path.parent_path();
+    } else {
+        base_dir = std::filesystem::current_path();
+    }
+    if (base_dir.empty()) {
+        base_dir = std::filesystem::current_path();
+    }
+    return base_dir / ".gentest_codegen_modules";
+}
+
+clang::tooling::CommandLineArguments build_module_precompile_command(const clang::tooling::CommandLineArguments &adjusted_command_line,
+                                                                     std::string_view                            source_file,
+                                                                     const std::filesystem::path                &pcm_path) {
+    clang::tooling::CommandLineArguments command;
+    if (adjusted_command_line.empty()) {
+        return command;
+    }
+
+    const std::string normalized_source = normalize_compdb_lookup_path(source_file);
+    auto              is_source_arg = [&](std::string_view arg) {
+        return !normalized_source.empty() && normalize_compdb_lookup_path(arg) == normalized_source;
+    };
+
+    command.reserve(adjusted_command_line.size() + 4);
+    command.push_back(adjusted_command_line.front());
+
+    bool skip_next_arg = false;
+    for (std::size_t i = 1; i < adjusted_command_line.size(); ++i) {
+        const auto &arg = adjusted_command_line[i];
+        if (skip_next_arg) {
+            skip_next_arg = false;
+            continue;
+        }
+        if (arg == "-c" || arg == "--precompile" || arg == "/c") {
+            continue;
+        }
+        if (arg == "-o" || arg == "-MF" || arg == "-MT" || arg == "-MQ" || arg == "-x" || arg == "-fmodule-output") {
+            skip_next_arg = true;
+            continue;
+        }
+        if (arg == "-Xclang" && i + 1 < adjusted_command_line.size()) {
+            const auto &next = adjusted_command_line[i + 1];
+            if (next == "-emit-module-interface") {
+                skip_next_arg = true;
+                continue;
+            }
+        }
+        if (arg.starts_with("-o") || arg.starts_with("-fmodule-output=") || arg.starts_with("/Fo")) {
+            continue;
+        }
+        if (is_source_arg(arg)) {
+            continue;
+        }
+        command.push_back(arg);
+    }
+
+    command.emplace_back("--precompile");
+    command.emplace_back(std::string(source_file));
+    command.emplace_back("-o");
+    command.emplace_back(pcm_path.string());
+    return command;
+}
+
+bool execute_module_precompile(const clang::tooling::CommandLineArguments &command_line, std::string_view module_name,
+                               std::string_view source_file, const std::filesystem::path &pcm_path) {
+    if (command_line.empty()) {
+        gentest::codegen::log_err("gentest_codegen: failed to precompile '{}' from '{}': empty compiler command\n", module_name,
+                                  source_file);
+        return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(pcm_path.parent_path(), ec);
+    if (ec) {
+        gentest::codegen::log_err("gentest_codegen: failed to create module cache directory '{}': {}\n",
+                                  pcm_path.parent_path().string(), ec.message());
+        return false;
+    }
+
+    auto resolved_path = llvm::sys::findProgramByName(command_line.front());
+    if (!resolved_path) {
+        resolved_path = command_line.front();
+    }
+
+    clang::tooling::CommandLineArguments launch_args = command_line;
+    launch_args.front() = *resolved_path;
+
+    std::vector<llvm::StringRef> llvm_args;
+    llvm_args.reserve(launch_args.size());
+    for (const auto &arg : launch_args) {
+        llvm_args.emplace_back(arg);
+    }
+
+    std::string err_msg;
+    const int   rc = llvm::sys::ExecuteAndWait(*resolved_path, llvm_args, std::nullopt, {}, 0, 0, &err_msg);
+    if (rc == 0) {
+        return true;
+    }
+
+    if (!err_msg.empty()) {
+        gentest::codegen::log_err("gentest_codegen: failed to precompile named module '{}' from '{}': {}\n", module_name, source_file,
+                                  err_msg);
+    } else {
+        gentest::codegen::log_err("gentest_codegen: failed to precompile named module '{}' from '{}' (exit code {})\n", module_name,
+                                  source_file, rc);
+    }
+    return false;
 }
 
 bool is_clang_like_compiler(std::string_view path) {
@@ -1017,110 +1296,6 @@ int main(int argc, const char **argv) {
     std::vector<gentest::codegen::MockClassInfo> mocks;
     std::vector<std::string>                     depfile_dependencies;
 
-    const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
-        if (options.compilation_database) {
-            const std::string compdb_dir = options.compilation_database->string();
-            return [resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args, compdb_dir](
-                       const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
-                clang::tooling::CommandLineArguments adjusted;
-                if (!command_line.empty()) {
-                    // Use compiler and flags from compilation database
-                    const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(command_line).value_or(0);
-                    adjusted.emplace_back(command_line[compiler_index]);
-                    const std::string resource_dir =
-                        resource_dir_for_compiler(compiler_for_resource_dir_probe(command_line, default_compiler_path));
-                    if (!resource_dir.empty()) {
-                        adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
-                    }
-                    if (!default_sysroot.empty() && !has_sysroot_arg(command_line)) {
-                        adjusted.emplace_back("-isysroot");
-                        adjusted.emplace_back(default_sysroot);
-                    }
-                    adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                    // Copy remaining args, filtering out C++ module flags
-                    bool skip_next_arg = false;
-                    for (std::size_t i = compiler_index + 1; i < command_line.size(); ++i) {
-                        const auto &arg = command_line[i];
-                        if (skip_next_arg) {
-                            skip_next_arg = false;
-                            continue;
-                        }
-                        if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
-                            arg == "-fconcepts-diagnostics-depth") {
-                            skip_next_arg = true;
-                            continue;
-                        }
-                        if (should_strip_compdb_arg(arg)) {
-                            continue;
-                        }
-                        adjusted.push_back(arg);
-                    }
-                } else {
-                    // No database entry found - create minimal synthetic command
-                    // This shouldn't happen often, but is a fallback
-                    gentest::codegen::log_err(
-                        "gentest_codegen: warning: no compilation database entry for '{}'; using synthetic clang invocation "
-                        "(compdb: '{}')\n",
-                        file.str(), compdb_dir);
-                    adjusted.emplace_back(default_compiler_path);
-#if defined(__linux__)
-                    adjusted.emplace_back("--gcc-toolchain=/usr");
-#endif
-                    const std::string resource_dir = resource_dir_for_compiler(default_compiler_path);
-                    if (!resource_dir.empty()) {
-                        adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
-                    }
-                    if (!default_sysroot.empty()) {
-                        adjusted.emplace_back("-isysroot");
-                        adjusted.emplace_back(default_sysroot);
-                    }
-                    adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-                }
-                return adjusted;
-            };
-        }
-
-        // No compilation database - use minimal synthetic command
-        // User must provide include paths via extra_args (e.g., via -- -I/path/to/headers)
-        return [default_compiler_path, default_sysroot, resource_dir_for_compiler, extra_args](
-                   const clang::tooling::CommandLineArguments &command_line, llvm::StringRef) {
-            clang::tooling::CommandLineArguments adjusted;
-            adjusted.emplace_back(default_compiler_path);
-#if defined(__linux__)
-            adjusted.emplace_back("--gcc-toolchain=/usr");
-#endif
-            const std::string resource_dir = resource_dir_for_compiler(default_compiler_path);
-            if (!resource_dir.empty()) {
-                adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
-            }
-            if (!default_sysroot.empty()) {
-                adjusted.emplace_back("-isysroot");
-                adjusted.emplace_back(default_sysroot);
-            }
-            adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-            if (!command_line.empty()) {
-                bool skip_next_arg = false;
-                for (std::size_t i = 1; i < command_line.size(); ++i) {
-                    const auto &arg = command_line[i];
-                    if (skip_next_arg) {
-                        skip_next_arg = false;
-                        continue;
-                    }
-                    if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
-                        arg == "-fconcepts-diagnostics-depth") {
-                        skip_next_arg = true;
-                        continue;
-                    }
-                    if (should_strip_compdb_arg(arg)) {
-                        continue;
-                    }
-                    adjusted.push_back(arg);
-                }
-            }
-            return adjusted;
-        };
-    }();
-
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
 
     auto is_module_interface_source = [](const std::filesystem::path &path) {
@@ -1211,6 +1386,140 @@ int main(int argc, const char **argv) {
         return commands;
     };
 
+    std::vector<std::vector<clang::tooling::CompileCommand>> compile_commands(options.sources.size());
+    for (std::size_t i = 0; i < options.sources.size(); ++i) {
+        compile_commands[i] = get_compile_commands_for_source(i);
+    }
+
+    struct NamedModuleSourceInfo {
+        std::size_t              source_index = 0;
+        std::string              module_name;
+        std::vector<std::string> imported_modules;
+        std::filesystem::path    pcm_path;
+    };
+
+    std::vector<NamedModuleSourceInfo>               named_module_sources;
+    std::unordered_map<std::string, std::size_t>     named_module_index_by_name;
+    std::unordered_set<std::string>                  known_named_modules;
+    named_module_sources.reserve(options.sources.size());
+    for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+        const std::filesystem::path source_path{options.sources[idx]};
+        if (!is_module_interface_source(source_path)) {
+            continue;
+        }
+        const auto module_name = parse_named_module_name_from_source(source_path);
+        if (!module_name.has_value()) {
+            continue;
+        }
+
+        const std::size_t named_module_idx = named_module_sources.size();
+        if (!named_module_index_by_name.emplace(*module_name, named_module_idx).second) {
+            gentest::codegen::log_err("gentest_codegen: duplicate named module declaration '{}' found in '{}'\n", *module_name,
+                                      source_path.string());
+            return 1;
+        }
+        named_module_sources.push_back(NamedModuleSourceInfo{
+            .source_index = idx,
+            .module_name  = *module_name,
+        });
+        known_named_modules.insert(*module_name);
+    }
+
+    for (auto &module_source : named_module_sources) {
+        module_source.imported_modules =
+            parse_imported_named_modules_from_source(options.sources[module_source.source_index], known_named_modules);
+    }
+
+    std::unordered_map<std::string, std::vector<std::string>> extra_module_args_by_source;
+    if (!named_module_sources.empty()) {
+        const std::filesystem::path module_cache_dir = resolve_codegen_module_cache_dir(options);
+        for (auto &module_source : named_module_sources) {
+            module_source.pcm_path = module_cache_dir / (sanitize_module_filename(module_source.module_name) + ".pcm");
+        }
+
+        enum class ModuleBuildState {
+            NotStarted,
+            Building,
+            Built,
+            Failed,
+        };
+        std::vector<ModuleBuildState> module_build_states(named_module_sources.size(), ModuleBuildState::NotStarted);
+
+        std::function<bool(std::size_t)> build_named_module_pcm = [&](std::size_t module_list_idx) -> bool {
+            auto &state = module_build_states[module_list_idx];
+            if (state == ModuleBuildState::Built) {
+                return true;
+            }
+            if (state == ModuleBuildState::Failed) {
+                return false;
+            }
+            if (state == ModuleBuildState::Building) {
+                gentest::codegen::log_err("gentest_codegen: cycle detected while precompiling named module '{}'\n",
+                                          named_module_sources[module_list_idx].module_name);
+                state = ModuleBuildState::Failed;
+                return false;
+            }
+
+            state = ModuleBuildState::Building;
+            auto &module_source = named_module_sources[module_list_idx];
+            std::vector<std::string> module_file_args;
+            module_file_args.reserve(module_source.imported_modules.size());
+            for (const auto &import_name : module_source.imported_modules) {
+                const auto dep_it = named_module_index_by_name.find(import_name);
+                if (dep_it == named_module_index_by_name.end()) {
+                    continue;
+                }
+                if (!build_named_module_pcm(dep_it->second)) {
+                    state = ModuleBuildState::Failed;
+                    return false;
+                }
+                module_file_args.push_back(
+                    fmt::format("-fmodule-file={}={}", import_name, named_module_sources[dep_it->second].pcm_path.string()));
+            }
+
+            const auto &source_commands = compile_commands[module_source.source_index];
+            const std::string compdb_dir =
+                options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
+            const auto adjusted_command = build_adjusted_command_line(
+                source_commands.empty() ? clang::tooling::CommandLineArguments{} : source_commands.front().CommandLine,
+                options.sources[module_source.source_index], resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
+                compdb_dir, module_file_args, default_compiler_path);
+            const auto precompile_command =
+                build_module_precompile_command(adjusted_command, options.sources[module_source.source_index], module_source.pcm_path);
+            if (!execute_module_precompile(precompile_command, module_source.module_name, options.sources[module_source.source_index],
+                                           module_source.pcm_path)) {
+                state = ModuleBuildState::Failed;
+                return false;
+            }
+
+            extra_module_args_by_source.emplace(normalize_compdb_lookup_path(options.sources[module_source.source_index]),
+                                                std::move(module_file_args));
+            state = ModuleBuildState::Built;
+            return true;
+        };
+
+        for (std::size_t module_list_idx = 0; module_list_idx < named_module_sources.size(); ++module_list_idx) {
+            if (!build_named_module_pcm(module_list_idx)) {
+                return 1;
+            }
+        }
+    }
+
+    const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
+        const std::string compdb_dir =
+            options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
+        return [resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args, compdb_dir,
+                extra_module_args_by_source](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
+            const auto extra_module_it = extra_module_args_by_source.find(normalize_compdb_lookup_path(file.str()));
+            const std::span<const std::string> extra_module_args =
+                extra_module_it != extra_module_args_by_source.end()
+                ? std::span<const std::string>(extra_module_it->second.data(), extra_module_it->second.size())
+                : std::span<const std::string>{};
+            return build_adjusted_command_line(command_line, file, resource_dir_for_compiler, default_compiler_path, default_sysroot,
+                                               extra_args, compdb_dir, extra_module_args);
+        };
+    }();
+
     struct ParseResult {
         int                                 status = 0;
         bool                                had_test_errors = false;
@@ -1229,11 +1538,6 @@ int main(int argc, const char **argv) {
         // it concurrently triggers TSAN reports (and is generally not guaranteed to be
         // thread-safe). Snapshot per-file compile commands up front so each worker can
         // run with an immutable database view.
-        std::vector<std::vector<clang::tooling::CompileCommand>> compile_commands(options.sources.size());
-        for (std::size_t i = 0; i < options.sources.size(); ++i) {
-            compile_commands[i] = get_compile_commands_for_source(i);
-        }
-
         std::vector<ParseResult> results(options.sources.size());
         std::vector<std::string> diag_texts(options.sources.size());
 

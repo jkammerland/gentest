@@ -20,7 +20,7 @@ import gentest.mock;
 
 using namespace gentest::asserts;
 
-[[using gentest: test("additive/header_defined_from_module")]]
+export [[using gentest: test("additive/header_defined_from_module")]]
 void header_defined_from_module() {
     gentest::mock<shared::Service> service;
     gentest::expect(service, &shared::Service::compute).times(1).with(4).returns(9);

@@ -468,6 +468,12 @@ if(NOT GENTEST_ENABLE_TEMPLATE_VALIDATION)
     target_compile_definitions(gentest_codegen PRIVATE GENTEST_DISABLE_TEMPLATE_VALIDATION)
 endif()
 
+if(${PROJECT_NAME}_INSTALL)
+    include(GNUInstallDirs)
+    install(TARGETS gentest_codegen
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
 unset(_gentest_llvm_support)
 unset(_gentest_clang_includes)
 unset(_gentest_clang_libs)

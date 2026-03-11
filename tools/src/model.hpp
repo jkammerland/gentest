@@ -199,6 +199,8 @@ struct MockNamespaceScopeInfo {
     std::string name;
     bool        is_inline = false;
     bool        is_exported = false;
+    std::size_t lexical_close_group = 0;
+    std::string reopen_prefix;
 };
 
 // Mockable class/struct description gathered from AST.

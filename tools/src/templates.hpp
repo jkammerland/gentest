@@ -84,15 +84,15 @@ inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, 
         msg.append(": ");
         msg.append(reason);
     }
-#if GENTEST_EXCEPTIONS_ENABLED
-    ::gentest::detail::skip_shared_fixture_unavailable(msg);
-#else
-    if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
-        ::gentest::detail::record_bench_error(std::move(msg));
-        return;
+    if constexpr (::gentest::detail::exceptions_enabled) {
+        ::gentest::detail::skip_shared_fixture_unavailable(msg);
+    } else {
+        if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
+            ::gentest::detail::record_bench_error(std::move(msg));
+            return;
+        }
+        ::gentest::detail::record_failure(std::move(msg));
     }
-    ::gentest::detail::record_failure(std::move(msg));
-#endif
 }
 
 template <typename TeardownFn>
@@ -112,24 +112,24 @@ struct gentest_noexceptions_local_teardown {
 
 template <typename BodyFn, typename TeardownFn>
 inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
-#if GENTEST_EXCEPTIONS_ENABLED
-    try {
-        body();
-    } catch (...) {
+    if constexpr (::gentest::detail::exceptions_enabled) {
         try {
-            teardown();
+            body();
         } catch (...) {
+            try {
+                teardown();
+            } catch (...) {
+            }
+            throw;
         }
-        throw;
+        teardown();
+    } else {
+        auto teardown_fn = std::forward<TeardownFn>(teardown);
+        gentest_noexceptions_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
+        ::gentest::detail::NoExceptionsFatalHookScope            fatal_scope(&decltype(teardown_state)::run, &teardown_state);
+        body();
+        teardown_state.run_now();
     }
-    teardown();
-#else
-    auto teardown_fn = std::forward<TeardownFn>(teardown);
-    gentest_noexceptions_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
-    ::gentest::detail::NoExceptionsFatalHookScope            fatal_scope(&decltype(teardown_state)::run, &teardown_state);
-    body();
-    teardown_state.run_now();
-#endif
 }
 
 template <typename Handle>

@@ -12,6 +12,8 @@
 #     [-DCXX_COMPILER=<path>]
 #     [-DPACKAGE_TEST_C_COMPILER=<path>]
 #     [-DPACKAGE_TEST_CXX_COMPILER=<path>]
+#     [-DCONSUMER_LINK_MODE=<main_only|runtime_only|double>]
+#     [-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=<ON|OFF>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
 #     -P cmake/CheckPackageConsumer.cmake
@@ -24,6 +26,12 @@ if(NOT DEFINED BUILD_ROOT)
 endif()
 if(NOT DEFINED PACKAGE_NAME)
   message(FATAL_ERROR "PACKAGE_NAME not set")
+endif()
+if(NOT DEFINED CONSUMER_LINK_MODE OR "${CONSUMER_LINK_MODE}" STREQUAL "")
+  set(CONSUMER_LINK_MODE "double")
+endif()
+if(NOT DEFINED PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE OR "${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}" STREQUAL "")
+  set(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE ON)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
@@ -204,7 +212,10 @@ file(COPY_FILE "${_codegen_exe}" "${_codegen_exe_copy}" ONLY_IF_DIFFERENT)
 set(_consumer_cache_args ${_cmake_cache_args})
 # Make dependencies installed into the same prefix (e.g., fmt) discoverable.
 list(APPEND _consumer_cache_args "-DCMAKE_PREFIX_PATH=${_install_prefix}")
-list(APPEND _consumer_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${_codegen_exe_copy}")
+list(APPEND _consumer_cache_args "-DGENTEST_CONSUMER_LINK_MODE=${CONSUMER_LINK_MODE}")
+if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
+  list(APPEND _consumer_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${_codegen_exe_copy}")
+endif()
 if(NOT _producer_fmt_dir STREQUAL "")
   # Keep consumer dependency resolution aligned with the producer package build.
   list(APPEND _consumer_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")

@@ -1726,6 +1726,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_mock_additive_visibility APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_mock_imported_sibling
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_mock_imported_sibling
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMockImportedSibling.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_mock_imported_sibling APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_auto_discovery
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_autodiscovery
     ${PROJECT_SOURCE_DIR}/cmake/CheckModuleAutoDiscovery.cmake
@@ -1804,7 +1812,30 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         package
         -DPACKAGE_NAME=${PROJECT_NAME}
         -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
         ${_gentest_package_test_compiler_args})
+
+    if(UNIX AND NOT APPLE)
+        find_program(_gentest_package_test_gcc NAMES gcc)
+        find_program(_gentest_package_test_gxx NAMES g++)
+        if(_gentest_package_test_gcc AND _gentest_package_test_gxx)
+            _gentest_add_cmake_helper_test(
+                gentest_package_consumer_gcc
+                ${PROJECT_SOURCE_DIR}
+                ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+                package
+                -DPACKAGE_NAME=${PROJECT_NAME}
+                -DBUILD_CONFIG=${_gentest_package_test_config}
+                -DCONSUMER_LINK_MODE=main_only
+                -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+                -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_gcc}
+                -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_gxx})
+            set_property(TEST gentest_package_consumer_gcc APPEND PROPERTY LABELS "modules")
+        endif()
+        unset(_gentest_package_test_gcc)
+        unset(_gentest_package_test_gxx)
+    endif()
 
     unset(_gentest_package_test_compiler_args)
     unset(_gentest_package_test_clang)
