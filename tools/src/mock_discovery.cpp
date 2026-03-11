@@ -189,7 +189,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     }
 
     std::string line;
-    for (std::size_t i = 0; i < 64 && std::getline(in, line); ++i) {
+    while (std::getline(in, line)) {
         if (const auto comment_pos = line.find("//"); comment_pos != std::string::npos) {
             line.erase(comment_pos);
         }
