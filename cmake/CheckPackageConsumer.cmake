@@ -10,6 +10,8 @@
 #     [-DMAKE_PROGRAM=<path>]
 #     [-DC_COMPILER=<path>]
 #     [-DCXX_COMPILER=<path>]
+#     [-DPACKAGE_TEST_C_COMPILER=<path>]
+#     [-DPACKAGE_TEST_CXX_COMPILER=<path>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
 #     -P cmake/CheckPackageConsumer.cmake
@@ -70,6 +72,11 @@ set(_install_prefix "${_work_dir}/install")
 set(_consumer_build_dir "${_work_dir}/consumer")
 set(_consumer_source_dir "${SOURCE_DIR}/tests/consumer")
 
+set(_exe_ext "")
+if(CMAKE_HOST_WIN32)
+  set(_exe_ext ".exe")
+endif()
+
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
@@ -91,11 +98,25 @@ endif()
 if(DEFINED MAKE_PROGRAM AND NOT MAKE_PROGRAM STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
 endif()
-if(DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${C_COMPILER}")
+set(_effective_c_compiler "")
+if(DEFINED PACKAGE_TEST_C_COMPILER AND NOT PACKAGE_TEST_C_COMPILER STREQUAL "")
+  set(_effective_c_compiler "${PACKAGE_TEST_C_COMPILER}")
+elseif(DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
+  set(_effective_c_compiler "${C_COMPILER}")
 endif()
-if(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
+
+set(_effective_cxx_compiler "")
+if(DEFINED PACKAGE_TEST_CXX_COMPILER AND NOT PACKAGE_TEST_CXX_COMPILER STREQUAL "")
+  set(_effective_cxx_compiler "${PACKAGE_TEST_CXX_COMPILER}")
+elseif(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
+  set(_effective_cxx_compiler "${CXX_COMPILER}")
+endif()
+
+if(NOT _effective_c_compiler STREQUAL "")
+  list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${_effective_c_compiler}")
+endif()
+if(NOT _effective_cxx_compiler STREQUAL "")
+  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${_effective_cxx_compiler}")
 endif()
 if(DEFINED BUILD_TYPE AND NOT BUILD_TYPE STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
@@ -111,6 +132,7 @@ run_or_fail(
     ${_cmake_cache_args}
     "-D${PACKAGE_NAME}_INSTALL=ON"
     "-D${PACKAGE_NAME}_BUILD_TESTING=OFF"
+    "-DGENTEST_BUILD_CODEGEN=ON"
     "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
 
 message(STATUS "Build and install producer into '${_install_prefix}'...")
@@ -155,9 +177,22 @@ if(NOT EXISTS "${_consumer_source_dir}/CMakeLists.txt")
   message(FATAL_ERROR "Consumer project not found: '${_consumer_source_dir}'")
 endif()
 
+set(_codegen_exe "${_producer_build_dir}/tools/gentest_codegen${_exe_ext}")
+if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
+  set(_codegen_exe "${_producer_build_dir}/tools/${BUILD_CONFIG}/gentest_codegen${_exe_ext}")
+endif()
+if(NOT EXISTS "${_codegen_exe}")
+  message(FATAL_ERROR "gentest_codegen executable not found: '${_codegen_exe}'")
+endif()
+set(_codegen_copy_dir "${_work_dir}/tools")
+file(MAKE_DIRECTORY "${_codegen_copy_dir}")
+set(_codegen_exe_copy "${_codegen_copy_dir}/gentest_codegen${_exe_ext}")
+file(COPY_FILE "${_codegen_exe}" "${_codegen_exe_copy}" ONLY_IF_DIFFERENT)
+
 set(_consumer_cache_args ${_cmake_cache_args})
 # Make dependencies installed into the same prefix (e.g., fmt) discoverable.
 list(APPEND _consumer_cache_args "-DCMAKE_PREFIX_PATH=${_install_prefix}")
+list(APPEND _consumer_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${_codegen_exe_copy}")
 if(NOT _producer_fmt_dir STREQUAL "")
   # Keep consumer dependency resolution aligned with the producer package build.
   list(APPEND _consumer_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")
@@ -187,11 +222,6 @@ if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
 endif()
 run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_consumer_build_args})
 
-set(_exe_ext "")
-if(CMAKE_HOST_WIN32)
-  set(_exe_ext ".exe")
-endif()
-
 set(_consumer_exe "${_consumer_build_dir}/gentest_consumer${_exe_ext}")
 if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
   set(_consumer_exe "${_consumer_build_dir}/${BUILD_CONFIG}/gentest_consumer${_exe_ext}")
@@ -202,3 +232,15 @@ endif()
 
 message(STATUS "Run consumer executable...")
 run_or_fail(COMMAND "${_consumer_exe}")
+
+message(STATUS "Run consumer list output...")
+run_or_fail(COMMAND "${_consumer_exe}" --list)
+
+message(STATUS "Run consumer module mock case...")
+run_or_fail(COMMAND "${_consumer_exe}" --run=consumer/module_mock)
+
+message(STATUS "Run consumer bench...")
+run_or_fail(COMMAND "${_consumer_exe}" --kind=bench --run=consumer/module_bench)
+
+message(STATUS "Run consumer jitter...")
+run_or_fail(COMMAND "${_consumer_exe}" --kind=jitter --run=consumer/module_jitter)

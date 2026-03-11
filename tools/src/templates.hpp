@@ -204,12 +204,14 @@ inline constexpr std::string_view tu_registration_header = R"CPP(// This file is
 
 #pragma once
 
+#if !defined(GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE)
 #include <array>
 #include <span>
 #include <type_traits>
 
 #include "gentest/runner.h"
 #include "gentest/fixture.h"
+#endif
 {{REGISTRATION_COMMON}}
 
 constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {

@@ -434,20 +434,16 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-gentest_add_check_death(
-    NAME gentest_codegen_mock_nonvirtual_defined_in_cppm_msg
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in a header or header module"
-    ARGS
+add_test(NAME gentest_codegen_mock_named_module_codegen_ok
+    COMMAND ${_gentest_codegen_prog}
         --check
-        --compdb
-        ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_cppm.cppm
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/named_module_ok.cppm
         --
         ${_gentest_codegen_cross_target_arg}
         -x
         c++
+        -DGENTEST_CODEGEN=1
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
@@ -457,6 +453,19 @@ add_test(NAME gentest_codegen_mock_header_main_tu_ok
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        -x
+        c++
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+add_test(NAME gentest_codegen_mock_named_module_ok
+    COMMAND ${_gentest_codegen_prog}
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/named_module_ok.cppm
         --
         ${_gentest_codegen_cross_target_arg}
         -x
@@ -712,7 +721,7 @@ set_tests_properties(
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
     gentest_codegen_mock_nonvirtual_defined_in_cpp_msg
-    gentest_codegen_mock_nonvirtual_defined_in_cppm_msg
+    gentest_codegen_mock_named_module_codegen_ok
     gentest_codegen_mock_header_main_tu_ok
     gentest_codegen_mock_nonvirtual_defined_in_cu_msg
     gentest_codegen_mock_nonvirtual_defined_in_included_cpp_msg
@@ -1686,6 +1695,29 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_manifest_depfile_aggregation APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_public_mock_module_gcc
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicMockModuleGccFailure.cmake
+    cmake)
+set_property(TEST gentest_public_mock_module_gcc APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_mixed_module_mock_registry
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mixed_module_mock_registry
+    ${PROJECT_SOURCE_DIR}/cmake/CheckMixedModuleMockRegistry.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_mixed_module_mock_registry APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_auto_discovery
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_autodiscovery
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleAutoDiscovery.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_auto_discovery APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_outcome_matrix_stale_junit_guard
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake
@@ -1734,13 +1766,33 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         set(_gentest_package_test_config "Debug")
     endif()
 
+    set(_gentest_package_test_compiler_args "")
+    if(UNIX AND NOT APPLE)
+        find_program(_gentest_package_test_clang NAMES clang)
+        find_program(_gentest_package_test_clangxx NAMES clang++)
+        if(_gentest_package_test_clang AND _gentest_package_test_clangxx)
+            # The package smoke is about installed-package consumption. Prefer
+            # Clang for the downstream module consumer so the test exercises the
+            # supported public-module path instead of GCC's separate TU-wrapper
+            # limitation for module registration shims.
+            list(APPEND _gentest_package_test_compiler_args
+                -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_clang}
+                -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_clangxx})
+        endif()
+    endif()
+
     _gentest_add_cmake_helper_test(
         gentest_package_consumer
         ${PROJECT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
         package
         -DPACKAGE_NAME=${PROJECT_NAME}
-        -DBUILD_CONFIG=${_gentest_package_test_config})
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        ${_gentest_package_test_compiler_args})
+
+    unset(_gentest_package_test_compiler_args)
+    unset(_gentest_package_test_clang)
+    unset(_gentest_package_test_clangxx)
 endif()
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.

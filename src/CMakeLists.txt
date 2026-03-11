@@ -77,6 +77,11 @@ file(GLOB _gentest_headers
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/detail/*.inl
 )
 
+set(_gentest_module_interfaces
+    ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/gentest.cppm
+    ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/gentest.bench_util.cppm
+    ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/gentest.mock.cppm)
+
 # Publish headers for dependents (and install/export them via FILE_SET)
 target_sources(gentest_runtime
     PUBLIC
@@ -84,6 +89,10 @@ target_sources(gentest_runtime
             TYPE HEADERS
             BASE_DIRS ${PROJECT_SOURCE_DIR}/include
             FILES ${_gentest_headers}
+        FILE_SET cxx_modules
+            TYPE CXX_MODULES
+            BASE_DIRS ${PROJECT_SOURCE_DIR}/include
+            FILES ${_gentest_module_interfaces}
 )
 
 target_link_libraries(${PROJECT_NAME}

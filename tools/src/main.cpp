@@ -24,6 +24,7 @@
 #include <clang/Tooling/Tooling.h>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <fmt/core.h>
 #include <iterator>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
@@ -36,6 +37,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -177,22 +179,141 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
 }
 
 [[nodiscard]] std::vector<std::filesystem::path> depfile_targets_for(const CollectorOptions &options) {
+    auto sanitize_mock_domain_label = [](std::string value) {
+        for (auto &ch : value) {
+            const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
+            if (!ok) {
+                ch = '_';
+            }
+        }
+        if (value.empty()) {
+            return std::string{"domain"};
+        }
+        return value;
+    };
+    auto zero_pad_domain_index = [](std::size_t idx) {
+        return fmt::format("{:04d}", static_cast<unsigned>(idx));
+    };
+    auto make_domain_output_path =
+        [&](const std::filesystem::path &base, std::size_t idx, std::string_view label) -> std::filesystem::path {
+        std::filesystem::path out = base;
+        const std::string     stem = base.stem().string();
+        const std::string     ext  = base.extension().string();
+        out.replace_filename(
+            fmt::format("{}__domain_{}_{}{}", stem, zero_pad_domain_index(idx), sanitize_mock_domain_label(std::string(label)), ext));
+        return out;
+    };
+    auto named_module_name_from_source_file = [](const std::filesystem::path &path) -> std::optional<std::string> {
+        std::ifstream in(path);
+        if (!in) {
+            return std::nullopt;
+        }
+
+        std::string line;
+        for (std::size_t i = 0; i < 64 && std::getline(in, line); ++i) {
+            if (const auto comment_pos = line.find("//"); comment_pos != std::string::npos) {
+                line.erase(comment_pos);
+            }
+            const auto first = line.find_first_not_of(" \t\r\n");
+            if (first == std::string::npos) {
+                continue;
+            }
+            const auto last = line.find_last_not_of(" \t\r\n");
+            std::string trimmed = line.substr(first, last - first + 1);
+            if (trimmed == "module;") {
+                continue;
+            }
+            if (trimmed.rfind("export module ", 0) == 0) {
+                trimmed.erase(0, std::string("export module ").size());
+            } else if (trimmed.rfind("module ", 0) == 0) {
+                trimmed.erase(0, std::string("module ").size());
+            } else {
+                continue;
+            }
+            const auto semi = trimmed.find(';');
+            if (semi == std::string::npos) {
+                return std::nullopt;
+            }
+            trimmed.erase(semi);
+            while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back()))) {
+                trimmed.pop_back();
+            }
+            while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front()))) {
+                trimmed.erase(trimmed.begin());
+            }
+            if (!trimmed.empty()) {
+                return trimmed;
+            }
+            return std::nullopt;
+        }
+        return std::nullopt;
+    };
+    auto sanitize_stem = [](std::string value) {
+        for (auto &ch : value) {
+            const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
+            if (!ok) {
+                ch = '_';
+            }
+        }
+        if (value.empty()) {
+            return std::string{"tu"};
+        }
+        return value;
+    };
+    auto is_module_interface_source = [](const std::filesystem::path &path) {
+        std::string ext = path.extension().string();
+        std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return ext == ".cppm" || ext == ".ccm" || ext == ".cxxm" || ext == ".ixx" || ext == ".mxx";
+    };
+    auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
+        std::filesystem::path out = options.tu_output_dir;
+        const std::string     stem = sanitize_stem(std::filesystem::path(options.sources[idx]).stem().string());
+        const std::string     ext  = std::filesystem::path(options.sources[idx]).extension().string();
+        out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
+        return out;
+    };
+
     std::vector<std::filesystem::path> targets;
     if (!options.output_path.empty()) {
         targets.push_back(options.output_path);
     } else if (!options.tu_output_dir.empty()) {
-        targets.reserve(options.sources.size() + 2);
-        for (const auto &source : options.sources) {
-            std::filesystem::path header_out = options.tu_output_dir / std::filesystem::path(source).filename();
-            header_out.replace_extension(".h");
-            targets.push_back(std::move(header_out));
+        targets.reserve(options.sources.size() * 2 + 2);
+        for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+            if (idx < options.tu_output_headers.size() && !options.tu_output_headers[idx].empty()) {
+                targets.push_back(options.tu_output_headers[idx]);
+            } else {
+                std::filesystem::path header_out = options.tu_output_dir / std::filesystem::path(options.sources[idx]).filename();
+                header_out.replace_extension(".h");
+                targets.push_back(std::move(header_out));
+            }
+            if (is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
+                targets.push_back(resolve_module_wrapper_output(idx));
+            }
         }
     }
     if (!options.mock_registry_path.empty()) {
         targets.push_back(options.mock_registry_path);
+        targets.push_back(make_domain_output_path(options.mock_registry_path, 0, "header"));
     }
     if (!options.mock_impl_path.empty()) {
         targets.push_back(options.mock_impl_path);
+        targets.push_back(make_domain_output_path(options.mock_impl_path, 0, "header"));
+    }
+    if (!options.mock_registry_path.empty() && !options.mock_impl_path.empty()) {
+        std::set<std::string> seen_modules;
+        std::size_t           idx = 1;
+        for (const auto &source : options.sources) {
+            const auto module_name = named_module_name_from_source_file(source);
+            if (!module_name.has_value()) {
+                continue;
+            }
+            if (!seen_modules.insert(*module_name).second) {
+                continue;
+            }
+            targets.push_back(make_domain_output_path(options.mock_registry_path, idx, *module_name));
+            targets.push_back(make_domain_output_path(options.mock_impl_path, idx, *module_name));
+            ++idx;
+        }
     }
     return targets;
 }
@@ -321,6 +442,7 @@ bool should_strip_compdb_arg(std::string_view arg) {
     // Clang (which is embedded in our clang-tooling binary) rejects these.
     return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg.starts_with("-fmodule-mapper=") ||
         arg.starts_with("-fdeps-format=") || arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=") ||
+        (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos) ||
         arg == "-fconcepts-diagnostics-depth" ||
         arg.starts_with("-fconcepts-diagnostics-depth=") ||
         // -Werror (and variants) are useful for real builds but make codegen brittle, because
@@ -356,6 +478,56 @@ std::string basename_without_extension(std::string_view path) {
         return {};
     }
     return std::filesystem::path{path}.filename().replace_extension().string();
+}
+
+std::string normalize_compdb_lookup_path(std::string_view path, std::string_view directory = {}) {
+    if (path.empty()) {
+        return {};
+    }
+
+    std::error_code       ec;
+    std::filesystem::path normalized{std::string(path)};
+    if (normalized.is_relative() && !directory.empty()) {
+        normalized = std::filesystem::path{std::string(directory)} / normalized;
+    }
+    if (normalized.is_relative()) {
+        normalized = std::filesystem::absolute(normalized, ec);
+        ec.clear();
+    }
+    if (auto canon = std::filesystem::weakly_canonical(normalized, ec); !ec) {
+        normalized = canon;
+    }
+    normalized = normalized.lexically_normal();
+
+    std::string key = normalized.generic_string();
+#if defined(_WIN32)
+    std::ranges::transform(key, key.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+#endif
+    return key;
+}
+
+clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileCommand command, std::string_view from_file,
+                                                        std::string_view to_file) {
+    const std::string from{from_file};
+    const std::string to{to_file};
+
+    command.Filename = to;
+
+    bool replaced = false;
+    for (auto &arg : command.CommandLine) {
+        if (arg == from) {
+            arg = to;
+            replaced = true;
+        }
+    }
+    if (!replaced) {
+        if (!command.CommandLine.empty() && command.CommandLine.back() == "--") {
+            command.CommandLine.push_back(to);
+        } else {
+            command.CommandLine.push_back(to);
+        }
+    }
+    return command;
 }
 
 bool is_clang_like_compiler(std::string_view path) {
@@ -608,6 +780,11 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         llvm::cl::desc("Emit per-translation-unit wrapper .cpp/.h files into this directory (enables TU mode)"),
         llvm::cl::init(""),
         llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> tu_header_output_option{
+        "tu-header-output",
+        llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore,
+        llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  source_root_option{
@@ -679,6 +856,7 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         opts.tu_output_dir = std::filesystem::path{tu_out_dir_option.getValue()};
     }
     opts.sources.assign(source_option.begin(), source_option.end());
+    opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
     opts.clang_args = std::move(clang_args);
     opts.check_only = check_option.getValue();
     opts.quiet_clang = quiet_clang_option.getValue();
@@ -739,6 +917,15 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
 
 int main(int argc, const char **argv) {
     const auto options = parse_arguments(argc, argv);
+    if (!options.tu_output_headers.empty() && options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --tu-header-output requires --tu-out-dir\n");
+        return 1;
+    }
+    if (!options.tu_output_headers.empty() && options.tu_output_headers.size() != options.sources.size()) {
+        gentest::codegen::log_err("gentest_codegen: expected {} --tu-header-output value(s) for {} input source(s), got {}\n",
+                                  options.sources.size(), options.sources.size(), options.tu_output_headers.size());
+        return 1;
+    }
     const auto default_compiler_path = resolve_default_compiler_path();
 
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
@@ -913,6 +1100,94 @@ int main(int argc, const char **argv) {
 
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
 
+    auto is_module_interface_source = [](const std::filesystem::path &path) {
+        std::string ext = path.extension().string();
+        std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return ext == ".cppm" || ext == ".ccm" || ext == ".cxxm" || ext == ".ixx" || ext == ".mxx";
+    };
+    auto sanitize_module_wrapper_stem = [](std::string value) {
+        for (auto &ch : value) {
+            const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
+            if (!ok) {
+                ch = '_';
+            }
+        }
+        if (value.empty()) {
+            return std::string{"tu"};
+        }
+        return value;
+    };
+    auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
+        std::filesystem::path out = options.tu_output_dir;
+        const std::string     stem = sanitize_module_wrapper_stem(std::filesystem::path(options.sources[idx]).stem().string());
+        const std::string     ext  = std::filesystem::path(options.sources[idx]).extension().string();
+        out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
+        return out;
+    };
+
+    class SnapshotCompilationDatabase final : public clang::tooling::CompilationDatabase {
+    public:
+        explicit SnapshotCompilationDatabase(std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> commands_by_file)
+            : commands_by_file_(std::move(commands_by_file)) {}
+
+        std::vector<clang::tooling::CompileCommand> getCompileCommands(llvm::StringRef file_path) const override {
+            const auto it = commands_by_file_.find(normalize_compdb_lookup_path(file_path.str()));
+            if (it == commands_by_file_.end()) {
+                return {};
+            }
+            return it->second;
+        }
+
+        std::vector<std::string> getAllFiles() const override {
+            std::vector<std::string> files;
+            files.reserve(commands_by_file_.size());
+            for (const auto &[file, _] : commands_by_file_) {
+                files.push_back(file);
+            }
+            return files;
+        }
+
+    private:
+        std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> commands_by_file_;
+    };
+
+    std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> compile_commands_by_file;
+    for (const auto &command : database->getAllCompileCommands()) {
+        const std::string key = normalize_compdb_lookup_path(command.Filename, command.Directory);
+        if (key.empty()) {
+            continue;
+        }
+        compile_commands_by_file[key].push_back(command);
+    }
+
+    auto get_compile_commands_for_source = [&](std::size_t idx) {
+        std::vector<clang::tooling::CompileCommand> commands;
+        const bool source_is_module = is_module_interface_source(std::filesystem::path(options.sources[idx]));
+        if (!options.tu_output_dir.empty() && source_is_module) {
+            const auto wrapper_path = resolve_module_wrapper_output(idx).string();
+            const auto wrapper_key = normalize_compdb_lookup_path(wrapper_path);
+            const auto wrapper_it  = compile_commands_by_file.find(wrapper_key);
+            if (wrapper_it != compile_commands_by_file.end()) {
+                commands = wrapper_it->second;
+            } else {
+                commands = database->getCompileCommands(wrapper_path);
+            }
+            for (auto &command : commands) {
+                command = retarget_compile_command(std::move(command), wrapper_path, options.sources[idx]);
+            }
+        }
+        if (commands.empty()) {
+            const auto direct_it = compile_commands_by_file.find(normalize_compdb_lookup_path(options.sources[idx]));
+            if (direct_it != compile_commands_by_file.end()) {
+                commands = direct_it->second;
+            }
+        }
+        if (commands.empty()) {
+            commands = database->getCompileCommands(options.sources[idx]);
+        }
+        return commands;
+    };
+
     struct ParseResult {
         int                                 status = 0;
         bool                                had_test_errors = false;
@@ -933,25 +1208,8 @@ int main(int argc, const char **argv) {
         // run with an immutable database view.
         std::vector<std::vector<clang::tooling::CompileCommand>> compile_commands(options.sources.size());
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
-            compile_commands[i] = database->getCompileCommands(options.sources[i]);
+            compile_commands[i] = get_compile_commands_for_source(i);
         }
-
-        class SingleFileCompilationDatabase final : public clang::tooling::CompilationDatabase {
-        public:
-            SingleFileCompilationDatabase(llvm::StringRef file, const std::vector<clang::tooling::CompileCommand> &commands)
-                : file_(file), commands_(commands) {}
-
-            std::vector<clang::tooling::CompileCommand> getCompileCommands(llvm::StringRef file_path) const override {
-                if (file_path != file_) {
-                    return {};
-                }
-                return commands_;
-            }
-
-        private:
-            llvm::StringRef                                          file_;
-            const std::vector<clang::tooling::CompileCommand> &commands_;
-        };
 
         std::vector<ParseResult> results(options.sources.size());
         std::vector<std::string> diag_texts(options.sources.size());
@@ -978,7 +1236,9 @@ int main(int argc, const char **argv) {
 #endif
             }
 
-            const SingleFileCompilationDatabase file_database{options.sources[idx], compile_commands[idx]};
+            std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> file_commands;
+            file_commands.emplace(normalize_compdb_lookup_path(options.sources[idx]), compile_commands[idx]);
+            const SnapshotCompilationDatabase file_database{std::move(file_commands)};
 
             // Use a per-tool physical filesystem instance. llvm::vfs::getRealFileSystem()
             // shares process working directory state and is documented as thread-hostile.
@@ -1068,7 +1328,12 @@ int main(int argc, const char **argv) {
             return 1;
         }
     } else {
-        clang::tooling::ClangTool tool{*database, options.sources};
+        std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> file_commands;
+        for (std::size_t i = 0; i < options.sources.size(); ++i) {
+            file_commands.emplace(normalize_compdb_lookup_path(options.sources[i]), get_compile_commands_for_source(i));
+        }
+        const SnapshotCompilationDatabase file_database{std::move(file_commands)};
+        clang::tooling::ClangTool         tool{file_database, options.sources};
         tool.setDiagnosticConsumer(diag_consumer.get());
         tool.appendArgumentsAdjuster(args_adjuster);
         tool.appendArgumentsAdjuster(syntax_only_adjuster);

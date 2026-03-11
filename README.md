@@ -443,10 +443,46 @@ void mock_clock() {
 ```
 
 Safeguards:
-- Mocked target definitions must be in a header or header module. Source/module-interface definitions are rejected by codegen.
+- Mocked target definitions may live in headers, header-like files, or named modules. Ordinary source files are still rejected by codegen.
 - Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
 - Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (Windows-only path constraint).
+
+Named-module mock usage:
+
+```cpp
+module;
+
+#if defined(GENTEST_CODEGEN)
+#define GENTEST_NO_AUTO_MOCK_INCLUDE 1
+#include "gentest/mock.h"
+#undef GENTEST_NO_AUTO_MOCK_INCLUDE
+#endif
+
+export module my.tests;
+
+import gentest;
+import gentest.mock;
+
+export namespace mytests {
+struct Service {
+    virtual ~Service() = default;
+    virtual int compute(int) = 0;
+};
+}
+
+export namespace mytests {
+[[using gentest: test("module/mock")]]
+void module_mock() {
+    gentest::mock<Service> mock_service;
+    gentest::expect(mock_service, &Service::compute).times(1).with(3).returns(9);
+}
+}
+```
+
+For named modules, normal builds only need `import gentest.mock;` for the API surface. The codegen parse path still loads `gentest/mock.h` in the global module fragment with auto-inclusion disabled, but target-local mock specializations are now injected automatically into generated module wrapper sources. No user `#include "gentest/mock_codegen.h"` step is required.
+
+Generated mock outputs are partitioned by visibility domain. A single target can mix classic/header-defined mocks with mocks defined in multiple named modules; classic TUs pick up the header-domain shard, and each named module source picks up only its own generated module-domain shard.
 
 Header implementation to mock (`sink.h`):
 

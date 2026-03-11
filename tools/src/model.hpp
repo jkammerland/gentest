@@ -83,6 +83,10 @@ struct CollectorOptions {
     std::string                          entry = "gentest::run_all_tests";
     std::filesystem::path                output_path;
     std::filesystem::path                tu_output_dir;
+    // Optional explicit per-source TU registration headers. When provided in
+    // TU mode, this must stay aligned with `sources` and overrides the legacy
+    // `<tu_output_dir>/<source>.h` derivation.
+    std::vector<std::filesystem::path>   tu_output_headers;
     std::filesystem::path                mock_registry_path;
     std::filesystem::path                mock_impl_path;
     std::optional<std::filesystem::path> depfile_path;
@@ -193,11 +197,22 @@ struct MockMethodInfo {
 
 // Mockable class/struct description gathered from AST.
 struct MockClassInfo {
+    enum class DefinitionKind {
+        HeaderLike,
+        NamedModule,
+    };
+
     std::string               qualified_name;
     std::string               display_name; // pretty name for diagnostics/codegen
     // Absolute (or normalized) path to the file that contains the target type
     // definition used for registry include generation.
     std::string               definition_file;
+    DefinitionKind            definition_kind = DefinitionKind::HeaderLike;
+    // Owning named module for module-defined mocks. Empty for header-like definitions.
+    std::string               definition_module_name;
+    // Global-scope insertion point within `definition_file` where module-owned
+    // mock attachments can be injected safely.
+    std::optional<std::size_t> attachment_insertion_offset;
     bool                      derive_for_virtual = false;
     bool                      has_accessible_default_ctor = false;
     bool                      has_virtual_destructor = false;

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <fstream>
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Attr.h>
 #include <clang/AST/Decl.h>
@@ -13,6 +14,7 @@
 #include <clang/AST/Type.h>
 #include <clang/Basic/FileEntry.h>
 #include <clang/Basic/SourceManager.h>
+#include <clang/Lex/Lexer.h>
 #include <filesystem>
 #include <fmt/core.h>
 #include <llvm/ADT/SmallPtrSet.h>
@@ -170,6 +172,70 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return false;
 }
 
+[[nodiscard]] std::optional<std::string> named_module_name_from_file(std::string_view path);
+
+[[nodiscard]] bool file_declares_named_module(std::string_view path) {
+    return named_module_name_from_file(path).has_value();
+}
+
+[[nodiscard]] std::optional<std::string> named_module_name_from_file(std::string_view path) {
+    if (path.empty()) {
+        return std::nullopt;
+    }
+
+    std::ifstream in{std::string(path)};
+    if (!in) {
+        return std::nullopt;
+    }
+
+    std::string line;
+    for (std::size_t i = 0; i < 64 && std::getline(in, line); ++i) {
+        if (const auto comment_pos = line.find("//"); comment_pos != std::string::npos) {
+            line.erase(comment_pos);
+        }
+
+        const auto first = line.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) {
+            continue;
+        }
+        const auto last = line.find_last_not_of(" \t\r\n");
+        std::string trimmed = line.substr(first, last - first + 1);
+
+        if (trimmed == "module;") {
+            continue;
+        }
+        if (trimmed.rfind("export module ", 0) == 0 || trimmed.rfind("module ", 0) == 0) {
+            if (const auto first = trimmed.find(' '); first != std::string::npos) {
+                const auto second = trimmed.find_first_not_of(' ', first);
+                if (second != std::string::npos) {
+                    std::string name = trimmed.substr(second);
+                    if (name.rfind("module ", 0) == 0) {
+                        name.erase(0, std::string("module ").size());
+                    }
+                    if (name.rfind("export module ", 0) == 0) {
+                        name.erase(0, std::string("export module ").size());
+                    }
+                    const auto semi = name.find(';');
+                    if (semi != std::string::npos) {
+                        name.erase(semi);
+                        while (!name.empty() && std::isspace(static_cast<unsigned char>(name.back()))) {
+                            name.pop_back();
+                        }
+                        while (!name.empty() && std::isspace(static_cast<unsigned char>(name.front()))) {
+                            name.erase(name.begin());
+                        }
+                        if (!name.empty()) {
+                            return name;
+                        }
+                    }
+                }
+            }
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+
 template <typename DeclT> [[nodiscard]] bool is_in_named_module_compat(const DeclT &decl) {
     if constexpr (requires { decl.isInNamedModule(); }) {
         return decl.isInNamedModule();
@@ -216,6 +282,52 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
         }
     }
     return p.lexically_normal().generic_string();
+}
+
+[[nodiscard]] std::optional<std::size_t> location_offset_in_file(const SourceManager &sm, SourceLocation loc) {
+    const SourceLocation file_loc = sm.getFileLoc(loc);
+    if (file_loc.isInvalid()) {
+        return std::nullopt;
+    }
+    return static_cast<std::size_t>(sm.getFileOffset(file_loc));
+}
+
+[[nodiscard]] std::optional<std::size_t> location_after_token_offset(const SourceManager &sm, const LangOptions &lang_opts, SourceLocation loc) {
+    const SourceLocation after = Lexer::getLocForEndOfToken(sm.getFileLoc(loc), 0, sm, lang_opts);
+    if (after.isInvalid()) {
+        return std::nullopt;
+    }
+    return location_offset_in_file(sm, after);
+}
+
+[[nodiscard]] std::optional<std::size_t> find_attachment_insertion_offset(const CXXRecordDecl &record, const ASTContext &ctx,
+                                                                          const SourceManager &sm) {
+    const LangOptions &lang_opts = ctx.getLangOpts();
+
+    const NamespaceDecl *outermost_namespace = nullptr;
+    const DeclContext   *decl_ctx            = record.getDeclContext();
+    while (decl_ctx != nullptr) {
+        if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(decl_ctx)) {
+            if (!ns->isAnonymousNamespace()) {
+                outermost_namespace = ns;
+            }
+        }
+        decl_ctx = decl_ctx->getParent();
+    }
+
+    if (outermost_namespace != nullptr) {
+        if (const auto offset = location_after_token_offset(sm, lang_opts, outermost_namespace->getEndLoc()); offset.has_value()) {
+            return offset;
+        }
+    }
+
+    if (const SourceLocation after_semi =
+            Lexer::findLocationAfterToken(sm.getFileLoc(record.getEndLoc()), tok::semi, sm, lang_opts, true);
+        after_semi.isValid()) {
+        return location_offset_in_file(sm, after_semi);
+    }
+
+    return location_after_token_offset(sm, lang_opts, record.getEndLoc());
 }
 
 } // namespace
@@ -340,9 +452,11 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     const ASTContext    &ctx                     = *result.Context;
     const SourceManager &sm                      = *result.SourceManager;
     const SourceLocation def_loc                 = sm.getFileLoc(record->getBeginLoc());
-    const std::string    definition_file         = resolve_definition_file(sm, def_loc);
-    const bool from_named_module_interface = is_in_named_module_compat(*record) && !is_from_header_unit_compat(*record);
-    if (definition_file.empty() || looks_like_source_or_module_interface(definition_file) || from_named_module_interface) {
+    const std::string definition_file      = resolve_definition_file(sm, def_loc);
+    const auto        definition_module    = named_module_name_from_file(definition_file);
+    const bool        from_named_module =
+        (is_in_named_module_compat(*record) && !is_from_header_unit_compat(*record)) || definition_module.has_value();
+    if (definition_file.empty() || (looks_like_source_or_module_interface(definition_file) && !from_named_module)) {
         had_error_                 = true;
         const std::string location = definition_file.empty() ? std::string{"<unknown-file>"} : definition_file;
         report(sm, decl.getBeginLoc(),
@@ -351,6 +465,12 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         return;
     }
     info.definition_file = definition_file;
+    info.definition_kind =
+        from_named_module ? MockClassInfo::DefinitionKind::NamedModule : MockClassInfo::DefinitionKind::HeaderLike;
+    if (definition_module.has_value()) {
+        info.definition_module_name = *definition_module;
+        info.attachment_insertion_offset = find_attachment_insertion_offset(*record, ctx, sm);
+    }
 
     // Capture constructors (excluding the default ctor which is tracked via
     // has_accessible_default_ctor). For polymorphic targets, this list is used
