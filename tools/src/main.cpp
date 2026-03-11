@@ -612,6 +612,15 @@ bool is_known_compiler_launcher(std::string_view path) {
     return name == "ccache" || name == "sccache" || name == "distcc" || name == "icecc" || name == "buildcache";
 }
 
+bool is_known_compiler_driver(std::string_view path) {
+    if (is_clang_like_compiler(path)) {
+        return true;
+    }
+    const std::string name = basename_without_extension(path);
+    return name == "c++" || name == "g++" || name == "gcc" || name == "cc" || name == "cxx" || name == "cl" ||
+        name == "clang-cl";
+}
+
 bool is_cmake_env_wrapper_at(const clang::tooling::CommandLineArguments &command_line, std::size_t index) {
     if (index + 2 >= command_line.size()) {
         return false;
@@ -659,7 +668,7 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
             ++index;
             continue;
         }
-        if (is_clang_like_compiler(arg)) {
+        if (is_known_compiler_driver(arg)) {
             return index;
         }
         return std::nullopt;
@@ -671,6 +680,9 @@ std::string compiler_for_resource_dir_probe(const clang::tooling::CommandLineArg
                                             const std::string                        &default_compiler_path) {
     const auto compiler_index = compiler_arg_index_for_resource_dir_probe(command_line);
     if (!compiler_index) {
+        return default_compiler_path;
+    }
+    if (!is_clang_like_compiler(command_line[*compiler_index])) {
         return default_compiler_path;
     }
     return command_line[*compiler_index];
