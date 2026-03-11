@@ -168,7 +168,7 @@ Passing meaning:
 - same-block named-module mock use now works when the mocked type and `gentest::mock<T>` live in the same exported namespace block
 - named modules that mock header-defined types now get the generated header-domain mock code injected automatically, without user includes
 - installed package exports are now checked for relocatability and no longer leak the producer checkout through `third_party/include`
-- installed-package consumers no longer need an external `GENTEST_CODEGEN_EXECUTABLE`; native install builds now install `bin/gentest_codegen` by default when packaging without tests, and the installed package auto-discovers it
+- installed-package consumers no longer need an external `GENTEST_CODEGEN_EXECUTABLE` in the supported native, non-cross package path; native install builds now install `bin/gentest_codegen` by default when packaging without tests, and the installed package auto-discovers it
 - module consumers can link just `gentest::gentest_main`; it now pulls in `gentest::gentest_runtime`
 - downstream GCC package-consumer module smoke is covered and green
 
