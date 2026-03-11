@@ -210,7 +210,7 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         }
 
         std::string line;
-        for (std::size_t i = 0; i < 64 && std::getline(in, line); ++i) {
+        while (std::getline(in, line)) {
             if (const auto comment_pos = line.find("//"); comment_pos != std::string::npos) {
                 line.erase(comment_pos);
             }
@@ -510,12 +510,13 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
                                                         std::string_view to_file) {
     const std::string from{from_file};
     const std::string to{to_file};
+    const std::string normalized_from = normalize_compdb_lookup_path(from, command.Directory);
 
     command.Filename = to;
 
     bool replaced = false;
     for (auto &arg : command.CommandLine) {
-        if (arg == from) {
+        if (arg == from || normalize_compdb_lookup_path(arg, command.Directory) == normalized_from) {
             arg = to;
             replaced = true;
         }
@@ -527,6 +528,16 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
             command.CommandLine.push_back(to);
         }
     }
+
+    command.CommandLine.erase(
+        std::remove_if(command.CommandLine.begin(), command.CommandLine.end(), [&](const std::string &arg) {
+            if (!(llvm::StringRef{arg}.starts_with("@") && llvm::StringRef{arg}.contains(".modmap"))) {
+                return false;
+            }
+            const std::string resolved = normalize_compdb_lookup_path(std::string_view(arg).substr(1), command.Directory);
+            return !resolved.empty() && !std::filesystem::exists(resolved);
+        }),
+        command.CommandLine.end());
     return command;
 }
 

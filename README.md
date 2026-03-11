@@ -66,6 +66,10 @@ find_package(gentest CONFIG REQUIRED)
 add_executable(my_tests cases.cpp)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
+# If your tests use `import gentest;` / `import gentest.mock;`, also link the
+# runtime target because the public module file set is exported there.
+# target_link_libraries(my_tests PRIVATE gentest::gentest_main gentest::gentest_runtime)
+
 # NOTE: This mode requires a single-config generator/build dir.
 gentest_attach_codegen(my_tests)
 # Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via

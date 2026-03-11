@@ -18,5 +18,4 @@ target_sources(gentest_consumer
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
 gentest_attach_codegen(gentest_consumer
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm
     OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen)

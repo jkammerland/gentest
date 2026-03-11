@@ -159,6 +159,7 @@ Passing meaning:
 - exported public modules build
 - module-authored consumer smoke works
 - module discovery via `CXX_MODULE_SETS` is covered
+- installed-package consumer smoke now exercises module auto-discovery as well
 - module-defined mocks work across multiple named modules in the same target
 - mixed targets can combine legacy/header mocks with multiple named-module mock domains
 - named-module consumers no longer need `#include "gentest/mock_codegen.h"`; target-local mock attachment is injected through generated module wrappers

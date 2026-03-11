@@ -123,7 +123,7 @@ function(_gentest_configure_manifest_mode)
 endfunction()
 
 function(_gentest_extract_module_name input out_name)
-    file(STRINGS "${input}" _gentest_module_lines LIMIT_COUNT 64)
+    file(STRINGS "${input}" _gentest_module_lines)
 
     set(_gentest_module_name "")
     foreach(_gentest_line IN LISTS _gentest_module_lines)
@@ -195,7 +195,7 @@ function(_gentest_make_module_wrapper_output_path output_dir input_tu idx out_pa
 endfunction()
 
 function(_gentest_copy_source_properties_to_wrappers)
-    set(multi_value_args TU_SOURCE_ENTRIES TUS WRAPPER_CPP)
+    set(multi_value_args TU_SOURCE_ENTRIES TUS WRAPPER_CPP EXTRA_CPP)
     cmake_parse_arguments(GENTEST "" "" "${multi_value_args}" ${ARGN})
 
     set(_gentest_source_props COMPILE_DEFINITIONS COMPILE_OPTIONS INCLUDE_DIRECTORIES COMPILE_FLAGS)
@@ -240,6 +240,32 @@ function(_gentest_copy_source_properties_to_wrappers)
                 list(REMOVE_DUPLICATES _wrap_include_dirs)
             endif()
             set_source_files_properties("${_wrap_cpp}" PROPERTIES INCLUDE_DIRECTORIES "${_wrap_include_dirs}")
+        endif()
+
+        if(GENTEST_EXTRA_CPP)
+            list(GET GENTEST_EXTRA_CPP ${_idx} _extra_cpp)
+            if(NOT _extra_cpp STREQUAL "__gentest_no_registration__")
+                foreach(_prop IN LISTS _gentest_source_props)
+                    get_source_file_property(_val "${_orig_entry}" ${_prop})
+                    if(_val STREQUAL "NOTFOUND")
+                        get_source_file_property(_val "${_orig_abs}" ${_prop})
+                    endif()
+                    if(NOT _val STREQUAL "NOTFOUND")
+                        set_source_files_properties("${_extra_cpp}" PROPERTIES ${_prop} "${_val}")
+                    endif()
+                endforeach()
+
+                if(NOT _orig_dir STREQUAL "")
+                    get_source_file_property(_extra_include_dirs "${_extra_cpp}" INCLUDE_DIRECTORIES)
+                    if(_extra_include_dirs STREQUAL "NOTFOUND" OR _extra_include_dirs STREQUAL "")
+                        set(_extra_include_dirs "${_orig_dir}")
+                    else()
+                        list(APPEND _extra_include_dirs "${_orig_dir}")
+                        list(REMOVE_DUPLICATES _extra_include_dirs)
+                    endif()
+                    set_source_files_properties("${_extra_cpp}" PROPERTIES INCLUDE_DIRECTORIES "${_extra_include_dirs}")
+                endif()
+            endif()
         endif()
     endforeach()
 endfunction()
@@ -401,7 +427,8 @@ module ${_module_name};\n\
     _gentest_copy_source_properties_to_wrappers(
         TU_SOURCE_ENTRIES ${GENTEST_TU_SOURCE_ENTRIES}
         TUS ${GENTEST_TUS}
-        WRAPPER_CPP ${_gentest_wrapper_cpp})
+        WRAPPER_CPP ${_gentest_wrapper_cpp}
+        EXTRA_CPP ${_gentest_registration_cpp})
 
     set(${GENTEST_OUT_OUTPUT_DIR} "${_gentest_output_dir}" PARENT_SCOPE)
     set(${GENTEST_OUT_WRAPPER_CPP} "${_gentest_wrapper_cpp}" PARENT_SCOPE)
