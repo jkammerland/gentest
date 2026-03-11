@@ -141,7 +141,6 @@ run_or_fail(
     ${_cmake_cache_args}
     "-D${PACKAGE_NAME}_INSTALL=ON"
     "-D${PACKAGE_NAME}_BUILD_TESTING=OFF"
-    "-DGENTEST_BUILD_CODEGEN=ON"
     "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
 
 message(STATUS "Build and install producer into '${_install_prefix}'...")

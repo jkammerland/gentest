@@ -110,3 +110,9 @@ gentest_check_run_or_fail(
   COMMAND "${_prog}" --run=imported_sibling/module_mock
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+
+message(STATUS "Run imported sibling legacy importer acceptance case...")
+gentest_check_run_or_fail(
+  COMMAND "${_prog}" --run=imported_sibling/legacy_cpp_importer
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)

@@ -13,7 +13,8 @@ set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
 add_executable(imported_sibling_tests
-    main.cpp)
+    main.cpp
+    legacy_consumer.cpp)
 
 target_sources(imported_sibling_tests
     PRIVATE

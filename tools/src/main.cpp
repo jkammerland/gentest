@@ -127,6 +127,32 @@ bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
     return ok;
 }
 
+void merge_duplicate_mocks(std::vector<gentest::codegen::MockClassInfo> &mocks) {
+    auto mock_sort_key = [](const gentest::codegen::MockClassInfo &mock) {
+        return std::tie(mock.qualified_name, mock.definition_file, mock.definition_module_name, mock.definition_kind);
+    };
+
+    std::ranges::sort(mocks, {}, mock_sort_key);
+
+    std::vector<gentest::codegen::MockClassInfo> merged;
+    merged.reserve(mocks.size());
+    for (auto &mock : mocks) {
+        if (merged.empty() || mock_sort_key(merged.back()) != mock_sort_key(mock)) {
+            std::sort(mock.use_files.begin(), mock.use_files.end());
+            mock.use_files.erase(std::unique(mock.use_files.begin(), mock.use_files.end()), mock.use_files.end());
+            merged.push_back(std::move(mock));
+            continue;
+        }
+
+        auto &existing = merged.back();
+        existing.use_files.insert(existing.use_files.end(), mock.use_files.begin(), mock.use_files.end());
+        std::sort(existing.use_files.begin(), existing.use_files.end());
+        existing.use_files.erase(std::unique(existing.use_files.begin(), existing.use_files.end()), existing.use_files.end());
+    }
+
+    mocks = std::move(merged);
+}
+
 [[nodiscard]] std::string normalize_dependency_path(std::string_view raw_path) {
     if (raw_path.empty()) {
         return {};
@@ -529,6 +555,32 @@ std::vector<std::string> parse_imported_named_modules_from_source(const std::fil
     return imports;
 }
 
+std::optional<std::filesystem::path> resolve_wrapped_source_from_codegen_shim(const std::filesystem::path &path) {
+    if (path.filename().string().find(".gentest.cpp") == std::string::npos) {
+        return std::nullopt;
+    }
+
+    std::ifstream in(path);
+    if (!in) {
+        return std::nullopt;
+    }
+
+    std::string line;
+    while (std::getline(in, line)) {
+        std::string trimmed = strip_line_comment(std::move(line));
+        if (trimmed.rfind("#include \"", 0) != 0) {
+            continue;
+        }
+        const auto begin = std::string("#include \"").size();
+        const auto end = trimmed.find('"', begin);
+        if (end == std::string::npos) {
+            continue;
+        }
+        return (path.parent_path() / trimmed.substr(begin, end - begin)).lexically_normal();
+    }
+    return std::nullopt;
+}
+
 std::string sanitize_module_filename(std::string value) {
     for (auto &ch : value) {
         const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
@@ -540,6 +592,19 @@ std::string sanitize_module_filename(std::string value) {
         return "module";
     }
     return value;
+}
+
+std::uint64_t stable_fnv1a64(std::string_view value) {
+    std::uint64_t hash = 1469598103934665603ull;
+    for (const unsigned char ch : value) {
+        hash ^= static_cast<std::uint64_t>(ch);
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+std::string stable_hash_hex(std::string_view value) {
+    return fmt::format("{:016x}", stable_fnv1a64(value));
 }
 
 std::optional<std::string> get_env_value(std::string_view name) {
@@ -708,17 +773,22 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
 
 std::filesystem::path resolve_codegen_module_cache_dir(const CollectorOptions &options) {
     std::filesystem::path base_dir;
+    std::string           cache_key;
     if (!options.tu_output_dir.empty()) {
         base_dir = options.tu_output_dir;
+        cache_key = options.tu_output_dir.generic_string();
     } else if (!options.output_path.empty()) {
         base_dir = options.output_path.parent_path();
+        cache_key = options.output_path.generic_string();
     } else {
         base_dir = std::filesystem::current_path();
+        cache_key = base_dir.generic_string();
     }
     if (base_dir.empty()) {
         base_dir = std::filesystem::current_path();
+        cache_key = base_dir.generic_string();
     }
-    return base_dir / ".gentest_codegen_modules";
+    return base_dir / (".gentest_codegen_modules_" + stable_hash_hex(cache_key));
 }
 
 clang::tooling::CommandLineArguments build_module_precompile_command(const clang::tooling::CommandLineArguments &adjusted_command_line,
@@ -1392,10 +1462,9 @@ int main(int argc, const char **argv) {
     }
 
     struct NamedModuleSourceInfo {
-        std::size_t              source_index = 0;
-        std::string              module_name;
-        std::vector<std::string> imported_modules;
-        std::filesystem::path    pcm_path;
+        std::size_t           source_index = 0;
+        std::string           module_name;
+        std::filesystem::path pcm_path;
     };
 
     std::vector<NamedModuleSourceInfo>               named_module_sources;
@@ -1425,16 +1494,25 @@ int main(int argc, const char **argv) {
         known_named_modules.insert(*module_name);
     }
 
-    for (auto &module_source : named_module_sources) {
-        module_source.imported_modules =
-            parse_imported_named_modules_from_source(options.sources[module_source.source_index], known_named_modules);
+    std::vector<std::vector<std::string>> imported_named_modules_by_source(options.sources.size());
+    for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+        auto imports = parse_imported_named_modules_from_source(options.sources[idx], known_named_modules);
+        if (const auto wrapped_source = resolve_wrapped_source_from_codegen_shim(options.sources[idx]); wrapped_source.has_value()) {
+            auto wrapped_imports = parse_imported_named_modules_from_source(*wrapped_source, known_named_modules);
+            imports.insert(imports.end(), wrapped_imports.begin(), wrapped_imports.end());
+            std::sort(imports.begin(), imports.end());
+            imports.erase(std::unique(imports.begin(), imports.end()), imports.end());
+        }
+        imported_named_modules_by_source[idx] = std::move(imports);
     }
 
     std::unordered_map<std::string, std::vector<std::string>> extra_module_args_by_source;
     if (!named_module_sources.empty()) {
         const std::filesystem::path module_cache_dir = resolve_codegen_module_cache_dir(options);
         for (auto &module_source : named_module_sources) {
-            module_source.pcm_path = module_cache_dir / (sanitize_module_filename(module_source.module_name) + ".pcm");
+            module_source.pcm_path = module_cache_dir /
+                fmt::format("{}_{:04d}_{}.pcm", sanitize_module_filename(module_source.module_name),
+                            static_cast<unsigned>(module_source.source_index), stable_hash_hex(module_source.module_name));
         }
 
         enum class ModuleBuildState {
@@ -1463,8 +1541,9 @@ int main(int argc, const char **argv) {
             state = ModuleBuildState::Building;
             auto &module_source = named_module_sources[module_list_idx];
             std::vector<std::string> module_file_args;
-            module_file_args.reserve(module_source.imported_modules.size());
-            for (const auto &import_name : module_source.imported_modules) {
+            const auto &imported_modules = imported_named_modules_by_source[module_source.source_index];
+            module_file_args.reserve(imported_modules.size());
+            for (const auto &import_name : imported_modules) {
                 const auto dep_it = named_module_index_by_name.find(import_name);
                 if (dep_it == named_module_index_by_name.end()) {
                     continue;
@@ -1492,8 +1571,6 @@ int main(int argc, const char **argv) {
                 return false;
             }
 
-            extra_module_args_by_source.emplace(normalize_compdb_lookup_path(options.sources[module_source.source_index]),
-                                                std::move(module_file_args));
             state = ModuleBuildState::Built;
             return true;
         };
@@ -1502,6 +1579,25 @@ int main(int argc, const char **argv) {
             if (!build_named_module_pcm(module_list_idx)) {
                 return 1;
             }
+        }
+
+        for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+            const auto &imported_modules = imported_named_modules_by_source[idx];
+            if (imported_modules.empty()) {
+                continue;
+            }
+
+            std::vector<std::string> module_file_args;
+            module_file_args.reserve(imported_modules.size());
+            for (const auto &import_name : imported_modules) {
+                const auto dep_it = named_module_index_by_name.find(import_name);
+                if (dep_it == named_module_index_by_name.end()) {
+                    continue;
+                }
+                module_file_args.push_back(
+                    fmt::format("-fmodule-file={}={}", import_name, named_module_sources[dep_it->second].pcm_path.string()));
+            }
+            extra_module_args_by_source.emplace(normalize_compdb_lookup_path(options.sources[idx]), std::move(module_file_args));
         }
     }
 
@@ -1685,6 +1781,8 @@ int main(int argc, const char **argv) {
         }
         depfile_dependencies = std::move(depfile_dependencies_local);
     }
+
+    merge_duplicate_mocks(mocks);
 
     if (allow_includes) {
         if (!enforce_unique_base_names(cases)) {

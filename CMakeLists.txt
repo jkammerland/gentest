@@ -32,7 +32,9 @@ option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated run
 option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
 
 set(_gentest_build_codegen_default ON)
-if(CMAKE_CROSSCOMPILING OR NOT ${PROJECT_NAME}_BUILD_TESTING)
+if(CMAKE_CROSSCOMPILING)
+    set(_gentest_build_codegen_default OFF)
+elseif(NOT ${PROJECT_NAME}_BUILD_TESTING AND NOT ${PROJECT_NAME}_INSTALL)
     set(_gentest_build_codegen_default OFF)
 endif()
 option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" ${_gentest_build_codegen_default})

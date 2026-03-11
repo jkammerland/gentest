@@ -168,7 +168,7 @@ Passing meaning:
 - same-block named-module mock use now works when the mocked type and `gentest::mock<T>` live in the same exported namespace block
 - named modules that mock header-defined types now get the generated header-domain mock code injected automatically, without user includes
 - installed package exports are now checked for relocatability and no longer leak the producer checkout through `third_party/include`
-- installed-package consumers no longer need an external `GENTEST_CODEGEN_EXECUTABLE`; the installed package auto-discovers `bin/gentest_codegen`
+- installed-package consumers no longer need an external `GENTEST_CODEGEN_EXECUTABLE`; native install builds now install `bin/gentest_codegen` by default when packaging without tests, and the installed package auto-discovers it
 - module consumers can link just `gentest::gentest_main`; it now pulls in `gentest::gentest_runtime`
 - downstream GCC package-consumer module smoke is covered and green
 
@@ -255,6 +255,9 @@ Regression:
 
 - `tests/cmake/module_mock_imported_sibling/`
 - `cmake/CheckModuleMockImportedSibling.cmake`
+- coverage includes both:
+  - a named-module importer (`consumer.cppm`)
+  - a classic translation-unit importer (`legacy_consumer.cpp`)
 
 ### 5. Fixed the installed package module-consumer follow-ups
 
@@ -262,6 +265,8 @@ The remaining downstream package gaps are also closed in this pass.
 
 Fixes:
 
+- `CMakeLists.txt`
+  - native install builds now default `GENTEST_BUILD_CODEGEN=ON` even when `gentest_BUILD_TESTING=OFF`
 - `tools/CMakeLists.txt`
   - installs `gentest_codegen` with the package
 - `cmake/GentestCodegen.cmake`
