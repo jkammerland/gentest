@@ -195,14 +195,118 @@ bool source_has_manual_mock_codegen_include(std::string_view text) {
            text.find("gentest/mock_impl_codegen.h") != std::string_view::npos;
 }
 
-std::optional<std::string> render_module_wrapper_source(const fs::path &source_path, const std::vector<const MockClassInfo *> &source_mocks) {
+std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_view text) {
+    bool        seen_module_decl = false;
+    std::size_t cursor = 0;
+    std::size_t last_after = 0;
+
+    while (cursor < text.size()) {
+        const std::size_t line_end = text.find('\n', cursor);
+        const std::size_t next = line_end == std::string_view::npos ? text.size() : line_end + 1;
+        std::string_view   line = text.substr(cursor, next - cursor);
+        if (!line.empty() && line.back() == '\n') {
+            line.remove_suffix(1);
+        }
+        if (!line.empty() && line.back() == '\r') {
+            line.remove_suffix(1);
+        }
+        if (const auto comment_pos = line.find("//"); comment_pos != std::string_view::npos) {
+            line = line.substr(0, comment_pos);
+        }
+        const auto first = line.find_first_not_of(" \t");
+        const auto last = line.find_last_not_of(" \t");
+        const std::string_view trimmed = first == std::string_view::npos ? std::string_view{} : line.substr(first, last - first + 1);
+
+        if (!seen_module_decl) {
+            if (trimmed == "module;") {
+                cursor = next;
+                continue;
+            }
+            if (trimmed.starts_with("export module ") || trimmed.starts_with("module ")) {
+                seen_module_decl = true;
+                last_after = next;
+            }
+            cursor = next;
+            continue;
+        }
+
+        if (trimmed.empty() || trimmed.starts_with("import ") || trimmed.starts_with("export import ") || trimmed.starts_with("#")) {
+            last_after = next;
+            cursor = next;
+            continue;
+        }
+        break;
+    }
+
+    if (!seen_module_decl) {
+        return std::nullopt;
+    }
+    return last_after;
+}
+
+std::string render_module_mock_codegen_include_block() {
+    std::string out;
+    out.reserve(192);
+    out.append("\n// gentest_codegen: injected mock codegen include.\n");
+    out.append("#if defined(__clang__)\n");
+    out.append("#pragma clang diagnostic push\n");
+    out.append("#pragma clang diagnostic ignored \"-Winclude-angled-in-module-purview\"\n");
+    out.append("#endif\n");
+    out.append("#include \"gentest/mock_codegen.h\"\n");
+    out.append("#if defined(__clang__)\n");
+    out.append("#pragma clang diagnostic pop\n");
+    out.append("#endif\n");
+    return out;
+}
+
+bool namespace_chains_equal(const std::vector<MockNamespaceScopeInfo> &lhs, const std::vector<MockNamespaceScopeInfo> &rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+        if (lhs[i].name != rhs[i].name || lhs[i].is_inline != rhs[i].is_inline || lhs[i].is_exported != rhs[i].is_exported) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string render_namespace_scope_close(const std::vector<MockNamespaceScopeInfo> &chain) {
+    std::string out;
+    out.reserve(chain.size() * 32);
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        fmt::format_to(std::back_inserter(out), "\n}} // namespace {}\n", it->name);
+    }
+    return out;
+}
+
+std::string render_namespace_scope_reopen(const std::vector<MockNamespaceScopeInfo> &chain) {
+    std::string out;
+    out.reserve(chain.size() * 40);
+    for (const auto &ns : chain) {
+        if (ns.is_exported) {
+            out += "export ";
+        }
+        if (ns.is_inline) {
+            out += "inline ";
+        }
+        fmt::format_to(std::back_inserter(out), "namespace {} {{\n", ns.name);
+    }
+    return out;
+}
+
+std::optional<std::string> render_module_wrapper_source(const fs::path &source_path, const std::vector<const MockClassInfo *> &source_mocks,
+                                                        bool needs_mock_codegen_include) {
     std::string original;
     if (!read_file(source_path, original)) {
         log_err("gentest_codegen: failed to read module source '{}'\n", source_path.string());
         return std::nullopt;
     }
 
-    if (source_mocks.empty() || source_has_manual_mock_codegen_include(original)) {
+    if (source_has_manual_mock_codegen_include(original)) {
+        return original;
+    }
+    if (source_mocks.empty() && !needs_mock_codegen_include) {
         return original;
     }
 
@@ -224,8 +328,17 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
         mocks_by_offset[offset].push_back(mock);
         reserve_extra += mock->qualified_name.size() * 4 + 512;
     }
+    std::optional<std::size_t> mock_codegen_include_offset;
+    if (needs_mock_codegen_include) {
+        mock_codegen_include_offset = find_module_mock_codegen_include_offset(original);
+        if (!mock_codegen_include_offset.has_value()) {
+            log_err("gentest_codegen: failed to locate module mock include insertion point in '{}'\n", source_path.string());
+            return std::nullopt;
+        }
+        reserve_extra += 256;
+    }
 
-    if (mocks_by_offset.empty()) {
+    if (mocks_by_offset.empty() && !mock_codegen_include_offset.has_value()) {
         return original;
     }
 
@@ -234,18 +347,56 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
 
     std::size_t cursor = 0;
     for (auto &[offset, group] : mocks_by_offset) {
+        if (mock_codegen_include_offset.has_value() && *mock_codegen_include_offset <= offset) {
+            if (*mock_codegen_include_offset < cursor || *mock_codegen_include_offset > original.size()) {
+                log_err("gentest_codegen: invalid module mock include insertion offset {} in '{}'\n", *mock_codegen_include_offset,
+                        source_path.string());
+                return std::nullopt;
+            }
+            rendered.append(original.data() + cursor, *mock_codegen_include_offset - cursor);
+            rendered.append(render_module_mock_codegen_include_block());
+            rendered.push_back('\n');
+            cursor = *mock_codegen_include_offset;
+            mock_codegen_include_offset.reset();
+        }
         if (offset < cursor || offset > original.size()) {
             log_err("gentest_codegen: invalid module attachment insertion order in '{}'\n", source_path.string());
             return std::nullopt;
         }
         rendered.append(original.data() + cursor, offset - cursor);
-        rendered.push_back('\n');
         std::ranges::sort(group, {}, [](const MockClassInfo *mock) { return mock->qualified_name; });
+        const auto &namespace_chain = group.front()->attachment_namespace_chain;
+        for (const auto *mock : group) {
+            if (!namespace_chains_equal(namespace_chain, mock->attachment_namespace_chain)) {
+                log_err("gentest_codegen: inconsistent module attachment namespace scope at offset {} in '{}'\n", offset,
+                        source_path.string());
+                return std::nullopt;
+            }
+        }
+        if (!namespace_chain.empty()) {
+            rendered.append(render_namespace_scope_close(namespace_chain));
+        }
+        rendered.push_back('\n');
         for (const auto *mock : group) {
             rendered.append(render::render_module_mock_attachment(*mock));
             rendered.push_back('\n');
         }
+        if (!namespace_chain.empty()) {
+            rendered.append(render_namespace_scope_reopen(namespace_chain));
+        }
         cursor = offset;
+    }
+
+    if (mock_codegen_include_offset.has_value()) {
+        if (*mock_codegen_include_offset < cursor || *mock_codegen_include_offset > original.size()) {
+            log_err("gentest_codegen: invalid module mock include insertion offset {} in '{}'\n", *mock_codegen_include_offset,
+                    source_path.string());
+            return std::nullopt;
+        }
+        rendered.append(original.data() + cursor, *mock_codegen_include_offset - cursor);
+        rendered.append(render_module_mock_codegen_include_block());
+        rendered.push_back('\n');
+        cursor = *mock_codegen_include_offset;
     }
 
     rendered.append(original.data() + cursor, original.size() - cursor);
@@ -517,12 +668,20 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
         for (const auto &f : fixtures_for_render) {
             fixtures_by_tu[normalize_path_key(fs::path(f.tu_filename))].push_back(f);
         }
-        std::unordered_map<std::string, std::vector<const MockClassInfo *>> mocks_by_source;
+        std::unordered_map<std::string, std::vector<const MockClassInfo *>> direct_module_mocks_by_source;
+        std::unordered_map<std::string, bool>                               module_mock_codegen_include_by_source;
         for (const auto &mock : mocks) {
-            if (mock.definition_kind != MockClassInfo::DefinitionKind::NamedModule || mock.definition_file.empty()) {
+            if (mock.definition_kind == MockClassInfo::DefinitionKind::NamedModule && !mock.definition_file.empty()) {
+                direct_module_mocks_by_source[normalize_path_key(fs::path(mock.definition_file))].push_back(&mock);
+            }
+            if (mock.definition_kind != MockClassInfo::DefinitionKind::HeaderLike) {
                 continue;
             }
-            mocks_by_source[normalize_path_key(fs::path(mock.definition_file))].push_back(&mock);
+            for (const auto &use_file : mock.use_files) {
+                if (!use_file.empty()) {
+                    module_mock_codegen_include_by_source[normalize_path_key(fs::path(use_file))] = true;
+                }
+            }
         }
 
         const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
@@ -621,10 +780,11 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
             }
 
             if (is_module_interface_source(source_path)) {
-                const auto mock_it = mocks_by_source.find(key);
+                const auto mock_it = direct_module_mocks_by_source.find(key);
                 const std::vector<const MockClassInfo *> empty_mocks;
-                const auto &source_mocks = mock_it != mocks_by_source.end() ? mock_it->second : empty_mocks;
-                const auto wrapper_source = render_module_wrapper_source(source_path, source_mocks);
+                const auto &source_mocks = mock_it != direct_module_mocks_by_source.end() ? mock_it->second : empty_mocks;
+                const bool needs_mock_codegen_include = module_mock_codegen_include_by_source.contains(key);
+                const auto wrapper_source = render_module_wrapper_source(source_path, source_mocks, needs_mock_codegen_include);
                 if (!wrapper_source.has_value()) {
                     statuses[idx] = 1;
                     return;

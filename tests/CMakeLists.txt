@@ -1718,6 +1718,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_mixed_module_mock_registry APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_mock_additive_visibility
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_mock_additive_visibility
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMockAdditiveVisibility.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_mock_additive_visibility APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_auto_discovery
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_autodiscovery
     ${PROJECT_SOURCE_DIR}/cmake/CheckModuleAutoDiscovery.cmake

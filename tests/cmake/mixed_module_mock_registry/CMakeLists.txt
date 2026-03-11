@@ -19,7 +19,8 @@ target_sources(mixed_tests
     PRIVATE
         FILE_SET mixed_cases TYPE CXX_MODULES FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm
-            ${CMAKE_CURRENT_SOURCE_DIR}/extra_cases.cppm)
+            ${CMAKE_CURRENT_SOURCE_DIR}/extra_cases.cppm
+            ${CMAKE_CURRENT_SOURCE_DIR}/same_block_cases.cppm)
 
 target_link_libraries(mixed_tests PRIVATE gentest_main gentest_runtime)
 target_compile_features(mixed_tests PRIVATE cxx_std_20)

@@ -51,7 +51,7 @@ endif()
 
 target_include_directories(gentest_runtime
     PRIVATE
-        ${PROJECT_SOURCE_DIR}/third_party/include)
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/third_party/include>)
 
 target_compile_features(gentest_runtime PUBLIC cxx_std_20)
 

@@ -86,6 +86,8 @@ set(_module_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0001_g
 set(_module_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0001_gentest_mixed_module_cases.hpp")
 set(_extra_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0002_gentest_mixed_module_extra_cases.hpp")
 set(_extra_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0002_gentest_mixed_module_extra_cases.hpp")
+set(_same_block_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0003_gentest_mixed_module_same_block_cases.hpp")
+set(_same_block_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0003_gentest_mixed_module_same_block_cases.hpp")
 
 foreach(_generated_file IN ITEMS
     "${_dispatcher_registry}"
@@ -95,7 +97,9 @@ foreach(_generated_file IN ITEMS
     "${_module_registry}"
     "${_module_impl}"
     "${_extra_registry}"
-    "${_extra_impl}")
+    "${_extra_impl}"
+    "${_same_block_registry}"
+    "${_same_block_impl}")
   if(NOT EXISTS "${_generated_file}")
     message(FATAL_ERROR "Expected generated mock artifact was not written: ${_generated_file}")
   endif()
@@ -104,6 +108,7 @@ endforeach()
 file(READ "${_header_registry}" _header_registry_text)
 file(READ "${_module_registry}" _module_registry_text)
 file(READ "${_extra_registry}" _extra_registry_text)
+file(READ "${_same_block_registry}" _same_block_registry_text)
 file(READ "${_dispatcher_registry}" _dispatcher_registry_text)
 
 string(FIND "${_header_registry_text}" "legacy::Service" _header_pos)
@@ -121,10 +126,19 @@ if(_extra_pos EQUAL -1)
   message(FATAL_ERROR "Expected second module-domain registry to contain extramod::Worker")
 endif()
 
-string(FIND "${_dispatcher_registry_text}" "#else" _dispatcher_else_pos)
-if(_dispatcher_else_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected dispatcher registry to select either the source-local module domain or the header domain")
+string(FIND "${_same_block_registry_text}" "sameblock::Service" _same_block_pos)
+if(_same_block_pos EQUAL -1)
+  message(FATAL_ERROR "Expected same-block module-domain registry to contain sameblock::Service")
+endif()
+
+string(FIND "${_dispatcher_registry_text}" "mixed_tests_mock_registry__domain_0000_header.hpp" _dispatcher_header_include_pos)
+if(_dispatcher_header_include_pos EQUAL -1)
+  message(FATAL_ERROR "Expected dispatcher registry to include the header-domain mock shard")
+endif()
+
+string(FIND "${_dispatcher_registry_text}" "GENTEST_MOCK_DOMAIN_REGISTRY_PATH" _dispatcher_domain_macro_pos)
+if(_dispatcher_domain_macro_pos EQUAL -1)
+  message(FATAL_ERROR "Expected dispatcher registry to keep optional source-local mock-domain support")
 endif()
 
 message(STATUS "Run mixed target acceptance cases...")
@@ -139,6 +153,10 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 gentest_check_run_or_fail(
   COMMAND "${_prog}" --run=mixed/extra_module_mock
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+gentest_check_run_or_fail(
+  COMMAND "${_prog}" --run=mixed/same_block_module_mock
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 

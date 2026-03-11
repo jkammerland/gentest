@@ -304,23 +304,6 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
                                                                           const SourceManager &sm) {
     const LangOptions &lang_opts = ctx.getLangOpts();
 
-    const NamespaceDecl *outermost_namespace = nullptr;
-    const DeclContext   *decl_ctx            = record.getDeclContext();
-    while (decl_ctx != nullptr) {
-        if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(decl_ctx)) {
-            if (!ns->isAnonymousNamespace()) {
-                outermost_namespace = ns;
-            }
-        }
-        decl_ctx = decl_ctx->getParent();
-    }
-
-    if (outermost_namespace != nullptr) {
-        if (const auto offset = location_after_token_offset(sm, lang_opts, outermost_namespace->getEndLoc()); offset.has_value()) {
-            return offset;
-        }
-    }
-
     if (const SourceLocation after_semi =
             Lexer::findLocationAfterToken(sm.getFileLoc(record.getEndLoc()), tok::semi, sm, lang_opts, true);
         after_semi.isValid()) {
@@ -328,6 +311,26 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
     }
 
     return location_after_token_offset(sm, lang_opts, record.getEndLoc());
+}
+
+[[nodiscard]] std::vector<MockNamespaceScopeInfo> collect_attachment_namespace_chain(const CXXRecordDecl &record) {
+    std::vector<MockNamespaceScopeInfo> chain;
+
+    const DeclContext *decl_ctx = record.getDeclContext();
+    while (decl_ctx != nullptr) {
+        const auto *ns = llvm::dyn_cast<NamespaceDecl>(decl_ctx);
+        if (ns != nullptr && !ns->isAnonymousNamespace()) {
+            chain.push_back(MockNamespaceScopeInfo{
+                .name        = ns->getNameAsString(),
+                .is_inline   = ns->isInline(),
+                .is_exported = llvm::isa<ExportDecl>(ns->getLexicalDeclContext()),
+            });
+        }
+        decl_ctx = decl_ctx->getParent();
+    }
+
+    std::reverse(chain.begin(), chain.end());
+    return chain;
 }
 
 } // namespace
@@ -387,7 +390,17 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     }
 
     const auto *canonical = record->getCanonicalDecl();
-    if (!seen_.insert(canonical).second) {
+    const ASTContext    &ctx     = *result.Context;
+    const SourceManager &sm      = *result.SourceManager;
+    const SourceLocation def_loc = sm.getFileLoc(record->getBeginLoc());
+    const SourceLocation use_loc = decl.getPointOfInstantiation().isValid() ? decl.getPointOfInstantiation() : decl.getBeginLoc();
+    const std::string    use_file = resolve_definition_file(sm, use_loc);
+    if (const auto it = seen_.find(canonical); it != seen_.end()) {
+        auto &existing = out_[it->second];
+        if (!use_file.empty() &&
+            std::find(existing.use_files.begin(), existing.use_files.end(), use_file) == existing.use_files.end()) {
+            existing.use_files.push_back(use_file);
+        }
         return;
     }
 
@@ -449,11 +462,8 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     }
     info.has_accessible_default_ctor = has_accessible_default_ctor(*record);
 
-    const ASTContext    &ctx                     = *result.Context;
-    const SourceManager &sm                      = *result.SourceManager;
-    const SourceLocation def_loc                 = sm.getFileLoc(record->getBeginLoc());
-    const std::string definition_file      = resolve_definition_file(sm, def_loc);
-    const auto        definition_module    = named_module_name_from_file(definition_file);
+    const std::string definition_file = resolve_definition_file(sm, def_loc);
+    const auto        definition_module = named_module_name_from_file(definition_file);
     const bool        from_named_module =
         (is_in_named_module_compat(*record) && !is_from_header_unit_compat(*record)) || definition_module.has_value();
     if (definition_file.empty() || (looks_like_source_or_module_interface(definition_file) && !from_named_module)) {
@@ -465,11 +475,15 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         return;
     }
     info.definition_file = definition_file;
+    if (!use_file.empty()) {
+        info.use_files.push_back(use_file);
+    }
     info.definition_kind =
         from_named_module ? MockClassInfo::DefinitionKind::NamedModule : MockClassInfo::DefinitionKind::HeaderLike;
     if (definition_module.has_value()) {
         info.definition_module_name = *definition_module;
         info.attachment_insertion_offset = find_attachment_insertion_offset(*record, ctx, sm);
+        info.attachment_namespace_chain  = collect_attachment_namespace_chain(*record);
     }
 
     // Capture constructors (excluding the default ctor which is tracked via
@@ -646,6 +660,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     std::ranges::sort(info.methods, {}, &MockMethodInfo::qualified_name);
 
     out_.push_back(std::move(info));
+    seen_[canonical] = out_.size() - 1;
 }
 
 void MockUsageCollector::run(const MatchFinder::MatchResult &result) {

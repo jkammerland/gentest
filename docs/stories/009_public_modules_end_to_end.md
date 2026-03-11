@@ -56,7 +56,8 @@ The biggest implementation risks are:
 - Mixed targets are supported by partitioning generated mock outputs by visibility domain:
   - one header/global mock shard
   - one generated shard per named module
-  - source-local dispatcher selection so each named module sees only its own generated mock shard
+  - module-owned types are attached directly in generated module wrappers
+  - header-defined mock types used from named modules get the generated header-domain mock code injected automatically
 
 This removes the last user-facing include step from the named-module mock flow. Consumers now stay on `import gentest.mock;`, while the build-generated wrapper layer handles target-local specialization attachment internally.
 

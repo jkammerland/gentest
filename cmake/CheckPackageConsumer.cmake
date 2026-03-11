@@ -70,7 +70,7 @@ set(_work_dir "${BUILD_ROOT}/package_consumer")
 set(_producer_build_dir "${_work_dir}/producer")
 set(_install_prefix "${_work_dir}/install")
 set(_consumer_build_dir "${_work_dir}/consumer")
-set(_consumer_source_dir "${SOURCE_DIR}/tests/consumer")
+set(_consumer_source_dir "${_work_dir}/consumer_src")
 
 set(_exe_ext "")
 if(CMAKE_HOST_WIN32)
@@ -79,6 +79,7 @@ endif()
 
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
+file(COPY "${SOURCE_DIR}/tests/consumer/" DESTINATION "${_consumer_source_dir}")
 
 set(_cmake_generator_args)
 if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
@@ -171,6 +172,17 @@ if(NOT _config_candidates)
 endif()
 list(GET _config_candidates 0 _config_file)
 get_filename_component(_config_dir "${_config_file}" DIRECTORY)
+file(GLOB _installed_cmake_files
+  LIST_DIRECTORIES FALSE
+  "${_config_dir}/*.cmake")
+foreach(_installed_cmake_file IN LISTS _installed_cmake_files)
+  file(READ "${_installed_cmake_file}" _installed_cmake_text)
+  string(FIND "${_installed_cmake_text}" "${SOURCE_DIR}" _source_dir_ref_pos)
+  if(NOT _source_dir_ref_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Installed package export still references the producer source tree: ${SOURCE_DIR}\nFile: ${_installed_cmake_file}")
+  endif()
+endforeach()
 
 message(STATUS "Configure consumer project...")
 if(NOT EXISTS "${_consumer_source_dir}/CMakeLists.txt")

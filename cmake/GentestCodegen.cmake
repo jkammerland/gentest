@@ -926,38 +926,6 @@ function(gentest_attach_codegen target)
         GENTEST_MOCK_REGISTRY_PATH=${_gentest_mock_header_name}
         GENTEST_MOCK_IMPL_PATH=${_gentest_mock_impl_name}
     )
-    list(LENGTH _gentest_tus _gentest_tu_count)
-    math(EXPR _gentest_last_tu "${_gentest_tu_count} - 1")
-    foreach(_gentest_idx RANGE 0 ${_gentest_last_tu})
-        list(GET _gentest_module_names ${_gentest_idx} _gentest_module_name)
-        if(_gentest_module_name STREQUAL "__gentest_no_module__")
-            continue()
-        endif()
-
-        string(MD5 _gentest_module_key "${_gentest_module_name}")
-        set(_gentest_domain_registry "${_gentest_mock_domain_registry_${_gentest_module_key}}")
-        set(_gentest_domain_impl "${_gentest_mock_domain_impl_${_gentest_module_key}}")
-        if(NOT _gentest_domain_registry OR NOT _gentest_domain_impl)
-            message(FATAL_ERROR
-                "gentest_attach_codegen(${target}): internal error resolving mock domain outputs for module '${_gentest_module_name}'")
-        endif()
-
-        get_filename_component(_gentest_domain_registry_name "${_gentest_domain_registry}" NAME)
-        get_filename_component(_gentest_domain_impl_name "${_gentest_domain_impl}" NAME)
-        list(GET _gentest_tu_source_entries ${_gentest_idx} _gentest_src_entry)
-        list(GET _gentest_tus ${_gentest_idx} _gentest_src_abs)
-        list(GET _gentest_wrapper_cpp ${_gentest_idx} _gentest_wrap_cpp)
-        set(_gentest_module_sources "${_gentest_src_entry}" "${_gentest_src_abs}" "${_gentest_wrap_cpp}")
-        list(REMOVE_DUPLICATES _gentest_module_sources)
-        foreach(_gentest_module_source IN LISTS _gentest_module_sources)
-            if(NOT _gentest_module_source)
-                continue()
-            endif()
-            set_property(SOURCE "${_gentest_module_source}" APPEND PROPERTY COMPILE_DEFINITIONS
-                GENTEST_MOCK_DOMAIN_REGISTRY_PATH=${_gentest_domain_registry_name}
-                GENTEST_MOCK_DOMAIN_IMPL_PATH=${_gentest_domain_impl_name})
-        endforeach()
-    endforeach()
     if(GENTEST_USE_BOOST_JSON)
         target_compile_definitions(${target} PRIVATE GENTEST_USE_BOOST_JSON)
     endif()

@@ -164,23 +164,90 @@ Passing meaning:
 - mixed targets can combine legacy/header mocks with multiple named-module mock domains
 - named-module consumers no longer need `#include "gentest/mock_codegen.h"`; target-local mock attachment is injected through generated module wrappers
 - GCC no longer fails on the `gentest.mock` public surface due to TU-local helper leakage
+- same-block named-module mock use now works when the mocked type and `gentest::mock<T>` live in the same exported namespace block
+- named modules that mock header-defined types now get the generated header-domain mock code injected automatically, without user includes
+- installed package exports are now checked for relocatability and no longer leak the producer checkout through `third_party/include`
 
 ### Intentionally Still Red / Known Limited
 
 - imported named-module dependency invalidation for codegen outputs
   - still not pinned down by a clean regression in this pass
+- target-local imported named-module mocks during codegen
+  - still blocked by build architecture, not just dispatcher visibility
+  - `gentest_codegen` currently strips module mapping inputs and runs before sibling target BMIs are guaranteed to exist, so parsing `import <sibling-module>;` during codegen is still a separate follow-up
 - GCC package-consumer TU-wrapper module shim path
   - not claimed fixed here; package smoke currently prefers Clang for the downstream module consumer on Unix
+
+## Additional Progress After The Initial Pass
+
+### 1. Fixed same-block named-module mock attachment
+
+The earlier module wrapper path injected module-owned mock attachments only after the enclosing namespace closed. That failed when a module defined a mocked type and used `gentest::mock<T>` later in the same `export namespace ... { ... }` block.
+
+Fix:
+
+- `tools/src/mock_discovery.cpp`
+  - attachment insertion points now anchor immediately after the mocked record definition
+  - the enclosing namespace chain is recorded for the attachment point
+- `tools/src/model.hpp`
+  - tracks the namespace chain for generated attachment rewrites
+- `tools/src/emit.cpp`
+  - generated module wrappers now close the active namespace chain, emit the attachment at global scope, then reopen the namespace chain before resuming the original source
+
+Regression:
+
+- `tests/cmake/mixed_module_mock_registry/same_block_cases.cppm`
+- `cmake/CheckMixedModuleMockRegistry.cmake`
+
+### 2. Fixed header-domain mock visibility inside named modules
+
+Named modules that mocked a header-defined type still saw only the forward declaration from `gentest.mock`, because the generated header-domain mock code was never brought into the module wrapper unless the user manually included `gentest/mock_codegen.h`.
+
+Fix:
+
+- `tools/src/mock_discovery.cpp`
+  - now tracks which source files instantiate each discovered mock target
+- `tools/src/emit.cpp`
+  - module wrappers detect header-defined mock use in that source
+  - inject `gentest/mock_codegen.h` once, after the module declaration/import block, when the source relies on generated header-domain mock code
+- `tools/src/render_mocks.cpp`
+  - dispatcher headers now always include the header-domain shard first
+- `cmake/GentestCodegen.cmake`
+  - removed the old per-source `GENTEST_MOCK_DOMAIN_*` wiring that had been steering module sources toward only their own named-module shard
+
+Regression:
+
+- `tests/cmake/module_mock_additive_visibility/`
+- `cmake/CheckModuleMockAdditiveVisibility.cmake`
+
+Current scope:
+
+- covered and green: header-defined mocks used from named modules
+- not yet covered: mocks of types imported from sibling target-local named modules during codegen
+
+### 3. Fixed the installed export relocatability leak
+
+The installed export set was still carrying `${PROJECT_SOURCE_DIR}/third_party/include` through the exported module target metadata, even though that include directory is only needed by a private runtime source file.
+
+Fix:
+
+- `src/CMakeLists.txt`
+  - constrained `third_party/include` to the producer build with `$<BUILD_INTERFACE:...>`
+- `cmake/CheckPackageConsumer.cmake`
+  - consumer project is copied out of the source tree before configure
+  - all installed CMake export files under the package config directory are scanned and must not reference `${SOURCE_DIR}`
 
 ## Recommended Next Step
 
 The next product decision should move to the remaining rebuild and compiler-coverage gaps:
 
 1. add a clean regression for imported named-module dependency invalidation
-2. decide whether GCC package-consumer TU-wrapper support is a required goal or an explicitly unsupported path
+2. decide whether target-local imported named-module mocks during codegen are in scope for the next architecture pass
+3. decide whether GCC package-consumer TU-wrapper support is a required goal or an explicitly unsupported path
 
 ## Follow-up Work Items
 
 1. Add a clean imported-module dependency invalidation regression
-2. Decide whether GCC module TU-wrapper support is a required goal or an explicitly unsupported path
-3. Replace the current package-smoke Clang preference only after the GCC wrapper path is either fixed or intentionally fenced off
+2. Design a two-stage or BMI-aware codegen path if sibling target module imports must be supported during codegen
+3. Decide whether GCC module TU-wrapper support is a required goal or an explicitly unsupported path
+4. Replace the current package-smoke Clang preference only after the GCC wrapper path is either fixed or intentionally fenced off
