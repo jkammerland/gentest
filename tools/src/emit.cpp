@@ -222,7 +222,7 @@ struct SourceMockCodegenIncludes {
     bool has_registry_codegen = false;
     bool has_impl_codegen = false;
 
-    [[nodiscard]] bool any() const { return has_mock_codegen || has_registry_codegen || has_impl_codegen; }
+    [[nodiscard]] bool has_complete_manual_codegen() const { return has_mock_codegen || (has_registry_codegen && has_impl_codegen); }
 };
 
 SourceMockCodegenIncludes scan_source_mock_codegen_includes(std::string_view text) {
@@ -407,7 +407,7 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
         reserve_extra += mock->qualified_name.size() * 4 + 512;
     }
     std::optional<std::size_t> mock_codegen_include_offset;
-    if (needs_mock_codegen_include && !manual_includes.any()) {
+    if (needs_mock_codegen_include && !manual_includes.has_complete_manual_codegen()) {
         mock_codegen_include_offset = find_module_mock_codegen_include_offset(original);
         if (!mock_codegen_include_offset.has_value()) {
             log_err("gentest_codegen: failed to locate module mock include insertion point in '{}'\n", source_path.string());

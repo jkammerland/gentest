@@ -209,7 +209,7 @@ if(NOT _producer_fmt_dir STREQUAL "")
   # Keep consumer dependency resolution aligned with the producer package build.
   list(APPEND _consumer_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")
 endif()
-if(CMAKE_HOST_WIN32 AND DEFINED CXX_COMPILER AND CXX_COMPILER MATCHES "[Cc]lang")
+if(CMAKE_HOST_WIN32 AND NOT _effective_cxx_compiler STREQUAL "" AND _effective_cxx_compiler MATCHES "[Cc]lang")
   # Keep the consumer build compatible with the producer's Windows+Clang settings.
   list(APPEND _consumer_cache_args "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
   list(APPEND _consumer_cache_args
