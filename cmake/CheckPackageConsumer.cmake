@@ -121,14 +121,38 @@ elseif(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
   set(_effective_cxx_compiler "${CXX_COMPILER}")
 endif()
 
+set(_effective_cxx_compiler_name "")
+if(NOT _effective_cxx_compiler STREQUAL "")
+  get_filename_component(_effective_cxx_compiler_name "${_effective_cxx_compiler}" NAME)
+endif()
+
+set(_effective_build_type "${BUILD_TYPE}")
+if(CMAKE_HOST_WIN32
+   AND NOT _effective_cxx_compiler STREQUAL ""
+   AND _effective_cxx_compiler MATCHES "[Cc]lang"
+   AND NOT _effective_cxx_compiler_name MATCHES "^clang-cl(\\.exe)?$")
+  # CMake's synthetic imported-module build for GNU-style clang still injects
+  # the Debug DLL runtime in Debug builds, which then conflicts with the
+  # consumer shims. Drive this installed-package smoke through Release on that
+  # platform/toolchain combination so the module synth units and consumer code
+  # share one CRT model.
+  set(_effective_build_type "Release")
+endif()
+
 if(NOT _effective_c_compiler STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${_effective_c_compiler}")
 endif()
 if(NOT _effective_cxx_compiler STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${_effective_cxx_compiler}")
 endif()
-if(DEFINED BUILD_TYPE AND NOT BUILD_TYPE STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DLLVM_DIR=${LLVM_DIR}")
+endif()
+if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
+endif()
+if(NOT "${_effective_build_type}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${_effective_build_type}")
 endif()
 
 message(STATUS "Configure producer build (${PACKAGE_NAME})...")

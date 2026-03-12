@@ -1603,6 +1603,8 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
             -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
             -DC_COMPILER=${CMAKE_C_COMPILER}
             -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DLLVM_DIR=${LLVM_DIR}
+            -DClang_DIR=${Clang_DIR}
             -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
             ${ARGN}
             -P ${script_path})
