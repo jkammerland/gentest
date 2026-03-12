@@ -1734,6 +1734,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_mock_imported_sibling APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_pcm_cache_isolation
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_pcm_cache_isolation
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModulePcmCacheIsolation.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_pcm_cache_isolation APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_auto_discovery
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_autodiscovery
     ${PROJECT_SOURCE_DIR}/cmake/CheckModuleAutoDiscovery.cmake
