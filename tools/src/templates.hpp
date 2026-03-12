@@ -112,24 +112,24 @@ struct gentest_noexceptions_local_teardown {
 
 template <typename BodyFn, typename TeardownFn>
 inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
-    if constexpr (::gentest::detail::exceptions_enabled) {
-        try {
-            body();
-        } catch (...) {
-            try {
-                teardown();
-            } catch (...) {
-            }
-            throw;
-        }
-        teardown();
-    } else {
-        auto teardown_fn = std::forward<TeardownFn>(teardown);
-        gentest_noexceptions_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
-        ::gentest::detail::NoExceptionsFatalHookScope            fatal_scope(&decltype(teardown_state)::run, &teardown_state);
+#if GENTEST_EXCEPTIONS_ENABLED
+    try {
         body();
-        teardown_state.run_now();
+    } catch (...) {
+        try {
+            teardown();
+        } catch (...) {
+        }
+        throw;
     }
+    teardown();
+#else
+    auto teardown_fn = std::forward<TeardownFn>(teardown);
+    gentest_noexceptions_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
+    ::gentest::detail::NoExceptionsFatalHookScope            fatal_scope(&decltype(teardown_state)::run, &teardown_state);
+    body();
+    teardown_state.run_now();
+#endif
 }
 
 template <typename Handle>

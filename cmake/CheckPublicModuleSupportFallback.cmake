@@ -22,6 +22,7 @@ if(NOT DEFINED FALLBACK_MODE OR "${FALLBACK_MODE}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/public_module_support_fallback_${FALLBACK_MODE}")
 set(_src_dir "${_work_dir}/src")
@@ -30,21 +31,15 @@ file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
-find_program(_clang NAMES clang)
-find_program(_clangxx NAMES clang++)
+gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
   message(STATUS "Skipping public module fallback regression (${FALLBACK_MODE}): clang/clang++ not found")
   return()
 endif()
 
-set(_real_ninja "")
-if(DEFINED MAKE_PROGRAM AND NOT "${MAKE_PROGRAM}" STREQUAL "" AND EXISTS "${MAKE_PROGRAM}")
-  set(_real_ninja "${MAKE_PROGRAM}")
-else()
-  find_program(_real_ninja NAMES ninja ninja-build)
-endif()
+gentest_find_supported_ninja(_real_ninja _real_ninja_reason)
 if(NOT _real_ninja)
-  message(STATUS "Skipping public module fallback regression (${FALLBACK_MODE}): Ninja not found")
+  message(STATUS "Skipping public module fallback regression (${FALLBACK_MODE}): ${_real_ninja_reason}")
   return()
 endif()
 
@@ -107,6 +102,12 @@ string(FIND "${_configure_out}" "${_expect_substring}" _reason_pos)
 if(_reason_pos EQUAL -1)
   message(FATAL_ERROR
     "Expected configure output to mention '${_expect_substring}', but it did not.\n${_configure_out}")
+endif()
+
+string(FIND "${_configure_out}" "public named modules disabled automatically" _disabled_pos)
+if(_disabled_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected configure output to mention 'public named modules disabled automatically', but it did not.\n${_configure_out}")
 endif()
 
 message(STATUS "Build public module fallback fixture (${FALLBACK_MODE})...")

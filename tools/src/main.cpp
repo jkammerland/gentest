@@ -14,6 +14,7 @@
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
+#include <clang/Driver/Driver.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Lex/PPCallbacks.h>
@@ -828,6 +829,9 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
         if (arg == "-c" || arg == "--precompile" || arg == "/c") {
             continue;
         }
+        if (arg == "--") {
+            continue;
+        }
         if (arg == "-o" || arg == "-MF" || arg == "-MT" || arg == "-MQ" || arg == "-x" || arg == "-fmodule-output") {
             skip_next_arg = true;
             continue;
@@ -927,11 +931,25 @@ std::optional<std::size_t> parse_jobs_string(std::string_view raw_value) {
 
 std::string resolve_default_compiler_path() {
     static constexpr std::string_view kDefault = "clang++";
+    static constexpr std::array<std::string_view, 2> kEnvVars = {"CXX", "CC"};
+
+    for (const auto env_name : kEnvVars) {
+        const char *env_value = std::getenv(std::string(env_name).c_str());
+        if (!env_value || !*env_value) {
+            continue;
+        }
+        auto resolved = llvm::sys::findProgramByName(env_value);
+        const std::string candidate = resolved ? *resolved : std::string(env_value);
+        if (is_clang_like_compiler(candidate)) {
+            return candidate;
+        }
+    }
 #if defined(_WIN32)
-    static constexpr std::array<std::string_view, 2> kCandidates = {"clang++.exe", "clang++"};
+    static constexpr std::array<std::string_view, 4> kCandidates = {"clang++.exe", "clang++", "clang.exe", "clang"};
 #else
     const std::string versioned = std::string("clang++-") + std::to_string(CLANG_VERSION_MAJOR);
-    const std::array<std::string, 2> kCandidates = {versioned, std::string(kDefault)};
+    const std::string versioned_c = std::string("clang-") + std::to_string(CLANG_VERSION_MAJOR);
+    const std::array<std::string, 4> kCandidates = {versioned, std::string(kDefault), versioned_c, std::string("clang")};
 #endif
     for (const auto &candidate : kCandidates) {
         auto path = llvm::sys::findProgramByName(candidate);
@@ -1049,6 +1067,15 @@ std::string compiler_for_resource_dir_probe(const clang::tooling::CommandLineArg
 }
 
 std::string resolve_resource_dir(const std::string &compiler_path) {
+    if (const char *override_resource_dir = std::getenv("GENTEST_CODEGEN_RESOURCE_DIR");
+        override_resource_dir && *override_resource_dir) {
+        if (std::filesystem::exists(override_resource_dir)) {
+            return std::string(override_resource_dir);
+        }
+        gentest::codegen::log_err("gentest_codegen: warning: GENTEST_CODEGEN_RESOURCE_DIR='{}' does not exist\n",
+                                  override_resource_dir);
+    }
+
     if (compiler_path.empty()) {
         return {};
     }
@@ -1058,6 +1085,11 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
         // `compiler_path` can be a full path already (or just not on PATH).
         // We'll still try to execute it and let ExecuteAndWait surface errors.
         resolved_path = compiler_path;
+    }
+
+    const std::string driver_resource_dir = clang::driver::Driver::GetResourcesPath(*resolved_path);
+    if (!driver_resource_dir.empty() && std::filesystem::exists(driver_resource_dir)) {
+        return driver_resource_dir;
     }
 
     llvm::SmallString<128> tmp_path;

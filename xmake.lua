@@ -85,7 +85,7 @@ local function gentest_suite(name)
                 table.insert(args, "--compdb")
                 table.insert(args, compdb_dir)
             end
-            table.insert(args, path.join("tests", name, "cases.cpp"))
+            table.insert(args, path.join(os.projectdir(), "tests", name, "cases.cpp"))
             table.insert(args, "--")
             table.insert(args, "-std=c++20")
             table.insert(args, "-DGENTEST_CODEGEN=1")

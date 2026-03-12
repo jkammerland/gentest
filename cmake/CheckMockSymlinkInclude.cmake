@@ -30,6 +30,26 @@ if(WIN32)
   return()
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+
+gentest_resolve_clang_fixture_compilers(_clang _clangxx)
+if(NOT _clang OR NOT _clangxx)
+  message(STATUS "CheckMockSymlinkInclude.cmake: clang/clang++ not found; skipping")
+  return()
+endif()
+
+execute_process(
+  COMMAND "${_clangxx}" -print-resource-dir
+  RESULT_VARIABLE _resource_dir_rc
+  OUTPUT_VARIABLE _resource_dir
+  ERROR_VARIABLE _resource_dir_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _resource_dir_rc EQUAL 0 OR "${_resource_dir}" STREQUAL "")
+  message(STATUS "CheckMockSymlinkInclude.cmake: failed to query clang resource dir from '${_clangxx}': ${_resource_dir_err}")
+  return()
+endif()
+
 set(_work_dir "${BUILD_ROOT}/gentest_codegen_symlink_include")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
@@ -45,6 +65,7 @@ set(_input_cpp "${_real_src_dir}/input.cpp")
 set(_output_cpp "${_work_dir}/symlink_output.gentest.cpp")
 set(_mock_registry "${_work_dir}/symlink_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/symlink_mock_impl.hpp")
+set(_mock_registry_domain "${_work_dir}/symlink_mock_registry__domain_0000_header.hpp")
 
 file(WRITE "${_real_header}" "namespace symlinkprobe { struct Sink { void write(int) {} }; }\n")
 file(WRITE "${_input_cpp}"
@@ -120,7 +141,11 @@ endif()
 unset(_cache_file)
 
 execute_process(
-  COMMAND "${PROG}" ${_args}
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "CC=${_clang}"
+          "CXX=${_clangxx}"
+          "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
+          "${PROG}" ${_args}
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err
@@ -134,8 +159,11 @@ endif()
 if(NOT EXISTS "${_mock_registry}")
   message(FATAL_ERROR "Symlink mock codegen did not produce registry header: ${_mock_registry}")
 endif()
+if(NOT EXISTS "${_mock_registry_domain}")
+  message(FATAL_ERROR "Symlink mock codegen did not produce domain registry header: ${_mock_registry_domain}")
+endif()
 
-file(READ "${_mock_registry}" _registry_text)
+file(READ "${_mock_registry_domain}" _registry_text)
 set(_expected_include "#include \"view/include/symlink_sink.hpp\"")
 set(_forbidden_include "#include \"real/include/symlink_sink.hpp\"")
 string(FIND "${_registry_text}" "${_expected_include}" _expected_pos)
