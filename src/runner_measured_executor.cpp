@@ -705,6 +705,8 @@ TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::
         kCases, idxs, "jitter", fail_fast,
         [&](const gentest::Case &measured, void *measured_ctx) { return run_jitter(measured, measured_ctx, opt.bench_cfg); },
         [&](const gentest::Case &measured, JitterResult &&jr) {
+            jr.histogram_bins = opt.jitter_bins;
+            jr.histogram      = gentest::detail::compute_histogram(jr.samples_ns, opt.jitter_bins);
             on_success(measured, jr);
             rows.push_back(JitterReportRow{
                 .c      = &measured,

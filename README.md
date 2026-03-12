@@ -558,6 +558,30 @@ Failures are reported by phase (`setup`, `call`, or `teardown`), and the executa
 ./my_tests --github-annotations
 ```
 
+`--allure-dir` currently requires a `GENTEST_USE_BOOST_JSON=ON` build. Without that backend, no Allure files are written. In supported builds, measured cases emit richer native artifacts:
+- bench metrics as TSV plus an SVG summary plot
+- jitter metrics/histogram as TSV plus an SVG histogram plot and sampled raw JSON
+
+Minimal CDash dashboard support is available through `ctest -S`:
+
+```bash
+ctest -S cmake/cdash/Experimental.cmake -VV
+GENTEST_CDASH_ENABLE_ALLURE_TESTS=ON ctest -S cmake/cdash/Experimental.cmake -VV
+GENTEST_CDASH_SUBMIT_URL='https://cdash.example/submit.php?project=gentest' ctest -S cmake/cdash/Experimental.cmake -VV
+```
+
+Useful overrides are read from the environment:
+- `GENTEST_CDASH_SOURCE_DIR`
+- `GENTEST_CDASH_BINARY_DIR`
+- `GENTEST_CDASH_GENERATOR`
+- `GENTEST_CDASH_PARALLEL_LEVEL`
+- `GENTEST_CDASH_CONFIGURATION`
+- `GENTEST_CDASH_ENABLE_ALLURE_TESTS`
+- `GENTEST_CDASH_BUILD_TARGETS`
+- `GENTEST_CDASH_TEST_REGEX`
+- `GENTEST_CDASH_SUBMIT_URL`
+- `GENTEST_CDASH_DRY_RUN=ON`
+
 >[!WARNING]
 > Cross-compiling requires a *host* `gentest_codegen` executable. See
 > [`docs/cross_compile/linux_aarch64_qemu.md`](docs/cross_compile/linux_aarch64_qemu.md) and the install templates under

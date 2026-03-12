@@ -4,6 +4,8 @@
 #  -DARGS=<optional CLI args>
 #  -DEXPECT_RC=<expected numeric exit code>
 #  -DEXPECT_SUBSTRING=<substring that must be present in combined output>
+#  -DEXPECT_COUNT_SUBSTRING=<substring whose exact occurrence count is enforced>
+#  -DEXPECT_COUNT=<expected count for EXPECT_COUNT_SUBSTRING>
 #  -DFORBID_SUBSTRING=<substring that must NOT be present in combined output>
 #  -DFORBID_SUBSTRINGS=<substrings delimited by '|' that must NOT be present in combined output>
 
@@ -49,6 +51,23 @@ if(DEFINED EXPECT_SUBSTRING AND NOT "${EXPECT_SUBSTRING}" STREQUAL "")
   string(FIND "${_all}" "${EXPECT_SUBSTRING}" _expect_pos)
   if(_expect_pos EQUAL -1)
     message(FATAL_ERROR "Expected substring not found: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
+  endif()
+endif()
+
+if(DEFINED EXPECT_COUNT_SUBSTRING AND NOT "${EXPECT_COUNT_SUBSTRING}" STREQUAL "")
+  if(NOT DEFINED EXPECT_COUNT OR "${EXPECT_COUNT}" STREQUAL "")
+    message(FATAL_ERROR "EXPECT_COUNT must be set when EXPECT_COUNT_SUBSTRING is used")
+  endif()
+  string(LENGTH "${EXPECT_COUNT_SUBSTRING}" _needle_len)
+  if(_needle_len EQUAL 0)
+    message(FATAL_ERROR "EXPECT_COUNT_SUBSTRING must not be empty")
+  endif()
+  string(LENGTH "${_all}" _all_len)
+  string(REPLACE "${EXPECT_COUNT_SUBSTRING}" "" _without_count_substring "${_all}")
+  string(LENGTH "${_without_count_substring}" _without_len)
+  math(EXPR _count "(${_all_len} - ${_without_len}) / ${_needle_len}")
+  if(NOT _count EQUAL EXPECT_COUNT)
+    message(FATAL_ERROR "Expected substring '${EXPECT_COUNT_SUBSTRING}' exactly ${EXPECT_COUNT} times, found ${_count}. Output:\n${_all}")
   endif()
 endif()
 

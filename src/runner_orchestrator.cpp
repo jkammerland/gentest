@@ -2,6 +2,7 @@
 
 #include "runner_fixture_runtime.h"
 #include "runner_measured_executor.h"
+#include "runner_measured_report.h"
 #include "runner_reporting.h"
 #include "runner_selector.h"
 #include "runner_test_executor.h"
@@ -91,14 +92,16 @@ void record_runner_level_failure(OrchestratorState &state, std::string_view name
 RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, std::string_view failure_message) {
     RunResult result;
     if (failure.skipped) {
+        if (failure.infra_failure) {
+            result.outcome = Outcome::Fail;
+            const std::string issue = failure.reason.empty() ? std::string("shared fixture unavailable") : failure.reason;
+            result.failures.push_back(issue);
+            result.summary_issues.push_back(issue);
+            return result;
+        }
         result.skipped     = true;
         result.outcome     = Outcome::Skip;
         result.skip_reason = failure.reason;
-        if (failure.infra_failure) {
-            const std::string issue = result.skip_reason.empty() ? std::string("shared fixture unavailable") : result.skip_reason;
-            result.failures.push_back(issue);
-            result.summary_issues.push_back(issue);
-        }
         return result;
     }
 
@@ -116,10 +119,11 @@ RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, st
     return result;
 }
 
-template <typename Result> RunResult make_measured_success_result(const Result &result) {
+RunResult make_measured_success_result(double wall_time_s, std::vector<ReportAttachment> attachments = {}) {
     RunResult run_result;
-    run_result.time_s  = result.wall_time_s;
-    run_result.outcome = Outcome::Pass;
+    run_result.time_s      = wall_time_s;
+    run_result.outcome     = Outcome::Pass;
+    run_result.attachments = std::move(attachments);
     return run_result;
 }
 
@@ -179,7 +183,11 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         bench_status = gentest::runner::run_selected_benches(
             kCases, std::span<const std::size_t>{bench_idxs.data(), bench_idxs.size()}, opt, opt.fail_fast,
             [&](const gentest::Case &measured, const gentest::runner::BenchResult &result) {
-                record_measured_result(state, measured, make_measured_success_result(result));
+                std::vector<ReportAttachment> attachments;
+                if (opt.allure_dir != nullptr) {
+                    attachments = make_bench_allure_attachments(measured, result);
+                }
+                record_measured_result(state, measured, make_measured_success_result(result.wall_time_s, std::move(attachments)));
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
                 record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));
@@ -189,7 +197,11 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         jitter_status = gentest::runner::run_selected_jitters(
             kCases, std::span<const std::size_t>{jitter_idxs.data(), jitter_idxs.size()}, opt, opt.fail_fast,
             [&](const gentest::Case &measured, const gentest::runner::JitterResult &result) {
-                record_measured_result(state, measured, make_measured_success_result(result));
+                std::vector<ReportAttachment> attachments;
+                if (opt.allure_dir != nullptr) {
+                    attachments = make_jitter_allure_attachments(measured, result, opt.jitter_bins);
+                }
+                record_measured_result(state, measured, make_measured_success_result(result.wall_time_s, std::move(attachments)));
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
                 record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));

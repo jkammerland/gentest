@@ -1,10 +1,11 @@
 # Usage:
-#   cmake -DPROG=<path> -DFILE=<path> -DEXPECT_SUBSTRING=<text> [-DEXPECT_RC=<int>] [-DARGS="--flags ..."]
+#   cmake -DPROG=<path> -DFILE=<path> -DEXPECT_SUBSTRING=<text> [-DEXPECT_RC=<int>] [-DFORBID_SUBSTRING=<text>]
+#         [-DFORBID_SUBSTRINGS=<text|text>] [-DARGS="--flags ..."]
 #     -P cmake/RunAndCheckFile.cmake
 #
 # Runs the program with provided args.
 # If EXPECT_RC is set, enforces that exact exit code; otherwise does not enforce an exit code.
-# Then checks that FILE exists and contains EXPECT_SUBSTRING.
+# Then checks that FILE exists, contains EXPECT_SUBSTRING, and does not contain any forbidden substring.
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")
@@ -60,3 +61,20 @@ string(FIND "${_content}" "${EXPECT_SUBSTRING}" _pos)
 if(_pos EQUAL -1)
   message(FATAL_ERROR "Expected substring not found in file: '${EXPECT_SUBSTRING}'. File: ${FILE}\nContent:\n${_content}")
 endif()
+
+set(_forbidden_substrings)
+if(DEFINED FORBID_SUBSTRINGS AND NOT "${FORBID_SUBSTRINGS}" STREQUAL "")
+  set(_forbid_values "${FORBID_SUBSTRINGS}")
+  string(REPLACE "|" ";" _forbid_values "${_forbid_values}")
+  list(APPEND _forbidden_substrings ${_forbid_values})
+endif()
+if(DEFINED FORBID_SUBSTRING AND NOT "${FORBID_SUBSTRING}" STREQUAL "")
+  list(APPEND _forbidden_substrings "${FORBID_SUBSTRING}")
+endif()
+
+foreach(_forbid IN LISTS _forbidden_substrings)
+  string(FIND "${_content}" "${_forbid}" _forbid_pos)
+  if(NOT _forbid_pos EQUAL -1)
+    message(FATAL_ERROR "Forbidden substring found in file: '${_forbid}'. File: ${FILE}\nContent:\n${_content}")
+  endif()
+endforeach()

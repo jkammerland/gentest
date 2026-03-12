@@ -22,6 +22,7 @@ struct ReportItem {
     std::vector<std::string> timeline;
     std::vector<std::string> tags;
     std::vector<std::string> requirements;
+    std::vector<ReportAttachment> attachments;
 };
 
 struct FailureSummary {
