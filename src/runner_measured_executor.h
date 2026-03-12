@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gentest/detail/bench_stats.h"
 #include "gentest/runner.h"
 #include "runner_cli.h"
 
@@ -49,6 +50,8 @@ struct JitterResult {
     double              wall_time_s        = 0;
     double              calibration_time_s = 0;
     std::size_t         calibration_iters  = 0;
+    int                 histogram_bins     = 0;
+    gentest::detail::Histogram histogram;
     std::vector<double> samples_ns;
 };
 

@@ -48,7 +48,8 @@ void register_late_cases(void *) {
     gentest::detail::register_cases(std::span<const gentest::Case>(late_cases));
     g_registered_late_cases = true;
 
-    gentest::expect_eq(gentest::get_case_count(), snapshot.size() + late_cases.size(),
+    const auto registry_after_register = gentest::registered_cases();
+    gentest::expect_eq(registry_after_register.size(), snapshot.size() + late_cases.size(),
                        "late registration should grow the backing registry after the active run snapshot was taken");
     gentest::expect_eq(g_late_case_runs, std::size_t{0}, "late-registered cases must not execute while the current case is still running");
 }
@@ -57,7 +58,8 @@ void tail_case(void *) {
     gentest::expect_eq(g_registered_late_cases, true,
                        "tail case must still run after late registration mutates the backing registry");
     gentest::expect_eq(g_late_case_runs, std::size_t{0}, "late-registered cases must not enter the active run before the tail case");
-    gentest::expect_eq(gentest::get_case_count(), kInitialCaseCount + kLateCaseCount,
+    const auto registry_after_tail = gentest::registered_cases();
+    gentest::expect_eq(registry_after_tail.size(), kInitialCaseCount + kLateCaseCount,
                        "tail case should observe the expanded registry without the active run iterating the late additions");
 }
 

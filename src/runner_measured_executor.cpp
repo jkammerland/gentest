@@ -50,6 +50,13 @@ struct OverheadEstimate {
     std::size_t samples   = 0;
 };
 
+struct CalibratedEpoch {
+    std::size_t iterations = 1;
+    std::size_t completed  = 0;
+    double      elapsed_s  = 0.0;
+    bool        had_assert = false;
+};
+
 double percentile_sorted(const std::vector<double> &v, double p) {
     if (v.empty())
         return 0.0;
@@ -120,7 +127,9 @@ void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestCont
     }
 }
 
-double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail) {
+template <typename BodyFn, typename InterruptedFn>
+double run_call_phase_with_context(const gentest::Case &c, std::string_view default_skip_reason, BodyFn &&body,
+                                   InterruptedFn &&on_interrupted, bool &had_assert_fail) {
     using clock           = std::chrono::steady_clock;
     auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
     ctxinfo->display_name = std::string(c.name);
@@ -129,33 +138,130 @@ double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std
     gentest::detail::BenchPhaseScope bench_scope(gentest::detail::BenchPhase::Call);
     auto                             start = clock::now();
     had_assert_fail                        = false;
-    iterations_done                        = 0;
     try {
-        for (std::size_t i = 0; i < iters; ++i) {
-            c.fn(ctx);
-            iterations_done = i + 1;
-        }
+        body();
     } catch (const gentest::detail::skip_exception &) {
-        record_runtime_skip_or_default(ctxinfo, "skip requested during benchmark call phase");
+        on_interrupted();
+        record_runtime_skip_or_default(ctxinfo, default_skip_reason);
         had_assert_fail = true;
     } catch (const gentest::assertion &e) {
+        on_interrupted();
         gentest::detail::record_bench_error(e.message());
         had_assert_fail = true;
     } catch (const gentest::failure &e) {
+        on_interrupted();
         gentest::detail::record_bench_error(e.what());
         had_assert_fail = true;
     } catch (const std::exception &e) {
+        on_interrupted();
         gentest::detail::record_bench_error(std::string("std::exception: ") + e.what());
         had_assert_fail = true;
     } catch (...) {
+        on_interrupted();
         gentest::detail::record_bench_error("unknown exception");
         had_assert_fail = true;
     }
-    finalize_call_phase_failure(ctxinfo, "skip requested during benchmark call phase", had_assert_fail);
+    finalize_call_phase_failure(ctxinfo, default_skip_reason, had_assert_fail);
     auto end        = clock::now();
     ctxinfo->active = false;
     gentest::detail::set_current_test(nullptr);
     return std::chrono::duration<double>(end - start).count();
+}
+
+double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail) {
+    iterations_done                        = 0;
+    return run_call_phase_with_context(
+        c, "skip requested during benchmark call phase",
+        [&] {
+            for (std::size_t i = 0; i < iters; ++i) {
+                c.fn(ctx);
+                iterations_done = i + 1;
+            }
+        },
+        [] {},
+        had_assert_fail);
+}
+
+CalibratedEpoch calibrate_epoch_iterations(const gentest::Case &c, void *ctx, const BenchConfig &cfg) {
+    CalibratedEpoch calibration{};
+    while (true) {
+        calibration.elapsed_s = run_epoch_calls(c, ctx, calibration.iterations, calibration.completed, calibration.had_assert);
+        if (calibration.had_assert || calibration.elapsed_s >= cfg.min_epoch_time_s) {
+            return calibration;
+        }
+        calibration.iterations *= 2;
+        if (calibration.iterations == 0 || calibration.iterations > (std::size_t(1) << 30)) {
+            return calibration;
+        }
+    }
+}
+
+double run_warmup_epochs(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t warmup_epochs, std::size_t &iterations_done,
+                         bool &had_assert_fail) {
+    double warmup_time_s = 0.0;
+    for (std::size_t i = 0; i < warmup_epochs; ++i) {
+        warmup_time_s += run_epoch_calls(c, ctx, iters, iterations_done, had_assert_fail);
+        if (had_assert_fail) {
+            break;
+        }
+    }
+    return warmup_time_s;
+}
+
+double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail,
+                              std::vector<double> &samples_ns) {
+    using clock      = std::chrono::steady_clock;
+    iterations_done  = 0;
+    return run_call_phase_with_context(
+        c, "skip requested during jitter call phase",
+        [&] {
+            for (std::size_t i = 0; i < iters; ++i) {
+                auto start = clock::now();
+                c.fn(ctx);
+                auto end = clock::now();
+                samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - start).count()));
+                iterations_done = i + 1;
+            }
+        },
+        [] {},
+        had_assert_fail);
+}
+
+double run_jitter_batch_epoch_calls(const gentest::Case &c, void *ctx, std::size_t batch_iters, std::size_t batch_samples,
+                                    std::size_t &iterations_done, bool &had_assert_fail, std::vector<double> &samples_ns) {
+    using clock             = std::chrono::steady_clock;
+    iterations_done         = 0;
+    std::size_t local_done  = 0;
+    auto        batch_start = clock::now();
+    bool        in_batch    = false;
+    return run_call_phase_with_context(
+        c, "skip requested during jitter call phase",
+        [&] {
+            for (std::size_t sample = 0; sample < batch_samples; ++sample) {
+                batch_start = clock::now();
+                local_done  = 0;
+                in_batch    = true;
+                for (std::size_t i = 0; i < batch_iters; ++i) {
+                    c.fn(ctx);
+                    ++local_done;
+                }
+                auto end = clock::now();
+                if (local_done != 0) {
+                    samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) /
+                                         static_cast<double>(local_done));
+                    iterations_done += local_done;
+                }
+                in_batch = false;
+            }
+        },
+        [&] {
+            if (in_batch && local_done != 0) {
+                auto end = clock::now();
+                samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) / static_cast<double>(local_done));
+                iterations_done += local_done;
+            }
+        },
+        had_assert_fail);
 }
 
 OverheadEstimate estimate_timer_overhead_per_iter(std::size_t sample_count) {
@@ -206,126 +312,6 @@ OverheadEstimate estimate_timer_overhead_batch(std::size_t sample_count, std::si
     return est;
 }
 
-double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail,
-                              std::vector<double> &samples_ns) {
-    using clock           = std::chrono::steady_clock;
-    auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
-    ctxinfo->display_name = std::string(c.name);
-    ctxinfo->active       = true;
-    gentest::detail::set_current_test(ctxinfo);
-    gentest::detail::BenchPhaseScope bench_scope(gentest::detail::BenchPhase::Call);
-    auto                             epoch_start = clock::now();
-    had_assert_fail                              = false;
-    iterations_done                              = 0;
-    try {
-        for (std::size_t i = 0; i < iters; ++i) {
-            auto start = clock::now();
-            c.fn(ctx);
-            auto end = clock::now();
-            samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - start).count()));
-            iterations_done = i + 1;
-        }
-    } catch (const gentest::detail::skip_exception &) {
-        record_runtime_skip_or_default(ctxinfo, "skip requested during jitter call phase");
-        had_assert_fail = true;
-    } catch (const gentest::assertion &e) {
-        gentest::detail::record_bench_error(e.message());
-        had_assert_fail = true;
-    } catch (const gentest::failure &e) {
-        gentest::detail::record_bench_error(e.what());
-        had_assert_fail = true;
-    } catch (const std::exception &e) {
-        gentest::detail::record_bench_error(std::string("std::exception: ") + e.what());
-        had_assert_fail = true;
-    } catch (...) {
-        gentest::detail::record_bench_error("unknown exception");
-        had_assert_fail = true;
-    }
-    finalize_call_phase_failure(ctxinfo, "skip requested during jitter call phase", had_assert_fail);
-    auto epoch_end  = clock::now();
-    ctxinfo->active = false;
-    gentest::detail::set_current_test(nullptr);
-    return std::chrono::duration<double>(epoch_end - epoch_start).count();
-}
-
-double run_jitter_batch_epoch_calls(const gentest::Case &c, void *ctx, std::size_t batch_iters, std::size_t batch_samples,
-                                    std::size_t &iterations_done, bool &had_assert_fail, std::vector<double> &samples_ns) {
-    using clock           = std::chrono::steady_clock;
-    auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
-    ctxinfo->display_name = std::string(c.name);
-    ctxinfo->active       = true;
-    gentest::detail::set_current_test(ctxinfo);
-    gentest::detail::BenchPhaseScope bench_scope(gentest::detail::BenchPhase::Call);
-    auto                             epoch_start = clock::now();
-    had_assert_fail                              = false;
-    iterations_done                              = 0;
-    std::size_t local_done                       = 0;
-    auto        batch_start                      = clock::now();
-    bool        in_batch                         = false;
-    try {
-        for (std::size_t s = 0; s < batch_samples; ++s) {
-            batch_start = clock::now();
-            local_done  = 0;
-            in_batch    = true;
-            for (std::size_t i = 0; i < batch_iters; ++i) {
-                c.fn(ctx);
-                ++local_done;
-            }
-            auto end = clock::now();
-            if (local_done != 0) {
-                samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) / static_cast<double>(local_done));
-                iterations_done += local_done;
-            }
-            in_batch = false;
-        }
-    } catch (const gentest::detail::skip_exception &) {
-        if (in_batch && local_done != 0) {
-            auto end = clock::now();
-            samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) / static_cast<double>(local_done));
-            iterations_done += local_done;
-        }
-        record_runtime_skip_or_default(ctxinfo, "skip requested during jitter call phase");
-        had_assert_fail = true;
-    } catch (const gentest::assertion &e) {
-        if (in_batch && local_done != 0) {
-            auto end = clock::now();
-            samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) / static_cast<double>(local_done));
-            iterations_done += local_done;
-        }
-        gentest::detail::record_bench_error(e.message());
-        had_assert_fail = true;
-    } catch (const gentest::failure &e) {
-        if (in_batch && local_done != 0) {
-            auto end = clock::now();
-            samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) / static_cast<double>(local_done));
-            iterations_done += local_done;
-        }
-        gentest::detail::record_bench_error(e.what());
-        had_assert_fail = true;
-    } catch (const std::exception &e) {
-        if (in_batch && local_done != 0) {
-            auto end = clock::now();
-            samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) / static_cast<double>(local_done));
-            iterations_done += local_done;
-        }
-        gentest::detail::record_bench_error(std::string("std::exception: ") + e.what());
-        had_assert_fail = true;
-    } catch (...) {
-        if (in_batch && local_done != 0) {
-            auto end = clock::now();
-            samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) / static_cast<double>(local_done));
-            iterations_done += local_done;
-        }
-        gentest::detail::record_bench_error("unknown exception");
-        had_assert_fail = true;
-    }
-    finalize_call_phase_failure(ctxinfo, "skip requested during jitter call phase", had_assert_fail);
-    auto epoch_end  = clock::now();
-    ctxinfo->active = false;
-    gentest::detail::set_current_test(nullptr);
-    return std::chrono::duration<double>(epoch_end - epoch_start).count();
-}
-
 bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::BenchPhase phase, std::string &error,
                            bool &allocation_failure, bool &runtime_skipped, std::string &skip_reason,
                            gentest::detail::TestContextInfo::RuntimeSkipKind &runtime_skip_kind) {
@@ -374,28 +360,14 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
 
 BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg) {
     BenchResult br{};
-    std::size_t iters      = 1;
-    bool        had_assert = false;
-    std::size_t done       = 0;
-    double      calib_s    = 0.0;
-    while (true) {
-        calib_s = run_epoch_calls(c, ctx, iters, done, had_assert);
-        if (had_assert)
-            break;
-        if (calib_s >= cfg.min_epoch_time_s)
-            break;
-        iters *= 2;
-        if (iters == 0 || iters > (std::size_t(1) << 30))
-            break;
-    }
-    br.calibration_time_s = calib_s;
-    br.calibration_iters  = iters;
-
-    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) {
-        br.warmup_time_s += run_epoch_calls(c, ctx, iters, done, had_assert);
-        if (had_assert)
-            break;
-    }
+    auto        calibration = calibrate_epoch_iterations(c, ctx, cfg);
+    auto        iters       = calibration.iterations;
+    auto        done        = calibration.completed;
+    auto        had_assert  = calibration.had_assert;
+    const auto  calib_s     = calibration.elapsed_s;
+    br.calibration_time_s   = calib_s;
+    br.calibration_iters    = iters;
+    br.warmup_time_s        = run_warmup_epochs(c, ctx, iters, cfg.warmup_epochs, done, had_assert);
 
     std::vector<double> epoch_ns;
     auto                start_all  = std::chrono::steady_clock::now();
@@ -436,21 +408,12 @@ BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg)
 
 JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cfg) {
     JitterResult jr{};
-    std::size_t  iters       = 1;
-    bool         had_assert  = false;
-    std::size_t  done        = 0;
+    auto         calibration = calibrate_epoch_iterations(c, ctx, cfg);
+    std::size_t  iters       = calibration.iterations;
+    bool         had_assert  = calibration.had_assert;
+    std::size_t  done        = calibration.completed;
     std::size_t  epoch_count = 0;
-    double       calib_s     = 0.0;
-    while (true) {
-        calib_s = run_epoch_calls(c, ctx, iters, done, had_assert);
-        if (had_assert)
-            break;
-        if (calib_s >= cfg.min_epoch_time_s)
-            break;
-        iters *= 2;
-        if (iters == 0 || iters > (std::size_t(1) << 30))
-            break;
-    }
+    const double calib_s     = calibration.elapsed_s;
     jr.calibration_time_s = calib_s;
     jr.calibration_iters  = iters;
 
@@ -476,11 +439,7 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
     jr.overhead_mean_ns = overhead.mean_ns;
     jr.overhead_sd_ns   = overhead.stddev_ns;
 
-    for (std::size_t i = 0; i < cfg.warmup_epochs; ++i) {
-        jr.warmup_time_s += run_epoch_calls(c, ctx, iters, done, had_assert);
-        if (had_assert)
-            break;
-    }
+    jr.warmup_time_s = run_warmup_epochs(c, ctx, iters, cfg.warmup_epochs, done, had_assert);
     auto start_all = std::chrono::steady_clock::now();
     for (;;) {
         if (epoch_count >= cfg.measure_epochs && jr.total_time_s >= cfg.min_total_time_s)
@@ -746,6 +705,8 @@ TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::
         kCases, idxs, "jitter", fail_fast,
         [&](const gentest::Case &measured, void *measured_ctx) { return run_jitter(measured, measured_ctx, opt.bench_cfg); },
         [&](const gentest::Case &measured, JitterResult &&jr) {
+            jr.histogram_bins = opt.jitter_bins;
+            jr.histogram      = gentest::detail::compute_histogram(jr.samples_ns, opt.jitter_bins);
             on_success(measured, jr);
             rows.push_back(JitterReportRow{
                 .c      = &measured,

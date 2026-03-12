@@ -2,9 +2,9 @@
 
 #include "gentest/runner.h"
 #include "runner_reporting.h"
+#include "runner_test_plan.h"
 
 #include <cstddef>
-#include <cstdint>
 #include <span>
 
 namespace gentest::runner {
@@ -26,7 +26,7 @@ struct TestRunContext {
     RunAccumulator *acc            = nullptr;
 };
 
-bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const std::size_t> idxs, bool shuffle,
-                    std::uint64_t base_seed, bool fail_fast, TestCounters &counters);
+bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans,
+                    bool fail_fast, TestCounters &counters);
 
 } // namespace gentest::runner
