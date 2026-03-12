@@ -57,6 +57,7 @@ jobs:
           else
             brew install llvm ninja ccache
           fi
+          echo "$(brew --prefix ninja)/bin" >> $GITHUB_PATH
 
       - name: Configure LLVM environment
         run: |
@@ -85,6 +86,7 @@ jobs:
       - name: Show tool versions
         run: |
           cmake --version
+          command -v ninja
           ninja --version
           COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
           "${COMPILER_BIN}/clang" --version
@@ -99,6 +101,7 @@ jobs:
             "--preset=${{ matrix.build-type }}"
             "-DCMAKE_C_COMPILER=${COMPILER_BIN}/clang"
             "-DCMAKE_CXX_COMPILER=${COMPILER_BIN}/clang++"
+            "-DCMAKE_MAKE_PROGRAM=$(command -v ninja)"
             "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="
           )
           if [ -n "${LLVM_DIR:-}" ]; then
@@ -108,6 +111,9 @@ jobs:
             if [ -f "${CLANG_DIR}/ClangConfig.cmake" ]; then
               CMAKE_ARGS+=("-DClang_DIR=${CLANG_DIR}")
             fi
+          fi
+          if [ -n "${LLVM_BIN:-}" ] && [ -x "${LLVM_BIN}/clang-scan-deps" ]; then
+            CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${LLVM_BIN}/clang-scan-deps")
           fi
           if [ -n "${{ matrix.test_cxx_standard }}" ]; then
             CMAKE_ARGS+=("-DGENTEST_TEST_CXX_STANDARD=${{ matrix.test_cxx_standard }}")
@@ -564,7 +570,11 @@ jobs:
             libclang-${{ matrix.clang_version }}-dev \
             libclang-cpp${{ matrix.clang_version }}-dev \
             llvm-${{ matrix.clang_version }}-dev
-          python3 -m pip install --break-system-packages --upgrade cmake
+          python3 -m pip install --break-system-packages --upgrade cmake ninja
+          python3 - <<'PY' >> "$GITHUB_PATH"
+          import sysconfig
+          print(sysconfig.get_path("scripts"))
+          PY
           echo "/usr/lib/llvm-${{ matrix.clang_version }}/bin" >> "$GITHUB_PATH"
       - name: Update and install dependencies (dnf)
         if: ${{ matrix.pkg_manager == 'dnf' }}
@@ -632,7 +642,11 @@ jobs:
               ca-certificates \
               ncurses-compat-libs
           fi
-          python3 -m pip install --upgrade pip cmake
+          python3 -m pip install --upgrade pip cmake ninja
+          python3 - <<'PY' >> "$GITHUB_PATH"
+          import sysconfig
+          print(sysconfig.get_path("scripts"))
+          PY
       - name: Update and install dependencies (apk)
         if: ${{ matrix.pkg_manager == 'apk' }}
         shell: sh
@@ -662,6 +676,7 @@ jobs:
             llvm${{ matrix.llvm_version }}-gtest \
             llvm${{ matrix.llvm_version }}-static \
             ninja \
+            py3-pip \
             pkgconf \
             python3 \
             tar \
@@ -670,6 +685,11 @@ jobs:
             zip \
             zlib-dev \
             zstd-dev
+          python3 -m pip install --break-system-packages --upgrade ninja || python3 -m pip install --upgrade ninja
+          python3 - <<'PY' >> "$GITHUB_PATH"
+          import sysconfig
+          print(sysconfig.get_path("scripts"))
+          PY
           echo "/usr/lib/llvm${{ matrix.llvm_version }}/bin" >> "$GITHUB_PATH"
       - name: Checkout
         uses: actions/checkout@v4
@@ -686,6 +706,7 @@ jobs:
         run: |
           set -euxo pipefail
           cmake --version
+          command -v ninja
           ninja --version
           ${CC} --version
           clang --version || true
@@ -696,11 +717,32 @@ jobs:
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          cmake --preset=${GENTEST_CMAKE_PRESET} \
-            -DCMAKE_C_COMPILER=${CC} \
-            -DCMAKE_CXX_COMPILER=${CXX} \
-            -DLLVM_DIR=${LLVM_DIR} \
-            -DClang_DIR=${Clang_DIR}
+          CMAKE_ARGS=(
+            "--preset=${GENTEST_CMAKE_PRESET}"
+            "-DCMAKE_C_COMPILER=${CC}"
+            "-DCMAKE_CXX_COMPILER=${CXX}"
+            "-DCMAKE_MAKE_PROGRAM=$(command -v ninja)"
+            "-DLLVM_DIR=${LLVM_DIR}"
+            "-DClang_DIR=${Clang_DIR}"
+          )
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            scan_deps=""
+            for candidate in \
+              "${CXX/clang++/clang-scan-deps}" \
+              "clang-scan-deps-${{ matrix.clang_version }}" \
+              "clang-scan-deps-${{ matrix.llvm_version }}" \
+              "clang-scan-deps"
+            do
+              if [ -n "$candidate" ] && command -v "$candidate" >/dev/null 2>&1; then
+                scan_deps="$(command -v "$candidate")"
+                break
+              fi
+            done
+            if [ -n "$scan_deps" ]; then
+              CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${scan_deps}")
+            fi
+          fi
+          cmake "${CMAKE_ARGS[@]}"
       - name: Build
         run: |
           set -euxo pipefail
@@ -763,7 +805,7 @@ jobs:
             libclang-20-dev \
             libclang-cpp20-dev \
             llvm-20-dev
-          python3 -m pip install --break-system-packages --upgrade cmake
+          python3 -m pip install --break-system-packages --upgrade cmake ninja
           python3 - <<'PY' >> "$GITHUB_PATH"
           import sysconfig
           print(sysconfig.get_path("scripts"))

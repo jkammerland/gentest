@@ -1752,6 +1752,32 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_auto_discovery APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_partition_import_shorthand
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_partition_import_shorthand
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModulePartitionImportShorthand.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_partition_import_shorthand APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_public_module_old_ninja_fallback
+    ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_support_fallback
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleSupportFallback.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DFALLBACK_MODE=old_ninja)
+set_property(TEST gentest_public_module_old_ninja_fallback APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_public_module_missing_scan_deps_fallback
+    ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_support_fallback
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleSupportFallback.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DFALLBACK_MODE=missing_scan_deps)
+set_property(TEST gentest_public_module_missing_scan_deps_fallback APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_outcome_matrix_stale_junit_guard
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake
@@ -1795,61 +1821,68 @@ _gentest_add_cmake_helper_test(
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
-    set(_gentest_package_test_config "")
-    if(CMAKE_CONFIGURATION_TYPES)
-        set(_gentest_package_test_config "Debug")
-    endif()
-
-    set(_gentest_package_test_compiler_args "")
-    if(UNIX AND NOT APPLE)
-        find_program(_gentest_package_test_clang NAMES clang)
-        find_program(_gentest_package_test_clangxx NAMES clang++)
-        if(_gentest_package_test_clang AND _gentest_package_test_clangxx)
-            # The package smoke is about installed-package consumption. Prefer
-            # Clang for the downstream module consumer so the test exercises the
-            # supported public-module path instead of GCC's separate TU-wrapper
-            # limitation for module registration shims.
-            list(APPEND _gentest_package_test_compiler_args
-                -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_clang}
-                -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_clangxx})
+    if(NOT GENTEST_PUBLIC_MODULES_ENABLED)
+        message(STATUS
+            "tests: skipping installed-package module consumer smoke because gentest public named modules are disabled (${GENTEST_PUBLIC_MODULES_DISABLED_REASON})")
+    else()
+        set(_gentest_package_test_config "")
+        if(CMAKE_CONFIGURATION_TYPES)
+            set(_gentest_package_test_config "Debug")
         endif()
-    endif()
 
-    _gentest_add_cmake_helper_test(
-        gentest_package_consumer
-        ${PROJECT_SOURCE_DIR}
-        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
-        package
-        -DPACKAGE_NAME=${PROJECT_NAME}
-        -DBUILD_CONFIG=${_gentest_package_test_config}
-        -DCONSUMER_LINK_MODE=main_only
-        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
-        ${_gentest_package_test_compiler_args})
-
-    if(UNIX AND NOT APPLE)
-        find_program(_gentest_package_test_gcc NAMES gcc)
-        find_program(_gentest_package_test_gxx NAMES g++)
-        if(_gentest_package_test_gcc AND _gentest_package_test_gxx)
-            _gentest_add_cmake_helper_test(
-                gentest_package_consumer_gcc
-                ${PROJECT_SOURCE_DIR}
-                ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
-                package
-                -DPACKAGE_NAME=${PROJECT_NAME}
-                -DBUILD_CONFIG=${_gentest_package_test_config}
-                -DCONSUMER_LINK_MODE=main_only
-                -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
-                -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_gcc}
-                -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_gxx})
-            set_property(TEST gentest_package_consumer_gcc APPEND PROPERTY LABELS "modules")
+        set(_gentest_package_test_compiler_args "")
+        if(UNIX AND NOT APPLE)
+            find_program(_gentest_package_test_clang NAMES clang)
+            find_program(_gentest_package_test_clangxx NAMES clang++)
+            if(_gentest_package_test_clang AND _gentest_package_test_clangxx)
+                # The package smoke is about installed-package consumption. Prefer
+                # Clang for the downstream module consumer so the test exercises the
+                # supported public-module path instead of GCC's separate TU-wrapper
+                # limitation for module registration shims.
+                list(APPEND _gentest_package_test_compiler_args
+                    -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_clang}
+                    -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_clangxx})
+            endif()
         endif()
-        unset(_gentest_package_test_gcc)
-        unset(_gentest_package_test_gxx)
-    endif()
 
-    unset(_gentest_package_test_compiler_args)
-    unset(_gentest_package_test_clang)
-    unset(_gentest_package_test_clangxx)
+        _gentest_add_cmake_helper_test(
+            gentest_package_consumer
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+            package
+            -DPACKAGE_NAME=${PROJECT_NAME}
+            -DBUILD_CONFIG=${_gentest_package_test_config}
+            -DCONSUMER_LINK_MODE=main_only
+            -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+            ${_gentest_package_test_compiler_args})
+        set_property(TEST gentest_package_consumer APPEND PROPERTY LABELS "modules")
+
+        if(UNIX AND NOT APPLE)
+            find_program(_gentest_package_test_gcc NAMES gcc)
+            find_program(_gentest_package_test_gxx NAMES g++)
+            if(_gentest_package_test_gcc AND _gentest_package_test_gxx)
+                _gentest_add_cmake_helper_test(
+                    gentest_package_consumer_gcc
+                    ${PROJECT_SOURCE_DIR}
+                    ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+                    package
+                    -DPACKAGE_NAME=${PROJECT_NAME}
+                    -DBUILD_CONFIG=${_gentest_package_test_config}
+                    -DCONSUMER_LINK_MODE=main_only
+                    -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+                    -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_gcc}
+                    -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_gxx})
+                set_property(TEST gentest_package_consumer_gcc APPEND PROPERTY LABELS "modules")
+            endif()
+            unset(_gentest_package_test_gcc)
+            unset(_gentest_package_test_gxx)
+        endif()
+
+        unset(_gentest_package_test_config)
+        unset(_gentest_package_test_compiler_args)
+        unset(_gentest_package_test_clang)
+        unset(_gentest_package_test_clangxx)
+    endif()
 endif()
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.

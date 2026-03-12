@@ -518,11 +518,16 @@ std::optional<std::string> parse_named_module_name_from_source(const std::filesy
 }
 
 std::vector<std::string> parse_imported_named_modules_from_source(const std::filesystem::path &path,
-                                                                  const std::unordered_set<std::string> &known_modules) {
+                                                                  const std::unordered_set<std::string> &known_modules,
+                                                                  std::string_view                            current_module_name = {}) {
     std::ifstream in(path);
     if (!in) {
         return {};
     }
+
+    const auto partition_sep = current_module_name.find(':');
+    const std::string current_primary_module =
+        current_module_name.empty() ? std::string{} : std::string(current_module_name.substr(0, partition_sep));
 
     std::vector<std::string> imports;
     std::unordered_set<std::string> seen;
@@ -545,8 +550,14 @@ std::vector<std::string> parse_imported_named_modules_from_source(const std::fil
         }
         trimmed.erase(semi);
         trimmed = llvm::StringRef(trimmed).trim().str();
-        if (trimmed.empty() || trimmed.front() == '<' || trimmed.front() == '\"' || trimmed.front() == ':') {
+        if (trimmed.empty() || trimmed.front() == '<' || trimmed.front() == '\"') {
             continue;
+        }
+        if (trimmed.front() == ':') {
+            if (current_primary_module.empty()) {
+                continue;
+            }
+            trimmed = current_primary_module + trimmed;
         }
         if (known_modules.contains(trimmed) && seen.insert(trimmed).second) {
             imports.push_back(trimmed);
@@ -1496,9 +1507,16 @@ int main(int argc, const char **argv) {
 
     std::vector<std::vector<std::string>> imported_named_modules_by_source(options.sources.size());
     for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
-        auto imports = parse_imported_named_modules_from_source(options.sources[idx], known_named_modules);
+        std::string current_module_name;
+        if (const auto module_it =
+                std::find_if(named_module_sources.begin(), named_module_sources.end(),
+                             [&](const NamedModuleSourceInfo &info) { return info.source_index == idx; });
+            module_it != named_module_sources.end()) {
+            current_module_name = module_it->module_name;
+        }
+        auto imports = parse_imported_named_modules_from_source(options.sources[idx], known_named_modules, current_module_name);
         if (const auto wrapped_source = resolve_wrapped_source_from_codegen_shim(options.sources[idx]); wrapped_source.has_value()) {
-            auto wrapped_imports = parse_imported_named_modules_from_source(*wrapped_source, known_named_modules);
+            auto wrapped_imports = parse_imported_named_modules_from_source(*wrapped_source, known_named_modules, current_module_name);
             imports.insert(imports.end(), wrapped_imports.begin(), wrapped_imports.end());
             std::sort(imports.begin(), imports.end());
             imports.erase(std::unique(imports.begin(), imports.end()), imports.end());

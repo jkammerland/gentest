@@ -96,16 +96,18 @@ target_sources(gentest_runtime
             FILES ${_gentest_headers}
 )
 
-# Consumers that link only gentest::gentest_main still need the named-module
-# surface as a direct dependency; module file sets do not propagate through the
-# link interface the same way ordinary libraries do.
-target_sources(gentest_main
-    PUBLIC
-        FILE_SET cxx_modules
-            TYPE CXX_MODULES
-            BASE_DIRS ${PROJECT_SOURCE_DIR}/include
-            FILES ${_gentest_module_interfaces}
-)
+if(GENTEST_PUBLIC_MODULES_ENABLED)
+    # Consumers that link only gentest::gentest_main still need the named-module
+    # surface as a direct dependency; module file sets do not propagate through the
+    # link interface the same way ordinary libraries do.
+    target_sources(gentest_main
+        PUBLIC
+            FILE_SET cxx_modules
+                TYPE CXX_MODULES
+                BASE_DIRS ${PROJECT_SOURCE_DIR}/include
+                FILES ${_gentest_module_interfaces}
+    )
+endif()
 
 target_compile_options(${PROJECT_NAME}
     INTERFACE
@@ -114,7 +116,7 @@ target_compile_options(${PROJECT_NAME}
         $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-attributes>
         $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/wd5030>)
 
-if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(GENTEST_PUBLIC_MODULES_ENABLED AND WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     if(NOT DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT
        OR NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
         # CMake's imported-module synth targets on Windows GNU-style clang add
