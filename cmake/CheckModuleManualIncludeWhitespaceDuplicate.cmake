@@ -127,4 +127,39 @@ if(NOT _auto_codegen_include_pos EQUAL -1)
     "Expected spaced manual include to suppress the auto-injected mock_codegen include in ${_wrapper}.\n${_wrapper_text}")
 endif()
 
+set(_exe_dir "${_build_dir}")
+if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
+  if(EXISTS "${_build_dir}/${BUILD_TYPE}/manual_include_whitespace_tests${CMAKE_EXECUTABLE_SUFFIX}")
+    set(_exe_dir "${_build_dir}/${BUILD_TYPE}")
+  endif()
+endif()
+set(_exe "${_exe_dir}/manual_include_whitespace_tests${CMAKE_EXECUTABLE_SUFFIX}")
+
+execute_process(
+  COMMAND "${_exe}" --list-tests
+  WORKING_DIRECTORY "${_work_dir}"
+  RESULT_VARIABLE _list_rc
+  OUTPUT_VARIABLE _list_out
+  ERROR_VARIABLE _list_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _list_rc EQUAL 0)
+  message(FATAL_ERROR "Listing tests failed unexpectedly.\n${_list_out}\n${_list_err}")
+endif()
+if(NOT _list_out MATCHES "whitespace/manual_spaced_include")
+  message(FATAL_ERROR "Expected manual include whitespace test to be discovered.\n${_list_out}\n${_list_err}")
+endif()
+
+execute_process(
+  COMMAND "${_exe}" --run=whitespace/manual_spaced_include
+  WORKING_DIRECTORY "${_work_dir}"
+  RESULT_VARIABLE _run_rc
+  OUTPUT_VARIABLE _run_out
+  ERROR_VARIABLE _run_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _run_rc EQUAL 0)
+  message(FATAL_ERROR "Running discovered test failed unexpectedly.\n${_run_out}\n${_run_err}")
+endif()
+
 message(STATUS "Module manual include whitespace regression passed")

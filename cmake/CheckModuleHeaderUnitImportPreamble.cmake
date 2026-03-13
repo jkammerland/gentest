@@ -104,6 +104,19 @@ execute_process(
   ERROR_VARIABLE _build_err
   OUTPUT_STRIP_TRAILING_WHITESPACE
   ERROR_STRIP_TRAILING_WHITESPACE)
+set(_header_unit_unavailable FALSE)
+if(NOT _build_rc EQUAL 0)
+  if(_build_out MATCHES "cannot be imported because it is not known to be a header unit"
+     OR _build_err MATCHES "cannot be imported because it is not known to be a header unit")
+    set(_header_unit_unavailable TRUE)
+  else()
+    message(FATAL_ERROR "Build failed unexpectedly.\n${_build_out}\n${_build_err}")
+  endif()
+endif()
+
+if(_header_unit_unavailable)
+  message(STATUS "Header-unit import build is unavailable on this toolchain; validating generated wrapper ordering only")
+endif()
 
 file(GLOB _wrapper_candidates "${_build_dir}/generated/*.module.gentest.cppm")
 list(LENGTH _wrapper_candidates _wrapper_count)

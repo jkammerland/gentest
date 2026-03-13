@@ -1070,12 +1070,40 @@ bool is_cmake_env_wrapper_at(const clang::tooling::CommandLineArguments &command
     return basename_without_extension(command_line[index]) == "cmake" && command_line[index + 1] == "-E" && command_line[index + 2] == "env";
 }
 
+bool is_plain_env_wrapper_at(const clang::tooling::CommandLineArguments &command_line, std::size_t index) {
+    if (index >= command_line.size()) {
+        return false;
+    }
+    return basename_without_extension(command_line[index]) == "env";
+}
+
 bool is_cmake_env_assignment(std::string_view arg) {
     if (arg.empty() || arg.starts_with("-")) {
         return false;
     }
     const auto eq = arg.find('=');
     return eq != std::string_view::npos && eq != 0;
+}
+
+std::size_t advance_past_env_arguments(const clang::tooling::CommandLineArguments &command_line, std::size_t index) {
+    while (index < command_line.size()) {
+        const std::string_view env_arg = command_line[index];
+        if (env_arg == "--") {
+            ++index;
+            break;
+        }
+        if (env_arg == "-u" || env_arg == "--unset") {
+            index += 2;
+            continue;
+        }
+        if (env_arg.starts_with("-u") || env_arg.starts_with("--unset=") || env_arg.starts_with("--modify-env=") ||
+            env_arg == "-i" || env_arg == "--ignore-environment" || is_cmake_env_assignment(env_arg)) {
+            ++index;
+            continue;
+        }
+        break;
+    }
+    return index;
 }
 
 std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line) {
@@ -1092,18 +1120,12 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
         }
         if (is_cmake_env_wrapper_at(command_line, index)) {
             index += 3;
-            while (index < command_line.size()) {
-                const std::string_view env_arg = command_line[index];
-                if (env_arg == "--") {
-                    ++index;
-                    break;
-                }
-                if (env_arg.starts_with("--unset=") || env_arg.starts_with("--modify-env=") || is_cmake_env_assignment(env_arg)) {
-                    ++index;
-                    continue;
-                }
-                break;
-            }
+            index = advance_past_env_arguments(command_line, index);
+            continue;
+        }
+        if (is_plain_env_wrapper_at(command_line, index)) {
+            ++index;
+            index = advance_past_env_arguments(command_line, index);
             continue;
         }
         if (is_known_compiler_launcher(arg)) {
