@@ -25,7 +25,7 @@ target_sources(partition_import_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/helpers.cppm
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
-target_link_libraries(partition_import_tests PRIVATE gentest_main gentest_runtime)
+target_link_libraries(partition_import_tests PRIVATE gentest gentest_runtime)
 target_compile_features(partition_import_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(partition_import_tests

@@ -7,6 +7,7 @@
 #include <fstream>
 #include <fmt/format.h>
 #include <iterator>
+#include <llvm/ADT/StringRef.h>
 #include <set>
 #include <string>
 #include <string_view>
@@ -77,6 +78,95 @@ struct MockOutputDomain {
     return out;
 }
 
+[[nodiscard]] std::string strip_comments_for_line_scan(std::string_view line, bool &in_block_comment) {
+    std::string out;
+    out.reserve(line.size());
+
+    for (std::size_t i = 0; i < line.size();) {
+        if (in_block_comment) {
+            const auto end = line.find("*/", i);
+            if (end == std::string_view::npos) {
+                return out;
+            }
+            in_block_comment = false;
+            i = end + 2;
+            continue;
+        }
+        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '*') {
+            in_block_comment = true;
+            i += 2;
+            continue;
+        }
+        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '/') {
+            break;
+        }
+        out.push_back(line[i]);
+        ++i;
+    }
+    return out;
+}
+
+[[nodiscard]] std::string normalize_scan_directive_line(std::string_view line) {
+    std::string out;
+    out.reserve(line.size());
+
+    bool pending_space = false;
+    for (const unsigned char ch : line) {
+        if (std::isspace(ch)) {
+            pending_space = !out.empty();
+            continue;
+        }
+        if (pending_space && !out.empty()) {
+            out.push_back(' ');
+        }
+        out.push_back(static_cast<char>(ch));
+        pending_space = false;
+    }
+    return out;
+}
+
+[[nodiscard]] bool consume_scan_keyword(std::string_view &cursor, std::string_view keyword) {
+    cursor = std::string_view(llvm::StringRef(cursor).ltrim());
+    if (!cursor.starts_with(keyword)) {
+        return false;
+    }
+    if (cursor.size() > keyword.size()) {
+        const unsigned char next = static_cast<unsigned char>(cursor[keyword.size()]);
+        if (!std::isspace(next) && next != ';') {
+            return false;
+        }
+    }
+    cursor.remove_prefix(keyword.size());
+    return true;
+}
+
+[[nodiscard]] std::optional<std::string> parse_named_module_name_from_scan_line(std::string_view line) {
+    const std::string normalized = normalize_scan_directive_line(line);
+    std::string_view  cursor     = normalized;
+    if (consume_scan_keyword(cursor, "export")) {
+        cursor = std::string_view(llvm::StringRef(cursor).ltrim());
+    }
+    if (!consume_scan_keyword(cursor, "module")) {
+        return std::nullopt;
+    }
+
+    cursor = std::string_view(llvm::StringRef(cursor).ltrim());
+    if (cursor.empty() || cursor.front() == ';') {
+        return std::nullopt;
+    }
+
+    const auto semi = cursor.find(';');
+    if (semi == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    std::string module_name = llvm::StringRef(cursor.substr(0, semi)).trim().str();
+    if (module_name.empty()) {
+        return std::nullopt;
+    }
+    return module_name;
+}
+
 [[nodiscard]] std::optional<std::string> named_module_name_from_source_file(const std::filesystem::path &path) {
     std::ifstream in(path);
     if (!in) {
@@ -84,41 +174,12 @@ struct MockOutputDomain {
     }
 
     std::string line;
+    bool        in_block_comment = false;
     while (std::getline(in, line)) {
-        if (const auto comment_pos = line.find("//"); comment_pos != std::string::npos) {
-            line.erase(comment_pos);
+        line = strip_comments_for_line_scan(line, in_block_comment);
+        if (auto module_name = parse_named_module_name_from_scan_line(line); module_name.has_value()) {
+            return module_name;
         }
-        const auto first = line.find_first_not_of(" \t\r\n");
-        if (first == std::string::npos) {
-            continue;
-        }
-        const auto last = line.find_last_not_of(" \t\r\n");
-        std::string trimmed = line.substr(first, last - first + 1);
-        if (trimmed == "module;") {
-            continue;
-        }
-        if (trimmed.rfind("export module ", 0) == 0) {
-            trimmed.erase(0, std::string("export module ").size());
-        } else if (trimmed.rfind("module ", 0) == 0) {
-            trimmed.erase(0, std::string("module ").size());
-        } else {
-            continue;
-        }
-        const auto semi = trimmed.find(';');
-        if (semi == std::string::npos) {
-            return std::nullopt;
-        }
-        trimmed.erase(semi);
-        while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back()))) {
-            trimmed.pop_back();
-        }
-        while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front()))) {
-            trimmed.erase(trimmed.begin());
-        }
-        if (!trimmed.empty()) {
-            return trimmed;
-        }
-        return std::nullopt;
     }
     return std::nullopt;
 }

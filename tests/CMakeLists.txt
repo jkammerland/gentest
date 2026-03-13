@@ -1707,6 +1707,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_env_wrapped_compiler APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_module_command_retargeting
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenModuleCommandRetargeting.cmake
+    cmake)
+set_property(TEST gentest_codegen_module_command_retargeting APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_public_mock_module_gcc
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckPublicMockModuleGccFailure.cmake
@@ -1823,9 +1830,21 @@ _gentest_add_cmake_helper_test(
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
+    function(_gentest_add_package_modules_skip_test name)
+        add_test(NAME ${name}
+            COMMAND "${CMAKE_COMMAND}" -E echo
+                "GENTEST_SKIP_TEST: installed-package module consumer smoke unavailable because gentest public named modules are disabled (${GENTEST_PUBLIC_MODULES_DISABLED_REASON})")
+        set_property(TEST ${name} PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
+        set_property(TEST ${name} APPEND PROPERTY LABELS "modules;package")
+    endfunction()
+
     if(NOT GENTEST_PUBLIC_MODULES_ENABLED)
-        message(STATUS
-            "tests: skipping installed-package module consumer smoke because gentest public named modules are disabled (${GENTEST_PUBLIC_MODULES_DISABLED_REASON})")
+        _gentest_add_package_modules_skip_test(gentest_package_consumer)
+        _gentest_add_package_modules_skip_test(gentest_package_consumer_native_codegen)
+        _gentest_add_package_modules_skip_test(gentest_package_consumer_runtime_only)
+        if(UNIX AND NOT APPLE)
+            _gentest_add_package_modules_skip_test(gentest_package_consumer_gcc)
+        endif()
     else()
         set(_gentest_package_test_config "")
         if(CMAKE_CONFIGURATION_TYPES)
@@ -1855,9 +1874,33 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
             -DPACKAGE_NAME=${PROJECT_NAME}
             -DBUILD_CONFIG=${_gentest_package_test_config}
             -DCONSUMER_LINK_MODE=main_only
-            -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+            -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
             ${_gentest_package_test_compiler_args})
         set_property(TEST gentest_package_consumer APPEND PROPERTY LABELS "modules")
+
+        _gentest_add_cmake_helper_test(
+            gentest_package_consumer_native_codegen
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+            package
+            -DPACKAGE_NAME=${PROJECT_NAME}
+            -DBUILD_CONFIG=${_gentest_package_test_config}
+            -DCONSUMER_LINK_MODE=main_only
+            -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+            ${_gentest_package_test_compiler_args})
+        set_property(TEST gentest_package_consumer_native_codegen APPEND PROPERTY LABELS "modules")
+
+        _gentest_add_cmake_helper_test(
+            gentest_package_consumer_runtime_only
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+            package
+            -DPACKAGE_NAME=${PROJECT_NAME}
+            -DBUILD_CONFIG=${_gentest_package_test_config}
+            -DCONSUMER_LINK_MODE=runtime_only
+            -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+            ${_gentest_package_test_compiler_args})
+        set_property(TEST gentest_package_consumer_runtime_only APPEND PROPERTY LABELS "modules")
 
         if(UNIX AND NOT APPLE)
             find_program(_gentest_package_test_gcc NAMES gcc)
@@ -1871,7 +1914,7 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
                     -DPACKAGE_NAME=${PROJECT_NAME}
                     -DBUILD_CONFIG=${_gentest_package_test_config}
                     -DCONSUMER_LINK_MODE=main_only
-                    -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+                    -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
                     -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_gcc}
                     -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_gxx})
                 set_property(TEST gentest_package_consumer_gcc APPEND PROPERTY LABELS "modules")
@@ -1885,6 +1928,7 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         unset(_gentest_package_test_clang)
         unset(_gentest_package_test_clangxx)
     endif()
+    unset(_gentest_add_package_modules_skip_test)
 endif()
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.

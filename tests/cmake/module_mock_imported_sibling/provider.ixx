@@ -1,6 +1,6 @@
 module;
 
-export module gentest.imported_sibling_provider;
+export /* provider */ module gentest.imported_sibling_provider;
 
 export namespace imported_sibling::provider {
 

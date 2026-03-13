@@ -27,7 +27,7 @@ target_sources(mixed_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/manual_include_cases.cppm
             ${CMAKE_CURRENT_SOURCE_DIR}/same_block_cases.cppm)
 
-target_link_libraries(mixed_tests PRIVATE gentest_main gentest_runtime)
+target_link_libraries(mixed_tests PRIVATE gentest gentest_main)
 target_compile_features(mixed_tests PRIVATE cxx_std_20)
 target_include_directories(mixed_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 

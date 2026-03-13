@@ -1,4 +1,5 @@
-add_library(${PROJECT_NAME} INTERFACE)
+add_library(${PROJECT_NAME} STATIC
+    ${PROJECT_SOURCE_DIR}/src/gentest_anchor.cpp)
 
 # Linkage selection: default STATIC, optional SHARED
 option(GENTEST_RUNTIME_SHARED "Build gentest_runtime as a shared library" OFF)
@@ -28,6 +29,7 @@ add_library(gentest_main STATIC
 target_link_libraries(gentest_main
     PUBLIC
         ${PROJECT_NAME}
+    PRIVATE
         gentest_runtime)
 
 if(GENTEST_RUNTIME_SHARED)
@@ -55,7 +57,13 @@ target_include_directories(gentest_runtime
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/third_party/include>)
 
+target_include_directories(${PROJECT_NAME}
+    PUBLIC
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+
 target_compile_features(gentest_runtime PUBLIC cxx_std_20)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 
 # For LLVM 21+ with libc++, explicitly link LLVM's libc++ to avoid ABI issues
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE)
@@ -85,7 +93,7 @@ set(_gentest_module_interfaces
     ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/gentest.mock.cppm)
 
 target_link_libraries(${PROJECT_NAME}
-    INTERFACE gentest_runtime)
+    PUBLIC gentest_runtime)
 
 # Publish headers for dependents (and install/export them via FILE_SET)
 target_sources(gentest_runtime
@@ -97,10 +105,9 @@ target_sources(gentest_runtime
 )
 
 if(GENTEST_PUBLIC_MODULES_ENABLED)
-    # Consumers that link only gentest::gentest_main still need the named-module
-    # surface as a direct dependency; module file sets do not propagate through the
-    # link interface the same way ordinary libraries do.
-    target_sources(gentest_main
+    # The gentest target is the single owner of the public named-module
+    # surface. gentest_runtime and gentest_main re-export it transitively.
+    target_sources(${PROJECT_NAME}
         PUBLIC
             FILE_SET cxx_modules
                 TYPE CXX_MODULES
@@ -110,7 +117,7 @@ if(GENTEST_PUBLIC_MODULES_ENABLED)
 endif()
 
 target_compile_options(${PROJECT_NAME}
-    INTERFACE
+    PUBLIC
         $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-Wno-unknown-attributes;-Wno-attributes>
         $<$<COMPILE_LANG_AND_ID:CXX,AppleClang>:-Wno-unknown-attributes;-Wno-attributes>
         $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-attributes>
@@ -124,8 +131,7 @@ if(GENTEST_PUBLIC_MODULES_ENABLED AND WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "C
         # RuntimeLibrary=MD* even when the rest of the build is static-runtime.
         # Export -U_DLL with the public module surface so the synthesized
         # package-consumer BMI compiles stay in the same CRT family.
-        target_compile_options(${PROJECT_NAME} INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-U_DLL>)
-        target_compile_options(gentest_main PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-U_DLL>)
+        target_compile_options(${PROJECT_NAME} PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-U_DLL>)
     endif()
 endif()
 

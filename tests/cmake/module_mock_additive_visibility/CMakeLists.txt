@@ -25,7 +25,7 @@ target_sources(additive_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/provider.cppm
             ${CMAKE_CURRENT_SOURCE_DIR}/header_consumer.cppm)
 
-target_link_libraries(additive_tests PRIVATE gentest_main gentest_runtime)
+target_link_libraries(additive_tests PRIVATE gentest gentest_runtime)
 target_compile_features(additive_tests PRIVATE cxx_std_20)
 target_include_directories(additive_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 

@@ -64,11 +64,14 @@ find_package(gentest CONFIG REQUIRED)
 # add_subdirectory(path/to/gentest)
 
 add_executable(my_tests cases.cpp)
+# Include-based consumers can keep linking the stock main target directly.
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
-# If your tests use `import gentest;` / `import gentest.mock;`, also link the
-# runtime target because the public module file set is exported there.
-# target_link_libraries(my_tests PRIVATE gentest::gentest_main gentest::gentest_runtime)
+# If your tests use `import gentest;` / `import gentest.mock;`, link the public
+# module carrier target plus either gentest_main (stock main) or gentest_runtime
+# (custom main).
+# target_link_libraries(my_tests PRIVATE gentest::gentest gentest::gentest_main)
+# target_link_libraries(my_tests PRIVATE gentest::gentest gentest::gentest_runtime)
 
 # NOTE: This mode requires a single-config generator/build dir.
 gentest_attach_codegen(my_tests)

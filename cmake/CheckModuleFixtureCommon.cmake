@@ -108,26 +108,42 @@ function(gentest_resolve_clang_fixture_compilers out_c out_cxx)
     set(_resolved_cxx "${CXX_COMPILER}")
   endif()
 
+  if("${_resolved_c}" STREQUAL "" AND NOT "${_resolved_cxx}" STREQUAL "")
+    get_filename_component(_clangxx_dir "${_resolved_cxx}" DIRECTORY)
+    if(CMAKE_HOST_WIN32)
+      set(_derived_c "${_clangxx_dir}/clang.exe")
+    else()
+      set(_derived_c "${_clangxx_dir}/clang")
+    endif()
+    if(EXISTS "${_derived_c}")
+      set(_resolved_c "${_derived_c}")
+    endif()
+  endif()
+
+  if("${_resolved_cxx}" STREQUAL "" AND NOT "${_resolved_c}" STREQUAL "")
+    get_filename_component(_clang_dir "${_resolved_c}" DIRECTORY)
+    if(CMAKE_HOST_WIN32)
+      set(_derived_cxx "${_clang_dir}/clang++.exe")
+    else()
+      set(_derived_cxx "${_clang_dir}/clang++")
+    endif()
+    if(EXISTS "${_derived_cxx}")
+      set(_resolved_cxx "${_derived_cxx}")
+    endif()
+  endif()
+
   if(CMAKE_HOST_WIN32)
     set(_clang_names clang.exe clang)
     set(_clangxx_names clang++.exe clang++)
+    set(_versioned_clang_globs "clang-*.exe")
+    set(_versioned_clangxx_globs "clang++-*.exe")
+    set(_path_separator ";")
   else()
-    set(_clang_names
-      clang-22
-      clang-21
-      clang-20
-      clang-19
-      clang-18
-      clang-17
-      clang)
-    set(_clangxx_names
-      clang++-22
-      clang++-21
-      clang++-20
-      clang++-19
-      clang++-18
-      clang++-17
-      clang++)
+    set(_clang_names clang)
+    set(_clangxx_names clang++)
+    set(_versioned_clang_globs "clang-[0-9]*")
+    set(_versioned_clangxx_globs "clang++-[0-9]*")
+    set(_path_separator ":")
   endif()
 
   if("${_resolved_c}" STREQUAL "")
@@ -141,6 +157,40 @@ function(gentest_resolve_clang_fixture_compilers out_c out_cxx)
     find_program(_found_clangxx NAMES ${_clangxx_names})
     if(_found_clangxx)
       set(_resolved_cxx "${_found_clangxx}")
+    endif()
+  endif()
+
+  if("${_resolved_c}" STREQUAL "" OR "${_resolved_cxx}" STREQUAL "")
+    set(_path_entries "$ENV{PATH}")
+    string(REPLACE "${_path_separator}" ";" _path_entries "${_path_entries}")
+    list(REMOVE_DUPLICATES _path_entries)
+
+    set(_versioned_clang_candidates "")
+    set(_versioned_clangxx_candidates "")
+    foreach(_path_entry IN LISTS _path_entries)
+      if(NOT EXISTS "${_path_entry}" OR NOT IS_DIRECTORY "${_path_entry}")
+        continue()
+      endif()
+      foreach(_pattern IN LISTS _versioned_clang_globs)
+        file(GLOB _found_versioned_clang LIST_DIRECTORIES FALSE "${_path_entry}/${_pattern}")
+        list(APPEND _versioned_clang_candidates ${_found_versioned_clang})
+      endforeach()
+      foreach(_pattern IN LISTS _versioned_clangxx_globs)
+        file(GLOB _found_versioned_clangxx LIST_DIRECTORIES FALSE "${_path_entry}/${_pattern}")
+        list(APPEND _versioned_clangxx_candidates ${_found_versioned_clangxx})
+      endforeach()
+    endforeach()
+
+    list(REMOVE_DUPLICATES _versioned_clang_candidates)
+    list(REMOVE_DUPLICATES _versioned_clangxx_candidates)
+    list(SORT _versioned_clang_candidates COMPARE NATURAL ORDER DESCENDING)
+    list(SORT _versioned_clangxx_candidates COMPARE NATURAL ORDER DESCENDING)
+
+    if("${_resolved_c}" STREQUAL "" AND _versioned_clang_candidates)
+      list(GET _versioned_clang_candidates 0 _resolved_c)
+    endif()
+    if("${_resolved_cxx}" STREQUAL "" AND _versioned_clangxx_candidates)
+      list(GET _versioned_clangxx_candidates 0 _resolved_cxx)
     endif()
   endif()
 

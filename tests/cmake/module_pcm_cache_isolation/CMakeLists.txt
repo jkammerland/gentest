@@ -25,7 +25,7 @@ function(_gentest_add_pcm_cache_target target_name output_stem)
         PRIVATE
             FILE_SET module_cases TYPE CXX_MODULES FILES
                 "${CMAKE_CURRENT_SOURCE_DIR}/${GENTEST_MODULE_SOURCE}")
-    target_link_libraries(${target_name} PRIVATE gentest_main)
+    target_link_libraries(${target_name} PRIVATE gentest gentest_runtime)
     target_compile_features(${target_name} PRIVATE cxx_std_20)
 endfunction()
 

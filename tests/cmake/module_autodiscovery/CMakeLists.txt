@@ -23,7 +23,7 @@ target_sources(module_auto_tests
         FILE_SET module_cases TYPE CXX_MODULES FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
-target_link_libraries(module_auto_tests PRIVATE gentest_main gentest_runtime)
+target_link_libraries(module_auto_tests PRIVATE gentest gentest_main)
 target_compile_features(module_auto_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(module_auto_tests

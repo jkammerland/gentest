@@ -15,13 +15,13 @@ set(GENTEST_CONSUMER_LINK_MODE "double" CACHE STRING
 set_property(CACHE GENTEST_CONSUMER_LINK_MODE PROPERTY STRINGS main_only runtime_only double)
 
 if(GENTEST_CONSUMER_LINK_MODE STREQUAL "main_only")
-    target_link_libraries(gentest_consumer PRIVATE gentest::gentest_main)
+    target_link_libraries(gentest_consumer PRIVATE gentest::gentest gentest::gentest_main)
 elseif(GENTEST_CONSUMER_LINK_MODE STREQUAL "runtime_only")
     target_sources(gentest_consumer PRIVATE main.cpp)
-    target_link_libraries(gentest_consumer PRIVATE gentest::gentest_runtime)
+    target_link_libraries(gentest_consumer PRIVATE gentest::gentest gentest::gentest_runtime)
 elseif(GENTEST_CONSUMER_LINK_MODE STREQUAL "double")
     target_sources(gentest_consumer PRIVATE main.cpp)
-    target_link_libraries(gentest_consumer PRIVATE gentest::gentest_main gentest::gentest_runtime)
+    target_link_libraries(gentest_consumer PRIVATE gentest::gentest gentest::gentest_main gentest::gentest_runtime)
 else()
     message(FATAL_ERROR
         "Unsupported GENTEST_CONSUMER_LINK_MODE='${GENTEST_CONSUMER_LINK_MODE}' "

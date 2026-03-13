@@ -141,20 +141,21 @@ if(NOT _configure_rc EQUAL 0)
   message(FATAL_ERROR "Configure failed unexpectedly.\n${_configure_out}")
 endif()
 
-message(STATUS "Build gentest_runtime with GCC...")
+message(STATUS "Build gentest public module carrier with GCC...")
 _gentest_run_capture(
-  _build_rc
-  _build_out
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target gentest_runtime
+  _runtime_build_rc
+  _runtime_build_out
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target gentest
   WORKING_DIRECTORY "${_work_dir}")
-if(NOT _build_rc EQUAL 0)
-  message(FATAL_ERROR "Expected gentest_runtime to build successfully with GCC, but it failed.\n${_build_out}")
+if(NOT _runtime_build_rc EQUAL 0)
+  message(FATAL_ERROR "Expected gentest public module carrier to build successfully with GCC, but it failed.\n${_runtime_build_out}")
 endif()
 
-string(FIND "${_build_out}" "exposes TU-local entity" _tu_local_pos)
+set(_all_build_out "${_runtime_build_out}")
+string(FIND "${_all_build_out}" "exposes TU-local entity" _tu_local_pos)
 if(NOT _tu_local_pos EQUAL -1)
   message(FATAL_ERROR
-    "GCC build unexpectedly still reports TU-local entity exposure.\n${_build_out}")
+    "GCC build unexpectedly still reports TU-local entity exposure.\n${_all_build_out}")
 endif()
 
 message(STATUS "GCC public mock module build passed")

@@ -19,9 +19,8 @@ GENTEST_RUNTIME_API auto run_all_tests(int argc, char **argv) -> int;
 // Unified test entry (span version). Consumed by generated code.
 GENTEST_RUNTIME_API auto run_all_tests(std::span<const char *> args) -> int;
 
-// Runtime-visible test case description used by the generated manifest.
-// The generator produces a constexpr array of Case entries and provides access
-// via gentest::get_cases()/gentest::get_case_count() defined in the generated TU.
+// Runtime-visible test case description used by generated code and by runtime
+// registry snapshots.
 enum class FixtureLifetime {
     None,
     MemberEphemeral,
@@ -46,9 +45,8 @@ struct Case {
     std::string_view                  suite;
 };
 
-// Provided by the runtime registry; populated by generated translation units.
-GENTEST_RUNTIME_API const Case *get_cases();
-GENTEST_RUNTIME_API std::size_t get_case_count();
+// Returns an owned, sorted snapshot of the currently registered cases.
+GENTEST_RUNTIME_API auto registered_cases() -> std::vector<Case>;
 
 namespace detail {
 

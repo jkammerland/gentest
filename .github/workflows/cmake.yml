@@ -135,7 +135,7 @@ jobs:
         run: cmake --build --preset=${{ matrix.build-type }}
 
       - name: Test
-        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure --parallel 4
 
   windows:
     name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }}
@@ -249,7 +249,7 @@ jobs:
 
       - name: Test
         shell: pwsh
-        run: ctest --preset=${{ matrix.preset }} --output-on-failure
+        run: ctest --preset=${{ matrix.preset }} --output-on-failure --parallel 4
 
       - name: Configure/Build/Test (MSVC)
         if: matrix.preset == 'debug-system'
@@ -266,7 +266,7 @@ jobs:
             -DLLVM_DIR="$env:LLVM_DIR" `
             -DClang_DIR="$env:Clang_DIR"
           cmake --build $msvcBuildDir
-          ctest --test-dir $msvcBuildDir --output-on-failure
+          ctest --test-dir $msvcBuildDir --output-on-failure --parallel 4
 
   linux:
     name: ${{ matrix.name }} • ${{ matrix.preset == 'debug-system-cxx23' && 'C++23 tests' || matrix.build_type }}
@@ -770,7 +770,7 @@ jobs:
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure
+          ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel 4
 
   package-workflow:
     name: Package Workflow

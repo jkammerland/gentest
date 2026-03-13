@@ -6,9 +6,9 @@ module;
 #undef GENTEST_NO_AUTO_MOCK_INCLUDE
 #endif
 
-export module gentest.imported_sibling_consumer;
+export /* consumer */ module gentest.imported_sibling_consumer;
 
-import gentest.imported_sibling_provider;
+import /* provider */ gentest.imported_sibling_provider;
 
 #if !defined(GENTEST_CODEGEN)
 import gentest;

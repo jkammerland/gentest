@@ -17,6 +17,7 @@
 #include <fmt/format.h>
 #include <fstream>
 #include <iterator>
+#include <llvm/ADT/StringRef.h>
 #include <map>
 #include <set>
 #include <string>
@@ -217,6 +218,98 @@ std::string strip_comments_for_line_scan(std::string_view line, bool &in_block_c
     return out;
 }
 
+std::string normalize_scan_directive_line(std::string_view line) {
+    std::string out;
+    out.reserve(line.size());
+
+    bool pending_space = false;
+    for (const unsigned char ch : line) {
+        if (std::isspace(ch)) {
+            pending_space = !out.empty();
+            continue;
+        }
+        if (pending_space && !out.empty()) {
+            out.push_back(' ');
+        }
+        out.push_back(static_cast<char>(ch));
+        pending_space = false;
+    }
+    return out;
+}
+
+bool consume_scan_keyword(std::string_view &cursor, std::string_view keyword) {
+    cursor = std::string_view(llvm::StringRef(cursor).ltrim());
+    if (!cursor.starts_with(keyword)) {
+        return false;
+    }
+    if (cursor.size() > keyword.size()) {
+        const unsigned char next = static_cast<unsigned char>(cursor[keyword.size()]);
+        if (!std::isspace(next) && next != ';') {
+            return false;
+        }
+    }
+    cursor.remove_prefix(keyword.size());
+    return true;
+}
+
+std::optional<std::string> parse_named_module_name_from_scan_line(std::string_view line) {
+    const std::string normalized = normalize_scan_directive_line(line);
+    std::string_view  cursor     = normalized;
+    if (consume_scan_keyword(cursor, "export")) {
+        cursor = std::string_view(llvm::StringRef(cursor).ltrim());
+    }
+    if (!consume_scan_keyword(cursor, "module")) {
+        return std::nullopt;
+    }
+
+    cursor = std::string_view(llvm::StringRef(cursor).ltrim());
+    if (cursor.empty() || cursor.front() == ';') {
+        return std::nullopt;
+    }
+
+    const auto semi = cursor.find(';');
+    if (semi == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    std::string module_name = llvm::StringRef(cursor.substr(0, semi)).trim().str();
+    if (module_name.empty()) {
+        return std::nullopt;
+    }
+    return module_name;
+}
+
+std::optional<std::string> parse_imported_module_name_from_scan_line(std::string_view line) {
+    const std::string normalized = normalize_scan_directive_line(line);
+    std::string_view  cursor     = normalized;
+    if (consume_scan_keyword(cursor, "export")) {
+        cursor = std::string_view(llvm::StringRef(cursor).ltrim());
+    }
+    if (!consume_scan_keyword(cursor, "import")) {
+        return std::nullopt;
+    }
+
+    cursor = std::string_view(llvm::StringRef(cursor).ltrim());
+    if (cursor.empty() || cursor.front() == '<' || cursor.front() == '\"') {
+        return std::nullopt;
+    }
+
+    const auto semi = cursor.find(';');
+    if (semi == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    std::string module_name = llvm::StringRef(cursor.substr(0, semi)).trim().str();
+    if (module_name.empty()) {
+        return std::nullopt;
+    }
+    return module_name;
+}
+
+bool is_global_module_fragment_scan_line(std::string_view line) {
+    return normalize_scan_directive_line(line) == "module;";
+}
+
 struct SourceMockCodegenIncludes {
     bool has_mock_codegen = false;
     bool has_registry_codegen = false;
@@ -300,11 +393,11 @@ std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_v
         const std::string_view trimmed = first == std::string::npos ? std::string_view{} : std::string_view(cleaned).substr(first, last - first + 1);
 
         if (!seen_module_decl) {
-            if (trimmed == "module;") {
+            if (is_global_module_fragment_scan_line(trimmed)) {
                 cursor = next;
                 continue;
             }
-            if (trimmed.starts_with("export module ") || trimmed.starts_with("module ")) {
+            if (parse_named_module_name_from_scan_line(trimmed).has_value()) {
                 seen_module_decl = true;
                 last_after = next;
             }
@@ -312,7 +405,7 @@ std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_v
             continue;
         }
 
-        if (trimmed.empty() || trimmed.starts_with("import ") || trimmed.starts_with("export import ") || trimmed.starts_with("#")) {
+        if (trimmed.empty() || parse_imported_module_name_from_scan_line(trimmed).has_value() || trimmed.starts_with("#")) {
             last_after = next;
             cursor = next;
             continue;
@@ -353,7 +446,7 @@ std::optional<std::size_t> find_module_global_fragment_include_offset(std::strin
                 cursor = next;
                 continue;
             }
-            if (trimmed == "module;") {
+            if (is_global_module_fragment_scan_line(trimmed)) {
                 seen_global_fragment = true;
                 last_after = next;
             }
@@ -366,7 +459,7 @@ std::optional<std::size_t> find_module_global_fragment_include_offset(std::strin
             cursor = next;
             continue;
         }
-        if (trimmed.starts_with("export module ") || trimmed.starts_with("module ")) {
+        if (parse_named_module_name_from_scan_line(trimmed).has_value()) {
             return last_after;
         }
         break;

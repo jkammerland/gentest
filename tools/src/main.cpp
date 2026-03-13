@@ -23,6 +23,7 @@
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -30,11 +31,13 @@
 #include <fmt/core.h>
 #include <iterator>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/Process.h>
 #include <llvm/Support/Program.h>
+#include <llvm/Support/StringSaver.h>
 #include <llvm/Support/raw_ostream.h>
 #include <memory>
 #include <mutex>
@@ -68,6 +71,9 @@ using gentest::codegen::resolve_free_fixtures;
 static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
 
 namespace {
+
+std::optional<std::string> parse_named_module_name_from_scan_line(std::string_view line);
+std::optional<std::string> parse_imported_module_name_from_scan_line(std::string_view line);
 
 bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
     if (cases.empty()) {
@@ -237,42 +243,39 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
             return std::nullopt;
         }
 
+        auto strip_scan_comments = [](std::string_view text, bool &in_block_comment) {
+            std::string out;
+            out.reserve(text.size());
+            for (std::size_t i = 0; i < text.size();) {
+                if (in_block_comment) {
+                    const auto end = text.find("*/", i);
+                    if (end == std::string_view::npos) {
+                        return out;
+                    }
+                    in_block_comment = false;
+                    i = end + 2;
+                    continue;
+                }
+                if (i + 1 < text.size() && text[i] == '/' && text[i + 1] == '*') {
+                    in_block_comment = true;
+                    i += 2;
+                    continue;
+                }
+                if (i + 1 < text.size() && text[i] == '/' && text[i + 1] == '/') {
+                    break;
+                }
+                out.push_back(text[i]);
+                ++i;
+            }
+            return out;
+        };
         std::string line;
+        bool        in_block_comment = false;
         while (std::getline(in, line)) {
-            if (const auto comment_pos = line.find("//"); comment_pos != std::string::npos) {
-                line.erase(comment_pos);
+            line = strip_scan_comments(line, in_block_comment);
+            if (auto module_name = parse_named_module_name_from_scan_line(line); module_name.has_value()) {
+                return module_name;
             }
-            const auto first = line.find_first_not_of(" \t\r\n");
-            if (first == std::string::npos) {
-                continue;
-            }
-            const auto last = line.find_last_not_of(" \t\r\n");
-            std::string trimmed = line.substr(first, last - first + 1);
-            if (trimmed == "module;") {
-                continue;
-            }
-            if (trimmed.rfind("export module ", 0) == 0) {
-                trimmed.erase(0, std::string("export module ").size());
-            } else if (trimmed.rfind("module ", 0) == 0) {
-                trimmed.erase(0, std::string("module ").size());
-            } else {
-                continue;
-            }
-            const auto semi = trimmed.find(';');
-            if (semi == std::string::npos) {
-                return std::nullopt;
-            }
-            trimmed.erase(semi);
-            while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back()))) {
-                trimmed.pop_back();
-            }
-            while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front()))) {
-                trimmed.erase(trimmed.begin());
-            }
-            if (!trimmed.empty()) {
-                return trimmed;
-            }
-            return std::nullopt;
         }
         return std::nullopt;
     };
@@ -478,11 +481,143 @@ bool should_strip_compdb_arg(std::string_view arg) {
         arg == "-Werror" || arg.starts_with("-Werror=") || arg == "-pedantic-errors";
 }
 
-std::string strip_line_comment(std::string line) {
-    if (const auto comment_pos = line.find("//"); comment_pos != std::string::npos) {
-        line.erase(comment_pos);
+std::string strip_comments_for_line_scan(std::string_view line, bool &in_block_comment) {
+    std::string out;
+    out.reserve(line.size());
+
+    for (std::size_t i = 0; i < line.size();) {
+        if (in_block_comment) {
+            const auto end = line.find("*/", i);
+            if (end == std::string_view::npos) {
+                return llvm::StringRef(out).trim().str();
+            }
+            in_block_comment = false;
+            i = end + 2;
+            continue;
+        }
+        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '*') {
+            in_block_comment = true;
+            i += 2;
+            continue;
+        }
+        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '/') {
+            break;
+        }
+        out.push_back(line[i]);
+        ++i;
     }
-    return llvm::StringRef(line).trim().str();
+    return llvm::StringRef(out).trim().str();
+}
+
+std::string normalize_scan_directive_line(std::string_view line) {
+    std::string out;
+    out.reserve(line.size());
+
+    bool pending_space = false;
+    for (const unsigned char ch : line) {
+        if (std::isspace(ch)) {
+            pending_space = !out.empty();
+            continue;
+        }
+        if (pending_space && !out.empty()) {
+            out.push_back(' ');
+        }
+        out.push_back(static_cast<char>(ch));
+        pending_space = false;
+    }
+    return out;
+}
+
+bool consume_scan_keyword(std::string_view &cursor, std::string_view keyword) {
+    cursor = llvm::StringRef(cursor).ltrim();
+    if (!cursor.starts_with(keyword)) {
+        return false;
+    }
+    if (cursor.size() > keyword.size()) {
+        const unsigned char next = static_cast<unsigned char>(cursor[keyword.size()]);
+        if (!std::isspace(next) && next != ';') {
+            return false;
+        }
+    }
+    cursor.remove_prefix(keyword.size());
+    return true;
+}
+
+std::optional<std::string> parse_named_module_name_from_scan_line(std::string_view line) {
+    const std::string normalized = normalize_scan_directive_line(line);
+    std::string_view  cursor     = normalized;
+    if (consume_scan_keyword(cursor, "export")) {
+        cursor = llvm::StringRef(cursor).ltrim();
+    }
+    if (!consume_scan_keyword(cursor, "module")) {
+        return std::nullopt;
+    }
+
+    cursor = llvm::StringRef(cursor).ltrim();
+    if (cursor.empty() || cursor.front() == ';') {
+        return std::nullopt;
+    }
+
+    const auto semi = cursor.find(';');
+    if (semi == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    std::string module_name = llvm::StringRef(cursor.substr(0, semi)).trim().str();
+    if (module_name.empty()) {
+        return std::nullopt;
+    }
+    return module_name;
+}
+
+std::optional<std::string> parse_imported_module_name_from_scan_line(std::string_view line) {
+    const std::string normalized = normalize_scan_directive_line(line);
+    std::string_view  cursor     = normalized;
+    if (consume_scan_keyword(cursor, "export")) {
+        cursor = llvm::StringRef(cursor).ltrim();
+    }
+    if (!consume_scan_keyword(cursor, "import")) {
+        return std::nullopt;
+    }
+
+    cursor = llvm::StringRef(cursor).ltrim();
+    if (cursor.empty() || cursor.front() == '<' || cursor.front() == '\"') {
+        return std::nullopt;
+    }
+
+    const auto semi = cursor.find(';');
+    if (semi == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    std::string module_name = llvm::StringRef(cursor.substr(0, semi)).trim().str();
+    if (module_name.empty()) {
+        return std::nullopt;
+    }
+    return module_name;
+}
+
+std::vector<std::string> read_response_file_arguments(const std::filesystem::path &path) {
+    auto buffer = llvm::MemoryBuffer::getFile(path.string());
+    if (!buffer) {
+        return {};
+    }
+
+    llvm::BumpPtrAllocator         allocator;
+    llvm::StringSaver              saver(allocator);
+    llvm::SmallVector<const char*> argv;
+#if defined(_WIN32)
+    llvm::cl::TokenizeWindowsCommandLine(buffer.get()->getBuffer(), saver, argv);
+#else
+    llvm::cl::TokenizeGNUCommandLine(buffer.get()->getBuffer(), saver, argv);
+#endif
+
+    std::vector<std::string> args;
+    args.reserve(argv.size());
+    for (const char *arg : argv) {
+        args.emplace_back(arg);
+    }
+    return args;
 }
 
 std::optional<std::string> parse_named_module_name_from_source(const std::filesystem::path &path) {
@@ -492,28 +627,12 @@ std::optional<std::string> parse_named_module_name_from_source(const std::filesy
     }
 
     std::string line;
+    bool        in_block_comment = false;
     while (std::getline(in, line)) {
-        std::string trimmed = strip_line_comment(std::move(line));
-        if (trimmed.empty() || trimmed == "module;") {
-            continue;
+        std::string trimmed = strip_comments_for_line_scan(line, in_block_comment);
+        if (auto module_name = parse_named_module_name_from_scan_line(trimmed); module_name.has_value()) {
+            return module_name;
         }
-        if (trimmed.rfind("export module ", 0) == 0) {
-            trimmed.erase(0, std::string("export module ").size());
-        } else if (trimmed.rfind("module ", 0) == 0) {
-            trimmed.erase(0, std::string("module ").size());
-        } else {
-            continue;
-        }
-        const auto semi = trimmed.find(';');
-        if (semi == std::string::npos) {
-            return std::nullopt;
-        }
-        trimmed.erase(semi);
-        trimmed = llvm::StringRef(trimmed).trim().str();
-        if (!trimmed.empty()) {
-            return trimmed;
-        }
-        return std::nullopt;
     }
     return std::nullopt;
 }
@@ -533,35 +652,26 @@ std::vector<std::string> parse_imported_named_modules_from_source(const std::fil
     std::vector<std::string> imports;
     std::unordered_set<std::string> seen;
     std::string line;
+    bool        in_block_comment = false;
     while (std::getline(in, line)) {
-        std::string trimmed = strip_line_comment(std::move(line));
-        if (trimmed.empty() || trimmed == "module;") {
+        std::string trimmed = strip_comments_for_line_scan(line, in_block_comment);
+        if (trimmed.empty()) {
             continue;
         }
-        if (trimmed.rfind("export import ", 0) == 0) {
-            trimmed.erase(0, std::string("export import ").size());
-        } else if (trimmed.rfind("import ", 0) == 0) {
-            trimmed.erase(0, std::string("import ").size());
-        } else {
+
+        auto import_name = parse_imported_module_name_from_scan_line(trimmed);
+        if (!import_name.has_value()) {
             continue;
         }
-        const auto semi = trimmed.find(';');
-        if (semi == std::string::npos) {
-            continue;
-        }
-        trimmed.erase(semi);
-        trimmed = llvm::StringRef(trimmed).trim().str();
-        if (trimmed.empty() || trimmed.front() == '<' || trimmed.front() == '\"') {
-            continue;
-        }
-        if (trimmed.front() == ':') {
+
+        if (import_name->front() == ':') {
             if (current_primary_module.empty()) {
                 continue;
             }
-            trimmed = current_primary_module + trimmed;
+            *import_name = current_primary_module + *import_name;
         }
-        if (known_modules.contains(trimmed) && seen.insert(trimmed).second) {
-            imports.push_back(trimmed);
+        if (known_modules.contains(*import_name) && seen.insert(*import_name).second) {
+            imports.push_back(*import_name);
         }
     }
     return imports;
@@ -578,8 +688,9 @@ std::optional<std::filesystem::path> resolve_wrapped_source_from_codegen_shim(co
     }
 
     std::string line;
+    bool        in_block_comment = false;
     while (std::getline(in, line)) {
-        std::string trimmed = strip_line_comment(std::move(line));
+        std::string trimmed = strip_comments_for_line_scan(line, in_block_comment);
         if (trimmed.rfind("#include \"", 0) != 0) {
             continue;
         }
@@ -680,6 +791,27 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
     const std::string from{from_file};
     const std::string to{to_file};
     const std::string normalized_from = normalize_compdb_lookup_path(from, command.Directory);
+
+    clang::tooling::CommandLineArguments expanded_command_line;
+    expanded_command_line.reserve(command.CommandLine.size());
+    for (const auto &arg : command.CommandLine) {
+        if (!(llvm::StringRef{arg}.starts_with("@") && !llvm::StringRef{arg}.contains(".modmap"))) {
+            expanded_command_line.push_back(arg);
+            continue;
+        }
+        const std::string resolved = normalize_compdb_lookup_path(std::string_view(arg).substr(1), command.Directory);
+        if (resolved.empty() || !std::filesystem::exists(resolved)) {
+            expanded_command_line.push_back(arg);
+            continue;
+        }
+        const auto response_args = read_response_file_arguments(resolved);
+        if (response_args.empty()) {
+            expanded_command_line.push_back(arg);
+            continue;
+        }
+        expanded_command_line.insert(expanded_command_line.end(), response_args.begin(), response_args.end());
+    }
+    command.CommandLine = std::move(expanded_command_line);
 
     command.Filename = to;
 
@@ -833,15 +965,16 @@ std::filesystem::path resolve_codegen_module_cache_dir(const CollectorOptions &o
 
 clang::tooling::CommandLineArguments build_module_precompile_command(const clang::tooling::CommandLineArguments &adjusted_command_line,
                                                                      std::string_view                            source_file,
+                                                                     std::string_view                            working_directory,
                                                                      const std::filesystem::path                &pcm_path) {
     clang::tooling::CommandLineArguments command;
     if (adjusted_command_line.empty()) {
         return command;
     }
 
-    const std::string normalized_source = normalize_compdb_lookup_path(source_file);
+    const std::string normalized_source = normalize_compdb_lookup_path(source_file, working_directory);
     auto              is_source_arg = [&](std::string_view arg) {
-        return !normalized_source.empty() && normalize_compdb_lookup_path(arg) == normalized_source;
+        return !normalized_source.empty() && normalize_compdb_lookup_path(arg, working_directory) == normalized_source;
     };
     auto has_explicit_language_mode = [&]() {
         for (std::size_t i = 1; i < adjusted_command_line.size(); ++i) {
@@ -1672,7 +1805,9 @@ int main(int argc, const char **argv) {
                 options.sources[module_source.source_index], resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
                 compdb_dir, module_file_args, default_compiler_path);
             const auto precompile_command =
-                build_module_precompile_command(adjusted_command, options.sources[module_source.source_index], module_source.pcm_path);
+                build_module_precompile_command(adjusted_command, options.sources[module_source.source_index],
+                                                source_commands.empty() ? compdb_dir : source_commands.front().Directory,
+                                                module_source.pcm_path);
             if (!execute_module_precompile(precompile_command, module_source.module_name, options.sources[module_source.source_index],
                                            module_source.pcm_path)) {
                 state = ModuleBuildState::Failed;

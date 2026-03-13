@@ -26,7 +26,7 @@ target_sources(imported_sibling_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/provider.ixx
             ${CMAKE_CURRENT_SOURCE_DIR}/consumer.cppm)
 
-target_link_libraries(imported_sibling_tests PRIVATE gentest_main gentest_runtime)
+target_link_libraries(imported_sibling_tests PRIVATE gentest gentest_runtime)
 target_compile_features(imported_sibling_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(imported_sibling_tests
