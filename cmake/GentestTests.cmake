@@ -170,6 +170,7 @@ function(gentest_add_cmake_script_test)
 
     add_test(NAME ${GENTEST_NAME} COMMAND ${CMAKE_COMMAND} ${_cmd_args})
     set_property(TEST ${GENTEST_NAME} APPEND PROPERTY LABELS "cmake")
+    set_property(TEST ${GENTEST_NAME} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
 endfunction()
 
 function(gentest_add_check_counts)

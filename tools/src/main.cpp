@@ -725,6 +725,26 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
     std::string_view                                         compdb_dir,
     std::span<const std::string>                             extra_module_args = {},
     std::string_view                                         forced_compiler_path = {}) {
+    auto has_explicit_language_mode = [](std::span<const std::string> args) {
+        for (const auto &arg : args) {
+            if (arg == "-x" || arg == "/TP" || arg == "/Tc" || arg == "/TP-" || arg == "/Tc-") {
+                return true;
+            }
+            if (arg.starts_with("-x")) {
+                return true;
+            }
+        }
+        return false;
+    };
+    auto needs_explicit_module_language_mode = [&](std::span<const std::string> args) {
+        if (has_explicit_language_mode(args)) {
+            return false;
+        }
+        std::string ext = std::filesystem::path(file.str()).extension().string();
+        std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return ext == ".ixx" || ext == ".mxx";
+    };
+
     clang::tooling::CommandLineArguments adjusted;
     if (!command_line.empty()) {
         const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(command_line).value_or(0);
@@ -743,6 +763,10 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
             adjusted.emplace_back(std::string(default_sysroot));
         }
         adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+        if (needs_explicit_module_language_mode(command_line)) {
+            adjusted.emplace_back("-x");
+            adjusted.emplace_back("c++-module");
+        }
         bool skip_next_arg = false;
         for (std::size_t i = compiler_index + 1; i < command_line.size(); ++i) {
             const auto &arg = command_line[i];
@@ -777,6 +801,10 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
             adjusted.emplace_back(std::string(default_sysroot));
         }
         adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+        if (needs_explicit_module_language_mode(command_line)) {
+            adjusted.emplace_back("-x");
+            adjusted.emplace_back("c++-module");
+        }
     }
 
     adjusted.insert(adjusted.end(), extra_module_args.begin(), extra_module_args.end());
@@ -815,6 +843,26 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
     auto              is_source_arg = [&](std::string_view arg) {
         return !normalized_source.empty() && normalize_compdb_lookup_path(arg) == normalized_source;
     };
+    auto has_explicit_language_mode = [&]() {
+        for (std::size_t i = 1; i < adjusted_command_line.size(); ++i) {
+            const auto &arg = adjusted_command_line[i];
+            if (arg == "-x" || arg == "/TP" || arg == "/Tc" || arg == "/TP-" || arg == "/Tc-") {
+                return true;
+            }
+            if (arg.starts_with("-x")) {
+                return true;
+            }
+        }
+        return false;
+    };
+    auto needs_explicit_module_language_mode = [&]() {
+        if (has_explicit_language_mode()) {
+            return false;
+        }
+        std::string ext = std::filesystem::path(source_file).extension().string();
+        std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return ext == ".ixx" || ext == ".mxx";
+    };
 
     command.reserve(adjusted_command_line.size() + 4);
     command.push_back(adjusted_command_line.front());
@@ -832,7 +880,7 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
         if (arg == "--") {
             continue;
         }
-        if (arg == "-o" || arg == "-MF" || arg == "-MT" || arg == "-MQ" || arg == "-x" || arg == "-fmodule-output") {
+        if (arg == "-o" || arg == "-MF" || arg == "-MT" || arg == "-MQ" || arg == "-fmodule-output") {
             skip_next_arg = true;
             continue;
         }
@@ -852,6 +900,10 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
         command.push_back(arg);
     }
 
+    if (needs_explicit_module_language_mode()) {
+        command.emplace_back("-x");
+        command.emplace_back("c++-module");
+    }
     command.emplace_back("--precompile");
     command.emplace_back(std::string(source_file));
     command.emplace_back("-o");
@@ -892,7 +944,13 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
     std::string err_msg;
     const int   rc = llvm::sys::ExecuteAndWait(*resolved_path, llvm_args, std::nullopt, {}, 0, 0, &err_msg);
     if (rc == 0) {
-        return true;
+        if (std::filesystem::exists(pcm_path)) {
+            return true;
+        }
+        gentest::codegen::log_err("gentest_codegen: compiler reported success while precompiling named module '{}' from '{}', "
+                                  "but no PCM was produced at '{}'\n",
+                                  module_name, source_file, pcm_path.string());
+        return false;
     }
 
     if (!err_msg.empty()) {

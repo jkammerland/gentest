@@ -49,7 +49,7 @@ set(_cmake_cache_args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
   gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
   if(NOT _supported_ninja)
-    message(STATUS "Skipping gentest_tu_register_symbol_collision fixture: ${_supported_ninja_reason}")
+    gentest_skip_test("gentest_tu_register_symbol_collision fixture: ${_supported_ninja_reason}")
     return()
   endif()
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
@@ -64,16 +64,6 @@ if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
 endif()
 if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
-endif()
-if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DLLVM_DIR=${LLVM_DIR}")
-endif()
-if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
-endif()
-gentest_find_clang_scan_deps(_clang_scan_deps "${CXX_COMPILER}")
-if(NOT "${_clang_scan_deps}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
 endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
@@ -95,22 +85,6 @@ set(_compdb "${_build_dir}/compile_commands.json")
 if(NOT EXISTS "${_compdb}")
   message(FATAL_ERROR "Expected CMake to generate '${_compdb}', but it does not exist")
 endif()
-
-set(_build_cmd
-  "${CMAKE_COMMAND}"
-  --build "${_build_dir}"
-  --target register_collision_obj)
-if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
-  list(APPEND _build_cmd --config "${BUILD_TYPE}")
-endif()
-
-message(STATUS "Build gentest_tu_register_symbol_collision fixture target...")
-gentest_check_run_or_fail(
-  COMMAND
-    ${_build_cmd}
-  STRIP_TRAILING_WHITESPACE
-  WORKING_DIRECTORY "${_work_dir}"
-)
 
 set(_registry "${_work_dir}/mock_registry.hpp")
 set(_impl "${_work_dir}/mock_impl.hpp")

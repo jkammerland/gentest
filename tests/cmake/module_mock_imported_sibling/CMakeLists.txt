@@ -8,7 +8,11 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
+if(DEFINED GENTEST_CODEGEN_EXECUTABLE AND NOT "${GENTEST_CODEGEN_EXECUTABLE}" STREQUAL "")
+    set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
+else()
+    set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
+endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
@@ -19,7 +23,7 @@ add_executable(imported_sibling_tests
 target_sources(imported_sibling_tests
     PRIVATE
         FILE_SET imported_sibling_cases TYPE CXX_MODULES FILES
-            ${CMAKE_CURRENT_SOURCE_DIR}/provider.cppm
+            ${CMAKE_CURRENT_SOURCE_DIR}/provider.ixx
             ${CMAKE_CURRENT_SOURCE_DIR}/consumer.cppm)
 
 target_link_libraries(imported_sibling_tests PRIVATE gentest_main gentest_runtime)

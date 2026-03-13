@@ -33,13 +33,13 @@ file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
-  message(STATUS "Skipping public module fallback regression (${FALLBACK_MODE}): clang/clang++ not found")
+  gentest_skip_test("public module fallback regression (${FALLBACK_MODE}): clang/clang++ not found")
   return()
 endif()
 
 gentest_find_supported_ninja(_real_ninja _real_ninja_reason)
 if(NOT _real_ninja)
-  message(STATUS "Skipping public module fallback regression (${FALLBACK_MODE}): ${_real_ninja_reason}")
+  gentest_skip_test("public module fallback regression (${FALLBACK_MODE}): ${_real_ninja_reason}")
   return()
 endif()
 

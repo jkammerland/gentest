@@ -26,7 +26,7 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
 endif()
 
 if(WIN32)
-  message(STATUS "CheckMockSymlinkInclude.cmake: Windows host covered by cross-root mock include test; skipping")
+  gentest_skip_test("CheckMockSymlinkInclude.cmake: Windows host covered by cross-root mock include test")
   return()
 endif()
 
@@ -34,7 +34,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
-  message(STATUS "CheckMockSymlinkInclude.cmake: clang/clang++ not found; skipping")
+  gentest_skip_test("CheckMockSymlinkInclude.cmake: clang/clang++ not found")
   return()
 endif()
 
@@ -46,7 +46,7 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE
   ERROR_STRIP_TRAILING_WHITESPACE)
 if(NOT _resource_dir_rc EQUAL 0 OR "${_resource_dir}" STREQUAL "")
-  message(STATUS "CheckMockSymlinkInclude.cmake: failed to query clang resource dir from '${_clangxx}': ${_resource_dir_err}")
+  gentest_skip_test("CheckMockSymlinkInclude.cmake: failed to query clang resource dir from '${_clangxx}': ${_resource_dir_err}")
   return()
 endif()
 

@@ -1603,6 +1603,7 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
             -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
             -DC_COMPILER=${CMAKE_C_COMPILER}
             -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DPROG=${_gentest_codegen_prog}
             -DLLVM_DIR=${LLVM_DIR}
             -DClang_DIR=${Clang_DIR}
             -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
@@ -1610,6 +1611,7 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
             -P ${script_path})
 
     set_tests_properties(${name} PROPERTIES LABELS "${label}")
+    set_property(TEST ${name} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
 endfunction()
 
 _gentest_add_cmake_helper_test(

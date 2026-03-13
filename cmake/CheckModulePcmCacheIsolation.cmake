@@ -41,7 +41,7 @@ endfunction()
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 
 if(NOT _clang OR NOT _clangxx)
-  message(STATUS "Skipping module PCM cache isolation regression: no usable clang/clang++ pair was provided")
+  gentest_skip_test("module PCM cache isolation regression: no usable clang/clang++ pair was provided")
   return()
 endif()
 
@@ -60,7 +60,7 @@ set(_cmake_cache_args
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
   gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
   if(NOT _supported_ninja)
-    message(STATUS "Skipping module PCM cache isolation regression: ${_supported_ninja_reason}")
+    gentest_skip_test("module PCM cache isolation regression: ${_supported_ninja_reason}")
     return()
   endif()
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
@@ -75,6 +75,9 @@ if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
 endif()
 if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
+endif()
+if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
 endif()
 gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
 if(NOT "${_clang_scan_deps}" STREQUAL "")
@@ -95,21 +98,20 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-message(STATUS "Build gentest_codegen for the shared-build-tree fixture...")
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target gentest_codegen
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
 set(_generated_dir "${_build_dir}/generated")
 file(MAKE_DIRECTORY "${_generated_dir}")
 set(_codegen_exe_ext "")
 if(CMAKE_HOST_WIN32)
   set(_codegen_exe_ext ".exe")
 endif()
-set(_codegen_exe "${_build_dir}/gentest/tools/gentest_codegen${_codegen_exe_ext}")
-if(NOT EXISTS "${_codegen_exe}")
-  message(FATAL_ERROR "gentest_codegen executable not found: '${_codegen_exe}'")
+set(_codegen_exe "")
+if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
+  set(_codegen_exe "${PROG}")
+else()
+  set(_codegen_exe "${_build_dir}/gentest/tools/gentest_codegen${_codegen_exe_ext}")
+  if(NOT EXISTS "${_codegen_exe}")
+    message(FATAL_ERROR "gentest_codegen executable not found: '${_codegen_exe}'")
+  endif()
 endif()
 
 function(_gentest_run_codegen_fixture output_stem module_source)
