@@ -1901,20 +1901,19 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
     endif()
 
     set(_gentest_package_test_compiler_args "")
-    if(UNIX AND NOT APPLE)
-        if(CMAKE_C_COMPILER MATCHES "[Cc]lang" AND CMAKE_CXX_COMPILER MATCHES "[Cc]lang")
-            list(APPEND _gentest_package_test_compiler_args
-                -DPACKAGE_TEST_C_COMPILER=${CMAKE_C_COMPILER}
-                -DPACKAGE_TEST_CXX_COMPILER=${CMAKE_CXX_COMPILER})
-        else()
-            find_program(_gentest_package_test_clang NAMES clang)
-            find_program(_gentest_package_test_clangxx NAMES clang++)
-            if(_gentest_package_test_clang AND _gentest_package_test_clangxx)
-                list(APPEND _gentest_package_test_compiler_args
-                    -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_clang}
-                    -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_clangxx})
-            endif()
-        endif()
+    if(DEFINED CMAKE_C_COMPILER AND NOT "${CMAKE_C_COMPILER}" STREQUAL "")
+        list(APPEND _gentest_package_test_compiler_args
+            -DPACKAGE_TEST_C_COMPILER=${CMAKE_C_COMPILER})
+    endif()
+    if(DEFINED CMAKE_CXX_COMPILER AND NOT "${CMAKE_CXX_COMPILER}" STREQUAL "")
+        list(APPEND _gentest_package_test_compiler_args
+            -DPACKAGE_TEST_CXX_COMPILER=${CMAKE_CXX_COMPILER})
+    endif()
+    if(DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
+        list(APPEND _gentest_package_test_compiler_args
+            -DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS})
     endif()
 
     _gentest_add_cmake_helper_test(
@@ -1927,6 +1926,18 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         -DCONSUMER_LINK_MODE=main_only
         -DPACKAGE_TEST_USE_MODULES=OFF
         -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_include_only_native_codegen
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
         ${_gentest_package_test_compiler_args})
 
     if(NOT GENTEST_PUBLIC_MODULES_ENABLED)

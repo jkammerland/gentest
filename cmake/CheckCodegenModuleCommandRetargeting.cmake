@@ -133,4 +133,41 @@ _gentest_run_codegen_expect_success(
   TU_OUT_DIR "${_response_generated_dir}"
   SOURCE_FILE "${_response_source_abs}")
 
+set(_joined_dep_dir "${_work_dir}/joined_depflags")
+file(MAKE_DIRECTORY "${_joined_dep_dir}")
+file(WRITE "${_joined_dep_dir}/provider.cppm"
+  "export module gentest.retarget.joined_depflags;\n"
+  "export int joined_depflags_value() { return 13; }\n")
+file(TO_CMAKE_PATH "${_joined_dep_dir}" _joined_dep_dir_norm)
+file(TO_CMAKE_PATH "${_joined_dep_dir}/provider.cppm" _joined_dep_source_abs)
+file(WRITE "${_joined_dep_dir}/compile_commands.json"
+  "[\n"
+  "  {\n"
+  "    \"directory\": \"${_joined_dep_dir_norm}\",\n"
+  "    \"file\": \"provider.cppm\",\n"
+  "    \"arguments\": [\"${_clangxx_norm}\", \"-std=c++20\", \"-MF${_joined_dep_dir_norm}/deps.d\", \"-MT${_joined_dep_dir_norm}/provider.o\", \"-MQ${_joined_dep_dir_norm}/provider.o\", \"-c\", \"provider.cppm\", \"-o\", \"provider.o\"]\n"
+  "  }\n"
+  "]\n")
+
+execute_process(
+  COMMAND "${PROG}" --check --compdb "${_joined_dep_dir}" "${_joined_dep_source_abs}"
+  RESULT_VARIABLE _joined_dep_rc
+  OUTPUT_VARIABLE _joined_dep_out
+  ERROR_VARIABLE _joined_dep_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+
+if(NOT _joined_dep_rc EQUAL 0)
+  message(FATAL_ERROR
+    "joined depfile flags: gentest_codegen failed unexpectedly.\n"
+    "Output:\n${_joined_dep_out}\nErrors:\n${_joined_dep_err}")
+endif()
+if(_joined_dep_err MATCHES "argument unused during compilation: '-MF"
+   OR _joined_dep_err MATCHES "argument unused during compilation: '-MT"
+   OR _joined_dep_err MATCHES "argument unused during compilation: '-MQ")
+  message(FATAL_ERROR
+    "joined depfile flags leaked into manual module precompile.\n"
+    "Output:\n${_joined_dep_out}\nErrors:\n${_joined_dep_err}")
+endif()
+
 message(STATUS "Module command retargeting regression passed")

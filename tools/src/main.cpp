@@ -859,8 +859,11 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
         if (arg == "--") {
             continue;
         }
-        if (arg == "-o" || arg == "-MF" || arg == "-MT" || arg == "-MQ" || arg == "-fmodule-output") {
+        if (arg == "-o" || arg == "-MF" || arg == "-MT" || arg == "-MQ" || arg == "-MJ" || arg == "-fmodule-output") {
             skip_next_arg = true;
+            continue;
+        }
+        if (arg == "-MD" || arg == "-MMD") {
             continue;
         }
         if (arg == "-Xclang" && i + 1 < adjusted_command_line.size()) {
@@ -870,7 +873,8 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
                 continue;
             }
         }
-        if (arg.starts_with("-o") || arg.starts_with("-fmodule-output=") || arg.starts_with("/Fo")) {
+        if (arg.starts_with("-o") || arg.starts_with("-fmodule-output=") || arg.starts_with("/Fo") ||
+            arg.starts_with("-MF") || arg.starts_with("-MT") || arg.starts_with("-MQ") || arg.starts_with("-MJ")) {
             continue;
         }
         if (is_source_arg(arg)) {

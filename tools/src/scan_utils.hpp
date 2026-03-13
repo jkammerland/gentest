@@ -230,99 +230,494 @@ inline std::optional<long long> parse_scan_integer_literal(std::string_view text
     return sign * value;
 }
 
+enum class ScanPpTokenKind {
+    Identifier,
+    Number,
+    LParen,
+    RParen,
+    LogicalOr,
+    LogicalAnd,
+    BitOr,
+    BitXor,
+    BitAnd,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    ShiftLeft,
+    ShiftRight,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    Not,
+    BitNot,
+    End,
+};
+
+struct ScanPpToken {
+    ScanPpTokenKind kind = ScanPpTokenKind::End;
+    std::string     text;
+};
+
+inline std::vector<ScanPpToken> tokenize_scan_preprocessor_expression(std::string_view text) {
+    std::vector<ScanPpToken> tokens;
+    std::size_t              i = 0;
+    while (i < text.size()) {
+        const unsigned char ch = static_cast<unsigned char>(text[i]);
+        if (std::isspace(ch)) {
+            ++i;
+            continue;
+        }
+
+        if (is_scan_identifier_start(ch)) {
+            const std::size_t begin = i++;
+            while (i < text.size() && is_scan_identifier_continue(static_cast<unsigned char>(text[i]))) {
+                ++i;
+            }
+            tokens.push_back(ScanPpToken{ScanPpTokenKind::Identifier, std::string{text.substr(begin, i - begin)}});
+            continue;
+        }
+
+        if (std::isdigit(ch)) {
+            const std::size_t begin = i++;
+            while (i < text.size()) {
+                const unsigned char next = static_cast<unsigned char>(text[i]);
+                if (!std::isalnum(next) && next != '_') {
+                    break;
+                }
+                ++i;
+            }
+            tokens.push_back(ScanPpToken{ScanPpTokenKind::Number, std::string{text.substr(begin, i - begin)}});
+            continue;
+        }
+
+        auto push = [&](ScanPpTokenKind kind, std::size_t len) {
+            tokens.push_back(ScanPpToken{kind, std::string{text.substr(i, len)}});
+            i += len;
+        };
+
+        if (i + 1 < text.size()) {
+            const std::string_view two = text.substr(i, 2);
+            if (two == "||") {
+                push(ScanPpTokenKind::LogicalOr, 2);
+                continue;
+            }
+            if (two == "&&") {
+                push(ScanPpTokenKind::LogicalAnd, 2);
+                continue;
+            }
+            if (two == "==") {
+                push(ScanPpTokenKind::Equal, 2);
+                continue;
+            }
+            if (two == "!=") {
+                push(ScanPpTokenKind::NotEqual, 2);
+                continue;
+            }
+            if (two == "<=") {
+                push(ScanPpTokenKind::LessEqual, 2);
+                continue;
+            }
+            if (two == ">=") {
+                push(ScanPpTokenKind::GreaterEqual, 2);
+                continue;
+            }
+            if (two == "<<") {
+                push(ScanPpTokenKind::ShiftLeft, 2);
+                continue;
+            }
+            if (two == ">>") {
+                push(ScanPpTokenKind::ShiftRight, 2);
+                continue;
+            }
+        }
+
+        switch (text[i]) {
+        case '(':
+            push(ScanPpTokenKind::LParen, 1);
+            break;
+        case ')':
+            push(ScanPpTokenKind::RParen, 1);
+            break;
+        case '|':
+            push(ScanPpTokenKind::BitOr, 1);
+            break;
+        case '^':
+            push(ScanPpTokenKind::BitXor, 1);
+            break;
+        case '&':
+            push(ScanPpTokenKind::BitAnd, 1);
+            break;
+        case '<':
+            push(ScanPpTokenKind::Less, 1);
+            break;
+        case '>':
+            push(ScanPpTokenKind::Greater, 1);
+            break;
+        case '+':
+            push(ScanPpTokenKind::Plus, 1);
+            break;
+        case '-':
+            push(ScanPpTokenKind::Minus, 1);
+            break;
+        case '*':
+            push(ScanPpTokenKind::Star, 1);
+            break;
+        case '/':
+            push(ScanPpTokenKind::Slash, 1);
+            break;
+        case '%':
+            push(ScanPpTokenKind::Percent, 1);
+            break;
+        case '!':
+            push(ScanPpTokenKind::Not, 1);
+            break;
+        case '~':
+            push(ScanPpTokenKind::BitNot, 1);
+            break;
+        default:
+            return {};
+        }
+    }
+    tokens.push_back(ScanPpToken{ScanPpTokenKind::End, {}});
+    return tokens;
+}
+
+class ScanPpExpressionParser {
+public:
+    ScanPpExpressionParser(std::string_view text, const std::unordered_map<std::string, std::string> &object_like_macros,
+                           std::size_t depth = 0)
+        : tokens_(tokenize_scan_preprocessor_expression(text)), object_like_macros_(object_like_macros), depth_(depth) {}
+
+    std::optional<long long> parse() {
+        if (tokens_.empty()) {
+            return std::nullopt;
+        }
+        const auto value = parse_logical_or();
+        if (!value.has_value() || current().kind != ScanPpTokenKind::End) {
+            return std::nullopt;
+        }
+        return value;
+    }
+
+private:
+    const ScanPpToken &current() const {
+        static const ScanPpToken kEnd{};
+        if (index_ >= tokens_.size()) {
+            return kEnd;
+        }
+        return tokens_[index_];
+    }
+
+    bool consume(ScanPpTokenKind kind) {
+        if (current().kind != kind) {
+            return false;
+        }
+        ++index_;
+        return true;
+    }
+
+    std::optional<long long> parse_logical_or() {
+        auto lhs = parse_logical_and();
+        while (lhs.has_value() && consume(ScanPpTokenKind::LogicalOr)) {
+            auto rhs = parse_logical_and();
+            if (!rhs.has_value()) {
+                return std::nullopt;
+            }
+            lhs = ((*lhs != 0) || (*rhs != 0)) ? 1ll : 0ll;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_logical_and() {
+        auto lhs = parse_bitwise_or();
+        while (lhs.has_value() && consume(ScanPpTokenKind::LogicalAnd)) {
+            auto rhs = parse_bitwise_or();
+            if (!rhs.has_value()) {
+                return std::nullopt;
+            }
+            lhs = ((*lhs != 0) && (*rhs != 0)) ? 1ll : 0ll;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_bitwise_or() {
+        auto lhs = parse_bitwise_xor();
+        while (lhs.has_value() && consume(ScanPpTokenKind::BitOr)) {
+            auto rhs = parse_bitwise_xor();
+            if (!rhs.has_value()) {
+                return std::nullopt;
+            }
+            lhs = *lhs | *rhs;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_bitwise_xor() {
+        auto lhs = parse_bitwise_and();
+        while (lhs.has_value() && consume(ScanPpTokenKind::BitXor)) {
+            auto rhs = parse_bitwise_and();
+            if (!rhs.has_value()) {
+                return std::nullopt;
+            }
+            lhs = *lhs ^ *rhs;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_bitwise_and() {
+        auto lhs = parse_equality();
+        while (lhs.has_value() && consume(ScanPpTokenKind::BitAnd)) {
+            auto rhs = parse_equality();
+            if (!rhs.has_value()) {
+                return std::nullopt;
+            }
+            lhs = *lhs & *rhs;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_equality() {
+        auto lhs = parse_relational();
+        while (lhs.has_value()) {
+            if (consume(ScanPpTokenKind::Equal)) {
+                auto rhs = parse_relational();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = (*lhs == *rhs) ? 1ll : 0ll;
+                continue;
+            }
+            if (consume(ScanPpTokenKind::NotEqual)) {
+                auto rhs = parse_relational();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = (*lhs != *rhs) ? 1ll : 0ll;
+                continue;
+            }
+            break;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_relational() {
+        auto lhs = parse_shift();
+        while (lhs.has_value()) {
+            if (consume(ScanPpTokenKind::Less)) {
+                auto rhs = parse_shift();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = (*lhs < *rhs) ? 1ll : 0ll;
+                continue;
+            }
+            if (consume(ScanPpTokenKind::LessEqual)) {
+                auto rhs = parse_shift();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = (*lhs <= *rhs) ? 1ll : 0ll;
+                continue;
+            }
+            if (consume(ScanPpTokenKind::Greater)) {
+                auto rhs = parse_shift();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = (*lhs > *rhs) ? 1ll : 0ll;
+                continue;
+            }
+            if (consume(ScanPpTokenKind::GreaterEqual)) {
+                auto rhs = parse_shift();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = (*lhs >= *rhs) ? 1ll : 0ll;
+                continue;
+            }
+            break;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_shift() {
+        auto lhs = parse_additive();
+        while (lhs.has_value()) {
+            if (consume(ScanPpTokenKind::ShiftLeft)) {
+                auto rhs = parse_additive();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = *lhs << *rhs;
+                continue;
+            }
+            if (consume(ScanPpTokenKind::ShiftRight)) {
+                auto rhs = parse_additive();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = *lhs >> *rhs;
+                continue;
+            }
+            break;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_additive() {
+        auto lhs = parse_multiplicative();
+        while (lhs.has_value()) {
+            if (consume(ScanPpTokenKind::Plus)) {
+                auto rhs = parse_multiplicative();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = *lhs + *rhs;
+                continue;
+            }
+            if (consume(ScanPpTokenKind::Minus)) {
+                auto rhs = parse_multiplicative();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = *lhs - *rhs;
+                continue;
+            }
+            break;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_multiplicative() {
+        auto lhs = parse_unary();
+        while (lhs.has_value()) {
+            if (consume(ScanPpTokenKind::Star)) {
+                auto rhs = parse_unary();
+                if (!rhs.has_value()) {
+                    return std::nullopt;
+                }
+                lhs = *lhs * *rhs;
+                continue;
+            }
+            if (consume(ScanPpTokenKind::Slash)) {
+                auto rhs = parse_unary();
+                if (!rhs.has_value() || *rhs == 0) {
+                    return std::nullopt;
+                }
+                lhs = *lhs / *rhs;
+                continue;
+            }
+            if (consume(ScanPpTokenKind::Percent)) {
+                auto rhs = parse_unary();
+                if (!rhs.has_value() || *rhs == 0) {
+                    return std::nullopt;
+                }
+                lhs = *lhs % *rhs;
+                continue;
+            }
+            break;
+        }
+        return lhs;
+    }
+
+    std::optional<long long> parse_unary() {
+        if (consume(ScanPpTokenKind::Not)) {
+            auto value = parse_unary();
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            return (*value == 0) ? 1ll : 0ll;
+        }
+        if (consume(ScanPpTokenKind::BitNot)) {
+            auto value = parse_unary();
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            return ~*value;
+        }
+        if (consume(ScanPpTokenKind::Plus)) {
+            return parse_unary();
+        }
+        if (consume(ScanPpTokenKind::Minus)) {
+            auto value = parse_unary();
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            return -*value;
+        }
+        return parse_primary();
+    }
+
+    std::optional<long long> parse_primary() {
+        if (consume(ScanPpTokenKind::LParen)) {
+            auto value = parse_logical_or();
+            if (!value.has_value() || !consume(ScanPpTokenKind::RParen)) {
+                return std::nullopt;
+            }
+            return value;
+        }
+
+        if (current().kind == ScanPpTokenKind::Identifier && current().text == "defined") {
+            ++index_;
+            bool parenthesized = consume(ScanPpTokenKind::LParen);
+            if (current().kind != ScanPpTokenKind::Identifier) {
+                return std::nullopt;
+            }
+            const std::string ident = current().text;
+            ++index_;
+            if (parenthesized && !consume(ScanPpTokenKind::RParen)) {
+                return std::nullopt;
+            }
+            return object_like_macros_.contains(ident) ? 1ll : 0ll;
+        }
+
+        if (current().kind == ScanPpTokenKind::Number) {
+            const auto value = parse_scan_integer_literal(current().text);
+            ++index_;
+            return value;
+        }
+
+        if (current().kind == ScanPpTokenKind::Identifier) {
+            const std::string ident = current().text;
+            ++index_;
+            if (const auto it = object_like_macros_.find(ident); it != object_like_macros_.end()) {
+                const auto macro_value = trim_ascii_view(it->second);
+                if (macro_value.empty()) {
+                    return 1ll;
+                }
+                if (depth_ >= 32) {
+                    return std::nullopt;
+                }
+                ScanPpExpressionParser nested{macro_value, object_like_macros_, depth_ + 1};
+                return nested.parse();
+            }
+            return 0ll;
+        }
+
+        return std::nullopt;
+    }
+
+    const std::vector<ScanPpToken>                     tokens_;
+    const std::unordered_map<std::string, std::string> &object_like_macros_;
+    std::size_t                                        index_ = 0;
+    std::size_t                                        depth_ = 0;
+};
+
 inline std::optional<bool> evaluate_simple_preprocessor_condition(
     std::string_view text, const std::unordered_map<std::string, std::string> &object_like_macros) {
     text = trim_ascii_view(text);
     if (text.empty()) {
         return std::nullopt;
     }
-
-    while (text.size() >= 2 && text.front() == '(' && text.back() == ')') {
-        int depth = 0;
-        bool balanced = true;
-        for (std::size_t i = 0; i < text.size(); ++i) {
-            if (text[i] == '(') {
-                ++depth;
-            } else if (text[i] == ')') {
-                --depth;
-                if (depth == 0 && i + 1 < text.size()) {
-                    balanced = false;
-                    break;
-                }
-                if (depth < 0) {
-                    balanced = false;
-                    break;
-                }
-            }
-        }
-        if (!balanced || depth != 0) {
-            break;
-        }
-        text.remove_prefix(1);
-        text.remove_suffix(1);
-        text = trim_ascii_view(text);
+    ScanPpExpressionParser parser{text, object_like_macros};
+    if (const auto value = parser.parse(); value.has_value()) {
+        return *value != 0;
     }
-
-    if (!text.empty() && text.front() == '!') {
-        const auto nested = evaluate_simple_preprocessor_condition(text.substr(1), object_like_macros);
-        if (!nested.has_value()) {
-            return std::nullopt;
-        }
-        return !*nested;
-    }
-
-    if (const auto int_value = parse_scan_integer_literal(text); int_value.has_value()) {
-        return *int_value != 0;
-    }
-
-    if (text.starts_with("defined")) {
-        std::string_view cursor = text.substr(std::string_view{"defined"}.size());
-        cursor = ltrim_ascii_view(cursor);
-        if (cursor.empty()) {
-            return std::nullopt;
-        }
-
-        std::string_view ident_view = cursor;
-        if (cursor.front() == '(') {
-            cursor.remove_prefix(1);
-            const auto close = cursor.find(')');
-            if (close == std::string_view::npos) {
-                return std::nullopt;
-            }
-            ident_view = cursor.substr(0, close);
-            cursor = cursor.substr(close + 1);
-        } else {
-            std::size_t end = 0;
-            while (end < cursor.size() && is_scan_identifier_continue(static_cast<unsigned char>(cursor[end]))) {
-                ++end;
-            }
-            ident_view = cursor.substr(0, end);
-            cursor = cursor.substr(end);
-        }
-        ident_view = trim_ascii_view(ident_view);
-        if (ident_view.empty()) {
-            return std::nullopt;
-        }
-        if (!trim_ascii_view(cursor).empty()) {
-            return std::nullopt;
-        }
-        return object_like_macros.contains(std::string{ident_view});
-    }
-
-    if (const auto ident = parse_scan_identifier(text); ident.has_value()) {
-        if (const auto it = object_like_macros.find(*ident); it != object_like_macros.end()) {
-            const auto macro_value = trim_ascii_view(it->second);
-            if (macro_value.empty()) {
-                return true;
-            }
-            if (const auto nested = evaluate_simple_preprocessor_condition(macro_value, object_like_macros); nested.has_value()) {
-                return *nested;
-            }
-            return true;
-        }
-        return false;
-    }
-
     return std::nullopt;
 }
 

@@ -12,6 +12,7 @@
 #     [-DCXX_COMPILER=<path>]
 #     [-DPACKAGE_TEST_C_COMPILER=<path>]
 #     [-DPACKAGE_TEST_CXX_COMPILER=<path>]
+#     [-DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=<path>]
 #     [-DCONSUMER_LINK_MODE=<main_only|runtime_only|double>]
 #     [-DPACKAGE_TEST_USE_MODULES=<ON|OFF>]
 #     [-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=<ON|OFF>]
@@ -155,6 +156,11 @@ if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
 endif()
 if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
+endif()
+if(DEFINED PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS
+   AND NOT "${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL "")
+  list(APPEND _cmake_cache_args
+       "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}")
 endif()
 if(NOT "${_effective_build_type}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${_effective_build_type}")
