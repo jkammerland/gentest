@@ -1,6 +1,7 @@
 #include "mock_discovery.hpp"
 
 #include "log.hpp"
+#include "scan_utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,6 +27,7 @@ using namespace clang::ast_matchers;
 
 namespace gentest::codegen {
 namespace {
+using gentest::codegen::scan::named_module_name_from_source_file;
 
 using ParamPassStyle = MockParamInfo::PassStyle;
 
@@ -128,95 +130,6 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return false;
 }
 
-[[nodiscard]] std::string strip_comments_for_line_scan(std::string_view line, bool &in_block_comment) {
-    std::string out;
-    out.reserve(line.size());
-
-    for (std::size_t i = 0; i < line.size();) {
-        if (in_block_comment) {
-            const auto end = line.find("*/", i);
-            if (end == std::string_view::npos) {
-                return out;
-            }
-            in_block_comment = false;
-            i = end + 2;
-            continue;
-        }
-        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '*') {
-            in_block_comment = true;
-            i += 2;
-            continue;
-        }
-        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '/') {
-            break;
-        }
-        out.push_back(line[i]);
-        ++i;
-    }
-    return out;
-}
-
-[[nodiscard]] std::string normalize_scan_directive_line(std::string_view line) {
-    std::string out;
-    out.reserve(line.size());
-
-    bool pending_space = false;
-    for (const unsigned char ch : line) {
-        if (std::isspace(ch)) {
-            pending_space = !out.empty();
-            continue;
-        }
-        if (pending_space && !out.empty()) {
-            out.push_back(' ');
-        }
-        out.push_back(static_cast<char>(ch));
-        pending_space = false;
-    }
-    return out;
-}
-
-[[nodiscard]] bool consume_scan_keyword(std::string_view &cursor, std::string_view keyword) {
-    cursor = llvm::StringRef(cursor).ltrim();
-    if (!cursor.starts_with(keyword)) {
-        return false;
-    }
-    if (cursor.size() > keyword.size()) {
-        const unsigned char next = static_cast<unsigned char>(cursor[keyword.size()]);
-        if (!std::isspace(next) && next != ';') {
-            return false;
-        }
-    }
-    cursor.remove_prefix(keyword.size());
-    return true;
-}
-
-[[nodiscard]] std::optional<std::string> parse_named_module_name_from_scan_line(std::string_view line) {
-    const std::string normalized = normalize_scan_directive_line(line);
-    std::string_view  cursor     = normalized;
-    if (consume_scan_keyword(cursor, "export")) {
-        cursor = llvm::StringRef(cursor).ltrim();
-    }
-    if (!consume_scan_keyword(cursor, "module")) {
-        return std::nullopt;
-    }
-
-    cursor = llvm::StringRef(cursor).ltrim();
-    if (cursor.empty() || cursor.front() == ';') {
-        return std::nullopt;
-    }
-
-    const auto semi = cursor.find(';');
-    if (semi == std::string_view::npos) {
-        return std::nullopt;
-    }
-
-    std::string module_name = llvm::StringRef(cursor.substr(0, semi)).trim().str();
-    if (module_name.empty()) {
-        return std::nullopt;
-    }
-    return module_name;
-}
-
 [[nodiscard]] bool is_noexcept(const CXXMethodDecl &method) {
     // Avoid FunctionProtoType::isNothrow()/canThrow() here: we observed SIGILL
     // in Clang 21 when querying canThrow() for some constructors (special
@@ -272,21 +185,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     if (path.empty()) {
         return std::nullopt;
     }
-
-    std::ifstream in{std::string(path)};
-    if (!in) {
-        return std::nullopt;
-    }
-
-    std::string line;
-    bool        in_block_comment = false;
-    while (std::getline(in, line)) {
-        line = strip_comments_for_line_scan(line, in_block_comment);
-        if (auto module_name = parse_named_module_name_from_scan_line(line); module_name.has_value()) {
-            return module_name;
-        }
-    }
-    return std::nullopt;
+    return named_module_name_from_source_file(std::filesystem::path{std::string(path)});
 }
 
 template <typename DeclT> [[nodiscard]] bool is_in_named_module_compat(const DeclT &decl) {

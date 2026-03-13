@@ -1761,6 +1761,38 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_auto_discovery APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_multiline_directives
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_multiline_directives
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMultilineDirectiveFailure.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_multiline_directives APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_manual_include_whitespace
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_manual_include_whitespace
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleManualIncludeWhitespaceDuplicate.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_manual_include_whitespace APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_name_literal_false_match
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleNameLiteralFalseMatch.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_name_literal_false_match APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_header_unit_import_preamble
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_header_unit_import_preamble
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleHeaderUnitImportPreamble.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_header_unit_import_preamble APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_partition_import_shorthand
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_partition_import_shorthand
     ${PROJECT_SOURCE_DIR}/cmake/CheckModulePartitionImportShorthand.cmake
@@ -1827,6 +1859,14 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckVcpkgManifestMetadata.cmake
     cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_package_consumer_workdir_isolation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumerWorkdirIsolation.cmake
+    package
+    -DPACKAGE_NAME=${PROJECT_NAME})
+set_property(TEST gentest_package_consumer_workdir_isolation APPEND PROPERTY LABELS "modules")
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)

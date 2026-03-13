@@ -4,6 +4,7 @@
 #include "mock_discovery.hpp"
 #include "model.hpp"
 #include "parallel_for.hpp"
+#include "scan_utils.hpp"
 #include "tooling_support.hpp"
 
 #include <algorithm>
@@ -71,9 +72,14 @@ using gentest::codegen::resolve_free_fixtures;
 static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
 
 namespace {
-
-std::optional<std::string> parse_named_module_name_from_scan_line(std::string_view line);
-std::optional<std::string> parse_imported_module_name_from_scan_line(std::string_view line);
+using gentest::codegen::scan::is_preprocessor_directive_scan_line;
+using gentest::codegen::scan::looks_like_import_scan_prefix;
+using gentest::codegen::scan::named_module_name_from_source_file;
+using gentest::codegen::scan::parse_imported_module_name_from_scan_line;
+using gentest::codegen::scan::parse_include_header_from_scan_line;
+using gentest::codegen::scan::parse_named_module_name_from_scan_line;
+using gentest::codegen::scan::strip_comments_for_line_scan;
+using gentest::codegen::scan::trim_ascii_copy;
 
 bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
     if (cases.empty()) {
@@ -236,48 +242,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         out.replace_filename(
             fmt::format("{}__domain_{}_{}{}", stem, zero_pad_domain_index(idx), sanitize_mock_domain_label(std::string(label)), ext));
         return out;
-    };
-    auto named_module_name_from_source_file = [](const std::filesystem::path &path) -> std::optional<std::string> {
-        std::ifstream in(path);
-        if (!in) {
-            return std::nullopt;
-        }
-
-        auto strip_scan_comments = [](std::string_view text, bool &in_block_comment) {
-            std::string out;
-            out.reserve(text.size());
-            for (std::size_t i = 0; i < text.size();) {
-                if (in_block_comment) {
-                    const auto end = text.find("*/", i);
-                    if (end == std::string_view::npos) {
-                        return out;
-                    }
-                    in_block_comment = false;
-                    i = end + 2;
-                    continue;
-                }
-                if (i + 1 < text.size() && text[i] == '/' && text[i + 1] == '*') {
-                    in_block_comment = true;
-                    i += 2;
-                    continue;
-                }
-                if (i + 1 < text.size() && text[i] == '/' && text[i + 1] == '/') {
-                    break;
-                }
-                out.push_back(text[i]);
-                ++i;
-            }
-            return out;
-        };
-        std::string line;
-        bool        in_block_comment = false;
-        while (std::getline(in, line)) {
-            line = strip_scan_comments(line, in_block_comment);
-            if (auto module_name = parse_named_module_name_from_scan_line(line); module_name.has_value()) {
-                return module_name;
-            }
-        }
-        return std::nullopt;
     };
     auto sanitize_stem = [](std::string value) {
         for (auto &ch : value) {
@@ -481,122 +445,6 @@ bool should_strip_compdb_arg(std::string_view arg) {
         arg == "-Werror" || arg.starts_with("-Werror=") || arg == "-pedantic-errors";
 }
 
-std::string strip_comments_for_line_scan(std::string_view line, bool &in_block_comment) {
-    std::string out;
-    out.reserve(line.size());
-
-    for (std::size_t i = 0; i < line.size();) {
-        if (in_block_comment) {
-            const auto end = line.find("*/", i);
-            if (end == std::string_view::npos) {
-                return llvm::StringRef(out).trim().str();
-            }
-            in_block_comment = false;
-            i = end + 2;
-            continue;
-        }
-        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '*') {
-            in_block_comment = true;
-            i += 2;
-            continue;
-        }
-        if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '/') {
-            break;
-        }
-        out.push_back(line[i]);
-        ++i;
-    }
-    return llvm::StringRef(out).trim().str();
-}
-
-std::string normalize_scan_directive_line(std::string_view line) {
-    std::string out;
-    out.reserve(line.size());
-
-    bool pending_space = false;
-    for (const unsigned char ch : line) {
-        if (std::isspace(ch)) {
-            pending_space = !out.empty();
-            continue;
-        }
-        if (pending_space && !out.empty()) {
-            out.push_back(' ');
-        }
-        out.push_back(static_cast<char>(ch));
-        pending_space = false;
-    }
-    return out;
-}
-
-bool consume_scan_keyword(std::string_view &cursor, std::string_view keyword) {
-    cursor = llvm::StringRef(cursor).ltrim();
-    if (!cursor.starts_with(keyword)) {
-        return false;
-    }
-    if (cursor.size() > keyword.size()) {
-        const unsigned char next = static_cast<unsigned char>(cursor[keyword.size()]);
-        if (!std::isspace(next) && next != ';') {
-            return false;
-        }
-    }
-    cursor.remove_prefix(keyword.size());
-    return true;
-}
-
-std::optional<std::string> parse_named_module_name_from_scan_line(std::string_view line) {
-    const std::string normalized = normalize_scan_directive_line(line);
-    std::string_view  cursor     = normalized;
-    if (consume_scan_keyword(cursor, "export")) {
-        cursor = llvm::StringRef(cursor).ltrim();
-    }
-    if (!consume_scan_keyword(cursor, "module")) {
-        return std::nullopt;
-    }
-
-    cursor = llvm::StringRef(cursor).ltrim();
-    if (cursor.empty() || cursor.front() == ';') {
-        return std::nullopt;
-    }
-
-    const auto semi = cursor.find(';');
-    if (semi == std::string_view::npos) {
-        return std::nullopt;
-    }
-
-    std::string module_name = llvm::StringRef(cursor.substr(0, semi)).trim().str();
-    if (module_name.empty()) {
-        return std::nullopt;
-    }
-    return module_name;
-}
-
-std::optional<std::string> parse_imported_module_name_from_scan_line(std::string_view line) {
-    const std::string normalized = normalize_scan_directive_line(line);
-    std::string_view  cursor     = normalized;
-    if (consume_scan_keyword(cursor, "export")) {
-        cursor = llvm::StringRef(cursor).ltrim();
-    }
-    if (!consume_scan_keyword(cursor, "import")) {
-        return std::nullopt;
-    }
-
-    cursor = llvm::StringRef(cursor).ltrim();
-    if (cursor.empty() || cursor.front() == '<' || cursor.front() == '\"') {
-        return std::nullopt;
-    }
-
-    const auto semi = cursor.find(';');
-    if (semi == std::string_view::npos) {
-        return std::nullopt;
-    }
-
-    std::string module_name = llvm::StringRef(cursor.substr(0, semi)).trim().str();
-    if (module_name.empty()) {
-        return std::nullopt;
-    }
-    return module_name;
-}
-
 std::vector<std::string> read_response_file_arguments(const std::filesystem::path &path) {
     auto buffer = llvm::MemoryBuffer::getFile(path.string());
     if (!buffer) {
@@ -620,23 +468,6 @@ std::vector<std::string> read_response_file_arguments(const std::filesystem::pat
     return args;
 }
 
-std::optional<std::string> parse_named_module_name_from_source(const std::filesystem::path &path) {
-    std::ifstream in(path);
-    if (!in) {
-        return std::nullopt;
-    }
-
-    std::string line;
-    bool        in_block_comment = false;
-    while (std::getline(in, line)) {
-        std::string trimmed = strip_comments_for_line_scan(line, in_block_comment);
-        if (auto module_name = parse_named_module_name_from_scan_line(trimmed); module_name.has_value()) {
-            return module_name;
-        }
-    }
-    return std::nullopt;
-}
-
 std::vector<std::string> parse_imported_named_modules_from_source(const std::filesystem::path &path,
                                                                   const std::unordered_set<std::string> &known_modules,
                                                                   std::string_view                            current_module_name = {}) {
@@ -652,18 +483,43 @@ std::vector<std::string> parse_imported_named_modules_from_source(const std::fil
     std::vector<std::string> imports;
     std::unordered_set<std::string> seen;
     std::string line;
+    std::string pending;
+    bool        pending_active = false;
     bool        in_block_comment = false;
     while (std::getline(in, line)) {
-        std::string trimmed = strip_comments_for_line_scan(line, in_block_comment);
+        std::string trimmed = trim_ascii_copy(strip_comments_for_line_scan(line, in_block_comment));
         if (trimmed.empty()) {
             continue;
         }
-
-        auto import_name = parse_imported_module_name_from_scan_line(trimmed);
-        if (!import_name.has_value()) {
+        if (is_preprocessor_directive_scan_line(trimmed)) {
+            if (pending_active) {
+                pending.clear();
+                pending_active = false;
+            }
             continue;
         }
 
+        if (!pending_active) {
+            if (!looks_like_import_scan_prefix(trimmed)) {
+                continue;
+            }
+            pending = trimmed;
+            pending_active = true;
+        } else {
+            pending.push_back(' ');
+            pending.append(trimmed);
+        }
+
+        if (trimmed.find(';') == std::string::npos) {
+            continue;
+        }
+
+        auto import_name = parse_imported_module_name_from_scan_line(pending);
+        pending.clear();
+        pending_active = false;
+        if (!import_name.has_value()) {
+            continue;
+        }
         if (import_name->front() == ':') {
             if (current_primary_module.empty()) {
                 continue;
@@ -690,16 +546,11 @@ std::optional<std::filesystem::path> resolve_wrapped_source_from_codegen_shim(co
     std::string line;
     bool        in_block_comment = false;
     while (std::getline(in, line)) {
-        std::string trimmed = strip_comments_for_line_scan(line, in_block_comment);
-        if (trimmed.rfind("#include \"", 0) != 0) {
+        const auto header = parse_include_header_from_scan_line(strip_comments_for_line_scan(line, in_block_comment));
+        if (!header.has_value()) {
             continue;
         }
-        const auto begin = std::string("#include \"").size();
-        const auto end = trimmed.find('"', begin);
-        if (end == std::string::npos) {
-            continue;
-        }
-        return (path.parent_path() / trimmed.substr(begin, end - begin)).lexically_normal();
+        return (path.parent_path() / *header).lexically_normal();
     }
     return std::nullopt;
 }
@@ -1710,7 +1561,7 @@ int main(int argc, const char **argv) {
         if (!is_module_interface_source(source_path)) {
             continue;
         }
-        const auto module_name = parse_named_module_name_from_source(source_path);
+        const auto module_name = named_module_name_from_source_file(source_path);
         if (!module_name.has_value()) {
             continue;
         }

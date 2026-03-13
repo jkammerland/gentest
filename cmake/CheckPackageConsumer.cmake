@@ -14,6 +14,7 @@
 #     [-DPACKAGE_TEST_CXX_COMPILER=<path>]
 #     [-DCONSUMER_LINK_MODE=<main_only|runtime_only|double>]
 #     [-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=<ON|OFF>]
+#     [-DPACKAGE_TEST_DRY_RUN_WORK_DIR=<ON|OFF>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
 #     -P cmake/CheckPackageConsumer.cmake
@@ -33,10 +34,13 @@ endif()
 if(NOT DEFINED PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE OR "${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}" STREQUAL "")
   set(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE ON)
 endif()
+if(NOT DEFINED PACKAGE_TEST_DRY_RUN_WORK_DIR OR "${PACKAGE_TEST_DRY_RUN_WORK_DIR}" STREQUAL "")
+  set(PACKAGE_TEST_DRY_RUN_WORK_DIR OFF)
+endif()
 if(NOT DEFINED PROG)
   set(PROG "")
 endif()
-if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE AND "${PROG}" STREQUAL "")
+if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE AND NOT PACKAGE_TEST_DRY_RUN_WORK_DIR AND "${PROG}" STREQUAL "")
   message(FATAL_ERROR
     "CheckPackageConsumer.cmake: PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON requires PROG to point at gentest_codegen")
 endif()
@@ -166,11 +170,21 @@ endif()
 if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
   string(APPEND _work_dir_suffix "_${BUILD_CONFIG}")
 endif()
+if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
+  string(APPEND _work_dir_suffix "_external_codegen")
+else()
+  string(APPEND _work_dir_suffix "_native_codegen")
+endif()
 set(_work_dir "${BUILD_ROOT}/package_consumer_${_work_dir_suffix}")
 set(_producer_build_dir "${_work_dir}/producer")
 set(_install_prefix "${_work_dir}/install")
 set(_consumer_build_dir "${_work_dir}/consumer")
 set(_consumer_source_dir "${_work_dir}/consumer_src")
+
+if(PACKAGE_TEST_DRY_RUN_WORK_DIR)
+  message(STATUS "CheckPackageConsumer work dir: ${_work_dir}")
+  return()
+endif()
 
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
