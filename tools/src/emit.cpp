@@ -40,9 +40,13 @@ using gentest::codegen::scan::is_global_module_fragment_scan_line;
 using gentest::codegen::scan::is_preprocessor_directive_scan_line;
 using gentest::codegen::scan::looks_like_import_scan_prefix;
 using gentest::codegen::scan::looks_like_named_module_scan_prefix;
+using gentest::codegen::scan::named_module_name_from_source_file;
 using gentest::codegen::scan::parse_imported_module_name_from_scan_line;
 using gentest::codegen::scan::parse_include_header_from_scan_line;
 using gentest::codegen::scan::parse_named_module_name_from_scan_line;
+using gentest::codegen::scan::process_scan_physical_line;
+using gentest::codegen::scan::ScanStreamState;
+using gentest::codegen::scan::split_scan_statements;
 using gentest::codegen::scan::strip_comments_for_line_scan;
 using gentest::codegen::scan::trim_ascii_copy;
 
@@ -186,9 +190,7 @@ fs::path resolve_tu_header_output(const CollectorOptions &opts, std::size_t idx)
 }
 
 bool is_module_interface_source(const fs::path &path) {
-    std::string ext = path.extension().string();
-    std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    return ext == ".cppm" || ext == ".ccm" || ext == ".cxxm" || ext == ".ixx" || ext == ".mxx";
+    return named_module_name_from_source_file(path).has_value();
 }
 
 fs::path resolve_module_wrapper_output(const CollectorOptions &opts, std::size_t idx) {
@@ -241,12 +243,12 @@ SourceMockCodegenIncludes scan_source_mock_codegen_includes(std::string_view tex
 
 std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_view text) {
     bool        seen_module_decl = false;
-    bool        in_block_comment = false;
     std::size_t cursor = 0;
     std::size_t last_after = 0;
     std::string pending;
     bool        pending_import = false;
     bool        pending_module = false;
+    ScanStreamState scan_state;
 
     while (cursor < text.size()) {
         const std::size_t line_end = text.find('\n', cursor);
@@ -258,71 +260,83 @@ std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_v
         if (!line.empty() && line.back() == '\r') {
             line.remove_suffix(1);
         }
-        const std::string trimmed = trim_ascii_copy(strip_comments_for_line_scan(line, in_block_comment));
-
-        if (!seen_module_decl) {
-            if (trimmed.empty() || is_preprocessor_directive_scan_line(trimmed)) {
-                cursor = next;
-                continue;
-            }
-            if (!pending_module) {
-                if (!looks_like_named_module_scan_prefix(trimmed) && !is_global_module_fragment_scan_line(trimmed)) {
-                    cursor = next;
-                    continue;
-                }
-                pending = trimmed;
-                pending_module = true;
-            } else {
-                pending.push_back(' ');
-                pending.append(trimmed);
-            }
-            if (trimmed.find(';') == std::string::npos) {
-                cursor = next;
-                continue;
-            }
-            if (is_global_module_fragment_scan_line(pending)) {
-                pending.clear();
-                pending_module = false;
-                cursor = next;
-                continue;
-            }
-            if (parse_named_module_name_from_scan_line(pending).has_value()) {
-                seen_module_decl = true;
+        const auto processed = process_scan_physical_line(line, scan_state);
+        if (!processed.is_active_code) {
+            if (seen_module_decl) {
                 last_after = next;
             }
-            pending.clear();
-            pending_module = false;
             cursor = next;
             continue;
         }
 
-        if (trimmed.empty() || is_preprocessor_directive_scan_line(trimmed)) {
-            last_after = next;
-            cursor = next;
-            continue;
-        }
-        if (!pending_import) {
-            if (!looks_like_import_scan_prefix(trimmed)) {
+        bool line_ok = true;
+        for (const auto &statement : split_scan_statements(processed.stripped)) {
+            if (!seen_module_decl) {
+                if (!pending_module) {
+                    if (!looks_like_named_module_scan_prefix(statement) && !is_global_module_fragment_scan_line(statement)) {
+                        line_ok = false;
+                        break;
+                    }
+                    pending = statement;
+                    pending_module = true;
+                } else {
+                    pending.push_back(' ');
+                    pending.append(statement);
+                }
+
+                if (statement.find(';') == std::string::npos) {
+                    continue;
+                }
+                if (is_global_module_fragment_scan_line(pending)) {
+                    pending.clear();
+                    pending_module = false;
+                    last_after = next;
+                    continue;
+                }
+                if (parse_named_module_name_from_scan_line(pending).has_value()) {
+                    seen_module_decl = true;
+                    last_after = next;
+                    pending.clear();
+                    pending_module = false;
+                    continue;
+                }
+                line_ok = false;
                 break;
             }
-            pending = trimmed;
-            pending_import = true;
-        } else {
-            pending.push_back(' ');
-            pending.append(trimmed);
+
+            if (!pending_import) {
+                if (!looks_like_import_scan_prefix(statement)) {
+                    line_ok = false;
+                    break;
+                }
+                pending = statement;
+                pending_import = true;
+            } else {
+                pending.push_back(' ');
+                pending.append(statement);
+            }
+
+            if (statement.find(';') == std::string::npos) {
+                continue;
+            }
+            if (is_any_import_scan_line(pending)) {
+                last_after = next;
+                pending.clear();
+                pending_import = false;
+                continue;
+            }
+            line_ok = false;
+            break;
         }
-        if (trimmed.find(';') == std::string::npos) {
-            cursor = next;
-            continue;
+
+        if (!line_ok) {
+            break;
         }
-        if (is_any_import_scan_line(pending)) {
+
+        if (seen_module_decl && !pending_import) {
             last_after = next;
-            pending.clear();
-            pending_import = false;
-            cursor = next;
-            continue;
         }
-        break;
+        cursor = next;
     }
 
     if (!seen_module_decl) {
@@ -333,11 +347,11 @@ std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_v
 
 std::optional<std::size_t> find_module_global_fragment_include_offset(std::string_view text) {
     bool        seen_global_fragment = false;
-    bool        in_block_comment = false;
     std::size_t cursor = 0;
     std::size_t last_after = 0;
     std::string pending_module;
     bool        pending_module_active = false;
+    ScanStreamState scan_state;
 
     while (cursor < text.size()) {
         const std::size_t line_end = text.find('\n', cursor);
@@ -349,47 +363,59 @@ std::optional<std::size_t> find_module_global_fragment_include_offset(std::strin
         if (!line.empty() && line.back() == '\r') {
             line.remove_suffix(1);
         }
-
-        const std::string trimmed = trim_ascii_copy(strip_comments_for_line_scan(line, in_block_comment));
-
-        if (!seen_global_fragment) {
-            if (trimmed.empty()) {
-                cursor = next;
-                continue;
-            }
-            if (is_global_module_fragment_scan_line(trimmed)) {
-                seen_global_fragment = true;
+        const auto processed = process_scan_physical_line(line, scan_state);
+        if (!processed.is_active_code) {
+            if (seen_global_fragment) {
                 last_after = next;
             }
             cursor = next;
             continue;
         }
 
-        if (trimmed.empty() || trimmed.starts_with("#")) {
-            last_after = next;
-            cursor = next;
-            continue;
-        }
-        if (!pending_module_active) {
-            if (!looks_like_named_module_scan_prefix(trimmed)) {
+        bool line_ok = true;
+        for (const auto &statement : split_scan_statements(processed.stripped)) {
+            if (!seen_global_fragment) {
+                if (is_global_module_fragment_scan_line(statement)) {
+                    seen_global_fragment = true;
+                    last_after = next;
+                    continue;
+                }
+                line_ok = false;
                 break;
             }
-            pending_module = trimmed;
-            pending_module_active = true;
-        } else {
-            pending_module.push_back(' ');
-            pending_module.append(trimmed);
+
+            if (!pending_module_active) {
+                if (!looks_like_named_module_scan_prefix(statement)) {
+                    line_ok = false;
+                    break;
+                }
+                pending_module = statement;
+                pending_module_active = true;
+            } else {
+                pending_module.push_back(' ');
+                pending_module.append(statement);
+            }
+
+            if (statement.find(';') == std::string::npos) {
+                continue;
+            }
+            if (parse_named_module_name_from_scan_line(pending_module).has_value()) {
+                return last_after;
+            }
+            pending_module.clear();
+            pending_module_active = false;
+            line_ok = false;
+            break;
         }
-        if (trimmed.find(';') == std::string::npos) {
-            cursor = next;
-            continue;
+
+        if (!line_ok) {
+            break;
         }
-        if (parse_named_module_name_from_scan_line(pending_module).has_value()) {
-            return last_after;
+
+        if (seen_global_fragment && !pending_module_active) {
+            last_after = next;
         }
-        pending_module.clear();
-        pending_module_active = false;
-        break;
+        cursor = next;
     }
 
     return std::nullopt;
@@ -405,11 +431,11 @@ std::string normalize_generated_module_preamble(std::string_view text) {
     std::string out;
     out.reserve(text.size());
 
-    bool        in_block_comment = false;
     bool        seen_named_module = false;
     PendingKind pending_kind = PendingKind::None;
     std::string pending_statement;
     std::size_t cursor = 0;
+    ScanStreamState scan_state;
 
     auto flush_named_module = [&]() -> bool {
         const auto module_name = parse_named_module_name_from_scan_line(pending_statement);
@@ -450,86 +476,68 @@ std::string normalize_generated_module_preamble(std::string_view text) {
         if (!line_no_nl.empty() && line_no_nl.back() == '\r') {
             line_no_nl.remove_suffix(1);
         }
-        const std::string trimmed = trim_ascii_copy(strip_comments_for_line_scan(line_no_nl, in_block_comment));
-
-        if (!seen_named_module) {
-            if (pending_kind == PendingKind::NamedModule) {
-                if (!trimmed.empty()) {
-                    if (!pending_statement.empty()) {
-                        pending_statement.push_back(' ');
-                    }
-                    pending_statement.append(trimmed);
-                }
-                if (trimmed.find(';') == std::string::npos) {
-                    cursor = next;
-                    continue;
-                }
-                if (flush_named_module()) {
-                    cursor = next;
-                    continue;
-                }
-                pending_statement.clear();
-                pending_kind = PendingKind::None;
-                out.append(text.substr(cursor, next - cursor));
-                cursor = next;
-                continue;
-            }
-
-            if (trimmed.empty() || is_preprocessor_directive_scan_line(trimmed) || is_global_module_fragment_scan_line(trimmed)) {
-                out.append(text.substr(cursor, next - cursor));
-                cursor = next;
-                continue;
-            }
-            if (!looks_like_named_module_scan_prefix(trimmed)) {
-                out.append(text.substr(cursor, next - cursor));
-                cursor = next;
-                continue;
-            }
-
-            pending_statement = trimmed;
-            pending_kind = PendingKind::NamedModule;
-            if (trimmed.find(';') != std::string::npos && flush_named_module()) {
-                cursor = next;
-                continue;
-            }
-            cursor = next;
-            continue;
-        }
-
-        if (pending_kind == PendingKind::Import) {
-            if (!trimmed.empty()) {
-                if (!pending_statement.empty()) {
-                    pending_statement.push_back(' ');
-                }
-                pending_statement.append(trimmed);
-            }
-            if (trimmed.find(';') == std::string::npos) {
-                cursor = next;
-                continue;
-            }
-            if (flush_import()) {
-                cursor = next;
-                continue;
-            }
-            out.append(text.substr(cursor));
-            return out;
-        }
-
-        if (trimmed.empty() || is_preprocessor_directive_scan_line(trimmed)) {
+        const auto processed = process_scan_physical_line(line_no_nl, scan_state);
+        if (!processed.is_active_code) {
             out.append(text.substr(cursor, next - cursor));
             cursor = next;
             continue;
         }
-        if (!looks_like_import_scan_prefix(trimmed)) {
-            out.append(text.substr(cursor));
-            return out;
+
+        bool line_is_preamble = true;
+        for (const auto &statement : split_scan_statements(processed.stripped)) {
+            if (!seen_named_module) {
+                if (is_global_module_fragment_scan_line(statement)) {
+                    out.append("module;\n");
+                    continue;
+                }
+                if (pending_kind == PendingKind::NamedModule) {
+                    if (!pending_statement.empty()) {
+                        pending_statement.push_back(' ');
+                    }
+                    pending_statement.append(statement);
+                } else {
+                    if (!looks_like_named_module_scan_prefix(statement)) {
+                        line_is_preamble = false;
+                        break;
+                    }
+                    pending_statement = statement;
+                    pending_kind = PendingKind::NamedModule;
+                }
+                if (statement.find(';') == std::string::npos) {
+                    continue;
+                }
+                if (!flush_named_module()) {
+                    line_is_preamble = false;
+                    break;
+                }
+                continue;
+            }
+
+            if (pending_kind == PendingKind::Import) {
+                if (!pending_statement.empty()) {
+                    pending_statement.push_back(' ');
+                }
+                pending_statement.append(statement);
+            } else {
+                if (!looks_like_import_scan_prefix(statement)) {
+                    line_is_preamble = false;
+                    break;
+                }
+                pending_statement = statement;
+                pending_kind = PendingKind::Import;
+            }
+            if (statement.find(';') == std::string::npos) {
+                continue;
+            }
+            if (!flush_import()) {
+                line_is_preamble = false;
+                break;
+            }
         }
 
-        pending_statement = trimmed;
-        pending_kind = PendingKind::Import;
-        if (trimmed.find(';') != std::string::npos && flush_import()) {
-            cursor = next;
-            continue;
+        if (!line_is_preamble) {
+            out.append(text.substr(cursor));
+            return out;
         }
         cursor = next;
     }

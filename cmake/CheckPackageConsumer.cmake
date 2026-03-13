@@ -13,6 +13,7 @@
 #     [-DPACKAGE_TEST_C_COMPILER=<path>]
 #     [-DPACKAGE_TEST_CXX_COMPILER=<path>]
 #     [-DCONSUMER_LINK_MODE=<main_only|runtime_only|double>]
+#     [-DPACKAGE_TEST_USE_MODULES=<ON|OFF>]
 #     [-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=<ON|OFF>]
 #     [-DPACKAGE_TEST_DRY_RUN_WORK_DIR=<ON|OFF>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
@@ -33,6 +34,9 @@ if(NOT DEFINED CONSUMER_LINK_MODE OR "${CONSUMER_LINK_MODE}" STREQUAL "")
 endif()
 if(NOT DEFINED PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE OR "${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}" STREQUAL "")
   set(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE ON)
+endif()
+if(NOT DEFINED PACKAGE_TEST_USE_MODULES OR "${PACKAGE_TEST_USE_MODULES}" STREQUAL "")
+  set(PACKAGE_TEST_USE_MODULES ON)
 endif()
 if(NOT DEFINED PACKAGE_TEST_DRY_RUN_WORK_DIR OR "${PACKAGE_TEST_DRY_RUN_WORK_DIR}" STREQUAL "")
   set(PACKAGE_TEST_DRY_RUN_WORK_DIR OFF)
@@ -170,6 +174,11 @@ endif()
 if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
   string(APPEND _work_dir_suffix "_${BUILD_CONFIG}")
 endif()
+if(PACKAGE_TEST_USE_MODULES)
+  string(APPEND _work_dir_suffix "_modules")
+else()
+  string(APPEND _work_dir_suffix "_includes")
+endif()
 if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
   string(APPEND _work_dir_suffix "_external_codegen")
 else()
@@ -259,6 +268,7 @@ set(_consumer_cache_args ${_cmake_cache_args})
 # Make dependencies installed into the same prefix (e.g., fmt) discoverable.
 list(APPEND _consumer_cache_args "-DCMAKE_PREFIX_PATH=${_install_prefix}")
 list(APPEND _consumer_cache_args "-DGENTEST_CONSUMER_LINK_MODE=${CONSUMER_LINK_MODE}")
+list(APPEND _consumer_cache_args "-DGENTEST_CONSUMER_USE_MODULES=${PACKAGE_TEST_USE_MODULES}")
 if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
   set(_installed_codegen_dir "${_install_prefix}/bin")
   file(MAKE_DIRECTORY "${_installed_codegen_dir}")

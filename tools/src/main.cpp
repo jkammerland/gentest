@@ -78,6 +78,8 @@ using gentest::codegen::scan::named_module_name_from_source_file;
 using gentest::codegen::scan::parse_imported_module_name_from_scan_line;
 using gentest::codegen::scan::parse_include_header_from_scan_line;
 using gentest::codegen::scan::parse_named_module_name_from_scan_line;
+using gentest::codegen::scan::process_scan_physical_line;
+using gentest::codegen::scan::split_scan_statements;
 using gentest::codegen::scan::strip_comments_for_line_scan;
 using gentest::codegen::scan::trim_ascii_copy;
 
@@ -256,9 +258,7 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         return value;
     };
     auto is_module_interface_source = [](const std::filesystem::path &path) {
-        std::string ext = path.extension().string();
-        std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-        return ext == ".cppm" || ext == ".ccm" || ext == ".cxxm" || ext == ".ixx" || ext == ".mxx";
+        return named_module_name_from_source_file(path).has_value();
     };
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
         std::filesystem::path out = options.tu_output_dir;
@@ -482,52 +482,47 @@ std::vector<std::string> parse_imported_named_modules_from_source(const std::fil
 
     std::vector<std::string> imports;
     std::unordered_set<std::string> seen;
+    gentest::codegen::scan::ScanStreamState scan_state;
     std::string line;
     std::string pending;
     bool        pending_active = false;
-    bool        in_block_comment = false;
     while (std::getline(in, line)) {
-        std::string trimmed = trim_ascii_copy(strip_comments_for_line_scan(line, in_block_comment));
-        if (trimmed.empty()) {
-            continue;
-        }
-        if (is_preprocessor_directive_scan_line(trimmed)) {
-            if (pending_active) {
-                pending.clear();
-                pending_active = false;
-            }
+        const auto processed = process_scan_physical_line(line, scan_state);
+        if (!processed.is_active_code) {
             continue;
         }
 
-        if (!pending_active) {
-            if (!looks_like_import_scan_prefix(trimmed)) {
+        for (const auto &statement : split_scan_statements(processed.stripped)) {
+            if (!pending_active) {
+                if (!looks_like_import_scan_prefix(statement)) {
+                    continue;
+                }
+                pending = statement;
+                pending_active = true;
+            } else {
+                pending.push_back(' ');
+                pending.append(statement);
+            }
+
+            if (statement.find(';') == std::string::npos) {
                 continue;
             }
-            pending = trimmed;
-            pending_active = true;
-        } else {
-            pending.push_back(' ');
-            pending.append(trimmed);
-        }
 
-        if (trimmed.find(';') == std::string::npos) {
-            continue;
-        }
-
-        auto import_name = parse_imported_module_name_from_scan_line(pending);
-        pending.clear();
-        pending_active = false;
-        if (!import_name.has_value()) {
-            continue;
-        }
-        if (import_name->front() == ':') {
-            if (current_primary_module.empty()) {
+            auto import_name = parse_imported_module_name_from_scan_line(pending);
+            pending.clear();
+            pending_active = false;
+            if (!import_name.has_value()) {
                 continue;
             }
-            *import_name = current_primary_module + *import_name;
-        }
-        if (known_modules.contains(*import_name) && seen.insert(*import_name).second) {
-            imports.push_back(*import_name);
+            if (import_name->front() == ':') {
+                if (current_primary_module.empty()) {
+                    continue;
+                }
+                *import_name = current_primary_module + *import_name;
+            }
+            if (known_modules.contains(*import_name) && seen.insert(*import_name).second) {
+                imports.push_back(*import_name);
+            }
         }
     }
     return imports;
@@ -896,7 +891,8 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
 }
 
 bool execute_module_precompile(const clang::tooling::CommandLineArguments &command_line, std::string_view module_name,
-                               std::string_view source_file, const std::filesystem::path &pcm_path) {
+                               std::string_view source_file, const std::filesystem::path &pcm_path,
+                               std::string_view working_directory) {
     if (command_line.empty()) {
         gentest::codegen::log_err("gentest_codegen: failed to precompile '{}' from '{}': empty compiler command\n", module_name,
                                   source_file);
@@ -926,7 +922,33 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
     }
 
     std::string err_msg;
-    const int   rc = llvm::sys::ExecuteAndWait(*resolved_path, llvm_args, std::nullopt, {}, 0, 0, &err_msg);
+    std::error_code cwd_ec;
+    const auto saved_cwd = std::filesystem::current_path(cwd_ec);
+    if (cwd_ec) {
+        err_msg = fmt::format("failed to query current working directory: {}", cwd_ec.message());
+        gentest::codegen::log_err("gentest_codegen: failed to precompile named module '{}' from '{}': {}\n", module_name, source_file,
+                                  err_msg);
+        return false;
+    }
+
+    const std::filesystem::path launch_cwd =
+        working_directory.empty() ? saved_cwd : std::filesystem::path{std::string(working_directory)};
+    std::error_code set_cwd_ec;
+    std::filesystem::current_path(launch_cwd, set_cwd_ec);
+    if (set_cwd_ec) {
+        err_msg = fmt::format("failed to change working directory to '{}': {}", launch_cwd.string(), set_cwd_ec.message());
+        gentest::codegen::log_err("gentest_codegen: failed to precompile named module '{}' from '{}': {}\n", module_name, source_file,
+                                  err_msg);
+        return false;
+    }
+
+    const int rc = llvm::sys::ExecuteAndWait(*resolved_path, llvm_args, std::nullopt, {}, 0, 0, &err_msg);
+    std::error_code restore_cwd_ec;
+    std::filesystem::current_path(saved_cwd, restore_cwd_ec);
+    if (restore_cwd_ec) {
+        gentest::codegen::log_err("gentest_codegen: warning: failed to restore working directory after precompiling '{}': {}\n",
+                                  module_name, restore_cwd_ec.message());
+    }
     if (rc == 0) {
         if (std::filesystem::exists(pcm_path)) {
             return true;
@@ -1454,9 +1476,7 @@ int main(int argc, const char **argv) {
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
 
     auto is_module_interface_source = [](const std::filesystem::path &path) {
-        std::string ext = path.extension().string();
-        std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-        return ext == ".cppm" || ext == ".ccm" || ext == ".cxxm" || ext == ".ixx" || ext == ".mxx";
+        return named_module_name_from_source_file(path).has_value();
     };
     auto sanitize_module_wrapper_stem = [](std::string value) {
         for (auto &ch : value) {
@@ -1558,9 +1578,6 @@ int main(int argc, const char **argv) {
     named_module_sources.reserve(options.sources.size());
     for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
         const std::filesystem::path source_path{options.sources[idx]};
-        if (!is_module_interface_source(source_path)) {
-            continue;
-        }
         const auto module_name = named_module_name_from_source_file(source_path);
         if (!module_name.has_value()) {
             continue;
@@ -1660,7 +1677,8 @@ int main(int argc, const char **argv) {
                                                 source_commands.empty() ? compdb_dir : source_commands.front().Directory,
                                                 module_source.pcm_path);
             if (!execute_module_precompile(precompile_command, module_source.module_name, options.sources[module_source.source_index],
-                                           module_source.pcm_path)) {
+                                           module_source.pcm_path,
+                                           source_commands.empty() ? compdb_dir : source_commands.front().Directory)) {
                 state = ModuleBuildState::Failed;
                 return false;
             }

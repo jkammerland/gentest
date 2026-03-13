@@ -15,7 +15,12 @@ file(MAKE_DIRECTORY "${_work_dir}")
 
 set(_source "${_work_dir}/literal_false_match.cppm")
 file(WRITE "${_source}"
-  "#define BANNER \"export module wrong.module;\"\n"
+  "#define BANNER \\\n"
+  "  export module wrong.macro;\n"
+  "#if 0\n"
+  "export module wrong.inactive;\n"
+  "#endif\n"
+  "const char *banner = \"export module wrong.literal;\";\n"
   "export module real.module;\n")
 
 include("${GENTEST_SOURCE_DIR}/cmake/GentestCodegen.cmake")

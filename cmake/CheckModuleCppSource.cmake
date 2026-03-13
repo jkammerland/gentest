@@ -2,29 +2,21 @@
 #  -DSOURCE_DIR=<fixture source dir>
 #  -DBUILD_ROOT=<path to parent build dir>
 #  -DGENTEST_SOURCE_DIR=<path to gentest source tree>
-# Optional:
-#  -DGENERATOR=<cmake generator name>
-#  -DGENERATOR_PLATFORM=<platform>
-#  -DGENERATOR_TOOLSET=<toolset>
-#  -DTOOLCHAIN_FILE=<path>
-#  -DMAKE_PROGRAM=<path>
-#  -DC_COMPILER=<path>
-#  -DCXX_COMPILER=<path>
-#  -DBUILD_TYPE=<Debug|Release|...>
 
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleMultilineDirectiveFailure.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckModuleCppSource.cmake: SOURCE_DIR not set")
 endif()
 if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleMultilineDirectiveFailure.cmake: BUILD_ROOT not set")
+  message(FATAL_ERROR "CheckModuleCppSource.cmake: BUILD_ROOT not set")
 endif()
 if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleMultilineDirectiveFailure.cmake: GENTEST_SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckModuleCppSource.cmake: GENTEST_SOURCE_DIR not set")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-set(_work_dir "${BUILD_ROOT}/module_multiline_directives")
+set(_work_dir "${BUILD_ROOT}/module_cpp_source")
 set(_src_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -33,7 +25,7 @@ file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
-  gentest_skip_test("module multiline directive regression: clang/clang++ not found")
+  gentest_skip_test("module .cpp source regression: clang/clang++ not found")
   return()
 endif()
 
@@ -52,7 +44,7 @@ set(_cmake_cache_args
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
   gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
   if(NOT _supported_ninja)
-    gentest_skip_test("module multiline directive regression: ${_supported_ninja_reason}")
+    gentest_skip_test("module .cpp source regression: ${_supported_ninja_reason}")
     return()
   endif()
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
@@ -79,7 +71,7 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
-execute_process(
+gentest_check_run_or_fail(
   COMMAND
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
@@ -87,63 +79,31 @@ execute_process(
     -B "${_build_dir}"
     ${_cmake_cache_args}
   WORKING_DIRECTORY "${_work_dir}"
-  RESULT_VARIABLE _configure_rc
-  OUTPUT_VARIABLE _configure_out
-  ERROR_VARIABLE _configure_err
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_STRIP_TRAILING_WHITESPACE)
-if(NOT _configure_rc EQUAL 0)
-  message(FATAL_ERROR "Configure failed unexpectedly.\n${_configure_out}\n${_configure_err}")
-endif()
+  STRIP_TRAILING_WHITESPACE)
 
-execute_process(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target multiline_directive_tests
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target cpp_source_module_tests
   WORKING_DIRECTORY "${_work_dir}"
-  RESULT_VARIABLE _build_rc
-  OUTPUT_VARIABLE _build_out
-  ERROR_VARIABLE _build_err
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_STRIP_TRAILING_WHITESPACE)
+  STRIP_TRAILING_WHITESPACE)
 
-if(NOT _build_rc EQUAL 0)
-  message(FATAL_ERROR
-    "Multiline module directive regression failed to build.\n${_build_out}\n${_build_err}")
-endif()
-
-set(_exe "${_build_dir}/multiline_directive_tests")
+set(_exe "${_build_dir}/cpp_source_module_tests")
 if(CMAKE_HOST_WIN32)
   set(_exe "${_exe}.exe")
 endif()
 
-execute_process(
+gentest_check_run_or_fail(
   COMMAND "${_exe}" --list-tests
   WORKING_DIRECTORY "${_build_dir}"
-  RESULT_VARIABLE _list_rc
-  OUTPUT_VARIABLE _list_out
-  ERROR_VARIABLE _list_err
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_STRIP_TRAILING_WHITESPACE)
-if(NOT _list_rc EQUAL 0)
-  message(FATAL_ERROR "Listing multiline directive fixture failed.\n${_list_out}\n${_list_err}")
-endif()
-string(FIND "${_list_out}" "multiline/basic" _basic_pos)
+  STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE _list_out)
+string(FIND "${_list_out}" "cpp_source/basic" _basic_pos)
 if(_basic_pos EQUAL -1)
-  string(FIND "${_list_out}" "multiline/module_mock" _basic_pos)
-endif()
-if(_basic_pos EQUAL -1)
-  message(FATAL_ERROR "Expected multiline/module_mock in --list-tests output.\n${_list_out}")
+  message(FATAL_ERROR "Expected cpp_source/basic in --list-tests output.\n${_list_out}")
 endif()
 
-execute_process(
-  COMMAND "${_exe}" --run=multiline/module_mock
+gentest_check_run_or_fail(
+  COMMAND "${_exe}" --run=cpp_source/basic
   WORKING_DIRECTORY "${_build_dir}"
-  RESULT_VARIABLE _run_rc
-  OUTPUT_VARIABLE _run_out
-  ERROR_VARIABLE _run_err
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_STRIP_TRAILING_WHITESPACE)
-if(NOT _run_rc EQUAL 0)
-  message(FATAL_ERROR "Running multiline/module_mock failed.\n${_run_out}\n${_run_err}")
-endif()
+  STRIP_TRAILING_WHITESPACE)
 
-message(STATUS "Multiline module directive regression passed")
+message(STATUS "Module .cpp source regression passed")

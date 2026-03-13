@@ -1,4 +1,4 @@
-#if defined(GENTEST_CODEGEN) || !defined(GENTEST_CONSUMER_USE_MODULES)
+#if defined(GENTEST_CODEGEN)
 #include "gentest/runner.h"
 #else
 import gentest;

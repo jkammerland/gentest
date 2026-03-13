@@ -1,34 +1,11 @@
-module;
-
-#include <memory>
-
-#if defined(GENTEST_CODEGEN)
-#define GENTEST_NO_AUTO_MOCK_INCLUDE 1
-#include "gentest/mock.h"
-#undef GENTEST_NO_AUTO_MOCK_INCLUDE
+#include "gentest/attributes.h"
 #include "gentest/bench_util.h"
-#endif
-
-export module gentest.consumer_cases;
-
-#if !defined(GENTEST_CODEGEN)
-import gentest;
-import gentest.bench_util;
-import gentest.mock;
-#endif
+#include "gentest/mock.h"
+#include "service.hpp"
 
 using namespace gentest::asserts;
 
-export namespace consumer {
-
-struct Service {
-    virtual ~Service()            = default;
-    virtual int compute(int arg) = 0;
-};
-
-} // namespace consumer
-
-export namespace consumer {
+namespace consumer {
 
 struct [[using gentest: fixture(suite)]] SuiteFixture : gentest::FixtureSetup {
     void setUp() override { value = 7; }
@@ -53,10 +30,8 @@ void module_mock() {
     gentest::mock<Service> mock_service;
     gentest::expect(mock_service, &Service::compute).times(1).with(3).returns(9);
 
-#if !defined(GENTEST_CODEGEN)
     Service *service = &mock_service;
     EXPECT_EQ(service->compute(3), 9);
-#endif
 }
 
 [[using gentest: bench("consumer/module_bench"), baseline]]

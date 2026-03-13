@@ -76,6 +76,31 @@ _gentest_run_codegen_expect_success(
   COMPDB_DIR "${_relative_dir}"
   SOURCE_FILE "${_relative_source_abs}")
 
+set(_relative_include_dir "${_work_dir}/relative_include")
+file(MAKE_DIRECTORY "${_relative_include_dir}/include")
+file(WRITE "${_relative_include_dir}/include/value.hpp"
+  "inline int relative_include_value() { return 11; }\n")
+file(WRITE "${_relative_include_dir}/provider.cppm"
+  "module;\n"
+  "#include \"value.hpp\"\n"
+  "export module gentest.retarget.relative_include;\n"
+  "export int provider_value() { return relative_include_value(); }\n")
+file(TO_CMAKE_PATH "${_relative_include_dir}" _relative_include_dir_norm)
+file(TO_CMAKE_PATH "${_relative_include_dir}/provider.cppm" _relative_include_source_abs)
+file(WRITE "${_relative_include_dir}/compile_commands.json"
+  "[\n"
+  "  {\n"
+  "    \"directory\": \"${_relative_include_dir_norm}\",\n"
+  "    \"file\": \"provider.cppm\",\n"
+  "    \"arguments\": [\"${_clangxx_norm}\", \"-std=c++20\", \"-Iinclude\", \"-c\", \"provider.cppm\", \"-o\", \"provider.o\"]\n"
+  "  }\n"
+  "]\n")
+
+_gentest_run_codegen_expect_success(
+  NAME "relative include path under compile-command cwd"
+  COMPDB_DIR "${_relative_include_dir}"
+  SOURCE_FILE "${_relative_include_source_abs}")
+
 set(_response_dir "${_work_dir}/response_file")
 set(_response_generated_dir "${_response_dir}/generated")
 file(MAKE_DIRECTORY "${_response_generated_dir}")

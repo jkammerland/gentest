@@ -59,6 +59,7 @@ docs/latex/
 *.tmp
 *.temp
 *.log
+.gentest_codegen_modules_*/
 
 # Ignore local worktree directories
 mocking-support/
