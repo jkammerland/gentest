@@ -5,8 +5,9 @@ import gentest.imported_sibling_provider;
 #include "gentest/mock.h"
 #undef GENTEST_NO_AUTO_MOCK_INCLUDE
 #else
-import gentest;
-import gentest.mock;
+#include "gentest/attributes.h"
+#include "gentest/mock.h"
+#include "gentest/runner.h"
 #endif
 
 using namespace gentest::asserts;

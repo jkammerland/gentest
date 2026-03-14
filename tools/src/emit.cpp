@@ -42,6 +42,7 @@ using gentest::codegen::scan::is_preprocessor_directive_scan_line;
 using gentest::codegen::scan::looks_like_import_scan_prefix;
 using gentest::codegen::scan::looks_like_named_module_scan_prefix;
 using gentest::codegen::scan::named_module_name_from_source_file;
+using gentest::codegen::scan::normalize_scan_module_preamble_source;
 using gentest::codegen::scan::parse_imported_module_name_from_scan_line;
 using gentest::codegen::scan::parse_include_header_from_scan_line;
 using gentest::codegen::scan::parse_named_module_name_from_scan_line;
@@ -386,139 +387,6 @@ void append_original_segment_skipping_ranges(std::string &rendered, std::string_
     }
 }
 
-std::string normalize_generated_module_preamble(std::string_view text) {
-    enum class PendingKind {
-        None,
-        NamedModule,
-        Import,
-    };
-
-    std::string out;
-    out.reserve(text.size());
-
-    bool        seen_named_module = false;
-    PendingKind pending_kind = PendingKind::None;
-    std::string pending_statement;
-    std::size_t cursor = 0;
-    ScanStreamState scan_state;
-
-    auto flush_named_module = [&]() -> bool {
-        const auto module_name = parse_named_module_name_from_scan_line(pending_statement);
-        if (!module_name.has_value()) {
-            return false;
-        }
-        const std::string normalized = gentest::codegen::scan::normalize_scan_directive_line(pending_statement);
-        if (normalized.starts_with("export ")) {
-            out.append(fmt::format("export module {};\n", *module_name));
-        } else {
-            out.append(fmt::format("module {};\n", *module_name));
-        }
-        pending_statement.clear();
-        pending_kind = PendingKind::None;
-        seen_named_module = true;
-        return true;
-    };
-
-    auto flush_import = [&]() -> bool {
-        if (!is_any_import_scan_line(pending_statement)) {
-            return false;
-        }
-        out.append(gentest::codegen::scan::normalize_scan_directive_line(pending_statement));
-        out.push_back('\n');
-        pending_statement.clear();
-        pending_kind = PendingKind::None;
-        return true;
-    };
-
-    while (cursor < text.size()) {
-        const std::size_t line_end = text.find('\n', cursor);
-        const std::size_t next = line_end == std::string_view::npos ? text.size() : line_end + 1;
-        std::string_view   line = text.substr(cursor, next - cursor);
-        std::string_view   line_no_nl = line;
-        if (!line_no_nl.empty() && line_no_nl.back() == '\n') {
-            line_no_nl.remove_suffix(1);
-        }
-        if (!line_no_nl.empty() && line_no_nl.back() == '\r') {
-            line_no_nl.remove_suffix(1);
-        }
-        const auto processed = process_scan_physical_line(line_no_nl, scan_state);
-        if (!processed.is_active_code) {
-            out.append(text.substr(cursor, next - cursor));
-            cursor = next;
-            continue;
-        }
-
-        bool line_is_preamble = true;
-        for (const auto &statement : split_scan_statements(processed.stripped)) {
-            if (!seen_named_module) {
-                if (is_global_module_fragment_scan_line(statement)) {
-                    out.append("module;\n");
-                    continue;
-                }
-                if (pending_kind == PendingKind::NamedModule) {
-                    if (!pending_statement.empty()) {
-                        pending_statement.push_back(' ');
-                    }
-                    pending_statement.append(statement);
-                } else {
-                    if (!looks_like_named_module_scan_prefix(statement)) {
-                        line_is_preamble = false;
-                        break;
-                    }
-                    pending_statement = statement;
-                    pending_kind = PendingKind::NamedModule;
-                }
-                if (statement.find(';') == std::string::npos) {
-                    continue;
-                }
-                if (!flush_named_module()) {
-                    line_is_preamble = false;
-                    break;
-                }
-                continue;
-            }
-
-            if (pending_kind == PendingKind::Import) {
-                if (!pending_statement.empty()) {
-                    pending_statement.push_back(' ');
-                }
-                pending_statement.append(statement);
-            } else {
-                if (!looks_like_import_scan_prefix(statement)) {
-                    line_is_preamble = false;
-                    break;
-                }
-                pending_statement = statement;
-                pending_kind = PendingKind::Import;
-            }
-            if (statement.find(';') == std::string::npos) {
-                continue;
-            }
-            if (!flush_import()) {
-                line_is_preamble = false;
-                break;
-            }
-        }
-
-        if (!line_is_preamble) {
-            out.append(text.substr(cursor));
-            return out;
-        }
-        cursor = next;
-    }
-
-    if (pending_kind == PendingKind::NamedModule && flush_named_module()) {
-        return out;
-    }
-    if (pending_kind == PendingKind::Import && flush_import()) {
-        return out;
-    }
-    if (!pending_statement.empty()) {
-        out.append(pending_statement);
-    }
-    return out;
-}
-
 std::string render_module_mock_api_include_block() {
     std::string out;
     out.reserve(192);
@@ -590,17 +458,18 @@ std::string render_namespace_scope_reopen(const std::vector<MockNamespaceScopeIn
 
 std::optional<std::string> render_module_wrapper_source(const fs::path &source_path, const std::vector<const MockClassInfo *> &source_mocks,
                                                         bool needs_mock_codegen_include) {
-    std::string original;
-    if (!read_file(source_path, original)) {
+    std::string raw_original;
+    if (!read_file(source_path, raw_original)) {
         log_err("gentest_codegen: failed to read module source '{}'\n", source_path.string());
         return std::nullopt;
     }
+    std::string original = normalize_scan_module_preamble_source(raw_original);
 
     const SourceMockCodegenIncludes manual_includes = scan_source_mock_codegen_includes(original);
     const bool needs_global_mock_codegen_include = needs_mock_codegen_include || manual_includes.has_any_manual_codegen();
     const bool needs_mock_api_include = !source_mocks.empty() || needs_global_mock_codegen_include;
     if (source_mocks.empty() && !needs_global_mock_codegen_include && !needs_mock_api_include) {
-        return normalize_generated_module_preamble(original);
+        return original;
     }
 
     std::map<std::size_t, std::vector<const MockClassInfo *>> mocks_by_offset;
@@ -638,7 +507,7 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
     }
 
     if (mocks_by_offset.empty() && !global_include_location.has_value()) {
-        return normalize_generated_module_preamble(original);
+        return original;
     }
 
     std::string rendered;
@@ -699,7 +568,7 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
 
     append_original_segment_skipping_ranges(rendered, original, cursor, original.size(), manual_includes.manual_codegen_include_ranges,
                                            skipped_idx);
-    return normalize_generated_module_preamble(rendered);
+    return normalize_scan_module_preamble_source(rendered);
 }
 
 auto make_unique_tmp_path(const fs::path &path) -> fs::path {

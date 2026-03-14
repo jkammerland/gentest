@@ -25,12 +25,12 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
   message(FATAL_ERROR "CheckMockSymlinkInclude.cmake: CODEGEN_STD not set")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+
 if(WIN32)
   gentest_skip_test("CheckMockSymlinkInclude.cmake: Windows host covered by cross-root mock include test")
   return()
 endif()
-
-include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)

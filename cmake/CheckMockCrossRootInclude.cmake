@@ -30,8 +30,28 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
   message(FATAL_ERROR "CheckMockCrossRootInclude.cmake: CODEGEN_STD not set")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+
 if(NOT WIN32)
-  message(STATUS "CheckMockCrossRootInclude.cmake: non-Windows host; skipping")
+  gentest_skip_test("CheckMockCrossRootInclude.cmake: non-Windows host")
+  return()
+endif()
+
+gentest_resolve_clang_fixture_compilers(_clang _clangxx)
+if(NOT _clang OR NOT _clangxx)
+  gentest_skip_test("CheckMockCrossRootInclude.cmake: clang/clang++ not found")
+  return()
+endif()
+
+execute_process(
+  COMMAND "${_clangxx}" -print-resource-dir
+  RESULT_VARIABLE _resource_dir_rc
+  OUTPUT_VARIABLE _resource_dir
+  ERROR_VARIABLE _resource_dir_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _resource_dir_rc EQUAL 0 OR "${_resource_dir}" STREQUAL "")
+  gentest_skip_test("CheckMockCrossRootInclude.cmake: failed to query clang resource dir from '${_clangxx}': ${_resource_dir_err}")
   return()
 endif()
 
@@ -51,7 +71,7 @@ if(_build_drive STREQUAL "" OR _user_drive STREQUAL "")
 endif()
 
 if(_build_drive STREQUAL _user_drive)
-  message(STATUS "CheckMockCrossRootInclude.cmake: build/user on same drive (${_build_drive}); skipping cross-root assertion")
+  gentest_skip_test("CheckMockCrossRootInclude.cmake: build/user on same drive (${_build_drive}); skipping cross-root assertion")
   return()
 endif()
 
@@ -113,7 +133,11 @@ unset(_inc)
 unset(_vcpkg_include_dirs)
 
 execute_process(
-  COMMAND "${PROG}" ${_args}
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "CC=${_clang}"
+          "CXX=${_clangxx}"
+          "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
+          "${PROG}" ${_args}
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err

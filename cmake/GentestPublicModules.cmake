@@ -33,6 +33,14 @@ function(gentest_detect_public_module_support out_supported out_reason)
         set(_reason "generator '${CMAKE_GENERATOR}' does not support gentest's public module export/import path; use Ninja 1.11+")
     endif()
 
+    if(_supported
+       AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+       AND DEFINED CMAKE_CXX_COMPILER_VERSION
+       AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15)
+        set(_supported FALSE)
+        set(_reason "GNU ${CMAKE_CXX_COMPILER_VERSION} is too old; GNU 15 or newer is required for public named modules")
+    endif()
+
     if(_supported)
         if(NOT DEFINED CMAKE_CXX_SCANDEP_SOURCE OR "${CMAKE_CXX_SCANDEP_SOURCE}" STREQUAL "")
             set(_supported FALSE)

@@ -299,9 +299,13 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
     std::size_t current_group = 0;
     std::optional<std::size_t> current_group_end_offset;
     for (const auto *ns : namespace_decls) {
+        const std::string reopen_prefix = namespace_reopen_prefix(*ns, ctx, sm);
+        const bool        is_shorthand_nested_namespace =
+            !chain.empty() && !reopen_prefix.empty() && reopen_prefix.find("namespace") == std::string::npos;
         const std::optional<std::size_t> end_offset = location_offset_in_file(sm, ns->getRBraceLoc());
         bool                             new_group = false;
-        if (!current_group_end_offset.has_value() || !end_offset.has_value() || *current_group_end_offset != *end_offset) {
+        if (!is_shorthand_nested_namespace &&
+            (!current_group_end_offset.has_value() || !end_offset.has_value() || *current_group_end_offset != *end_offset)) {
             ++current_group;
             current_group_end_offset = end_offset;
             new_group = true;
@@ -312,7 +316,7 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
             .is_inline           = ns->isInline(),
             .is_exported         = llvm::isa<ExportDecl>(ns->getLexicalDeclContext()),
             .lexical_close_group = current_group,
-            .reopen_prefix       = new_group ? namespace_reopen_prefix(*ns, ctx, sm) : std::string{},
+            .reopen_prefix       = new_group ? reopen_prefix : std::string{},
         });
     }
 

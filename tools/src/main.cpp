@@ -74,6 +74,7 @@ namespace {
 using gentest::codegen::scan::is_preprocessor_directive_scan_line;
 using gentest::codegen::scan::looks_like_import_scan_prefix;
 using gentest::codegen::scan::named_module_name_from_source_file;
+using gentest::codegen::scan::normalize_scan_module_preamble_source;
 using gentest::codegen::scan::parse_imported_module_name_from_scan_line;
 using gentest::codegen::scan::parse_include_header_from_scan_line;
 using gentest::codegen::scan::parse_named_module_name_from_scan_line;
@@ -634,6 +635,29 @@ std::vector<std::string> parse_imported_named_modules_from_source(const std::fil
         }
     }
     return imports;
+}
+
+std::optional<std::string> build_normalized_module_source_overlay(
+    const std::filesystem::path &path, const std::vector<std::filesystem::path> &include_search_paths = {}) {
+    if (!named_module_name_from_source_file(path, include_search_paths).has_value()) {
+        return std::nullopt;
+    }
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return std::nullopt;
+    }
+
+    std::string original{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    if (in.bad()) {
+        return std::nullopt;
+    }
+
+    std::string normalized = normalize_scan_module_preamble_source(original);
+    if (normalized == original) {
+        return std::nullopt;
+    }
+    return normalized;
 }
 
 std::optional<std::filesystem::path> resolve_wrapped_source_from_codegen_shim(const std::filesystem::path &path) {
@@ -1916,6 +1940,11 @@ int main(int argc, const char **argv) {
                 std::make_shared<clang::PCHContainerOperations>(),
                 base_fs,
             };
+            const auto overlay_include_paths = scan_include_search_paths_from_compile_commands(compile_commands[idx], options.sources[idx]);
+            const auto normalized_overlay = build_normalized_module_source_overlay(options.sources[idx], overlay_include_paths);
+            if (normalized_overlay.has_value()) {
+                tool.mapVirtualFile(options.sources[idx], *normalized_overlay);
+            }
             tool.setDiagnosticConsumer(tu_diag_consumer.get());
             tool.appendArgumentsAdjuster(args_adjuster);
             tool.appendArgumentsAdjuster(syntax_only_adjuster);
@@ -1994,6 +2023,17 @@ int main(int argc, const char **argv) {
         }
         const SnapshotCompilationDatabase file_database{std::move(file_commands)};
         clang::tooling::ClangTool         tool{file_database, options.sources};
+        std::vector<std::string>          normalized_overlays;
+        normalized_overlays.reserve(options.sources.size());
+        for (std::size_t i = 0; i < options.sources.size(); ++i) {
+            const auto overlay_include_paths = scan_include_search_paths_from_compile_commands(get_compile_commands_for_source(i),
+                                                                                               options.sources[i]);
+            if (auto normalized_overlay = build_normalized_module_source_overlay(options.sources[i], overlay_include_paths);
+                normalized_overlay.has_value()) {
+                normalized_overlays.push_back(std::move(*normalized_overlay));
+                tool.mapVirtualFile(options.sources[i], normalized_overlays.back());
+            }
+        }
         tool.setDiagnosticConsumer(diag_consumer.get());
         tool.appendArgumentsAdjuster(args_adjuster);
         tool.appendArgumentsAdjuster(syntax_only_adjuster);
