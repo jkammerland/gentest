@@ -133,6 +133,13 @@ jobs:
           BAZELISK_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euxo pipefail
+          clang_cc="/usr/lib/llvm-${{ matrix.clang_version }}/bin/clang-${{ matrix.clang_version }}"
+          clang_cxx="/usr/lib/llvm-${{ matrix.clang_version }}/bin/clang++-${{ matrix.clang_version }}"
+          if [ ! -x "${clang_cc}" ] || [ ! -x "${clang_cxx}" ]; then
+            clang_cc="$(command -v clang)"
+            clang_cxx="$(command -v clang++)"
+          fi
+          clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
           bazel test \
             //:gentest_unit_bazel \
             //:gentest_integration_bazel \
@@ -141,6 +148,12 @@ jobs:
             //:codegen_check_invalid \
             --action_env=CCACHE_DISABLE=1 \
             --host_action_env=CCACHE_DISABLE=1 \
+            --action_env=CC="${clang_cc}" \
+            --action_env=CXX="${clang_cxx}" \
+            --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+            --host_action_env=CC="${clang_cc}" \
+            --host_action_env=CXX="${clang_cxx}" \
+            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
             --test_output=errors
 
   meson:

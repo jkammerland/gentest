@@ -84,15 +84,15 @@ inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, 
         msg.append(": ");
         msg.append(reason);
     }
-#if GENTEST_EXCEPTIONS_ENABLED
-    ::gentest::detail::skip_shared_fixture_unavailable(msg);
-#else
-    if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
-        ::gentest::detail::record_bench_error(std::move(msg));
-        return;
+    if constexpr (::gentest::detail::exceptions_enabled) {
+        ::gentest::detail::skip_shared_fixture_unavailable(msg);
+    } else {
+        if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
+            ::gentest::detail::record_bench_error(std::move(msg));
+            return;
+        }
+        ::gentest::detail::record_failure(std::move(msg));
     }
-    ::gentest::detail::record_failure(std::move(msg));
-#endif
 }
 
 template <typename TeardownFn>
@@ -204,12 +204,14 @@ inline constexpr std::string_view tu_registration_header = R"CPP(// This file is
 
 #pragma once
 
+#if !defined(GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE)
 #include <array>
 #include <span>
 #include <type_traits>
 
 #include "gentest/runner.h"
 #include "gentest/fixture.h"
+#endif
 {{REGISTRATION_COMMON}}
 
 constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {

@@ -77,8 +77,8 @@ struct TestContextLocalBuffer {
     }
 };
 
-inline thread_local std::shared_ptr<TestContextInfo> g_current_test{};
-inline thread_local TestContextLocalBuffer           g_current_buffer{};
+extern thread_local std::shared_ptr<TestContextInfo> g_current_test;
+extern thread_local TestContextLocalBuffer           g_current_buffer;
 
 struct skip_exception {};
 

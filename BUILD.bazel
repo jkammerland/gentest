@@ -78,6 +78,7 @@ cc_library(
     name = 'gentest_runtime',
     srcs = [
         'src/bench_stats.cpp',
+        'src/runtime_context.cpp',
         'src/runner_case_invoker.cpp',
         'src/runner_case_invoker.h',
         'src/runner_cli.cpp',

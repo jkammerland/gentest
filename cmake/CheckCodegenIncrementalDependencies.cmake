@@ -59,6 +59,12 @@ endif()
 if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
 endif()
+if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DLLVM_DIR=${LLVM_DIR}")
+endif()
+if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
+endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
@@ -101,6 +107,7 @@ gentest_check_run_or_fail(
 
 set(_generated_cpp "${_build_dir}/generated/tu_0000_cases.gentest.h")
 set(_mock_registry "${_build_dir}/generated/dep_tests_mock_registry.hpp")
+set(_mock_registry_header_domain "${_build_dir}/generated/dep_tests_mock_registry__domain_0000_header.hpp")
 set(_exe "${_build_dir}/dep_tests")
 
 _gentest_read("${_generated_cpp}" _generated_cpp_text)
@@ -136,7 +143,9 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}")
 
 _gentest_read("${_mock_registry}" _mock_registry_text)
-_gentest_expect_contains(_mock_registry_text "int added(int value) const" "mock registry after header change")
+_gentest_expect_contains(_mock_registry_text "dep_tests_mock_registry__domain_0000_header.hpp" "dispatcher registry after header change")
+_gentest_read("${_mock_registry_header_domain}" _mock_registry_header_domain_text)
+_gentest_expect_contains(_mock_registry_header_domain_text "int added(int value) const" "header-domain mock registry after header change")
 
 execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1)
 message(STATUS "Reconfigure after compile-definition change...")

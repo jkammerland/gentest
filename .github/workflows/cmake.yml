@@ -57,6 +57,7 @@ jobs:
           else
             brew install llvm ninja ccache
           fi
+          echo "$(brew --prefix ninja)/bin" >> $GITHUB_PATH
 
       - name: Configure LLVM environment
         run: |
@@ -79,12 +80,10 @@ jobs:
           echo "CCACHE_DISABLE=1" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
 
-      - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v3
-
       - name: Show tool versions
         run: |
           cmake --version
+          command -v ninja
           ninja --version
           COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
           "${COMPILER_BIN}/clang" --version
@@ -99,6 +98,7 @@ jobs:
             "--preset=${{ matrix.build-type }}"
             "-DCMAKE_C_COMPILER=${COMPILER_BIN}/clang"
             "-DCMAKE_CXX_COMPILER=${COMPILER_BIN}/clang++"
+            "-DCMAKE_MAKE_PROGRAM=$(command -v ninja)"
             "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="
           )
           if [ -n "${LLVM_DIR:-}" ]; then
@@ -108,6 +108,9 @@ jobs:
             if [ -f "${CLANG_DIR}/ClangConfig.cmake" ]; then
               CMAKE_ARGS+=("-DClang_DIR=${CLANG_DIR}")
             fi
+          fi
+          if [ -n "${LLVM_BIN:-}" ] && [ -x "${LLVM_BIN}/clang-scan-deps" ]; then
+            CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${LLVM_BIN}/clang-scan-deps")
           fi
           if [ -n "${{ matrix.test_cxx_standard }}" ]; then
             CMAKE_ARGS+=("-DGENTEST_TEST_CXX_STANDARD=${{ matrix.test_cxx_standard }}")
@@ -121,7 +124,7 @@ jobs:
         run: cmake --build --preset=${{ matrix.build-type }}
 
       - name: Test
-        run: ctest --preset=${{ matrix.build-type }} --output-on-failure
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure --parallel 4
 
   windows:
     name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }}
@@ -142,6 +145,13 @@ jobs:
 
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v3
+
+      - name: Install modern Ninja
+        shell: pwsh
+        run: |
+          py -m pip install --user --upgrade ninja
+          $scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+          $scripts | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Cache extracted LLVM toolchain
         id: cache-llvm
@@ -201,6 +211,7 @@ jobs:
         shell: pwsh
         run: |
           cmake --version
+          (Get-Command ninja).Source
           ninja --version
           & (Join-Path $env:LLVM_BIN "clang.exe") --version
           & (Join-Path $env:LLVM_BIN "clang++.exe") --version
@@ -212,6 +223,7 @@ jobs:
             "--preset=${{ matrix.preset }}",
             "-DCMAKE_C_COMPILER=$env:LLVM_BIN\\clang.exe",
             "-DCMAKE_CXX_COMPILER=$env:LLVM_BIN\\clang++.exe",
+            "-DCMAKE_MAKE_PROGRAM=$((Get-Command ninja).Source)",
             "-DLLVM_DIR=$env:LLVM_DIR",
             "-DClang_DIR=$env:Clang_DIR"
           )
@@ -226,7 +238,7 @@ jobs:
 
       - name: Test
         shell: pwsh
-        run: ctest --preset=${{ matrix.preset }} --output-on-failure
+        run: ctest --preset=${{ matrix.preset }} --output-on-failure --parallel 4
 
       - name: Configure/Build/Test (MSVC)
         if: matrix.preset == 'debug-system'
@@ -243,7 +255,7 @@ jobs:
             -DLLVM_DIR="$env:LLVM_DIR" `
             -DClang_DIR="$env:Clang_DIR"
           cmake --build $msvcBuildDir
-          ctest --test-dir $msvcBuildDir --output-on-failure
+          ctest --test-dir $msvcBuildDir --output-on-failure --parallel 4
 
   linux:
     name: ${{ matrix.name }} • ${{ matrix.preset == 'debug-system-cxx23' && 'C++23 tests' || matrix.build_type }}
@@ -564,7 +576,11 @@ jobs:
             libclang-${{ matrix.clang_version }}-dev \
             libclang-cpp${{ matrix.clang_version }}-dev \
             llvm-${{ matrix.clang_version }}-dev
-          python3 -m pip install --break-system-packages --upgrade cmake
+          python3 -m pip install --break-system-packages --upgrade cmake ninja
+          python3 - <<'PY' >> "$GITHUB_PATH"
+          import sysconfig
+          print(sysconfig.get_path("scripts"))
+          PY
           echo "/usr/lib/llvm-${{ matrix.clang_version }}/bin" >> "$GITHUB_PATH"
       - name: Update and install dependencies (dnf)
         if: ${{ matrix.pkg_manager == 'dnf' }}
@@ -632,7 +648,11 @@ jobs:
               ca-certificates \
               ncurses-compat-libs
           fi
-          python3 -m pip install --upgrade pip cmake
+          python3 -m pip install --upgrade pip cmake ninja
+          python3 - <<'PY' >> "$GITHUB_PATH"
+          import sysconfig
+          print(sysconfig.get_path("scripts"))
+          PY
       - name: Update and install dependencies (apk)
         if: ${{ matrix.pkg_manager == 'apk' }}
         shell: sh
@@ -662,6 +682,7 @@ jobs:
             llvm${{ matrix.llvm_version }}-gtest \
             llvm${{ matrix.llvm_version }}-static \
             ninja \
+            py3-pip \
             pkgconf \
             python3 \
             tar \
@@ -670,6 +691,11 @@ jobs:
             zip \
             zlib-dev \
             zstd-dev
+          python3 -m pip install --break-system-packages --upgrade ninja || python3 -m pip install --upgrade ninja
+          python3 - <<'PY' >> "$GITHUB_PATH"
+          import sysconfig
+          print(sysconfig.get_path("scripts"))
+          PY
           echo "/usr/lib/llvm${{ matrix.llvm_version }}/bin" >> "$GITHUB_PATH"
       - name: Checkout
         uses: actions/checkout@v4
@@ -686,6 +712,7 @@ jobs:
         run: |
           set -euxo pipefail
           cmake --version
+          command -v ninja
           ninja --version
           ${CC} --version
           clang --version || true
@@ -696,11 +723,32 @@ jobs:
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          cmake --preset=${GENTEST_CMAKE_PRESET} \
-            -DCMAKE_C_COMPILER=${CC} \
-            -DCMAKE_CXX_COMPILER=${CXX} \
-            -DLLVM_DIR=${LLVM_DIR} \
-            -DClang_DIR=${Clang_DIR}
+          CMAKE_ARGS=(
+            "--preset=${GENTEST_CMAKE_PRESET}"
+            "-DCMAKE_C_COMPILER=${CC}"
+            "-DCMAKE_CXX_COMPILER=${CXX}"
+            "-DCMAKE_MAKE_PROGRAM=$(command -v ninja)"
+            "-DLLVM_DIR=${LLVM_DIR}"
+            "-DClang_DIR=${Clang_DIR}"
+          )
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            scan_deps=""
+            for candidate in \
+              "${CXX/clang++/clang-scan-deps}" \
+              "clang-scan-deps-${{ matrix.clang_version }}" \
+              "clang-scan-deps-${{ matrix.llvm_version }}" \
+              "clang-scan-deps"
+            do
+              if [ -n "$candidate" ] && command -v "$candidate" >/dev/null 2>&1; then
+                scan_deps="$(command -v "$candidate")"
+                break
+              fi
+            done
+            if [ -n "$scan_deps" ]; then
+              CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${scan_deps}")
+            fi
+          fi
+          cmake "${CMAKE_ARGS[@]}"
       - name: Build
         run: |
           set -euxo pipefail
@@ -711,7 +759,7 @@ jobs:
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure
+          ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel 4
 
   package-workflow:
     name: Package Workflow
@@ -763,7 +811,7 @@ jobs:
             libclang-20-dev \
             libclang-cpp20-dev \
             llvm-20-dev
-          python3 -m pip install --break-system-packages --upgrade cmake
+          python3 -m pip install --break-system-packages --upgrade cmake ninja
           python3 - <<'PY' >> "$GITHUB_PATH"
           import sysconfig
           print(sysconfig.get_path("scripts"))

@@ -10,6 +10,13 @@
 #     [-DMAKE_PROGRAM=<path>]
 #     [-DC_COMPILER=<path>]
 #     [-DCXX_COMPILER=<path>]
+#     [-DPACKAGE_TEST_C_COMPILER=<path>]
+#     [-DPACKAGE_TEST_CXX_COMPILER=<path>]
+#     [-DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=<path>]
+#     [-DCONSUMER_LINK_MODE=<main_only|runtime_only|double>]
+#     [-DPACKAGE_TEST_USE_MODULES=<ON|OFF>]
+#     [-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=<ON|OFF>]
+#     [-DPACKAGE_TEST_DRY_RUN_WORK_DIR=<ON|OFF>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
 #     -P cmake/CheckPackageConsumer.cmake
@@ -23,7 +30,27 @@ endif()
 if(NOT DEFINED PACKAGE_NAME)
   message(FATAL_ERROR "PACKAGE_NAME not set")
 endif()
+if(NOT DEFINED CONSUMER_LINK_MODE OR "${CONSUMER_LINK_MODE}" STREQUAL "")
+  set(CONSUMER_LINK_MODE "double")
+endif()
+if(NOT DEFINED PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE OR "${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}" STREQUAL "")
+  set(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE ON)
+endif()
+if(NOT DEFINED PACKAGE_TEST_USE_MODULES OR "${PACKAGE_TEST_USE_MODULES}" STREQUAL "")
+  set(PACKAGE_TEST_USE_MODULES ON)
+endif()
+if(NOT DEFINED PACKAGE_TEST_DRY_RUN_WORK_DIR OR "${PACKAGE_TEST_DRY_RUN_WORK_DIR}" STREQUAL "")
+  set(PACKAGE_TEST_DRY_RUN_WORK_DIR OFF)
+endif()
+if(NOT DEFINED PROG)
+  set(PROG "")
+endif()
+if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE AND NOT PACKAGE_TEST_DRY_RUN_WORK_DIR AND "${PROG}" STREQUAL "")
+  message(FATAL_ERROR
+    "CheckPackageConsumer.cmake: PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON requires PROG to point at gentest_codegen")
+endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
 function(run_or_fail)
@@ -64,14 +91,59 @@ function(run_or_fail)
   )
 endfunction()
 
-set(_work_dir "${BUILD_ROOT}/package_consumer")
-set(_producer_build_dir "${_work_dir}/producer")
-set(_install_prefix "${_work_dir}/install")
-set(_consumer_build_dir "${_work_dir}/consumer")
-set(_consumer_source_dir "${SOURCE_DIR}/tests/consumer")
+function(_gentest_read_cache_value cache_file key out_found out_value)
+  if(NOT EXISTS "${cache_file}")
+    set(${out_found} FALSE PARENT_SCOPE)
+    set(${out_value} "" PARENT_SCOPE)
+    return()
+  endif()
 
-file(REMOVE_RECURSE "${_work_dir}")
-file(MAKE_DIRECTORY "${_work_dir}")
+  file(STRINGS "${cache_file}" _cache_entry REGEX "^${key}:[^=]*=" LIMIT_COUNT 1)
+  if(NOT _cache_entry)
+    set(${out_found} FALSE PARENT_SCOPE)
+    set(${out_value} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  list(GET _cache_entry 0 _cache_line)
+  string(REGEX REPLACE "^${key}:[^=]*=" "" _cache_value "${_cache_line}")
+  set(${out_found} TRUE PARENT_SCOPE)
+  set(${out_value} "${_cache_value}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_read_configured_cxx_compiler_info build_dir out_found out_id out_version)
+  file(GLOB _compiler_files LIST_DIRECTORIES FALSE "${build_dir}/CMakeFiles/*/CMakeCXXCompiler.cmake")
+  if(NOT _compiler_files)
+    set(${out_found} FALSE PARENT_SCOPE)
+    set(${out_id} "" PARENT_SCOPE)
+    set(${out_version} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  list(GET _compiler_files 0 _compiler_file)
+  file(STRINGS "${_compiler_file}" _compiler_id_line REGEX "^set\\(CMAKE_CXX_COMPILER_ID \"")
+  file(STRINGS "${_compiler_file}" _compiler_version_line REGEX "^set\\(CMAKE_CXX_COMPILER_VERSION \"")
+  if(NOT _compiler_id_line OR NOT _compiler_version_line)
+    set(${out_found} FALSE PARENT_SCOPE)
+    set(${out_id} "" PARENT_SCOPE)
+    set(${out_version} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  list(GET _compiler_id_line 0 _compiler_id_line_value)
+  list(GET _compiler_version_line 0 _compiler_version_line_value)
+  string(REGEX REPLACE "^set\\(CMAKE_CXX_COMPILER_ID \"([^\"]*)\"\\)$" "\\1" _compiler_id "${_compiler_id_line_value}")
+  string(REGEX REPLACE "^set\\(CMAKE_CXX_COMPILER_VERSION \"([^\"]*)\"\\)$" "\\1" _compiler_version "${_compiler_version_line_value}")
+
+  set(${out_found} TRUE PARENT_SCOPE)
+  set(${out_id} "${_compiler_id}" PARENT_SCOPE)
+  set(${out_version} "${_compiler_version}" PARENT_SCOPE)
+endfunction()
+
+set(_exe_ext "")
+if(CMAKE_HOST_WIN32)
+  set(_exe_ext ".exe")
+endif()
 
 set(_cmake_generator_args)
 if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
@@ -91,15 +163,86 @@ endif()
 if(DEFINED MAKE_PROGRAM AND NOT MAKE_PROGRAM STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
 endif()
-if(DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${C_COMPILER}")
+set(_effective_c_compiler "")
+if(DEFINED PACKAGE_TEST_C_COMPILER AND NOT PACKAGE_TEST_C_COMPILER STREQUAL "")
+  set(_effective_c_compiler "${PACKAGE_TEST_C_COMPILER}")
+elseif(DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
+  set(_effective_c_compiler "${C_COMPILER}")
 endif()
-if(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
+
+set(_effective_cxx_compiler "")
+if(DEFINED PACKAGE_TEST_CXX_COMPILER AND NOT PACKAGE_TEST_CXX_COMPILER STREQUAL "")
+  set(_effective_cxx_compiler "${PACKAGE_TEST_CXX_COMPILER}")
+elseif(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
+  set(_effective_cxx_compiler "${CXX_COMPILER}")
 endif()
-if(DEFINED BUILD_TYPE AND NOT BUILD_TYPE STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+
+set(_effective_cxx_compiler_name "")
+if(NOT _effective_cxx_compiler STREQUAL "")
+  get_filename_component(_effective_cxx_compiler_name "${_effective_cxx_compiler}" NAME)
 endif()
+
+set(_effective_build_type "${BUILD_TYPE}")
+if(CMAKE_HOST_WIN32
+   AND NOT _effective_cxx_compiler STREQUAL ""
+   AND _effective_cxx_compiler MATCHES "[Cc]lang"
+   AND NOT _effective_cxx_compiler_name MATCHES "^clang-cl(\\.exe)?$")
+  # CMake's synthetic imported-module build for GNU-style clang still injects
+  # the Debug DLL runtime in Debug builds, which then conflicts with the
+  # consumer shims. Drive this installed-package smoke through Release on that
+  # platform/toolchain combination so the module synth units and consumer code
+  # share one CRT model.
+  set(_effective_build_type "Release")
+endif()
+
+if(NOT _effective_c_compiler STREQUAL "")
+  list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${_effective_c_compiler}")
+endif()
+if(NOT _effective_cxx_compiler STREQUAL "")
+  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${_effective_cxx_compiler}")
+endif()
+if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DLLVM_DIR=${LLVM_DIR}")
+endif()
+if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
+endif()
+if(DEFINED PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS
+   AND NOT "${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL "")
+  list(APPEND _cmake_cache_args
+       "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}")
+endif()
+if(NOT "${_effective_build_type}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${_effective_build_type}")
+endif()
+if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE AND NOT "${PROG}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DGENTEST_BUILD_CODEGEN=OFF")
+endif()
+
+set(_work_dir_semantic_key
+  "${PACKAGE_NAME}|${CONSUMER_LINK_MODE}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}")
+string(MD5 _work_dir_hash "${_work_dir_semantic_key}")
+string(SUBSTRING "${_work_dir_hash}" 0 12 _work_dir_hash_short)
+string(REGEX REPLACE "[^A-Za-z0-9]+" "_" _package_tag "${PACKAGE_NAME}")
+string(TOLOWER "${_package_tag}" _package_tag)
+if(_package_tag STREQUAL "")
+  set(_package_tag "pkg")
+endif()
+set(_work_dir "${BUILD_ROOT}/pkg_${_package_tag}_${_work_dir_hash_short}")
+set(_producer_build_dir "${_work_dir}/p")
+set(_install_prefix "${_work_dir}/i")
+set(_consumer_build_dir "${_work_dir}/c")
+set(_consumer_source_dir "${_work_dir}/src")
+set(_fetchcontent_base_dir "${_work_dir}/fc")
+
+if(PACKAGE_TEST_DRY_RUN_WORK_DIR)
+  message(STATUS "CheckPackageConsumer work dir: ${_work_dir}")
+  return()
+endif()
+
+file(REMOVE_RECURSE "${_work_dir}")
+file(MAKE_DIRECTORY "${_work_dir}")
+file(COPY "${SOURCE_DIR}/tests/consumer/" DESTINATION "${_consumer_source_dir}")
 
 message(STATUS "Configure producer build (${PACKAGE_NAME})...")
 run_or_fail(
@@ -111,7 +254,31 @@ run_or_fail(
     ${_cmake_cache_args}
     "-D${PACKAGE_NAME}_INSTALL=ON"
     "-D${PACKAGE_NAME}_BUILD_TESTING=OFF"
+    "-DFETCHCONTENT_BASE_DIR=${_fetchcontent_base_dir}"
     "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
+
+if(PACKAGE_TEST_USE_MODULES)
+  set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
+  _gentest_read_configured_cxx_compiler_info("${_producer_build_dir}" _compiler_info_found _compiler_id_value _compiler_version_value)
+  if(_compiler_info_found AND _compiler_id_value STREQUAL "GNU")
+    string(REGEX MATCH "^[0-9]+" _compiler_major "${_compiler_version_value}")
+    if(NOT _compiler_major STREQUAL "" AND _compiler_major LESS 15)
+      gentest_skip_test("installed-package module consumer smoke unavailable because configured GNU compiler ${_compiler_version_value} is older than 15")
+      return()
+    endif()
+  endif()
+  _gentest_read_cache_value("${_producer_cache_file}" "GENTEST_PUBLIC_MODULES_ENABLED"
+    _modules_enabled_found _modules_enabled_value)
+  if(_modules_enabled_found AND NOT _modules_enabled_value)
+    _gentest_read_cache_value("${_producer_cache_file}" "GENTEST_PUBLIC_MODULES_DISABLED_REASON"
+      _modules_reason_found _modules_disabled_reason)
+    if(NOT _modules_reason_found OR "${_modules_disabled_reason}" STREQUAL "")
+      set(_modules_disabled_reason "module support was disabled during producer configure")
+    endif()
+    gentest_skip_test("installed-package module consumer smoke unavailable because gentest public named modules are disabled for '${_effective_cxx_compiler}': ${_modules_disabled_reason}")
+    return()
+  endif()
+endif()
 
 message(STATUS "Build and install producer into '${_install_prefix}'...")
 if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
@@ -149,6 +316,17 @@ if(NOT _config_candidates)
 endif()
 list(GET _config_candidates 0 _config_file)
 get_filename_component(_config_dir "${_config_file}" DIRECTORY)
+file(GLOB _installed_cmake_files
+  LIST_DIRECTORIES FALSE
+  "${_config_dir}/*.cmake")
+foreach(_installed_cmake_file IN LISTS _installed_cmake_files)
+  file(READ "${_installed_cmake_file}" _installed_cmake_text)
+  string(FIND "${_installed_cmake_text}" "${SOURCE_DIR}" _source_dir_ref_pos)
+  if(NOT _source_dir_ref_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Installed package export still references the producer source tree: ${SOURCE_DIR}\nFile: ${_installed_cmake_file}")
+  endif()
+endforeach()
 
 message(STATUS "Configure consumer project...")
 if(NOT EXISTS "${_consumer_source_dir}/CMakeLists.txt")
@@ -158,11 +336,19 @@ endif()
 set(_consumer_cache_args ${_cmake_cache_args})
 # Make dependencies installed into the same prefix (e.g., fmt) discoverable.
 list(APPEND _consumer_cache_args "-DCMAKE_PREFIX_PATH=${_install_prefix}")
+list(APPEND _consumer_cache_args "-DGENTEST_CONSUMER_LINK_MODE=${CONSUMER_LINK_MODE}")
+list(APPEND _consumer_cache_args "-DGENTEST_CONSUMER_USE_MODULES=${PACKAGE_TEST_USE_MODULES}")
+if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
+  set(_installed_codegen_dir "${_install_prefix}/bin")
+  file(MAKE_DIRECTORY "${_installed_codegen_dir}")
+  set(_installed_codegen "${_installed_codegen_dir}/gentest_codegen${_exe_ext}")
+  file(COPY_FILE "${PROG}" "${_installed_codegen}" ONLY_IF_DIFFERENT)
+endif()
 if(NOT _producer_fmt_dir STREQUAL "")
   # Keep consumer dependency resolution aligned with the producer package build.
   list(APPEND _consumer_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")
 endif()
-if(CMAKE_HOST_WIN32 AND DEFINED CXX_COMPILER AND CXX_COMPILER MATCHES "[Cc]lang")
+if(CMAKE_HOST_WIN32 AND NOT _effective_cxx_compiler STREQUAL "" AND _effective_cxx_compiler MATCHES "[Cc]lang")
   # Keep the consumer build compatible with the producer's Windows+Clang settings.
   list(APPEND _consumer_cache_args "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
   list(APPEND _consumer_cache_args
@@ -187,11 +373,6 @@ if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
 endif()
 run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_consumer_build_args})
 
-set(_exe_ext "")
-if(CMAKE_HOST_WIN32)
-  set(_exe_ext ".exe")
-endif()
-
 set(_consumer_exe "${_consumer_build_dir}/gentest_consumer${_exe_ext}")
 if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")
   set(_consumer_exe "${_consumer_build_dir}/${BUILD_CONFIG}/gentest_consumer${_exe_ext}")
@@ -202,3 +383,15 @@ endif()
 
 message(STATUS "Run consumer executable...")
 run_or_fail(COMMAND "${_consumer_exe}")
+
+message(STATUS "Run consumer list output...")
+run_or_fail(COMMAND "${_consumer_exe}" --list)
+
+message(STATUS "Run consumer module mock case...")
+run_or_fail(COMMAND "${_consumer_exe}" --run=consumer/module_mock)
+
+message(STATUS "Run consumer bench...")
+run_or_fail(COMMAND "${_consumer_exe}" --kind=bench --run=consumer/module_bench)
+
+message(STATUS "Run consumer jitter...")
+run_or_fail(COMMAND "${_consumer_exe}" --kind=jitter --run=consumer/module_jitter)

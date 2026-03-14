@@ -6,6 +6,7 @@
 #include "parallel_for.hpp"
 #include "render.hpp"
 #include "render_mocks.hpp"
+#include "scan_utils.hpp"
 #include "templates.hpp"
 
 #include <algorithm>
@@ -17,12 +18,14 @@
 #include <fmt/format.h>
 #include <fstream>
 #include <iterator>
+#include <llvm/ADT/StringRef.h>
 #include <map>
 #include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #include <process.h>
@@ -33,6 +36,21 @@
 namespace gentest::codegen {
 
 namespace {
+using gentest::codegen::scan::is_any_import_scan_line;
+using gentest::codegen::scan::is_global_module_fragment_scan_line;
+using gentest::codegen::scan::is_preprocessor_directive_scan_line;
+using gentest::codegen::scan::looks_like_import_scan_prefix;
+using gentest::codegen::scan::looks_like_named_module_scan_prefix;
+using gentest::codegen::scan::named_module_name_from_source_file;
+using gentest::codegen::scan::normalize_scan_module_preamble_source;
+using gentest::codegen::scan::parse_imported_module_name_from_scan_line;
+using gentest::codegen::scan::parse_include_header_from_scan_line;
+using gentest::codegen::scan::parse_named_module_name_from_scan_line;
+using gentest::codegen::scan::process_scan_physical_line;
+using gentest::codegen::scan::ScanStreamState;
+using gentest::codegen::scan::split_scan_statements;
+using gentest::codegen::scan::strip_comments_for_line_scan;
+using gentest::codegen::scan::trim_ascii_copy;
 
 namespace fs = std::filesystem;
 
@@ -161,6 +179,396 @@ std::optional<std::uint32_t> parse_tu_index(std::string_view filename) {
         return std::nullopt;
     }
     return value;
+}
+
+fs::path resolve_tu_header_output(const CollectorOptions &opts, std::size_t idx) {
+    if (idx < opts.tu_output_headers.size() && !opts.tu_output_headers[idx].empty()) {
+        return opts.tu_output_headers[idx];
+    }
+
+    fs::path header_out = opts.tu_output_dir / fs::path(opts.sources[idx]).filename();
+    header_out.replace_extension(".h");
+    return header_out;
+}
+
+bool is_module_interface_source(const fs::path &path) {
+    return named_module_name_from_source_file(path).has_value();
+}
+
+fs::path resolve_module_wrapper_output(const CollectorOptions &opts, std::size_t idx) {
+    fs::path     out = opts.tu_output_dir;
+    std::string  stem = sanitize_stem(fs::path(opts.sources[idx]).stem().string());
+    const auto   ext = fs::path(opts.sources[idx]).extension().string();
+    out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
+    return out;
+}
+
+bool read_file(const fs::path &path, std::string &out);
+
+struct SourceMockCodegenIncludes {
+    struct Range {
+        std::size_t begin = 0;
+        std::size_t end = 0;
+    };
+
+    bool has_mock_codegen = false;
+    bool has_registry_codegen = false;
+    bool has_impl_codegen = false;
+    bool has_mock_api_header = false;
+    std::vector<Range> manual_codegen_include_ranges;
+
+    [[nodiscard]] bool has_complete_manual_codegen() const { return has_mock_codegen || (has_registry_codegen && has_impl_codegen); }
+    [[nodiscard]] bool has_any_manual_codegen() const { return has_mock_codegen || has_registry_codegen || has_impl_codegen; }
+};
+
+bool is_mock_codegen_header_name(std::string_view header) {
+    return header == "gentest/mock_codegen.h" || header == "gentest/mock_registry_codegen.h" || header == "gentest/mock_impl_codegen.h";
+}
+
+SourceMockCodegenIncludes scan_source_mock_codegen_includes(std::string_view text) {
+    SourceMockCodegenIncludes includes;
+    std::size_t              cursor = 0;
+    ScanStreamState          scan_state;
+
+    while (cursor < text.size()) {
+        const std::size_t line_end = text.find('\n', cursor);
+        const std::size_t next = line_end == std::string_view::npos ? text.size() : line_end + 1;
+        std::string_view   line = text.substr(cursor, next - cursor);
+        if (!line.empty() && line.back() == '\n') {
+            line.remove_suffix(1);
+        }
+        if (!line.empty() && line.back() == '\r') {
+            line.remove_suffix(1);
+        }
+
+        const bool branch_active_before = scan_state.current_branch_active;
+        const auto processed = process_scan_physical_line(line, scan_state);
+
+        auto record_header = [&](const std::optional<std::string> &header) {
+            if (!header.has_value()) {
+                return;
+            }
+            includes.has_mock_codegen = includes.has_mock_codegen || *header == "gentest/mock_codegen.h";
+            includes.has_registry_codegen = includes.has_registry_codegen || *header == "gentest/mock_registry_codegen.h";
+            includes.has_impl_codegen = includes.has_impl_codegen || *header == "gentest/mock_impl_codegen.h";
+            includes.has_mock_api_header = includes.has_mock_api_header || *header == "gentest/mock.h";
+            if (is_mock_codegen_header_name(*header)) {
+                includes.manual_codegen_include_ranges.push_back(SourceMockCodegenIncludes::Range{
+                    .begin = cursor,
+                    .end = next,
+                });
+            }
+        };
+
+        if (processed.is_active_code) {
+            record_header(parse_include_header_from_scan_line(processed.stripped));
+        } else if (processed.is_preprocessor && branch_active_before) {
+            record_header(parse_include_header_from_scan_line(line));
+        }
+        cursor = next;
+    }
+
+    return includes;
+}
+
+struct ModuleGlobalFragmentInsertLocation {
+    std::size_t offset = 0;
+    bool synthesize_global_fragment = false;
+};
+
+std::optional<ModuleGlobalFragmentInsertLocation> find_module_global_fragment_insert_location(std::string_view text) {
+    bool        seen_global_fragment = false;
+    std::size_t cursor = 0;
+    std::size_t last_after = 0;
+    std::string pending_module;
+    bool        pending_module_active = false;
+    ScanStreamState scan_state;
+
+    while (cursor < text.size()) {
+        const std::size_t line_end = text.find('\n', cursor);
+        const std::size_t next = line_end == std::string_view::npos ? text.size() : line_end + 1;
+        std::string_view   line = text.substr(cursor, next - cursor);
+        if (!line.empty() && line.back() == '\n') {
+            line.remove_suffix(1);
+        }
+        if (!line.empty() && line.back() == '\r') {
+            line.remove_suffix(1);
+        }
+        const auto processed = process_scan_physical_line(line, scan_state);
+        if (!processed.is_active_code) {
+            if (seen_global_fragment) {
+                last_after = next;
+            }
+            cursor = next;
+            continue;
+        }
+
+        bool line_ok = true;
+        for (const auto &statement : split_scan_statements(processed.stripped)) {
+            if (!seen_global_fragment) {
+                if (is_global_module_fragment_scan_line(statement)) {
+                    seen_global_fragment = true;
+                    last_after = next;
+                    continue;
+                }
+                line_ok = false;
+                break;
+            }
+
+            if (!pending_module_active) {
+                if (!looks_like_named_module_scan_prefix(statement)) {
+                    line_ok = false;
+                    break;
+                }
+                pending_module = statement;
+                pending_module_active = true;
+            } else {
+                pending_module.push_back(' ');
+                pending_module.append(statement);
+            }
+
+            if (statement.find(';') == std::string::npos) {
+                continue;
+            }
+            if (parse_named_module_name_from_scan_line(pending_module).has_value()) {
+                if (seen_global_fragment) {
+                    return ModuleGlobalFragmentInsertLocation{
+                        .offset = last_after,
+                        .synthesize_global_fragment = false,
+                    };
+                }
+                return ModuleGlobalFragmentInsertLocation{
+                    .offset = 0,
+                    .synthesize_global_fragment = true,
+                };
+            }
+            pending_module.clear();
+            pending_module_active = false;
+            line_ok = false;
+            break;
+        }
+
+        if (!line_ok) {
+            break;
+        }
+
+        if (seen_global_fragment && !pending_module_active) {
+            last_after = next;
+        }
+        cursor = next;
+    }
+
+    return std::nullopt;
+}
+
+void append_original_segment_skipping_ranges(std::string &rendered, std::string_view original, std::size_t &cursor, std::size_t target,
+                                             const std::vector<SourceMockCodegenIncludes::Range> &skipped_ranges,
+                                             std::size_t &skipped_idx) {
+    while (cursor < target) {
+        while (skipped_idx < skipped_ranges.size() && skipped_ranges[skipped_idx].end <= cursor) {
+            ++skipped_idx;
+        }
+        if (skipped_idx < skipped_ranges.size() && skipped_ranges[skipped_idx].begin <= cursor) {
+            cursor = std::min(target, skipped_ranges[skipped_idx].end);
+            if (cursor >= skipped_ranges[skipped_idx].end) {
+                ++skipped_idx;
+            }
+            continue;
+        }
+
+        std::size_t next = target;
+        if (skipped_idx < skipped_ranges.size()) {
+            next = std::min(next, skipped_ranges[skipped_idx].begin);
+        }
+        if (next > cursor) {
+            rendered.append(original.data() + cursor, next - cursor);
+            cursor = next;
+        }
+    }
+}
+
+std::string render_module_mock_api_include_block() {
+    std::string out;
+    out.reserve(192);
+    out.append("\n// gentest_codegen: injected mock API include.\n");
+    out.append("#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n");
+    out.append("#include \"gentest/mock.h\"\n");
+    out.append("#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n");
+    return out;
+}
+
+std::string render_module_mock_codegen_include_block() {
+    std::string out;
+    out.reserve(192);
+    out.append("\n// gentest_codegen: injected mock codegen include.\n");
+    out.append("#if defined(__clang__)\n");
+    out.append("#pragma clang diagnostic push\n");
+    out.append("#pragma clang diagnostic ignored \"-Winclude-angled-in-module-purview\"\n");
+    out.append("#endif\n");
+    out.append("#include \"gentest/mock_codegen.h\"\n");
+    out.append("#if defined(__clang__)\n");
+    out.append("#pragma clang diagnostic pop\n");
+    out.append("#endif\n");
+    return out;
+}
+
+bool namespace_chains_equal(const std::vector<MockNamespaceScopeInfo> &lhs, const std::vector<MockNamespaceScopeInfo> &rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+        if (lhs[i].name != rhs[i].name || lhs[i].is_inline != rhs[i].is_inline || lhs[i].is_exported != rhs[i].is_exported ||
+            lhs[i].lexical_close_group != rhs[i].lexical_close_group || lhs[i].reopen_prefix != rhs[i].reopen_prefix) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string render_namespace_scope_close(const std::vector<MockNamespaceScopeInfo> &chain) {
+    std::string out;
+    out.reserve(chain.size() * 32);
+    std::size_t last_group = 0;
+    bool        have_group = false;
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        if (have_group && it->lexical_close_group == last_group) {
+            continue;
+        }
+        fmt::format_to(std::back_inserter(out), "\n}} // namespace {}\n", it->name);
+        last_group = it->lexical_close_group;
+        have_group = true;
+    }
+    return out;
+}
+
+std::string render_namespace_scope_reopen(const std::vector<MockNamespaceScopeInfo> &chain) {
+    std::string out;
+    out.reserve(chain.size() * 40);
+    for (const auto &ns : chain) {
+        if (ns.reopen_prefix.empty()) {
+            continue;
+        }
+        if (ns.is_exported) {
+            out += "export ";
+        }
+        fmt::format_to(std::back_inserter(out), "{} {{\n", ns.reopen_prefix);
+    }
+    return out;
+}
+
+std::optional<std::string> render_module_wrapper_source(const fs::path &source_path, const std::vector<const MockClassInfo *> &source_mocks,
+                                                        bool needs_mock_codegen_include) {
+    std::string raw_original;
+    if (!read_file(source_path, raw_original)) {
+        log_err("gentest_codegen: failed to read module source '{}'\n", source_path.string());
+        return std::nullopt;
+    }
+    std::string original = normalize_scan_module_preamble_source(raw_original);
+
+    const SourceMockCodegenIncludes manual_includes = scan_source_mock_codegen_includes(original);
+    const bool needs_global_mock_codegen_include = needs_mock_codegen_include || manual_includes.has_any_manual_codegen();
+    const bool needs_mock_api_include = !source_mocks.empty() || needs_global_mock_codegen_include;
+    if (source_mocks.empty() && !needs_global_mock_codegen_include && !needs_mock_api_include) {
+        return original;
+    }
+
+    std::map<std::size_t, std::vector<const MockClassInfo *>> mocks_by_offset;
+    std::size_t                                                reserve_extra = 0;
+    for (const auto *mock : source_mocks) {
+        if (mock == nullptr) {
+            continue;
+        }
+        if (!mock->attachment_insertion_offset.has_value()) {
+            log_err("gentest_codegen: missing module attachment insertion offset for '{}'\n", mock->qualified_name);
+            return std::nullopt;
+        }
+        const std::size_t offset = *mock->attachment_insertion_offset;
+        if (offset > original.size()) {
+            log_err("gentest_codegen: invalid module attachment insertion offset {} for '{}'\n", offset, mock->qualified_name);
+            return std::nullopt;
+        }
+        mocks_by_offset[offset].push_back(mock);
+        reserve_extra += mock->qualified_name.size() * 4 + 512;
+    }
+    std::optional<ModuleGlobalFragmentInsertLocation> global_include_location;
+    if (needs_global_mock_codegen_include || needs_mock_api_include) {
+        global_include_location = find_module_global_fragment_insert_location(original);
+        if (!global_include_location.has_value()) {
+            log_err("gentest_codegen: failed to locate module global-fragment insertion point in '{}'\n", source_path.string());
+            return std::nullopt;
+        }
+        reserve_extra += 256;
+        if (global_include_location->synthesize_global_fragment) {
+            reserve_extra += 16;
+        }
+        if (needs_mock_api_include) {
+            reserve_extra += 160;
+        }
+    }
+
+    if (mocks_by_offset.empty() && !global_include_location.has_value()) {
+        return original;
+    }
+
+    std::string rendered;
+    rendered.reserve(original.size() + reserve_extra);
+
+    std::size_t cursor = 0;
+    std::size_t skipped_idx = 0;
+    if (global_include_location.has_value()) {
+        if (global_include_location->offset > original.size()) {
+            log_err("gentest_codegen: invalid module global-fragment insertion offset {} in '{}'\n", global_include_location->offset,
+                    source_path.string());
+            return std::nullopt;
+        }
+        append_original_segment_skipping_ranges(rendered, original, cursor, global_include_location->offset,
+                                               manual_includes.manual_codegen_include_ranges, skipped_idx);
+        if (global_include_location->synthesize_global_fragment) {
+            rendered.append("module;\n");
+        }
+        if (needs_mock_api_include) {
+            rendered.append(render_module_mock_api_include_block());
+            rendered.push_back('\n');
+        }
+        if (needs_global_mock_codegen_include) {
+            rendered.append(render_module_mock_codegen_include_block());
+            rendered.push_back('\n');
+        }
+    }
+
+    for (auto &[offset, group] : mocks_by_offset) {
+        if (offset < cursor || offset > original.size()) {
+            log_err("gentest_codegen: invalid module attachment insertion order in '{}'\n", source_path.string());
+            return std::nullopt;
+        }
+        append_original_segment_skipping_ranges(rendered, original, cursor, offset, manual_includes.manual_codegen_include_ranges,
+                                               skipped_idx);
+        std::ranges::sort(group, {}, [](const MockClassInfo *mock) { return mock->qualified_name; });
+        const auto &namespace_chain = group.front()->attachment_namespace_chain;
+        for (const auto *mock : group) {
+            if (!namespace_chains_equal(namespace_chain, mock->attachment_namespace_chain)) {
+                log_err("gentest_codegen: inconsistent module attachment namespace scope at offset {} in '{}'\n", offset,
+                        source_path.string());
+                return std::nullopt;
+            }
+        }
+        if (!namespace_chain.empty()) {
+            rendered.append(render_namespace_scope_close(namespace_chain));
+        }
+        rendered.push_back('\n');
+        for (const auto *mock : group) {
+            rendered.append(render::render_module_mock_attachment(*mock));
+            rendered.push_back('\n');
+        }
+        if (!namespace_chain.empty()) {
+            rendered.append(render_namespace_scope_reopen(namespace_chain));
+        }
+        cursor = offset;
+    }
+
+    append_original_segment_skipping_ranges(rendered, original, cursor, original.size(), manual_includes.manual_codegen_include_ranges,
+                                           skipped_idx);
+    return normalize_scan_module_preamble_source(rendered);
 }
 
 auto make_unique_tmp_path(const fs::path &path) -> fs::path {
@@ -428,6 +836,21 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
         for (const auto &f : fixtures_for_render) {
             fixtures_by_tu[normalize_path_key(fs::path(f.tu_filename))].push_back(f);
         }
+        std::unordered_map<std::string, std::vector<const MockClassInfo *>> direct_module_mocks_by_source;
+        std::unordered_map<std::string, bool>                               module_mock_codegen_include_by_source;
+        for (const auto &mock : mocks) {
+            if (mock.definition_kind == MockClassInfo::DefinitionKind::NamedModule && !mock.definition_file.empty()) {
+                direct_module_mocks_by_source[normalize_path_key(fs::path(mock.definition_file))].push_back(&mock);
+            }
+            if (mock.definition_kind != MockClassInfo::DefinitionKind::HeaderLike) {
+                continue;
+            }
+            for (const auto &use_file : mock.use_files) {
+                if (!use_file.empty()) {
+                    module_mock_codegen_include_by_source[normalize_path_key(fs::path(use_file))] = true;
+                }
+            }
+        }
 
         const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
         const auto tpl_wrapper_free_fix  = std::string(tpl::wrapper_free_fixtures);
@@ -450,9 +873,9 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
         // name (would be nondeterministic under parallel emission).
         std::unordered_map<std::string, std::string> header_owner;
         header_owner.reserve(opts.sources.size());
-        for (const auto &src : opts.sources) {
-            fs::path header_out = opts.tu_output_dir / fs::path(src).filename();
-            header_out.replace_extension(".h");
+        for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+            const auto &src = opts.sources[idx];
+            fs::path    header_out = resolve_tu_header_output(opts, idx);
             const std::string key = casefolded_path_key(header_out);
             auto              [it, inserted] = header_owner.emplace(key, src);
             if (!inserted) {
@@ -479,8 +902,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
 
             std::ranges::sort(tu_cases, {}, &TestCaseInfo::display_name);
 
-            fs::path header_out = opts.tu_output_dir / source_path.filename();
-            header_out.replace_extension(".h");
+            fs::path header_out = resolve_tu_header_output(opts, idx);
             if (!ensure_parent_dir(header_out)) {
                 statuses[idx] = 1;
                 return;
@@ -490,38 +912,68 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
             const std::string register_fn =
                 fmt::format("register_tu_{:04d}", parsed_idx.has_value() ? *parsed_idx : static_cast<std::uint32_t>(idx));
 
-            // Registration header (compiled via a CMake-generated shim TU).
-            std::string header_content = std::string(tpl::tu_registration_header);
-
-            // Render test wrappers and cases for this TU.
-            std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
-
-            auto                     traits = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
-            std::string              trait_declarations = std::move(traits.declarations);
-            std::vector<std::string> tag_array_names = std::move(traits.tag_names);
-            std::vector<std::string> requirement_array_names = std::move(traits.req_names);
-
-            std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
-
-            std::string case_entries;
-            if (tu_cases.empty()) {
-                case_entries = "    // No test cases discovered during code generation.\n";
+            std::string header_content;
+            if (tu_cases.empty() && tu_fixtures.empty()) {
+                header_content =
+                    "// This file is auto-generated by gentest_codegen.\n"
+                    "// Do not edit manually.\n\n"
+                    "#pragma once\n\n"
+                    "// No gentest registrations were discovered for this translation unit.\n";
             } else {
-                case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
-            }
-            std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
+                // Registration header (compiled via a CMake-generated shim TU).
+                header_content = std::string(tpl::tu_registration_header);
 
-            replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
-            replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
-            replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
-            replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
-            replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
-            replace_all(header_content, "{{CASE_INITS}}", case_entries);
-            replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
-            replace_all(header_content, "{{REGISTER_FN}}", register_fn);
+                // Render test wrappers and cases for this TU.
+                std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
+
+                auto                     traits = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
+                std::string              trait_declarations = std::move(traits.declarations);
+                std::vector<std::string> tag_array_names = std::move(traits.tag_names);
+                std::vector<std::string> requirement_array_names = std::move(traits.req_names);
+
+                std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
+
+                std::string case_entries;
+                if (tu_cases.empty()) {
+                    case_entries = "    // No test cases discovered during code generation.\n";
+                } else {
+                    case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
+                }
+                std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
+
+                replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
+                replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
+                replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
+                replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
+                replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
+                replace_all(header_content, "{{CASE_INITS}}", case_entries);
+                replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
+                replace_all(header_content, "{{REGISTER_FN}}", register_fn);
+            }
 
             if (!write_file_atomic_if_changed(header_out, header_content)) {
                 statuses[idx] = 1;
+                return;
+            }
+
+            if (is_module_interface_source(source_path)) {
+                const auto mock_it = direct_module_mocks_by_source.find(key);
+                const std::vector<const MockClassInfo *> empty_mocks;
+                const auto &source_mocks = mock_it != direct_module_mocks_by_source.end() ? mock_it->second : empty_mocks;
+                const bool needs_mock_codegen_include = module_mock_codegen_include_by_source.contains(key);
+                const auto wrapper_source = render_module_wrapper_source(source_path, source_mocks, needs_mock_codegen_include);
+                if (!wrapper_source.has_value()) {
+                    statuses[idx] = 1;
+                    return;
+                }
+                const fs::path module_wrapper_out = resolve_module_wrapper_output(opts, idx);
+                if (!ensure_parent_dir(module_wrapper_out)) {
+                    statuses[idx] = 1;
+                    return;
+                }
+                if (!write_file_atomic_if_changed(module_wrapper_out, *wrapper_source)) {
+                    statuses[idx] = 1;
+                }
             }
         });
 
@@ -558,6 +1010,14 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
         }
         if (!write_file_atomic_if_changed(opts.mock_impl_path, outputs.implementation_unit)) {
             return 1;
+        }
+        for (const auto &file : outputs.additional_files) {
+            if (!ensure_parent_dir(file.path)) {
+                return 1;
+            }
+            if (!write_file_atomic_if_changed(file.path, file.content)) {
+                return 1;
+            }
         }
     }
 

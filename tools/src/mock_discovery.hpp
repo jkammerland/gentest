@@ -3,7 +3,7 @@
 #include "model.hpp"
 
 #include <clang/ASTMatchers/ASTMatchFinder.h>
-#include <llvm/ADT/DenseSet.h>
+#include <llvm/ADT/DenseMap.h>
 #include <string_view>
 #include <vector>
 
@@ -23,7 +23,7 @@ class MockUsageCollector : public clang::ast_matchers::MatchFinder::MatchCallbac
                                const clang::ast_matchers::MatchFinder::MatchResult &result);
 
     std::vector<MockClassInfo>                  &out_;
-    llvm::DenseSet<const clang::CXXRecordDecl *> seen_;
+    llvm::DenseMap<const clang::CXXRecordDecl *, std::size_t> seen_;
     mutable bool                                 had_error_ = false;
 };
 
