@@ -170,4 +170,25 @@ if(_joined_dep_err MATCHES "argument unused during compilation: '-MF"
     "Output:\n${_joined_dep_out}\nErrors:\n${_joined_dep_err}")
 endif()
 
+set(_shell_tail_dir "${_work_dir}/shell_tail")
+file(MAKE_DIRECTORY "${_shell_tail_dir}")
+file(WRITE "${_shell_tail_dir}/provider.cppm"
+  "export module gentest.retarget.shell_tail;\n"
+  "export int shell_tail_value() { return 17; }\n")
+file(TO_CMAKE_PATH "${_shell_tail_dir}" _shell_tail_dir_norm)
+file(TO_CMAKE_PATH "${_shell_tail_dir}/provider.cppm" _shell_tail_source_abs)
+file(WRITE "${_shell_tail_dir}/compile_commands.json"
+  "[\n"
+  "  {\n"
+  "    \"directory\": \"${_shell_tail_dir_norm}\",\n"
+  "    \"file\": \"${_shell_tail_source_abs}\",\n"
+  "    \"command\": \"${_clangxx_norm} -std=c++20 -c provider.cppm -o provider.o && ${CMAKE_COMMAND} -E cmake_transform_depfile Ninja gccdepfile ${_shell_tail_dir_norm} ${_shell_tail_dir_norm} ${_shell_tail_dir_norm} ${_shell_tail_dir_norm} deps.d deps.out\"\n"
+  "  }\n"
+  "]\n")
+
+_gentest_run_codegen_expect_success(
+  NAME "shell-tail command string"
+  COMPDB_DIR "${_shell_tail_dir}"
+  SOURCE_FILE "${_shell_tail_source_abs}")
+
 message(STATUS "Module command retargeting regression passed")

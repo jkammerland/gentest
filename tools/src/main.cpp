@@ -497,6 +497,12 @@ clang::tooling::CommandLineArguments expand_compile_command_response_files(const
         }
         expanded_command_line.insert(expanded_command_line.end(), response_args.begin(), response_args.end());
     }
+    const auto shell_control_it = std::find_if(expanded_command_line.begin(), expanded_command_line.end(), [](const std::string &arg) {
+        return arg == "&&" || arg == "||" || arg == ";" || arg == "|";
+    });
+    if (shell_control_it != expanded_command_line.end()) {
+        expanded_command_line.erase(shell_control_it, expanded_command_line.end());
+    }
     return expanded_command_line;
 }
 
