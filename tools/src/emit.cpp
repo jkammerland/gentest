@@ -25,6 +25,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #include <process.h>
@@ -204,18 +205,29 @@ fs::path resolve_module_wrapper_output(const CollectorOptions &opts, std::size_t
 bool read_file(const fs::path &path, std::string &out);
 
 struct SourceMockCodegenIncludes {
+    struct Range {
+        std::size_t begin = 0;
+        std::size_t end = 0;
+    };
+
     bool has_mock_codegen = false;
     bool has_registry_codegen = false;
     bool has_impl_codegen = false;
     bool has_mock_api_header = false;
+    std::vector<Range> manual_codegen_include_ranges;
 
     [[nodiscard]] bool has_complete_manual_codegen() const { return has_mock_codegen || (has_registry_codegen && has_impl_codegen); }
+    [[nodiscard]] bool has_any_manual_codegen() const { return has_mock_codegen || has_registry_codegen || has_impl_codegen; }
 };
+
+bool is_mock_codegen_header_name(std::string_view header) {
+    return header == "gentest/mock_codegen.h" || header == "gentest/mock_registry_codegen.h" || header == "gentest/mock_impl_codegen.h";
+}
 
 SourceMockCodegenIncludes scan_source_mock_codegen_includes(std::string_view text) {
     SourceMockCodegenIncludes includes;
-    bool                     in_block_comment = false;
     std::size_t              cursor = 0;
+    ScanStreamState          scan_state;
 
     while (cursor < text.size()) {
         const std::size_t line_end = text.find('\n', cursor);
@@ -228,12 +240,29 @@ SourceMockCodegenIncludes scan_source_mock_codegen_includes(std::string_view tex
             line.remove_suffix(1);
         }
 
-        const auto header = parse_include_header_from_scan_line(strip_comments_for_line_scan(line, in_block_comment));
-        if (header.has_value()) {
+        const bool branch_active_before = scan_state.current_branch_active;
+        const auto processed = process_scan_physical_line(line, scan_state);
+
+        auto record_header = [&](const std::optional<std::string> &header) {
+            if (!header.has_value()) {
+                return;
+            }
             includes.has_mock_codegen = includes.has_mock_codegen || *header == "gentest/mock_codegen.h";
             includes.has_registry_codegen = includes.has_registry_codegen || *header == "gentest/mock_registry_codegen.h";
             includes.has_impl_codegen = includes.has_impl_codegen || *header == "gentest/mock_impl_codegen.h";
             includes.has_mock_api_header = includes.has_mock_api_header || *header == "gentest/mock.h";
+            if (is_mock_codegen_header_name(*header)) {
+                includes.manual_codegen_include_ranges.push_back(SourceMockCodegenIncludes::Range{
+                    .begin = cursor,
+                    .end = next,
+                });
+            }
+        };
+
+        if (processed.is_active_code) {
+            record_header(parse_include_header_from_scan_line(processed.stripped));
+        } else if (processed.is_preprocessor && branch_active_before) {
+            record_header(parse_include_header_from_scan_line(line));
         }
         cursor = next;
     }
@@ -241,111 +270,12 @@ SourceMockCodegenIncludes scan_source_mock_codegen_includes(std::string_view tex
     return includes;
 }
 
-std::optional<std::size_t> find_module_mock_codegen_include_offset(std::string_view text) {
-    bool        seen_module_decl = false;
-    std::size_t cursor = 0;
-    std::size_t last_after = 0;
-    std::string pending;
-    bool        pending_import = false;
-    bool        pending_module = false;
-    ScanStreamState scan_state;
+struct ModuleGlobalFragmentInsertLocation {
+    std::size_t offset = 0;
+    bool synthesize_global_fragment = false;
+};
 
-    while (cursor < text.size()) {
-        const std::size_t line_end = text.find('\n', cursor);
-        const std::size_t next = line_end == std::string_view::npos ? text.size() : line_end + 1;
-        std::string_view   line = text.substr(cursor, next - cursor);
-        if (!line.empty() && line.back() == '\n') {
-            line.remove_suffix(1);
-        }
-        if (!line.empty() && line.back() == '\r') {
-            line.remove_suffix(1);
-        }
-        const auto processed = process_scan_physical_line(line, scan_state);
-        if (!processed.is_active_code) {
-            if (seen_module_decl) {
-                last_after = next;
-            }
-            cursor = next;
-            continue;
-        }
-
-        bool line_ok = true;
-        for (const auto &statement : split_scan_statements(processed.stripped)) {
-            if (!seen_module_decl) {
-                if (!pending_module) {
-                    if (!looks_like_named_module_scan_prefix(statement) && !is_global_module_fragment_scan_line(statement)) {
-                        line_ok = false;
-                        break;
-                    }
-                    pending = statement;
-                    pending_module = true;
-                } else {
-                    pending.push_back(' ');
-                    pending.append(statement);
-                }
-
-                if (statement.find(';') == std::string::npos) {
-                    continue;
-                }
-                if (is_global_module_fragment_scan_line(pending)) {
-                    pending.clear();
-                    pending_module = false;
-                    last_after = next;
-                    continue;
-                }
-                if (parse_named_module_name_from_scan_line(pending).has_value()) {
-                    seen_module_decl = true;
-                    last_after = next;
-                    pending.clear();
-                    pending_module = false;
-                    continue;
-                }
-                line_ok = false;
-                break;
-            }
-
-            if (!pending_import) {
-                if (!looks_like_import_scan_prefix(statement)) {
-                    line_ok = false;
-                    break;
-                }
-                pending = statement;
-                pending_import = true;
-            } else {
-                pending.push_back(' ');
-                pending.append(statement);
-            }
-
-            if (statement.find(';') == std::string::npos) {
-                continue;
-            }
-            if (is_any_import_scan_line(pending)) {
-                last_after = next;
-                pending.clear();
-                pending_import = false;
-                continue;
-            }
-            line_ok = false;
-            break;
-        }
-
-        if (!line_ok) {
-            break;
-        }
-
-        if (seen_module_decl && !pending_import) {
-            last_after = next;
-        }
-        cursor = next;
-    }
-
-    if (!seen_module_decl) {
-        return std::nullopt;
-    }
-    return last_after;
-}
-
-std::optional<std::size_t> find_module_global_fragment_include_offset(std::string_view text) {
+std::optional<ModuleGlobalFragmentInsertLocation> find_module_global_fragment_insert_location(std::string_view text) {
     bool        seen_global_fragment = false;
     std::size_t cursor = 0;
     std::size_t last_after = 0;
@@ -400,7 +330,16 @@ std::optional<std::size_t> find_module_global_fragment_include_offset(std::strin
                 continue;
             }
             if (parse_named_module_name_from_scan_line(pending_module).has_value()) {
-                return last_after;
+                if (seen_global_fragment) {
+                    return ModuleGlobalFragmentInsertLocation{
+                        .offset = last_after,
+                        .synthesize_global_fragment = false,
+                    };
+                }
+                return ModuleGlobalFragmentInsertLocation{
+                    .offset = 0,
+                    .synthesize_global_fragment = true,
+                };
             }
             pending_module.clear();
             pending_module_active = false;
@@ -419,6 +358,32 @@ std::optional<std::size_t> find_module_global_fragment_include_offset(std::strin
     }
 
     return std::nullopt;
+}
+
+void append_original_segment_skipping_ranges(std::string &rendered, std::string_view original, std::size_t &cursor, std::size_t target,
+                                             const std::vector<SourceMockCodegenIncludes::Range> &skipped_ranges,
+                                             std::size_t &skipped_idx) {
+    while (cursor < target) {
+        while (skipped_idx < skipped_ranges.size() && skipped_ranges[skipped_idx].end <= cursor) {
+            ++skipped_idx;
+        }
+        if (skipped_idx < skipped_ranges.size() && skipped_ranges[skipped_idx].begin <= cursor) {
+            cursor = std::min(target, skipped_ranges[skipped_idx].end);
+            if (cursor >= skipped_ranges[skipped_idx].end) {
+                ++skipped_idx;
+            }
+            continue;
+        }
+
+        std::size_t next = target;
+        if (skipped_idx < skipped_ranges.size()) {
+            next = std::min(next, skipped_ranges[skipped_idx].begin);
+        }
+        if (next > cursor) {
+            rendered.append(original.data() + cursor, next - cursor);
+            cursor = next;
+        }
+    }
 }
 
 std::string normalize_generated_module_preamble(std::string_view text) {
@@ -632,8 +597,10 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
     }
 
     const SourceMockCodegenIncludes manual_includes = scan_source_mock_codegen_includes(original);
-    const bool                     needs_mock_api_include = !source_mocks.empty() && !manual_includes.has_mock_api_header;
-    if (source_mocks.empty() && !needs_mock_codegen_include && !needs_mock_api_include) {
+    const bool                     needs_global_mock_codegen_include =
+        needs_mock_codegen_include || manual_includes.has_any_manual_codegen();
+    const bool needs_mock_api_include = !source_mocks.empty() || needs_global_mock_codegen_include;
+    if (source_mocks.empty() && !needs_global_mock_codegen_include && !needs_mock_api_include) {
         return normalize_generated_module_preamble(original);
     }
 
@@ -655,26 +622,23 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
         mocks_by_offset[offset].push_back(mock);
         reserve_extra += mock->qualified_name.size() * 4 + 512;
     }
-    std::optional<std::size_t> mock_codegen_include_offset;
-    if (needs_mock_codegen_include && !manual_includes.has_complete_manual_codegen()) {
-        mock_codegen_include_offset = find_module_mock_codegen_include_offset(original);
-        if (!mock_codegen_include_offset.has_value()) {
-            log_err("gentest_codegen: failed to locate module mock include insertion point in '{}'\n", source_path.string());
+    std::optional<ModuleGlobalFragmentInsertLocation> global_include_location;
+    if (needs_global_mock_codegen_include || needs_mock_api_include) {
+        global_include_location = find_module_global_fragment_insert_location(original);
+        if (!global_include_location.has_value()) {
+            log_err("gentest_codegen: failed to locate module global-fragment insertion point in '{}'\n", source_path.string());
             return std::nullopt;
         }
         reserve_extra += 256;
-    }
-    std::optional<std::size_t> mock_api_include_offset;
-    if (needs_mock_api_include) {
-        mock_api_include_offset = find_module_global_fragment_include_offset(original);
-        if (!mock_api_include_offset.has_value()) {
-            log_err("gentest_codegen: failed to locate module mock support include insertion point in '{}'\n", source_path.string());
-            return std::nullopt;
+        if (global_include_location->synthesize_global_fragment) {
+            reserve_extra += 16;
         }
-        reserve_extra += 160;
+        if (needs_mock_api_include) {
+            reserve_extra += 160;
+        }
     }
 
-    if (mocks_by_offset.empty() && !mock_codegen_include_offset.has_value() && !mock_api_include_offset.has_value()) {
+    if (mocks_by_offset.empty() && !global_include_location.has_value()) {
         return normalize_generated_module_preamble(original);
     }
 
@@ -682,36 +646,35 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
     rendered.reserve(original.size() + reserve_extra);
 
     std::size_t cursor = 0;
-    if (mock_api_include_offset.has_value()) {
-        if (*mock_api_include_offset > original.size()) {
-            log_err("gentest_codegen: invalid module mock support include insertion offset {} in '{}'\n", *mock_api_include_offset,
+    std::size_t skipped_idx = 0;
+    if (global_include_location.has_value()) {
+        if (global_include_location->offset > original.size()) {
+            log_err("gentest_codegen: invalid module global-fragment insertion offset {} in '{}'\n", global_include_location->offset,
                     source_path.string());
             return std::nullopt;
         }
-        rendered.append(original.data() + cursor, *mock_api_include_offset - cursor);
-        rendered.append(render_module_mock_api_include_block());
-        rendered.push_back('\n');
-        cursor = *mock_api_include_offset;
+        append_original_segment_skipping_ranges(rendered, original, cursor, global_include_location->offset,
+                                               manual_includes.manual_codegen_include_ranges, skipped_idx);
+        if (global_include_location->synthesize_global_fragment) {
+            rendered.append("module;\n");
+        }
+        if (needs_mock_api_include) {
+            rendered.append(render_module_mock_api_include_block());
+            rendered.push_back('\n');
+        }
+        if (needs_global_mock_codegen_include) {
+            rendered.append(render_module_mock_codegen_include_block());
+            rendered.push_back('\n');
+        }
     }
 
     for (auto &[offset, group] : mocks_by_offset) {
-        if (mock_codegen_include_offset.has_value() && *mock_codegen_include_offset <= offset) {
-            if (*mock_codegen_include_offset < cursor || *mock_codegen_include_offset > original.size()) {
-                log_err("gentest_codegen: invalid module mock include insertion offset {} in '{}'\n", *mock_codegen_include_offset,
-                        source_path.string());
-                return std::nullopt;
-            }
-            rendered.append(original.data() + cursor, *mock_codegen_include_offset - cursor);
-            rendered.append(render_module_mock_codegen_include_block());
-            rendered.push_back('\n');
-            cursor = *mock_codegen_include_offset;
-            mock_codegen_include_offset.reset();
-        }
         if (offset < cursor || offset > original.size()) {
             log_err("gentest_codegen: invalid module attachment insertion order in '{}'\n", source_path.string());
             return std::nullopt;
         }
-        rendered.append(original.data() + cursor, offset - cursor);
+        append_original_segment_skipping_ranges(rendered, original, cursor, offset, manual_includes.manual_codegen_include_ranges,
+                                               skipped_idx);
         std::ranges::sort(group, {}, [](const MockClassInfo *mock) { return mock->qualified_name; });
         const auto &namespace_chain = group.front()->attachment_namespace_chain;
         for (const auto *mock : group) {
@@ -735,19 +698,8 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
         cursor = offset;
     }
 
-    if (mock_codegen_include_offset.has_value()) {
-        if (*mock_codegen_include_offset < cursor || *mock_codegen_include_offset > original.size()) {
-            log_err("gentest_codegen: invalid module mock include insertion offset {} in '{}'\n", *mock_codegen_include_offset,
-                    source_path.string());
-            return std::nullopt;
-        }
-        rendered.append(original.data() + cursor, *mock_codegen_include_offset - cursor);
-        rendered.append(render_module_mock_codegen_include_block());
-        rendered.push_back('\n');
-        cursor = *mock_codegen_include_offset;
-    }
-
-    rendered.append(original.data() + cursor, original.size() - cursor);
+    append_original_segment_skipping_ranges(rendered, original, cursor, original.size(), manual_includes.manual_codegen_include_ranges,
+                                           skipped_idx);
     return normalize_generated_module_preamble(rendered);
 }
 

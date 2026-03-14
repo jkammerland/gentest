@@ -80,17 +80,6 @@ jobs:
           echo "CCACHE_DISABLE=1" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
 
-      - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v3
-
-      - name: Install modern Ninja
-        run: |
-          python3 -m pip install --user --upgrade ninja
-          python3 - <<'PY' >> "$GITHUB_PATH"
-          import sysconfig
-          print(sysconfig.get_path("scripts"))
-          PY
-
       - name: Show tool versions
         run: |
           cmake --version

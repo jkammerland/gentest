@@ -111,6 +111,9 @@ set(_manual_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0003_g
 set(_manual_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0003_gentest_mixed_module_manual_include_cases.hpp")
 set(_same_block_registry "${_generated_dir}/mixed_tests_mock_registry__domain_0004_gentest_mixed_module_same_block_cases.hpp")
 set(_same_block_impl "${_generated_dir}/mixed_tests_mock_impl__domain_0004_gentest_mixed_module_same_block_cases.hpp")
+set(_module_wrapper "${_generated_dir}/tu_0001_cases.module.gentest.cppm")
+set(_manual_wrapper "${_generated_dir}/tu_0003_manual_include_cases.module.gentest.cppm")
+set(_same_block_wrapper "${_generated_dir}/tu_0004_same_block_cases.module.gentest.cppm")
 
 foreach(_generated_file IN ITEMS
     "${_dispatcher_registry}"
@@ -124,7 +127,10 @@ foreach(_generated_file IN ITEMS
     "${_manual_registry}"
     "${_manual_impl}"
     "${_same_block_registry}"
-    "${_same_block_impl}")
+    "${_same_block_impl}"
+    "${_module_wrapper}"
+    "${_manual_wrapper}"
+    "${_same_block_wrapper}")
   if(NOT EXISTS "${_generated_file}")
     message(FATAL_ERROR "Expected generated mock artifact was not written: ${_generated_file}")
   endif()
@@ -136,6 +142,9 @@ file(READ "${_extra_registry}" _extra_registry_text)
 file(READ "${_manual_registry}" _manual_registry_text)
 file(READ "${_same_block_registry}" _same_block_registry_text)
 file(READ "${_dispatcher_registry}" _dispatcher_registry_text)
+file(READ "${_module_wrapper}" _module_wrapper_text)
+file(READ "${_manual_wrapper}" _manual_wrapper_text)
+file(READ "${_same_block_wrapper}" _same_block_wrapper_text)
 
 string(FIND "${_header_registry_text}" "legacy::Service" _header_pos)
 if(_header_pos EQUAL -1)
@@ -170,6 +179,28 @@ endif()
 string(FIND "${_dispatcher_registry_text}" "GENTEST_MOCK_DOMAIN_REGISTRY_PATH" _dispatcher_domain_macro_pos)
 if(_dispatcher_domain_macro_pos EQUAL -1)
   message(FATAL_ERROR "Expected dispatcher registry to keep optional source-local mock-domain support")
+endif()
+
+foreach(_wrapper_text IN ITEMS
+    "${_module_wrapper_text}"
+    "${_manual_wrapper_text}"
+    "${_same_block_wrapper_text}")
+  string(FIND "${_wrapper_text}" "#include <type_traits>" _wrapper_type_traits_pos)
+  if(NOT _wrapper_type_traits_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected mixed module wrappers to avoid injecting <type_traits> into module purview.\n${_wrapper_text}")
+  endif()
+endforeach()
+
+string(FIND "${_manual_wrapper_text}" "export module gentest.mixed_module_manual_include_cases;" _manual_module_pos)
+string(FIND "${_manual_wrapper_text}" "#include \"gentest/mock_codegen.h\"" _manual_codegen_include_pos)
+if(_manual_module_pos EQUAL -1 OR _manual_codegen_include_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected manual-include wrapper to contain a relocated mock_codegen include.\n${_manual_wrapper_text}")
+endif()
+if(_manual_codegen_include_pos GREATER _manual_module_pos)
+  message(FATAL_ERROR
+    "Expected manual-include wrapper to relocate mock_codegen into the global module fragment.\n${_manual_wrapper_text}")
 endif()
 
 message(STATUS "Run mixed target acceptance cases...")

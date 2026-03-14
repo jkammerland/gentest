@@ -115,16 +115,25 @@ if(NOT _wrapper_count EQUAL 1)
 endif()
 list(GET _wrapper_candidates 0 _wrapper)
 file(READ "${_wrapper}" _wrapper_text)
+string(FIND "${_wrapper_text}" "export module gentest.manual_include_whitespace;" _module_pos)
 string(FIND "${_wrapper_text}" "// gentest_codegen: injected mock codegen include." _auto_codegen_include_pos)
+string(FIND "${_wrapper_text}" "#include \"gentest/mock_codegen.h\"" _canonical_include_pos)
 string(FIND "${_wrapper_text}" "# include \"gentest/mock_codegen.h\"" _manual_spaced_pos)
 
-if(_manual_spaced_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected generated wrapper to retain the original spaced manual include in ${_wrapper}.\n${_wrapper_text}")
+if(_module_pos EQUAL -1)
+  message(FATAL_ERROR "Expected generated wrapper to contain the named module declaration.\n${_wrapper_text}")
 endif()
-if(NOT _auto_codegen_include_pos EQUAL -1)
+if(_auto_codegen_include_pos EQUAL -1 OR _canonical_include_pos EQUAL -1)
   message(FATAL_ERROR
-    "Expected spaced manual include to suppress the auto-injected mock_codegen include in ${_wrapper}.\n${_wrapper_text}")
+    "Expected generated wrapper to normalize the manual mock_codegen include into the injected global-fragment block in ${_wrapper}.\n${_wrapper_text}")
+endif()
+if(_auto_codegen_include_pos GREATER _module_pos OR _canonical_include_pos GREATER _module_pos)
+  message(FATAL_ERROR
+    "Expected mock_codegen support to be injected before the named module declaration in ${_wrapper}.\n${_wrapper_text}")
+endif()
+if(NOT _manual_spaced_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected generated wrapper to relocate the spaced manual include out of module purview in ${_wrapper}.\n${_wrapper_text}")
 endif()
 
 set(_exe_dir "${_build_dir}")

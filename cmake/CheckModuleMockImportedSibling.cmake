@@ -98,6 +98,18 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+set(_generated_dir "${_build_dir}/generated")
+set(_provider_wrapper "${_generated_dir}/tu_0002_provider.module.gentest.ixx")
+if(NOT EXISTS "${_provider_wrapper}")
+  message(FATAL_ERROR "Expected generated provider module wrapper was not written: ${_provider_wrapper}")
+endif()
+file(READ "${_provider_wrapper}" _provider_wrapper_text)
+string(FIND "${_provider_wrapper_text}" "#include <type_traits>" _provider_type_traits_pos)
+if(NOT _provider_type_traits_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected imported-sibling provider wrapper to avoid injecting <type_traits> into module purview.\n${_provider_wrapper_text}")
+endif()
+
 set(_prog "${_build_dir}/imported_sibling_tests${CMAKE_EXECUTABLE_SUFFIX}")
 message(STATUS "Run imported sibling module mock acceptance case...")
 gentest_check_run_or_fail(

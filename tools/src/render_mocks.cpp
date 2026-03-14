@@ -889,17 +889,7 @@ MockRenderResult render_mocks(const CollectorOptions &options, const std::vector
 std::string render_module_mock_attachment(const MockClassInfo &mock) {
     RenderBuffer out;
     out.append_raw("\n// gentest_codegen: injected mock attachment.\n");
-    out.append_raw("#if defined(__clang__)\n");
-    out.append_raw("#pragma clang diagnostic push\n");
-    out.append_raw("#pragma clang diagnostic ignored \"-Winclude-angled-in-module-purview\"\n");
-    out.append_raw("#endif\n");
-    out.append_raw("#ifndef GENTEST_DETAIL_MODULE_MOCK_TYPE_TRAITS_INCLUDED\n");
-    out.append_raw("#define GENTEST_DETAIL_MODULE_MOCK_TYPE_TRAITS_INCLUDED 1\n");
-    out.append_raw("#include <type_traits>\n");
-    out.append_raw("#endif\n");
-    out.append_raw("#if defined(__clang__)\n");
-    out.append_raw("#pragma clang diagnostic pop\n");
-    out.append_raw("#endif\n\n");
+    out.append_raw("\n");
     out.append_raw("namespace gentest {\n\n");
     out.append_raw(build_class_declaration(mock));
     out.append_raw("namespace detail {\n\n");

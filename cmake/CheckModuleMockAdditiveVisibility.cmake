@@ -101,10 +101,14 @@ gentest_check_run_or_fail(
 set(_generated_dir "${_build_dir}/generated")
 set(_header_registry "${_generated_dir}/additive_tests_mock_registry__domain_0000_header.hpp")
 set(_provider_registry "${_generated_dir}/additive_tests_mock_registry__domain_0001_gentest_additive_provider.hpp")
+set(_provider_wrapper "${_generated_dir}/tu_0001_provider.module.gentest.cppm")
+set(_header_consumer_wrapper "${_generated_dir}/tu_0002_header_consumer.module.gentest.cppm")
 
 foreach(_generated_file IN ITEMS
     "${_header_registry}"
-    "${_provider_registry}")
+    "${_provider_registry}"
+    "${_provider_wrapper}"
+    "${_header_consumer_wrapper}")
   if(NOT EXISTS "${_generated_file}")
     message(FATAL_ERROR "Expected generated mock artifact was not written: ${_generated_file}")
   endif()
@@ -112,6 +116,8 @@ endforeach()
 
 file(READ "${_header_registry}" _header_registry_text)
 file(READ "${_provider_registry}" _provider_registry_text)
+file(READ "${_provider_wrapper}" _provider_wrapper_text)
+file(READ "${_header_consumer_wrapper}" _header_consumer_wrapper_text)
 
 string(FIND "${_header_registry_text}" "shared::Service" _header_pos)
 if(_header_pos EQUAL -1)
@@ -121,6 +127,29 @@ endif()
 string(FIND "${_provider_registry_text}" "provider::Service" _provider_pos)
 if(_provider_pos EQUAL -1)
   message(FATAL_ERROR "Expected provider module-domain registry to contain provider::Service")
+endif()
+
+string(FIND "${_provider_wrapper_text}" "#include <type_traits>" _provider_type_traits_pos)
+if(NOT _provider_type_traits_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected provider module wrapper to avoid injecting <type_traits> into module purview.\n${_provider_wrapper_text}")
+endif()
+
+string(FIND "${_header_consumer_wrapper_text}" "#include <type_traits>" _header_consumer_type_traits_pos)
+if(NOT _header_consumer_type_traits_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected header-consumer module wrapper to avoid injecting <type_traits> into module purview.\n${_header_consumer_wrapper_text}")
+endif()
+
+string(FIND "${_header_consumer_wrapper_text}" "export module gentest.additive_header_consumer;" _header_consumer_module_pos)
+string(FIND "${_header_consumer_wrapper_text}" "#include \"gentest/mock_codegen.h\"" _header_consumer_codegen_include_pos)
+if(_header_consumer_module_pos EQUAL -1 OR _header_consumer_codegen_include_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected header-consumer module wrapper to contain a relocated mock_codegen include.\n${_header_consumer_wrapper_text}")
+endif()
+if(_header_consumer_codegen_include_pos GREATER _header_consumer_module_pos)
+  message(FATAL_ERROR
+    "Expected header-consumer mock_codegen include to live in the global module fragment.\n${_header_consumer_wrapper_text}")
 endif()
 
 set(_prog "${_build_dir}/additive_tests${CMAKE_EXECUTABLE_SUFFIX}")
