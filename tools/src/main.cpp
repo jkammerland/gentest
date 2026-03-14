@@ -15,7 +15,6 @@
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
-#include <clang/Driver/Driver.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Lex/PPCallbacks.h>
@@ -1265,11 +1264,6 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
         // `compiler_path` can be a full path already (or just not on PATH).
         // We'll still try to execute it and let ExecuteAndWait surface errors.
         resolved_path = compiler_path;
-    }
-
-    const std::string driver_resource_dir = clang::driver::Driver::GetResourcesPath(*resolved_path);
-    if (!driver_resource_dir.empty() && std::filesystem::exists(driver_resource_dir)) {
-        return driver_resource_dir;
     }
 
     llvm::SmallString<128> tmp_path;

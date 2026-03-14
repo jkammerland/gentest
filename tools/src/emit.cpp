@@ -521,8 +521,8 @@ std::string normalize_generated_module_preamble(std::string_view text) {
 
 std::string render_module_mock_api_include_block() {
     std::string out;
-    out.reserve(160);
-    out.append("\n// gentest_codegen: injected mock support include.\n");
+    out.reserve(192);
+    out.append("\n// gentest_codegen: injected mock API include.\n");
     out.append("#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n");
     out.append("#include \"gentest/mock.h\"\n");
     out.append("#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n");
@@ -597,8 +597,7 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
     }
 
     const SourceMockCodegenIncludes manual_includes = scan_source_mock_codegen_includes(original);
-    const bool                     needs_global_mock_codegen_include =
-        needs_mock_codegen_include || manual_includes.has_any_manual_codegen();
+    const bool needs_global_mock_codegen_include = needs_mock_codegen_include || manual_includes.has_any_manual_codegen();
     const bool needs_mock_api_include = !source_mocks.empty() || needs_global_mock_codegen_include;
     if (source_mocks.empty() && !needs_global_mock_codegen_include && !needs_mock_api_include) {
         return normalize_generated_module_preamble(original);
