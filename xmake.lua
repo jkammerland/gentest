@@ -37,6 +37,7 @@ end
 target("gentest_runtime")
     set_kind("static")
     add_files("src/bench_stats.cpp")
+    add_files("src/runtime_context.cpp")
     add_files("src/runner_case_invoker.cpp")
     add_files("src/runner_cli.cpp")
     add_files("src/runner_fixture_runtime.cpp")
