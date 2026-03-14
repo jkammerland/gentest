@@ -1,4 +1,4 @@
-#if defined(__clang__) && __clang_major__ == 20 && defined(__GLIBCXX__)
+#if defined(__clang__) && __clang_major__ == 20 && defined(__has_include) && __has_include(<bits/c++config.h>) && !defined(_LIBCPP_VERSION)
 #define GENTEST_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN 1
 #else
 #define GENTEST_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN 0

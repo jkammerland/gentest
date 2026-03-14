@@ -81,7 +81,9 @@ if(FALLBACK_MODE STREQUAL "old_ninja")
 elseif(FALLBACK_MODE STREQUAL "missing_scan_deps")
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${_real_ninja}")
   list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_work_dir}/does-not-exist-clang-scan-deps")
-  set(_expect_substring "clang dependency scanner was not found")
+  set(_expect_substrings
+    "clang dependency scanner was not found"
+    "does not provide C++ module dependency scanning")
 else()
   message(FATAL_ERROR "Unknown FALLBACK_MODE='${FALLBACK_MODE}'")
 endif()
@@ -98,10 +100,25 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE
   OUTPUT_VARIABLE _configure_out)
 
-string(FIND "${_configure_out}" "${_expect_substring}" _reason_pos)
-if(_reason_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected configure output to mention '${_expect_substring}', but it did not.\n${_configure_out}")
+if(FALLBACK_MODE STREQUAL "missing_scan_deps")
+  set(_found_expected_reason FALSE)
+  foreach(_expect_substring IN LISTS _expect_substrings)
+    string(FIND "${_configure_out}" "${_expect_substring}" _reason_pos)
+    if(NOT _reason_pos EQUAL -1)
+      set(_found_expected_reason TRUE)
+      break()
+    endif()
+  endforeach()
+  if(NOT _found_expected_reason)
+    message(FATAL_ERROR
+      "Expected configure output to mention one of the known missing scanner fallback reasons, but it did not.\n${_configure_out}")
+  endif()
+else()
+  string(FIND "${_configure_out}" "${_expect_substring}" _reason_pos)
+  if(_reason_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected configure output to mention '${_expect_substring}', but it did not.\n${_configure_out}")
+  endif()
 endif()
 
 string(FIND "${_configure_out}" "public named modules disabled automatically" _disabled_pos)

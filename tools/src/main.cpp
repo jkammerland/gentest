@@ -1842,8 +1842,17 @@ int main(int argc, const char **argv) {
             return true;
         };
 
-        for (std::size_t module_list_idx = 0; module_list_idx < named_module_sources.size(); ++module_list_idx) {
-            if (!build_named_module_pcm(module_list_idx)) {
+        std::unordered_set<std::string> required_named_modules;
+        for (const auto &imported_modules : imported_named_modules_by_source) {
+            for (const auto &import_name : imported_modules) {
+                if (named_module_index_by_name.contains(import_name)) {
+                    required_named_modules.insert(import_name);
+                }
+            }
+        }
+
+        for (const auto &required_module_name : required_named_modules) {
+            if (!build_named_module_pcm(named_module_index_by_name.at(required_module_name))) {
                 return 1;
             }
         }

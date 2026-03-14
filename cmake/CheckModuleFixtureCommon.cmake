@@ -94,16 +94,54 @@ function(gentest_is_clang_like out_var compiler_path)
   endif()
 endfunction()
 
+function(gentest_compiler_version_output out_var compiler_path)
+  if("${compiler_path}" STREQUAL "" OR NOT EXISTS "${compiler_path}")
+    set(${out_var} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  execute_process(
+    COMMAND "${compiler_path}" --version
+    RESULT_VARIABLE _rc
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _rc EQUAL 0)
+    set(${out_var} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  set(${out_var} "${_out}\n${_err}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_is_supported_module_fixture_clang out_var compiler_path)
+  gentest_is_clang_like(_is_clang_like "${compiler_path}")
+  if(NOT _is_clang_like)
+    set(${out_var} FALSE PARENT_SCOPE)
+    return()
+  endif()
+
+  gentest_compiler_version_output(_version_output "${compiler_path}")
+  if(_version_output MATCHES "(^|[\\r\\n])Apple clang version ")
+    set(${out_var} FALSE PARENT_SCOPE)
+    return()
+  endif()
+
+  set(${out_var} TRUE PARENT_SCOPE)
+endfunction()
+
 function(gentest_resolve_clang_fixture_compilers out_c out_cxx)
   set(_resolved_c "")
   set(_resolved_cxx "")
 
-  gentest_is_clang_like(_has_clang_c "${C_COMPILER}")
+  gentest_is_supported_module_fixture_clang(_has_clang_c "${C_COMPILER}")
   if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "" AND _has_clang_c)
     set(_resolved_c "${C_COMPILER}")
   endif()
 
-  gentest_is_clang_like(_has_clang_cxx "${CXX_COMPILER}")
+  gentest_is_supported_module_fixture_clang(_has_clang_cxx "${CXX_COMPILER}")
   if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "" AND _has_clang_cxx)
     set(_resolved_cxx "${CXX_COMPILER}")
   endif()
@@ -148,14 +186,16 @@ function(gentest_resolve_clang_fixture_compilers out_c out_cxx)
 
   if("${_resolved_c}" STREQUAL "")
     find_program(_found_clang NAMES ${_clang_names})
-    if(_found_clang)
+    gentest_is_supported_module_fixture_clang(_found_clang_ok "${_found_clang}")
+    if(_found_clang_ok)
       set(_resolved_c "${_found_clang}")
     endif()
   endif()
 
   if("${_resolved_cxx}" STREQUAL "")
     find_program(_found_clangxx NAMES ${_clangxx_names})
-    if(_found_clangxx)
+    gentest_is_supported_module_fixture_clang(_found_clangxx_ok "${_found_clangxx}")
+    if(_found_clangxx_ok)
       set(_resolved_cxx "${_found_clangxx}")
     endif()
   endif()
@@ -186,11 +226,23 @@ function(gentest_resolve_clang_fixture_compilers out_c out_cxx)
     list(SORT _versioned_clang_candidates COMPARE NATURAL ORDER DESCENDING)
     list(SORT _versioned_clangxx_candidates COMPARE NATURAL ORDER DESCENDING)
 
-    if("${_resolved_c}" STREQUAL "" AND _versioned_clang_candidates)
-      list(GET _versioned_clang_candidates 0 _resolved_c)
+    if("${_resolved_c}" STREQUAL "")
+      foreach(_candidate IN LISTS _versioned_clang_candidates)
+        gentest_is_supported_module_fixture_clang(_candidate_ok "${_candidate}")
+        if(_candidate_ok)
+          set(_resolved_c "${_candidate}")
+          break()
+        endif()
+      endforeach()
     endif()
-    if("${_resolved_cxx}" STREQUAL "" AND _versioned_clangxx_candidates)
-      list(GET _versioned_clangxx_candidates 0 _resolved_cxx)
+    if("${_resolved_cxx}" STREQUAL "")
+      foreach(_candidate IN LISTS _versioned_clangxx_candidates)
+        gentest_is_supported_module_fixture_clang(_candidate_ok "${_candidate}")
+        if(_candidate_ok)
+          set(_resolved_cxx "${_candidate}")
+          break()
+        endif()
+      endforeach()
     endif()
   endif()
 
