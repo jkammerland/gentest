@@ -50,6 +50,7 @@ if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE AND NOT PACKAGE_TEST_DRY_RUN_WORK_DIR 
     "CheckPackageConsumer.cmake: PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON requires PROG to point at gentest_codegen")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
 function(run_or_fail)
@@ -88,6 +89,55 @@ function(run_or_fail)
     WORKING_DIRECTORY "${RUN_WORKING_DIRECTORY}"
     DISPLAY_COMMAND "${RUN_COMMAND}"
   )
+endfunction()
+
+function(_gentest_read_cache_value cache_file key out_found out_value)
+  if(NOT EXISTS "${cache_file}")
+    set(${out_found} FALSE PARENT_SCOPE)
+    set(${out_value} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  file(STRINGS "${cache_file}" _cache_entry REGEX "^${key}:[^=]*=" LIMIT_COUNT 1)
+  if(NOT _cache_entry)
+    set(${out_found} FALSE PARENT_SCOPE)
+    set(${out_value} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  list(GET _cache_entry 0 _cache_line)
+  string(REGEX REPLACE "^${key}:[^=]*=" "" _cache_value "${_cache_line}")
+  set(${out_found} TRUE PARENT_SCOPE)
+  set(${out_value} "${_cache_value}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_read_configured_cxx_compiler_info build_dir out_found out_id out_version)
+  file(GLOB _compiler_files LIST_DIRECTORIES FALSE "${build_dir}/CMakeFiles/*/CMakeCXXCompiler.cmake")
+  if(NOT _compiler_files)
+    set(${out_found} FALSE PARENT_SCOPE)
+    set(${out_id} "" PARENT_SCOPE)
+    set(${out_version} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  list(GET _compiler_files 0 _compiler_file)
+  file(STRINGS "${_compiler_file}" _compiler_id_line REGEX "^set\\(CMAKE_CXX_COMPILER_ID \"")
+  file(STRINGS "${_compiler_file}" _compiler_version_line REGEX "^set\\(CMAKE_CXX_COMPILER_VERSION \"")
+  if(NOT _compiler_id_line OR NOT _compiler_version_line)
+    set(${out_found} FALSE PARENT_SCOPE)
+    set(${out_id} "" PARENT_SCOPE)
+    set(${out_version} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  list(GET _compiler_id_line 0 _compiler_id_line_value)
+  list(GET _compiler_version_line 0 _compiler_version_line_value)
+  string(REGEX REPLACE "^set\\(CMAKE_CXX_COMPILER_ID \"([^\"]*)\"\\)$" "\\1" _compiler_id "${_compiler_id_line_value}")
+  string(REGEX REPLACE "^set\\(CMAKE_CXX_COMPILER_VERSION \"([^\"]*)\"\\)$" "\\1" _compiler_version "${_compiler_version_line_value}")
+
+  set(${out_found} TRUE PARENT_SCOPE)
+  set(${out_id} "${_compiler_id}" PARENT_SCOPE)
+  set(${out_version} "${_compiler_version}" PARENT_SCOPE)
 endfunction()
 
 set(_exe_ext "")
@@ -173,6 +223,9 @@ set(_work_dir_suffix "${PACKAGE_NAME}_${CONSUMER_LINK_MODE}")
 if(NOT _effective_cxx_compiler_name STREQUAL "")
   string(REGEX REPLACE "[^A-Za-z0-9_.-]+" "_" _compiler_tag "${_effective_cxx_compiler_name}")
   string(APPEND _work_dir_suffix "_${_compiler_tag}")
+  string(MD5 _compiler_hash "${_effective_cxx_compiler}")
+  string(SUBSTRING "${_compiler_hash}" 0 8 _compiler_hash_short)
+  string(APPEND _work_dir_suffix "_${_compiler_hash_short}")
 endif()
 if(NOT "${_effective_build_type}" STREQUAL "")
   string(APPEND _work_dir_suffix "_${_effective_build_type}")
@@ -216,6 +269,29 @@ run_or_fail(
     "-D${PACKAGE_NAME}_INSTALL=ON"
     "-D${PACKAGE_NAME}_BUILD_TESTING=OFF"
     "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
+
+if(PACKAGE_TEST_USE_MODULES)
+  set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
+  _gentest_read_configured_cxx_compiler_info("${_producer_build_dir}" _compiler_info_found _compiler_id_value _compiler_version_value)
+  if(_compiler_info_found AND _compiler_id_value STREQUAL "GNU")
+    string(REGEX MATCH "^[0-9]+" _compiler_major "${_compiler_version_value}")
+    if(NOT _compiler_major STREQUAL "" AND _compiler_major LESS 15)
+      gentest_skip_test("installed-package module consumer smoke unavailable because configured GNU compiler ${_compiler_version_value} is older than 15")
+      return()
+    endif()
+  endif()
+  _gentest_read_cache_value("${_producer_cache_file}" "GENTEST_PUBLIC_MODULES_ENABLED"
+    _modules_enabled_found _modules_enabled_value)
+  if(_modules_enabled_found AND NOT _modules_enabled_value)
+    _gentest_read_cache_value("${_producer_cache_file}" "GENTEST_PUBLIC_MODULES_DISABLED_REASON"
+      _modules_reason_found _modules_disabled_reason)
+    if(NOT _modules_reason_found OR "${_modules_disabled_reason}" STREQUAL "")
+      set(_modules_disabled_reason "module support was disabled during producer configure")
+    endif()
+    gentest_skip_test("installed-package module consumer smoke unavailable because gentest public named modules are disabled for '${_effective_cxx_compiler}': ${_modules_disabled_reason}")
+    return()
+  endif()
+endif()
 
 message(STATUS "Build and install producer into '${_install_prefix}'...")
 if(DEFINED BUILD_CONFIG AND NOT BUILD_CONFIG STREQUAL "")

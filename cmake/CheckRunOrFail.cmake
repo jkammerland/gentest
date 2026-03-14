@@ -13,8 +13,26 @@ function(gentest_check_run_or_fail)
     set(_strip_args OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
   endif()
   if(DEFINED RUN_WORKING_DIRECTORY AND NOT RUN_WORKING_DIRECTORY STREQUAL "")
+    set(_command ${RUN_COMMAND})
+    set(_helper_parallel_level "${GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
+    if("${_helper_parallel_level}" STREQUAL "" AND NOT "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}" STREQUAL "")
+      set(_helper_parallel_level "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
+    endif()
+    if("${_helper_parallel_level}" STREQUAL "")
+      set(_helper_parallel_level "2")
+    endif()
+    set(_env_args)
+    if("$ENV{CMAKE_BUILD_PARALLEL_LEVEL}" STREQUAL "")
+      list(APPEND _env_args "CMAKE_BUILD_PARALLEL_LEVEL=${_helper_parallel_level}")
+    endif()
+    if("$ENV{CTEST_PARALLEL_LEVEL}" STREQUAL "")
+      list(APPEND _env_args "CTEST_PARALLEL_LEVEL=${_helper_parallel_level}")
+    endif()
+    if(_env_args)
+      set(_command "${CMAKE_COMMAND}" -E env ${_env_args} ${RUN_COMMAND})
+    endif()
     execute_process(
-      COMMAND ${RUN_COMMAND}
+      COMMAND ${_command}
       WORKING_DIRECTORY "${RUN_WORKING_DIRECTORY}"
       RESULT_VARIABLE _rc
       OUTPUT_VARIABLE _out
@@ -22,8 +40,26 @@ function(gentest_check_run_or_fail)
       ${_strip_args}
     )
   else()
+    set(_command ${RUN_COMMAND})
+    set(_helper_parallel_level "${GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
+    if("${_helper_parallel_level}" STREQUAL "" AND NOT "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}" STREQUAL "")
+      set(_helper_parallel_level "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
+    endif()
+    if("${_helper_parallel_level}" STREQUAL "")
+      set(_helper_parallel_level "2")
+    endif()
+    set(_env_args)
+    if("$ENV{CMAKE_BUILD_PARALLEL_LEVEL}" STREQUAL "")
+      list(APPEND _env_args "CMAKE_BUILD_PARALLEL_LEVEL=${_helper_parallel_level}")
+    endif()
+    if("$ENV{CTEST_PARALLEL_LEVEL}" STREQUAL "")
+      list(APPEND _env_args "CTEST_PARALLEL_LEVEL=${_helper_parallel_level}")
+    endif()
+    if(_env_args)
+      set(_command "${CMAKE_COMMAND}" -E env ${_env_args} ${RUN_COMMAND})
+    endif()
     execute_process(
-      COMMAND ${RUN_COMMAND}
+      COMMAND ${_command}
       RESULT_VARIABLE _rc
       OUTPUT_VARIABLE _out
       ERROR_VARIABLE _err

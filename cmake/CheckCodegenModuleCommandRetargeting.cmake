@@ -111,7 +111,7 @@ file(TO_CMAKE_PATH "${_response_dir}" _response_dir_norm)
 file(TO_CMAKE_PATH "${_response_dir}/provider.cppm" _response_source_abs)
 file(TO_CMAKE_PATH "${_response_generated_dir}/tu_0000_provider.module.gentest.cppm" _wrapper_abs)
 file(WRITE "${_response_generated_dir}/tu_0000_provider.module.gentest.cppm"
-  "export module gentest.retarget.response;\n")
+  "#error gentest wrapper retargeting regression: the generated wrapper should not be parsed directly\n")
 file(WRITE "${_response_dir}/args.rsp"
   "-std=c++20\n"
   "-c\n"

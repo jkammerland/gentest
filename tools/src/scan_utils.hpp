@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cstdlib>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -108,6 +110,202 @@ inline std::string normalize_scan_directive_line(std::string_view line) {
     return out;
 }
 
+inline std::string to_lower_ascii_copy(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const unsigned char ch : text) {
+        out.push_back(static_cast<char>(std::tolower(ch)));
+    }
+    return out;
+}
+
+inline std::vector<std::filesystem::path> split_scan_env_paths(const char *env_name) {
+    std::vector<std::filesystem::path> paths;
+    const char                        *raw = std::getenv(env_name);
+    if (!raw || !*raw) {
+        return paths;
+    }
+
+#if defined(_WIN32)
+    constexpr char kSeparator = ';';
+#else
+    constexpr char kSeparator = ':';
+#endif
+
+    std::string_view remaining{raw};
+    while (!remaining.empty()) {
+        const auto split = remaining.find(kSeparator);
+        const auto piece = split == std::string_view::npos ? remaining : remaining.substr(0, split);
+        const auto trimmed = trim_ascii_view(piece);
+        if (!trimmed.empty()) {
+            paths.emplace_back(std::string(trimmed));
+        }
+        if (split == std::string_view::npos) {
+            break;
+        }
+        remaining.remove_prefix(split + 1);
+    }
+    return paths;
+}
+
+inline void append_unique_scan_path(std::vector<std::filesystem::path> &paths, const std::filesystem::path &path) {
+    std::error_code ec;
+    if (path.empty() || !std::filesystem::exists(path, ec) || !std::filesystem::is_directory(path, ec)) {
+        return;
+    }
+
+    const std::filesystem::path normalized = path.lexically_normal();
+    if (std::find(paths.begin(), paths.end(), normalized) == paths.end()) {
+        paths.push_back(normalized);
+    }
+}
+
+inline void append_scan_subdirectories(std::vector<std::filesystem::path> &paths, const std::filesystem::path &root) {
+    std::error_code ec;
+    if (root.empty() || !std::filesystem::exists(root, ec) || !std::filesystem::is_directory(root, ec)) {
+        return;
+    }
+
+    for (const auto &entry : std::filesystem::directory_iterator(root, ec)) {
+        if (ec) {
+            break;
+        }
+        if (entry.is_directory(ec)) {
+            append_unique_scan_path(paths, entry.path());
+        }
+    }
+}
+
+inline std::vector<std::filesystem::path> default_scan_include_search_paths(
+    const std::filesystem::path &source_directory, const std::vector<std::filesystem::path> &extra_paths = {}) {
+    std::vector<std::filesystem::path> paths;
+    append_unique_scan_path(paths, source_directory);
+    for (const auto &path : extra_paths) {
+        append_unique_scan_path(paths, path);
+    }
+
+    for (const char *env_name : {"CPATH", "CPLUS_INCLUDE_PATH", "C_INCLUDE_PATH"}) {
+        for (const auto &path : split_scan_env_paths(env_name)) {
+            append_unique_scan_path(paths, path);
+        }
+    }
+
+#if defined(__linux__)
+    append_unique_scan_path(paths, "/usr/local/include");
+    append_unique_scan_path(paths, "/usr/include");
+    append_unique_scan_path(paths, "/usr/include/c++");
+    append_scan_subdirectories(paths, "/usr/include/c++");
+    std::error_code ec;
+    if (std::filesystem::exists("/usr/include", ec)) {
+        for (const auto &entry : std::filesystem::directory_iterator("/usr/include", ec)) {
+            if (ec || !entry.is_directory(ec)) {
+                continue;
+            }
+            const auto name = entry.path().filename().string();
+            if (name.find("-linux-gnu") != std::string::npos) {
+                append_unique_scan_path(paths, entry.path() / "c++");
+                append_scan_subdirectories(paths, entry.path() / "c++");
+            }
+        }
+    }
+    append_unique_scan_path(paths, "/usr/lib/clang");
+    append_scan_subdirectories(paths, "/usr/lib/clang");
+    for (const auto &clang_dir : paths) {
+        if (clang_dir.filename() == "clang") {
+            append_scan_subdirectories(paths, clang_dir);
+        }
+    }
+    std::vector<std::filesystem::path> clang_include_dirs;
+    for (const auto &path : paths) {
+        if (path.filename() == "include" && path.parent_path().filename() == "clang") {
+            continue;
+        }
+        if (path.parent_path().filename() == "clang") {
+            append_unique_scan_path(clang_include_dirs, path / "include");
+        }
+    }
+    for (const auto &path : clang_include_dirs) {
+        append_unique_scan_path(paths, path);
+    }
+#elif defined(__APPLE__)
+    append_unique_scan_path(paths, "/usr/local/include");
+    append_unique_scan_path(paths, "/opt/homebrew/include");
+    append_unique_scan_path(paths, "/opt/homebrew/opt/llvm/include/c++/v1");
+    append_unique_scan_path(paths, "/usr/include/c++/v1");
+    append_unique_scan_path(paths, "/Library/Developer/CommandLineTools/usr/include/c++/v1");
+    if (const char *sdkroot = std::getenv("SDKROOT"); sdkroot && *sdkroot) {
+        append_unique_scan_path(paths, std::filesystem::path{sdkroot} / "usr/include");
+        append_unique_scan_path(paths, std::filesystem::path{sdkroot} / "usr/include/c++/v1");
+    }
+#endif
+
+    return paths;
+}
+
+inline bool is_valid_scan_module_component(std::string_view text) {
+    const auto is_ident_start = [](unsigned char ch) { return std::isalpha(ch) || ch == '_'; };
+    const auto is_ident_continue = [](unsigned char ch) { return std::isalnum(ch) || ch == '_'; };
+    text = trim_ascii_view(text);
+    if (text.empty()) {
+        return false;
+    }
+
+    std::size_t begin = 0;
+    while (begin < text.size()) {
+        std::size_t end = begin;
+        while (end < text.size() && text[end] != '.') {
+            ++end;
+        }
+        const auto part = text.substr(begin, end - begin);
+        if (part.empty() || !is_ident_start(static_cast<unsigned char>(part.front()))) {
+            return false;
+        }
+        for (std::size_t i = 1; i < part.size(); ++i) {
+            if (!is_ident_continue(static_cast<unsigned char>(part[i]))) {
+                return false;
+            }
+        }
+        begin = end == text.size() ? end : end + 1;
+    }
+    return true;
+}
+
+inline std::optional<std::string> canonicalize_scan_module_name(std::string_view text, bool allow_partition_only) {
+    text = trim_ascii_view(text);
+    if (text.empty()) {
+        return std::nullopt;
+    }
+
+    const auto colon = text.find(':');
+    if (colon == std::string_view::npos) {
+        if (!is_valid_scan_module_component(text)) {
+            return std::nullopt;
+        }
+        return std::string{text};
+    }
+
+    const auto extra_colon = text.find(':', colon + 1);
+    if (extra_colon != std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    const auto primary = trim_ascii_view(text.substr(0, colon));
+    const auto partition = trim_ascii_view(text.substr(colon + 1));
+    if (partition.empty() || !is_valid_scan_module_component(partition)) {
+        return std::nullopt;
+    }
+    if (primary.empty()) {
+        if (!allow_partition_only) {
+            return std::nullopt;
+        }
+        return std::string{":"} + std::string(partition);
+    }
+    if (!is_valid_scan_module_component(primary)) {
+        return std::nullopt;
+    }
+    return std::string(primary) + ":" + std::string(partition);
+}
+
 inline bool has_trailing_line_continuation(std::string_view line) {
     line = rtrim_ascii_view(line);
     return !line.empty() && line.back() == '\\';
@@ -152,6 +350,8 @@ struct ScanStreamState {
     bool in_preprocessor_continuation = false;
     bool current_branch_active = true;
     std::string pending_preprocessor;
+    std::filesystem::path source_directory;
+    std::vector<std::filesystem::path> include_search_paths;
     std::unordered_map<std::string, std::string> object_like_macros;
     std::vector<ScanConditionalFrame> conditionals;
 };
@@ -189,6 +389,10 @@ inline std::optional<long long> parse_scan_integer_literal(std::string_view text
         return std::nullopt;
     }
 
+    std::string normalized{text};
+    normalized.erase(std::remove(normalized.begin(), normalized.end(), '\''), normalized.end());
+    text = normalized;
+
     int sign = 1;
     if (text.front() == '+') {
         text.remove_prefix(1);
@@ -205,13 +409,40 @@ inline std::optional<long long> parse_scan_integer_literal(std::string_view text
     if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
         base = 16;
         text.remove_prefix(2);
+    } else if (text.size() > 2 && text[0] == '0' && (text[1] == 'b' || text[1] == 'B')) {
+        base = 2;
+        text.remove_prefix(2);
+    } else if (text.size() > 1 && text[0] == '0') {
+        base = 8;
     }
     if (text.empty()) {
         return std::nullopt;
     }
 
+    const auto is_valid_suffix = [](std::string_view suffix) {
+        const std::string lowered = to_lower_ascii_copy(suffix);
+        return lowered.empty() || lowered == "u" || lowered == "l" || lowered == "ll" || lowered == "ul" ||
+            lowered == "ull" || lowered == "lu" || lowered == "llu";
+    };
+
+    std::size_t digits_end = 0;
+    while (digits_end < text.size()) {
+        const char ch = text[digits_end];
+        const bool is_digit =
+            (base <= 10 && ch >= '0' && ch <= static_cast<char>('0' + (base - 1))) || (base == 16 && ch >= 'a' && ch <= 'f') ||
+            (base == 16 && ch >= 'A' && ch <= 'F');
+        if (!is_digit) {
+            break;
+        }
+        ++digits_end;
+    }
+    if (digits_end == 0 || !is_valid_suffix(text.substr(digits_end))) {
+        return std::nullopt;
+    }
+
     long long value = 0;
-    for (char ch : text) {
+    for (std::size_t i = 0; i < digits_end; ++i) {
+        const char ch = text[i];
         int digit = -1;
         if (ch >= '0' && ch <= '9') {
             digit = ch - '0';
@@ -286,7 +517,7 @@ inline std::vector<ScanPpToken> tokenize_scan_preprocessor_expression(std::strin
             const std::size_t begin = i++;
             while (i < text.size()) {
                 const unsigned char next = static_cast<unsigned char>(text[i]);
-                if (!std::isalnum(next) && next != '_') {
+                if (!std::isalnum(next) && next != '_' && next != '\'') {
                     break;
                 }
                 ++i;
@@ -708,13 +939,134 @@ private:
     std::size_t                                        depth_ = 0;
 };
 
+inline bool scan_has_include_literal(std::string_view expr, const std::filesystem::path &source_directory,
+                                     const std::vector<std::filesystem::path> &include_search_paths,
+                                     const std::unordered_map<std::string, std::string> &object_like_macros, bool &handled) {
+    handled = false;
+    expr = trim_ascii_view(expr);
+    if (!expr.starts_with("__has_include")) {
+        return false;
+    }
+    expr.remove_prefix(std::string_view{"__has_include"}.size());
+    expr = trim_ascii_view(expr);
+    if (expr.empty() || expr.front() != '(' || expr.back() != ')') {
+        return false;
+    }
+    expr.remove_prefix(1);
+    expr.remove_suffix(1);
+    expr = trim_ascii_view(expr);
+    if (expr.size() < 2) {
+        return false;
+    }
+
+    auto resolve_operand =
+        [&](std::string_view operand, auto &&self) -> std::optional<std::pair<std::filesystem::path, bool>> {
+        operand = trim_ascii_view(operand);
+        if (operand.size() >= 2 && operand.front() == '"' && operand.back() == '"') {
+            return std::pair{std::filesystem::path{std::string(operand.substr(1, operand.size() - 2))}, false};
+        }
+        if (operand.size() >= 2 && operand.front() == '<' && operand.back() == '>') {
+            return std::pair{std::filesystem::path{std::string(operand.substr(1, operand.size() - 2))}, true};
+        }
+        if (const auto ident = parse_scan_identifier(operand); ident.has_value() && *ident == trim_ascii_copy(operand)) {
+            if (const auto it = object_like_macros.find(*ident); it != object_like_macros.end()) {
+                return self(trim_ascii_view(it->second), self);
+            }
+        }
+        return std::nullopt;
+    };
+
+    const auto resolved_operand = resolve_operand(expr, resolve_operand);
+    if (!resolved_operand.has_value()) {
+        return false;
+    }
+
+    const auto &[include_name, angled] = *resolved_operand;
+    handled = true;
+
+    std::error_code ec;
+    if (!angled && !source_directory.empty()) {
+        if (std::filesystem::exists(source_directory / include_name, ec)) {
+            return true;
+        }
+        ec.clear();
+    }
+
+    for (const auto &dir : include_search_paths) {
+        if (dir.empty()) {
+            continue;
+        }
+        if (std::filesystem::exists(dir / include_name, ec)) {
+            return true;
+        }
+        ec.clear();
+    }
+    return false;
+}
+
+inline std::string rewrite_scan_has_include_operators(std::string_view text, const std::filesystem::path &source_directory,
+                                                      const std::vector<std::filesystem::path> &include_search_paths,
+                                                      const std::unordered_map<std::string, std::string> &object_like_macros) {
+    std::string out;
+    out.reserve(text.size());
+
+    for (std::size_t i = 0; i < text.size();) {
+        if (text.substr(i).starts_with("__has_include")) {
+            const std::size_t begin = i;
+            i += std::string_view{"__has_include"}.size();
+            while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) {
+                ++i;
+            }
+            if (i >= text.size() || text[i] != '(') {
+                out.append(text.substr(begin, i - begin));
+                continue;
+            }
+
+            std::size_t depth = 0;
+            std::size_t end = i;
+            for (; end < text.size(); ++end) {
+                if (text[end] == '(') {
+                    ++depth;
+                } else if (text[end] == ')') {
+                    --depth;
+                    if (depth == 0) {
+                        ++end;
+                        break;
+                    }
+                }
+            }
+            if (end > text.size() || depth != 0) {
+                out.append(text.substr(begin));
+                break;
+            }
+
+            bool handled = false;
+            const bool found = scan_has_include_literal(text.substr(begin, end - begin), source_directory, include_search_paths,
+                                                        object_like_macros, handled);
+            if (handled) {
+                out.push_back(found ? '1' : '0');
+            } else {
+                out.append(text.substr(begin, end - begin));
+            }
+            i = end;
+            continue;
+        }
+        out.push_back(text[i]);
+        ++i;
+    }
+
+    return out;
+}
+
 inline std::optional<bool> evaluate_simple_preprocessor_condition(
-    std::string_view text, const std::unordered_map<std::string, std::string> &object_like_macros) {
+    std::string_view text, const std::unordered_map<std::string, std::string> &object_like_macros,
+    const std::filesystem::path &source_directory = {}, const std::vector<std::filesystem::path> &include_search_paths = {}) {
     text = trim_ascii_view(text);
     if (text.empty()) {
         return std::nullopt;
     }
-    ScanPpExpressionParser parser{text, object_like_macros};
+    const std::string rewritten = rewrite_scan_has_include_operators(text, source_directory, include_search_paths, object_like_macros);
+    ScanPpExpressionParser parser{rewritten, object_like_macros};
     if (const auto value = parser.parse(); value.has_value()) {
         return *value != 0;
     }
@@ -742,8 +1094,9 @@ inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStre
 
     if (keyword == "if") {
         const bool parent_active = state.current_branch_active;
-        const auto evaluated = evaluate_simple_preprocessor_condition(rest, state.object_like_macros);
-        const bool branch_active = parent_active && evaluated.value_or(true);
+        const auto evaluated =
+            evaluate_simple_preprocessor_condition(rest, state.object_like_macros, state.source_directory, state.include_search_paths);
+        const bool branch_active = parent_active && evaluated.value_or(false);
         state.conditionals.push_back(ScanConditionalFrame{
             .parent_active = parent_active,
             .branch_taken = branch_active,
@@ -772,8 +1125,9 @@ inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStre
             return;
         }
         auto &frame = state.conditionals.back();
-        const auto evaluated = evaluate_simple_preprocessor_condition(rest, state.object_like_macros);
-        const bool branch_active = frame.parent_active && !frame.branch_taken && evaluated.value_or(true);
+        const auto evaluated =
+            evaluate_simple_preprocessor_condition(rest, state.object_like_macros, state.source_directory, state.include_search_paths);
+        const bool branch_active = frame.parent_active && !frame.branch_taken && evaluated.value_or(false);
         frame.active = branch_active;
         frame.branch_taken = frame.branch_taken || branch_active;
         update_preprocessor_branch_state(state);
@@ -947,11 +1301,7 @@ inline std::optional<std::string> parse_named_module_name_from_scan_line(std::st
         return std::nullopt;
     }
 
-    std::string module_name = trim_ascii_copy(cursor.substr(0, semi));
-    if (module_name.empty()) {
-        return std::nullopt;
-    }
-    return module_name;
+    return canonicalize_scan_module_name(cursor.substr(0, semi), false);
 }
 
 inline bool is_any_import_scan_line(std::string_view line) {
@@ -996,11 +1346,7 @@ inline std::optional<std::string> parse_imported_module_name_from_scan_line(std:
         return std::nullopt;
     }
 
-    std::string module_name = trim_ascii_copy(cursor.substr(0, semi));
-    if (module_name.empty()) {
-        return std::nullopt;
-    }
-    return module_name;
+    return canonicalize_scan_module_name(cursor.substr(0, semi), true);
 }
 
 inline std::optional<std::string> parse_include_header_from_scan_line(std::string_view line) {
@@ -1041,13 +1387,16 @@ inline std::optional<std::string> parse_include_header_from_scan_line(std::strin
     return std::string{cursor.substr(1, end - 1)};
 }
 
-inline std::optional<std::string> named_module_name_from_source_file(const std::filesystem::path &path) {
+inline std::optional<std::string> named_module_name_from_source_file(
+    const std::filesystem::path &path, const std::vector<std::filesystem::path> &include_search_paths = {}) {
     std::ifstream in(path);
     if (!in) {
         return std::nullopt;
     }
 
     ScanStreamState state;
+    state.source_directory = path.parent_path();
+    state.include_search_paths = default_scan_include_search_paths(state.source_directory, include_search_paths);
     std::string line;
     std::string pending;
     bool        pending_active = false;

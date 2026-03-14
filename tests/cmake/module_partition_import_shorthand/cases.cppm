@@ -2,7 +2,7 @@ module;
 
 export /* primary */ module gentest.partition_import_cases;
 
-export import /* partition */ :helpers;
+export import /* partition */ : helpers;
 
 #if !defined(GENTEST_CODEGEN)
 import gentest;

@@ -1,4 +1,5 @@
 include(GentestTests)
+include("${PROJECT_SOURCE_DIR}/cmake/CheckModuleFixtureCommon.cmake")
 
 if(NOT TARGET gentest_test_suites)
     add_custom_target(gentest_test_suites)
@@ -1595,7 +1596,7 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
     add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
             -DSOURCE_DIR=${source_dir}
-            -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
+            -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/${name}
             -DGENERATOR=${CMAKE_GENERATOR}
             -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
             -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
@@ -1887,14 +1888,6 @@ set_property(TEST gentest_package_consumer_workdir_isolation APPEND PROPERTY LAB
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
-    function(_gentest_add_package_modules_skip_test name)
-        add_test(NAME ${name}
-            COMMAND "${CMAKE_COMMAND}" -E echo
-                "GENTEST_SKIP_TEST: installed-package module consumer smoke unavailable because gentest public named modules are disabled (${GENTEST_PUBLIC_MODULES_DISABLED_REASON})")
-        set_property(TEST ${name} PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
-        set_property(TEST ${name} APPEND PROPERTY LABELS "modules;package")
-    endfunction()
-
     set(_gentest_package_test_config "")
     if(CMAKE_CONFIGURATION_TYPES)
         set(_gentest_package_test_config "Debug")
@@ -1914,6 +1907,24 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
        AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
         list(APPEND _gentest_package_test_compiler_args
             -DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS})
+    endif()
+
+    set(_gentest_package_test_module_compiler_args ${_gentest_package_test_compiler_args})
+    if(UNIX)
+        gentest_is_clang_like(_gentest_package_test_top_level_is_clang "${CMAKE_CXX_COMPILER}")
+        if(NOT _gentest_package_test_top_level_is_clang)
+            gentest_resolve_clang_fixture_compilers(_gentest_package_test_module_c _gentest_package_test_module_cxx)
+            if(NOT "${_gentest_package_test_module_c}" STREQUAL "" AND NOT "${_gentest_package_test_module_cxx}" STREQUAL "")
+                set(_gentest_package_test_module_compiler_args
+                    -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_module_c}
+                    -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_module_cxx})
+                gentest_find_clang_scan_deps(_gentest_package_test_module_scan_deps "${_gentest_package_test_module_cxx}")
+                if(NOT "${_gentest_package_test_module_scan_deps}" STREQUAL "")
+                    list(APPEND _gentest_package_test_module_compiler_args
+                        -DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=${_gentest_package_test_module_scan_deps})
+                endif()
+            endif()
+        endif()
     endif()
 
     _gentest_add_cmake_helper_test(
@@ -1940,81 +1951,131 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
         ${_gentest_package_test_compiler_args})
 
-    if(NOT GENTEST_PUBLIC_MODULES_ENABLED)
-        _gentest_add_package_modules_skip_test(gentest_package_consumer)
-        _gentest_add_package_modules_skip_test(gentest_package_consumer_native_codegen)
-        _gentest_add_package_modules_skip_test(gentest_package_consumer_runtime_only)
-        if(UNIX AND NOT APPLE)
-            _gentest_add_package_modules_skip_test(gentest_package_consumer_gcc)
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_runtime_only_include_only
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=runtime_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_runtime_only_include_only_native_codegen
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=runtime_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_double_include_only
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=double
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_double_include_only_native_codegen
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=double
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer APPEND PROPERTY LABELS "modules")
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_native_codegen
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer_native_codegen APPEND PROPERTY LABELS "modules")
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_runtime_only
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=runtime_only
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer_runtime_only APPEND PROPERTY LABELS "modules")
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_double
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=double
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer_double APPEND PROPERTY LABELS "modules")
+
+    if(UNIX AND NOT APPLE)
+        find_program(_gentest_package_test_gcc NAMES gcc)
+        find_program(_gentest_package_test_gxx NAMES g++)
+        if(_gentest_package_test_gcc AND _gentest_package_test_gxx)
+            _gentest_add_cmake_helper_test(
+                gentest_package_consumer_gcc
+                ${PROJECT_SOURCE_DIR}
+                ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+                package
+                -DPACKAGE_NAME=${PROJECT_NAME}
+                -DBUILD_CONFIG=${_gentest_package_test_config}
+                -DCONSUMER_LINK_MODE=main_only
+                -DPACKAGE_TEST_USE_MODULES=ON
+                -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+                -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_gcc}
+                -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_gxx})
+            set_property(TEST gentest_package_consumer_gcc APPEND PROPERTY LABELS "modules")
         endif()
-    else()
-        _gentest_add_cmake_helper_test(
-            gentest_package_consumer
-            ${PROJECT_SOURCE_DIR}
-            ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
-            package
-            -DPACKAGE_NAME=${PROJECT_NAME}
-            -DBUILD_CONFIG=${_gentest_package_test_config}
-            -DCONSUMER_LINK_MODE=main_only
-            -DPACKAGE_TEST_USE_MODULES=ON
-            -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
-            ${_gentest_package_test_compiler_args})
-        set_property(TEST gentest_package_consumer APPEND PROPERTY LABELS "modules")
-
-        _gentest_add_cmake_helper_test(
-            gentest_package_consumer_native_codegen
-            ${PROJECT_SOURCE_DIR}
-            ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
-            package
-            -DPACKAGE_NAME=${PROJECT_NAME}
-            -DBUILD_CONFIG=${_gentest_package_test_config}
-            -DCONSUMER_LINK_MODE=main_only
-            -DPACKAGE_TEST_USE_MODULES=ON
-            -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
-            ${_gentest_package_test_compiler_args})
-        set_property(TEST gentest_package_consumer_native_codegen APPEND PROPERTY LABELS "modules")
-
-        _gentest_add_cmake_helper_test(
-            gentest_package_consumer_runtime_only
-            ${PROJECT_SOURCE_DIR}
-            ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
-            package
-            -DPACKAGE_NAME=${PROJECT_NAME}
-            -DBUILD_CONFIG=${_gentest_package_test_config}
-            -DCONSUMER_LINK_MODE=runtime_only
-            -DPACKAGE_TEST_USE_MODULES=ON
-            -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
-            ${_gentest_package_test_compiler_args})
-        set_property(TEST gentest_package_consumer_runtime_only APPEND PROPERTY LABELS "modules")
-
-        if(UNIX AND NOT APPLE)
-            find_program(_gentest_package_test_gcc NAMES gcc)
-            find_program(_gentest_package_test_gxx NAMES g++)
-            if(_gentest_package_test_gcc AND _gentest_package_test_gxx)
-                _gentest_add_cmake_helper_test(
-                    gentest_package_consumer_gcc
-                    ${PROJECT_SOURCE_DIR}
-                    ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
-                    package
-                    -DPACKAGE_NAME=${PROJECT_NAME}
-                    -DBUILD_CONFIG=${_gentest_package_test_config}
-                    -DCONSUMER_LINK_MODE=main_only
-                    -DPACKAGE_TEST_USE_MODULES=ON
-                    -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
-                    -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_gcc}
-                    -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_gxx})
-                set_property(TEST gentest_package_consumer_gcc APPEND PROPERTY LABELS "modules")
-            endif()
-            unset(_gentest_package_test_gcc)
-            unset(_gentest_package_test_gxx)
-        endif()
-
-        unset(_gentest_package_test_config)
-        unset(_gentest_package_test_compiler_args)
-        unset(_gentest_package_test_clang)
-        unset(_gentest_package_test_clangxx)
+        unset(_gentest_package_test_gcc)
+        unset(_gentest_package_test_gxx)
     endif()
-    unset(_gentest_add_package_modules_skip_test)
+
+    unset(_gentest_package_test_config)
+    unset(_gentest_package_test_compiler_args)
+    unset(_gentest_package_test_module_compiler_args)
 endif()
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
