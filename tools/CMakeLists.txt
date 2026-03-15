@@ -317,6 +317,20 @@ add_executable(gentest_codegen
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_20)
 
+set(_gentest_codegen_runtime_rpaths "")
+
+function(_gentest_append_codegen_runtime_rpath path_value)
+    if("${path_value}" STREQUAL "")
+        return()
+    endif()
+    get_filename_component(_gentest_runtime_abs "${path_value}" ABSOLUTE)
+    if(EXISTS "${_gentest_runtime_abs}")
+        list(APPEND _gentest_codegen_runtime_rpaths "${_gentest_runtime_abs}")
+        list(REMOVE_DUPLICATES _gentest_codegen_runtime_rpaths)
+        set(_gentest_codegen_runtime_rpaths "${_gentest_codegen_runtime_rpaths}" PARENT_SCOPE)
+    endif()
+endfunction()
+
 if(WIN32)
     target_compile_definitions(gentest_codegen PRIVATE _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING)
 endif()
@@ -351,6 +365,7 @@ endif()
 
 if(_gentest_use_local_tinfo_shim AND UNIX)
     set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
+    _gentest_append_codegen_runtime_rpath("${CMAKE_CURRENT_BINARY_DIR}")
     if(NOT APPLE)
         # Force the link editor to honor BUILD_RPATH ahead of the default search
         # directories so the bundled libtinfo shim is chosen over any host copy.
@@ -440,8 +455,34 @@ if(TARGET clang-cpp)
         # Ensure runtime can locate the DSO without LD_LIBRARY_PATH tweaks.
         if(UNIX)
             set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_llvm_dso_dir}")
+            _gentest_append_codegen_runtime_rpath("${_gentest_llvm_dso_dir}")
         endif()
     endif()
+
+    get_target_property(_gentest_clang_cpp_imported_configs clang-cpp IMPORTED_CONFIGURATIONS)
+    set(_gentest_clang_cpp_locations "")
+    if(_gentest_clang_cpp_imported_configs)
+        foreach(_cfg IN LISTS _gentest_clang_cpp_imported_configs)
+            get_target_property(_gentest_clang_cpp_loc clang-cpp "IMPORTED_LOCATION_${_cfg}")
+            if(_gentest_clang_cpp_loc)
+                list(APPEND _gentest_clang_cpp_locations "${_gentest_clang_cpp_loc}")
+            endif()
+        endforeach()
+    endif()
+    get_target_property(_gentest_clang_cpp_default_loc clang-cpp IMPORTED_LOCATION)
+    if(_gentest_clang_cpp_default_loc)
+        list(APPEND _gentest_clang_cpp_locations "${_gentest_clang_cpp_default_loc}")
+    endif()
+    list(REMOVE_DUPLICATES _gentest_clang_cpp_locations)
+    foreach(_gentest_clang_cpp_loc IN LISTS _gentest_clang_cpp_locations)
+        get_filename_component(_gentest_clang_cpp_dir "${_gentest_clang_cpp_loc}" DIRECTORY)
+        _gentest_append_codegen_runtime_rpath("${_gentest_clang_cpp_dir}")
+    endforeach()
+    unset(_gentest_clang_cpp_locations)
+    unset(_gentest_clang_cpp_imported_configs)
+    unset(_gentest_clang_cpp_default_loc)
+    unset(_gentest_clang_cpp_loc)
+    unset(_gentest_clang_cpp_dir)
 else()
     set(_gentest_clang_libs
         clangTooling
@@ -457,6 +498,12 @@ else()
             ${_gentest_clang_libs}
             ${_gentest_llvm_support}
             ${_gentest_fmt_target})
+endif()
+
+if(UNIX AND _gentest_codegen_runtime_rpaths)
+    set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_codegen_runtime_rpaths}")
+    set_property(TARGET gentest_codegen APPEND PROPERTY INSTALL_RPATH "${_gentest_codegen_runtime_rpaths}")
+    set_property(TARGET gentest_codegen PROPERTY INSTALL_RPATH_USE_LINK_PATH TRUE)
 endif()
 
 # Provide generator with project version for --help output in generated code
