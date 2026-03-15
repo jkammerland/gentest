@@ -114,7 +114,14 @@ else()
   endif()
 endif()
 
-function(_gentest_run_codegen_fixture output_stem module_source)
+function(_gentest_run_codegen_fixture output_stem)
+  set(multi_value_args SOURCES)
+  cmake_parse_arguments(GENTEST "" "" "${multi_value_args}" ${ARGN})
+
+  if(NOT GENTEST_SOURCES)
+    message(FATAL_ERROR "_gentest_run_codegen_fixture requires at least one source")
+  endif()
+
   set(_output_path "${_generated_dir}/${output_stem}.cpp")
   set(_mock_registry "${_generated_dir}/${output_stem}_mock_registry.hpp")
   set(_mock_impl "${_generated_dir}/${output_stem}_mock_impl.hpp")
@@ -129,18 +136,29 @@ function(_gentest_run_codegen_fixture output_stem module_source)
       --depfile "${_depfile}"
       --compdb "${_build_dir}"
       --source-root "${_src_dir}"
-      "${_src_dir}/${module_source}"
+      ${GENTEST_SOURCES}
       --
+      -std=c++20
+      -x
+      c++-module
       -DGENTEST_CODEGEN=1
     WORKING_DIRECTORY "${_work_dir}"
     STRIP_TRAILING_WHITESPACE)
 endfunction()
 
 message(STATUS "Run gentest_codegen for the dot module target...")
-_gentest_run_codegen_fixture("pcm_cache_dot_generated" "alpha_dot_consumer.cppm")
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
 
 message(STATUS "Run gentest_codegen for the underscore module target...")
-_gentest_run_codegen_fixture("pcm_cache_underscore_generated" "alpha_underscore_consumer.cppm")
+_gentest_run_codegen_fixture(
+  "pcm_cache_underscore_generated"
+  SOURCES
+    "${_src_dir}/alpha_underscore_provider.cppm"
+    "${_src_dir}/alpha_underscore_consumer.cppm")
 
 if(EXISTS "${_generated_dir}/.gentest_codegen_modules")
   message(FATAL_ERROR "Expected hashed per-target module cache directories, but found legacy shared cache directory '${_generated_dir}/.gentest_codegen_modules'")

@@ -17,14 +17,14 @@ endif()
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
 function(_gentest_add_pcm_cache_target target_name output_stem)
-    set(one_value_args MODULE_SOURCE)
-    cmake_parse_arguments(GENTEST "" "${one_value_args}" "" ${ARGN})
+    set(multi_value_args MODULE_SOURCES)
+    cmake_parse_arguments(GENTEST "" "" "${multi_value_args}" ${ARGN})
 
     add_executable(${target_name} main.cpp)
     target_sources(${target_name}
         PRIVATE
             FILE_SET module_cases TYPE CXX_MODULES FILES
-                "${CMAKE_CURRENT_SOURCE_DIR}/${GENTEST_MODULE_SOURCE}")
+                ${GENTEST_MODULE_SOURCES})
     target_link_libraries(${target_name} PRIVATE gentest gentest_runtime)
     target_compile_features(${target_name} PRIVATE cxx_std_20)
 endfunction()
@@ -32,9 +32,13 @@ endfunction()
 _gentest_add_pcm_cache_target(
     pcm_cache_dot_tests
     pcm_cache_dot_generated
-    MODULE_SOURCE alpha_dot_consumer.cppm)
+    MODULE_SOURCES
+      "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_provider.cppm"
+      "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_consumer.cppm")
 
 _gentest_add_pcm_cache_target(
     pcm_cache_underscore_tests
     pcm_cache_underscore_generated
-    MODULE_SOURCE alpha_underscore_consumer.cppm)
+    MODULE_SOURCES
+      "${CMAKE_CURRENT_SOURCE_DIR}/alpha_underscore_provider.cppm"
+      "${CMAKE_CURRENT_SOURCE_DIR}/alpha_underscore_consumer.cppm")
