@@ -212,4 +212,48 @@ _gentest_run_codegen_expect_success(
   COMPDB_DIR "${_shell_tail_args_dir}"
   SOURCE_FILE "${_shell_tail_args_source_abs}")
 
+set(_extra_arg_shell_tail_dir "${_work_dir}/extra_arg_shell_tail")
+file(MAKE_DIRECTORY "${_extra_arg_shell_tail_dir}")
+file(WRITE "${_extra_arg_shell_tail_dir}/provider.cppm"
+  "export module gentest.retarget.extra_arg_provider;\n"
+  "export int extra_arg_provider_value() { return 23; }\n")
+file(WRITE "${_extra_arg_shell_tail_dir}/consumer.cppm"
+  "export module gentest.retarget.extra_arg_consumer;\n"
+  "import gentest.retarget.extra_arg_provider;\n"
+  "export int extra_arg_consumer_value() { return extra_arg_provider_value(); }\n")
+file(TO_CMAKE_PATH "${_extra_arg_shell_tail_dir}" _extra_arg_shell_tail_dir_norm)
+file(TO_CMAKE_PATH "${_extra_arg_shell_tail_dir}/provider.cppm" _extra_arg_provider_source_abs)
+file(TO_CMAKE_PATH "${_extra_arg_shell_tail_dir}/consumer.cppm" _extra_arg_consumer_source_abs)
+file(WRITE "${_extra_arg_shell_tail_dir}/compile_commands.json"
+  "[\n"
+  "  {\n"
+  "    \"directory\": \"${_extra_arg_shell_tail_dir_norm}\",\n"
+  "    \"file\": \"provider.cppm\",\n"
+  "    \"arguments\": [\"${_clangxx_norm}\", \"-std=c++20\", \"-c\", \"provider.cppm\", \"-o\", \"provider.o\"]\n"
+  "  },\n"
+  "  {\n"
+  "    \"directory\": \"${_extra_arg_shell_tail_dir_norm}\",\n"
+  "    \"file\": \"consumer.cppm\",\n"
+  "    \"arguments\": [\"${_clangxx_norm}\", \"-std=c++20\", \"-c\", \"consumer.cppm\", \"-o\", \"consumer.o\"]\n"
+  "  }\n"
+  "]\n")
+
+execute_process(
+  COMMAND "${PROG}" --check --compdb "${_extra_arg_shell_tail_dir}"
+    "${_extra_arg_provider_source_abs}" "${_extra_arg_consumer_source_abs}"
+    --
+    -isystem
+    "${_extra_arg_shell_tail_dir_norm} && ${CMAKE_COMMAND} -E cmake_transform_depfile Ninja gccdepfile ${_extra_arg_shell_tail_dir_norm} ${_extra_arg_shell_tail_dir_norm} ${_extra_arg_shell_tail_dir_norm} ${_extra_arg_shell_tail_dir_norm} deps.d deps.out"
+  RESULT_VARIABLE _extra_arg_shell_tail_rc
+  OUTPUT_VARIABLE _extra_arg_shell_tail_out
+  ERROR_VARIABLE _extra_arg_shell_tail_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+
+if(NOT _extra_arg_shell_tail_rc EQUAL 0)
+  message(FATAL_ERROR
+    "shell-tail extra clang arguments: gentest_codegen failed unexpectedly.\n"
+    "Output:\n${_extra_arg_shell_tail_out}\nErrors:\n${_extra_arg_shell_tail_err}")
+endif()
+
 message(STATUS "Module command retargeting regression passed")

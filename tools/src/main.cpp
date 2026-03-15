@@ -523,11 +523,37 @@ bool is_shell_control_token(std::string_view arg) {
     return arg == "&&" || arg == "||" || arg == ";" || arg == "|";
 }
 
+std::optional<std::string> trim_embedded_shell_control_tail(std::string_view arg) {
+    static constexpr std::array<std::string_view, 4> kEmbeddedPatterns = {" && ", " || ", " ; ", " | "};
+    for (const auto pattern : kEmbeddedPatterns) {
+        if (const auto pos = arg.find(pattern); pos != std::string_view::npos) {
+            return trim_ascii_copy(arg.substr(0, pos));
+        }
+    }
+    static constexpr std::array<std::string_view, 4> kLeadingPatterns = {"&& ", "|| ", "; ", "| "};
+    for (const auto pattern : kLeadingPatterns) {
+        if (arg.starts_with(pattern)) {
+            return std::string{};
+        }
+    }
+    return std::nullopt;
+}
+
 void strip_shell_control_tail(clang::tooling::CommandLineArguments &command_line) {
-    const auto shell_control_it =
-        std::find_if(command_line.begin(), command_line.end(), [](const std::string &arg) { return is_shell_control_token(arg); });
-    if (shell_control_it != command_line.end()) {
-        command_line.erase(shell_control_it, command_line.end());
+    for (auto it = command_line.begin(); it != command_line.end(); ++it) {
+        if (is_shell_control_token(*it)) {
+            command_line.erase(it, command_line.end());
+            return;
+        }
+        if (const auto trimmed = trim_embedded_shell_control_tail(*it); trimmed.has_value()) {
+            if (trimmed->empty()) {
+                command_line.erase(it, command_line.end());
+            } else {
+                *it = *trimmed;
+                command_line.erase(std::next(it), command_line.end());
+            }
+            return;
+        }
     }
 }
 
@@ -1597,6 +1623,7 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
     opts.clang_args = std::move(clang_args);
+    strip_shell_control_tail(opts.clang_args);
     opts.check_only = check_option.getValue();
     opts.quiet_clang = quiet_clang_option.getValue();
     opts.strict_fixture = [&] {
