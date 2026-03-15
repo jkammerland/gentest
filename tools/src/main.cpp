@@ -329,6 +329,17 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     return targets;
 }
 
+[[nodiscard]] bool should_force_serial_parse_jobs() {
+#if defined(__linux__) && !defined(__GLIBC__)
+    // Alpine/musl system libclang builds have shown reproducible crashes in the
+    // parallel ClangTool parse path for multi-TU module fixtures. Keep that
+    // phase serial there; output emission remains unchanged.
+    return true;
+#else
+    return false;
+#endif
+}
+
 [[nodiscard]] bool write_depfile(const CollectorOptions &options, const std::vector<std::string> &dependencies) {
     if (!options.depfile_path || options.depfile_path->empty()) {
         return true;
@@ -2051,8 +2062,11 @@ int main(int argc, const char **argv) {
         std::vector<std::string>            dependencies;
     };
 
-    const std::size_t parse_jobs = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
-    const bool        multi_tu   = allow_includes && options.sources.size() > 1;
+    std::size_t parse_jobs = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
+    if (parse_jobs > 1 && should_force_serial_parse_jobs()) {
+        parse_jobs = 1;
+    }
+    const bool multi_tu = allow_includes && options.sources.size() > 1;
     if (multi_tu) {
         // clang::tooling::JSONCompilationDatabase lazily builds internal maps. Accessing
         // it concurrently triggers TSAN reports (and is generally not guaranteed to be
