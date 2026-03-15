@@ -70,11 +70,29 @@ struct MockOutputDomain {
     return fmt::format("{:04d}", static_cast<unsigned>(idx));
 }
 
+[[nodiscard]] std::string stable_hash_hex(std::string_view value) {
+    std::uint64_t hash = 1469598103934665603ull;
+    for (const unsigned char ch : value) {
+        hash ^= static_cast<std::uint64_t>(ch);
+        hash *= 1099511628211ull;
+    }
+    return fmt::format("{:016x}", hash);
+}
+
+[[nodiscard]] std::string abbreviated_domain_label(std::string value) {
+    value = sanitize_domain_label(std::move(value));
+    if (value == "header" || value.size() <= 32) {
+        return value;
+    }
+    return fmt::format("{}_{}", value.substr(0, 16), stable_hash_hex(value).substr(0, 8));
+}
+
 [[nodiscard]] std::filesystem::path make_domain_output_path(const std::filesystem::path &base, std::size_t idx, std::string_view label) {
     std::filesystem::path out = base;
     const std::string     stem = base.stem().string();
     const std::string     ext  = base.extension().string();
-    out.replace_filename(fmt::format("{}__domain_{}_{}{}", stem, zero_pad_domain_index(idx), sanitize_domain_label(std::string(label)), ext));
+    out.replace_filename(fmt::format("{}__domain_{}_{}{}", stem, zero_pad_domain_index(idx),
+                                     abbreviated_domain_label(std::string(label)), ext));
     return out;
 }
 

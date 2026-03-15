@@ -80,6 +80,29 @@ function(gentest_find_supported_ninja out_program out_reason)
   set(${out_reason} "${_resolved_reason}" PARENT_SCOPE)
 endfunction()
 
+function(gentest_append_host_apple_sysroot out_list_var)
+  set(_args ${${out_list_var}})
+  if(CMAKE_HOST_APPLE)
+    set(_sysroot "$ENV{SDKROOT}")
+    if("${_sysroot}" STREQUAL "")
+      execute_process(
+        COMMAND xcrun --sdk macosx --show-sdk-path
+        RESULT_VARIABLE _xcrun_rc
+        OUTPUT_VARIABLE _xcrun_out
+        ERROR_VARIABLE _xcrun_err
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_STRIP_TRAILING_WHITESPACE)
+      if(_xcrun_rc EQUAL 0 AND NOT "${_xcrun_out}" STREQUAL "")
+        set(_sysroot "${_xcrun_out}")
+      endif()
+    endif()
+    if(NOT "${_sysroot}" STREQUAL "")
+      list(APPEND _args "-DCMAKE_OSX_SYSROOT=${_sysroot}")
+    endif()
+  endif()
+  set(${out_list_var} "${_args}" PARENT_SCOPE)
+endfunction()
+
 function(gentest_is_clang_like out_var compiler_path)
   if("${compiler_path}" STREQUAL "")
     set(${out_var} FALSE PARENT_SCOPE)
