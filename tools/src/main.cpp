@@ -519,6 +519,18 @@ std::vector<std::string> read_response_file_arguments(const std::filesystem::pat
 
 std::string normalize_compdb_lookup_path(std::string_view path, std::string_view directory = {});
 
+bool is_shell_control_token(std::string_view arg) {
+    return arg == "&&" || arg == "||" || arg == ";" || arg == "|";
+}
+
+void strip_shell_control_tail(clang::tooling::CommandLineArguments &command_line) {
+    const auto shell_control_it =
+        std::find_if(command_line.begin(), command_line.end(), [](const std::string &arg) { return is_shell_control_token(arg); });
+    if (shell_control_it != command_line.end()) {
+        command_line.erase(shell_control_it, command_line.end());
+    }
+}
+
 clang::tooling::CommandLineArguments expand_compile_command_response_files(const clang::tooling::CommandLineArguments &command_line,
                                                                            std::string_view                            working_directory,
                                                                            bool skip_module_map_response_files = true) {
@@ -545,12 +557,7 @@ clang::tooling::CommandLineArguments expand_compile_command_response_files(const
         }
         expanded_command_line.insert(expanded_command_line.end(), response_args.begin(), response_args.end());
     }
-    const auto shell_control_it = std::find_if(expanded_command_line.begin(), expanded_command_line.end(), [](const std::string &arg) {
-        return arg == "&&" || arg == "||" || arg == ";" || arg == "|";
-    });
-    if (shell_control_it != expanded_command_line.end()) {
-        expanded_command_line.erase(shell_control_it, expanded_command_line.end());
-    }
+    strip_shell_control_tail(expanded_command_line);
     return expanded_command_line;
 }
 
@@ -919,6 +926,9 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
     std::string_view                                         compdb_dir,
     std::span<const std::string>                             extra_module_args = {},
     std::string_view                                         forced_compiler_path = {}) {
+    clang::tooling::CommandLineArguments sanitized_command_line = command_line;
+    strip_shell_control_tail(sanitized_command_line);
+
     auto has_explicit_language_mode = [](std::span<const std::string> args) {
         for (const auto &arg : args) {
             if (arg == "-x" || arg == "/TP" || arg == "/Tc" || arg == "/TP-" || arg == "/Tc-") {
@@ -940,33 +950,36 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
     };
 
     clang::tooling::CommandLineArguments adjusted;
-    if (!command_line.empty()) {
-        const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(command_line).value_or(0);
+    if (!sanitized_command_line.empty()) {
+        const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(sanitized_command_line).value_or(0);
         if (!forced_compiler_path.empty()) {
             adjusted.emplace_back(std::string(forced_compiler_path));
         } else {
-            adjusted.emplace_back(command_line[compiler_index]);
+            adjusted.emplace_back(sanitized_command_line[compiler_index]);
         }
         const std::string resource_dir =
-            resource_dir_for_compiler(compiler_for_resource_dir_probe(command_line, std::string(default_compiler_path)));
+            resource_dir_for_compiler(compiler_for_resource_dir_probe(sanitized_command_line, std::string(default_compiler_path)));
         if (!resource_dir.empty()) {
             adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
         }
-        if (!default_sysroot.empty() && !has_sysroot_arg(command_line)) {
+        if (!default_sysroot.empty() && !has_sysroot_arg(sanitized_command_line)) {
             adjusted.emplace_back("-isysroot");
             adjusted.emplace_back(std::string(default_sysroot));
         }
         adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-        if (needs_explicit_module_language_mode(command_line)) {
+        if (needs_explicit_module_language_mode(sanitized_command_line)) {
             adjusted.emplace_back("-x");
             adjusted.emplace_back("c++-module");
         }
         bool skip_next_arg = false;
-        for (std::size_t i = compiler_index + 1; i < command_line.size(); ++i) {
-            const auto &arg = command_line[i];
+        for (std::size_t i = compiler_index + 1; i < sanitized_command_line.size(); ++i) {
+            const auto &arg = sanitized_command_line[i];
             if (skip_next_arg) {
                 skip_next_arg = false;
                 continue;
+            }
+            if (is_shell_control_token(arg)) {
+                break;
             }
             if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
                 arg == "-fconcepts-diagnostics-depth") {
@@ -995,7 +1008,7 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
             adjusted.emplace_back(std::string(default_sysroot));
         }
         adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
-        if (needs_explicit_module_language_mode(command_line)) {
+        if (needs_explicit_module_language_mode(sanitized_command_line)) {
             adjusted.emplace_back("-x");
             adjusted.emplace_back("c++-module");
         }

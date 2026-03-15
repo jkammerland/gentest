@@ -191,4 +191,25 @@ _gentest_run_codegen_expect_success(
   COMPDB_DIR "${_shell_tail_dir}"
   SOURCE_FILE "${_shell_tail_source_abs}")
 
+set(_shell_tail_args_dir "${_work_dir}/shell_tail_arguments")
+file(MAKE_DIRECTORY "${_shell_tail_args_dir}")
+file(WRITE "${_shell_tail_args_dir}/provider.cppm"
+  "export module gentest.retarget.shell_tail_arguments;\n"
+  "export int shell_tail_arguments_value() { return 19; }\n")
+file(TO_CMAKE_PATH "${_shell_tail_args_dir}" _shell_tail_args_dir_norm)
+file(TO_CMAKE_PATH "${_shell_tail_args_dir}/provider.cppm" _shell_tail_args_source_abs)
+file(WRITE "${_shell_tail_args_dir}/compile_commands.json"
+  "[\n"
+  "  {\n"
+  "    \"directory\": \"${_shell_tail_args_dir_norm}\",\n"
+  "    \"file\": \"${_shell_tail_args_source_abs}\",\n"
+  "    \"arguments\": [\"${_clangxx_norm}\", \"-std=c++20\", \"-c\", \"provider.cppm\", \"-o\", \"provider.o\", \"&&\", \"${CMAKE_COMMAND}\", \"-E\", \"cmake_transform_depfile\", \"Ninja\", \"gccdepfile\", \"${_shell_tail_args_dir_norm}\", \"${_shell_tail_args_dir_norm}\", \"${_shell_tail_args_dir_norm}\", \"${_shell_tail_args_dir_norm}\", \"deps.d\", \"deps.out\"]\n"
+  "  }\n"
+  "]\n")
+
+_gentest_run_codegen_expect_success(
+  NAME "shell-tail command arguments"
+  COMPDB_DIR "${_shell_tail_args_dir}"
+  SOURCE_FILE "${_shell_tail_args_source_abs}")
+
 message(STATUS "Module command retargeting regression passed")
