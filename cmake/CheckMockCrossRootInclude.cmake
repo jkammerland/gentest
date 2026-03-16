@@ -31,6 +31,7 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 
 if(NOT WIN32)
   gentest_skip_test("CheckMockCrossRootInclude.cmake: non-Windows host")
@@ -78,7 +79,9 @@ endif()
 set(_external_dir "${_user_profile_norm}/gentest_codegen_cross_root")
 set(_external_header "${_external_dir}/cross_root_sink.hpp")
 file(MAKE_DIRECTORY "${_external_dir}")
-file(WRITE "${_external_header}" "namespace crossroot { struct Sink { void write(int) {} }; }\n")
+gentest_fixture_write_file("${_external_header}" [[
+namespace crossroot { struct Sink { void write(int) {} }; }
+]])
 
 set(_work_dir "${_build_root}/gentest_codegen_cross_root")
 file(MAKE_DIRECTORY "${_work_dir}")
@@ -89,7 +92,7 @@ set(_mock_impl "${_work_dir}/cross_root_mock_impl.hpp")
 set(_mock_registry_domain "${_work_dir}/cross_root_mock_registry__domain_0000_header.hpp")
 
 file(TO_CMAKE_PATH "${_external_header}" _external_header_norm)
-file(WRITE "${_input_cpp}"
+gentest_fixture_write_file("${_input_cpp}"
   "#include \"gentest/mock.h\"\n"
   "#include \"${_external_header_norm}\"\n"
   "using SinkMock = gentest::mock<crossroot::Sink>;\n"

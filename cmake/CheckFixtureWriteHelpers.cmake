@@ -1,0 +1,92 @@
+function(gentest_fixture_write_file path)
+  set(_content "")
+  math(EXPR _last_arg "${ARGC} - 1")
+  foreach(_idx RANGE 1 ${_last_arg})
+    string(APPEND _content "${ARGV${_idx}}")
+  endforeach()
+  file(WRITE "${path}" "${_content}")
+endfunction()
+
+function(gentest_fixture_json_escape out_var value)
+  set(_escaped "${value}")
+  string(REPLACE "\\" "\\\\" _escaped "${_escaped}")
+  string(REPLACE "\"" "\\\"" _escaped "${_escaped}")
+  string(REPLACE "\n" "\\n" _escaped "${_escaped}")
+  string(REPLACE "\r" "\\r" _escaped "${_escaped}")
+  string(REPLACE "\t" "\\t" _escaped "${_escaped}")
+  set(${out_var} "${_escaped}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_fixture_json_array out_var)
+  set(_json "[")
+  set(_first TRUE)
+  foreach(_item IN LISTS ARGN)
+    gentest_fixture_json_escape(_escaped "${_item}")
+    if(NOT _first)
+      string(APPEND _json ", ")
+    endif()
+    string(APPEND _json "\"${_escaped}\"")
+    set(_first FALSE)
+  endforeach()
+  string(APPEND _json "]")
+  set(${out_var} "${_json}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_fixture_make_compdb_entry out_var)
+  set(one_value_args DIRECTORY FILE COMMAND)
+  set(multi_value_args ARGUMENTS)
+  cmake_parse_arguments(COMP "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+  if(NOT COMP_DIRECTORY OR NOT COMP_FILE)
+    message(FATAL_ERROR "gentest_fixture_make_compdb_entry requires DIRECTORY and FILE")
+  endif()
+
+  gentest_fixture_json_escape(_dir_json "${COMP_DIRECTORY}")
+  gentest_fixture_json_escape(_file_json "${COMP_FILE}")
+
+  if(DEFINED COMP_COMMAND AND NOT "${COMP_COMMAND}" STREQUAL "")
+    gentest_fixture_json_escape(_command_json "${COMP_COMMAND}")
+    set(_payload "\"command\": \"${_command_json}\"")
+  elseif(COMP_ARGUMENTS)
+    gentest_fixture_json_array(_arguments_json ${COMP_ARGUMENTS})
+    set(_payload "\"arguments\": ${_arguments_json}")
+  else()
+    message(FATAL_ERROR "gentest_fixture_make_compdb_entry requires COMMAND or ARGUMENTS")
+  endif()
+
+  set(${out_var}
+    "  {\n"
+    "    \"directory\": \"${_dir_json}\",\n"
+    "    \"file\": \"${_file_json}\",\n"
+    "    ${_payload}\n"
+    "  }"
+    PARENT_SCOPE)
+endfunction()
+
+function(gentest_fixture_write_compdb path)
+  set(_content "[\n")
+  set(_first TRUE)
+  foreach(_entry IN LISTS ARGN)
+    if(NOT _first)
+      string(APPEND _content ",\n")
+    endif()
+    string(APPEND _content "${_entry}")
+    set(_first FALSE)
+  endforeach()
+  string(APPEND _content "\n]\n")
+  file(WRITE "${path}" "${_content}")
+endfunction()
+
+function(gentest_fixture_write_exec_script path)
+  set(_content "")
+  math(EXPR _last_arg "${ARGC} - 1")
+  foreach(_idx RANGE 1 ${_last_arg})
+    string(APPEND _content "${ARGV${_idx}}")
+  endforeach()
+  file(WRITE "${path}" "${_content}")
+  file(CHMOD "${path}"
+    PERMISSIONS
+      OWNER_READ OWNER_WRITE OWNER_EXECUTE
+      GROUP_READ GROUP_EXECUTE
+      WORLD_READ WORLD_EXECUTE)
+endfunction()

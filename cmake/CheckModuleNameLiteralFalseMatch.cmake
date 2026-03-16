@@ -11,73 +11,82 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 
 set(_work_dir "${BUILD_ROOT}/module_name_literal_false_match")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
-file(WRITE "${_work_dir}/present_header.hpp" "#pragma once\n")
+gentest_fixture_write_file("${_work_dir}/present_header.hpp" "#pragma once\n")
 file(MAKE_DIRECTORY "${_work_dir}/inc")
-file(WRITE "${_work_dir}/inc/present_dir_header.hpp" "#pragma once\n")
+gentest_fixture_write_file("${_work_dir}/inc/present_dir_header.hpp" "#pragma once\n")
 
 set(_source "${_work_dir}/literal_false_match.cppm")
-file(WRITE "${_source}"
-  "#define BANNER \\\n"
-  "  export module wrong.macro;\n"
-  "#define OFF_MACRO 0\n"
-  "#if 0\n"
-  "export module wrong.inactive;\n"
-  "#endif\n"
-  "#if defined(OFF_MACRO) && OFF_MACRO >= 2\n"
-  "export module wrong.conditional;\n"
-  "#endif\n"
-  "#if __has_include(\"definitely_missing_header.hpp\")\n"
-  "export module wrong.has_include;\n"
-  "#endif\n"
-  "const char *banner = \"export module wrong.literal;\";\n"
-  "export module real.module;\n")
+gentest_fixture_write_file("${_source}" [[
+#define BANNER \
+  export module wrong.macro;
+#define OFF_MACRO 0
+#if 0
+export module wrong.inactive;
+#endif
+#if defined(OFF_MACRO) && OFF_MACRO >= 2
+export module wrong.conditional;
+#endif
+#if __has_include("definitely_missing_header.hpp")
+export module wrong.has_include;
+#endif
+const char *banner = "export module wrong.literal;";
+export module real.module;
+]])
 
 set(_shift_source "${_work_dir}/shift_expression.cppm")
-file(WRITE "${_shift_source}"
-  "#if (1u << 2) == 4u\n"
-  "export module shift.module;\n"
-  "#endif\n")
+gentest_fixture_write_file("${_shift_source}" [[
+#if (1u << 2) == 4u
+export module shift.module;
+#endif
+]])
 
 set(_has_include_source "${_work_dir}/has_include_true.cppm")
-file(WRITE "${_has_include_source}"
-  "#if __has_include(\"present_header.hpp\")\n"
-  "export module include.module;\n"
-  "#endif\n")
+gentest_fixture_write_file("${_has_include_source}" [[
+#if __has_include("present_header.hpp")
+export module include.module;
+#endif
+]])
 
 set(_macro_has_include_source "${_work_dir}/has_include_macro.cppm")
-file(WRITE "${_macro_has_include_source}"
-  "#define HDR \"present_header.hpp\"\n"
-  "#if __has_include(HDR)\n"
-  "export module macro.include;\n"
-  "#endif\n")
+gentest_fixture_write_file("${_macro_has_include_source}" [[
+#define HDR "present_header.hpp"
+#if __has_include(HDR)
+export module macro.include;
+#endif
+]])
 
 set(_octal_source "${_work_dir}/octal_expression.cppm")
-file(WRITE "${_octal_source}"
-  "#if 010u == 8u\n"
-  "export module octal.module;\n"
-  "#endif\n")
+gentest_fixture_write_file("${_octal_source}" [[
+#if 010u == 8u
+export module octal.module;
+#endif
+]])
 
 set(_binary_source "${_work_dir}/binary_expression.cppm")
-file(WRITE "${_binary_source}"
-  "#if 0b10u == 2u\n"
-  "export module binary.module;\n"
-  "#endif\n")
+gentest_fixture_write_file("${_binary_source}" [[
+#if 0b10u == 2u
+export module binary.module;
+#endif
+]])
 
 set(_digit_sep_source "${_work_dir}/digit_separated_expression.cppm")
-file(WRITE "${_digit_sep_source}"
-  "#if 1'0u == 10u\n"
-  "export module digitsep.module;\n"
-  "#endif\n")
+gentest_fixture_write_file("${_digit_sep_source}" [[
+#if 1'0u == 10u
+export module digitsep.module;
+#endif
+]])
 
 set(_include_dir_source "${_work_dir}/has_include_include_dir.cppm")
-file(WRITE "${_include_dir_source}"
-  "#if __has_include(\"present_dir_header.hpp\")\n"
-  "export module include_dir.module;\n"
-  "#endif\n")
+gentest_fixture_write_file("${_include_dir_source}" [[
+#if __has_include("present_dir_header.hpp")
+export module include_dir.module;
+#endif
+]])
 
 include("${GENTEST_SOURCE_DIR}/cmake/GentestCodegen.cmake")
 
@@ -154,26 +163,27 @@ if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   endif()
 
   set(_codegen_source "${_work_dir}/conditional_false_match.ixx")
-  file(WRITE "${_codegen_source}"
-    "module;\n"
-    "#include \"gentest/attributes.h\"\n"
-    "\n"
-    "#define HDR \"present_dir_header.hpp\"\n"
-    "#define OFF_MACRO 0\n"
-    "#if defined(OFF_MACRO) && OFF_MACRO >= 2\n"
-    "export module wrong_conditional;\n"
-    "#endif\n"
-    "#if !__has_include(HDR)\n"
-    "export module wrong_has_include;\n"
-    "#endif\n"
-    "#if 0b10u == 2u && 010u == 8u && __has_include(HDR)\n"
-    "export module real_conditional;\n"
-    "#endif\n"
-    "\n"
-    "export namespace conditional_false_match {\n"
-    "[[using gentest: test(\"conditional/selected_module\")]]\n"
-    "void conditional_selected_module() {}\n"
-    "}\n")
+gentest_fixture_write_file("${_codegen_source}" [==[
+module;
+#include "gentest/attributes.h"
+
+#define HDR "present_dir_header.hpp"
+#define OFF_MACRO 0
+#if defined(OFF_MACRO) && OFF_MACRO >= 2
+export module wrong_conditional;
+#endif
+#if !__has_include(HDR)
+export module wrong_has_include;
+#endif
+#if 0b10u == 2u && 010u == 8u && __has_include(HDR)
+export module real_conditional;
+#endif
+
+export namespace conditional_false_match {
+[[using gentest: test("conditional/selected_module")]]
+void conditional_selected_module() {}
+}
+]==])
 
   gentest_resolve_clang_fixture_compilers(_clang _clangxx)
   if("${_clang}" STREQUAL "" OR "${_clangxx}" STREQUAL "")
@@ -185,7 +195,7 @@ if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   set(_fixture_build_dir "${_work_dir}/fixture_build")
   set(_generated_dir "${_fixture_build_dir}/gentest_codegen")
   file(MAKE_DIRECTORY "${_fixture_src_dir}")
-  file(WRITE "${_fixture_src_dir}/CMakeLists.txt"
+  gentest_fixture_write_file("${_fixture_src_dir}/CMakeLists.txt"
     "cmake_minimum_required(VERSION 3.31)\n"
     "project(module_name_false_match_fixture LANGUAGES CXX)\n"
     "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n"

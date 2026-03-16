@@ -8,6 +8,8 @@ if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckCodegenEnvWrappedCompiler.cmake: SOURCE_DIR not set")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+
 find_program(_real_cxx NAMES c++ g++ clang++ clang++-21 clang++-20 REQUIRED)
 file(TO_CMAKE_PATH "${_real_cxx}" _real_cxx_norm)
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
@@ -26,36 +28,41 @@ set(_sample_cmake_env_obj "${_work_dir}/sample_cmake_env.o")
 set(_sample_plain_env_cpp "${_work_dir}/sample_plain_env.cpp")
 set(_sample_plain_env_obj "${_work_dir}/sample_plain_env.o")
 
-file(WRITE "${_sample_cmake_env_cpp}"
-  "#include \"gentest/attributes.h\"\n"
-  "[[using gentest: test(\"env/cmake_wrapped\")]] void cmake_wrapped_test() {}\n")
-file(WRITE "${_sample_plain_env_cpp}"
-  "#include \"gentest/attributes.h\"\n"
-  "[[using gentest: test(\"env/plain_wrapped\")]] void plain_wrapped_test() {}\n")
+gentest_fixture_write_file("${_sample_cmake_env_cpp}" [==[
+#include "gentest/attributes.h"
+[[using gentest: test("env/cmake_wrapped")]] void cmake_wrapped_test() {}
+]==])
+gentest_fixture_write_file("${_sample_plain_env_cpp}" [==[
+#include "gentest/attributes.h"
+[[using gentest: test("env/plain_wrapped")]] void plain_wrapped_test() {}
+]==])
 
 file(TO_CMAKE_PATH "${_sample_cmake_env_cpp}" _sample_cmake_env_cpp_norm)
 file(TO_CMAKE_PATH "${_sample_cmake_env_obj}" _sample_cmake_env_obj_norm)
 file(TO_CMAKE_PATH "${_sample_plain_env_cpp}" _sample_plain_env_cpp_norm)
 file(TO_CMAKE_PATH "${_sample_plain_env_obj}" _sample_plain_env_obj_norm)
 
-file(WRITE "${_work_dir}/compile_commands.json"
-  "[\n"
-  "  {\n"
-    "    \"directory\": \"${_work_dir_norm}\",\n"
-    "    \"file\": \"${_sample_cmake_env_cpp_norm}\",\n"
-    "    \"arguments\": [\"${CMAKE_COMMAND}\", \"-E\", \"env\", \"FOO=1\", \"${_real_cxx_norm}\", \"-std=c++20\", \"-I${_source_dir_norm}/include\", \"-I${_work_dir_norm}\", \"-c\", \"${_sample_cmake_env_cpp_norm}\", \"-o\", \"${_sample_cmake_env_obj_norm}\"]\n"
-  "  }")
+gentest_fixture_make_compdb_entry(_cmake_env_entry
+  DIRECTORY "${_work_dir_norm}"
+  FILE "${_sample_cmake_env_cpp_norm}"
+  ARGUMENTS
+    "${CMAKE_COMMAND}" "-E" "env" "FOO=1"
+    "${_real_cxx_norm}" "-std=c++20"
+    "-I${_source_dir_norm}/include" "-I${_work_dir_norm}"
+    "-c" "${_sample_cmake_env_cpp_norm}" "-o" "${_sample_cmake_env_obj_norm}")
+set(_compdb_entries "${_cmake_env_entry}")
 if(UNIX AND NOT CMAKE_HOST_WIN32 AND _env_program)
-  file(APPEND "${_work_dir}/compile_commands.json"
-    ",\n"
-    "  {\n"
-    "    \"directory\": \"${_work_dir_norm}\",\n"
-    "    \"file\": \"${_sample_plain_env_cpp_norm}\",\n"
-    "    \"arguments\": [\"${_env_program_norm}\", \"FOO=1\", \"${_real_cxx_norm}\", \"-std=c++20\", \"-I${_source_dir_norm}/include\", \"-I${_work_dir_norm}\", \"-c\", \"${_sample_plain_env_cpp_norm}\", \"-o\", \"${_sample_plain_env_obj_norm}\"]\n"
-    "  }")
+  gentest_fixture_make_compdb_entry(_plain_env_entry
+    DIRECTORY "${_work_dir_norm}"
+    FILE "${_sample_plain_env_cpp_norm}"
+    ARGUMENTS
+      "${_env_program_norm}" "FOO=1"
+      "${_real_cxx_norm}" "-std=c++20"
+      "-I${_source_dir_norm}/include" "-I${_work_dir_norm}"
+      "-c" "${_sample_plain_env_cpp_norm}" "-o" "${_sample_plain_env_obj_norm}")
+  list(APPEND _compdb_entries "${_plain_env_entry}")
 endif()
-file(APPEND "${_work_dir}/compile_commands.json"
-  "]\n")
+gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" ${_compdb_entries})
 
 execute_process(
   COMMAND "${PROG}" --check --compdb "${_work_dir}" "${_sample_cmake_env_cpp_norm}"

@@ -26,6 +26,7 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 
 if(WIN32)
   gentest_skip_test("CheckMockSymlinkInclude.cmake: Windows host covered by cross-root mock include test")
@@ -67,12 +68,15 @@ set(_mock_registry "${_work_dir}/symlink_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/symlink_mock_impl.hpp")
 set(_mock_registry_domain "${_work_dir}/symlink_mock_registry__domain_0000_header.hpp")
 
-file(WRITE "${_real_header}" "namespace symlinkprobe { struct Sink { void write(int) {} }; }\n")
-file(WRITE "${_input_cpp}"
-  "#include \"gentest/mock.h\"\n"
-  "#include \"../include/symlink_sink.hpp\"\n"
-  "using SinkMock = gentest::mock<symlinkprobe::Sink>;\n"
-  "[[maybe_unused]] inline SinkMock* kSinkMockPtr = nullptr;\n")
+gentest_fixture_write_file("${_real_header}" [[
+namespace symlinkprobe { struct Sink { void write(int) {} }; }
+]])
+gentest_fixture_write_file("${_input_cpp}" [==[
+#include "gentest/mock.h"
+#include "../include/symlink_sink.hpp"
+using SinkMock = gentest::mock<symlinkprobe::Sink>;
+[[maybe_unused]] inline SinkMock* kSinkMockPtr = nullptr;
+]==])
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E create_symlink "${_real_root}" "${_view_root}"
