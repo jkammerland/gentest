@@ -1787,6 +1787,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_cpp_source APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_first_classic_order
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_first_classic_order
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleFirstClassicOrder.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_first_classic_order APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_manual_include_whitespace
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_manual_include_whitespace
     ${PROJECT_SOURCE_DIR}/cmake/CheckModuleManualIncludeWhitespaceDuplicate.cmake
