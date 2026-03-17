@@ -1,8 +1,7 @@
 # Requires:
 #  -DPROG=<path to gentest_codegen>
 #  -DBUILD_ROOT=<build tree root>
-#  -DPROJECT_SOURCE_DIR=<project source root>
-#  -DTESTS_SOURCE_DIR=<tests source dir>
+#  -DPROJECT_SOURCE_DIR=<project source root> (or GENTEST_SOURCE_DIR/SOURCE_DIR)
 #  -DCODEGEN_STD=<std flag, e.g. -std=c++23>
 # Optional:
 #  -DCROSS_TARGET_ARG=<--target=...>
@@ -20,18 +19,26 @@ endif()
 if(NOT DEFINED BUILD_ROOT)
   message(FATAL_ERROR "CheckMockCrossRootInclude.cmake: BUILD_ROOT not set")
 endif()
-if(NOT DEFINED PROJECT_SOURCE_DIR)
-  message(FATAL_ERROR "CheckMockCrossRootInclude.cmake: PROJECT_SOURCE_DIR not set")
+if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
+  if(DEFINED PROJECT_SOURCE_DIR AND NOT "${PROJECT_SOURCE_DIR}" STREQUAL "")
+    set(SOURCE_DIR "${PROJECT_SOURCE_DIR}")
+  elseif(DEFINED GENTEST_SOURCE_DIR AND NOT "${GENTEST_SOURCE_DIR}" STREQUAL "")
+    set(SOURCE_DIR "${GENTEST_SOURCE_DIR}")
+  else()
+    message(FATAL_ERROR "CheckMockCrossRootInclude.cmake: SOURCE_DIR (or PROJECT_SOURCE_DIR/GENTEST_SOURCE_DIR) not set")
+  endif()
 endif()
-if(NOT DEFINED TESTS_SOURCE_DIR)
-  message(FATAL_ERROR "CheckMockCrossRootInclude.cmake: TESTS_SOURCE_DIR not set")
+if(NOT DEFINED TESTS_SOURCE_DIR OR "${TESTS_SOURCE_DIR}" STREQUAL "")
+  set(TESTS_SOURCE_DIR "${SOURCE_DIR}/tests")
 endif()
 if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
   message(FATAL_ERROR "CheckMockCrossRootInclude.cmake: CODEGEN_STD not set")
 endif()
+file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
+file(TO_CMAKE_PATH "${TESTS_SOURCE_DIR}" _tests_source_dir_norm)
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+set(_mock_cross_root_fixture_dir "${_source_dir_norm}/tests/cmake/mock_cross_root_include")
 
 if(NOT WIN32)
   gentest_skip_test("CheckMockCrossRootInclude.cmake: non-Windows host")
@@ -76,12 +83,13 @@ if(_build_drive STREQUAL _user_drive)
   return()
 endif()
 
-set(_external_dir "${_user_profile_norm}/gentest_codegen_cross_root")
+string(RANDOM LENGTH 8 _cross_root_suffix)
+set(_external_dir "${_user_profile_norm}/gentest_codegen_cross_root/${_cross_root_suffix}")
+unset(_cross_root_suffix)
 set(_external_header "${_external_dir}/cross_root_sink.hpp")
 file(MAKE_DIRECTORY "${_external_dir}")
-gentest_fixture_write_file("${_external_header}" [[
-namespace crossroot { struct Sink { void write(int) {} }; }
-]])
+file(COPY "${_mock_cross_root_fixture_dir}/cross_root_sink.hpp"
+     DESTINATION "${_external_dir}")
 
 set(_work_dir "${_build_root}/gentest_codegen_cross_root")
 file(MAKE_DIRECTORY "${_work_dir}")
@@ -90,13 +98,15 @@ set(_output_cpp "${_work_dir}/cross_root_output.gentest.cpp")
 set(_mock_registry "${_work_dir}/cross_root_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/cross_root_mock_impl.hpp")
 set(_mock_registry_domain "${_work_dir}/cross_root_mock_registry__domain_0000_header.hpp")
+macro(_gentest_check_cross_root_fail message)
+  file(REMOVE_RECURSE "${_external_dir}")
+  message(FATAL_ERROR "${message}")
+endmacro()
 
 file(TO_CMAKE_PATH "${_external_header}" _external_header_norm)
-gentest_fixture_write_file("${_input_cpp}"
-  "#include \"gentest/mock.h\"\n"
-  "#include \"${_external_header_norm}\"\n"
-  "using SinkMock = gentest::mock<crossroot::Sink>;\n"
-  "[[maybe_unused]] inline SinkMock* kSinkMockPtr = nullptr;\n")
+set(CROSS_ROOT_HEADER "${_external_header_norm}")
+configure_file("${_mock_cross_root_fixture_dir}/cross_root_input.cpp.in" "${_input_cpp}" @ONLY)
+unset(CROSS_ROOT_HEADER)
 
 set(_args
   --output "${_output_cpp}"
@@ -121,8 +131,8 @@ list(APPEND _args
   -x
   c++
   "${_codegen_std}"
-  "-I${PROJECT_SOURCE_DIR}/include"
-  "-I${TESTS_SOURCE_DIR}")
+  "-I${_source_dir_norm}/include"
+  "-I${_tests_source_dir_norm}")
 
 if(EXISTS "${_build_root}/_deps/fmt-src/include")
   list(APPEND _args "-I${_build_root}/_deps/fmt-src/include")
@@ -149,14 +159,14 @@ execute_process(
   ERROR_STRIP_TRAILING_WHITESPACE)
 
 if(NOT _rc EQUAL 0)
-  message(FATAL_ERROR "Cross-root mock codegen failed (rc=${_rc}). Output:\n${_out}\nErrors:\n${_err}")
+  _gentest_check_cross_root_fail("Cross-root mock codegen failed (rc=${_rc}). Output:\n${_out}\nErrors:\n${_err}")
 endif()
 
 if(NOT EXISTS "${_mock_registry}")
-  message(FATAL_ERROR "Cross-root mock codegen did not produce registry header: ${_mock_registry}")
+  _gentest_check_cross_root_fail("Cross-root mock codegen did not produce registry header: ${_mock_registry}")
 endif()
 if(NOT EXISTS "${_mock_registry_domain}")
-  message(FATAL_ERROR "Cross-root mock codegen did not produce domain registry header: ${_mock_registry_domain}")
+  _gentest_check_cross_root_fail("Cross-root mock codegen did not produce domain registry header: ${_mock_registry_domain}")
 endif()
 
 file(READ "${_mock_registry_domain}" _registry_text)
@@ -165,8 +175,9 @@ string(TOLOWER "${_registry_text}" _registry_text_cmp)
 string(TOLOWER "${_expected_include}" _expected_include_cmp)
 string(FIND "${_registry_text_cmp}" "${_expected_include_cmp}" _include_pos)
 if(_include_pos EQUAL -1)
-  message(FATAL_ERROR
+  _gentest_check_cross_root_fail(
     "Expected absolute include not found in domain registry header. Wanted '${_expected_include}'.\n${_registry_text}")
 endif()
 
+file(REMOVE_RECURSE "${_external_dir}")
 message(STATUS "Cross-root mock include generation passed")

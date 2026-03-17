@@ -28,28 +28,15 @@ set(_output "${_work_dir}/dep_manifest.cpp")
 set(_mock_registry "${_work_dir}/dep_manifest_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/dep_manifest_mock_impl.hpp")
 
-gentest_fixture_write_file("${_a_hpp}" [[
-#pragma once
-inline int dep_a_value() { return 1; }
-]])
-gentest_fixture_write_file("${_b_hpp}" [[
-#pragma once
-inline int dep_b_value() { return 2; }
-]])
+file(COPY
+  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.hpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.hpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.cpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.cpp"
+  DESTINATION "${_work_dir}")
 
 file(TO_CMAKE_PATH "${_a_cpp}" _a_cpp_norm)
 file(TO_CMAKE_PATH "${_b_cpp}" _b_cpp_norm)
-
-gentest_fixture_write_file("${_a_cpp}" [==[
-#include "a.hpp"
-#include "gentest/attributes.h"
-[[using gentest: test("dep/a")]] void dep_a() { (void)dep_a_value(); }
-]==])
-gentest_fixture_write_file("${_b_cpp}" [==[
-#include "b.hpp"
-#include "gentest/attributes.h"
-[[using gentest: test("dep/b")]] void dep_b() { (void)dep_b_value(); }
-]==])
 
 gentest_fixture_make_compdb_entry(_a_entry
   DIRECTORY "${_work_dir_norm}"

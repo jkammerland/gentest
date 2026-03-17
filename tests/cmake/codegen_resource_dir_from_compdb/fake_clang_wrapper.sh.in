@@ -1,0 +1,6 @@
+#!/bin/sh
+if [ "$1" = "-print-resource-dir" ]; then
+  printf '%s\n' '@_missing_resource_dir@'
+  exit 0
+fi
+exec "@_real_clang_norm@" "$@"
