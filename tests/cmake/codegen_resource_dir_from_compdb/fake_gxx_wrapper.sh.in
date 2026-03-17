@@ -1,0 +1,6 @@
+#!/bin/sh
+if [ "$1" = "-print-resource-dir" ]; then
+  echo 'gxx-probe-should-not-run' >&2
+  exit 1
+fi
+exec "@_real_clang_norm@" "$@"

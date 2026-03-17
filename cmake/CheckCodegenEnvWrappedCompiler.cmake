@@ -28,14 +28,10 @@ set(_sample_cmake_env_obj "${_work_dir}/sample_cmake_env.o")
 set(_sample_plain_env_cpp "${_work_dir}/sample_plain_env.cpp")
 set(_sample_plain_env_obj "${_work_dir}/sample_plain_env.o")
 
-gentest_fixture_write_file("${_sample_cmake_env_cpp}" [==[
-#include "gentest/attributes.h"
-[[using gentest: test("env/cmake_wrapped")]] void cmake_wrapped_test() {}
-]==])
-gentest_fixture_write_file("${_sample_plain_env_cpp}" [==[
-#include "gentest/attributes.h"
-[[using gentest: test("env/plain_wrapped")]] void plain_wrapped_test() {}
-]==])
+file(COPY
+  "${SOURCE_DIR}/tests/cmake/codegen_env_wrapped_compiler/sample_cmake_env.cpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_env_wrapped_compiler/sample_plain_env.cpp"
+  DESTINATION "${_work_dir}")
 
 file(TO_CMAKE_PATH "${_sample_cmake_env_cpp}" _sample_cmake_env_cpp_norm)
 file(TO_CMAKE_PATH "${_sample_cmake_env_obj}" _sample_cmake_env_obj_norm)

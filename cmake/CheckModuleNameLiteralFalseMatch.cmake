@@ -5,88 +5,42 @@
 if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckModuleNameLiteralFalseMatch.cmake: GENTEST_SOURCE_DIR not set")
 endif()
+if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
+  set(SOURCE_DIR "${GENTEST_SOURCE_DIR}")
+endif()
 if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
   message(FATAL_ERROR "CheckModuleNameLiteralFalseMatch.cmake: BUILD_ROOT not set")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+set(_module_name_false_match_fixture_dir "${SOURCE_DIR}/tests/cmake/module_name_literal_false_match")
 
-set(_work_dir "${BUILD_ROOT}/module_name_literal_false_match")
+set(_work_dir "${BUILD_ROOT}/mnlm")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
-gentest_fixture_write_file("${_work_dir}/present_header.hpp" "#pragma once\n")
-file(MAKE_DIRECTORY "${_work_dir}/inc")
-gentest_fixture_write_file("${_work_dir}/inc/present_dir_header.hpp" "#pragma once\n")
-
-set(_source "${_work_dir}/literal_false_match.cppm")
-gentest_fixture_write_file("${_source}" [[
-#define BANNER \
-  export module wrong.macro;
-#define OFF_MACRO 0
-#if 0
-export module wrong.inactive;
-#endif
-#if defined(OFF_MACRO) && OFF_MACRO >= 2
-export module wrong.conditional;
-#endif
-#if __has_include("definitely_missing_header.hpp")
-export module wrong.has_include;
-#endif
-const char *banner = "export module wrong.literal;";
-export module real.module;
-]])
+file(COPY
+  "${_module_name_false_match_fixture_dir}/present_header.hpp"
+  "${_module_name_false_match_fixture_dir}/literal_false_match.cppm"
+  "${_module_name_false_match_fixture_dir}/shift_expression.cppm"
+  "${_module_name_false_match_fixture_dir}/has_include_true.cppm"
+  "${_module_name_false_match_fixture_dir}/has_include_macro.cppm"
+  "${_module_name_false_match_fixture_dir}/octal_expression.cppm"
+  "${_module_name_false_match_fixture_dir}/binary_expression.cppm"
+  "${_module_name_false_match_fixture_dir}/digit_separated_expression.cppm"
+  "${_module_name_false_match_fixture_dir}/has_include_include_dir.cppm"
+  DESTINATION "${_work_dir}")
+file(COPY "${_module_name_false_match_fixture_dir}/inc/present_dir_header.hpp"
+  DESTINATION "${_work_dir}/inc")
 
 set(_shift_source "${_work_dir}/shift_expression.cppm")
-gentest_fixture_write_file("${_shift_source}" [[
-#if (1u << 2) == 4u
-export module shift.module;
-#endif
-]])
-
 set(_has_include_source "${_work_dir}/has_include_true.cppm")
-gentest_fixture_write_file("${_has_include_source}" [[
-#if __has_include("present_header.hpp")
-export module include.module;
-#endif
-]])
-
 set(_macro_has_include_source "${_work_dir}/has_include_macro.cppm")
-gentest_fixture_write_file("${_macro_has_include_source}" [[
-#define HDR "present_header.hpp"
-#if __has_include(HDR)
-export module macro.include;
-#endif
-]])
-
 set(_octal_source "${_work_dir}/octal_expression.cppm")
-gentest_fixture_write_file("${_octal_source}" [[
-#if 010u == 8u
-export module octal.module;
-#endif
-]])
-
 set(_binary_source "${_work_dir}/binary_expression.cppm")
-gentest_fixture_write_file("${_binary_source}" [[
-#if 0b10u == 2u
-export module binary.module;
-#endif
-]])
-
 set(_digit_sep_source "${_work_dir}/digit_separated_expression.cppm")
-gentest_fixture_write_file("${_digit_sep_source}" [[
-#if 1'0u == 10u
-export module digitsep.module;
-#endif
-]])
-
 set(_include_dir_source "${_work_dir}/has_include_include_dir.cppm")
-gentest_fixture_write_file("${_include_dir_source}" [[
-#if __has_include("present_dir_header.hpp")
-export module include_dir.module;
-#endif
-]])
+set(_source "${_work_dir}/literal_false_match.cppm")
 
 include("${GENTEST_SOURCE_DIR}/cmake/GentestCodegen.cmake")
 
@@ -163,27 +117,9 @@ if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   endif()
 
   set(_codegen_source "${_work_dir}/conditional_false_match.ixx")
-gentest_fixture_write_file("${_codegen_source}" [==[
-module;
-#include "gentest/attributes.h"
-
-#define HDR "present_dir_header.hpp"
-#define OFF_MACRO 0
-#if defined(OFF_MACRO) && OFF_MACRO >= 2
-export module wrong_conditional;
-#endif
-#if !__has_include(HDR)
-export module wrong_has_include;
-#endif
-#if 0b10u == 2u && 010u == 8u && __has_include(HDR)
-export module real_conditional;
-#endif
-
-export namespace conditional_false_match {
-[[using gentest: test("conditional/selected_module")]]
-void conditional_selected_module() {}
-}
-]==])
+  file(COPY
+    "${_module_name_false_match_fixture_dir}/conditional_false_match.ixx"
+    DESTINATION "${_work_dir}")
 
   gentest_resolve_clang_fixture_compilers(_clang _clangxx)
   if("${_clang}" STREQUAL "" OR "${_clangxx}" STREQUAL "")
@@ -195,24 +131,15 @@ void conditional_selected_module() {}
   set(_fixture_build_dir "${_work_dir}/fixture_build")
   set(_generated_dir "${_fixture_build_dir}/gentest_codegen")
   file(MAKE_DIRECTORY "${_fixture_src_dir}")
-  gentest_fixture_write_file("${_fixture_src_dir}/CMakeLists.txt"
-    "cmake_minimum_required(VERSION 3.31)\n"
-    "project(module_name_false_match_fixture LANGUAGES CXX)\n"
-    "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n"
-    "set(CMAKE_CXX_EXTENSIONS OFF)\n"
-    "set(gentest_BUILD_TESTING OFF CACHE BOOL \"\" FORCE)\n"
-    "set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL \"\" FORCE)\n"
-    "add_subdirectory(\"${GENTEST_SOURCE_DIR}\" gentest-build EXCLUDE_FROM_ALL)\n"
-    "add_executable(module_name_false_match_tests)\n"
-    "target_compile_features(module_name_false_match_tests PRIVATE cxx_std_20)\n"
-    "target_include_directories(module_name_false_match_tests PRIVATE \"\${CMAKE_CURRENT_SOURCE_DIR}/inc\")\n"
-    "target_link_libraries(module_name_false_match_tests PRIVATE gentest::gentest gentest::gentest_main)\n"
-    "target_sources(module_name_false_match_tests PRIVATE FILE_SET module_cases TYPE CXX_MODULES FILES\n"
-    "  \"\${CMAKE_CURRENT_SOURCE_DIR}/conditional_false_match.ixx\")\n"
-    "gentest_attach_codegen(module_name_false_match_tests OUTPUT_DIR \"\${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen\")\n")
-  file(COPY "${_codegen_source}" DESTINATION "${_fixture_src_dir}")
-  file(MAKE_DIRECTORY "${_fixture_src_dir}/inc")
-  file(COPY "${_work_dir}/inc/present_dir_header.hpp" DESTINATION "${_fixture_src_dir}/inc")
+  file(COPY
+    "${_module_name_false_match_fixture_dir}/fixture_CMakeLists.txt"
+    "${_module_name_false_match_fixture_dir}/conditional_false_match.ixx"
+    DESTINATION "${_fixture_src_dir}")
+  file(RENAME
+    "${_fixture_src_dir}/fixture_CMakeLists.txt"
+    "${_fixture_src_dir}/CMakeLists.txt")
+  file(COPY "${_module_name_false_match_fixture_dir}/inc/present_dir_header.hpp"
+    DESTINATION "${_fixture_src_dir}/inc")
 
   set(_cmake_gen_args -G "${GENERATOR}")
   if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
