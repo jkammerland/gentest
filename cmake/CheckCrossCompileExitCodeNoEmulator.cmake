@@ -10,6 +10,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
+set(SOURCE_DIR "${_source_dir_norm}")
 
 set(_work_dir "${BUILD_ROOT}/cross_compile_exit_code_no_emulator")
 file(REMOVE_RECURSE "${_work_dir}")

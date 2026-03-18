@@ -14,15 +14,27 @@ if(_coverage_build_pos EQUAL -1)
   message(FATAL_ERROR "Coverage matrix entry not found in ${_workflow_file}")
 endif()
 
-string(FIND "${_content}" "run_coverage: true" _run_coverage_pos)
-if(_run_coverage_pos EQUAL -1)
-  message(FATAL_ERROR "Coverage matrix entry must mark run_coverage: true")
+string(SUBSTRING "${_content}" ${_coverage_build_pos} -1 _coverage_tail)
+string(FIND "${_coverage_tail}" "
+          - name:" _next_row_rel)
+if(_next_row_rel EQUAL -1)
+  set(_coverage_row "${_coverage_tail}")
+else()
+  string(SUBSTRING "${_coverage_tail}" 0 ${_next_row_rel} _coverage_row)
 endif()
 
-string(FIND "${_content}" "ctest_parallel: 1" _ctest_parallel_pos)
+string(FIND "${_coverage_row}" "run_coverage: true" _run_coverage_pos)
+if(_run_coverage_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage matrix row must mark run_coverage: true.\n"
+    "Observed row:\n${_coverage_row}")
+endif()
+
+string(FIND "${_coverage_row}" "ctest_parallel: 1" _ctest_parallel_pos)
 if(_ctest_parallel_pos EQUAL -1)
   message(FATAL_ERROR
-    "Coverage matrix entry must set ctest_parallel: 1 so repeated coverage runs do not race on shared .gcda files")
+    "Coverage matrix row must set ctest_parallel: 1 so repeated coverage runs do not race on shared .gcda files.\n"
+    "Observed row:\n${_coverage_row}")
 endif()
 
 set(_expected_test_line [=[ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }}]=])
