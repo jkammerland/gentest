@@ -14,4 +14,3 @@ gentest_add_cmake_script_test(
     NAME emu_serialize_probe_@CASE_NAME@
     PROG "@CMAKE_COMMAND@"
     SCRIPT "${CMAKE_CURRENT_LIST_DIR}/ProbeScript.cmake")
-

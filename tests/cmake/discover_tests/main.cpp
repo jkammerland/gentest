@@ -77,4 +77,3 @@ int main(int argc, char **argv) {
   (void)run_one("demo/death_skip");
   return 0;
 }
-
