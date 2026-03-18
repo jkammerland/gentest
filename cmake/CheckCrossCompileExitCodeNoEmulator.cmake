@@ -27,8 +27,11 @@ endif()
 set(_fixture_src "${_work_dir}/src")
 set(_fixture_build "${_work_dir}/build")
 file(MAKE_DIRECTORY "${_fixture_src}")
+file(MAKE_DIRECTORY "${_fixture_src}/cmake")
 file(COPY "${_source_dir_norm}/tests/cmake/cross_compile_emulator_serialization/ProbeScript.cmake"
   DESTINATION "${_fixture_src}")
+file(COPY "${_source_dir_norm}/cmake/CheckExitCode.cmake"
+  DESTINATION "${_fixture_src}/cmake")
 
 set(_fixture_cmakelists_template "${_source_dir_norm}/tests/cmake/check_exit_code_no_emulator/CMakeLists.in")
 set(_fixture_cmakelists "${_fixture_src}/CMakeLists.txt")
@@ -58,3 +61,13 @@ if(NOT _emu_pos EQUAL -1)
     "gentest_add_check_exit_code(NO_EMULATOR ...) still serialized CMAKE_CROSSCOMPILING_EMULATOR.\n"
     "Observed excerpt:\n${_emu_excerpt}")
 endif()
+
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_CTEST_COMMAND}"
+    --test-dir "${_fixture_build}"
+    --output-on-failure
+    -R "^exit_code_no_emulator_probe$"
+  STRIP_TRAILING_WHITESPACE
+  WORKING_DIRECTORY "${_work_dir}"
+)
