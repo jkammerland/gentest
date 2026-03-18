@@ -32,3 +32,17 @@ if(_test_line_pos EQUAL -1)
     "Workflow test step must use matrix.ctest_parallel so coverage jobs can force serial execution.\n"
     "Expected line:\n${_expected_test_line}")
 endif()
+
+set(_forbidden_gcov_pref [=[GCOV_CMD=(llvm-cov gcov)]=])
+string(FIND "${_content}" "${_forbidden_gcov_pref}" _forbidden_gcov_pos)
+if(NOT _forbidden_gcov_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must not prefer llvm-cov gcov here; the current coverage tree expects plain gcov.")
+endif()
+
+set(_expected_gcov_line [=[--gcov gcov]=])
+string(FIND "${_content}" "${_expected_gcov_line}" _gcov_line_pos)
+if(_gcov_line_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must pass '--gcov gcov' to coverage_hygiene.py.")
+endif()

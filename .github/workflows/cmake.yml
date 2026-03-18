@@ -777,25 +777,20 @@ jobs:
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          if command -v llvm-cov >/dev/null 2>&1; then
-            GCOV_CMD=(llvm-cov gcov)
-          else
-            GCOV_CMD=(gcov)
-          fi
           python3 scripts/coverage_hygiene.py \
             --build-dir build/coverage \
             --roots tools/src \
             --fail-on missing_obj,missing_gcda,no_match,gcov_error \
             --warn-on zero_hits \
             --ignore-statuses stamp_mismatch \
-            --gcov "${GCOV_CMD[@]}"
+            --gcov gcov
           python3 scripts/coverage_hygiene.py \
             --build-dir build/coverage \
             --roots src \
             --fail-on missing_obj,missing_gcda,no_match,gcov_error \
             --warn-on zero_hits \
             --ignore-statuses stamp_mismatch \
-            --gcov "${GCOV_CMD[@]}"
+            --gcov gcov
 
   package-workflow:
     name: Package Workflow

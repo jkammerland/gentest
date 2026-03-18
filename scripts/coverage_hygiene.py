@@ -37,9 +37,7 @@ INTENTIONAL_SOURCES = {
     "tools/src/terminfo_shim.cpp",
 }
 
-NO_EXEC_SOURCES = {
-    "src/runtime_context.cpp",
-}
+NO_EXEC_SOURCES: Set[str] = set()
 
 DEFAULT_FAIL_STATUSES = "missing_obj,missing_gcda,stamp_mismatch,no_match,gcov_error"
 DEFAULT_ACTIONABLE_STATUSES = "zero_hits"
@@ -365,17 +363,30 @@ def _scan_unit(
     best_lines: Optional[int] = None
     best_gcda: Optional[str] = None
     best_obj: Optional[str] = None
+    best_skipped_status: Optional[GcovStatus] = None
+    best_skipped_pct: Optional[float] = None
+    best_skipped_lines: Optional[int] = None
+    best_skipped_gcda: Optional[str] = None
+    best_skipped_obj: Optional[str] = None
 
     for _, obj_file, gcda in candidates:
         status, pct, lines, gcda_str = _run_gcov(source, gcov_cmd, gcda, gcov_support, gcov_args)
         if status == "ok":
             return status, pct, lines, gcda_str, str(obj_file)
 
-        # Keep scanning to avoid stale or artifacted gcda files from other target builds.
+        priority = PREFERRED_ORDER.get(status, 99)
+
+        # Keep scanning to avoid stale or artifacted gcda files from other target builds,
+        # but remember the best skipped status in case every candidate ends up in this bucket.
         if status in SKIP_FOR_BEST_EFFORT:
+            if best_skipped_status is None or priority < PREFERRED_ORDER.get(best_skipped_status, 99):
+                best_skipped_status = status
+                best_skipped_pct = pct
+                best_skipped_lines = lines
+                best_skipped_gcda = gcda_str
+                best_skipped_obj = str(obj_file)
             continue
 
-        priority = PREFERRED_ORDER.get(status, 99)
         if best_status is None:
             best_status = status
             best_pct = pct
@@ -392,6 +403,8 @@ def _scan_unit(
 
     if best_status is not None:
         return best_status, best_pct, best_lines, best_gcda, best_obj
+    if best_skipped_status is not None:
+        return best_skipped_status, best_skipped_pct, best_skipped_lines, best_skipped_gcda, best_skipped_obj
     return "missing_gcda", None, None, None, None
 
 
