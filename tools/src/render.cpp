@@ -570,7 +570,6 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
     out.reserve(cases.size() * 160);
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test             = cases[idx];
-        const bool  has_fixture      = !test.fixture_qualified_name.empty();
         append_format_runtime(
             out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)),
             fmt::arg("wrapper", std::string("kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),

@@ -76,17 +76,3 @@ function(gentest_fixture_write_compdb path)
   string(APPEND _content "\n]\n")
   file(WRITE "${path}" "${_content}")
 endfunction()
-
-function(gentest_fixture_write_exec_script path)
-  set(_content "")
-  math(EXPR _last_arg "${ARGC} - 1")
-  foreach(_idx RANGE 1 ${_last_arg})
-    string(APPEND _content "${ARGV${_idx}}")
-  endforeach()
-  file(WRITE "${path}" "${_content}")
-  file(CHMOD "${path}"
-    PERMISSIONS
-      OWNER_READ OWNER_WRITE OWNER_EXECUTE
-      GROUP_READ GROUP_EXECUTE
-      WORLD_READ WORLD_EXECUTE)
-endfunction()

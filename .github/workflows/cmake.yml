@@ -277,7 +277,10 @@ jobs:
             clang_version: "20"
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: debug
+            build_type: coverage
+            preset: coverage
+            run_coverage: true
+            ctest_parallel: 1
           - name: Ubuntu 24.04 • Clang 20
             container: ubuntu:24.04
             pkg_manager: apt
@@ -753,13 +756,46 @@ jobs:
         run: |
           set -euxo pipefail
           cmake --build --preset=${GENTEST_CMAKE_PRESET} --parallel
+      - name: "Coverage: reset coverage artifacts"
+        if: ${{ matrix.run_coverage == true }}
+        run: |
+          set -euxo pipefail
+          if [ -d build/coverage ]; then
+            find build/coverage -name '*.gcda' -delete
+          fi
       - name: Test
         env:
           LC_ALL: C.UTF-8
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel 4
+          ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }}
+      - name: Coverage hygiene (codegen + runtime)
+        if: ${{ matrix.run_coverage == true }}
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: |
+          set -euxo pipefail
+          if command -v llvm-cov >/dev/null 2>&1; then
+            GCOV_CMD=(llvm-cov gcov)
+          else
+            GCOV_CMD=(gcov)
+          fi
+          python3 scripts/coverage_hygiene.py \
+            --build-dir build/coverage \
+            --roots tools/src \
+            --fail-on missing_obj,missing_gcda,no_match,gcov_error \
+            --warn-on zero_hits \
+            --ignore-statuses stamp_mismatch \
+            --gcov "${GCOV_CMD[@]}"
+          python3 scripts/coverage_hygiene.py \
+            --build-dir build/coverage \
+            --roots src \
+            --fail-on missing_obj,missing_gcda,no_match,gcov_error \
+            --warn-on zero_hits \
+            --ignore-statuses stamp_mismatch \
+            --gcov "${GCOV_CMD[@]}"
 
   package-workflow:
     name: Package Workflow

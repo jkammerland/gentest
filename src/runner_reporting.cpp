@@ -476,7 +476,9 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
 #endif
 
     if (cfg.junit_path) {
+#ifdef GENTEST_USE_BOOST_JSON
         const std::size_t infra_errors_before_junit = acc.infra_errors.size();
+#endif
         if (!preflight_output_file(
                 [&](std::string message) {
                     record_runner_level_failure(acc, "gentest/reporting/junit", std::move(message));
@@ -494,7 +496,9 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
     }
 
     if (junit_ready) {
+#ifdef GENTEST_USE_BOOST_JSON
         const std::size_t infra_errors_before_junit_write = acc.infra_errors.size();
+#endif
         write_junit_report();
 #ifdef GENTEST_USE_BOOST_JSON
         if (cfg.allure_dir && allure_ready && acc.infra_errors.size() != infra_errors_before_junit_write) {

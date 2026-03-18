@@ -174,25 +174,33 @@ if(CMAKE_CROSSCOMPILING)
 endif()
 
 # Lint-only checks for generator
-add_test(NAME gentest_codegen_check_valid
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_valid
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
         -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_check_namespaced_attrs
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_namespaced_attrs
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
 
 gentest_add_check_death(
     NAME gentest_codegen_mis_scoped_attr_keyword
@@ -435,8 +443,12 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_named_module_codegen_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_named_module_codegen_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/named_module_ok.cppm
@@ -449,8 +461,12 @@ add_test(NAME gentest_codegen_mock_named_module_codegen_ok
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_header_main_tu_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_header_main_tu_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
@@ -462,8 +478,12 @@ add_test(NAME gentest_codegen_mock_header_main_tu_ok
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_named_module_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_named_module_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/named_module_ok.cppm
@@ -541,8 +561,12 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -553,8 +577,12 @@ add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -565,8 +593,12 @@ add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_emit_header_main_tu_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_emit_header_main_tu_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --output
         ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu.gentest.cpp
         --mock-registry
@@ -1871,9 +1903,21 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_cross_compile_exit_code_no_emulator
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCrossCompileExitCodeNoEmulator.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_missing_host_codegen_path
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckMissingHostCodegenPath.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_coverage_workflow_serial_ctest
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCoverageWorkflowSerialCtest.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(

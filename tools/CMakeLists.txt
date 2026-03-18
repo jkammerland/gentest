@@ -398,7 +398,7 @@ if(_gentest_use_libcxx OR (WIN32 AND MSVC))
 endif()
 
 if(UNIX AND NOT APPLE)
-    if(NOT TARGET gentest_tinfo_shim)
+    if(_gentest_use_local_tinfo_shim AND NOT TARGET gentest_tinfo_shim)
         target_sources(gentest_codegen PRIVATE src/terminfo_shim.cpp)
         find_library(_gentest_dl_lib dl)
         if(_gentest_dl_lib)
