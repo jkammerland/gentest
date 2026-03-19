@@ -77,8 +77,8 @@ struct TestContextLocalBuffer {
     }
 };
 
-extern thread_local std::shared_ptr<TestContextInfo> g_current_test;
-extern thread_local TestContextLocalBuffer           g_current_buffer;
+GENTEST_RUNTIME_API extern thread_local std::shared_ptr<TestContextInfo> g_current_test;
+GENTEST_RUNTIME_API extern thread_local TestContextLocalBuffer           g_current_buffer;
 
 struct skip_exception {};
 

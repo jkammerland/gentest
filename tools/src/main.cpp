@@ -1,6 +1,7 @@
 #include "discovery.hpp"
 #include "emit.hpp"
 #include "log.hpp"
+#include "mock_output_paths.hpp"
 #include "mock_discovery.hpp"
 #include "model.hpp"
 #include "parallel_for.hpp"
@@ -221,45 +222,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
 }
 
 [[nodiscard]] std::vector<std::filesystem::path> depfile_targets_for(const CollectorOptions &options) {
-    auto sanitize_mock_domain_label = [](std::string value) {
-        for (auto &ch : value) {
-            const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
-            if (!ok) {
-                ch = '_';
-            }
-        }
-        if (value.empty()) {
-            return std::string{"domain"};
-        }
-        return value;
-    };
-    auto stable_hash_hex_local = [](std::string_view value) {
-        std::uint64_t hash = 1469598103934665603ull;
-        for (const unsigned char ch : value) {
-            hash ^= static_cast<std::uint64_t>(ch);
-            hash *= 1099511628211ull;
-        }
-        return fmt::format("{:016x}", hash);
-    };
-    auto abbreviate_mock_domain_label = [&](std::string value) {
-        value = sanitize_mock_domain_label(std::move(value));
-        if (value == "header" || value.size() <= 32) {
-            return value;
-        }
-        return fmt::format("{}_{}", value.substr(0, 16), stable_hash_hex_local(value).substr(0, 8));
-    };
-    auto zero_pad_domain_index = [](std::size_t idx) {
-        return fmt::format("{:04d}", static_cast<unsigned>(idx));
-    };
-    auto make_domain_output_path =
-        [&](const std::filesystem::path &base, std::size_t idx, std::string_view label) -> std::filesystem::path {
-        std::filesystem::path out = base;
-        const std::string     stem = base.stem().string();
-        const std::string     ext  = base.extension().string();
-        out.replace_filename(fmt::format("{}__domain_{}_{}{}", stem, zero_pad_domain_index(idx),
-                                         abbreviate_mock_domain_label(std::string(label)), ext));
-        return out;
-    };
     auto sanitize_stem = [](std::string value) {
         for (auto &ch : value) {
             const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
@@ -304,11 +266,11 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     }
     if (!options.mock_registry_path.empty()) {
         targets.push_back(options.mock_registry_path);
-        targets.push_back(make_domain_output_path(options.mock_registry_path, 0, "header"));
+        targets.push_back(gentest::codegen::make_mock_domain_output_path(options.mock_registry_path, 0, "header"));
     }
     if (!options.mock_impl_path.empty()) {
         targets.push_back(options.mock_impl_path);
-        targets.push_back(make_domain_output_path(options.mock_impl_path, 0, "header"));
+        targets.push_back(gentest::codegen::make_mock_domain_output_path(options.mock_impl_path, 0, "header"));
     }
     if (!options.mock_registry_path.empty() && !options.mock_impl_path.empty()) {
         std::set<std::string> seen_modules;
@@ -321,8 +283,8 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
             if (!seen_modules.insert(*module_name).second) {
                 continue;
             }
-            targets.push_back(make_domain_output_path(options.mock_registry_path, idx, *module_name));
-            targets.push_back(make_domain_output_path(options.mock_impl_path, idx, *module_name));
+            targets.push_back(gentest::codegen::make_mock_domain_output_path(options.mock_registry_path, idx, *module_name));
+            targets.push_back(gentest::codegen::make_mock_domain_output_path(options.mock_impl_path, idx, *module_name));
             ++idx;
         }
     }

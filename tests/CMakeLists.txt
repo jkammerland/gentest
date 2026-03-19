@@ -1908,6 +1908,30 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_runtime_shared_context_exports
+    ${PROJECT_SOURCE_DIR}/tests/cmake/runtime_shared_context_exports
+    ${PROJECT_SOURCE_DIR}/cmake/CheckRuntimeSharedContextExports.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_runtime_shared_context_exports APPEND PROPERTY LABELS "runtime")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_mock_long_domain_outputs
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_mock_long_domain_outputs
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMockLongDomainOutputs.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_mock_long_domain_outputs APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_scan_include_clang_dir_append
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scan_include_clang_dir_append
+    ${PROJECT_SOURCE_DIR}/cmake/CheckScanIncludeClangDirAppend.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_scan_include_clang_dir_append APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_cross_compile_emulator_serialization
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckCrossCompileEmulatorSerialization.cmake

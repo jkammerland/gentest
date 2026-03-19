@@ -1,3 +1,4 @@
+#include "mock_output_paths.hpp"
 #include "render_mocks.hpp"
 #include "scan_utils.hpp"
 #include "templates_mocks.hpp"
@@ -53,49 +54,6 @@ struct MockOutputDomain {
     std::filesystem::path impl_path;
 };
 
-[[nodiscard]] std::string sanitize_domain_label(std::string value) {
-    for (auto &ch : value) {
-        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
-        if (!ok) {
-            ch = '_';
-        }
-    }
-    if (value.empty()) {
-        return "domain";
-    }
-    return value;
-}
-
-[[nodiscard]] std::string zero_pad_domain_index(std::size_t idx) {
-    return fmt::format("{:04d}", static_cast<unsigned>(idx));
-}
-
-[[nodiscard]] std::string stable_hash_hex(std::string_view value) {
-    std::uint64_t hash = 1469598103934665603ull;
-    for (const unsigned char ch : value) {
-        hash ^= static_cast<std::uint64_t>(ch);
-        hash *= 1099511628211ull;
-    }
-    return fmt::format("{:016x}", hash);
-}
-
-[[nodiscard]] std::string abbreviated_domain_label(std::string value) {
-    value = sanitize_domain_label(std::move(value));
-    if (value == "header" || value.size() <= 32) {
-        return value;
-    }
-    return fmt::format("{}_{}", value.substr(0, 16), stable_hash_hex(value).substr(0, 8));
-}
-
-[[nodiscard]] std::filesystem::path make_domain_output_path(const std::filesystem::path &base, std::size_t idx, std::string_view label) {
-    std::filesystem::path out = base;
-    const std::string     stem = base.stem().string();
-    const std::string     ext  = base.extension().string();
-    out.replace_filename(fmt::format("{}__domain_{}_{}{}", stem, zero_pad_domain_index(idx),
-                                     abbreviated_domain_label(std::string(label)), ext));
-    return out;
-}
-
 [[nodiscard]] std::optional<std::string> named_module_name_from_source_file(const std::filesystem::path &path) {
     return gentest::codegen::scan::named_module_name_from_source_file(path);
 }
@@ -104,8 +62,8 @@ struct MockOutputDomain {
     std::vector<MockOutputDomain> domains;
     domains.push_back(MockOutputDomain{
         .kind          = MockOutputDomain::Kind::Header,
-        .registry_path = make_domain_output_path(options.mock_registry_path, 0, "header"),
-        .impl_path     = make_domain_output_path(options.mock_impl_path, 0, "header"),
+        .registry_path = gentest::codegen::make_mock_domain_output_path(options.mock_registry_path, 0, "header"),
+        .impl_path     = gentest::codegen::make_mock_domain_output_path(options.mock_impl_path, 0, "header"),
     });
 
     std::set<std::string> seen_modules;
@@ -122,8 +80,8 @@ struct MockOutputDomain {
         domains.push_back(MockOutputDomain{
             .kind          = MockOutputDomain::Kind::NamedModule,
             .module_name   = *module_name,
-            .registry_path = make_domain_output_path(options.mock_registry_path, idx, *module_name),
-            .impl_path     = make_domain_output_path(options.mock_impl_path, idx, *module_name),
+            .registry_path = gentest::codegen::make_mock_domain_output_path(options.mock_registry_path, idx, *module_name),
+            .impl_path     = gentest::codegen::make_mock_domain_output_path(options.mock_impl_path, idx, *module_name),
         });
         ++idx;
     }

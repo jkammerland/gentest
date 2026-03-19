@@ -210,10 +210,15 @@ inline std::vector<std::filesystem::path> default_scan_include_search_paths(
     }
     append_unique_scan_path(paths, "/usr/lib/clang");
     append_scan_subdirectories(paths, "/usr/lib/clang");
-    for (const auto &clang_dir : paths) {
-        if (clang_dir.filename() == "clang") {
-            append_scan_subdirectories(paths, clang_dir);
+    std::vector<std::filesystem::path> clang_roots;
+    clang_roots.reserve(paths.size());
+    for (const auto &path : paths) {
+        if (path.filename() == "clang") {
+            clang_roots.push_back(path);
         }
+    }
+    for (const auto &clang_dir : clang_roots) {
+        append_scan_subdirectories(paths, clang_dir);
     }
     std::vector<std::filesystem::path> clang_include_dirs;
     for (const auto &path : paths) {
