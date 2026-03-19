@@ -80,6 +80,12 @@ if(_gcov_flag_pos EQUAL -1)
     "Coverage workflow must pass an explicit '--gcov <tool>' argument to coverage_hygiene.py.")
 endif()
 
+string(FIND "${_content}" "libclang-rt-\${{ matrix.clang_version }}-dev" _clang_rt_pkg_pos)
+if(_clang_rt_pkg_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must install the Clang compiler-rt development package so coverage builds can link libclang_rt.profile.a.")
+endif()
+
 string(FIND "${_content}" "--roots " _roots_override_pos)
 if(NOT _roots_override_pos EQUAL -1)
   message(FATAL_ERROR

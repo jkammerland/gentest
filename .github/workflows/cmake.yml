@@ -577,6 +577,7 @@ jobs:
             clang-${{ matrix.clang_version }} \
             clang-tools-${{ matrix.clang_version }} \
             libclang-${{ matrix.clang_version }}-dev \
+            libclang-rt-${{ matrix.clang_version }}-dev \
             libclang-cpp${{ matrix.clang_version }}-dev \
             llvm-${{ matrix.clang_version }}-dev
           python3 -m pip install --break-system-packages --upgrade cmake ninja
