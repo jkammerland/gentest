@@ -317,6 +317,17 @@ add_executable(gentest_codegen
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_20)
 
+set(_gentest_codegen_default_thread_stack_size 0)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # musl defaults worker threads to ~128 KiB, which is not enough for
+    # module-heavy Clang Sema/template recursion. Request the 8 MiB stack
+    # size Clang itself expects so Linux builds do not depend on libc defaults.
+    set(_gentest_codegen_default_thread_stack_size 8388608)
+endif()
+set(GENTEST_CODEGEN_DEFAULT_THREAD_STACK_SIZE "${_gentest_codegen_default_thread_stack_size}" CACHE STRING
+    "Default worker-thread stack size requested for gentest_codegen on Linux linkers (bytes); set 0 to keep the toolchain default")
+unset(_gentest_codegen_default_thread_stack_size)
+
 set(_gentest_codegen_runtime_rpaths "")
 
 function(_gentest_append_codegen_runtime_rpath path_value)
@@ -371,6 +382,13 @@ if(_gentest_use_local_tinfo_shim AND UNIX)
         # directories so the bundled libtinfo shim is chosen over any host copy.
         target_link_options(gentest_codegen PRIVATE "-Wl,--disable-new-dtags")
     endif()
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        AND NOT "${GENTEST_CODEGEN_DEFAULT_THREAD_STACK_SIZE}" STREQUAL ""
+        AND NOT "${GENTEST_CODEGEN_DEFAULT_THREAD_STACK_SIZE}" STREQUAL "0")
+    target_link_options(gentest_codegen PRIVATE
+        "-Wl,-z,stack-size=${GENTEST_CODEGEN_DEFAULT_THREAD_STACK_SIZE}")
 endif()
 
 if(_gentest_use_libcxx)

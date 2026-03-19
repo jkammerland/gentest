@@ -84,6 +84,8 @@ using gentest::codegen::scan::split_scan_statements;
 using gentest::codegen::scan::strip_comments_for_line_scan;
 using gentest::codegen::scan::trim_ascii_copy;
 
+std::optional<std::string> get_env_value(std::string_view name);
+
 bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
     if (cases.empty()) {
         return true;
@@ -292,14 +294,11 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
 }
 
 [[nodiscard]] bool should_force_serial_parse_jobs() {
-#if defined(__linux__) && !defined(__GLIBC__)
-    // Alpine/musl system libclang builds have shown reproducible crashes in the
-    // parallel ClangTool parse path for multi-TU module fixtures. Keep that
-    // phase serial there; output emission remains unchanged.
-    return true;
-#else
+    if (const auto force_serial = get_env_value("GENTEST_CODEGEN_FORCE_SERIAL_PARSE");
+        force_serial && *force_serial != "0") {
+        return true;
+    }
     return false;
-#endif
 }
 
 [[nodiscard]] bool write_depfile(const CollectorOptions &options, const std::vector<std::string> &dependencies) {
@@ -2030,10 +2029,9 @@ int main(int argc, const char **argv) {
     }
     const bool multi_tu = allow_includes && options.sources.size() > 1;
     if (multi_tu) {
-        // clang::tooling::JSONCompilationDatabase lazily builds internal maps. Accessing
-        // it concurrently triggers TSAN reports (and is generally not guaranteed to be
-        // thread-safe). Snapshot per-file compile commands up front so each worker can
-        // run with an immutable database view.
+        // Snapshot each TU's compile command up front so every worker gets an
+        // immutable one-file view and does not need to share lookup state while
+        // fanning out across separate ClangTool instances.
         std::vector<ParseResult> results(options.sources.size());
         std::vector<std::string> diag_texts(options.sources.size());
 

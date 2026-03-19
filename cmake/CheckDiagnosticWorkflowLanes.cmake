@@ -165,6 +165,52 @@ function(_assert_workflow_contains expected_snippet requirement)
   endif()
 endfunction()
 
+function(_find_matrix_row_by_name_and_build_type row_name build_type out_row)
+  string(REPLACE "\n" ";" _lines "${_workflow_content}")
+  set(_match "")
+  set(_current_row "")
+  foreach(_line IN LISTS _lines)
+    if(_line MATCHES "^          - ")
+      if(NOT _current_row STREQUAL "")
+        string(FIND "${_current_row}" "name: ${row_name}" _name_match)
+        string(FIND "${_current_row}" "build_type: ${build_type}" _build_match)
+        if(NOT _name_match EQUAL -1 AND NOT _build_match EQUAL -1)
+          set(_match "${_current_row}")
+          break()
+        endif()
+      endif()
+      set(_current_row "${_line}\n")
+    elseif(NOT _current_row STREQUAL "")
+      string(APPEND _current_row "${_line}\n")
+    endif()
+  endforeach()
+
+  if(_match STREQUAL "" AND NOT _current_row STREQUAL "")
+    string(FIND "${_current_row}" "name: ${row_name}" _name_match)
+    string(FIND "${_current_row}" "build_type: ${build_type}" _build_match)
+    if(NOT _name_match EQUAL -1 AND NOT _build_match EQUAL -1)
+      set(_match "${_current_row}")
+    endif()
+  endif()
+
+  set(${out_row} "${_match}" PARENT_SCOPE)
+endfunction()
+
+function(_assert_named_row_contains row_name build_type expected_snippet requirement)
+  _find_matrix_row_by_name_and_build_type("${row_name}" "${build_type}" _row)
+  if(_row STREQUAL "")
+    message(FATAL_ERROR
+      "Workflow matrix row for name='${row_name}' build_type='${build_type}' not found in ${_workflow_file}")
+  endif()
+
+  string(FIND "${_row}" "${expected_snippet}" _pos)
+  if(_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Workflow matrix row for name='${row_name}' build_type='${build_type}' must ${requirement}.\n"
+      "Observed row:\n${_row}")
+  endif()
+endfunction()
+
 foreach(_preset IN ITEMS coverage-system alusan-system tsan tsan-system)
   _require_preset("configurePresets" "${_preset}")
   _require_preset("buildPresets" "${_preset}")
@@ -186,3 +232,11 @@ _assert_row_contains("alusan-system" "ctest_parallel: 2" "set ctest_parallel: 2"
 _assert_row_contains("tsan-system" "build_type: TSan" "set build_type: TSan")
 _assert_row_contains("tsan-system" "ctest_parallel: 2" "set ctest_parallel: 2")
 _assert_workflow_contains("libclang-rt-\${{ matrix.clang_version }}-dev" "install the Clang compiler-rt development package so sanitizer presets can link")
+_assert_workflow_contains("GENTEST_CODEGEN_JOBS=\${{ matrix.codegen_jobs }}" "export GENTEST_CODEGEN_JOBS from the matrix so Alpine CI exercises parallel codegen explicitly")
+
+foreach(_alpine_build_type IN ITEMS debug release)
+  _assert_named_row_contains("Alpine 3.21 • Clang 19" "${_alpine_build_type}" "codegen_jobs: 2"
+    "set codegen_jobs: 2 so musl lanes exercise the parallel codegen path")
+  _assert_named_row_contains("Alpine 3.23 • Clang 21" "${_alpine_build_type}" "codegen_jobs: 2"
+    "set codegen_jobs: 2 so musl lanes exercise the parallel codegen path")
+endforeach()

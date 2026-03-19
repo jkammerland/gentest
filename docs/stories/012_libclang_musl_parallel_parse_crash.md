@@ -3,9 +3,10 @@
 ## Status
 
 - Reproduced locally on Alpine 3.23 with system LLVM/Clang 21.
-- `gentest_codegen` crashes only in the parallel multi-TU parse path.
-- The current project workaround is commit `4e86d43`:
-  `Serialize module parse on musl`.
+- `gentest_codegen` crashes only in the parallel multi-TU parse path when worker
+  threads inherit musl's tiny default stacks.
+- The current project fix requests an 8 MiB default Linux thread stack for
+  `gentest_codegen` and keeps musl on the normal parallel parse path.
 
 ## Environment
 
@@ -31,15 +32,23 @@ This is not the old compile-command tail bug. The nested `compile_commands.json`
 
 ## Best current trigger hypothesis
 
-The crash is in libclang's concurrent semantic parsing on musl, not in gentest wrapper emission or manual module precompile.
+The failure is most likely worker-thread stack exhaustion on musl, not a blanket
+prohibition on parallel Clang tooling.
 
 The strongest evidence is:
 
 - crash happens in the parallel parse worker threads
 - top frames are in `clang::Sema::*`
 - the exact same `gentest_codegen` command succeeds with `--jobs=1`
+- a tiny Alpine probe shows new threads default to about `133864` bytes of
+  stack, while `-Wl,-z,stack-size=8388608` raises that to about `8391400`
+  bytes
+- after linking `gentest_codegen` with `-Wl,-z,stack-size=8388608`, the same
+  Alpine repro passes with `GENTEST_CODEGEN_JOBS=2`
 
-The stack is template-heavy, so the likely upstream issue is in concurrent semantic/template instantiation during module-heavy `ClangTool` parsing.
+The failing stack is template-heavy, so the most likely mechanism is deep
+semantic/template recursion overflowing musl's default worker-thread stack long
+before Clang's own stack heuristics would help.
 
 ## Repo-level repro
 
@@ -163,11 +172,13 @@ Expected result:
 - `jobs=1` passes
 - `jobs=2` or auto crashes on Alpine/musl with LLVM/Clang 21
 
-## Project-side workaround
+## Project-side fix
 
-For now, the project keeps multi-TU parsing serial on musl builds of `gentest_codegen`:
+`gentest_codegen` now requests an 8 MiB default Linux thread stack via its link
+flags:
 
-- [main.cpp](/home/ai-dev1/repos/gentest/.wt/modules-v5/tools/src/main.cpp)
-- commit `4e86d43`
+- [tools/CMakeLists.txt](/home/ai-dev1/repos/gentest/.wt/modules-v5/tools/CMakeLists.txt)
 
-That makes the Alpine module slice pass without changing behavior on glibc/macOS/Windows.
+That keeps the normal parallel per-TU parse path enabled on Alpine/musl while
+still allowing an emergency serial fallback via
+`GENTEST_CODEGEN_FORCE_SERIAL_PARSE=1` if a future environment needs it.
