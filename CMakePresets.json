@@ -263,6 +263,20 @@
       }
     },
     {
+      "name": "coverage-system",
+      "inherits": "debug-system",
+      "displayName": "Coverage (system LLVM/Clang)",
+      "description": "Debug build with code coverage instrumentation using the system LLVM/Clang toolchain",
+      "cacheVariables": {
+        "GENTEST_ENABLE_PACKAGE_TESTS": "OFF",
+        "CMAKE_CXX_FLAGS": "-g -O0 --coverage",
+        "CMAKE_C_FLAGS": "-g -O0 --coverage",
+        "CMAKE_EXE_LINKER_FLAGS": "--coverage",
+        "CMAKE_MODULE_LINKER_FLAGS": "--coverage",
+        "CMAKE_SHARED_LINKER_FLAGS": "--coverage"
+      }
+    },
+    {
       "name": "tidy",
       "inherits": "base-debug",
       "displayName": "Clang-Tidy",
@@ -612,6 +626,14 @@
       "jobs": 0
     },
     {
+      "name": "coverage-system",
+      "inherits": "build-base",
+      "configurePreset": "coverage-system",
+      "displayName": "Coverage Build (system LLVM/Clang)",
+      "description": "Build with code coverage instrumentation using the system LLVM/Clang toolchain",
+      "jobs": 0
+    },
+    {
       "name": "tidy",
       "inherits": "build-base",
       "configurePreset": "tidy",
@@ -865,6 +887,13 @@
       "configurePreset": "coverage",
       "displayName": "Coverage Tests",
       "description": "Run all tests with coverage instrumentation"
+    },
+    {
+      "name": "coverage-system",
+      "inherits": "test-base",
+      "configurePreset": "coverage-system",
+      "displayName": "Coverage Tests (system LLVM/Clang)",
+      "description": "Run all tests with coverage instrumentation using the system LLVM/Clang toolchain"
     },
     {
       "name": "tidy",
@@ -1174,6 +1203,25 @@
         {
           "type": "test",
           "name": "coverage"
+        }
+      ]
+    },
+    {
+      "name": "coverage-system",
+      "displayName": "Coverage Workflow (system LLVM/Clang)",
+      "description": "Build and test with code coverage instrumentation using the system LLVM/Clang toolchain",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "coverage-system"
+        },
+        {
+          "type": "build",
+          "name": "coverage-system"
+        },
+        {
+          "type": "test",
+          "name": "coverage-system"
         }
       ]
     },

@@ -278,7 +278,7 @@ jobs:
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: coverage
-            preset: coverage
+            preset: coverage-system
             run_coverage: true
             ctest_parallel: 1
           - name: Ubuntu 24.04 • Clang 20
