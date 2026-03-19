@@ -91,7 +91,7 @@ gentest_check_run_or_fail(
 
 set(_prog "${_build_dir}/scan_include_clang_dir_append${CMAKE_EXECUTABLE_SUFFIX}")
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" -E env "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1" "${_prog}"
+  COMMAND "${_prog}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 

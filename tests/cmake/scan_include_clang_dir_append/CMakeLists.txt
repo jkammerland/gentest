@@ -16,6 +16,6 @@ add_executable(scan_include_clang_dir_append
     main.cpp)
 target_compile_features(scan_include_clang_dir_append PRIVATE cxx_std_20)
 target_include_directories(scan_include_clang_dir_append PRIVATE "${GENTEST_SOURCE_DIR}/tools/src")
+# This repro relies on libstdc++ debug iterators catching invalidated vector iteration.
+# ASan is not required, and some CI Clang packages do not ship the matching runtime archives.
 target_compile_definitions(scan_include_clang_dir_append PRIVATE _GLIBCXX_DEBUG)
-target_compile_options(scan_include_clang_dir_append PRIVATE -fsanitize=address -fno-omit-frame-pointer)
-target_link_options(scan_include_clang_dir_append PRIVATE -fsanitize=address)
