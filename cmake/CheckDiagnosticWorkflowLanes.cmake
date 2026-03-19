@@ -156,6 +156,15 @@ function(_assert_row_contains preset_name expected_snippet requirement)
   endif()
 endfunction()
 
+function(_assert_workflow_contains expected_snippet requirement)
+  string(FIND "${_workflow_content}" "${expected_snippet}" _pos)
+  if(_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Workflow ${_workflow_file} must ${requirement}.\n"
+      "Missing snippet: ${expected_snippet}")
+  endif()
+endfunction()
+
 foreach(_preset IN ITEMS coverage-system alusan-system tsan tsan-system)
   _require_preset("configurePresets" "${_preset}")
   _require_preset("buildPresets" "${_preset}")
@@ -176,3 +185,4 @@ _assert_row_contains("alusan-system" "build_type: ASan+UBSan" "set build_type: A
 _assert_row_contains("alusan-system" "ctest_parallel: 2" "set ctest_parallel: 2")
 _assert_row_contains("tsan-system" "build_type: TSan" "set build_type: TSan")
 _assert_row_contains("tsan-system" "ctest_parallel: 2" "set ctest_parallel: 2")
+_assert_workflow_contains("libclang-rt-\${{ matrix.clang_version }}-dev" "install the Clang compiler-rt development package so sanitizer presets can link")
