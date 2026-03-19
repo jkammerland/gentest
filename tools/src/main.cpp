@@ -797,6 +797,12 @@ std::string basename_without_extension(std::string_view path) {
     return std::filesystem::path{path}.filename().replace_extension().string();
 }
 
+bool source_requires_explicit_module_language_mode(std::string_view path) {
+    std::string ext = std::filesystem::path{std::string(path)}.extension().string();
+    std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return ext == ".ixx" || ext == ".mxx" || ext == ".cppm" || ext == ".ccm" || ext == ".cxxm";
+}
+
 std::string resolve_program_invocation_path(std::string_view program) {
     if (program.empty()) {
         return {};
@@ -942,9 +948,7 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
         if (has_explicit_language_mode(args)) {
             return false;
         }
-        std::string ext = std::filesystem::path(file.str()).extension().string();
-        std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-        return ext == ".ixx" || ext == ".mxx";
+        return source_requires_explicit_module_language_mode(file.str());
     };
 
     clang::tooling::CommandLineArguments adjusted;
@@ -1061,13 +1065,12 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
         }
         return false;
     };
+    const bool force_module_language_mode = source_requires_explicit_module_language_mode(source_file);
     auto needs_explicit_module_language_mode = [&]() {
         if (has_explicit_language_mode()) {
             return false;
         }
-        std::string ext = std::filesystem::path(source_file).extension().string();
-        std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-        return ext == ".ixx" || ext == ".mxx";
+        return source_requires_explicit_module_language_mode(source_file);
     };
 
     command.reserve(adjusted_command_line.size() + 4);
@@ -1084,6 +1087,16 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
             continue;
         }
         if (arg == "--") {
+            continue;
+        }
+        if (force_module_language_mode && (arg == "/TP" || arg == "/Tc" || arg == "/TP-" || arg == "/Tc-")) {
+            continue;
+        }
+        if (force_module_language_mode && arg == "-x" && i + 1 < adjusted_command_line.size()) {
+            skip_next_arg = true;
+            continue;
+        }
+        if (force_module_language_mode && arg.starts_with("-x")) {
             continue;
         }
         if (arg == "-o" || arg == "-MF" || arg == "-MT" || arg == "-MQ" || arg == "-MJ" || arg == "-fmodule-output") {
@@ -1113,7 +1126,7 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
     if (!has_explicit_cxx_standard_arg(adjusted_command_line)) {
         command.push_back(default_cxx_standard_arg(adjusted_command_line));
     }
-    if (needs_explicit_module_language_mode()) {
+    if (force_module_language_mode || needs_explicit_module_language_mode()) {
         command.emplace_back("-x");
         command.emplace_back("c++-module");
     }
@@ -1793,8 +1806,7 @@ int main(int argc, const char **argv) {
         compile_commands_by_file[key].push_back(command);
     }
 
-    auto get_compile_commands_for_source = [&](std::size_t idx) {
-        std::vector<clang::tooling::CompileCommand> commands;
+    auto get_direct_compile_commands_for_source = [&](std::size_t idx) {
         std::vector<clang::tooling::CompileCommand> direct_commands;
         const auto source_key = normalize_compdb_lookup_path(options.sources[idx]);
         if (const auto direct_it = compile_commands_by_file.find(source_key); direct_it != compile_commands_by_file.end()) {
@@ -1806,7 +1818,12 @@ int main(int argc, const char **argv) {
         for (auto &command : direct_commands) {
             command.CommandLine = expand_compile_command_response_files(command.CommandLine, command.Directory);
         }
+        return direct_commands;
+    };
 
+    auto get_compile_commands_for_source =
+        [&](std::size_t idx, const std::vector<clang::tooling::CompileCommand> &direct_commands) {
+        std::vector<clang::tooling::CompileCommand> commands;
         const auto direct_include_search_paths =
             scan_include_search_paths_from_compile_commands(direct_commands, std::filesystem::path(options.sources[idx]));
         const bool source_is_module =
@@ -1817,8 +1834,6 @@ int main(int argc, const char **argv) {
             const auto wrapper_it  = compile_commands_by_file.find(wrapper_key);
             if (wrapper_it != compile_commands_by_file.end()) {
                 commands = wrapper_it->second;
-            } else {
-                commands = database->getCompileCommands(wrapper_path);
             }
             for (auto &command : commands) {
                 command = retarget_compile_command(std::move(command), wrapper_path, options.sources[idx]);
@@ -1830,10 +1845,12 @@ int main(int argc, const char **argv) {
         return commands;
     };
 
+    std::vector<std::vector<clang::tooling::CompileCommand>> direct_compile_commands(options.sources.size());
     std::vector<std::vector<clang::tooling::CompileCommand>> compile_commands(options.sources.size());
     std::vector<std::vector<std::filesystem::path>>          scan_include_search_paths(options.sources.size());
     for (std::size_t i = 0; i < options.sources.size(); ++i) {
-        compile_commands[i] = get_compile_commands_for_source(i);
+        direct_compile_commands[i] = get_direct_compile_commands_for_source(i);
+        compile_commands[i] = get_compile_commands_for_source(i, direct_compile_commands[i]);
         scan_include_search_paths[i] =
             scan_include_search_paths_from_compile_commands(compile_commands[i], std::filesystem::path(options.sources[i]));
     }
@@ -1940,13 +1957,15 @@ int main(int argc, const char **argv) {
                     fmt::format("-fmodule-file={}={}", import_name, named_module_sources[dep_it->second].pcm_path.string()));
             }
 
-            const auto &source_commands = compile_commands[module_source.source_index];
+            const auto &source_commands = direct_compile_commands[module_source.source_index].empty()
+                ? compile_commands[module_source.source_index]
+                : direct_compile_commands[module_source.source_index];
             const std::string compdb_dir =
                 options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
             const auto adjusted_command = build_adjusted_command_line(
                 source_commands.empty() ? clang::tooling::CommandLineArguments{} : source_commands.front().CommandLine,
                 options.sources[module_source.source_index], resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
-                compdb_dir, module_file_args, default_compiler_path);
+                compdb_dir, module_file_args);
             const auto precompile_command =
                 build_module_precompile_command(adjusted_command, options.sources[module_source.source_index],
                                                 source_commands.empty() ? compdb_dir : source_commands.front().Directory,
@@ -2156,15 +2175,15 @@ int main(int argc, const char **argv) {
     } else {
         std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> file_commands;
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
-            file_commands.emplace(normalize_compdb_lookup_path(options.sources[i]), get_compile_commands_for_source(i));
+            file_commands.emplace(normalize_compdb_lookup_path(options.sources[i]), compile_commands[i]);
         }
         const SnapshotCompilationDatabase file_database{std::move(file_commands)};
         clang::tooling::ClangTool         tool{file_database, options.sources};
         std::vector<std::string>          normalized_overlays;
         normalized_overlays.reserve(options.sources.size());
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
-            const auto overlay_include_paths = scan_include_search_paths_from_compile_commands(get_compile_commands_for_source(i),
-                                                                                               options.sources[i]);
+            const auto overlay_include_paths =
+                scan_include_search_paths_from_compile_commands(compile_commands[i], options.sources[i]);
             if (auto normalized_overlay = build_normalized_module_source_overlay(options.sources[i], overlay_include_paths);
                 normalized_overlay.has_value()) {
                 normalized_overlays.push_back(std::move(*normalized_overlay));

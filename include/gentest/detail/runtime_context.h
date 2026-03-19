@@ -88,6 +88,8 @@ enum class BenchPhase {
     Call,
     Teardown,
 };
+GENTEST_RUNTIME_API extern thread_local BenchPhase g_bench_phase;
+GENTEST_RUNTIME_API extern thread_local std::string g_bench_error;
 inline BenchPhase bench_phase();
 
 inline void flush_current_buffer_for(TestContextInfo *ctx) {
@@ -239,9 +241,6 @@ inline std::string loc_to_string(const std::source_location &loc) {
     return s;
 }
 
-inline thread_local BenchPhase  g_bench_phase = BenchPhase::None;
-inline thread_local std::string g_bench_error;
-
 struct BenchPhaseScope {
     BenchPhase prev;
     explicit BenchPhaseScope(BenchPhase next) : prev(g_bench_phase) { g_bench_phase = next; }
@@ -272,7 +271,7 @@ struct NoExceptionsFatalHookState {
     void                 *user_data = nullptr;
 };
 
-inline thread_local NoExceptionsFatalHookState g_noexceptions_fatal_hook{};
+GENTEST_RUNTIME_API extern thread_local NoExceptionsFatalHookState g_noexceptions_fatal_hook;
 
 struct NoExceptionsFatalHookScope {
     NoExceptionsFatalHookState previous{};

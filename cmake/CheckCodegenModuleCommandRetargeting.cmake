@@ -235,6 +235,99 @@ _gentest_run_codegen_expect_success(
   COMPDB_DIR "${_shell_tail_args_dir}"
   SOURCE_FILE "${_shell_tail_args_source_abs}")
 
+if(NOT CMAKE_HOST_WIN32)
+  set(_clang_cl_dir "${_work_dir}/clang_cl_driver")
+  file(MAKE_DIRECTORY "${_clang_cl_dir}/generated")
+  gentest_fixture_write_file("${_clang_cl_dir}/provider.cppm" [[
+export module gentest.retarget.clang_cl_provider;
+export int clang_cl_provider_value() { return 29; }
+]])
+  gentest_fixture_write_file("${_clang_cl_dir}/consumer.cppm" [[
+export module gentest.retarget.clang_cl_consumer;
+import gentest.retarget.clang_cl_provider;
+export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
+]])
+
+  file(TO_CMAKE_PATH "${_clang_cl_dir}" _clang_cl_dir_norm)
+  file(TO_CMAKE_PATH "${_clang_cl_dir}/provider.cppm" _clang_cl_provider_abs)
+  file(TO_CMAKE_PATH "${_clang_cl_dir}/consumer.cppm" _clang_cl_consumer_abs)
+  file(TO_CMAKE_PATH "${_clang_cl_dir}/clang-cl" _fake_clang_cl)
+  file(TO_CMAKE_PATH "${_clang_cl_dir}/clang++" _fake_clangxx)
+  gentest_fixture_write_file("${_fake_clang_cl}"
+    "#!/usr/bin/env python3\n"
+    "import subprocess\n"
+    "import sys\n"
+    "\n"
+    "real = r'''${_clangxx_norm}'''\n"
+    "args = sys.argv[1:]\n"
+    "if args and args[0] == '-print-resource-dir':\n"
+    "    raise SystemExit(subprocess.call([real, *args]))\n"
+    "translated = []\n"
+    "for arg in args:\n"
+    "    if arg == '/c':\n"
+    "        continue\n"
+    "    if arg == '--driver-mode=cl' or arg == '/clang:--driver-mode=cl':\n"
+    "        continue\n"
+    "    if arg.startswith('/std:'):\n"
+    "        translated.append('-std=' + arg.split(':', 1)[1])\n"
+    "        continue\n"
+    "    if arg.startswith('/Fo'):\n"
+    "        out = arg[3:]\n"
+    "        if out:\n"
+    "            translated.extend(['-o', out])\n"
+    "        continue\n"
+    "    translated.append(arg)\n"
+    "if '--precompile' in translated and '-x' not in translated and not any(item.startswith('-x') for item in translated):\n"
+    "    translated = ['-x', 'c++-module', *translated]\n"
+    "raise SystemExit(subprocess.call([real, *translated]))\n")
+  gentest_fixture_write_file("${_fake_clangxx}"
+    "#!/bin/sh\n"
+    "set -eu\n"
+    "if [ \"$1\" = \"-print-resource-dir\" ]; then\n"
+    "  exec \"${_clangxx_norm}\" \"$@\"\n"
+    "fi\n"
+    "echo 'fake clang++ should not be used for sibling-module precompile' >&2\n"
+    "exit 92\n")
+  execute_process(COMMAND chmod +x "${_fake_clang_cl}" "${_fake_clangxx}")
+
+  gentest_fixture_make_compdb_entry(_clang_cl_provider_entry
+    DIRECTORY "${_clang_cl_dir_norm}"
+    FILE "${_clang_cl_provider_abs}"
+    ARGUMENTS "${_fake_clang_cl}" "/std:c++20" "/c" "${_clang_cl_provider_abs}" "/Fo${_clang_cl_dir_norm}/provider.obj")
+  gentest_fixture_make_compdb_entry(_clang_cl_consumer_entry
+    DIRECTORY "${_clang_cl_dir_norm}"
+    FILE "${_clang_cl_consumer_abs}"
+    ARGUMENTS "${_clangxx_norm}" "-std=c++20" "-c" "${_clang_cl_consumer_abs}" "-o" "${_clang_cl_dir_norm}/consumer.o")
+  gentest_fixture_write_compdb("${_clang_cl_dir}/compile_commands.json"
+    "${_clang_cl_provider_entry}"
+    "${_clang_cl_consumer_entry}")
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+      "CXX=${_fake_clangxx}"
+      "GENTEST_CODEGEN_LOG_PRECOMPILE=1"
+      "${PROG}" --check --compdb "${_clang_cl_dir}" --tu-out-dir "${_clang_cl_dir}/generated"
+      "${_clang_cl_provider_abs}" "${_clang_cl_consumer_abs}"
+    RESULT_VARIABLE _clang_cl_driver_rc
+    OUTPUT_VARIABLE _clang_cl_driver_out
+    ERROR_VARIABLE _clang_cl_driver_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  string(FIND "${_clang_cl_driver_err}" "${_fake_clang_cl}" _clang_cl_log_pos)
+  if(_clang_cl_log_pos EQUAL -1)
+    message(FATAL_ERROR
+      "clang-cl sibling-module precompile driver: expected the logged precompile command to keep the original fake clang-cl path.\n"
+      "Output:\n${_clang_cl_driver_out}\nErrors:\n${_clang_cl_driver_err}")
+  endif()
+  string(FIND "${_clang_cl_driver_err}" "fake clang++ should not be used for sibling-module precompile" _clangxx_fail_pos)
+  if(NOT _clangxx_fail_pos EQUAL -1)
+    message(FATAL_ERROR
+      "clang-cl sibling-module precompile driver: fake clang++ was used for an actual precompile invocation.\n"
+      "Output:\n${_clang_cl_driver_out}\nErrors:\n${_clang_cl_driver_err}")
+  endif()
+endif()
+
 set(_extra_arg_shell_tail_dir "${_work_dir}/extra_arg_shell_tail")
 file(MAKE_DIRECTORY "${_extra_arg_shell_tail_dir}")
 gentest_fixture_write_file("${_extra_arg_shell_tail_dir}/provider.cppm" [[
@@ -277,6 +370,70 @@ if(NOT _extra_arg_shell_tail_rc EQUAL 0)
   message(FATAL_ERROR
     "shell-tail extra clang arguments: gentest_codegen failed unexpectedly.\n"
     "Output:\n${_extra_arg_shell_tail_out}\nErrors:\n${_extra_arg_shell_tail_err}")
+endif()
+
+set(_module_dep_dir "${_work_dir}/module_depfile_inputs")
+file(MAKE_DIRECTORY "${_module_dep_dir}/generated" "${_module_dep_dir}/include")
+gentest_fixture_write_file("${_module_dep_dir}/include/provider_dep.hpp" [[
+#pragma once
+inline int provider_dep_value() { return 31; }
+]])
+gentest_fixture_write_file("${_module_dep_dir}/provider.cppm" [[
+module;
+#include "provider_dep.hpp"
+export module gentest.retarget.depfile_provider;
+export int depfile_provider_value() { return provider_dep_value(); }
+]])
+gentest_fixture_write_file("${_module_dep_dir}/consumer.cppm" [[
+export module gentest.retarget.depfile_consumer;
+import gentest.retarget.depfile_provider;
+export int depfile_consumer_value() { return depfile_provider_value(); }
+]])
+file(TO_CMAKE_PATH "${_module_dep_dir}" _module_dep_dir_norm)
+file(TO_CMAKE_PATH "${_module_dep_dir}/provider.cppm" _module_dep_provider_abs)
+file(TO_CMAKE_PATH "${_module_dep_dir}/consumer.cppm" _module_dep_consumer_abs)
+file(TO_CMAKE_PATH "${_module_dep_dir}/include/provider_dep.hpp" _module_dep_header_abs)
+set(_module_dep_depfile "${_module_dep_dir}/generated/modules.gentest.d")
+gentest_fixture_make_compdb_entry(_module_dep_provider_entry
+  DIRECTORY "${_module_dep_dir_norm}"
+  FILE "${_module_dep_provider_abs}"
+  ARGUMENTS "${_clangxx_norm}" "-std=c++20" "-I${_module_dep_dir_norm}/include" "-c" "${_module_dep_provider_abs}" "-o" "${_module_dep_dir_norm}/provider.o")
+gentest_fixture_make_compdb_entry(_module_dep_consumer_entry
+  DIRECTORY "${_module_dep_dir_norm}"
+  FILE "${_module_dep_consumer_abs}"
+  ARGUMENTS "${_clangxx_norm}" "-std=c++20" "-I${_module_dep_dir_norm}/include" "-c" "${_module_dep_consumer_abs}" "-o" "${_module_dep_dir_norm}/consumer.o")
+gentest_fixture_write_compdb("${_module_dep_dir}/compile_commands.json"
+  "${_module_dep_provider_entry}"
+  "${_module_dep_consumer_entry}")
+
+execute_process(
+  COMMAND "${PROG}"
+    --compdb "${_module_dep_dir}"
+    --tu-out-dir "${_module_dep_dir}/generated"
+    --depfile "${_module_dep_depfile}"
+    "${_module_dep_provider_abs}" "${_module_dep_consumer_abs}"
+  RESULT_VARIABLE _module_dep_rc
+  OUTPUT_VARIABLE _module_dep_out
+  ERROR_VARIABLE _module_dep_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+
+if(NOT _module_dep_rc EQUAL 0)
+  message(FATAL_ERROR
+    "sibling-module depfile inputs: gentest_codegen failed unexpectedly.\n"
+    "Output:\n${_module_dep_out}\nErrors:\n${_module_dep_err}")
+endif()
+file(READ "${_module_dep_depfile}" _module_dep_text)
+file(RELATIVE_PATH _module_dep_header_rel "${_module_dep_dir}" "${_module_dep_header_abs}")
+file(TO_CMAKE_PATH "${_module_dep_header_rel}" _module_dep_header_rel)
+string(FIND "${_module_dep_text}" "${_module_dep_header_abs}" _module_dep_header_abs_pos)
+string(FIND "${_module_dep_text}" "${_module_dep_header_rel}" _module_dep_header_rel_pos)
+if(_module_dep_header_abs_pos EQUAL -1 AND _module_dep_header_rel_pos EQUAL -1)
+  message(FATAL_ERROR
+    "sibling-module depfile inputs: expected imported module headers to be tracked in the generated depfile.\n"
+    "Missing: ${_module_dep_header_abs}\n"
+    "Relative: ${_module_dep_header_rel}\n"
+    "Depfile:\n${_module_dep_text}")
 endif()
 
 message(STATUS "Module command retargeting regression passed")

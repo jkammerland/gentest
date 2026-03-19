@@ -54,13 +54,12 @@ function(gentest_fixture_make_compdb_entry out_var)
     message(FATAL_ERROR "gentest_fixture_make_compdb_entry requires COMMAND or ARGUMENTS")
   endif()
 
-  set(${out_var}
-    "  {\n"
-    "    \"directory\": \"${_dir_json}\",\n"
-    "    \"file\": \"${_file_json}\",\n"
-    "    ${_payload}\n"
-    "  }"
-    PARENT_SCOPE)
+  set(_entry "  {\n")
+  string(APPEND _entry "    \"directory\": \"${_dir_json}\",\n")
+  string(APPEND _entry "    \"file\": \"${_file_json}\",\n")
+  string(APPEND _entry "    ${_payload}\n")
+  string(APPEND _entry "  }")
+  set(${out_var} "${_entry}" PARENT_SCOPE)
 endfunction()
 
 function(gentest_fixture_write_compdb path)
