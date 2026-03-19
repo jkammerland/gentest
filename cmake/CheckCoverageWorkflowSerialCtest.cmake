@@ -60,6 +60,28 @@ if(_test_line_pos EQUAL -1)
     "Expected line:\n${_expected_test_line}")
 endif()
 
+string(CONCAT _expected_reset_dir "build/" "$" "{GENTEST_CMAKE_PRESET}")
+string(FIND "${_content}" "${_expected_reset_dir}" _preset_build_dir_pos)
+if(_preset_build_dir_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must derive the coverage build directory from GENTEST_CMAKE_PRESET instead of hardcoding build/coverage.\n"
+    "Expected literal path fragment:\n${_expected_reset_dir}")
+endif()
+
+string(CONCAT _expected_build_dir_arg "--build-dir \"build/" "$" "{GENTEST_CMAKE_PRESET}\"")
+string(FIND "${_content}" "${_expected_build_dir_arg}" _coverage_build_dir_pos)
+if(_coverage_build_dir_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must pass the preset-derived build directory to coverage_hygiene.py.\n"
+    "Expected line fragment:\n${_expected_build_dir_arg}")
+endif()
+
+string(FIND "${_content}" "build/coverage" _hardcoded_coverage_dir_pos)
+if(NOT _hardcoded_coverage_dir_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must not hardcode build/coverage; it should follow the selected preset build directory.")
+endif()
+
 set(_forbidden_gcov_pref [=[GCOV_CMD=(llvm-cov gcov)]=])
 string(FIND "${_content}" "${_forbidden_gcov_pref}" _forbidden_gcov_pos)
 if(NOT _forbidden_gcov_pos EQUAL -1)
