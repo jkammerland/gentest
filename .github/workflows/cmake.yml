@@ -278,9 +278,33 @@ jobs:
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: coverage
-            preset: coverage
+            preset: coverage-system
             run_coverage: true
             ctest_parallel: 1
+          - name: Ubuntu 24.04 • Clang 20
+            container: ubuntu:24.04
+            pkg_manager: apt
+            compiler: clang
+            cc: clang-20
+            cxx: clang++-20
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: ASan+UBSan
+            preset: alusan-system
+            ctest_parallel: 2
+          - name: Ubuntu 24.04 • Clang 20
+            container: ubuntu:24.04
+            pkg_manager: apt
+            compiler: clang
+            cc: clang-20
+            cxx: clang++-20
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: TSan
+            preset: tsan-system
+            ctest_parallel: 2
           - name: Ubuntu 24.04 • Clang 20
             container: ubuntu:24.04
             pkg_manager: apt

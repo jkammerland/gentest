@@ -150,6 +150,11 @@ if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 
+option(GENTEST_SKIP_TSAN_DEATH_TESTS "Skip death tests whose stderr contract is incompatible with ThreadSanitizer" OFF)
+if(GENTEST_SKIP_TSAN_DEATH_TESTS)
+    set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
+endif()
+
 set(_gentest_codegen_prog "")
 if(GENTEST_CODEGEN_EXECUTABLE)
     set(_gentest_codegen_prog "${GENTEST_CODEGEN_EXECUTABLE}")
@@ -1897,6 +1902,12 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_tsan_death_skip_gate
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTsanDeathSkipGate.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_cross_compile_emulator_serialization
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckCrossCompileEmulatorSerialization.cmake
@@ -1918,6 +1929,12 @@ _gentest_add_cmake_helper_test(
     gentest_coverage_workflow_serial_ctest
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckCoverageWorkflowSerialCtest.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_diagnostic_workflow_lanes
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckDiagnosticWorkflowLanes.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(
