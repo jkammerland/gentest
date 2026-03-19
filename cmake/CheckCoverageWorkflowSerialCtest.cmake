@@ -52,6 +52,13 @@ if(_ctest_parallel_pos EQUAL -1)
     "Observed row:\n${_coverage_row}")
 endif()
 
+string(FIND "${_coverage_row}" "preset: coverage-system" _coverage_preset_pos)
+if(_coverage_preset_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage matrix row must use preset: coverage-system so Linux CI does not inherit the vcpkg toolchain default.\n"
+    "Observed row:\n${_coverage_row}")
+endif()
+
 set(_expected_test_line [=[ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }}]=])
 string(FIND "${_content}" "${_expected_test_line}" _test_line_pos)
 if(_test_line_pos EQUAL -1)
