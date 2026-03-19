@@ -82,17 +82,12 @@ if(NOT _hardcoded_coverage_dir_pos EQUAL -1)
     "Coverage workflow must not hardcode build/coverage; it should follow the selected preset build directory.")
 endif()
 
-set(_forbidden_gcov_pref [=[GCOV_CMD=(llvm-cov gcov)]=])
-string(FIND "${_content}" "${_forbidden_gcov_pref}" _forbidden_gcov_pos)
-if(NOT _forbidden_gcov_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Coverage workflow must not prefer llvm-cov gcov here; the current coverage tree expects plain gcov.")
-endif()
-
-string(FIND "${_content}" "--gcov " _gcov_flag_pos)
+set(_expected_gcov_args [=[--gcov llvm-cov gcov]=])
+string(FIND "${_content}" "${_expected_gcov_args}" _gcov_flag_pos)
 if(_gcov_flag_pos EQUAL -1)
   message(FATAL_ERROR
-    "Coverage workflow must pass an explicit '--gcov <tool>' argument to coverage_hygiene.py.")
+    "Coverage workflow must pass '--gcov llvm-cov gcov' so Clang coverage data is parsed by the matching LLVM gcov frontend.\n"
+    "Expected line fragment:\n${_expected_gcov_args}")
 endif()
 
 string(FIND "${_content}" "--roots " _roots_override_pos)

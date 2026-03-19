@@ -810,7 +810,7 @@ jobs:
           python3 scripts/coverage_hygiene.py \
             --build-dir "build/${GENTEST_CMAKE_PRESET}" \
             --ignore-statuses stamp_mismatch \
-            --gcov gcov
+            --gcov llvm-cov gcov
 
   package-workflow:
     name: Package Workflow
