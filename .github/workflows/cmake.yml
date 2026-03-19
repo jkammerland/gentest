@@ -779,16 +779,6 @@ jobs:
           set -euxo pipefail
           python3 scripts/coverage_hygiene.py \
             --build-dir build/coverage \
-            --roots tools/src \
-            --fail-on missing_obj,missing_gcda,no_match,gcov_error \
-            --warn-on zero_hits \
-            --ignore-statuses stamp_mismatch \
-            --gcov gcov
-          python3 scripts/coverage_hygiene.py \
-            --build-dir build/coverage \
-            --roots src \
-            --fail-on missing_obj,missing_gcda,no_match,gcov_error \
-            --warn-on zero_hits \
             --ignore-statuses stamp_mismatch \
             --gcov gcov
 

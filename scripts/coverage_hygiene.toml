@@ -1,0 +1,18 @@
+# Repo policy for scripts/coverage_hygiene.py.
+# Keep coverage collection logic in Python, but keep project-specific exceptions
+# and gate policy here so CI does not duplicate it in workflow YAML.
+
+roots = ["src", "tools/src"]
+exclude_prefix = []
+
+intentional = [
+  "src/gentest_anchor.cpp",
+  "tools/src/tooling_support.cpp",
+  "src/runtime_context.cpp",
+  "tools/src/terminfo_shim.cpp",
+]
+
+no_exec = []
+
+fail_on = "missing_obj,missing_gcda,stamp_mismatch,no_match,gcov_error"
+warn_on = "zero_hits"

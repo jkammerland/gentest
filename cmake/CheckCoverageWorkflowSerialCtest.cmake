@@ -72,3 +72,21 @@ if(_gcov_flag_pos EQUAL -1)
   message(FATAL_ERROR
     "Coverage workflow must pass an explicit '--gcov <tool>' argument to coverage_hygiene.py.")
 endif()
+
+string(FIND "${_content}" "--roots " _roots_override_pos)
+if(NOT _roots_override_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow should use coverage_hygiene.toml for source roots instead of overriding --roots in YAML.")
+endif()
+
+string(FIND "${_content}" "--fail-on " _fail_override_pos)
+if(NOT _fail_override_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow should use coverage_hygiene.toml for fail-on policy instead of overriding --fail-on in YAML.")
+endif()
+
+string(FIND "${_content}" "--warn-on " _warn_override_pos)
+if(NOT _warn_override_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow should use coverage_hygiene.toml for warn-on policy instead of overriding --warn-on in YAML.")
+endif()

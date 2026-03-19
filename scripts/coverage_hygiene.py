@@ -23,6 +23,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -30,17 +31,20 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 CoverageRecord = Tuple[Path, str, Optional[float], Optional[int], Optional[str], Optional[str]]
 GcovStatus = str
 
-INTENTIONAL_SOURCES = {
-    "src/gentest_anchor.cpp",
-    "tools/src/tooling_support.cpp",
-    "src/runtime_context.cpp",
-    "tools/src/terminfo_shim.cpp",
+DEFAULT_POLICY = {
+    "roots": ["src", "tools/src"],
+    "exclude_prefix": [],
+    "intentional": [
+        "src/gentest_anchor.cpp",
+        "tools/src/tooling_support.cpp",
+        "src/runtime_context.cpp",
+        "tools/src/terminfo_shim.cpp",
+    ],
+    "no_exec": [],
+    "fail_on": "missing_obj,missing_gcda,stamp_mismatch,no_match,gcov_error",
+    "warn_on": "zero_hits",
 }
-
-NO_EXEC_SOURCES: Set[str] = set()
-
-DEFAULT_FAIL_STATUSES = "missing_obj,missing_gcda,stamp_mismatch,no_match,gcov_error"
-DEFAULT_ACTIONABLE_STATUSES = "zero_hits"
+DEFAULT_POLICY_PATH = Path(__file__).with_suffix(".toml")
 
 # Non-fatal gcov statuses that should be superseded by a usable candidate, often seen when a source is compiled by
 # multiple targets and one coverage artifact is stale.
@@ -55,6 +59,30 @@ PREFERRED_ORDER: Dict[GcovStatus, int] = {
     "no_match": 5,
     "gcov_error": 6,
 }
+
+
+def _read_policy_config(config_path: Path) -> Dict[str, Any]:
+    policy = dict(DEFAULT_POLICY)
+    if not config_path.exists():
+        return policy
+
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError(f"coverage policy config at '{config_path}' must be a TOML table")
+
+    for key in ("roots", "exclude_prefix", "intentional", "no_exec"):
+        value = data.get(key, policy[key])
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise RuntimeError(f"coverage policy key '{key}' in '{config_path}' must be a list of strings")
+        policy[key] = list(value)
+
+    for key in ("fail_on", "warn_on"):
+        value = data.get(key, policy[key])
+        if not isinstance(value, str):
+            raise RuntimeError(f"coverage policy key '{key}' in '{config_path}' must be a string")
+        policy[key] = value
+
+    return policy
 
 
 def _to_abs_paths(project_root: Path, values: Sequence[str]) -> List[Path]:
@@ -442,20 +470,29 @@ def _print_report(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument(
+        "--config",
+        default=str(DEFAULT_POLICY_PATH),
+        help="Path to the coverage hygiene policy TOML file.",
+    )
+    config_args, remaining = config_parser.parse_known_args()
+    policy = _read_policy_config(Path(config_args.config))
+
+    ap = argparse.ArgumentParser(parents=[config_parser])
     ap.add_argument("--build-dir", default="build/coverage", help="Build directory containing compile_commands.json and *.gcda")
-    ap.add_argument("--roots", nargs="*", default=["src", "tools/src"], help="Relative source roots to inspect")
-    ap.add_argument("--exclude-prefix", nargs="*", default=[], help="Path prefixes to skip")
+    ap.add_argument("--roots", nargs="*", default=policy["roots"], help="Relative source roots to inspect")
+    ap.add_argument("--exclude-prefix", nargs="*", default=policy["exclude_prefix"], help="Path prefixes to skip")
     ap.add_argument(
         "--intentional",
         nargs="*",
-        default=sorted(INTENTIONAL_SOURCES),
+        default=policy["intentional"],
         help="Path prefixes considered intentional placeholders (not coverage-failing).",
     )
     ap.add_argument(
         "--no-exec",
         nargs="*",
-        default=sorted(NO_EXEC_SOURCES),
+        default=policy["no_exec"],
         help="Path prefixes expected to have no executable lines.",
     )
     ap.add_argument("--gcov", nargs="+", default=["gcov"], help="gcov-compatible command line")
@@ -467,12 +504,12 @@ def main() -> int:
     )
     ap.add_argument(
         "--fail-on",
-        default=DEFAULT_FAIL_STATUSES,
+        default=policy["fail_on"],
         help="Comma-separated statuses that fail the run.",
     )
     ap.add_argument(
         "--warn-on",
-        default=DEFAULT_ACTIONABLE_STATUSES,
+        default=policy["warn_on"],
         help="Comma-separated statuses to treat as actionable in CI reports.",
     )
     ap.add_argument(
@@ -480,7 +517,7 @@ def main() -> int:
         default="",
         help="Comma-separated statuses to suppress as failures.",
     )
-    args = ap.parse_args()
+    args = ap.parse_args(remaining)
 
     project_root = Path(__file__).resolve().parents[1]
     build_dir = project_root / args.build_dir
