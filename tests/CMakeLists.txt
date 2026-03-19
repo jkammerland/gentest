@@ -1970,6 +1970,12 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_workflow_action_versions
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckWorkflowActionVersions.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_qemu_workflow_presets
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckQemuWorkflowPresets.cmake

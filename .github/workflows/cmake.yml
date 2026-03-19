@@ -34,7 +34,7 @@ jobs:
                 enable_package_tests: "ON"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Select Xcode 16.2 toolchain
         if: matrix.compiler == 'appleclang'
@@ -141,10 +141,7 @@ jobs:
             variant: "cxx23"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v3
+        uses: actions/checkout@v6
 
       - name: Install modern Ninja
         shell: pwsh
@@ -730,7 +727,7 @@ jobs:
           PY
           echo "/usr/lib/llvm${{ matrix.llvm_version }}/bin" >> "$GITHUB_PATH"
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Configure environment variables
         run: |
           echo "LLVM_DIR=${{ matrix.llvm_dir }}" >> $GITHUB_ENV
@@ -817,10 +814,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v3
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |

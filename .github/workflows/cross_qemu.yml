@@ -59,7 +59,7 @@ jobs:
           echo "PATH=/usr/local/bin:$PATH" >> "$GITHUB_ENV"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Configure environment variables
         run: |
