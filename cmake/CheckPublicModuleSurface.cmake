@@ -48,6 +48,11 @@ set(_common_cache_args
   "-DCMAKE_C_COMPILER=${_clang}"
   "-DCMAKE_CXX_COMPILER=${_clangxx}"
   "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_scan_deps}")
+if(CMAKE_HOST_WIN32 AND _clangxx MATCHES "[Cc]lang")
+  list(APPEND _common_cache_args
+    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    "-DCMAKE_CXX_FLAGS=-D_ITERATOR_DEBUG_LEVEL=0 -D_HAS_ITERATOR_DEBUGGING=0")
+endif()
 gentest_append_host_apple_sysroot(_common_cache_args)
 
 message(STATUS "Configure producer for public module surface regression...")

@@ -7,4 +7,4 @@ find_package(gentest CONFIG REQUIRED)
 
 add_executable(public_module_surface main.cpp)
 target_compile_features(public_module_surface PRIVATE cxx_std_20)
-target_link_libraries(public_module_surface PRIVATE gentest::gentest gentest::gentest_runtime)
+target_link_libraries(public_module_surface PRIVATE gentest::gentest)

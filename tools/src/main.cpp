@@ -1957,15 +1957,22 @@ int main(int argc, const char **argv) {
                     fmt::format("-fmodule-file={}={}", import_name, named_module_sources[dep_it->second].pcm_path.string()));
             }
 
-            const auto &source_commands = direct_compile_commands[module_source.source_index].empty()
-                ? compile_commands[module_source.source_index]
-                : direct_compile_commands[module_source.source_index];
+            const auto &direct_source_commands = direct_compile_commands[module_source.source_index];
+            const auto &source_commands =
+                compile_commands[module_source.source_index].empty() ? direct_source_commands : compile_commands[module_source.source_index];
             const std::string compdb_dir =
                 options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
+            std::string forced_compiler_path;
+            if (!direct_source_commands.empty()) {
+                const auto &driver_command = direct_source_commands.front().CommandLine;
+                if (const auto compiler_index = compiler_arg_index_for_resource_dir_probe(driver_command); compiler_index.has_value()) {
+                    forced_compiler_path = driver_command[*compiler_index];
+                }
+            }
             const auto adjusted_command = build_adjusted_command_line(
                 source_commands.empty() ? clang::tooling::CommandLineArguments{} : source_commands.front().CommandLine,
                 options.sources[module_source.source_index], resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
-                compdb_dir, module_file_args);
+                compdb_dir, module_file_args, forced_compiler_path);
             const auto precompile_command =
                 build_module_precompile_command(adjusted_command, options.sources[module_source.source_index],
                                                 source_commands.empty() ? compdb_dir : source_commands.front().Directory,

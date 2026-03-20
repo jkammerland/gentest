@@ -212,25 +212,23 @@ inline constexpr std::string_view tu_registration_header = R"CPP(// This file is
 #include "gentest/runner.h"
 #include "gentest/fixture.h"
 #endif
+namespace gentest::generated::{{REGISTER_FN}} {
 {{REGISTRATION_COMMON}}
 
 constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
 {{CASE_INITS}}
 };
 } // namespace
+} // namespace gentest::generated::{{REGISTER_FN}}
 
-namespace gentest::generated {
-inline void {{REGISTER_FN}}() { gentest::detail::register_cases(std::span{kCases}); }
-} // namespace gentest::generated
-
-namespace {
-struct GentestRegistrar {
-    GentestRegistrar() {
-{{FIXTURE_REGISTRATIONS}}        gentest::generated::{{REGISTER_FN}}();
+namespace gentest::generated::{{REGISTER_FN}} {
+struct {{REGISTER_FN}}_registrar {
+    {{REGISTER_FN}}_registrar() {
+{{FIXTURE_REGISTRATIONS}}        gentest::detail::register_cases(std::span{kCases});
     }
 };
-[[maybe_unused]] const GentestRegistrar kGentestRegistrar{};
-} // namespace
+[[maybe_unused]] const {{REGISTER_FN}}_registrar {{REGISTER_FN}}_instance{};
+} // namespace gentest::generated::{{REGISTER_FN}}
 )CPP";;
 
 inline constexpr std::string_view wrapper_free = R"FMT(static void {w}(void* ctx_) {{

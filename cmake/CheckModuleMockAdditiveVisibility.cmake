@@ -130,18 +130,27 @@ if(_provider_pos EQUAL -1)
 endif()
 
 string(FIND "${_provider_wrapper_text}" "#include <type_traits>" _provider_type_traits_pos)
-if(NOT _provider_type_traits_pos EQUAL -1)
+string(FIND "${_provider_wrapper_text}" "export module gentest.additive_provider;" _provider_module_pos)
+if(_provider_type_traits_pos EQUAL -1 OR _provider_module_pos EQUAL -1)
   message(FATAL_ERROR
-    "Expected provider module wrapper to avoid injecting <type_traits> into module purview.\n${_provider_wrapper_text}")
+    "Expected provider module wrapper to contain relocated registration-support includes.\n${_provider_wrapper_text}")
+endif()
+if(_provider_type_traits_pos GREATER _provider_module_pos)
+  message(FATAL_ERROR
+    "Expected provider module wrapper to keep <type_traits> in the global module fragment.\n${_provider_wrapper_text}")
 endif()
 
 string(FIND "${_header_consumer_wrapper_text}" "#include <type_traits>" _header_consumer_type_traits_pos)
-if(NOT _header_consumer_type_traits_pos EQUAL -1)
+string(FIND "${_header_consumer_wrapper_text}" "export module gentest.additive_header_consumer;" _header_consumer_module_pos)
+if(_header_consumer_type_traits_pos EQUAL -1 OR _header_consumer_module_pos EQUAL -1)
   message(FATAL_ERROR
-    "Expected header-consumer module wrapper to avoid injecting <type_traits> into module purview.\n${_header_consumer_wrapper_text}")
+    "Expected header-consumer module wrapper to contain relocated registration-support includes.\n${_header_consumer_wrapper_text}")
+endif()
+if(_header_consumer_type_traits_pos GREATER _header_consumer_module_pos)
+  message(FATAL_ERROR
+    "Expected header-consumer module wrapper to keep <type_traits> in the global module fragment.\n${_header_consumer_wrapper_text}")
 endif()
 
-string(FIND "${_header_consumer_wrapper_text}" "export module gentest.additive_header_consumer;" _header_consumer_module_pos)
 string(FIND "${_header_consumer_wrapper_text}" "#include \"gentest/mock_codegen.h\"" _header_consumer_codegen_include_pos)
 if(_header_consumer_module_pos EQUAL -1 OR _header_consumer_codegen_include_pos EQUAL -1)
   message(FATAL_ERROR

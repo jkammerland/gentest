@@ -161,7 +161,8 @@ void add() {
 
 Exceptions:
 - If a test throws a `std::exception`, the runner records a failure like `unexpected std::exception: ...` and continues.
-- If you want to assert on exceptions, you can use the gtest-like macros.
+- Include-based consumers can use the gtest-like macros.
+- `import gentest;` consumers should use the matching function templates from `gentest::asserts`.
 
 ```cpp
 #include "gentest/attributes.h"
@@ -175,6 +176,18 @@ void macros() {
     EXPECT_THROW(throw std::runtime_error("boom"), std::runtime_error);
     EXPECT_THROW(throw 123, int);
     EXPECT_NO_THROW((void)0);
+}
+```
+
+```cpp
+#include <stdexcept>
+import gentest;
+using namespace gentest::asserts;
+
+[[gentest::test("exceptions/module_functions")]]
+void module_functions() {
+    EXPECT_THROW<std::runtime_error>([] { throw std::runtime_error("boom"); });
+    EXPECT_NO_THROW([] {});
 }
 ```
 

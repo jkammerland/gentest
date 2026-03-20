@@ -279,9 +279,8 @@ struct ModuleGlobalFragmentInsertLocation {
 std::optional<ModuleGlobalFragmentInsertLocation> find_module_global_fragment_insert_location(std::string_view text) {
     bool        seen_global_fragment = false;
     std::size_t cursor = 0;
-    std::size_t last_after = 0;
+    std::size_t global_fragment_after = 0;
     std::string pending_module;
-    bool        pending_module_active = false;
     ScanStreamState scan_state;
 
     while (cursor < text.size()) {
@@ -296,32 +295,27 @@ std::optional<ModuleGlobalFragmentInsertLocation> find_module_global_fragment_in
         }
         const auto processed = process_scan_physical_line(line, scan_state);
         if (!processed.is_active_code) {
-            if (seen_global_fragment) {
-                last_after = next;
-            }
             cursor = next;
             continue;
         }
 
-        bool line_ok = true;
         for (const auto &statement : split_scan_statements(processed.stripped)) {
-            if (!seen_global_fragment) {
-                if (is_global_module_fragment_scan_line(statement)) {
-                    seen_global_fragment = true;
-                    last_after = next;
-                    continue;
-                }
-                line_ok = false;
-                break;
+            if (statement.empty()) {
+                continue;
             }
 
-            if (!pending_module_active) {
+            if (is_global_module_fragment_scan_line(statement)) {
+                seen_global_fragment  = true;
+                global_fragment_after = next;
+                pending_module.clear();
+                continue;
+            }
+
+            if (pending_module.empty()) {
                 if (!looks_like_named_module_scan_prefix(statement)) {
-                    line_ok = false;
-                    break;
+                    continue;
                 }
                 pending_module = statement;
-                pending_module_active = true;
             } else {
                 pending_module.push_back(' ');
                 pending_module.append(statement);
@@ -330,10 +324,11 @@ std::optional<ModuleGlobalFragmentInsertLocation> find_module_global_fragment_in
             if (statement.find(';') == std::string::npos) {
                 continue;
             }
+
             if (parse_named_module_name_from_scan_line(pending_module).has_value()) {
                 if (seen_global_fragment) {
                     return ModuleGlobalFragmentInsertLocation{
-                        .offset = last_after,
+                        .offset = global_fragment_after,
                         .synthesize_global_fragment = false,
                     };
                 }
@@ -343,17 +338,6 @@ std::optional<ModuleGlobalFragmentInsertLocation> find_module_global_fragment_in
                 };
             }
             pending_module.clear();
-            pending_module_active = false;
-            line_ok = false;
-            break;
-        }
-
-        if (!line_ok) {
-            break;
-        }
-
-        if (seen_global_fragment && !pending_module_active) {
-            last_after = next;
         }
         cursor = next;
     }

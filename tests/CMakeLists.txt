@@ -1906,6 +1906,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_public_module_surface APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_public_module_detail_hidden
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleDetailHidden.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_public_module_detail_hidden APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_outcome_matrix_stale_junit_guard
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake
@@ -2004,6 +2012,12 @@ _gentest_add_cmake_helper_test(
     gentest_workflow_action_versions
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckWorkflowActionVersions.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_buildsystems_linux_workflow
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBuildsystemsLinuxWorkflow.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(

@@ -208,20 +208,9 @@ if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
       "gentest_codegen did not emit the expected active module declaration.\nGenerated wrapper:\n${_generated_wrapper_text}")
   endif()
 
-  set(_generated_shim "${_generated_dir}/tu_0000_conditional_false_match.gentest.cpp")
-  if(NOT EXISTS "${_generated_shim}")
+  if(NOT _generated_wrapper_text MATCHES "__has_include\\(\"tu_0000_conditional_false_match\\.gentest\\.h\"\\)")
     message(FATAL_ERROR
-      "Expected generated shim '${_generated_shim}' to exist after building the fixture.")
-  endif()
-
-  file(READ "${_generated_shim}" _generated_shim_text)
-  if(NOT _generated_shim_text MATCHES "(^|\n)import[ \t]+real_conditional;")
-    message(FATAL_ERROR
-      "gentest_codegen did not retarget the registration shim to the expected live module.\nGenerated shim:\n${_generated_shim_text}")
-  endif()
-  if(_generated_shim_text MATCHES "wrong_conditional" OR _generated_shim_text MATCHES "wrong_has_include")
-    message(FATAL_ERROR
-      "gentest_codegen retargeted the registration shim to an inactive module.\nGenerated shim:\n${_generated_shim_text}")
+      "gentest_codegen did not append the TU registration include to the expected wrapper.\nGenerated wrapper:\n${_generated_wrapper_text}")
   endif()
 
   set(_fixture_exe "${_fixture_build_dir}/module_name_false_match_tests")

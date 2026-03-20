@@ -217,6 +217,8 @@ if(NOT "${_effective_build_type}" STREQUAL "")
 endif()
 if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE AND NOT "${PROG}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DGENTEST_BUILD_CODEGEN=OFF")
+elseif(NOT PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
+  list(APPEND _cmake_cache_args "-DGENTEST_BUILD_CODEGEN=ON")
 endif()
 
 set(_work_dir_semantic_key
@@ -343,6 +345,7 @@ if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
   file(MAKE_DIRECTORY "${_installed_codegen_dir}")
   set(_installed_codegen "${_installed_codegen_dir}/gentest_codegen${_exe_ext}")
   file(COPY_FILE "${PROG}" "${_installed_codegen}" ONLY_IF_DIFFERENT)
+  list(APPEND _consumer_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${_installed_codegen}")
 endif()
 if(NOT _producer_fmt_dir STREQUAL "")
   # Keep consumer dependency resolution aligned with the producer package build.
