@@ -941,7 +941,13 @@ static bool parse_args(int argc, char **argv, ServerConfig &cfg) {
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--listen" && i + 1 < argc) {
-            cfg.listen = parse_endpoint(argv[++i]);
+            std::string error;
+            Endpoint listen = parse_endpoint(argv[++i], &error);
+            if (!error.empty()) {
+                std::cerr << "coordd: " << error << "\n";
+                return false;
+            }
+            cfg.listen = listen;
         } else if (arg == "--root" && i + 1 < argc) {
             cfg.root_dir = argv[++i];
         } else if (arg == "--peer" && i + 1 < argc) {

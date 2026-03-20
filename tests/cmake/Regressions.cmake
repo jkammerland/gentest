@@ -161,6 +161,24 @@ if(TARGET coord)
         NAME regression_coord_submit_filesystem_exception
         PROG $<TARGET_FILE:gentest_regression_coord_submit_filesystem_exception>
         EXPECT_RC 0)
+
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coordd_invalid_listen_parse
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coordd_invalid_listen_parse.cpp)
+    target_link_libraries(gentest_regression_coordd_invalid_listen_parse PRIVATE coord::coord)
+    gentest_add_check_exit_code(
+        NAME regression_coordd_invalid_listen_parse
+        PROG $<TARGET_FILE:gentest_regression_coordd_invalid_listen_parse>
+        EXPECT_RC 0)
+
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coordctl_ready_timeout_invalid
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coordctl_ready_timeout_invalid.cpp)
+    target_link_libraries(gentest_regression_coordctl_ready_timeout_invalid PRIVATE coord::coord)
+    gentest_add_check_exit_code(
+        NAME regression_coordctl_ready_timeout_invalid
+        PROG $<TARGET_FILE:gentest_regression_coordctl_ready_timeout_invalid>
+        EXPECT_RC 0)
 endif()
 
 gentest_add_suite(regression_local_fixture_teardown

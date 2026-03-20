@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <cstring>
@@ -305,7 +306,18 @@ static bool parse_args(int argc, char **argv, Args &args) {
         } else if (arg == "--pid-file" && i + 1 < argc) {
             args.pid_file = argv[++i];
         } else if (arg == "--ready-timeout-ms" && i + 1 < argc) {
-            args.ready_timeout_ms = static_cast<std::uint32_t>(std::stoul(argv[++i]));
+            const char *value = argv[++i];
+            try {
+                unsigned long parsed = std::stoul(value);
+                if (parsed > std::numeric_limits<std::uint32_t>::max()) {
+                    std::cerr << "coordctl: invalid --ready-timeout-ms\n";
+                    return false;
+                }
+                args.ready_timeout_ms = static_cast<std::uint32_t>(parsed);
+            } catch (const std::exception &) {
+                std::cerr << "coordctl: invalid --ready-timeout-ms\n";
+                return false;
+            }
         } else if (arg == "--report" && i + 1 < argc) {
             args.report = argv[++i];
         } else if (arg == "--no-wait") {
