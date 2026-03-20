@@ -57,6 +57,14 @@ function(_gentest_add_shared_fixture_skip_reason_regression)
         ARGS --run=${GENTEST_RUN} --kind=test)
 endfunction()
 
+gentest_add_cmake_script_test(
+    NAME regression_coord_tls_reconfigure
+    PROG "${CMAKE_COMMAND}"
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckCoordTlsReconfigure.cmake"
+    DEFINES
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/coord_tls_reconfigure")
+
 set(_gentest_manual_regressions
     "gentest_regression_bench_assert|bench_assert_propagation.cpp"
     "gentest_regression_shared_fixture_reentry|shared_fixture_reentry.cpp"

@@ -45,9 +45,6 @@ option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated r
 set(GENTEST_ENABLE_PUBLIC_MODULES "AUTO" CACHE STRING "Enable gentest's public C++ module interfaces (AUTO, ON, or OFF)")
 set_property(CACHE GENTEST_ENABLE_PUBLIC_MODULES PROPERTY STRINGS AUTO ON OFF)
 
-if(NOT COORD_ENABLE_TLS)
-    set(COORD_TLS_BACKEND "none" CACHE STRING "TLS backend for coordd (openssl, wolfssl, none)" FORCE)
-endif()
 if(COORD_ENABLE_TLS AND COORD_TLS_BACKEND STREQUAL "none")
     message(FATAL_ERROR "COORD_ENABLE_TLS=ON requires COORD_TLS_BACKEND to be openssl or wolfssl")
 endif()
