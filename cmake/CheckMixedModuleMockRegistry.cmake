@@ -214,10 +214,16 @@ foreach(_wrapper_text IN ITEMS
     "${_module_wrapper_text}"
     "${_manual_wrapper_text}"
     "${_same_block_wrapper_text}")
-  string(FIND "${_wrapper_text}" "#include <type_traits>" _wrapper_type_traits_pos)
-  if(NOT _wrapper_type_traits_pos EQUAL -1)
+  string(REGEX MATCH "export[^\n]*module[^\n]*;" _wrapper_module_decl "${_wrapper_text}")
+  if("${_wrapper_module_decl}" STREQUAL "")
     message(FATAL_ERROR
-      "Expected mixed module wrappers to avoid injecting <type_traits> into module purview.\n${_wrapper_text}")
+      "Expected mixed module wrapper to keep an export module declaration.\n${_wrapper_text}")
+  endif()
+  string(FIND "${_wrapper_text}" "${_wrapper_module_decl}" _wrapper_module_decl_pos)
+  string(FIND "${_wrapper_text}" "// gentest_codegen: injected registration support includes." _wrapper_reg_support_pos)
+  if(NOT _wrapper_reg_support_pos EQUAL -1 AND _wrapper_reg_support_pos GREATER _wrapper_module_decl_pos)
+    message(FATAL_ERROR
+      "Expected mixed module wrappers to keep injected registration support in the global module fragment.\n${_wrapper_text}")
   endif()
 endforeach()
 

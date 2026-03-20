@@ -412,6 +412,36 @@ std::string render_module_mock_codegen_include_block() {
     return out;
 }
 
+std::string render_module_registration_support_include_block() {
+    std::string out;
+    out.reserve(256);
+    out.append("\n// gentest_codegen: injected registration support includes.\n");
+    out.append("#include <array>\n");
+    out.append("#include <memory>\n");
+    out.append("#include <span>\n");
+    out.append("#include <string>\n");
+    out.append("#include <string_view>\n");
+    out.append("#include <type_traits>\n");
+    out.append("#include <utility>\n");
+    return out;
+}
+
+std::string render_module_registration_include_block(std::string_view registration_header_name) {
+    std::string out;
+    out.reserve(registration_header_name.size() + 192);
+    out.append("\n// gentest_codegen: injected TU registration include.\n");
+    out.append("#if !defined(GENTEST_CODEGEN) && __has_include(\"");
+    out.append(registration_header_name);
+    out.append("\")\n");
+    out.append("#define GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE 1\n");
+    out.append("#include \"");
+    out.append(registration_header_name);
+    out.append("\"\n");
+    out.append("#undef GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE\n");
+    out.append("#endif\n");
+    return out;
+}
+
 bool namespace_chains_equal(const std::vector<MockNamespaceScopeInfo> &lhs, const std::vector<MockNamespaceScopeInfo> &rhs) {
     if (lhs.size() != rhs.size()) {
         return false;
@@ -457,7 +487,7 @@ std::string render_namespace_scope_reopen(const std::vector<MockNamespaceScopeIn
 }
 
 std::optional<std::string> render_module_wrapper_source(const fs::path &source_path, const std::vector<const MockClassInfo *> &source_mocks,
-                                                        bool needs_mock_codegen_include) {
+                                                        bool needs_mock_codegen_include, std::string_view registration_header_name) {
     std::string raw_original;
     if (!read_file(source_path, raw_original)) {
         log_err("gentest_codegen: failed to read module source '{}'\n", source_path.string());
@@ -468,7 +498,8 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
     const SourceMockCodegenIncludes manual_includes = scan_source_mock_codegen_includes(original);
     const bool needs_global_mock_codegen_include = needs_mock_codegen_include || manual_includes.has_any_manual_codegen();
     const bool needs_mock_api_include = !source_mocks.empty() || needs_global_mock_codegen_include;
-    if (source_mocks.empty() && !needs_global_mock_codegen_include && !needs_mock_api_include) {
+    const bool needs_registration_header = !registration_header_name.empty();
+    if (source_mocks.empty() && !needs_global_mock_codegen_include && !needs_mock_api_include && !needs_registration_header) {
         return original;
     }
 
@@ -491,7 +522,7 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
         reserve_extra += mock->qualified_name.size() * 4 + 512;
     }
     std::optional<ModuleGlobalFragmentInsertLocation> global_include_location;
-    if (needs_global_mock_codegen_include || needs_mock_api_include) {
+    if (needs_global_mock_codegen_include || needs_mock_api_include || needs_registration_header) {
         global_include_location = find_module_global_fragment_insert_location(original);
         if (!global_include_location.has_value()) {
             log_err("gentest_codegen: failed to locate module global-fragment insertion point in '{}'\n", source_path.string());
@@ -501,12 +532,15 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
         if (global_include_location->synthesize_global_fragment) {
             reserve_extra += 16;
         }
+        if (needs_registration_header) {
+            reserve_extra += registration_header_name.size() + 256;
+        }
         if (needs_mock_api_include) {
             reserve_extra += 160;
         }
     }
 
-    if (mocks_by_offset.empty() && !global_include_location.has_value()) {
+    if (mocks_by_offset.empty() && !global_include_location.has_value() && !needs_registration_header) {
         return original;
     }
 
@@ -525,6 +559,10 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
                                                manual_includes.manual_codegen_include_ranges, skipped_idx);
         if (global_include_location->synthesize_global_fragment) {
             rendered.append("module;\n");
+        }
+        if (needs_registration_header) {
+            rendered.append(render_module_registration_support_include_block());
+            rendered.push_back('\n');
         }
         if (needs_mock_api_include) {
             rendered.append(render_module_mock_api_include_block());
@@ -568,6 +606,9 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
 
     append_original_segment_skipping_ranges(rendered, original, cursor, original.size(), manual_includes.manual_codegen_include_ranges,
                                            skipped_idx);
+    if (needs_registration_header) {
+        rendered.append(render_module_registration_include_block(registration_header_name));
+    }
     return normalize_scan_module_preamble_source(rendered);
 }
 
@@ -961,7 +1002,9 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
                 const std::vector<const MockClassInfo *> empty_mocks;
                 const auto &source_mocks = mock_it != direct_module_mocks_by_source.end() ? mock_it->second : empty_mocks;
                 const bool needs_mock_codegen_include = module_mock_codegen_include_by_source.contains(key);
-                const auto wrapper_source = render_module_wrapper_source(source_path, source_mocks, needs_mock_codegen_include);
+                const std::string registration_header_name = (!tu_cases.empty() || !tu_fixtures.empty()) ? header_out.filename().string() : "";
+                const auto wrapper_source =
+                    render_module_wrapper_source(source_path, source_mocks, needs_mock_codegen_include, registration_header_name);
                 if (!wrapper_source.has_value()) {
                     statuses[idx] = 1;
                     return;

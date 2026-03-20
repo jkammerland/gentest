@@ -1924,6 +1924,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_runtime_shared_context_exports APPEND PROPERTY LABELS "runtime")
 
 _gentest_add_cmake_helper_test(
+    gentest_install_only_codegen_default
+    ${PROJECT_SOURCE_DIR}/tests/cmake/install_only_codegen_default
+    ${PROJECT_SOURCE_DIR}/cmake/CheckInstallOnlyCodegenDefault.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+
+_gentest_add_cmake_helper_test(
     gentest_module_mock_long_domain_outputs
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_mock_long_domain_outputs
     ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMockLongDomainOutputs.cmake
@@ -1938,6 +1945,14 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_scan_include_clang_dir_append APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_partition_registration_visibility
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_partition_registration_visibility
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModulePartitionRegistrationVisibility.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_partition_registration_visibility APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
     gentest_cross_compile_emulator_serialization
