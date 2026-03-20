@@ -125,6 +125,16 @@ if(TARGET coord)
         NAME regression_coord_terminate_all_completed_pid
         PROG $<TARGET_FILE:gentest_regression_coord_terminate_all_completed_pid>
         EXPECT_RC 0)
+
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coord_submit_filesystem_exception
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coord_submit_filesystem_exception.cpp)
+    target_link_libraries(gentest_regression_coord_submit_filesystem_exception PRIVATE coord::coord)
+
+    gentest_add_check_exit_code(
+        NAME regression_coord_submit_filesystem_exception
+        PROG $<TARGET_FILE:gentest_regression_coord_submit_filesystem_exception>
+        EXPECT_RC 0)
 endif()
 
 gentest_add_suite(regression_local_fixture_teardown

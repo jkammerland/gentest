@@ -631,10 +631,26 @@ public:
         SessionSpec spec_copy = spec;
         spec_copy.session_id = id;
         std::thread([this, state, spec_copy, peer]() {
-            if (!peer.empty()) {
-                state->manifest = run_remote(spec_copy, peer);
-            } else {
-                state->manifest = run_session(spec_copy, root_dir_);
+            try {
+                if (!peer.empty()) {
+                    state->manifest = run_remote(spec_copy, peer);
+                } else {
+                    state->manifest = run_session(spec_copy, root_dir_);
+                }
+            } catch (const std::exception &ex) {
+                state->manifest.session_id = spec_copy.session_id;
+                state->manifest.group = spec_copy.group;
+                state->manifest.mode = spec_copy.mode;
+                state->manifest.result = ResultCode::Error;
+                state->manifest.fail_reason = ex.what();
+                state->manifest.end_ms = now_ms();
+            } catch (...) {
+                state->manifest.session_id = spec_copy.session_id;
+                state->manifest.group = spec_copy.group;
+                state->manifest.mode = spec_copy.mode;
+                state->manifest.result = ResultCode::Error;
+                state->manifest.fail_reason = "unexpected session worker exception";
+                state->manifest.end_ms = now_ms();
             }
             {
                 std::lock_guard<std::mutex> lock(state->mutex);
