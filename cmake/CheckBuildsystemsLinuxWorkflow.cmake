@@ -29,6 +29,11 @@ if(_xmake_bin_pos EQUAL -1)
   message(FATAL_ERROR "Xmake workflow must resolve the system xmake binary for Fedora runs.")
 endif()
 
+string(FIND "${_content}" [[su - ci -c "\"${xmake_bin}\" --version"]] _xmake_ci_version_pos)
+if(_xmake_ci_version_pos EQUAL -1)
+  message(FATAL_ERROR "Fedora xmake workflow must run the packaged xmake binary as the ci user.")
+endif()
+
 string(FIND "${_content}" "/home/ci/.local/bin/xmake f -c -m release" _hardcoded_build_pos)
 if(NOT _hardcoded_build_pos EQUAL -1)
   message(FATAL_ERROR "Xmake build step must not hardcode the ci-local xmake path.")

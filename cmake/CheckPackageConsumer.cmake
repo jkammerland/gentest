@@ -17,6 +17,7 @@
 #     [-DPACKAGE_TEST_USE_MODULES=<ON|OFF>]
 #     [-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=<ON|OFF>]
 #     [-DPACKAGE_TEST_DRY_RUN_WORK_DIR=<ON|OFF>]
+#     [-DPACKAGE_TEST_DRY_RUN_PRODUCER_DIR=<ON|OFF>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
 #     -P cmake/CheckPackageConsumer.cmake
@@ -42,10 +43,16 @@ endif()
 if(NOT DEFINED PACKAGE_TEST_DRY_RUN_WORK_DIR OR "${PACKAGE_TEST_DRY_RUN_WORK_DIR}" STREQUAL "")
   set(PACKAGE_TEST_DRY_RUN_WORK_DIR OFF)
 endif()
+if(NOT DEFINED PACKAGE_TEST_DRY_RUN_PRODUCER_DIR OR "${PACKAGE_TEST_DRY_RUN_PRODUCER_DIR}" STREQUAL "")
+  set(PACKAGE_TEST_DRY_RUN_PRODUCER_DIR OFF)
+endif()
 if(NOT DEFINED PROG)
   set(PROG "")
 endif()
-if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE AND NOT PACKAGE_TEST_DRY_RUN_WORK_DIR AND "${PROG}" STREQUAL "")
+if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE
+   AND NOT PACKAGE_TEST_DRY_RUN_WORK_DIR
+   AND NOT PACKAGE_TEST_DRY_RUN_PRODUCER_DIR
+   AND "${PROG}" STREQUAL "")
   message(FATAL_ERROR
     "CheckPackageConsumer.cmake: PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON requires PROG to point at gentest_codegen")
 endif()
@@ -225,26 +232,39 @@ set(_work_dir_semantic_key
   "${PACKAGE_NAME}|${CONSUMER_LINK_MODE}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}")
 string(MD5 _work_dir_hash "${_work_dir_semantic_key}")
 string(SUBSTRING "${_work_dir_hash}" 0 12 _work_dir_hash_short)
+set(_producer_semantic_key
+  "${PACKAGE_NAME}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}")
+string(MD5 _producer_hash "${_producer_semantic_key}")
+string(SUBSTRING "${_producer_hash}" 0 12 _producer_hash_short)
 string(REGEX REPLACE "[^A-Za-z0-9]+" "_" _package_tag "${PACKAGE_NAME}")
 string(TOLOWER "${_package_tag}" _package_tag)
 if(_package_tag STREQUAL "")
   set(_package_tag "pkg")
 endif()
 set(_work_dir "${BUILD_ROOT}/pkg_${_package_tag}_${_work_dir_hash_short}")
-set(_producer_build_dir "${_work_dir}/p")
-set(_install_prefix "${_work_dir}/i")
+set(_producer_root "${BUILD_ROOT}/pkg_${_package_tag}_producer_${_producer_hash_short}")
+set(_producer_build_dir "${_producer_root}/p")
+set(_install_prefix "${_producer_root}/i")
 set(_consumer_build_dir "${_work_dir}/c")
 set(_consumer_source_dir "${_work_dir}/src")
-set(_fetchcontent_base_dir "${_work_dir}/fc")
+set(_fetchcontent_base_dir "${_producer_root}/fc")
+set(_producer_lock "${_producer_root}/producer.lock")
 
 if(PACKAGE_TEST_DRY_RUN_WORK_DIR)
   message(STATUS "CheckPackageConsumer work dir: ${_work_dir}")
+endif()
+if(PACKAGE_TEST_DRY_RUN_PRODUCER_DIR)
+  message(STATUS "CheckPackageConsumer producer dir: ${_producer_root}")
+endif()
+if(PACKAGE_TEST_DRY_RUN_WORK_DIR OR PACKAGE_TEST_DRY_RUN_PRODUCER_DIR)
   return()
 endif()
 
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(COPY "${SOURCE_DIR}/tests/consumer/" DESTINATION "${_consumer_source_dir}")
+file(MAKE_DIRECTORY "${_producer_root}")
+file(LOCK "${_producer_lock}" GUARD PROCESS TIMEOUT 1800)
 
 message(STATUS "Configure producer build (${PACKAGE_NAME})...")
 run_or_fail(
@@ -329,6 +349,7 @@ foreach(_installed_cmake_file IN LISTS _installed_cmake_files)
       "Installed package export still references the producer source tree: ${SOURCE_DIR}\nFile: ${_installed_cmake_file}")
   endif()
 endforeach()
+file(LOCK "${_producer_lock}" RELEASE GUARD PROCESS)
 
 message(STATUS "Configure consumer project...")
 if(NOT EXISTS "${_consumer_source_dir}/CMakeLists.txt")

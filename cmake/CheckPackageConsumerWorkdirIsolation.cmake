@@ -13,7 +13,7 @@ if(NOT DEFINED PACKAGE_NAME OR "${PACKAGE_NAME}" STREQUAL "")
   message(FATAL_ERROR "CheckPackageConsumerWorkdirIsolation.cmake: PACKAGE_NAME not set")
 endif()
 
-function(_gentest_capture_package_work_dir use_modules inject_codegen build_config out_var)
+function(_gentest_capture_package_path path_kind link_mode use_modules inject_codegen build_config out_var)
   set(_compiler_args)
   if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
     list(APPEND _compiler_args "-DPACKAGE_TEST_C_COMPILER=${C_COMPILER}")
@@ -22,16 +22,26 @@ function(_gentest_capture_package_work_dir use_modules inject_codegen build_conf
     list(APPEND _compiler_args "-DPACKAGE_TEST_CXX_COMPILER=${CXX_COMPILER}")
   endif()
   list(APPEND _compiler_args ${ARGN})
+  if(path_kind STREQUAL "WORK")
+    set(_dry_run_var "PACKAGE_TEST_DRY_RUN_WORK_DIR")
+    set(_path_label "work")
+  elseif(path_kind STREQUAL "PRODUCER")
+    set(_dry_run_var "PACKAGE_TEST_DRY_RUN_PRODUCER_DIR")
+    set(_path_label "producer")
+  else()
+    message(FATAL_ERROR "Unsupported package path kind '${path_kind}'")
+  endif()
+
   execute_process(
     COMMAND
       "${CMAKE_COMMAND}"
       "-DSOURCE_DIR=${SOURCE_DIR}"
       "-DBUILD_ROOT=${BUILD_ROOT}"
       "-DPACKAGE_NAME=${PACKAGE_NAME}"
-      "-DCONSUMER_LINK_MODE=main_only"
+      "-DCONSUMER_LINK_MODE=${link_mode}"
       "-DPACKAGE_TEST_USE_MODULES=${use_modules}"
       "-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=${inject_codegen}"
-      "-DPACKAGE_TEST_DRY_RUN_WORK_DIR=ON"
+      "-D${_dry_run_var}=ON"
       "-DBUILD_TYPE=Debug"
       "-DBUILD_CONFIG=${build_config}"
       ${_compiler_args}
@@ -44,14 +54,14 @@ function(_gentest_capture_package_work_dir use_modules inject_codegen build_conf
 
   if(NOT _rc EQUAL 0)
     message(FATAL_ERROR
-      "Failed to compute package consumer work dir for use_modules=${use_modules} inject=${inject_codegen} config=${build_config}\n${_out}\n${_err}")
+      "Failed to compute package consumer ${path_kind} for link_mode=${link_mode} use_modules=${use_modules} inject=${inject_codegen} config=${build_config}\n${_out}\n${_err}")
   endif()
 
-  set(_prefix "-- CheckPackageConsumer work dir: ")
+  set(_prefix "-- CheckPackageConsumer ${_path_label} dir: ")
   string(FIND "${_out}" "${_prefix}" _prefix_pos)
   if(_prefix_pos EQUAL -1)
     message(FATAL_ERROR
-      "Did not find package work dir marker for use_modules=${use_modules} inject=${inject_codegen} config=${build_config}\n${_out}\n${_err}")
+      "Did not find package consumer ${_path_label} marker for link_mode=${link_mode} use_modules=${use_modules} inject=${inject_codegen} config=${build_config}\n${_out}\n${_err}")
   endif()
   string(REPLACE "${_prefix}" "" _path "${_out}")
   string(STRIP "${_path}" _path)
@@ -59,10 +69,15 @@ function(_gentest_capture_package_work_dir use_modules inject_codegen build_conf
 endfunction()
 
 set(_build_config "Debug")
-_gentest_capture_package_work_dir(ON ON "${_build_config}" _module_external_work_dir)
-_gentest_capture_package_work_dir(ON OFF "${_build_config}" _module_native_work_dir)
-_gentest_capture_package_work_dir(OFF ON "${_build_config}" _include_external_work_dir)
-_gentest_capture_package_work_dir(OFF OFF "${_build_config}" _include_native_work_dir)
+_gentest_capture_package_path("WORK" "main_only" ON ON "${_build_config}" _module_external_work_dir)
+_gentest_capture_package_path("WORK" "main_only" ON OFF "${_build_config}" _module_native_work_dir)
+_gentest_capture_package_path("WORK" "main_only" OFF ON "${_build_config}" _include_external_work_dir)
+_gentest_capture_package_path("WORK" "main_only" OFF OFF "${_build_config}" _include_native_work_dir)
+_gentest_capture_package_path("WORK" "runtime_only" ON ON "${_build_config}" _module_external_runtime_work_dir)
+_gentest_capture_package_path("WORK" "double" ON ON "${_build_config}" _module_external_double_work_dir)
+_gentest_capture_package_path("PRODUCER" "main_only" ON ON "${_build_config}" _module_external_producer_dir)
+_gentest_capture_package_path("PRODUCER" "runtime_only" ON ON "${_build_config}" _module_external_runtime_producer_dir)
+_gentest_capture_package_path("PRODUCER" "double" ON ON "${_build_config}" _module_external_double_producer_dir)
 
 find_program(_gcc NAMES gcc)
 find_program(_gxx NAMES g++)
@@ -79,8 +94,8 @@ if(_gcc AND _gxx)
   endif()
 
   if(NOT _gcc_norm STREQUAL _current_c_norm OR NOT _gxx_norm STREQUAL _current_cxx_norm)
-    _gentest_capture_package_work_dir(ON ON "${_build_config}" _default_compiler_work_dir)
-    _gentest_capture_package_work_dir(ON ON "${_build_config}" _gcc_work_dir
+    _gentest_capture_package_path("WORK" "main_only" ON ON "${_build_config}" _default_compiler_work_dir)
+    _gentest_capture_package_path("WORK" "main_only" ON ON "${_build_config}" _gcc_work_dir
       "-DPACKAGE_TEST_C_COMPILER=${_gcc}"
       "-DPACKAGE_TEST_CXX_COMPILER=${_gxx}")
     if(_default_compiler_work_dir STREQUAL _gcc_work_dir)
@@ -99,8 +114,8 @@ if(DEFINED C_COMPILER AND DEFINED CXX_COMPILER AND NOT "${C_COMPILER}" STREQUAL 
   set(_alt_cxx "${_hash_probe_dir}/${_cxx_name}")
   file(WRITE "${_alt_c}" "")
   file(WRITE "${_alt_cxx}" "")
-  _gentest_capture_package_work_dir(ON ON "${_build_config}" _default_hash_probe_work_dir)
-  _gentest_capture_package_work_dir(ON ON "${_build_config}" _alt_hash_probe_work_dir
+  _gentest_capture_package_path("WORK" "main_only" ON ON "${_build_config}" _default_hash_probe_work_dir)
+  _gentest_capture_package_path("WORK" "main_only" ON ON "${_build_config}" _alt_hash_probe_work_dir
     "-DPACKAGE_TEST_C_COMPILER=${_alt_c}"
     "-DPACKAGE_TEST_CXX_COMPILER=${_alt_cxx}")
   if(_default_hash_probe_work_dir STREQUAL _alt_hash_probe_work_dir)
@@ -110,7 +125,7 @@ if(DEFINED C_COMPILER AND DEFINED CXX_COMPILER AND NOT "${C_COMPILER}" STREQUAL 
 endif()
 
 set(_alt_build_root "${BUILD_ROOT}/alternate_helper_root")
-_gentest_capture_package_work_dir(ON ON "${_build_config}" _alternate_build_root_work_dir
+_gentest_capture_package_path("WORK" "main_only" ON ON "${_build_config}" _alternate_build_root_work_dir
   "-DBUILD_ROOT=${_alt_build_root}")
 if(_module_external_work_dir STREQUAL _alternate_build_root_work_dir)
   message(FATAL_ERROR
@@ -135,6 +150,19 @@ endif()
 if(_module_native_work_dir STREQUAL _include_native_work_dir)
   message(FATAL_ERROR
     "Expected module/include package consumer native-codegen work dirs to differ, but both resolved to '${_module_native_work_dir}'")
+endif()
+
+if(_module_external_work_dir STREQUAL _module_external_runtime_work_dir
+   OR _module_external_work_dir STREQUAL _module_external_double_work_dir
+   OR _module_external_runtime_work_dir STREQUAL _module_external_double_work_dir)
+  message(FATAL_ERROR
+    "Expected distinct consumer work dirs for module package consumer link modes, but at least two resolved to the same path")
+endif()
+
+if(NOT _module_external_producer_dir STREQUAL _module_external_runtime_producer_dir
+   OR NOT _module_external_producer_dir STREQUAL _module_external_double_producer_dir)
+  message(FATAL_ERROR
+    "Expected module package consumer link modes to share one producer dir, but observed '${_module_external_producer_dir}', '${_module_external_runtime_producer_dir}', and '${_module_external_double_producer_dir}'")
 endif()
 
 message(STATUS "Package consumer work dir isolation regression passed")

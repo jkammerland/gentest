@@ -92,8 +92,19 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 
 set(_prog "${_build_dir}/runtime_shared_context_consumer${CMAKE_EXECUTABLE_SUFFIX}")
+set(_run_command "${_prog}")
+if(CMAKE_HOST_WIN32)
+  get_filename_component(_prog_dir "${_prog}" DIRECTORY)
+  file(GLOB_RECURSE _runtime_dlls
+    LIST_DIRECTORIES FALSE
+    "${_build_dir}/*gentest*.dll")
+  foreach(_runtime_dll IN LISTS _runtime_dlls)
+    get_filename_component(_runtime_name "${_runtime_dll}" NAME)
+    file(COPY_FILE "${_runtime_dll}" "${_prog_dir}/${_runtime_name}" ONLY_IF_DIFFERENT)
+  endforeach()
+endif()
 gentest_check_run_or_fail(
-  COMMAND "${_prog}"
+  COMMAND ${_run_command}
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 

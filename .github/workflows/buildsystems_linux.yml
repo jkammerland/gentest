@@ -252,8 +252,8 @@ jobs:
         run: |
           set -euxo pipefail
           if [ "${{ matrix.pkg_manager }}" = "dnf" ]; then
-            command -v xmake
-            xmake --version
+            xmake_bin="$(command -v xmake)"
+            su - ci -c "\"${xmake_bin}\" --version"
           else
             su - ci -c "curl -fsSL https://xmake.io/shget.text | bash"
             su - ci -c "/home/ci/.local/bin/xmake --version"
