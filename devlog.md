@@ -46,3 +46,13 @@ Integrate the coord feature set from `feat/coordd-v3` onto the `modules-v5` base
 - `cmake --build --preset=debug-system --target coordd coordctl gentest_coord_tests`
 - `./build/debug-system/tests/gentest_coord_tests --no-color`
 - `ctest --preset=debug-system -R '^coord_(counts|list_counts)$' --output-on-failure`
+
+### Step 3
+
+- Ran a broader sanity pass against the integrated branch.
+- Verified that representative `modules-v5` regression coverage still passes alongside the coord integration.
+- The branch is ready for follow-up review or push.
+
+### Tests
+
+- `ctest --preset=debug-system -R '^(gentest_module_auto_discovery|gentest_package_consumer|coord_counts|coord_list_counts)$' --output-on-failure`
