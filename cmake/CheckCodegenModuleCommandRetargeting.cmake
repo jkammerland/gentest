@@ -236,6 +236,79 @@ _gentest_run_codegen_expect_success(
   SOURCE_FILE "${_shell_tail_args_source_abs}")
 
 if(NOT CMAKE_HOST_WIN32)
+  set(_clang_cl_joined_wrapper_dir "${_work_dir}/clang_cl_joined_wrapper")
+  file(MAKE_DIRECTORY "${_clang_cl_joined_wrapper_dir}/generated")
+  gentest_fixture_write_file("${_clang_cl_joined_wrapper_dir}/provider.cppm" [[
+export module gentest.retarget.clang_cl_joined_wrapper;
+export int clang_cl_joined_wrapper_value() { return 41; }
+]])
+  file(TO_CMAKE_PATH "${_clang_cl_joined_wrapper_dir}" _clang_cl_joined_wrapper_dir_norm)
+  file(TO_CMAKE_PATH "${_clang_cl_joined_wrapper_dir}/provider.cppm" _clang_cl_joined_wrapper_provider_abs)
+  file(TO_CMAKE_PATH "${_clang_cl_joined_wrapper_dir}/generated/tu_0000_provider.module.gentest.cppm" _clang_cl_joined_wrapper_abs)
+  file(TO_CMAKE_PATH "${_clang_cl_joined_wrapper_dir}/clang-cl" _joined_fake_clang_cl)
+  gentest_fixture_write_file("${_clang_cl_joined_wrapper_abs}" [[
+#error gentest wrapper retargeting regression: joined /Tp wrapper source arg was not rewritten
+]])
+  gentest_fixture_write_file("${_joined_fake_clang_cl}"
+    "#!/usr/bin/env python3\n"
+    "import subprocess\n"
+    "import sys\n"
+    "\n"
+    "real = r'''${_clangxx_norm}'''\n"
+    "args = sys.argv[1:]\n"
+    "if args and args[0] == '-print-resource-dir':\n"
+    "    raise SystemExit(subprocess.call([real, *args]))\n"
+    "translated = []\n"
+    "for arg in args:\n"
+    "    if arg == '/c':\n"
+    "        continue\n"
+    "    if arg == '--driver-mode=cl' or arg == '/clang:--driver-mode=cl':\n"
+    "        continue\n"
+    "    if arg.startswith('/std:'):\n"
+    "        translated.append('-std=' + arg.split(':', 1)[1])\n"
+    "        continue\n"
+    "    if arg.startswith('/Fo'):\n"
+    "        out = arg[3:]\n"
+    "        if out:\n"
+    "            translated.extend(['-o', out])\n"
+    "        continue\n"
+    "    if arg.startswith('/Tp'):\n"
+    "        translated.extend(['-x', 'c++', arg[3:]])\n"
+    "        continue\n"
+    "    if arg.startswith('/Tc'):\n"
+    "        translated.extend(['-x', 'c', arg[3:]])\n"
+    "        continue\n"
+    "    translated.append(arg)\n"
+    "raise SystemExit(subprocess.call([real, *translated]))\n")
+  execute_process(COMMAND chmod +x "${_joined_fake_clang_cl}")
+
+  gentest_fixture_make_compdb_entry(_clang_cl_joined_wrapper_entry
+    DIRECTORY "${_clang_cl_joined_wrapper_dir_norm}"
+    FILE "${_clang_cl_joined_wrapper_abs}"
+    ARGUMENTS
+      "${_joined_fake_clang_cl}"
+      "/std:c++20"
+      "/c"
+      "/Tp${_clang_cl_joined_wrapper_abs}"
+      "/Fo${_clang_cl_joined_wrapper_dir_norm}/provider.obj")
+  gentest_fixture_write_compdb("${_clang_cl_joined_wrapper_dir}/compile_commands.json"
+    "${_clang_cl_joined_wrapper_entry}")
+
+  execute_process(
+    COMMAND "${PROG}" --check --compdb "${_clang_cl_joined_wrapper_dir}" --tu-out-dir "${_clang_cl_joined_wrapper_dir}/generated"
+      "${_clang_cl_joined_wrapper_provider_abs}"
+    RESULT_VARIABLE _clang_cl_joined_wrapper_rc
+    OUTPUT_VARIABLE _clang_cl_joined_wrapper_out
+    ERROR_VARIABLE _clang_cl_joined_wrapper_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _clang_cl_joined_wrapper_rc EQUAL 0)
+    message(FATAL_ERROR
+      "clang-cl joined /Tp wrapper retarget: gentest_codegen failed unexpectedly.\n"
+      "Output:\n${_clang_cl_joined_wrapper_out}\nErrors:\n${_clang_cl_joined_wrapper_err}")
+  endif()
+
   set(_clang_cl_dir "${_work_dir}/clang_cl_driver")
   file(MAKE_DIRECTORY "${_clang_cl_dir}/generated")
   gentest_fixture_write_file("${_clang_cl_dir}/provider.cppm" [[
@@ -293,7 +366,7 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
   gentest_fixture_make_compdb_entry(_clang_cl_provider_entry
     DIRECTORY "${_clang_cl_dir_norm}"
     FILE "${_clang_cl_provider_abs}"
-    ARGUMENTS "${_fake_clang_cl}" "/std:c++20" "/c" "${_clang_cl_provider_abs}" "/Fo${_clang_cl_dir_norm}/provider.obj")
+    ARGUMENTS "${_fake_clang_cl}" "/std:c++20" "/c" "/Tp${_clang_cl_provider_abs}" "/Fo${_clang_cl_dir_norm}/provider.obj")
   gentest_fixture_make_compdb_entry(_clang_cl_consumer_entry
     DIRECTORY "${_clang_cl_dir_norm}"
     FILE "${_clang_cl_consumer_abs}"
@@ -318,6 +391,12 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
   if(_clang_cl_log_pos EQUAL -1)
     message(FATAL_ERROR
       "clang-cl sibling-module precompile driver: expected the logged precompile command to keep the original fake clang-cl path.\n"
+      "Output:\n${_clang_cl_driver_out}\nErrors:\n${_clang_cl_driver_err}")
+  endif()
+  string(FIND "${_clang_cl_driver_err}" "/Tp${_clang_cl_provider_abs}" _clang_cl_joined_source_pos)
+  if(NOT _clang_cl_joined_source_pos EQUAL -1)
+    message(FATAL_ERROR
+      "clang-cl sibling-module precompile driver: joined /Tp source arg leaked into the precompile invocation.\n"
       "Output:\n${_clang_cl_driver_out}\nErrors:\n${_clang_cl_driver_err}")
   endif()
   string(FIND "${_clang_cl_driver_err}" "fake clang++ should not be used for sibling-module precompile" _clangxx_fail_pos)

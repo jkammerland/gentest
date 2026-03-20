@@ -433,6 +433,29 @@ bool should_strip_compdb_arg(std::string_view arg) {
         arg == "-Werror" || arg.starts_with("-Werror=") || arg == "-pedantic-errors";
 }
 
+std::optional<std::string_view> joined_msvc_source_arg_path(std::string_view arg) {
+    if (arg.size() <= 3 || arg.front() != '/') {
+        return std::nullopt;
+    }
+    if (std::tolower(static_cast<unsigned char>(arg[1])) != 't') {
+        return std::nullopt;
+    }
+    const char source_kind = static_cast<char>(std::tolower(static_cast<unsigned char>(arg[2])));
+    if (source_kind != 'p' && source_kind != 'c') {
+        return std::nullopt;
+    }
+    if (arg[3] == '-') {
+        return std::nullopt;
+    }
+    return arg.substr(3);
+}
+
+bool is_msvc_source_mode_arg(std::string_view arg) {
+    const llvm::StringRef ref{arg};
+    return ref.equals_insensitive("/TP") || ref.equals_insensitive("/Tc") || ref.equals_insensitive("/TP-") ||
+        ref.equals_insensitive("/Tc-") || joined_msvc_source_arg_path(arg).has_value();
+}
+
 bool has_explicit_cxx_standard_arg(std::span<const std::string> args) {
     for (std::size_t i = 0; i < args.size(); ++i) {
         const auto &arg = args[i];
@@ -893,6 +916,12 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
         if (arg == from || normalize_compdb_lookup_path(arg, command.Directory) == normalized_from) {
             arg = to;
             replaced = true;
+            continue;
+        }
+        if (const auto joined_source = joined_msvc_source_arg_path(arg); joined_source.has_value() &&
+            normalize_compdb_lookup_path(*joined_source, command.Directory) == normalized_from) {
+            arg = to;
+            replaced = true;
         }
     }
     if (!replaced) {
@@ -952,6 +981,7 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
     };
 
     clang::tooling::CommandLineArguments adjusted;
+    const std::string                    normalized_target = normalize_compdb_lookup_path(file.str(), compdb_dir);
     if (!sanitized_command_line.empty()) {
         const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(sanitized_command_line).value_or(0);
         if (!forced_compiler_path.empty()) {
@@ -989,6 +1019,11 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
                 continue;
             }
             if (should_strip_compdb_arg(arg)) {
+                continue;
+            }
+            if (const auto joined_source = joined_msvc_source_arg_path(arg); joined_source.has_value() &&
+                normalize_compdb_lookup_path(*joined_source, compdb_dir) == normalized_target) {
+                adjusted.push_back(file.str());
                 continue;
             }
             adjusted.push_back(arg);
@@ -1051,7 +1086,16 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
 
     const std::string normalized_source = normalize_compdb_lookup_path(source_file, working_directory);
     auto              is_source_arg = [&](std::string_view arg) {
-        return !normalized_source.empty() && normalize_compdb_lookup_path(arg, working_directory) == normalized_source;
+        if (normalized_source.empty()) {
+            return false;
+        }
+        if (normalize_compdb_lookup_path(arg, working_directory) == normalized_source) {
+            return true;
+        }
+        if (const auto joined_source = joined_msvc_source_arg_path(arg); joined_source.has_value()) {
+            return normalize_compdb_lookup_path(*joined_source, working_directory) == normalized_source;
+        }
+        return false;
     };
     auto has_explicit_language_mode = [&]() {
         for (std::size_t i = 1; i < adjusted_command_line.size(); ++i) {
@@ -1089,7 +1133,7 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
         if (arg == "--") {
             continue;
         }
-        if (force_module_language_mode && (arg == "/TP" || arg == "/Tc" || arg == "/TP-" || arg == "/Tc-")) {
+        if (force_module_language_mode && is_msvc_source_mode_arg(arg)) {
             continue;
         }
         if (force_module_language_mode && arg == "-x" && i + 1 < adjusted_command_line.size()) {
