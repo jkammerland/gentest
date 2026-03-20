@@ -9,6 +9,9 @@
     "libxml2",
     "tl-expected",
     "boost-json",
-    "openssl"
+    {
+      "name": "openssl",
+      "platform": "!linux"
+    }
   ]
 }

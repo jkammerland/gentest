@@ -56,3 +56,16 @@ Integrate the coord feature set from `feat/coordd-v3` onto the `modules-v5` base
 ### Tests
 
 - `ctest --preset=debug-system -R '^(gentest_module_auto_discovery|gentest_package_consumer|coord_counts|coord_list_counts)$' --output-on-failure`
+
+### Step 4
+
+- Adjusted `vcpkg.json` so Linux uses the system OpenSSL package instead of the vcpkg `openssl` port.
+- This fixes the local `debug`/vcpkg coord path on this host, where the current vcpkg registry checkout provides the Unix OpenSSL helper script without execute permissions and the port fails before configure completes.
+- Re-verified the Linux `debug` preset with `COORD_BUILD=ON`, then rebuilt and reran the coord tests on that path.
+
+### Tests
+
+- `cmake --preset=debug -DCOORD_BUILD=ON -DGENTEST_ENABLE_PACKAGE_TESTS=OFF`
+- `cmake --build --preset=debug --target coordd coordctl gentest_coord_tests`
+- `./build/debug/tests/gentest_coord_tests --no-color`
+- `ctest --preset=debug -R '^coord_(counts|list_counts)$' --output-on-failure`
