@@ -1898,6 +1898,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_public_module_gcc_version_fallback APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_public_module_surface
+    ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_surface
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleSurface.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_public_module_surface APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_outcome_matrix_stale_junit_guard
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake

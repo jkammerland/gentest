@@ -6,13 +6,36 @@ export module gentest;
 
 export namespace gentest {
 
+using ::gentest::failure;
+using ::gentest::assertion;
 using ::gentest::run_all_tests;
 using ::gentest::Case;
 using ::gentest::FixtureLifetime;
 using ::gentest::FixtureSetup;
 using ::gentest::FixtureTearDown;
+using ::gentest::expect;
+using ::gentest::expect_false;
+using ::gentest::expect_eq;
+using ::gentest::expect_ne;
+using ::gentest::expect_lt;
+using ::gentest::expect_le;
+using ::gentest::expect_gt;
+using ::gentest::expect_ge;
+using ::gentest::require;
+using ::gentest::require_false;
+using ::gentest::require_eq;
+using ::gentest::require_ne;
+using ::gentest::require_lt;
+using ::gentest::require_le;
+using ::gentest::require_gt;
+using ::gentest::require_ge;
+using ::gentest::assert_true;
+using ::gentest::assert_false;
+using ::gentest::assert_eq;
+using ::gentest::fail;
 using ::gentest::log;
 using ::gentest::log_on_fail;
+using ::gentest::registered_cases;
 using ::gentest::skip;
 using ::gentest::skip_if;
 using ::gentest::xfail;
@@ -32,14 +55,19 @@ namespace detail {
 using ::gentest::detail::BenchPhase;
 using ::gentest::detail::FixtureHandle;
 using ::gentest::detail::NoExceptionsFatalHookScope;
+using ::gentest::detail::SharedFixtureRegistration;
 using ::gentest::detail::SharedFixtureScope;
 using ::gentest::detail::bench_phase;
 using ::gentest::detail::get_shared_fixture_typed;
+using ::gentest::detail::get_shared_fixture;
 using ::gentest::detail::record_bench_error;
 using ::gentest::detail::record_failure;
 using ::gentest::detail::register_cases;
 using ::gentest::detail::register_shared_fixture;
+using ::gentest::detail::setup_shared_fixtures;
 using ::gentest::detail::skip_shared_fixture_unavailable;
+using ::gentest::detail::snapshot_registered_cases;
+using ::gentest::detail::teardown_shared_fixtures;
 using ::gentest::detail::exceptions_enabled;
 }
 
