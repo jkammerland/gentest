@@ -17,6 +17,52 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
 
 jobs:
+  coord-smoke:
+    name: Linux • coord smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-20 \
+            clang-tools-20 \
+            libclang-20-dev \
+            libclang-cpp20-dev \
+            llvm-20-dev \
+            ninja-build \
+            pkg-config \
+            libssl-dev
+
+      - name: Setup vcpkg
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Configure
+        run: |
+          set -euxo pipefail
+          cmake --preset=debug \
+            -DCOORD_BUILD=ON \
+            -DGENTEST_ENABLE_PACKAGE_TESTS=OFF \
+            -DCMAKE_C_COMPILER=clang-20 \
+            -DCMAKE_CXX_COMPILER=clang++-20 \
+            -DLLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm \
+            -DClang_DIR=/usr/lib/llvm-20/lib/cmake/clang
+
+      - name: Build
+        run: |
+          set -euxo pipefail
+          cmake --build --preset=debug --target coordd coordctl gentest_coord_tests
+
+      - name: Test
+        run: |
+          set -euxo pipefail
+          ./build/debug/tests/gentest_coord_tests --no-color
+          ctest --preset=debug -R '^coord_(counts|list_counts)$' --output-on-failure
+
   macos:
     name: macOS • ${{ matrix.compiler }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
     runs-on: macos-15

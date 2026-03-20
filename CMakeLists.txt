@@ -29,12 +29,10 @@ gentest_ensure_fmt()
 
 option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
 option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
-set(_coord_build_default ON)
-if(CMAKE_CROSSCOMPILING OR NOT ${PROJECT_NAME}_BUILD_TESTING)
-    set(_coord_build_default OFF)
-endif()
-option(COORD_BUILD "Build coordd/coordctl integration test runner" ${_coord_build_default})
-unset(_coord_build_default)
+# Coord is opt-in on the modules-v5 integration branch so the existing
+# gentest-focused CI/buildsystem matrix does not pick up extra dependencies
+# unless a coord-specific lane enables it explicitly.
+option(COORD_BUILD "Build coordd/coordctl integration test runner" OFF)
 option(COORD_ENABLE_TLS "Enable mTLS for coordd TCP endpoints" ON)
 set(COORD_TLS_BACKEND "openssl" CACHE STRING "TLS backend for coordd (openssl, wolfssl, none)")
 set_property(CACHE COORD_TLS_BACKEND PROPERTY STRINGS openssl wolfssl none)

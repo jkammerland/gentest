@@ -8,6 +8,7 @@
     "zstd",
     "libxml2",
     "tl-expected",
-    "boost-json"
+    "boost-json",
+    "openssl"
   ]
 }
