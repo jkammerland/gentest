@@ -65,6 +65,13 @@ gentest_add_cmake_script_test(
         "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
         "BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/coord_tls_reconfigure")
 
+gentest_add_cmake_script_test(
+    NAME regression_coord_smoke_workflow_covers_fixture_flow
+    PROG "${CMAKE_COMMAND}"
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckCoordSmokeWorkflow.cmake"
+    DEFINES
+        "WORKFLOW_FILE=${PROJECT_SOURCE_DIR}/.github/workflows/cmake.yml")
+
 if(TARGET gentest_codegen)
     gentest_add_cmake_script_test(
         NAME regression_coord_example_requires_json

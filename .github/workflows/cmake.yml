@@ -55,13 +55,13 @@ jobs:
       - name: Build
         run: |
           set -euxo pipefail
-          cmake --build --preset=debug --target coordd coordctl gentest_coord_tests
+          cmake --build --preset=debug --target coordd coordctl gentest_coord_tests udp_server udp_client
 
       - name: Test
         run: |
           set -euxo pipefail
           ./build/debug/tests/gentest_coord_tests --no-color
-          ctest --preset=debug -R '^coord_(counts|list_counts)$' --output-on-failure
+          ctest --preset=debug -R '^(coord_counts|coord_list_counts|udp_multi_node_mode_a)$' --output-on-failure
 
   macos:
     name: macOS • ${{ matrix.compiler }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
