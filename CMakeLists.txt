@@ -169,7 +169,7 @@ if(${PROJECT_NAME}_BUILD_TESTING)
     add_subdirectory(tools/core_tests)
     add_custom_target(gentest_codegen_all)
     add_subdirectory(tests)
-    if(COORD_BUILD)
+    if(COORD_BUILD AND COORD_ENABLE_JSON AND UNIX)
         add_subdirectory(examples)
     endif()
 

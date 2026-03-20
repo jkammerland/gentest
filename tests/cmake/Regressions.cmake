@@ -65,6 +65,17 @@ gentest_add_cmake_script_test(
         "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
         "BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/coord_tls_reconfigure")
 
+if(TARGET gentest_codegen)
+    gentest_add_cmake_script_test(
+        NAME regression_coord_example_requires_json
+        PROG "${CMAKE_COMMAND}"
+        SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckCoordExampleJsonGate.cmake"
+        DEFINES
+            "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+            "BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/coord_example_json_gate"
+            "CODEGEN=${CMAKE_BINARY_DIR}/tools/gentest_codegen")
+endif()
+
 set(_gentest_manual_regressions
     "gentest_regression_bench_assert|bench_assert_propagation.cpp"
     "gentest_regression_shared_fixture_reentry|shared_fixture_reentry.cpp"
