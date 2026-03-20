@@ -22,6 +22,11 @@ set(_gentest_default_suites
 
 set(_gentest_test_suites ${_gentest_default_suites})
 
+# coord depends on optional repo-local libraries and JSON support.
+if(COORD_BUILD AND COORD_ENABLE_JSON)
+    list(APPEND _gentest_test_suites coord)
+endif()
+
 # Optionally include libassert integration suite
 if(GENTEST_WITH_LIBASSERT)
     list(APPEND _gentest_test_suites libassert)
@@ -30,6 +35,10 @@ endif()
 foreach(suite IN LISTS _gentest_test_suites)
     gentest_add_suite(${suite})
 endforeach()
+
+if(TARGET gentest_coord_tests)
+    target_link_libraries(gentest_coord_tests PRIVATE coord::coord)
+endif()
 
 unset(_gentest_test_suites)
 
@@ -821,6 +830,16 @@ unset(_gentest_inventory_skip)
 unset(_gentest_inventory_expected_list)
 
 gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 6 SKIP 2)
+
+if(TARGET gentest_coord_tests)
+    set(_coord_expected_count 10)
+    if(WIN32)
+        set(_coord_expected_count 7)
+    endif()
+    gentest_add_check_counts(NAME coord_counts PROG $<TARGET_FILE:gentest_coord_tests> PASS ${_coord_expected_count} FAIL 0 SKIP 0)
+    gentest_add_check_counts(NAME coord_list_counts PROG $<TARGET_FILE:gentest_coord_tests> LIST CASES ${_coord_expected_count})
+    unset(_coord_expected_count)
+endif()
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)

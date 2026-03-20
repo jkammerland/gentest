@@ -162,6 +162,7 @@
       "displayName": "Host codegen (native)",
       "description": "Minimal host build that produces a runnable gentest_codegen (for cross-compiling)",
       "cacheVariables": {
+        "COORD_BUILD": "OFF",
         "gentest_BUILD_TESTING": "OFF",
         "GENTEST_BUILD_CODEGEN": "ON",
         "GENTEST_ENABLE_PACKAGE_TESTS": null
@@ -180,6 +181,7 @@
       "toolchainFile": "${sourceDir}/cmake/toolchains/aarch64-linux-gnu.cmake",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": null,
+        "COORD_BUILD": "OFF",
         "GENTEST_BUILD_CODEGEN": "OFF",
         "GENTEST_CODEGEN_EXECUTABLE": "${sourceDir}/build/host-codegen/tools/gentest_codegen",
         "GENTEST_ENABLE_PACKAGE_TESTS": "OFF"
