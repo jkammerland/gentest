@@ -115,6 +115,16 @@ if(TARGET coord)
         NAME regression_coord_peer_target_forwarding
         PROG $<TARGET_FILE:gentest_regression_coord_peer_target_forwarding>
         EXPECT_RC 0)
+
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coord_terminate_all_completed_pid
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coord_terminate_all_completed_pid.cpp)
+    target_link_libraries(gentest_regression_coord_terminate_all_completed_pid PRIVATE coord::coord)
+
+    gentest_add_check_exit_code(
+        NAME regression_coord_terminate_all_completed_pid
+        PROG $<TARGET_FILE:gentest_regression_coord_terminate_all_completed_pid>
+        EXPECT_RC 0)
 endif()
 
 gentest_add_suite(regression_local_fixture_teardown

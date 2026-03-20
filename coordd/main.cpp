@@ -290,7 +290,7 @@ static bool wait_for_readiness(const ReadinessSpec &spec, OutputWatcher *stdout_
 static void terminate_all(const std::deque<ProcessInstance> &instances, std::uint32_t shutdown_ms) {
 #ifndef _WIN32
     for (const auto &inst : instances) {
-        if (inst.info.pid > 0) {
+        if (inst.info.pid > 0 && inst.info.end_ms == 0) {
             ::kill(static_cast<pid_t>(inst.info.pid), SIGTERM);
         }
     }
@@ -298,7 +298,7 @@ static void terminate_all(const std::deque<ProcessInstance> &instances, std::uin
     while (now_ms() < deadline) {
         bool any_alive = false;
         for (const auto &inst : instances) {
-            if (inst.info.pid > 0) {
+            if (inst.info.pid > 0 && inst.info.end_ms == 0) {
                 if (::kill(static_cast<pid_t>(inst.info.pid), 0) == 0) {
                     any_alive = true;
                 }
@@ -310,7 +310,7 @@ static void terminate_all(const std::deque<ProcessInstance> &instances, std::uin
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     for (const auto &inst : instances) {
-        if (inst.info.pid > 0) {
+        if (inst.info.pid > 0 && inst.info.end_ms == 0) {
             ::kill(static_cast<pid_t>(inst.info.pid), SIGKILL);
         }
     }
@@ -545,6 +545,7 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
                 if (errno == ECHILD) {
                     inst.info.failure_reason = "child reaped elsewhere";
                     inst.info.end_ms = now_ms();
+                    inst.info.pid = -1;
                     manifest.result = ResultCode::Failed;
                     remaining--;
                     progress = true;
@@ -557,6 +558,7 @@ static SessionManifest run_session(const SessionSpec &spec, const std::string &r
                 inst.info.term_signal = WTERMSIG(status);
             }
             inst.info.end_ms = now_ms();
+            inst.info.pid = -1;
             if (inst.info.exit_code != 0 || inst.info.term_signal != 0) {
                 manifest.result = ResultCode::Failed;
             }
