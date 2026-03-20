@@ -238,6 +238,8 @@ _gentest_run_codegen_expect_success(
 if(NOT CMAKE_HOST_WIN32)
   set(_clang_cl_joined_wrapper_dir "${_work_dir}/clang_cl_joined_wrapper")
   file(MAKE_DIRECTORY "${_clang_cl_joined_wrapper_dir}/generated")
+  set(_clang_cl_joined_wrapper_provider_rel "provider.cppm")
+  set(_clang_cl_joined_wrapper_wrapper_rel "generated/tu_0000_provider.module.gentest.cppm")
   gentest_fixture_write_file("${_clang_cl_joined_wrapper_dir}/provider.cppm" [[
 export module gentest.retarget.clang_cl_joined_wrapper;
 export int clang_cl_joined_wrapper_value() { return 41; }
@@ -289,14 +291,15 @@ export int clang_cl_joined_wrapper_value() { return 41; }
       "${_joined_fake_clang_cl}"
       "/std:c++20"
       "/c"
-      "/Tp${_clang_cl_joined_wrapper_abs}"
+      "/Tp${_clang_cl_joined_wrapper_wrapper_rel}"
       "/Fo${_clang_cl_joined_wrapper_dir_norm}/provider.obj")
   gentest_fixture_write_compdb("${_clang_cl_joined_wrapper_dir}/compile_commands.json"
     "${_clang_cl_joined_wrapper_entry}")
 
   execute_process(
     COMMAND "${PROG}" --check --compdb "${_clang_cl_joined_wrapper_dir}" --tu-out-dir "${_clang_cl_joined_wrapper_dir}/generated"
-      "${_clang_cl_joined_wrapper_provider_abs}"
+      "${_clang_cl_joined_wrapper_provider_rel}"
+    WORKING_DIRECTORY "${_clang_cl_joined_wrapper_dir}"
     RESULT_VARIABLE _clang_cl_joined_wrapper_rc
     OUTPUT_VARIABLE _clang_cl_joined_wrapper_out
     ERROR_VARIABLE _clang_cl_joined_wrapper_err
@@ -326,6 +329,8 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
   file(TO_CMAKE_PATH "${_clang_cl_dir}/consumer.cppm" _clang_cl_consumer_abs)
   file(TO_CMAKE_PATH "${_clang_cl_dir}/clang-cl" _fake_clang_cl)
   file(TO_CMAKE_PATH "${_clang_cl_dir}/clang++" _fake_clangxx)
+  set(_clang_cl_provider_rel "provider.cppm")
+  set(_clang_cl_consumer_rel "consumer.cppm")
   gentest_fixture_write_file("${_fake_clang_cl}"
     "#!/usr/bin/env python3\n"
     "import subprocess\n"
@@ -366,11 +371,11 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
   gentest_fixture_make_compdb_entry(_clang_cl_provider_entry
     DIRECTORY "${_clang_cl_dir_norm}"
     FILE "${_clang_cl_provider_abs}"
-    ARGUMENTS "${_fake_clang_cl}" "/std:c++20" "/c" "/Tp${_clang_cl_provider_abs}" "/Fo${_clang_cl_dir_norm}/provider.obj")
+    ARGUMENTS "${_fake_clang_cl}" "/std:c++20" "/c" "/Tp${_clang_cl_provider_rel}" "/Fo${_clang_cl_dir_norm}/provider.obj")
   gentest_fixture_make_compdb_entry(_clang_cl_consumer_entry
     DIRECTORY "${_clang_cl_dir_norm}"
     FILE "${_clang_cl_consumer_abs}"
-    ARGUMENTS "${_clangxx_norm}" "-std=c++20" "-c" "${_clang_cl_consumer_abs}" "-o" "${_clang_cl_dir_norm}/consumer.o")
+    ARGUMENTS "${_clangxx_norm}" "-std=c++20" "-c" "${_clang_cl_consumer_rel}" "-o" "${_clang_cl_dir_norm}/consumer.o")
   gentest_fixture_write_compdb("${_clang_cl_dir}/compile_commands.json"
     "${_clang_cl_provider_entry}"
     "${_clang_cl_consumer_entry}")
@@ -380,7 +385,8 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
       "CXX=${_fake_clangxx}"
       "GENTEST_CODEGEN_LOG_PRECOMPILE=1"
       "${PROG}" --check --compdb "${_clang_cl_dir}" --tu-out-dir "${_clang_cl_dir}/generated"
-      "${_clang_cl_provider_abs}" "${_clang_cl_consumer_abs}"
+      "${_clang_cl_provider_rel}" "${_clang_cl_consumer_rel}"
+    WORKING_DIRECTORY "${_clang_cl_dir}"
     RESULT_VARIABLE _clang_cl_driver_rc
     OUTPUT_VARIABLE _clang_cl_driver_out
     ERROR_VARIABLE _clang_cl_driver_err
@@ -393,7 +399,7 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
       "clang-cl sibling-module precompile driver: expected the logged precompile command to keep the original fake clang-cl path.\n"
       "Output:\n${_clang_cl_driver_out}\nErrors:\n${_clang_cl_driver_err}")
   endif()
-  string(FIND "${_clang_cl_driver_err}" "/Tp${_clang_cl_provider_abs}" _clang_cl_joined_source_pos)
+  string(FIND "${_clang_cl_driver_err}" "/Tp${_clang_cl_provider_rel}" _clang_cl_joined_source_pos)
   if(NOT _clang_cl_joined_source_pos EQUAL -1)
     message(FATAL_ERROR
       "clang-cl sibling-module precompile driver: joined /Tp source arg leaked into the precompile invocation.\n"
