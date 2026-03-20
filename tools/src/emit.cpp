@@ -414,7 +414,7 @@ std::string render_module_mock_codegen_include_block() {
 
 std::string render_module_registration_support_include_block() {
     std::string out;
-    out.reserve(256);
+    out.reserve(320);
     out.append("\n// gentest_codegen: injected registration support includes.\n");
     out.append("#include <array>\n");
     out.append("#include <memory>\n");
@@ -423,6 +423,8 @@ std::string render_module_registration_support_include_block() {
     out.append("#include <string_view>\n");
     out.append("#include <type_traits>\n");
     out.append("#include <utility>\n");
+    out.append("#include \"gentest/runner.h\"\n");
+    out.append("#include \"gentest/fixture.h\"\n");
     return out;
 }
 

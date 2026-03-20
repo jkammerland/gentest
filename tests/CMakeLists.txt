@@ -1955,6 +1955,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_partition_registration_visibility APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_registration_without_import
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_without_import
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleRegistrationWithoutImport.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_without_import APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_cross_compile_emulator_serialization
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckCrossCompileEmulatorSerialization.cmake
