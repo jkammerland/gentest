@@ -790,11 +790,13 @@ static void handle_connection(Connection conn, SessionManager &sessions, const S
         }
         if (std::holds_alternative<MsgSessionSubmit>(decoded.message.payload)) {
             auto msg = std::get<MsgSessionSubmit>(decoded.message.payload);
+            SessionSpec forwarded_spec = msg.spec;
             std::string peer_target;
-            if (!msg.spec.placement.target.empty() && msg.spec.placement.target.rfind("peer:", 0) == 0) {
-                peer_target = msg.spec.placement.target.substr(5);
+            if (!forwarded_spec.placement.target.empty() && forwarded_spec.placement.target.rfind("peer:", 0) == 0) {
+                peer_target = forwarded_spec.placement.target.substr(5);
+                forwarded_spec.placement.target.clear();
             }
-            std::string id = sessions.submit(msg.spec, peer_target);
+            std::string id = sessions.submit(forwarded_spec, peer_target);
             Message accepted{1, MsgSessionAccepted{id}};
             auto buf = encode_message(accepted);
             conn.write_frame(buf, nullptr);

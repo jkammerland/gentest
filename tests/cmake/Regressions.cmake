@@ -105,6 +105,18 @@ unset(_gentest_manual_regression_fields)
 unset(_gentest_manual_target)
 unset(_gentest_manual_source)
 
+if(TARGET coord)
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coord_peer_target_forwarding
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coord_peer_target_forwarding.cpp)
+    target_link_libraries(gentest_regression_coord_peer_target_forwarding PRIVATE coord::coord)
+
+    gentest_add_check_exit_code(
+        NAME regression_coord_peer_target_forwarding
+        PROG $<TARGET_FILE:gentest_regression_coord_peer_target_forwarding>
+        EXPECT_RC 0)
+endif()
+
 gentest_add_suite(regression_local_fixture_teardown
     TARGET gentest_regression_local_fixture_teardown
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_on_throw.cpp
