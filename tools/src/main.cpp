@@ -2574,6 +2574,7 @@ int main(int argc, const char **argv) {
                 std::unordered_set<std::string>              scan_deps_known_named_modules;
                 std::vector<std::vector<std::string>>        scan_deps_imports(options.sources.size());
                 std::unordered_map<std::string, std::vector<std::string>> scan_deps_module_args_by_source;
+                std::vector<std::string>                               scan_deps_module_names(options.sources.size());
 
                 bool scan_deps_complete = true;
                 for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
@@ -2586,15 +2587,55 @@ int main(int argc, const char **argv) {
                     }
 
                     const auto &info = info_it->second;
-                    if (!info.provided_module_name.empty() &&
-                        !register_named_module_source(scan_deps_named_module_sources, scan_deps_named_module_index_by_name,
-                                                      scan_deps_known_named_modules, idx, std::filesystem::path{options.sources[idx]},
-                                                      info.provided_module_name)) {
-                        return 1;
+                    std::string provided_module_name = info.provided_module_name;
+                    if (provided_module_name.empty()) {
+                        if (const auto source_scan_module_name = named_module_name_from_source_file(
+                                std::filesystem::path{options.sources[idx]}, scan_include_search_paths[idx],
+                                std::span<const std::string>(scan_command_lines[idx].data(), scan_command_lines[idx].size()));
+                            source_scan_module_name.has_value()) {
+                            provided_module_name = *source_scan_module_name;
+                        }
                     }
 
-                    scan_deps_imports[idx] = info.named_module_deps;
+                    if (!provided_module_name.empty()) {
+                        if (!register_named_module_source(scan_deps_named_module_sources, scan_deps_named_module_index_by_name,
+                                                          scan_deps_known_named_modules, idx,
+                                                          std::filesystem::path{options.sources[idx]}, provided_module_name)) {
+                            return 1;
+                        }
+                        scan_deps_module_names[idx] = std::move(provided_module_name);
+                    }
                     scan_deps_module_args_by_source.emplace(source_key, info.module_file_args);
+                }
+
+                if (scan_deps_complete) {
+                    for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+                        const std::string source_key = normalize_compdb_lookup_path(options.sources[idx]);
+                        const auto        info_it = scan_deps_results->find(source_key);
+                        if (info_it == scan_deps_results->end()) {
+                            scan_deps_error = fmt::format("clang-scan-deps did not report dependency data for '{}'", options.sources[idx]);
+                            scan_deps_complete = false;
+                            break;
+                        }
+
+                        auto imports = info_it->second.named_module_deps;
+                        auto source_scan_imports = parse_imported_named_modules_from_source(
+                            options.sources[idx], {}, scan_deps_module_names[idx], scan_include_search_paths[idx],
+                            std::span<const std::string>(scan_command_lines[idx].data(), scan_command_lines[idx].size()));
+                        if (const auto wrapped_source = resolve_wrapped_source_from_codegen_shim(options.sources[idx]);
+                            wrapped_source.has_value()) {
+                            auto wrapped_imports = parse_imported_named_modules_from_source(
+                                *wrapped_source, {}, scan_deps_module_names[idx], scan_include_search_paths[idx],
+                                std::span<const std::string>(scan_command_lines[idx].data(), scan_command_lines[idx].size()));
+                            source_scan_imports.insert(source_scan_imports.end(), wrapped_imports.begin(), wrapped_imports.end());
+                        }
+
+                        imports.insert(imports.end(), source_scan_imports.begin(), source_scan_imports.end());
+
+                        std::sort(imports.begin(), imports.end());
+                        imports.erase(std::unique(imports.begin(), imports.end()), imports.end());
+                        scan_deps_imports[idx] = std::move(imports);
+                    }
                 }
 
                 if (scan_deps_complete) {
