@@ -1013,9 +1013,39 @@ std::optional<std::string> infer_compiler_from_resource_dir(std::string_view com
     }
 
     const std::filesystem::path install_root = resource_path.parent_path().parent_path().parent_path();
-    const std::filesystem::path candidate = install_root / "bin" / std::string(compiler_name);
-    if (std::filesystem::exists(candidate)) {
-        return candidate.string();
+    std::vector<std::string> candidate_names;
+    auto append_candidate = [&](std::string name) {
+        if (!name.empty() &&
+            std::find(candidate_names.begin(), candidate_names.end(), name) == candidate_names.end()) {
+            candidate_names.push_back(std::move(name));
+        }
+    };
+
+    const std::string compiler_basename = basename_without_extension(compiler_name);
+    const bool compiler_is_clang_like = compiler_basename == "clang" || compiler_basename == "clang++" ||
+        compiler_basename == "clang-cl" || llvm::StringRef{compiler_basename}.starts_with("clang-") ||
+        llvm::StringRef{compiler_basename}.starts_with("clang++-");
+    if (compiler_is_clang_like) {
+        append_candidate(std::filesystem::path(std::string(compiler_name)).filename().string());
+    } else {
+#if defined(_WIN32)
+        if (compiler_basename == "cl") {
+            append_candidate("clang-cl.exe");
+        }
+        append_candidate("clang++.exe");
+        append_candidate("clang.exe");
+        append_candidate("clang-cl.exe");
+#else
+        append_candidate("clang++");
+        append_candidate("clang");
+#endif
+    }
+
+    for (const auto &candidate_name : candidate_names) {
+        const std::filesystem::path candidate = install_root / "bin" / candidate_name;
+        if (std::filesystem::exists(candidate)) {
+            return candidate.string();
+        }
     }
     return std::nullopt;
 }
@@ -1700,12 +1730,10 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
 
     clang::tooling::CommandLineArguments launch_args = command_line;
     std::string launch_program = command_line.front();
-    if (launch_program.find('/') == std::string::npos && launch_program.find('\\') == std::string::npos) {
-        if (const auto resource_dir = find_option_value(launch_args, "-resource-dir", "-resource-dir=");
-            resource_dir.has_value()) {
-            if (const auto inferred = infer_compiler_from_resource_dir(launch_program, *resource_dir); inferred.has_value()) {
-                launch_program = *inferred;
-            }
+    if (const auto resource_dir = find_option_value(launch_args, "-resource-dir", "-resource-dir=");
+        resource_dir.has_value()) {
+        if (const auto inferred = infer_compiler_from_resource_dir(launch_program, *resource_dir); inferred.has_value()) {
+            launch_program = *inferred;
         }
     }
     const std::string resolved_path = resolve_program_invocation_path(launch_program);
