@@ -105,12 +105,13 @@ jobs:
             make \
             ca-certificates \
             ncurses-compat-libs \
-            meson
+            meson \
+            xmake
           python3 -m pip install --upgrade pip cmake
 
       - &checkout
         name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Bazelisk
         run: |
@@ -133,6 +134,13 @@ jobs:
           BAZELISK_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euxo pipefail
+          clang_cc="/usr/lib/llvm-${{ matrix.clang_version }}/bin/clang-${{ matrix.clang_version }}"
+          clang_cxx="/usr/lib/llvm-${{ matrix.clang_version }}/bin/clang++-${{ matrix.clang_version }}"
+          if [ ! -x "${clang_cc}" ] || [ ! -x "${clang_cxx}" ]; then
+            clang_cc="$(command -v clang)"
+            clang_cxx="$(command -v clang++)"
+          fi
+          clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
           bazel test \
             //:gentest_unit_bazel \
             //:gentest_integration_bazel \
@@ -141,6 +149,12 @@ jobs:
             //:codegen_check_invalid \
             --action_env=CCACHE_DISABLE=1 \
             --host_action_env=CCACHE_DISABLE=1 \
+            --action_env=CC="${clang_cc}" \
+            --action_env=CXX="${clang_cxx}" \
+            --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+            --host_action_env=CC="${clang_cc}" \
+            --host_action_env=CXX="${clang_cxx}" \
+            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
             --test_output=errors
 
   meson:
@@ -237,21 +251,36 @@ jobs:
       - name: Install xmake
         run: |
           set -euxo pipefail
-          su - ci -c "curl -fsSL https://xmake.io/shget.text | bash"
-          su - ci -c "/home/ci/.local/bin/xmake --version"
+          if [ "${{ matrix.pkg_manager }}" = "dnf" ]; then
+            xmake_bin="$(command -v xmake)"
+            su - ci -c "\"${xmake_bin}\" --version"
+          else
+            su - ci -c "curl -fsSL https://xmake.io/shget.text | bash"
+            su - ci -c "/home/ci/.local/bin/xmake --version"
+          fi
 
       - name: Build
         run: |
           set -euxo pipefail
           codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake f -c -m release"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake build"
+          if [ "${{ matrix.pkg_manager }}" = "dnf" ]; then
+            xmake_bin="$(command -v xmake)"
+          else
+            xmake_bin="/home/ci/.local/bin/xmake"
+          fi
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" f -c -m release"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" build"
 
       - name: Test
         run: |
           set -euxo pipefail
           codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_unit_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_integration_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_fixtures_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" /home/ci/.local/bin/xmake r gentest_skiponly_xmake"
+          if [ "${{ matrix.pkg_manager }}" = "dnf" ]; then
+            xmake_bin="$(command -v xmake)"
+          else
+            xmake_bin="/home/ci/.local/bin/xmake"
+          fi
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r gentest_unit_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r gentest_integration_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r gentest_fixtures_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r gentest_skiponly_xmake"

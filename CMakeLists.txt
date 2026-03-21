@@ -24,15 +24,75 @@ set(CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP 0)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(GentestDependencies)
+include(GentestPublicModules)
 gentest_ensure_fmt()
 
 option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
 option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
+# Coord is opt-in on the modules-v5 integration branch so the existing
+# gentest-focused CI/buildsystem matrix does not pick up extra dependencies
+# unless a coord-specific lane enables it explicitly.
+option(COORD_BUILD "Build coordd/coordctl integration test runner" OFF)
+option(COORD_ENABLE_TLS "Enable mTLS for coordd TCP endpoints" ON)
+set(COORD_TLS_BACKEND "openssl" CACHE STRING "TLS backend for coordd (openssl, wolfssl, none)")
+set_property(CACHE COORD_TLS_BACKEND PROPERTY STRINGS openssl wolfssl none)
+option(COORD_ENABLE_JSON "Enable JSON session specs and manifest output" ON)
+option(COORD_ENABLE_MODE_B "Enable Linux userns + mountns mode" ON)
+option(COORD_ENABLE_MODE_C "Enable Linux userns + netns mode" ON)
+option(COORD_ENABLE_MODE_D "Enable privileged netns/veth/bridge mode" ON)
 option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
 option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
+set(GENTEST_ENABLE_PUBLIC_MODULES "AUTO" CACHE STRING "Enable gentest's public C++ module interfaces (AUTO, ON, or OFF)")
+set_property(CACHE GENTEST_ENABLE_PUBLIC_MODULES PROPERTY STRINGS AUTO ON OFF)
+
+if(COORD_ENABLE_TLS AND COORD_TLS_BACKEND STREQUAL "none")
+    message(FATAL_ERROR "COORD_ENABLE_TLS=ON requires COORD_TLS_BACKEND to be openssl or wolfssl")
+endif()
+
+if(COORD_BUILD)
+    include(CoordDependencies)
+    coord_fetch_dependencies()
+endif()
+
+if(NOT GENTEST_ENABLE_PUBLIC_MODULES MATCHES "^(AUTO|ON|OFF)$")
+    message(FATAL_ERROR "GENTEST_ENABLE_PUBLIC_MODULES must be AUTO, ON, or OFF")
+endif()
+
+gentest_detect_public_module_support(_gentest_public_modules_supported _gentest_public_modules_reason)
+if(GENTEST_ENABLE_PUBLIC_MODULES STREQUAL "OFF")
+    set(_gentest_public_modules_enabled OFF)
+    set(_gentest_public_modules_status "disabled explicitly by GENTEST_ENABLE_PUBLIC_MODULES=OFF")
+elseif(GENTEST_ENABLE_PUBLIC_MODULES STREQUAL "ON")
+    if(NOT _gentest_public_modules_supported)
+        message(FATAL_ERROR
+            "GENTEST_ENABLE_PUBLIC_MODULES=ON was requested, but the current toolchain cannot support gentest's public modules: ${_gentest_public_modules_reason}")
+    endif()
+    set(_gentest_public_modules_enabled ON)
+    set(_gentest_public_modules_status "enabled explicitly by GENTEST_ENABLE_PUBLIC_MODULES=ON")
+elseif(_gentest_public_modules_supported)
+    set(_gentest_public_modules_enabled ON)
+    set(_gentest_public_modules_status "enabled automatically")
+else()
+    set(_gentest_public_modules_enabled OFF)
+    set(_gentest_public_modules_status "disabled automatically: ${_gentest_public_modules_reason}")
+endif()
+
+set(GENTEST_PUBLIC_MODULES_TOOLCHAIN_SUPPORTED "${_gentest_public_modules_supported}" CACHE INTERNAL
+    "Whether the active generator/compiler can support gentest's public module interfaces" FORCE)
+set(GENTEST_PUBLIC_MODULES_ENABLED "${_gentest_public_modules_enabled}" CACHE INTERNAL
+    "Whether gentest exports its public module interfaces in this build" FORCE)
+set(GENTEST_PUBLIC_MODULES_DISABLED_REASON "${_gentest_public_modules_reason}" CACHE INTERNAL
+    "Why gentest's public module interfaces are unavailable in this build" FORCE)
+message(STATUS "gentest: public named modules ${_gentest_public_modules_status}")
+unset(_gentest_public_modules_supported)
+unset(_gentest_public_modules_reason)
+unset(_gentest_public_modules_enabled)
+unset(_gentest_public_modules_status)
 
 set(_gentest_build_codegen_default ON)
-if(CMAKE_CROSSCOMPILING OR NOT ${PROJECT_NAME}_BUILD_TESTING)
+if(CMAKE_CROSSCOMPILING)
+    set(_gentest_build_codegen_default OFF)
+elseif(NOT ${PROJECT_NAME}_BUILD_TESTING)
     set(_gentest_build_codegen_default OFF)
 endif()
 option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" ${_gentest_build_codegen_default})
@@ -43,6 +103,15 @@ if(GENTEST_BUILD_CODEGEN)
 endif()
 include(GentestCodegen)
 add_subdirectory(src)
+
+if(COORD_BUILD)
+    add_subdirectory(libcoord)
+    add_subdirectory(coordd)
+    add_subdirectory(coordctl)
+    if(UNIX AND COORD_ENABLE_MODE_D)
+        add_subdirectory(netd-helper)
+    endif()
+endif()
 
 if(${PROJECT_NAME}_INSTALL)
     include(FetchContent)
@@ -100,6 +169,9 @@ if(${PROJECT_NAME}_BUILD_TESTING)
     add_subdirectory(tools/core_tests)
     add_custom_target(gentest_codegen_all)
     add_subdirectory(tests)
+    if(COORD_BUILD AND COORD_ENABLE_JSON AND UNIX)
+        add_subdirectory(examples)
+    endif()
 
     # Compile time benchmark targets
     add_custom_target(bench-compile

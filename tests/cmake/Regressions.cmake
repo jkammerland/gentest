@@ -57,6 +57,32 @@ function(_gentest_add_shared_fixture_skip_reason_regression)
         ARGS --run=${GENTEST_RUN} --kind=test)
 endfunction()
 
+gentest_add_cmake_script_test(
+    NAME regression_coord_tls_reconfigure
+    PROG "${CMAKE_COMMAND}"
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckCoordTlsReconfigure.cmake"
+    DEFINES
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/coord_tls_reconfigure")
+
+gentest_add_cmake_script_test(
+    NAME regression_coord_smoke_workflow_covers_fixture_flow
+    PROG "${CMAKE_COMMAND}"
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckCoordSmokeWorkflow.cmake"
+    DEFINES
+        "WORKFLOW_FILE=${PROJECT_SOURCE_DIR}/.github/workflows/cmake.yml")
+
+if(TARGET gentest_codegen)
+    gentest_add_cmake_script_test(
+        NAME regression_coord_example_requires_json
+        PROG "${CMAKE_COMMAND}"
+        SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckCoordExampleJsonGate.cmake"
+        DEFINES
+            "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+            "BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}/coord_example_json_gate"
+            "CODEGEN=${CMAKE_BINARY_DIR}/tools/gentest_codegen")
+endif()
+
 set(_gentest_manual_regressions
     "gentest_regression_bench_assert|bench_assert_propagation.cpp"
     "gentest_regression_shared_fixture_reentry|shared_fixture_reentry.cpp"
@@ -104,6 +130,56 @@ unset(_gentest_manual_regression)
 unset(_gentest_manual_regression_fields)
 unset(_gentest_manual_target)
 unset(_gentest_manual_source)
+
+if(TARGET coord)
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coord_peer_target_forwarding
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coord_peer_target_forwarding.cpp)
+    target_link_libraries(gentest_regression_coord_peer_target_forwarding PRIVATE coord::coord)
+
+    gentest_add_check_exit_code(
+        NAME regression_coord_peer_target_forwarding
+        PROG $<TARGET_FILE:gentest_regression_coord_peer_target_forwarding>
+        EXPECT_RC 0)
+
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coord_terminate_all_completed_pid
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coord_terminate_all_completed_pid.cpp)
+    target_link_libraries(gentest_regression_coord_terminate_all_completed_pid PRIVATE coord::coord)
+
+    gentest_add_check_exit_code(
+        NAME regression_coord_terminate_all_completed_pid
+        PROG $<TARGET_FILE:gentest_regression_coord_terminate_all_completed_pid>
+        EXPECT_RC 0)
+
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coord_submit_filesystem_exception
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coord_submit_filesystem_exception.cpp)
+    target_link_libraries(gentest_regression_coord_submit_filesystem_exception PRIVATE coord::coord)
+
+    gentest_add_check_exit_code(
+        NAME regression_coord_submit_filesystem_exception
+        PROG $<TARGET_FILE:gentest_regression_coord_submit_filesystem_exception>
+        EXPECT_RC 0)
+
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coordd_invalid_listen_parse
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coordd_invalid_listen_parse.cpp)
+    target_link_libraries(gentest_regression_coordd_invalid_listen_parse PRIVATE coord::coord)
+    gentest_add_check_exit_code(
+        NAME regression_coordd_invalid_listen_parse
+        PROG $<TARGET_FILE:gentest_regression_coordd_invalid_listen_parse>
+        EXPECT_RC 0)
+
+    gentest_add_manual_regression(
+        TARGET gentest_regression_coordctl_ready_timeout_invalid
+        SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/coordctl_ready_timeout_invalid.cpp)
+    target_link_libraries(gentest_regression_coordctl_ready_timeout_invalid PRIVATE coord::coord)
+    gentest_add_check_exit_code(
+        NAME regression_coordctl_ready_timeout_invalid
+        PROG $<TARGET_FILE:gentest_regression_coordctl_ready_timeout_invalid>
+        EXPECT_RC 0)
+endif()
 
 gentest_add_suite(regression_local_fixture_teardown
     TARGET gentest_regression_local_fixture_teardown

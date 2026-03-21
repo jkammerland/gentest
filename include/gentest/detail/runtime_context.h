@@ -77,8 +77,8 @@ struct TestContextLocalBuffer {
     }
 };
 
-inline thread_local std::shared_ptr<TestContextInfo> g_current_test{};
-inline thread_local TestContextLocalBuffer           g_current_buffer{};
+GENTEST_RUNTIME_API auto current_test_storage() -> std::shared_ptr<TestContextInfo> &;
+GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer &;
 
 struct skip_exception {};
 
@@ -88,45 +88,49 @@ enum class BenchPhase {
     Call,
     Teardown,
 };
+GENTEST_RUNTIME_API auto bench_phase_storage() -> BenchPhase &;
+GENTEST_RUNTIME_API auto bench_error_storage() -> std::string &;
 inline BenchPhase bench_phase();
 
 inline void flush_current_buffer_for(TestContextInfo *ctx) {
-    if (!ctx || g_current_buffer.owner != ctx || g_current_buffer.empty())
+    auto &buffer = current_buffer_storage();
+    if (!ctx || buffer.owner != ctx || buffer.empty())
         return;
 
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    if (!g_current_buffer.failures.empty()) {
-        ctx->failures.insert(ctx->failures.end(), std::make_move_iterator(g_current_buffer.failures.begin()),
-                             std::make_move_iterator(g_current_buffer.failures.end()));
+    if (!buffer.failures.empty()) {
+        ctx->failures.insert(ctx->failures.end(), std::make_move_iterator(buffer.failures.begin()),
+                             std::make_move_iterator(buffer.failures.end()));
     }
-    if (!g_current_buffer.failure_locations.empty()) {
-        ctx->failure_locations.insert(ctx->failure_locations.end(), std::make_move_iterator(g_current_buffer.failure_locations.begin()),
-                                      std::make_move_iterator(g_current_buffer.failure_locations.end()));
+    if (!buffer.failure_locations.empty()) {
+        ctx->failure_locations.insert(ctx->failure_locations.end(), std::make_move_iterator(buffer.failure_locations.begin()),
+                                      std::make_move_iterator(buffer.failure_locations.end()));
     }
-    if (!g_current_buffer.logs.empty()) {
-        ctx->logs.insert(ctx->logs.end(), std::make_move_iterator(g_current_buffer.logs.begin()),
-                         std::make_move_iterator(g_current_buffer.logs.end()));
+    if (!buffer.logs.empty()) {
+        ctx->logs.insert(ctx->logs.end(), std::make_move_iterator(buffer.logs.begin()), std::make_move_iterator(buffer.logs.end()));
     }
-    if (!g_current_buffer.event_lines.empty()) {
-        ctx->event_lines.insert(ctx->event_lines.end(), std::make_move_iterator(g_current_buffer.event_lines.begin()),
-                                std::make_move_iterator(g_current_buffer.event_lines.end()));
+    if (!buffer.event_lines.empty()) {
+        ctx->event_lines.insert(ctx->event_lines.end(), std::make_move_iterator(buffer.event_lines.begin()),
+                                std::make_move_iterator(buffer.event_lines.end()));
     }
-    if (!g_current_buffer.event_kinds.empty()) {
-        ctx->event_kinds.insert(ctx->event_kinds.end(), std::make_move_iterator(g_current_buffer.event_kinds.begin()),
-                                std::make_move_iterator(g_current_buffer.event_kinds.end()));
+    if (!buffer.event_kinds.empty()) {
+        ctx->event_kinds.insert(ctx->event_kinds.end(), std::make_move_iterator(buffer.event_kinds.begin()),
+                                std::make_move_iterator(buffer.event_kinds.end()));
     }
-    g_current_buffer.clear();
+    buffer.clear();
 }
 
 inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
-    if (g_current_test) {
-        flush_current_buffer_for(g_current_test.get());
+    auto &current_test = current_test_storage();
+    auto &buffer       = current_buffer_storage();
+    if (current_test) {
+        flush_current_buffer_for(current_test.get());
     }
-    g_current_test         = std::move(ctx);
-    g_current_buffer.owner = g_current_test ? g_current_test.get() : nullptr;
+    current_test  = std::move(ctx);
+    buffer.owner = current_test ? current_test.get() : nullptr;
 }
 
-inline std::shared_ptr<TestContextInfo> current_test() { return g_current_test; }
+inline std::shared_ptr<TestContextInfo> current_test() { return current_test_storage(); }
 
 inline void wait_for_adopted_tokens(const std::shared_ptr<TestContextInfo> &ctx) {
     if (!ctx)
@@ -139,7 +143,7 @@ inline void wait_for_adopted_tokens(const std::shared_ptr<TestContextInfo> &ctx)
 }
 
 inline void request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
-    auto ctx = g_current_test;
+    auto ctx = current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
         std::fputs("gentest: fatal: skip called without an active test context.\n"
                    "        Did you forget to adopt the test context in this thread/coroutine?\n",
@@ -153,42 +157,44 @@ inline void request_runtime_skip(std::string_view reason, TestContextInfo::Runti
 }
 
 inline void record_failure(std::string msg) {
-    auto ctx = g_current_test;
+    auto  ctx    = current_test_storage();
+    auto &buffer = current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
         std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
                    "        Did you forget to adopt the test context in this thread/coroutine?\n",
                    stderr);
         std::abort();
     }
-    if (g_current_buffer.owner != ctx.get()) {
-        flush_current_buffer_for(g_current_buffer.owner);
-        g_current_buffer.owner = ctx.get();
+    if (buffer.owner != ctx.get()) {
+        flush_current_buffer_for(buffer.owner);
+        buffer.owner = ctx.get();
     }
-    g_current_buffer.failures.push_back(std::move(msg));
+    buffer.failures.push_back(std::move(msg));
     ctx->has_failures.store(true, std::memory_order_relaxed);
-    g_current_buffer.failure_locations.push_back({std::string{}, 0});
-    g_current_buffer.event_lines.push_back(g_current_buffer.failures.back());
-    g_current_buffer.event_kinds.push_back('F');
+    buffer.failure_locations.push_back({std::string{}, 0});
+    buffer.event_lines.push_back(buffer.failures.back());
+    buffer.event_kinds.push_back('F');
 #if GENTEST_EXCEPTIONS_ENABLED
     if (bench_phase() == BenchPhase::Call) {
-        throw gentest::assertion(g_current_buffer.failures.back());
+        throw gentest::assertion(buffer.failures.back());
     }
 #endif
 }
 
 inline void record_failure(std::string msg, const std::source_location &loc) {
-    auto ctx = g_current_test;
+    auto  ctx    = current_test_storage();
+    auto &buffer = current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
         std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
                    "        Did you forget to adopt the test context in this thread/coroutine?\n",
                    stderr);
         std::abort();
     }
-    if (g_current_buffer.owner != ctx.get()) {
-        flush_current_buffer_for(g_current_buffer.owner);
-        g_current_buffer.owner = ctx.get();
+    if (buffer.owner != ctx.get()) {
+        flush_current_buffer_for(buffer.owner);
+        buffer.owner = ctx.get();
     }
-    g_current_buffer.failures.push_back(std::move(msg));
+    buffer.failures.push_back(std::move(msg));
     ctx->has_failures.store(true, std::memory_order_relaxed);
     // Normalize path to a stable, short form for diagnostics.
     std::filesystem::path p(std::string(loc.file_name()));
@@ -203,12 +209,12 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
         return false;
     };
     (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
-    g_current_buffer.failure_locations.push_back({std::move(s), loc.line()});
-    g_current_buffer.event_lines.push_back(g_current_buffer.failures.back());
-    g_current_buffer.event_kinds.push_back('F');
+    buffer.failure_locations.push_back({std::move(s), loc.line()});
+    buffer.event_lines.push_back(buffer.failures.back());
+    buffer.event_kinds.push_back('F');
 #if GENTEST_EXCEPTIONS_ENABLED
     if (bench_phase() == BenchPhase::Call) {
-        throw gentest::assertion(g_current_buffer.failures.back());
+        throw gentest::assertion(buffer.failures.back());
     }
 #endif
 }
@@ -239,29 +245,28 @@ inline std::string loc_to_string(const std::source_location &loc) {
     return s;
 }
 
-inline thread_local BenchPhase  g_bench_phase = BenchPhase::None;
-inline thread_local std::string g_bench_error;
-
 struct BenchPhaseScope {
     BenchPhase prev;
-    explicit BenchPhaseScope(BenchPhase next) : prev(g_bench_phase) { g_bench_phase = next; }
-    ~BenchPhaseScope() { g_bench_phase = prev; }
+    explicit BenchPhaseScope(BenchPhase next) : prev(bench_phase_storage()) { bench_phase_storage() = next; }
+    ~BenchPhaseScope() { bench_phase_storage() = prev; }
 };
 
-inline BenchPhase bench_phase() { return g_bench_phase; }
+inline BenchPhase bench_phase() { return bench_phase_storage(); }
 
 inline void record_bench_error(std::string msg) {
-    if (g_bench_error.empty())
-        g_bench_error = std::move(msg);
+    auto &bench_error = bench_error_storage();
+    if (bench_error.empty())
+        bench_error = std::move(msg);
 }
 
-inline void clear_bench_error() { g_bench_error.clear(); }
+inline void clear_bench_error() { bench_error_storage().clear(); }
 
-inline bool has_bench_error() { return !g_bench_error.empty(); }
+inline bool has_bench_error() { return !bench_error_storage().empty(); }
 
 inline std::string take_bench_error() {
-    std::string out = std::move(g_bench_error);
-    g_bench_error.clear();
+    auto       &bench_error = bench_error_storage();
+    std::string out         = std::move(bench_error);
+    bench_error.clear();
     return out;
 }
 
@@ -272,13 +277,13 @@ struct NoExceptionsFatalHookState {
     void                 *user_data = nullptr;
 };
 
-inline thread_local NoExceptionsFatalHookState g_noexceptions_fatal_hook{};
+GENTEST_RUNTIME_API auto noexceptions_fatal_hook_storage() -> NoExceptionsFatalHookState &;
 
 struct NoExceptionsFatalHookScope {
     NoExceptionsFatalHookState previous{};
 
-    explicit NoExceptionsFatalHookScope(NoExceptionsFatalHook hook, void *user_data) noexcept : previous(g_noexceptions_fatal_hook) {
-        g_noexceptions_fatal_hook = {
+    explicit NoExceptionsFatalHookScope(NoExceptionsFatalHook hook, void *user_data) noexcept : previous(noexceptions_fatal_hook_storage()) {
+        noexceptions_fatal_hook_storage() = {
             .hook      = hook,
             .user_data = user_data,
         };
@@ -287,15 +292,15 @@ struct NoExceptionsFatalHookScope {
     NoExceptionsFatalHookScope(const NoExceptionsFatalHookScope &)            = delete;
     NoExceptionsFatalHookScope &operator=(const NoExceptionsFatalHookScope &) = delete;
 
-    ~NoExceptionsFatalHookScope() { g_noexceptions_fatal_hook = previous; }
+    ~NoExceptionsFatalHookScope() { noexceptions_fatal_hook_storage() = previous; }
 };
 
 inline void run_noexceptions_fatal_hook() noexcept {
-    const auto state = g_noexceptions_fatal_hook;
+    const auto state = noexceptions_fatal_hook_storage();
     if (!state.hook) {
         return;
     }
-    g_noexceptions_fatal_hook = {};
+    noexceptions_fatal_hook_storage() = {};
     state.hook(state.user_data);
 }
 

@@ -1,0 +1,8 @@
+#!/bin/sh
+if [ "$1" = "-print-resource-dir" ]; then
+  printf '%s\n' '@_launcher_resource_dir@'
+  exit 0
+fi
+real="$1"
+shift
+exec "$real" "$@"

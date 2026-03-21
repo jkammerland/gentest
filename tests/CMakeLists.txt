@@ -1,4 +1,5 @@
 include(GentestTests)
+include("${PROJECT_SOURCE_DIR}/cmake/CheckModuleFixtureCommon.cmake")
 
 if(NOT TARGET gentest_test_suites)
     add_custom_target(gentest_test_suites)
@@ -21,6 +22,11 @@ set(_gentest_default_suites
 
 set(_gentest_test_suites ${_gentest_default_suites})
 
+# coord depends on optional repo-local libraries and JSON support.
+if(COORD_BUILD AND COORD_ENABLE_JSON)
+    list(APPEND _gentest_test_suites coord)
+endif()
+
 # Optionally include libassert integration suite
 if(GENTEST_WITH_LIBASSERT)
     list(APPEND _gentest_test_suites libassert)
@@ -29,6 +35,10 @@ endif()
 foreach(suite IN LISTS _gentest_test_suites)
     gentest_add_suite(${suite})
 endforeach()
+
+if(TARGET gentest_coord_tests)
+    target_link_libraries(gentest_coord_tests PRIVATE coord::coord)
+endif()
 
 unset(_gentest_test_suites)
 
@@ -149,6 +159,11 @@ if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 
+option(GENTEST_SKIP_TSAN_DEATH_TESTS "Skip death tests whose stderr contract is incompatible with ThreadSanitizer" OFF)
+if(GENTEST_SKIP_TSAN_DEATH_TESTS)
+    set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
+endif()
+
 set(_gentest_codegen_prog "")
 if(GENTEST_CODEGEN_EXECUTABLE)
     set(_gentest_codegen_prog "${GENTEST_CODEGEN_EXECUTABLE}")
@@ -173,25 +188,33 @@ if(CMAKE_CROSSCOMPILING)
 endif()
 
 # Lint-only checks for generator
-add_test(NAME gentest_codegen_check_valid
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_valid
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
         -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_check_namespaced_attrs
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_namespaced_attrs
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
 
 gentest_add_check_death(
     NAME gentest_codegen_mis_scoped_attr_keyword
@@ -434,16 +457,33 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-gentest_add_check_death(
-    NAME gentest_codegen_mock_nonvirtual_defined_in_cppm_msg
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_named_module_codegen_ok
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    EXPECT_RC 0
     ARGS
         --check
-        --compdb
-        ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_cppm.cppm
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/named_module_ok.cppm
+        --
+        ${_gentest_codegen_cross_target_arg}
+        -x
+        c++
+        -DGENTEST_CODEGEN=1
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_header_main_tu_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
         --
         ${_gentest_codegen_cross_target_arg}
         -x
@@ -452,11 +492,15 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_header_main_tu_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_named_module_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/named_module_ok.cppm
         --
         ${_gentest_codegen_cross_target_arg}
         -x
@@ -531,8 +575,12 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -543,8 +591,12 @@ add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -555,8 +607,12 @@ add_test(NAME gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-add_test(NAME gentest_codegen_mock_emit_header_main_tu_ok
-    COMMAND ${_gentest_codegen_prog}
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_emit_header_main_tu_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
         --output
         ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu.gentest.cpp
         --mock-registry
@@ -712,7 +768,7 @@ set_tests_properties(
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
     gentest_codegen_mock_nonvirtual_defined_in_cpp_msg
-    gentest_codegen_mock_nonvirtual_defined_in_cppm_msg
+    gentest_codegen_mock_named_module_codegen_ok
     gentest_codegen_mock_header_main_tu_ok
     gentest_codegen_mock_nonvirtual_defined_in_cu_msg
     gentest_codegen_mock_nonvirtual_defined_in_included_cpp_msg
@@ -774,6 +830,16 @@ unset(_gentest_inventory_skip)
 unset(_gentest_inventory_expected_list)
 
 gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 6 SKIP 2)
+
+if(TARGET gentest_coord_tests)
+    set(_coord_expected_count 10)
+    if(WIN32)
+        set(_coord_expected_count 7)
+    endif()
+    gentest_add_check_counts(NAME coord_counts PROG $<TARGET_FILE:gentest_coord_tests> PASS ${_coord_expected_count} FAIL 0 SKIP 0)
+    gentest_add_check_counts(NAME coord_list_counts PROG $<TARGET_FILE:gentest_coord_tests> LIST CASES ${_coord_expected_count})
+    unset(_coord_expected_count)
+endif()
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -1586,7 +1652,7 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
     add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
             -DSOURCE_DIR=${source_dir}
-            -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}
+            -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/${name}
             -DGENERATOR=${CMAKE_GENERATOR}
             -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
             -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
@@ -1594,11 +1660,16 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
             -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
             -DC_COMPILER=${CMAKE_C_COMPILER}
             -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DCXX_COMPILER_CLANG_SCAN_DEPS=${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}
+            -DPROG=${_gentest_codegen_prog}
+            -DLLVM_DIR=${LLVM_DIR}
+            -DClang_DIR=${Clang_DIR}
             -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
             ${ARGN}
             -P ${script_path})
 
     set_tests_properties(${name} PROPERTIES LABELS "${label}")
+    set_property(TEST ${name} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
 endfunction()
 
 _gentest_add_cmake_helper_test(
@@ -1686,6 +1757,182 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_manifest_depfile_aggregation APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_env_wrapped_compiler
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenEnvWrappedCompiler.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog})
+set_property(TEST gentest_codegen_env_wrapped_compiler APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_linux_thread_stack_size
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenLinuxThreadStackSize.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog})
+set_property(TEST gentest_codegen_linux_thread_stack_size APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_module_command_retargeting
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenModuleCommandRetargeting.cmake
+    cmake)
+set_property(TEST gentest_codegen_module_command_retargeting APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_public_mock_module_gcc
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicMockModuleGccFailure.cmake
+    cmake)
+set_property(TEST gentest_public_mock_module_gcc APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_mixed_module_mock_registry
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mixed_module_mock_registry
+    ${PROJECT_SOURCE_DIR}/cmake/CheckMixedModuleMockRegistry.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_mixed_module_mock_registry APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_mock_additive_visibility
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_mock_additive_visibility
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMockAdditiveVisibility.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_mock_additive_visibility APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_mock_imported_sibling
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_mock_imported_sibling
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMockImportedSibling.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_mock_imported_sibling APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_pcm_cache_isolation
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_pcm_cache_isolation
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModulePcmCacheIsolation.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_pcm_cache_isolation APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_auto_discovery
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_autodiscovery
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleAutoDiscovery.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_auto_discovery APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_multiline_directives
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_multiline_directives
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMultilineDirectiveFailure.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_multiline_directives APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_same_line_directives
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_same_line_directives
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleSameLineDirectives.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_same_line_directives APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_cpp_source
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_cpp_source
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleCppSource.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_cpp_source APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_first_classic_order
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_first_classic_order
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleFirstClassicOrder.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_first_classic_order APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_manual_include_whitespace
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_manual_include_whitespace
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleManualIncludeWhitespaceDuplicate.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_manual_include_whitespace APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_name_literal_false_match
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleNameLiteralFalseMatch.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_name_literal_false_match APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_header_unit_import_preamble
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_header_unit_import_preamble
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleHeaderUnitImportPreamble.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_header_unit_import_preamble APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_partition_import_shorthand
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_partition_import_shorthand
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModulePartitionImportShorthand.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_partition_import_shorthand APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_public_module_old_ninja_fallback
+    ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_support_fallback
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleSupportFallback.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DFALLBACK_MODE=old_ninja)
+set_property(TEST gentest_public_module_old_ninja_fallback APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_public_module_missing_scan_deps_fallback
+    ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_support_fallback
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleSupportFallback.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DFALLBACK_MODE=missing_scan_deps)
+set_property(TEST gentest_public_module_missing_scan_deps_fallback APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_public_module_gcc_version_fallback
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleGccVersionFallback.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_public_module_gcc_version_fallback APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_public_module_surface
+    ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_surface
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleSurface.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_public_module_surface APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_public_module_detail_hidden
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleDetailHidden.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_public_module_detail_hidden APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_outcome_matrix_stale_junit_guard
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrixStaleJunit.cmake
@@ -1698,15 +1945,98 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_tsan_death_skip_gate
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckTsanDeathSkipGate.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_runtime_shared_context_exports
+    ${PROJECT_SOURCE_DIR}/tests/cmake/runtime_shared_context_exports
+    ${PROJECT_SOURCE_DIR}/cmake/CheckRuntimeSharedContextExports.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_runtime_shared_context_exports APPEND PROPERTY LABELS "runtime")
+
+_gentest_add_cmake_helper_test(
+    gentest_install_only_codegen_default
+    ${PROJECT_SOURCE_DIR}/tests/cmake/install_only_codegen_default
+    ${PROJECT_SOURCE_DIR}/cmake/CheckInstallOnlyCodegenDefault.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+
+_gentest_add_cmake_helper_test(
+    gentest_module_mock_long_domain_outputs
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_mock_long_domain_outputs
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMockLongDomainOutputs.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_mock_long_domain_outputs APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_scan_include_clang_dir_append
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scan_include_clang_dir_append
+    ${PROJECT_SOURCE_DIR}/cmake/CheckScanIncludeClangDirAppend.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_scan_include_clang_dir_append APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_partition_registration_visibility
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_partition_registration_visibility
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModulePartitionRegistrationVisibility.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_partition_registration_visibility APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_registration_without_import
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_without_import
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleRegistrationWithoutImport.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_without_import APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_cross_compile_emulator_serialization
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckCrossCompileEmulatorSerialization.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_cross_compile_exit_code_no_emulator
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCrossCompileExitCodeNoEmulator.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_missing_host_codegen_path
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckMissingHostCodegenPath.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_coverage_workflow_serial_ctest
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCoverageWorkflowSerialCtest.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_diagnostic_workflow_lanes
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckDiagnosticWorkflowLanes.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_workflow_action_versions
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckWorkflowActionVersions.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_buildsystems_linux_workflow
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBuildsystemsLinuxWorkflow.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(
@@ -1727,6 +2057,14 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckVcpkgManifestMetadata.cmake
     cmake)
 
+_gentest_add_cmake_helper_test(
+    gentest_package_consumer_workdir_isolation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumerWorkdirIsolation.cmake
+    package
+    -DPACKAGE_NAME=${PROJECT_NAME})
+set_property(TEST gentest_package_consumer_workdir_isolation APPEND PROPERTY LABELS "modules")
+
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
     set(_gentest_package_test_config "")
@@ -1734,13 +2072,189 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         set(_gentest_package_test_config "Debug")
     endif()
 
+    set(_gentest_package_test_compiler_args "")
+    if(DEFINED CMAKE_C_COMPILER AND NOT "${CMAKE_C_COMPILER}" STREQUAL "")
+        list(APPEND _gentest_package_test_compiler_args
+            -DPACKAGE_TEST_C_COMPILER=${CMAKE_C_COMPILER})
+    endif()
+    if(DEFINED CMAKE_CXX_COMPILER AND NOT "${CMAKE_CXX_COMPILER}" STREQUAL "")
+        list(APPEND _gentest_package_test_compiler_args
+            -DPACKAGE_TEST_CXX_COMPILER=${CMAKE_CXX_COMPILER})
+    endif()
+    if(DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
+        list(APPEND _gentest_package_test_compiler_args
+            -DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS})
+    endif()
+
+    set(_gentest_package_test_module_compiler_args ${_gentest_package_test_compiler_args})
+    if(UNIX)
+        gentest_is_clang_like(_gentest_package_test_top_level_is_clang "${CMAKE_CXX_COMPILER}")
+        if(NOT _gentest_package_test_top_level_is_clang)
+            gentest_resolve_clang_fixture_compilers(_gentest_package_test_module_c _gentest_package_test_module_cxx)
+            if(NOT "${_gentest_package_test_module_c}" STREQUAL "" AND NOT "${_gentest_package_test_module_cxx}" STREQUAL "")
+                set(_gentest_package_test_module_compiler_args
+                    -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_module_c}
+                    -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_module_cxx})
+                gentest_find_clang_scan_deps(_gentest_package_test_module_scan_deps "${_gentest_package_test_module_cxx}")
+                if(NOT "${_gentest_package_test_module_scan_deps}" STREQUAL "")
+                    list(APPEND _gentest_package_test_module_compiler_args
+                        -DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=${_gentest_package_test_module_scan_deps})
+                endif()
+            endif()
+        endif()
+    endif()
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_include_only
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_include_only_native_codegen
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_runtime_only_include_only
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=runtime_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_runtime_only_include_only_native_codegen
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=runtime_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_double_include_only
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=double
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_double_include_only_native_codegen
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=double
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+        ${_gentest_package_test_compiler_args})
+
     _gentest_add_cmake_helper_test(
         gentest_package_consumer
         ${PROJECT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
         package
         -DPACKAGE_NAME=${PROJECT_NAME}
-        -DBUILD_CONFIG=${_gentest_package_test_config})
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer APPEND PROPERTY LABELS "modules")
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_native_codegen
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer_native_codegen APPEND PROPERTY LABELS "modules")
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_runtime_only
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=runtime_only
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer_runtime_only APPEND PROPERTY LABELS "modules")
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_double
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=double
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer_double APPEND PROPERTY LABELS "modules")
+
+    if(UNIX AND NOT APPLE)
+        find_program(_gentest_package_test_gcc NAMES gcc)
+        find_program(_gentest_package_test_gxx NAMES g++)
+        if(_gentest_package_test_gcc AND _gentest_package_test_gxx)
+            _gentest_add_cmake_helper_test(
+                gentest_package_consumer_gcc
+                ${PROJECT_SOURCE_DIR}
+                ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+                package
+                -DPACKAGE_NAME=${PROJECT_NAME}
+                -DBUILD_CONFIG=${_gentest_package_test_config}
+                -DCONSUMER_LINK_MODE=main_only
+                -DPACKAGE_TEST_USE_MODULES=ON
+                -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+                -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_gcc}
+                -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_gxx})
+            set_property(TEST gentest_package_consumer_gcc APPEND PROPERTY LABELS "modules")
+        endif()
+        unset(_gentest_package_test_gcc)
+        unset(_gentest_package_test_gxx)
+    endif()
+
+    unset(_gentest_package_test_config)
+    unset(_gentest_package_test_compiler_args)
+    unset(_gentest_package_test_module_compiler_args)
 endif()
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
