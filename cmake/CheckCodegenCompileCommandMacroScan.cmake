@@ -65,7 +65,14 @@ set(_common_args
   "-std=c++20"
   "-I${GENTEST_SOURCE_DIR}/include"
   "-I${GENTEST_SOURCE_DIR}/tests")
-if(CMAKE_HOST_WIN32)
+get_filename_component(_clangxx_name "${_clangxx}" NAME_WE)
+string(TOLOWER "${_clangxx_name}" _clangxx_name_lower)
+set(_use_msvc_define_syntax OFF)
+if(_clangxx_name_lower STREQUAL "cl" OR _clangxx_name_lower STREQUAL "clang-cl")
+  set(_use_msvc_define_syntax ON)
+endif()
+
+if(_use_msvc_define_syntax)
   set(_provider_define "/DGENTEST_SCAN_ENABLE_PROVIDER=1")
   set(_consumer_define_flag "/D")
   set(_consumer_define_value "GENTEST_SCAN_ENABLE_CONSUMER=1")
