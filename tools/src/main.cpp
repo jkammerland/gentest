@@ -1730,10 +1730,16 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
 
     clang::tooling::CommandLineArguments launch_args = command_line;
     std::string launch_program = command_line.front();
-    if (const auto resource_dir = find_option_value(launch_args, "-resource-dir", "-resource-dir=");
-        resource_dir.has_value()) {
-        if (const auto inferred = infer_compiler_from_resource_dir(launch_program, *resource_dir); inferred.has_value()) {
-            launch_program = *inferred;
+    const std::string launch_basename = basename_without_extension(launch_program);
+    const bool launch_is_clang_like = launch_basename == "clang" || launch_basename == "clang++" ||
+        launch_basename == "clang-cl" || llvm::StringRef{launch_basename}.starts_with("clang-") ||
+        llvm::StringRef{launch_basename}.starts_with("clang++-");
+    if (!launch_is_clang_like) {
+        if (const auto resource_dir = find_option_value(launch_args, "-resource-dir", "-resource-dir=");
+            resource_dir.has_value()) {
+            if (const auto inferred = infer_compiler_from_resource_dir(launch_program, *resource_dir); inferred.has_value()) {
+                launch_program = *inferred;
+            }
         }
     }
     const std::string resolved_path = resolve_program_invocation_path(launch_program);
