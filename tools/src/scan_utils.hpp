@@ -124,10 +124,33 @@ inline std::string to_lower_ascii_copy(std::string_view text) {
     return out;
 }
 
+inline std::optional<std::string> read_scan_env_value(std::string_view env_name) {
+    std::string env_name_str{env_name};
+#if defined(_WIN32)
+    char  *env_value = nullptr;
+    size_t env_len   = 0;
+    if (_dupenv_s(&env_value, &env_len, env_name_str.c_str()) != 0 || env_value == nullptr) {
+        return std::nullopt;
+    }
+    std::string value{env_value};
+    std::free(env_value);
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    return value;
+#else
+    const char *env_value = std::getenv(env_name_str.c_str());
+    if (!env_value || !*env_value) {
+        return std::nullopt;
+    }
+    return std::string{env_value};
+#endif
+}
+
 inline std::vector<std::filesystem::path> split_scan_env_paths(const char *env_name) {
     std::vector<std::filesystem::path> paths;
-    const char                        *raw = std::getenv(env_name);
-    if (!raw || !*raw) {
+    const auto                         raw = read_scan_env_value(env_name);
+    if (!raw.has_value()) {
         return paths;
     }
 
@@ -137,7 +160,7 @@ inline std::vector<std::filesystem::path> split_scan_env_paths(const char *env_n
     constexpr char kSeparator = ':';
 #endif
 
-    std::string_view remaining{raw};
+    std::string_view remaining{*raw};
     while (!remaining.empty()) {
         const auto split = remaining.find(kSeparator);
         const auto piece = split == std::string_view::npos ? remaining : remaining.substr(0, split);
@@ -243,9 +266,9 @@ inline std::vector<std::filesystem::path> default_scan_include_search_paths(
     append_unique_scan_path(paths, "/opt/homebrew/opt/llvm/include/c++/v1");
     append_unique_scan_path(paths, "/usr/include/c++/v1");
     append_unique_scan_path(paths, "/Library/Developer/CommandLineTools/usr/include/c++/v1");
-    if (const char *sdkroot = std::getenv("SDKROOT"); sdkroot && *sdkroot) {
-        append_unique_scan_path(paths, std::filesystem::path{sdkroot} / "usr/include");
-        append_unique_scan_path(paths, std::filesystem::path{sdkroot} / "usr/include/c++/v1");
+    if (const auto sdkroot = read_scan_env_value("SDKROOT"); sdkroot && !sdkroot->empty()) {
+        append_unique_scan_path(paths, std::filesystem::path{*sdkroot} / "usr/include");
+        append_unique_scan_path(paths, std::filesystem::path{*sdkroot} / "usr/include/c++/v1");
     }
 #endif
 

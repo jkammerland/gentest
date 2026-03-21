@@ -1977,6 +1977,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_public_module_missing_scan_deps_fallback APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_clang_scan_deps_program_resolution
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckClangScanDepsProgramResolution.cmake
+    cmake)
+set_property(TEST gentest_clang_scan_deps_program_resolution APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_public_module_gcc_version_fallback
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleGccVersionFallback.cmake
@@ -2148,6 +2155,14 @@ _gentest_add_cmake_helper_test(
     package
     -DPACKAGE_NAME=${PROJECT_NAME})
 set_property(TEST gentest_package_consumer_workdir_isolation APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_package_consumer_executable_path
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumerExecutablePath.cmake
+    package
+    -DPACKAGE_NAME=${PROJECT_NAME})
+set_property(TEST gentest_package_consumer_executable_path APPEND PROPERTY LABELS "modules")
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)

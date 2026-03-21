@@ -24,7 +24,7 @@ if(NOT DEFINED GENTEST_CODEGEN_SCAN_DEPS_MODE)
 endif()
 
 if(NOT DEFINED GENTEST_CODEGEN_CLANG_SCAN_DEPS)
-    set(GENTEST_CODEGEN_CLANG_SCAN_DEPS "" CACHE FILEPATH
+    set(GENTEST_CODEGEN_CLANG_SCAN_DEPS "" CACHE STRING
         "Optional path to the clang-scan-deps executable used by gentest_codegen for named-module dependency discovery.")
 endif()
 

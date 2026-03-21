@@ -1,3 +1,28 @@
+function(gentest_resolve_optional_program out_program candidate)
+    if("${candidate}" STREQUAL "")
+        set(${out_program} "" PARENT_SCOPE)
+        return()
+    endif()
+
+    if(EXISTS "${candidate}" AND NOT IS_DIRECTORY "${candidate}")
+        set(${out_program} "${candidate}" PARENT_SCOPE)
+        return()
+    endif()
+
+    get_filename_component(_candidate_name "${candidate}" NAME)
+    if(NOT IS_ABSOLUTE "${candidate}" AND NOT "${candidate}" MATCHES "[/\\\\]")
+        unset(_resolved_program CACHE)
+        unset(_resolved_program)
+        find_program(_resolved_program NAMES "${candidate}" "${_candidate_name}" NO_CACHE)
+    endif()
+    if(_resolved_program)
+        set(${out_program} "${_resolved_program}" PARENT_SCOPE)
+        return()
+    endif()
+
+    set(${out_program} "" PARENT_SCOPE)
+endfunction()
+
 function(gentest_detect_public_module_support out_supported out_reason)
     set(_supported TRUE)
     set(_reason "")
@@ -49,10 +74,13 @@ function(gentest_detect_public_module_support out_supported out_reason)
         elseif(CMAKE_CXX_COMPILER_ID MATCHES "^(AppleClang|Clang)$"
                AND DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT
                AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
-            if(NOT DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
-               OR "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
-               OR "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$"
-               OR NOT EXISTS "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+            set(_resolved_scan_deps "")
+            if(DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
+               AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
+               AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
+                gentest_resolve_optional_program(_resolved_scan_deps "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+            endif()
+            if("${_resolved_scan_deps}" STREQUAL "")
                 set(_supported FALSE)
                 set(_reason
                     "clang dependency scanner was not found for '${CMAKE_CXX_COMPILER}'; set CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS to a usable clang-scan-deps binary")

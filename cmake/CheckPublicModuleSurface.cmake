@@ -48,11 +48,11 @@ set(_common_cache_args
   "-DCMAKE_C_COMPILER=${_clang}"
   "-DCMAKE_CXX_COMPILER=${_clangxx}"
   "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_scan_deps}")
-if(CMAKE_HOST_WIN32 AND _clangxx MATCHES "[Cc]lang")
-  list(APPEND _common_cache_args
-    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>"
-    "-DCMAKE_CXX_FLAGS=-D_ITERATOR_DEBUG_LEVEL=0 -D_HAS_ITERATOR_DEBUGGING=0")
+gentest_resolve_fixture_build_type(_effective_build_type "${_clangxx}" "${BUILD_TYPE}")
+if(NOT "${_effective_build_type}" STREQUAL "")
+  list(APPEND _common_cache_args "-DCMAKE_BUILD_TYPE=${_effective_build_type}")
 endif()
+gentest_append_windows_native_llvm_cache_args(_common_cache_args "${_clangxx}" ${_common_cache_args})
 gentest_append_host_apple_sysroot(_common_cache_args)
 
 message(STATUS "Configure producer for public module surface regression...")
@@ -69,6 +69,8 @@ gentest_check_run_or_fail(
     "-DCMAKE_INSTALL_PREFIX=${_install_prefix}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+gentest_assert_windows_native_llvm_cache_args(
+  "${_producer_build_dir}" "${_clangxx}" "public module surface producer")
 
 message(STATUS "Build and install producer for public module surface regression...")
 gentest_check_run_or_fail(
@@ -87,6 +89,8 @@ gentest_check_run_or_fail(
     "-DCMAKE_PREFIX_PATH=${_install_prefix}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+gentest_assert_windows_native_llvm_cache_args(
+  "${_consumer_build_dir}" "${_clangxx}" "public module surface consumer")
 
 message(STATUS "Build public module consumer fixture...")
 gentest_check_run_or_fail(

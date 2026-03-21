@@ -50,7 +50,7 @@ export int provider_value() { return 7; }
 gentest_fixture_write_file("${_consumer}" [=[
 #include <gentest/runner.h>
 
-#if defined(GENTEST_SCAN_ENABLE_CONSUMER)
+#if defined(GENTEST_SCAN_ENABLE_CONSUMER) && !defined(GENTEST_SCAN_ENABLE_PROVIDER)
 import gentest.scan.provider;
 #endif
 
@@ -67,24 +67,16 @@ set(_common_args
   "-I${GENTEST_SOURCE_DIR}/tests")
 get_filename_component(_clangxx_name "${_clangxx}" NAME_WE)
 string(TOLOWER "${_clangxx_name}" _clangxx_name_lower)
-set(_use_msvc_define_syntax OFF)
 if(_clangxx_name_lower STREQUAL "cl" OR _clangxx_name_lower STREQUAL "clang-cl")
-  set(_use_msvc_define_syntax ON)
+  gentest_skip_test("compile-command macro scan regression: requires GNU-style clang driver, got '${_clangxx}'")
+  return()
 endif()
 
-if(_use_msvc_define_syntax)
-  set(_provider_define "/DGENTEST_SCAN_ENABLE_PROVIDER=1")
-  set(_consumer_define_flag "/D")
-  set(_consumer_define_value "GENTEST_SCAN_ENABLE_CONSUMER=1")
-  set(_consumer_undef_flag "/U")
-  set(_consumer_undef_value "GENTEST_SCAN_ENABLE_PROVIDER")
-else()
-  set(_provider_define "-DGENTEST_SCAN_ENABLE_PROVIDER=1")
-  set(_consumer_define_flag "-D")
-  set(_consumer_define_value "GENTEST_SCAN_ENABLE_CONSUMER=1")
-  set(_consumer_undef_flag "-U")
-  set(_consumer_undef_value "GENTEST_SCAN_ENABLE_PROVIDER")
-endif()
+set(_provider_define "-DGENTEST_SCAN_ENABLE_PROVIDER=1")
+set(_consumer_define_flag "-D")
+set(_consumer_define_value "GENTEST_SCAN_ENABLE_CONSUMER=1")
+set(_consumer_undef_flag "-U")
+set(_consumer_undef_value "GENTEST_SCAN_ENABLE_PROVIDER")
 if(CMAKE_HOST_APPLE)
   set(_sdkroot "$ENV{SDKROOT}")
   if("${_sdkroot}" STREQUAL "")
@@ -115,6 +107,7 @@ gentest_fixture_make_compdb_entry(
   FILE "${_consumer}"
   ARGUMENTS ${_common_args}
     "${_consumer_define_flag}" "${_consumer_define_value}"
+    "-DGENTEST_SCAN_ENABLE_PROVIDER=1"
     "${_consumer_undef_flag}" "${_consumer_undef_value}"
     "-c" "${_consumer}" "-o" "${_consumer_obj}")
 gentest_fixture_write_compdb("${_compdb}" "${_provider_entry}" "${_consumer_entry}")
@@ -138,6 +131,11 @@ endif()
 if(NOT EXISTS "${_generated_off_dir}/consumer.h")
   message(FATAL_ERROR "Expected registration header for macro-guarded consumer to be generated")
 endif()
+
+# Windows-specific split /D and /U handling is covered by
+# CheckCodegenCompileCommandConditionWarnings.cmake. This helper keeps the
+# end-to-end macro-guarded import path on the stable GNU-style Clang flow so it
+# can assert successful external-module precompile plus header generation.
 
 set(_bad_scan_deps "${_work_dir}/missing-clang-scan-deps")
 

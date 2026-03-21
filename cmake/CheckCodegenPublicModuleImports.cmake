@@ -21,6 +21,7 @@ set(_producer_build_dir "${_work_dir}/producer")
 set(_consumer_build_off_dir "${_work_dir}/consumer_off")
 set(_consumer_build_auto_dir "${_work_dir}/consumer_auto")
 set(_consumer_build_on_dir "${_work_dir}/consumer_on")
+set(_consumer_build_on_bare_dir "${_work_dir}/consumer_on_bare")
 set(_consumer_build_auto_bad_dir "${_work_dir}/consumer_auto_bad")
 set(_consumer_build_on_bad_dir "${_work_dir}/consumer_on_bad")
 set(_install_prefix "${_work_dir}/install")
@@ -47,12 +48,19 @@ set(_scan_deps_regex "")
 if(_scan_deps)
   set(_scan_deps_regex "${_scan_deps}")
   string(REGEX REPLACE "([][+.*^$(){}|\\\\])" "\\\\\\1" _scan_deps_regex "${_scan_deps_regex}")
+  get_filename_component(_scan_deps_name "${_scan_deps}" NAME)
+  get_filename_component(_scan_deps_dir "${_scan_deps}" DIRECTORY)
+  if(CMAKE_HOST_WIN32)
+    set(_path_sep ";")
+  else()
+    set(_path_sep ":")
+  endif()
+  set(_scan_deps_env_path "${_scan_deps_dir}${_path_sep}$ENV{PATH}")
 endif()
 set(_common_cache_args
   "-DCMAKE_MAKE_PROGRAM=${_ninja}"
   "-DCMAKE_C_COMPILER=${_clang}"
-  "-DCMAKE_CXX_COMPILER=${_clangxx}"
-  )
+  "-DCMAKE_CXX_COMPILER=${_clangxx}")
 if(_scan_deps)
   list(APPEND _common_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_scan_deps}")
 endif()
@@ -62,14 +70,11 @@ endif()
 if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
   list(APPEND _common_cache_args "-DClang_DIR=${Clang_DIR}")
 endif()
-if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
-  list(APPEND _common_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+gentest_resolve_fixture_build_type(_effective_build_type "${_clangxx}" "${BUILD_TYPE}")
+if(NOT "${_effective_build_type}" STREQUAL "")
+  list(APPEND _common_cache_args "-DCMAKE_BUILD_TYPE=${_effective_build_type}")
 endif()
-if(CMAKE_HOST_WIN32 AND _clangxx MATCHES "[Cc]lang")
-  list(APPEND _common_cache_args
-    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>"
-    "-DCMAKE_CXX_FLAGS=-D_ITERATOR_DEBUG_LEVEL=0 -D_HAS_ITERATOR_DEBUGGING=0")
-endif()
+gentest_append_windows_native_llvm_cache_args(_common_cache_args "${_clangxx}" ${_common_cache_args})
 gentest_append_host_apple_sysroot(_common_cache_args)
 
 message(STATUS "Configure producer for codegen public module imports regression...")
@@ -86,6 +91,8 @@ gentest_check_run_or_fail(
     "-DCMAKE_INSTALL_PREFIX=${_install_prefix}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+gentest_assert_windows_native_llvm_cache_args(
+  "${_producer_build_dir}" "${_clangxx}" "codegen public module imports producer")
 
 message(STATUS "Build and install producer for codegen public module imports regression...")
 gentest_check_run_or_fail(
@@ -96,9 +103,9 @@ gentest_check_run_or_fail(
 function(_gentest_configure_consumer build_dir scan_mode)
   set(_extra_cache_args ${ARGN})
   gentest_check_run_or_fail(
-    COMMAND
-      "${CMAKE_COMMAND}"
-      -G Ninja
+  COMMAND
+    "${CMAKE_COMMAND}"
+    -G Ninja
       -S "${_consumer_source_dir}"
       -B "${build_dir}"
       ${_common_cache_args}
@@ -106,10 +113,11 @@ function(_gentest_configure_consumer build_dir scan_mode)
       "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}"
       "-DGENTEST_CONSUMER_USE_MODULES=ON"
       "-DGENTEST_CONSUMER_LINK_MODE=double"
-      "-DGENTEST_CODEGEN_SCAN_DEPS_MODE=${scan_mode}"
-      ${_extra_cache_args}
-    WORKING_DIRECTORY "${_work_dir}"
-    STRIP_TRAILING_WHITESPACE)
+    "-DGENTEST_CODEGEN_SCAN_DEPS_MODE=${scan_mode}"
+    ${_extra_cache_args}
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+  gentest_assert_windows_native_llvm_cache_args("${build_dir}" "${_clangxx}" "codegen public module imports consumer (${scan_mode})")
 endfunction()
 
 function(_gentest_assert_codegen_mode build_dir scan_mode)
@@ -235,6 +243,29 @@ message(STATUS "Configure consumer with scan-deps enabled...")
 _gentest_configure_consumer("${_consumer_build_on_dir}" "ON")
 _gentest_assert_codegen_mode("${_consumer_build_on_dir}" "ON")
 
+message(STATUS "Configure consumer with scan-deps enabled via bare scanner name...")
+set(_old_path "$ENV{PATH}")
+set(ENV{PATH} "${_scan_deps_env_path}")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}"
+    -G Ninja
+    -S "${_consumer_source_dir}"
+    -B "${_consumer_build_on_bare_dir}"
+    ${_common_cache_args}
+    "-DCMAKE_PREFIX_PATH=${_install_prefix}"
+    "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}"
+    "-DGENTEST_CONSUMER_USE_MODULES=ON"
+    "-DGENTEST_CONSUMER_LINK_MODE=double"
+    "-DGENTEST_CODEGEN_SCAN_DEPS_MODE=ON"
+    "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=${_scan_deps_name}"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+gentest_assert_windows_native_llvm_cache_args(
+  "${_consumer_build_on_bare_dir}" "${_clangxx}" "codegen public module imports consumer (ON bare-name)")
+_gentest_assert_codegen_mode("${_consumer_build_on_bare_dir}" "ON" "${_scan_deps_name}")
+set(ENV{PATH} "${_old_path}")
+
 message(STATUS "Build build-time gentest_codegen target with scan-deps enabled...")
 gentest_check_run_or_fail(
   COMMAND
@@ -251,6 +282,26 @@ if(_on_scan_deps_pos EQUAL -1)
     "Expected build-time gentest_codegen ON leg to report actual clang-scan-deps usage. Output:\n${_on_codegen_output}")
 endif()
 
+message(STATUS "Build build-time gentest_codegen target with scan-deps enabled via bare scanner name...")
+set(_old_path "$ENV{PATH}")
+set(ENV{PATH} "${_scan_deps_env_path}")
+set(_old_log_scan_deps "$ENV{GENTEST_CODEGEN_LOG_SCAN_DEPS}")
+set(ENV{GENTEST_CODEGEN_LOG_SCAN_DEPS} "1")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}" --build "${_consumer_build_on_bare_dir}" --target "${_consumer_codegen_target}"
+  WORKING_DIRECTORY "${_work_dir}"
+  OUTPUT_VARIABLE _on_bare_codegen_output
+  STRIP_TRAILING_WHITESPACE)
+set(ENV{GENTEST_CODEGEN_LOG_SCAN_DEPS} "${_old_log_scan_deps}")
+set(ENV{PATH} "${_old_path}")
+
+string(FIND "${_on_bare_codegen_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _on_bare_scan_deps_pos)
+if(_on_bare_scan_deps_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected build-time gentest_codegen ON bare-name leg to report actual clang-scan-deps usage. Output:\n${_on_bare_codegen_output}")
+endif()
+
 message(STATUS "Build consumer with scan-deps enabled...")
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_on_dir}" --target gentest_consumer
@@ -261,6 +312,23 @@ set(_consumer_exe "${_consumer_build_on_dir}/gentest_consumer${CMAKE_EXECUTABLE_
 message(STATUS "Run consumer smoke with scan-deps enabled...")
 gentest_check_run_or_fail(
   COMMAND "${_consumer_exe}" --run=consumer/module_mock
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+message(STATUS "Build consumer with scan-deps enabled via bare scanner name...")
+set(_old_path "$ENV{PATH}")
+set(ENV{PATH} "${_scan_deps_env_path}")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}" --build "${_consumer_build_on_bare_dir}" --target gentest_consumer
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+set(ENV{PATH} "${_old_path}")
+
+set(_consumer_bare_exe "${_consumer_build_on_bare_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
+message(STATUS "Run consumer smoke with scan-deps enabled via bare scanner name...")
+gentest_check_run_or_fail(
+  COMMAND "${_consumer_bare_exe}" --run=consumer/module_mock
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 

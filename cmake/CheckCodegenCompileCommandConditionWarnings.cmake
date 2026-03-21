@@ -34,7 +34,9 @@ gentest_fixture_write_file("${_source}" [=[
 module;
 #include "gentest/attributes.h"
 
-#if GENTEST_SCAN_ENABLED == 0
+#if defined(GENTEST_SCAN_DISABLED)
+this branch must stay inactive when compile-command undef handling works
+#elif GENTEST_SCAN_ENABLED == 0
 import gentest.scan_compile_command_condition_warning_missing;
 #endif
 
@@ -76,30 +78,74 @@ gentest_fixture_make_compdb_entry(
   _entry
   DIRECTORY "${_work_dir}"
   FILE "${_source}"
-  ARGUMENTS ${_common_args} "-DGENTEST_SCAN_ENABLED=1" "-c" "${_source}" "-o" "${_object}")
+  ARGUMENTS
+    ${_common_args}
+    "-DGENTEST_SCAN_ENABLED=1"
+    "-DGENTEST_SCAN_DISABLED=1"
+    "-UGENTEST_SCAN_DISABLED"
+    "-c"
+    "${_source}"
+    "-o"
+    "${_object}")
 gentest_fixture_write_compdb("${_compdb}" "${_entry}")
 
-execute_process(
-  COMMAND
-    "${PROG}"
-    --check
-    --compdb "${_work_dir}"
-    --scan-deps-mode=OFF
-    "${_source}"
-  WORKING_DIRECTORY "${_work_dir}"
-  RESULT_VARIABLE _rc
-  OUTPUT_VARIABLE _out
-  ERROR_VARIABLE _err
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_STRIP_TRAILING_WHITESPACE)
+function(_gentest_assert_condition_check_succeeds compdb_dir label)
+  execute_process(
+    COMMAND
+      "${PROG}"
+      --check
+      --compdb "${compdb_dir}"
+      --scan-deps-mode=OFF
+      "${_source}"
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _rc
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
 
-set(_all "${_out}\n${_err}")
-if(NOT _rc EQUAL 0)
-  message(FATAL_ERROR "Expected gentest_codegen --check to succeed. Output:\n${_all}")
-endif()
+  set(_all "${_out}\n${_err}")
+  if(NOT _rc EQUAL 0)
+    message(FATAL_ERROR "Expected gentest_codegen --check to succeed for ${label}. Output:\n${_all}")
+  endif()
 
-string(FIND "${_all}" "warning: unable to evaluate preprocessor condition during module/import scan" _warn_pos)
-if(NOT _warn_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected compile-command-defined supported condition to avoid unknown-condition warnings. Output:\n${_all}")
+  string(FIND "${_all}" "warning: unable to evaluate preprocessor condition during module/import scan" _warn_pos)
+  if(NOT _warn_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected compile-command-defined supported condition to avoid unknown-condition warnings for ${label}. Output:\n${_all}")
+  endif()
+endfunction()
+
+_gentest_assert_condition_check_succeeds("${_work_dir}" "GNU-style -D/-U compile-command macros")
+
+if(CMAKE_HOST_WIN32)
+  get_filename_component(_clang_dir "${_clangxx}" DIRECTORY)
+  set(_clang_cl "${_clang_dir}/clang-cl.exe")
+  if(NOT EXISTS "${_clang_cl}")
+    gentest_skip_test("compile-command condition warning regression: clang-cl.exe not found next to '${_clangxx}'")
+    return()
+  endif()
+  set(_msvc_compdb_dir "${_work_dir}/msvc_style")
+  set(_msvc_object "${_work_dir}/condition_msvc.obj")
+  file(MAKE_DIRECTORY "${_msvc_compdb_dir}")
+  gentest_fixture_make_compdb_entry(
+    _msvc_entry
+    DIRECTORY "${_work_dir}"
+    FILE "${_source}"
+    ARGUMENTS
+      "${_clang_cl}"
+      "/std:c++20"
+      "/I${GENTEST_SOURCE_DIR}/include"
+      "/I${GENTEST_SOURCE_DIR}/tests"
+      "/D"
+      "GENTEST_SCAN_ENABLED=1"
+      "/D"
+      "GENTEST_SCAN_DISABLED=1"
+      "/U"
+      "GENTEST_SCAN_DISABLED"
+      "/c"
+      "${_source}"
+      "/Fo${_msvc_object}")
+  gentest_fixture_write_compdb("${_msvc_compdb_dir}/compile_commands.json" "${_msvc_entry}")
+  _gentest_assert_condition_check_succeeds("${_msvc_compdb_dir}" "Windows-style /D and /U compile-command macros under clang-cl")
 endif()

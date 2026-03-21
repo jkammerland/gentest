@@ -270,6 +270,119 @@ function(gentest_resolve_clang_fixture_compilers out_c out_cxx)
   set(${out_cxx} "${_resolved_cxx}" PARENT_SCOPE)
 endfunction()
 
+function(gentest_is_windows_native_llvm_clang out_is_windows_native_llvm_clang compiler_path)
+  set(_is_windows_native_llvm_clang FALSE)
+  if(CMAKE_HOST_WIN32 AND NOT "${compiler_path}" STREQUAL "")
+    get_filename_component(_compiler_name_we "${compiler_path}" NAME_WE)
+    string(TOLOWER "${_compiler_name_we}" _compiler_name_lower)
+    if(_compiler_name_lower STREQUAL "clang-cl"
+       OR _compiler_name_lower MATCHES "^clang(\\+\\+)?(-[0-9][0-9.]*)?$")
+      set(_is_windows_native_llvm_clang TRUE)
+    endif()
+  endif()
+  set(${out_is_windows_native_llvm_clang} "${_is_windows_native_llvm_clang}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_is_windows_gnu_clang out_is_windows_gnu_clang compiler_path)
+  set(_is_windows_gnu_clang FALSE)
+  gentest_is_windows_native_llvm_clang(_is_windows_native_llvm_clang "${compiler_path}")
+  if(_is_windows_native_llvm_clang)
+    get_filename_component(_compiler_name_we "${compiler_path}" NAME_WE)
+    string(TOLOWER "${_compiler_name_we}" _compiler_name_lower)
+    if(NOT _compiler_name_lower STREQUAL "clang-cl")
+      set(_is_windows_gnu_clang TRUE)
+    endif()
+  endif()
+  set(${out_is_windows_gnu_clang} "${_is_windows_gnu_clang}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_append_windows_native_llvm_cache_args out_var compiler_path)
+  set(_args ${ARGN})
+  gentest_is_windows_native_llvm_clang(_is_windows_native_llvm_clang "${compiler_path}")
+  if(_is_windows_native_llvm_clang)
+    list(APPEND _args
+      "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>"
+      "-DCMAKE_CXX_FLAGS_INIT=-D_ITERATOR_DEBUG_LEVEL=0 -D_HAS_ITERATOR_DEBUGGING=0")
+  endif()
+  set(${out_var} "${_args}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_assert_windows_native_llvm_cache_args build_dir compiler_path label)
+  gentest_is_windows_native_llvm_clang(_is_windows_native_llvm_clang "${compiler_path}")
+  if(NOT _is_windows_native_llvm_clang)
+    return()
+  endif()
+
+  set(_cache_file "${build_dir}/CMakeCache.txt")
+  if(NOT EXISTS "${_cache_file}")
+    message(FATAL_ERROR
+      "Expected ${label} build cache at '${_cache_file}' to validate Windows native LLVM compatibility args")
+  endif()
+
+  file(STRINGS "${_cache_file}" _runtime_entry REGEX "^CMAKE_MSVC_RUNTIME_LIBRARY:[^=]*=" LIMIT_COUNT 1)
+  if(NOT _runtime_entry)
+    message(FATAL_ERROR
+      "Expected ${label} configure cache to contain CMAKE_MSVC_RUNTIME_LIBRARY for Windows native LLVM compatibility")
+  endif()
+  list(GET _runtime_entry 0 _runtime_line)
+  string(FIND "${_runtime_line}" "MultiThreaded$<$<CONFIG:Debug>:Debug>" _runtime_pos)
+  if(_runtime_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected ${label} configure cache to keep the Windows native LLVM MSVC runtime setting, but saw '${_runtime_line}'")
+  endif()
+
+  file(STRINGS "${_cache_file}" _cxx_flags_entry REGEX "^CMAKE_CXX_FLAGS:[^=]*=" LIMIT_COUNT 1)
+  if(NOT _cxx_flags_entry)
+    message(FATAL_ERROR
+      "Expected ${label} configure cache to contain CMAKE_CXX_FLAGS for Windows native LLVM compatibility")
+  endif()
+  list(GET _cxx_flags_entry 0 _cxx_flags_line)
+  string(FIND "${_cxx_flags_line}" "_ITERATOR_DEBUG_LEVEL=0" _iter_debug_pos)
+  string(FIND "${_cxx_flags_line}" "_HAS_ITERATOR_DEBUGGING=0" _has_iter_debug_pos)
+  if(_iter_debug_pos EQUAL -1 OR _has_iter_debug_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected ${label} configure cache to keep the Windows native LLVM iterator-debug compatibility flags, but saw '${_cxx_flags_line}'")
+  endif()
+endfunction()
+
+function(gentest_resolve_fixture_build_type out_build_type compiler_path requested_build_type)
+  set(_effective_build_type "${requested_build_type}")
+  gentest_is_windows_gnu_clang(_is_windows_gnu_clang "${compiler_path}")
+  if(_is_windows_gnu_clang)
+    set(_effective_build_type "Release")
+  endif()
+  set(${out_build_type} "${_effective_build_type}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_resolve_program_candidate out_program candidate)
+  if("${candidate}" STREQUAL "")
+    set(${out_program} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  if(EXISTS "${candidate}" AND NOT IS_DIRECTORY "${candidate}")
+    set(${out_program} "${candidate}" PARENT_SCOPE)
+    return()
+  endif()
+
+  set(_resolved "")
+  get_filename_component(_candidate_name "${candidate}" NAME)
+  if(NOT "${_candidate_name}" STREQUAL ""
+     AND NOT IS_ABSOLUTE "${candidate}"
+     AND NOT "${candidate}" MATCHES "[/\\\\]")
+    unset(_resolved CACHE)
+    unset(_resolved)
+    find_program(_resolved NAMES "${candidate}" "${_candidate_name}" NO_CACHE)
+  endif()
+
+  if(_resolved)
+    set(${out_program} "${_resolved}" PARENT_SCOPE)
+    return()
+  endif()
+
+  set(${out_program} "" PARENT_SCOPE)
+endfunction()
+
 function(gentest_find_clang_scan_deps out_program compiler_path)
   set(_candidates)
   if(DEFINED CXX_COMPILER_CLANG_SCAN_DEPS AND NOT "${CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL "")
@@ -287,15 +400,18 @@ function(gentest_find_clang_scan_deps out_program compiler_path)
     list(APPEND _candidates ${_versioned_scan_deps})
   endif()
 
-  find_program(_scan_deps NAMES clang-scan-deps clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19)
-  if(_scan_deps)
-    list(APPEND _candidates "${_scan_deps}")
-  endif()
+  list(APPEND _candidates
+    "clang-scan-deps"
+    "clang-scan-deps-22"
+    "clang-scan-deps-21"
+    "clang-scan-deps-20"
+    "clang-scan-deps-19")
 
   list(REMOVE_DUPLICATES _candidates)
   foreach(_candidate IN LISTS _candidates)
-    if(EXISTS "${_candidate}")
-      set(${out_program} "${_candidate}" PARENT_SCOPE)
+    gentest_resolve_program_candidate(_resolved_candidate "${_candidate}")
+    if(NOT "${_resolved_candidate}" STREQUAL "")
+      set(${out_program} "${_resolved_candidate}" PARENT_SCOPE)
       return()
     endif()
   endforeach()

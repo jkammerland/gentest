@@ -1801,18 +1801,27 @@ std::string resolve_default_compiler_path() {
     static constexpr std::array<std::string_view, 2> kEnvVars = {"CXX", "CC"};
 
     for (const auto env_name : kEnvVars) {
-        const char *env_value = std::getenv(std::string(env_name).c_str());
-        if (!env_value || !*env_value) {
+        const auto env_value = get_env_value(env_name);
+        if (!env_value.has_value()) {
             continue;
         }
-        auto resolved = llvm::sys::findProgramByName(env_value);
-        const std::string candidate = resolved ? *resolved : std::string(env_value);
+        auto resolved = llvm::sys::findProgramByName(*env_value);
+        const std::string candidate = resolved ? *resolved : *env_value;
         if (is_clang_like_compiler(candidate)) {
             return candidate;
         }
     }
 #if defined(_WIN32)
-    static constexpr std::array<std::string_view, 4> kCandidates = {"clang++.exe", "clang++", "clang.exe", "clang"};
+    const std::array<std::string, 8> kCandidates = {
+        "clang++.exe",
+        "clang++",
+        "clang.exe",
+        "clang",
+        fmt::format("clang++-{}.exe", CLANG_VERSION_MAJOR),
+        fmt::format("clang++-{}", CLANG_VERSION_MAJOR),
+        fmt::format("clang-{}.exe", CLANG_VERSION_MAJOR),
+        fmt::format("clang-{}", CLANG_VERSION_MAJOR),
+    };
 #else
     const std::string versioned = std::string("clang++-") + std::to_string(CLANG_VERSION_MAJOR);
     const std::string versioned_c = std::string("clang-") + std::to_string(CLANG_VERSION_MAJOR);
@@ -1956,13 +1965,13 @@ std::string compiler_for_resource_dir_probe(const clang::tooling::CommandLineArg
 }
 
 std::string resolve_resource_dir(const std::string &compiler_path) {
-    if (const char *override_resource_dir = std::getenv("GENTEST_CODEGEN_RESOURCE_DIR");
-        override_resource_dir && *override_resource_dir) {
-        if (std::filesystem::exists(override_resource_dir)) {
-            return std::string(override_resource_dir);
+    if (const auto override_resource_dir = get_env_value("GENTEST_CODEGEN_RESOURCE_DIR");
+        override_resource_dir && !override_resource_dir->empty()) {
+        if (std::filesystem::exists(*override_resource_dir)) {
+            return *override_resource_dir;
         }
         gentest::codegen::log_err("gentest_codegen: warning: GENTEST_CODEGEN_RESOURCE_DIR='{}' does not exist\n",
-                                  override_resource_dir);
+                                  *override_resource_dir);
     }
 
     if (compiler_path.empty()) {
@@ -2013,8 +2022,8 @@ std::string resolve_default_sysroot() {
 #if !defined(__APPLE__)
     return {};
 #else
-    if (const char *sdkroot = std::getenv("SDKROOT"); sdkroot && *sdkroot) {
-        return std::string(sdkroot);
+    if (const auto sdkroot = get_env_value("SDKROOT"); sdkroot && !sdkroot->empty()) {
+        return *sdkroot;
     }
 
     auto xcrun_path = llvm::sys::findProgramByName("xcrun");
