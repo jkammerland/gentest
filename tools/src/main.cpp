@@ -636,7 +636,8 @@ std::vector<std::filesystem::path> scan_include_search_paths_from_compile_comman
             continue;
         }
 
-        if (arg == "-I" || arg == "-isystem" || arg == "-iquote" || arg == "-idirafter" || arg == "/I") {
+        if (arg == "-I" || arg == "-isystem" || arg == "-iquote" || arg == "-idirafter" || arg == "/I" ||
+            arg == "-external:I" || arg == "/external:I") {
             consume_next = true;
             continue;
         }
@@ -645,7 +646,11 @@ std::vector<std::filesystem::path> scan_include_search_paths_from_compile_comman
             continue;
         }
         bool handled_joined = false;
-        for (const auto prefix : {std::string_view{"-isystem"}, std::string_view{"-iquote"}, std::string_view{"-idirafter"}}) {
+        for (const auto prefix : {std::string_view{"-isystem"},
+                                  std::string_view{"-iquote"},
+                                  std::string_view{"-idirafter"},
+                                  std::string_view{"-external:I"},
+                                  std::string_view{"/external:I"}}) {
             if (llvm::StringRef{arg}.starts_with(prefix) && arg.size() > prefix.size()) {
                 append_include_dir(std::string_view(arg).substr(prefix.size()));
                 handled_joined = true;
@@ -1730,7 +1735,7 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
 
     clang::tooling::CommandLineArguments launch_args = command_line;
     std::string launch_program = command_line.front();
-    const std::string launch_basename = basename_without_extension(launch_program);
+    std::string launch_basename = basename_without_extension(launch_program);
     const bool launch_is_clang_like = launch_basename == "clang" || launch_basename == "clang++" ||
         launch_basename == "clang-cl" || llvm::StringRef{launch_basename}.starts_with("clang-") ||
         llvm::StringRef{launch_basename}.starts_with("clang++-");
@@ -1743,6 +1748,7 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
         }
     }
     const std::string resolved_path = resolve_program_invocation_path(launch_program);
+    launch_basename = basename_without_extension(resolved_path);
     launch_args.front() = resolved_path;
 
     std::vector<llvm::StringRef> llvm_args;
@@ -1770,6 +1776,41 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
 
     const std::filesystem::path launch_cwd =
         working_directory.empty() ? saved_cwd : std::filesystem::path{std::string(working_directory)};
+    struct AlternatePcmCandidateState {
+        std::filesystem::path           path;
+        bool                            existed = false;
+        std::uintmax_t                  size = 0;
+        std::filesystem::file_time_type write_time{};
+    };
+
+    auto capture_candidate_state = [](const std::filesystem::path &candidate_path) {
+        AlternatePcmCandidateState state;
+        state.path = candidate_path;
+        std::error_code status_ec;
+        state.existed = std::filesystem::exists(candidate_path, status_ec);
+        if (!status_ec && state.existed) {
+            std::error_code size_ec;
+            std::error_code time_ec;
+            state.size = std::filesystem::file_size(candidate_path, size_ec);
+            state.write_time = std::filesystem::last_write_time(candidate_path, time_ec);
+            if (size_ec) {
+                state.size = 0;
+            }
+            if (time_ec) {
+                state.write_time = {};
+            }
+        }
+        return state;
+    };
+
+    std::vector<AlternatePcmCandidateState> alternate_pcm_candidates;
+    const std::string source_stem = std::filesystem::path{std::string(source_file)}.stem().string();
+    if (!source_stem.empty()) {
+        alternate_pcm_candidates.reserve(2);
+        alternate_pcm_candidates.push_back(capture_candidate_state(launch_cwd / (source_stem + ".pcm")));
+        alternate_pcm_candidates.push_back(capture_candidate_state(launch_cwd / (source_stem + ".ifc")));
+    }
+
     std::error_code set_cwd_ec;
     std::filesystem::current_path(launch_cwd, set_cwd_ec);
     if (set_cwd_ec) {
@@ -1786,8 +1827,55 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
         gentest::codegen::log_err("gentest_codegen: warning: failed to restore working directory after precompiling '{}': {}\n",
                                   module_name, restore_cwd_ec.message());
     }
+    auto adopt_alternate_pcm_output = [&]() -> bool {
+        auto candidate_is_fresh = [](const AlternatePcmCandidateState &before) {
+            std::error_code exists_ec;
+            const bool now_exists = std::filesystem::exists(before.path, exists_ec);
+            if (exists_ec || !now_exists) {
+                return false;
+            }
+            if (!before.existed) {
+                return true;
+            }
+
+            std::error_code size_ec;
+            std::error_code time_ec;
+            const auto now_size = std::filesystem::file_size(before.path, size_ec);
+            const auto now_time = std::filesystem::last_write_time(before.path, time_ec);
+            if (size_ec || time_ec) {
+                return false;
+            }
+
+            return now_size != before.size || now_time != before.write_time;
+        };
+
+        for (const auto &candidate : alternate_pcm_candidates) {
+            if (candidate.path == pcm_path || !candidate_is_fresh(candidate)) {
+                continue;
+            }
+
+            std::error_code move_ec;
+            std::filesystem::rename(candidate.path, pcm_path, move_ec);
+            if (!move_ec && std::filesystem::exists(pcm_path)) {
+                return true;
+            }
+
+            move_ec.clear();
+            std::filesystem::copy_file(candidate.path, pcm_path, std::filesystem::copy_options::overwrite_existing, move_ec);
+            if (!move_ec && std::filesystem::exists(pcm_path)) {
+                std::error_code cleanup_ec;
+                std::filesystem::remove(candidate.path, cleanup_ec);
+                return true;
+            }
+        }
+
+        return false;
+    };
     if (rc == 0) {
         if (std::filesystem::exists(pcm_path)) {
+            return true;
+        }
+        if (launch_basename == "clang-cl" && adopt_alternate_pcm_output()) {
             return true;
         }
         gentest::codegen::log_err("gentest_codegen: compiler reported success while precompiling named module '{}' from '{}', "

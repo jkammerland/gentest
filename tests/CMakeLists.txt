@@ -1879,6 +1879,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_mock_imported_sibling APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_mock_multi_imported_sibling
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_mock_multi_imported_sibling
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleMockMultiImportedSibling.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_mock_multi_imported_sibling APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_pcm_cache_isolation
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_pcm_cache_isolation
     ${PROJECT_SOURCE_DIR}/cmake/CheckModulePcmCacheIsolation.cmake
@@ -2014,6 +2022,14 @@ _gentest_add_cmake_helper_test(
     modules
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_codegen_compile_command_macro_scan APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_external_include_module_resolution
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenExternalIncludeModuleResolution.cmake
+    modules
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_external_include_module_resolution APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_public_module_detail_hidden
