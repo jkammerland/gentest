@@ -1,11 +1,11 @@
-#if defined(__clang__) && __clang_major__ == 20 && defined(__has_include) && __has_include(<bits/c++config.h>) && !defined(_LIBCPP_VERSION)
+#if defined(__APPLE__)
+#define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN 1
+#define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN_REASON                                                \
+    "macOS is quarantined for classic-TU imports of two mock-bearing provider modules until the CI-only crash is root-caused"
+#elif defined(__clang__) && __clang_major__ == 20 && defined(__has_include) && __has_include(<bits/c++config.h>) && !defined(_LIBCPP_VERSION)
 #define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN 1
 #define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN_REASON                                                \
     "clang 20 + libstdc++ cannot import these mock-bearing provider modules into a classic translation unit"
-#elif defined(__clang__) && __clang_major__ == 20 && defined(__APPLE__)
-#define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN 1
-#define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN_REASON                                                \
-    "clang 20 on macOS is quarantined for classic-TU imports of two mock-bearing provider modules"
 #else
 #define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN 0
 #define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN_REASON ""

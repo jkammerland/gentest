@@ -1992,6 +1992,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_clang_scan_deps_program_resolution APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_fixture_compiler_resolution
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleFixtureCompilerResolution.cmake
+    cmake)
+set_property(TEST gentest_module_fixture_compiler_resolution APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_public_module_gcc_version_fallback
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleGccVersionFallback.cmake

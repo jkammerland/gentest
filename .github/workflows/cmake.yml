@@ -18,7 +18,7 @@ env:
 
 jobs:
   macos:
-    name: macOS • ${{ matrix.compiler }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
+    name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 16.2)' || matrix.compiler == 'llvm' && 'Homebrew llvm (latest)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
     runs-on: macos-15
     strategy:
         fail-fast: false
@@ -87,6 +87,7 @@ jobs:
           ninja --version
           COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
           "${COMPILER_BIN}/clang" --version
+          brew list --versions llvm llvm@20 llvm@21 || true
 
       - name: Setup vcpkg
         run: bash scripts/setup-vcpkg.sh
