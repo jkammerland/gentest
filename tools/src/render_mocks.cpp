@@ -738,23 +738,6 @@ std::string generate_registry_dispatcher_header(const MockOutputDomain &header_d
     out.append_raw("// Do not edit manually.\n\n");
     out.append_raw("#pragma once\n\n");
     out.append("#include \"{}\"\n\n", header_domain.registry_path.filename().generic_string());
-    out.append_raw("#if defined(GENTEST_MOCK_DOMAIN_REGISTRY_PATH)\n");
-    out.append_raw("#ifndef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL\n");
-    out.append_raw("#define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x\n");
-    out.append_raw("#define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)\n");
-    out.append_raw("#endif\n");
-    out.append_raw("#define GENTEST_MOCK_DOMAIN_REGISTRY_HEADER GENTEST_DETAIL_MOCK_STRINGIFY(GENTEST_MOCK_DOMAIN_REGISTRY_PATH)\n");
-    out.append_raw("#if __has_include(GENTEST_MOCK_DOMAIN_REGISTRY_HEADER)\n");
-    out.append_raw("#include GENTEST_MOCK_DOMAIN_REGISTRY_HEADER\n");
-    out.append_raw("#endif\n");
-    out.append_raw("#undef GENTEST_MOCK_DOMAIN_REGISTRY_HEADER\n");
-    out.append_raw("#endif\n\n");
-    out.append_raw("#if defined(GENTEST_DETAIL_MOCK_STRINGIFY)\n");
-    out.append_raw("#undef GENTEST_DETAIL_MOCK_STRINGIFY\n");
-    out.append_raw("#endif\n");
-    out.append_raw("#if defined(GENTEST_DETAIL_MOCK_STRINGIFY_IMPL)\n");
-    out.append_raw("#undef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL\n");
-    out.append_raw("#endif\n");
     return out.str();
 }
 
@@ -764,23 +747,6 @@ std::string generate_impl_dispatcher_header(const MockOutputDomain &header_domai
     out.append_raw("// Do not edit manually.\n\n");
     out.append_raw("#pragma once\n\n");
     out.append("#include \"{}\"\n\n", header_domain.impl_path.filename().generic_string());
-    out.append_raw("#if defined(GENTEST_MOCK_DOMAIN_IMPL_PATH)\n");
-    out.append_raw("#ifndef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL\n");
-    out.append_raw("#define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x\n");
-    out.append_raw("#define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)\n");
-    out.append_raw("#endif\n");
-    out.append_raw("#define GENTEST_MOCK_DOMAIN_IMPL_HEADER GENTEST_DETAIL_MOCK_STRINGIFY(GENTEST_MOCK_DOMAIN_IMPL_PATH)\n");
-    out.append_raw("#if __has_include(GENTEST_MOCK_DOMAIN_IMPL_HEADER)\n");
-    out.append_raw("#include GENTEST_MOCK_DOMAIN_IMPL_HEADER\n");
-    out.append_raw("#endif\n");
-    out.append_raw("#undef GENTEST_MOCK_DOMAIN_IMPL_HEADER\n");
-    out.append_raw("#endif\n\n");
-    out.append_raw("#if defined(GENTEST_DETAIL_MOCK_STRINGIFY)\n");
-    out.append_raw("#undef GENTEST_DETAIL_MOCK_STRINGIFY\n");
-    out.append_raw("#endif\n");
-    out.append_raw("#if defined(GENTEST_DETAIL_MOCK_STRINGIFY_IMPL)\n");
-    out.append_raw("#undef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL\n");
-    out.append_raw("#endif\n");
     return out.str();
 }
 

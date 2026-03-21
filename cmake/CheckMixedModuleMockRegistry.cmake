@@ -206,8 +206,8 @@ if(_dispatcher_header_include_pos EQUAL -1)
 endif()
 
 string(FIND "${_dispatcher_registry_text}" "GENTEST_MOCK_DOMAIN_REGISTRY_PATH" _dispatcher_domain_macro_pos)
-if(_dispatcher_domain_macro_pos EQUAL -1)
-  message(FATAL_ERROR "Expected dispatcher registry to keep optional source-local mock-domain support")
+if(NOT _dispatcher_domain_macro_pos EQUAL -1)
+  message(FATAL_ERROR "Expected dispatcher registry to stop carrying unused source-local mock-domain hooks")
 endif()
 
 foreach(_wrapper_text IN ITEMS
