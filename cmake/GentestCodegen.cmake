@@ -17,6 +17,17 @@ if(NOT DEFINED GENTEST_CODEGEN_DEFAULT_CLANG_ARGS)
         "Default extra clang arguments for gentest_codegen. Set empty to disable.")
 endif()
 
+if(NOT DEFINED GENTEST_CODEGEN_SCAN_DEPS_MODE)
+    set(GENTEST_CODEGEN_SCAN_DEPS_MODE "" CACHE STRING
+        "Optional gentest_codegen named-module dependency discovery mode override (AUTO, ON, or OFF). Empty keeps the tool default.")
+    set_property(CACHE GENTEST_CODEGEN_SCAN_DEPS_MODE PROPERTY STRINGS "" AUTO ON OFF auto on off)
+endif()
+
+if(NOT DEFINED GENTEST_CODEGEN_CLANG_SCAN_DEPS)
+    set(GENTEST_CODEGEN_CLANG_SCAN_DEPS "" CACHE FILEPATH
+        "Optional path to the clang-scan-deps executable used by gentest_codegen for named-module dependency discovery.")
+endif()
+
 function(_gentest_normalize_path_and_key input_path base_dir out_abs out_key)
     set(_gentest_path "${input_path}")
     cmake_path(ABSOLUTE_PATH _gentest_path BASE_DIRECTORY "${base_dir}" NORMALIZE OUTPUT_VARIABLE _gentest_abs)
@@ -2165,6 +2176,19 @@ function(gentest_attach_codegen target)
     endif()
     if(GENTEST_QUIET_CLANG)
         list(APPEND _command --quiet-clang)
+    endif()
+    if(NOT "${GENTEST_CODEGEN_SCAN_DEPS_MODE}" STREQUAL "")
+        list(APPEND _command "--scan-deps-mode=${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
+    endif()
+    set(_gentest_clang_scan_deps "${GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
+    if("${_gentest_clang_scan_deps}" STREQUAL ""
+       AND DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
+        set(_gentest_clang_scan_deps "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+    endif()
+    if(NOT "${_gentest_clang_scan_deps}" STREQUAL "")
+        list(APPEND _command --clang-scan-deps "${_gentest_clang_scan_deps}")
     endif()
 
     if(_gentest_mode STREQUAL "tu")

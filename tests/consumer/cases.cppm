@@ -11,11 +11,9 @@ module;
 
 export module gentest.consumer_cases;
 
-#if !defined(GENTEST_CODEGEN)
 import gentest;
 import gentest.bench_util;
 import gentest.mock;
-#endif
 
 using namespace gentest::asserts;
 

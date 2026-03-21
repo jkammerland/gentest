@@ -207,6 +207,93 @@ gentest_add_check_exit_code(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_warns_unknown_preprocessor_condition
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_unknown_condition_warn.cppm
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_unknown_condition_warn.cppm:6"
+        "EXPECT_COUNT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan"
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_active_elif_unknown_warn
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_active_elif_unknown_warn.cppm
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_active_elif_unknown_warn.cppm:7"
+        "EXPECT_COUNT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan"
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_supported_preprocessor_condition_no_warning
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_supported_condition_nowarn.cppm
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+    DEFINES
+        "EXPECT_RC=0"
+        "FORBID_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_dead_elif_unknown_no_warning
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_dead_elif_unknown_nowarn.cppm
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+    DEFINES
+        "EXPECT_RC=0"
+        "FORBID_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_compile_command_condition_warnings
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckCodegenCompileCommandConditionWarnings.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/tests/gentest_codegen_compile_command_condition_warnings"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}")
+
+gentest_add_cmake_script_test(
+    NAME gentest_find_supported_ninja_portability
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckFindSupportedNinjaPortability.cmake")
+
 gentest_add_check_death(
     NAME gentest_codegen_mis_scoped_attr_keyword
     NO_EMULATOR
@@ -1904,6 +1991,22 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_public_module_surface APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_public_module_imports
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenPublicModuleImports.cmake
+    modules
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_public_module_imports APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_compile_command_macro_scan
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenCompileCommandMacroScan.cmake
+    modules
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_compile_command_macro_scan APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_public_module_detail_hidden

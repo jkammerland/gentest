@@ -1,14 +1,19 @@
 #pragma once
 
+#include "log.hpp"
+
 #include <algorithm>
 #include <cstdlib>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace gentest::codegen::scan {
@@ -355,10 +360,14 @@ struct ScanStreamState {
     bool in_preprocessor_continuation = false;
     bool current_branch_active = true;
     std::string pending_preprocessor;
+    std::filesystem::path source_path;
     std::filesystem::path source_directory;
     std::vector<std::filesystem::path> include_search_paths;
     std::unordered_map<std::string, std::string> object_like_macros;
     std::vector<ScanConditionalFrame> conditionals;
+    bool warn_on_unknown_conditions = true;
+    std::size_t current_line = 0;
+    std::size_t pending_preprocessor_start_line = 0;
 };
 
 struct ProcessedScanLine {
@@ -386,6 +395,59 @@ inline std::optional<std::string> parse_scan_identifier(std::string_view text) {
         ++end;
     }
     return std::string{text.substr(0, end)};
+}
+
+inline void populate_scan_macros_from_command_line(ScanStreamState &state, std::span<const std::string> command_line) {
+    auto define_macro = [&](std::string_view definition) {
+        const auto eq = definition.find('=');
+        const auto name = eq == std::string_view::npos ? definition : definition.substr(0, eq);
+        if (name.empty() || name.find('(') != std::string_view::npos) {
+            return;
+        }
+        if (!parse_scan_identifier(name).has_value()) {
+            return;
+        }
+        state.object_like_macros[std::string(name)] = eq == std::string_view::npos ? std::string{"1"} : std::string(definition.substr(eq + 1));
+    };
+    auto undefine_macro = [&](std::string_view definition) {
+        if (definition.empty() || definition.find('(') != std::string_view::npos) {
+            return;
+        }
+        if (const auto ident = parse_scan_identifier(definition); ident.has_value()) {
+            state.object_like_macros.erase(*ident);
+        }
+    };
+
+    bool consume_define = false;
+    bool consume_undef = false;
+    for (const auto &arg : command_line) {
+        if (consume_define) {
+            define_macro(arg);
+            consume_define = false;
+            continue;
+        }
+        if (consume_undef) {
+            undefine_macro(arg);
+            consume_undef = false;
+            continue;
+        }
+
+        if (arg == "-D" || arg == "/D") {
+            consume_define = true;
+            continue;
+        }
+        if (arg == "-U" || arg == "/U") {
+            consume_undef = true;
+            continue;
+        }
+        if (arg.starts_with("-D") || arg.starts_with("/D")) {
+            define_macro(std::string_view(arg).substr(2));
+            continue;
+        }
+        if (arg.starts_with("-U") || arg.starts_with("/U")) {
+            undefine_macro(std::string_view(arg).substr(2));
+        }
+    }
 }
 
 inline std::optional<long long> parse_scan_integer_literal(std::string_view text) {
@@ -1082,7 +1144,37 @@ inline void update_preprocessor_branch_state(ScanStreamState &state) {
     state.current_branch_active = state.conditionals.empty() ? true : state.conditionals.back().active;
 }
 
-inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStreamState &state) {
+inline void warn_unknown_preprocessor_condition(std::string_view keyword, std::string_view expr, std::size_t line_number,
+                                                const ScanStreamState &state) {
+    if (!state.warn_on_unknown_conditions || keyword.empty()) {
+        return;
+    }
+
+    const std::string normalized_expr = trim_ascii_copy(expr);
+    if (normalized_expr.empty()) {
+        return;
+    }
+
+    static std::mutex warned_mutex;
+    static std::unordered_set<std::string> warned_conditions;
+
+    const std::string source = state.source_path.empty() ? std::string{"<unknown>"} : state.source_path.generic_string();
+    const std::string key = fmt::format("{}:{}:{}:{}", source, line_number, keyword, normalized_expr);
+
+    {
+        std::lock_guard<std::mutex> lock(warned_mutex);
+        if (!warned_conditions.insert(key).second) {
+            return;
+        }
+    }
+
+    gentest::codegen::log_err(
+        "gentest_codegen: warning: unable to evaluate preprocessor condition during module/import scan at {}:{}; "
+        "treating #{} branch as inactive: {}\n",
+        source, line_number, keyword, normalized_expr);
+}
+
+inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStreamState &state, std::size_t line_number) {
     std::string_view cursor = ltrim_ascii_view(raw_line);
     if (cursor.empty() || cursor.front() != '#') {
         return;
@@ -1101,6 +1193,9 @@ inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStre
         const bool parent_active = state.current_branch_active;
         const auto evaluated =
             evaluate_simple_preprocessor_condition(rest, state.object_like_macros, state.source_directory, state.include_search_paths);
+        if (parent_active && !evaluated.has_value()) {
+            warn_unknown_preprocessor_condition(keyword, rest, line_number, state);
+        }
         const bool branch_active = parent_active && evaluated.value_or(false);
         state.conditionals.push_back(ScanConditionalFrame{
             .parent_active = parent_active,
@@ -1132,6 +1227,9 @@ inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStre
         auto &frame = state.conditionals.back();
         const auto evaluated =
             evaluate_simple_preprocessor_condition(rest, state.object_like_macros, state.source_directory, state.include_search_paths);
+        if (frame.parent_active && !frame.branch_taken && !evaluated.has_value()) {
+            warn_unknown_preprocessor_condition(keyword, rest, line_number, state);
+        }
         const bool branch_active = frame.parent_active && !frame.branch_taken && evaluated.value_or(false);
         frame.active = branch_active;
         frame.branch_taken = frame.branch_taken || branch_active;
@@ -1186,6 +1284,7 @@ inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStre
 
 inline ProcessedScanLine process_scan_physical_line(std::string_view raw_line, ScanStreamState &state) {
     ProcessedScanLine processed;
+    ++state.current_line;
     const std::string stripped = strip_comments_for_line_scan(raw_line, state.in_block_comment);
     const std::string_view trimmed = trim_ascii_view(stripped);
     const bool is_preprocessor = state.in_preprocessor_continuation || (!trimmed.empty() && trimmed.front() == '#');
@@ -1193,6 +1292,9 @@ inline ProcessedScanLine process_scan_physical_line(std::string_view raw_line, S
     if (is_preprocessor) {
         processed.is_preprocessor = true;
         if (!trimmed.empty()) {
+            if (state.pending_preprocessor.empty()) {
+                state.pending_preprocessor_start_line = state.current_line;
+            }
             if (!state.pending_preprocessor.empty()) {
                 state.pending_preprocessor.push_back(' ');
             }
@@ -1203,8 +1305,9 @@ inline ProcessedScanLine process_scan_physical_line(std::string_view raw_line, S
         if (state.in_preprocessor_continuation) {
             strip_trailing_line_continuation(state.pending_preprocessor);
         } else if (!state.pending_preprocessor.empty()) {
-            handle_preprocessor_logical_line(state.pending_preprocessor, state);
+            handle_preprocessor_logical_line(state.pending_preprocessor, state, state.pending_preprocessor_start_line);
             state.pending_preprocessor.clear();
+            state.pending_preprocessor_start_line = 0;
         }
         return processed;
     }
@@ -1366,6 +1469,7 @@ inline std::string normalize_scan_module_preamble_source(std::string_view text) 
         PendingKind pending_kind = PendingKind::None;
         std::string pending_statement;
         ScanStreamState scan_state;
+        scan_state.warn_on_unknown_conditions = false;
         std::size_t cursor = 0;
 
         while (cursor < text.size()) {
@@ -1468,6 +1572,7 @@ inline std::string normalize_scan_module_preamble_source(std::string_view text) 
     std::string pending_statement;
     std::size_t cursor = 0;
     ScanStreamState scan_state;
+    scan_state.warn_on_unknown_conditions = false;
 
     auto flush_named_module = [&]() -> bool {
         const auto module_name = parse_named_module_name_from_scan_line(pending_statement);
@@ -1627,16 +1732,19 @@ inline std::optional<std::string> parse_include_header_from_scan_line(std::strin
     return std::string{cursor.substr(1, end - 1)};
 }
 
-inline std::optional<std::string> named_module_name_from_source_file(
-    const std::filesystem::path &path, const std::vector<std::filesystem::path> &include_search_paths = {}) {
+inline std::optional<std::string> named_module_name_from_source_file(const std::filesystem::path &path,
+                                                                     const std::vector<std::filesystem::path> &include_search_paths = {},
+                                                                     std::span<const std::string> command_line = {}) {
     std::ifstream in(path);
     if (!in) {
         return std::nullopt;
     }
 
     ScanStreamState state;
+    state.source_path = path;
     state.source_directory = path.parent_path();
     state.include_search_paths = default_scan_include_search_paths(state.source_directory, include_search_paths);
+    populate_scan_macros_from_command_line(state, command_line);
     std::string line;
     std::string pending;
     bool        pending_active = false;

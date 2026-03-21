@@ -191,7 +191,10 @@ fs::path resolve_tu_header_output(const CollectorOptions &opts, std::size_t idx)
     return header_out;
 }
 
-bool is_module_interface_source(const fs::path &path) {
+bool is_module_interface_source(const CollectorOptions &opts, const fs::path &path) {
+    if (opts.module_interface_sources.contains(path.string())) {
+        return true;
+    }
     return named_module_name_from_source_file(path).has_value();
 }
 
@@ -229,6 +232,7 @@ SourceMockCodegenIncludes scan_source_mock_codegen_includes(std::string_view tex
     SourceMockCodegenIncludes includes;
     std::size_t              cursor = 0;
     ScanStreamState          scan_state;
+    scan_state.warn_on_unknown_conditions = false;
 
     while (cursor < text.size()) {
         const std::size_t line_end = text.find('\n', cursor);
@@ -282,6 +286,7 @@ std::optional<ModuleGlobalFragmentInsertLocation> find_module_global_fragment_in
     std::size_t global_fragment_after = 0;
     std::string pending_module;
     ScanStreamState scan_state;
+    scan_state.warn_on_unknown_conditions = false;
 
     while (cursor < text.size()) {
         const std::size_t line_end = text.find('\n', cursor);
@@ -983,7 +988,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
                 return;
             }
 
-            if (is_module_interface_source(source_path)) {
+            if (is_module_interface_source(opts, source_path)) {
                 const auto mock_it = direct_module_mocks_by_source.find(key);
                 const std::vector<const MockClassInfo *> empty_mocks;
                 const auto &source_mocks = mock_it != direct_module_mocks_by_source.end() ? mock_it->second : empty_mocks;

@@ -9,6 +9,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace gentest::codegen {
@@ -24,6 +26,12 @@ enum class FixtureScope {
     Local,
     Suite,
     Global,
+};
+
+enum class ModuleDependencyScanMode {
+    Auto,
+    Off,
+    On,
 };
 
 struct FreeFixtureUse {
@@ -92,9 +100,13 @@ struct CollectorOptions {
     std::optional<std::filesystem::path> depfile_path;
     std::filesystem::path                template_path;
     std::vector<std::string>             sources;
+    std::unordered_map<std::string, std::string> module_interface_names_by_source;
+    std::unordered_set<std::string>      module_interface_sources;
     std::vector<std::string>             clang_args;
     std::optional<std::filesystem::path> compilation_database;
     std::optional<std::filesystem::path> source_root;
+    ModuleDependencyScanMode             module_dependency_scan_mode = ModuleDependencyScanMode::Auto;
+    std::optional<std::filesystem::path> clang_scan_deps_executable;
     // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
     // 0 selects std::thread::hardware_concurrency().
     std::size_t                          jobs = 0;
