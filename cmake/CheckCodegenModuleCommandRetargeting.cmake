@@ -236,82 +236,10 @@ _gentest_run_codegen_expect_success(
   SOURCE_FILE "${_shell_tail_args_source_abs}")
 
 if(NOT CMAKE_HOST_WIN32)
-  set(_clang_cl_joined_wrapper_dir "${_work_dir}/clang_cl_joined_wrapper")
-  file(MAKE_DIRECTORY "${_clang_cl_joined_wrapper_dir}/generated")
-  set(_clang_cl_joined_wrapper_provider_rel "provider.cppm")
-  set(_clang_cl_joined_wrapper_wrapper_rel "generated/tu_0000_provider.module.gentest.cppm")
-  gentest_fixture_write_file("${_clang_cl_joined_wrapper_dir}/provider.cppm" [[
-export module gentest.retarget.clang_cl_joined_wrapper;
-export int clang_cl_joined_wrapper_value() { return 41; }
-]])
-  file(TO_CMAKE_PATH "${_clang_cl_joined_wrapper_dir}" _clang_cl_joined_wrapper_dir_norm)
-  file(TO_CMAKE_PATH "${_clang_cl_joined_wrapper_dir}/provider.cppm" _clang_cl_joined_wrapper_provider_abs)
-  file(TO_CMAKE_PATH "${_clang_cl_joined_wrapper_dir}/generated/tu_0000_provider.module.gentest.cppm" _clang_cl_joined_wrapper_abs)
-  file(TO_CMAKE_PATH "${_clang_cl_joined_wrapper_dir}/clang-cl" _joined_fake_clang_cl)
-  gentest_fixture_write_file("${_clang_cl_joined_wrapper_abs}" [[
-#error gentest wrapper retargeting regression: joined /Tp wrapper source arg was not rewritten
-]])
-  gentest_fixture_write_file("${_joined_fake_clang_cl}"
-    "#!/usr/bin/env python3\n"
-    "import subprocess\n"
-    "import sys\n"
-    "\n"
-    "real = r'''${_clangxx_norm}'''\n"
-    "args = sys.argv[1:]\n"
-    "if args and args[0] == '-print-resource-dir':\n"
-    "    raise SystemExit(subprocess.call([real, *args]))\n"
-    "translated = []\n"
-    "for arg in args:\n"
-    "    if arg == '/c':\n"
-    "        continue\n"
-    "    if arg == '--driver-mode=cl' or arg == '/clang:--driver-mode=cl':\n"
-    "        continue\n"
-    "    if arg.startswith('/std:'):\n"
-    "        translated.append('-std=' + arg.split(':', 1)[1])\n"
-    "        continue\n"
-    "    if arg.startswith('/Fo'):\n"
-    "        out = arg[3:]\n"
-    "        if out:\n"
-    "            translated.extend(['-o', out])\n"
-    "        continue\n"
-    "    if arg.startswith('/Tp'):\n"
-    "        translated.extend(['-x', 'c++', arg[3:]])\n"
-    "        continue\n"
-    "    if arg.startswith('/Tc'):\n"
-    "        translated.extend(['-x', 'c', arg[3:]])\n"
-    "        continue\n"
-    "    translated.append(arg)\n"
-    "raise SystemExit(subprocess.call([real, *translated]))\n")
-  execute_process(COMMAND chmod +x "${_joined_fake_clang_cl}")
-
-  gentest_fixture_make_compdb_entry(_clang_cl_joined_wrapper_entry
-    DIRECTORY "${_clang_cl_joined_wrapper_dir_norm}"
-    FILE "${_clang_cl_joined_wrapper_abs}"
-    ARGUMENTS
-      "${_joined_fake_clang_cl}"
-      "/std:c++20"
-      "/c"
-      "/Tp${_clang_cl_joined_wrapper_wrapper_rel}"
-      "/Fo${_clang_cl_joined_wrapper_dir_norm}/provider.obj")
-  gentest_fixture_write_compdb("${_clang_cl_joined_wrapper_dir}/compile_commands.json"
-    "${_clang_cl_joined_wrapper_entry}")
-
-  execute_process(
-    COMMAND "${PROG}" --check --compdb "${_clang_cl_joined_wrapper_dir}" --tu-out-dir "${_clang_cl_joined_wrapper_dir}/generated"
-      "${_clang_cl_joined_wrapper_provider_rel}"
-    WORKING_DIRECTORY "${_clang_cl_joined_wrapper_dir}"
-    RESULT_VARIABLE _clang_cl_joined_wrapper_rc
-    OUTPUT_VARIABLE _clang_cl_joined_wrapper_out
-    ERROR_VARIABLE _clang_cl_joined_wrapper_err
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_STRIP_TRAILING_WHITESPACE)
-
-  if(NOT _clang_cl_joined_wrapper_rc EQUAL 0)
-    message(FATAL_ERROR
-      "clang-cl joined /Tp wrapper retarget: gentest_codegen failed unexpectedly.\n"
-      "Output:\n${_clang_cl_joined_wrapper_out}\nErrors:\n${_clang_cl_joined_wrapper_err}")
-  endif()
-
+  # Non-Windows libTooling expands a synthetic clang-cl wrapper compile into
+  # multiple compiler jobs before our retargeted source reaches the frontend,
+  # so keep the clang-cl coverage here focused on the sibling-module precompile
+  # path, which exercises the joined-source handling without that host artifact.
   set(_clang_cl_dir "${_work_dir}/clang_cl_driver")
   file(MAKE_DIRECTORY "${_clang_cl_dir}/generated")
   gentest_fixture_write_file("${_clang_cl_dir}/provider.cppm" [[
@@ -392,6 +320,12 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
     ERROR_VARIABLE _clang_cl_driver_err
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _clang_cl_driver_rc EQUAL 0)
+    message(FATAL_ERROR
+      "clang-cl sibling-module precompile driver: gentest_codegen failed unexpectedly.\n"
+      "Output:\n${_clang_cl_driver_out}\nErrors:\n${_clang_cl_driver_err}")
+  endif()
 
   string(FIND "${_clang_cl_driver_err}" "${_fake_clang_cl}" _clang_cl_log_pos)
   if(_clang_cl_log_pos EQUAL -1)

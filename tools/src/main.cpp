@@ -456,6 +456,10 @@ bool is_msvc_source_mode_arg(std::string_view arg) {
         ref.equals_insensitive("/Tc-") || joined_msvc_source_arg_path(arg).has_value();
 }
 
+std::string rewrite_joined_msvc_source_arg(std::string_view original_arg, std::string_view path) {
+    return fmt::format("{}{}", std::string(original_arg.substr(0, 3)), path);
+}
+
 bool has_explicit_cxx_standard_arg(std::span<const std::string> args) {
     for (std::size_t i = 0; i < args.size(); ++i) {
         const auto &arg = args[i];
@@ -920,7 +924,7 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
         }
         if (const auto joined_source = joined_msvc_source_arg_path(arg); joined_source.has_value() &&
             normalize_compdb_lookup_path(*joined_source, command.Directory) == normalized_from) {
-            arg = to;
+            arg = rewrite_joined_msvc_source_arg(arg, to);
             replaced = true;
         }
     }
@@ -994,7 +998,8 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
         if (!resource_dir.empty()) {
             adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
         }
-        if (!default_sysroot.empty() && !has_sysroot_arg(sanitized_command_line)) {
+        if (!default_sysroot.empty() && !has_sysroot_arg(sanitized_command_line) &&
+            !prefers_msvc_style_standard_flag(sanitized_command_line)) {
             adjusted.emplace_back("-isysroot");
             adjusted.emplace_back(std::string(default_sysroot));
         }
@@ -1023,7 +1028,7 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
             }
             if (const auto joined_source = joined_msvc_source_arg_path(arg); joined_source.has_value() &&
                 normalize_compdb_lookup_path(*joined_source, compdb_dir) == normalized_target) {
-                adjusted.push_back(file.str());
+                adjusted.push_back(rewrite_joined_msvc_source_arg(arg, file.str()));
                 continue;
             }
             adjusted.push_back(arg);
