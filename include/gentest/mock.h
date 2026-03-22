@@ -376,7 +376,6 @@ class InstanceState {
             entry.method_name = std::move(method_name);
         auto expectation = std::make_shared<Expectation<R(Args...)>>();
         expectation->runtime_started = runtime_started_;
-        entry.queue.push_back(expectation);
         entry.expectations.push_back(expectation);
         return expectation;
     }
@@ -390,13 +389,13 @@ class InstanceState {
             runtime_started_->store(true, std::memory_order_release);
             frozen_ = true;
             auto                       it = methods_.find(id);
-            if (it != methods_.end() && !it->second.queue.empty()) {
-                base_expectation = it->second.queue.front();
+            if (it != methods_.end() && it->second.next_expectation < it->second.expectations.size()) {
+                base_expectation = it->second.expectations[it->second.next_expectation];
                 auto expectation = std::static_pointer_cast<Expectation<R(Args...)>>(base_expectation);
                 unexpected       = !expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls;
                 ++expectation->observed_calls;
                 if (!expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls) {
-                    it->second.queue.pop_front();
+                    ++it->second.next_expectation;
                 }
             } else {
                 nice_mode = nice_mode_;
@@ -432,8 +431,9 @@ class InstanceState {
   private:
     struct MethodEntry {
         std::string                                  method_name;
-        std::deque<std::shared_ptr<ExpectationBase>> queue;
-        std::vector<std::shared_ptr<ExpectationBase>> expectations;
+        // Keep a single stable container for both dispatch and verification.
+        std::deque<std::shared_ptr<ExpectationBase>> expectations;
+        std::size_t                                  next_expectation = 0;
     };
 
     mutable std::mutex                                                mtx_;
