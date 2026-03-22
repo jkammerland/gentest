@@ -72,7 +72,7 @@ target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 # (custom main).
 # target_link_libraries(my_tests PRIVATE gentest::gentest gentest::gentest_main)
 # target_link_libraries(my_tests PRIVATE gentest::gentest gentest::gentest_runtime)
-
+#
 # NOTE: This mode requires a single-config generator/build dir.
 gentest_attach_codegen(my_tests)
 # Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via
@@ -98,7 +98,7 @@ gentest_discover_tests(my_tests)
 # add_test(NAME my_tests COMMAND my_tests)
 ```
 
-Docs: [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
+Docs: [Modules guide](docs/modules.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
 
 Run:
 
