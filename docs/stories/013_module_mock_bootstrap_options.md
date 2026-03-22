@@ -1,5 +1,10 @@
 # Story: Module Mock Bootstrap Options
 
+> [!NOTE]
+> Decision update: Option 2 was chosen as the long-term direction. Follow-on
+> work is tracked in
+> [`014_explicit_mock_target_codegen.md`](014_explicit_mock_target_codegen.md).
+
 ## Goal
 
 Remove the user-visible `#if defined(GENTEST_CODEGEN)` bootstrap pattern from

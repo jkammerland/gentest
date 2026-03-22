@@ -38,3 +38,4 @@
 - Runner modularization plan synthesis: [`docs/stories/007_runner_impl_modularization_plan.md`](stories/007_runner_impl_modularization_plan.md)
 - Runner modularization execution design: [`docs/stories/008_runner_impl_modularization_design.md`](stories/008_runner_impl_modularization_design.md)
 - Module mock bootstrap options: [`docs/stories/013_module_mock_bootstrap_options.md`](stories/013_module_mock_bootstrap_options.md)
+- Explicit mock target codegen: [`docs/stories/014_explicit_mock_target_codegen.md`](stories/014_explicit_mock_target_codegen.md)
