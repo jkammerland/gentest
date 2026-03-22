@@ -667,7 +667,9 @@ std::string generate_empty_implementation_header(std::string_view label) {
 void append_mock_implementation(RenderBuffer &impl, const MockClassInfo &cls) {
     const std::string fq_type = fmt::format("::{}", cls.qualified_name);
     if (cls.has_accessible_default_ctor) {
-        impl.append("inline mock<{0}>::mock() = default;\n", cls.qualified_name);
+        // Spell out state initialization so imported-module mocks do not rely
+        // on compiler defaulting behavior for InstanceState.
+        impl.append("inline mock<{0}>::mock() : __gentest_state_{{}} {{}}\n", cls.qualified_name);
     }
     for (const auto &ctor : cls.constructors) {
         if (!ctor.template_prefix.empty()) {
@@ -689,10 +691,10 @@ void append_mock_implementation(RenderBuffer &impl, const MockClassInfo &cls) {
                 const auto &p = ctor.parameters[i];
                 impl.append("{}", argument_expr(p));
             }
-            impl.append_raw(")");
+            impl.append_raw("), __gentest_state_{}");
             impl.append_raw(" {}\n");
         } else {
-            impl.append_raw(" {\n");
+            impl.append_raw(" : __gentest_state_{} {\n");
             for (const auto &p : ctor.parameters) {
                 impl.append("    (void){};\n", p.name);
             }

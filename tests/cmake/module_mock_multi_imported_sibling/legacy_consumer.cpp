@@ -1,8 +1,4 @@
-#if defined(__APPLE__) && defined(__clang__) && !defined(__apple_build_version__) && __clang_major__ >= 22
-#define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN 1
-#define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN_REASON                                                \
-    "upstream clang 22 on macOS currently segfaults in this two-import module-mock fixture"
-#elif defined(__clang__) && __clang_major__ == 20 && defined(__has_include) && __has_include(<bits/c++config.h>) && !defined(_LIBCPP_VERSION)
+#if defined(__clang__) && __clang_major__ == 20 && defined(__has_include) && __has_include(<bits/c++config.h>) && !defined(_LIBCPP_VERSION)
 #define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN 1
 #define GENTEST_MULTI_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN_REASON                                                \
     "clang 20 + libstdc++ cannot import these mock-bearing provider modules into a classic translation unit"
