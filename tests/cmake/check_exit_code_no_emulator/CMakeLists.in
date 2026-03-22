@@ -1,0 +1,19 @@
+cmake_minimum_required(VERSION 3.20)
+project(gentest_cross_compile_exit_code_no_emulator NONE)
+include(CTest)
+enable_testing()
+
+include("@SOURCE_DIR@/cmake/GentestTests.cmake")
+
+set(CMAKE_CROSSCOMPILING TRUE)
+set(CMAKE_CROSSCOMPILING_EMULATOR
+    "C:/Program Files/QEMU/qemu-system-aarch64.exe"
+    "--cpu"
+    "cortex-a53")
+
+gentest_add_check_exit_code(
+    NAME exit_code_no_emulator_probe
+    NO_EMULATOR
+    PROG "@CMAKE_COMMAND@"
+    EXPECT_RC 0
+    ARGS -P "${CMAKE_CURRENT_LIST_DIR}/ProbeScript.cmake")

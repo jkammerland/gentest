@@ -8,12 +8,10 @@ include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/GentestCodegen.cmake")
 # This fixture validates configure-time source replacement + properties only.
 set(GENTEST_CODEGEN_EXECUTABLE "${CMAKE_COMMAND}")
 
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/main.cpp" "int main() { return 0; }\n")
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/case.cpp" "void dummy() {}\n")
-
-add_executable(demo "${CMAKE_CURRENT_BINARY_DIR}/main.cpp" "${CMAKE_CURRENT_BINARY_DIR}/case.cpp")
-
-set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/case.cpp" PROPERTIES
+set(_wrapper_case_src "${CMAKE_CURRENT_BINARY_DIR}/case.cpp")
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/case.cpp" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+add_executable(demo "${CMAKE_CURRENT_LIST_DIR}/main.cpp" "${_wrapper_case_src}")
+set_source_files_properties("${_wrapper_case_src}" PROPERTIES
     COMPILE_DEFINITIONS "DEMO_PROP=1"
     COMPILE_OPTIONS "-Wno-unused-parameter"
     INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}"
@@ -22,7 +20,7 @@ set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/case.cpp" PROPERTIES
 
 set_property(TARGET demo PROPERTY UNITY_BUILD ON)
 
-gentest_attach_codegen(demo SOURCES "${CMAKE_CURRENT_BINARY_DIR}/case.cpp")
+gentest_attach_codegen(demo SOURCES "${_wrapper_case_src}")
 
 get_target_property(_sources demo SOURCES)
 set(_wrapper "")
@@ -64,4 +62,3 @@ get_source_file_property(_skip_unity "${_wrapper}" SKIP_UNITY_BUILD_INCLUSION)
 if(NOT _skip_unity STREQUAL "ON")
     message(FATAL_ERROR "Wrapper SKIP_UNITY_BUILD_INCLUSION mismatch. Expected 'ON', got '${_skip_unity}'")
 endif()
-

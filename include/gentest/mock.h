@@ -112,7 +112,7 @@ concept Ostreamable = requires(std::ostream &os, const T &v) {
 };
 
 template <typename T>
-static std::string to_string_fallback(const T &v) {
+inline std::string to_string_fallback(const T &v) {
     if constexpr (Ostreamable<T>) {
         std::ostringstream oss;
         oss << v;
@@ -376,7 +376,6 @@ class InstanceState {
             entry.method_name = std::move(method_name);
         auto expectation = std::make_shared<Expectation<R(Args...)>>();
         expectation->runtime_started = runtime_started_;
-        entry.queue.push_back(expectation);
         entry.expectations.push_back(expectation);
         return expectation;
     }
@@ -390,13 +389,13 @@ class InstanceState {
             runtime_started_->store(true, std::memory_order_release);
             frozen_ = true;
             auto                       it = methods_.find(id);
-            if (it != methods_.end() && !it->second.queue.empty()) {
-                base_expectation = it->second.queue.front();
+            if (it != methods_.end() && it->second.next_expectation < it->second.expectations.size()) {
+                base_expectation = it->second.expectations[it->second.next_expectation];
                 auto expectation = std::static_pointer_cast<Expectation<R(Args...)>>(base_expectation);
                 unexpected       = !expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls;
                 ++expectation->observed_calls;
                 if (!expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls) {
-                    it->second.queue.pop_front();
+                    ++it->second.next_expectation;
                 }
             } else {
                 nice_mode = nice_mode_;
@@ -432,8 +431,9 @@ class InstanceState {
   private:
     struct MethodEntry {
         std::string                                  method_name;
-        std::deque<std::shared_ptr<ExpectationBase>> queue;
-        std::vector<std::shared_ptr<ExpectationBase>> expectations;
+        // Keep a single stable container for both dispatch and verification.
+        std::deque<std::shared_ptr<ExpectationBase>> expectations;
+        std::size_t                                  next_expectation = 0;
     };
 
     mutable std::mutex                                                mtx_;
@@ -804,7 +804,7 @@ template <typename V, typename E> struct NearFactory {
 template <typename V, typename E> inline auto Near(V &&v, E &&eps) { return NearFactory<V, E>{std::forward<V>(v), std::forward<E>(eps)}; }
 
 template <typename T>
-static inline std::optional<std::string_view> to_string_view_safe(const T &a) {
+inline std::optional<std::string_view> to_string_view_safe(const T &a) {
     using D = std::decay_t<T>;
     if constexpr (std::is_same_v<D, const char *> || std::is_same_v<D, char *>) {
         if (a == nullptr)
@@ -946,36 +946,6 @@ template <typename... M> inline auto AllOf(M &&...m) { return AllOfFactory<std::
 
 } // namespace gentest
 
-#if defined(GENTEST_MOCK_REGISTRY_PATH) && !defined(GENTEST_CODEGEN)
-#ifndef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
-#define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x
-#define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)
-#endif
-#define GENTEST_MOCK_REGISTRY_HEADER GENTEST_DETAIL_MOCK_STRINGIFY(GENTEST_MOCK_REGISTRY_PATH)
-#if __has_include(GENTEST_MOCK_REGISTRY_HEADER)
-#include GENTEST_MOCK_REGISTRY_HEADER
-#endif
-#undef GENTEST_MOCK_REGISTRY_HEADER
-#endif
-
-// Include generated mock inline implementations at global scope, so fully
-// qualified definitions like `inline auto gentest::mock<T>::method(...)` are
-// declared in the correct namespace context.
-#if defined(GENTEST_MOCK_IMPL_PATH) && !defined(GENTEST_CODEGEN)
-#ifndef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
-#define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x
-#define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)
-#endif
-#define GENTEST_MOCK_IMPL_HEADER GENTEST_DETAIL_MOCK_STRINGIFY(GENTEST_MOCK_IMPL_PATH)
-#if __has_include(GENTEST_MOCK_IMPL_HEADER)
-#include GENTEST_MOCK_IMPL_HEADER
-#endif
-#undef GENTEST_MOCK_IMPL_HEADER
-#endif
-
-#if defined(GENTEST_DETAIL_MOCK_STRINGIFY)
-#undef GENTEST_DETAIL_MOCK_STRINGIFY
-#endif
-#if defined(GENTEST_DETAIL_MOCK_STRINGIFY_IMPL)
-#undef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
+#ifndef GENTEST_NO_AUTO_MOCK_INCLUDE
+#include "gentest/mock_codegen.h"
 #endif

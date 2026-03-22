@@ -64,8 +64,15 @@ find_package(gentest CONFIG REQUIRED)
 # add_subdirectory(path/to/gentest)
 
 add_executable(my_tests cases.cpp)
+# Include-based consumers can keep linking the stock main target directly.
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
+# If your tests use `import gentest;` / `import gentest.mock;`, link the public
+# module carrier target plus either gentest_main (stock main) or gentest_runtime
+# (custom main).
+# target_link_libraries(my_tests PRIVATE gentest::gentest gentest::gentest_main)
+# target_link_libraries(my_tests PRIVATE gentest::gentest gentest::gentest_runtime)
+#
 # NOTE: This mode requires a single-config generator/build dir.
 gentest_attach_codegen(my_tests)
 # Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via
@@ -91,7 +98,7 @@ gentest_discover_tests(my_tests)
 # add_test(NAME my_tests COMMAND my_tests)
 ```
 
-Docs: [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
+Docs: [Modules guide](docs/modules.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
 
 Run:
 
@@ -154,7 +161,8 @@ void add() {
 
 Exceptions:
 - If a test throws a `std::exception`, the runner records a failure like `unexpected std::exception: ...` and continues.
-- If you want to assert on exceptions, you can use the gtest-like macros.
+- Include-based consumers can use the gtest-like macros.
+- `import gentest;` consumers should use the matching function templates from `gentest::asserts`.
 
 ```cpp
 #include "gentest/attributes.h"
@@ -168,6 +176,18 @@ void macros() {
     EXPECT_THROW(throw std::runtime_error("boom"), std::runtime_error);
     EXPECT_THROW(throw 123, int);
     EXPECT_NO_THROW((void)0);
+}
+```
+
+```cpp
+#include <stdexcept>
+import gentest;
+using namespace gentest::asserts;
+
+[[gentest::test("exceptions/module_functions")]]
+void module_functions() {
+    EXPECT_THROW<std::runtime_error>([] { throw std::runtime_error("boom"); });
+    EXPECT_NO_THROW([] {});
 }
 ```
 
@@ -443,10 +463,46 @@ void mock_clock() {
 ```
 
 Safeguards:
-- Mocked target definitions must be in a header or header module. Source/module-interface definitions are rejected by codegen.
+- Mocked target definitions may live in headers, header-like files, or named modules. Ordinary source files are still rejected by codegen.
 - Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
 - `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
 - Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (Windows-only path constraint).
+
+Named-module mock usage:
+
+```cpp
+module;
+
+#if defined(GENTEST_CODEGEN)
+#define GENTEST_NO_AUTO_MOCK_INCLUDE 1
+#include "gentest/mock.h"
+#undef GENTEST_NO_AUTO_MOCK_INCLUDE
+#endif
+
+export module my.tests;
+
+import gentest;
+import gentest.mock;
+
+export namespace mytests {
+struct Service {
+    virtual ~Service() = default;
+    virtual int compute(int) = 0;
+};
+}
+
+export namespace mytests {
+[[using gentest: test("module/mock")]]
+void module_mock() {
+    gentest::mock<Service> mock_service;
+    gentest::expect(mock_service, &Service::compute).times(1).with(3).returns(9);
+}
+}
+```
+
+For named modules, normal builds only need `import gentest.mock;` for the API surface. The codegen parse path still loads `gentest/mock.h` in the global module fragment with auto-inclusion disabled, but target-local mock specializations are now injected automatically into generated module wrapper sources. No user `#include "gentest/mock_codegen.h"` step is required.
+
+Generated mock outputs are partitioned by visibility domain. A single target can mix classic/header-defined mocks with mocks defined in multiple named modules; classic TUs pick up the header-domain shard, and each named module source picks up only its own generated module-domain shard.
 
 Header implementation to mock (`sink.h`):
 

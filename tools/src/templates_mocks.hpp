@@ -20,8 +20,6 @@ inline constexpr std::string_view impl_preamble = R"CPP(// This file is auto-gen
 
 #pragma once
 
-#include <utility>
-
 namespace gentest {
 
 )CPP";

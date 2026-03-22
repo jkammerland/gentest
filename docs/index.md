@@ -6,6 +6,7 @@
 ## Getting started
 
 - Quick start: [`README.md`](../README.md)
+- Modules guide: [`docs/modules.md`](modules.md)
 - Previous (full) README snapshot: [`docs/archive/README_2026-01-03.md`](archive/README_2026-01-03.md)
 
 ## Install / build templates
@@ -23,6 +24,7 @@
 - Windows troubleshooting: [`docs/windows_troubleshooting.md`](windows_troubleshooting.md)
 - LLVM 21 location notes: [`docs/llvm21-location-api-fix.md`](llvm21-location-api-fix.md)
 - Fixture allocation hook: [`docs/fixtures_allocation.md`](fixtures_allocation.md)
+- Coverage hygiene gate: [`docs/coverage_hygiene.md`](coverage_hygiene.md)
 - Traceability standards map: [`docs/traceability_standards.md`](traceability_standards.md)
 
 ## Work items
@@ -35,3 +37,4 @@
 - Runtime regressions and CMake check hardening: [`docs/stories/006_runtime_regressions_and_cmake_checks.md`](stories/006_runtime_regressions_and_cmake_checks.md)
 - Runner modularization plan synthesis: [`docs/stories/007_runner_impl_modularization_plan.md`](stories/007_runner_impl_modularization_plan.md)
 - Runner modularization execution design: [`docs/stories/008_runner_impl_modularization_design.md`](stories/008_runner_impl_modularization_design.md)
+- Module mock bootstrap options: [`docs/stories/013_module_mock_bootstrap_options.md`](stories/013_module_mock_bootstrap_options.md)

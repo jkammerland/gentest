@@ -18,15 +18,36 @@ endif()
 if(NOT DEFINED BUILD_ROOT)
   message(FATAL_ERROR "CheckMockSymlinkInclude.cmake: BUILD_ROOT not set")
 endif()
-if(NOT DEFINED PROJECT_SOURCE_DIR)
-  message(FATAL_ERROR "CheckMockSymlinkInclude.cmake: PROJECT_SOURCE_DIR not set")
+if(NOT DEFINED PROJECT_SOURCE_DIR OR "${PROJECT_SOURCE_DIR}" STREQUAL "")
+  message(FATAL_ERROR "CheckMockSymlinkInclude.cmake: PROJECT_SOURCE_DIR is empty")
 endif()
 if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
   message(FATAL_ERROR "CheckMockSymlinkInclude.cmake: CODEGEN_STD not set")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+set(_mock_symlink_fixture_dir "${PROJECT_SOURCE_DIR}/tests/cmake/mock_symlink_include")
+
 if(WIN32)
-  message(STATUS "CheckMockSymlinkInclude.cmake: Windows host covered by cross-root mock include test; skipping")
+  gentest_skip_test("CheckMockSymlinkInclude.cmake: Windows host covered by cross-root mock include test")
+  return()
+endif()
+
+gentest_resolve_clang_fixture_compilers(_clang _clangxx)
+if(NOT _clang OR NOT _clangxx)
+  gentest_skip_test("CheckMockSymlinkInclude.cmake: clang/clang++ not found")
+  return()
+endif()
+
+execute_process(
+  COMMAND "${_clangxx}" -print-resource-dir
+  RESULT_VARIABLE _resource_dir_rc
+  OUTPUT_VARIABLE _resource_dir
+  ERROR_VARIABLE _resource_dir_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _resource_dir_rc EQUAL 0 OR "${_resource_dir}" STREQUAL "")
+  gentest_skip_test("CheckMockSymlinkInclude.cmake: failed to query clang resource dir from '${_clangxx}': ${_resource_dir_err}")
   return()
 endif()
 
@@ -45,13 +66,14 @@ set(_input_cpp "${_real_src_dir}/input.cpp")
 set(_output_cpp "${_work_dir}/symlink_output.gentest.cpp")
 set(_mock_registry "${_work_dir}/symlink_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/symlink_mock_impl.hpp")
+set(_mock_registry_domain "${_work_dir}/symlink_mock_registry__domain_0000_header.hpp")
 
-file(WRITE "${_real_header}" "namespace symlinkprobe { struct Sink { void write(int) {} }; }\n")
-file(WRITE "${_input_cpp}"
-  "#include \"gentest/mock.h\"\n"
-  "#include \"../include/symlink_sink.hpp\"\n"
-  "using SinkMock = gentest::mock<symlinkprobe::Sink>;\n"
-  "[[maybe_unused]] inline SinkMock* kSinkMockPtr = nullptr;\n")
+file(COPY
+  "${_mock_symlink_fixture_dir}/include/symlink_sink.hpp"
+  DESTINATION "${_real_include_dir}")
+file(COPY
+  "${_mock_symlink_fixture_dir}/input.cpp"
+  DESTINATION "${_real_src_dir}")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E create_symlink "${_real_root}" "${_view_root}"
@@ -120,7 +142,11 @@ endif()
 unset(_cache_file)
 
 execute_process(
-  COMMAND "${PROG}" ${_args}
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "CC=${_clang}"
+          "CXX=${_clangxx}"
+          "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
+          "${PROG}" ${_args}
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err
@@ -134,8 +160,11 @@ endif()
 if(NOT EXISTS "${_mock_registry}")
   message(FATAL_ERROR "Symlink mock codegen did not produce registry header: ${_mock_registry}")
 endif()
+if(NOT EXISTS "${_mock_registry_domain}")
+  message(FATAL_ERROR "Symlink mock codegen did not produce domain registry header: ${_mock_registry_domain}")
+endif()
 
-file(READ "${_mock_registry}" _registry_text)
+file(READ "${_mock_registry_domain}" _registry_text)
 set(_expected_include "#include \"view/include/symlink_sink.hpp\"")
 set(_forbidden_include "#include \"real/include/symlink_sink.hpp\"")
 string(FIND "${_registry_text}" "${_expected_include}" _expected_pos)

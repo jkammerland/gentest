@@ -9,6 +9,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace gentest::codegen {
@@ -24,6 +26,12 @@ enum class FixtureScope {
     Local,
     Suite,
     Global,
+};
+
+enum class ModuleDependencyScanMode {
+    Auto,
+    Off,
+    On,
 };
 
 struct FreeFixtureUse {
@@ -83,14 +91,22 @@ struct CollectorOptions {
     std::string                          entry = "gentest::run_all_tests";
     std::filesystem::path                output_path;
     std::filesystem::path                tu_output_dir;
+    // Optional explicit per-source TU registration headers. When provided in
+    // TU mode, this must stay aligned with `sources` and overrides the legacy
+    // `<tu_output_dir>/<source>.h` derivation.
+    std::vector<std::filesystem::path>   tu_output_headers;
     std::filesystem::path                mock_registry_path;
     std::filesystem::path                mock_impl_path;
     std::optional<std::filesystem::path> depfile_path;
     std::filesystem::path                template_path;
     std::vector<std::string>             sources;
+    std::unordered_map<std::string, std::string> module_interface_names_by_source;
+    std::unordered_set<std::string>      module_interface_sources;
     std::vector<std::string>             clang_args;
     std::optional<std::filesystem::path> compilation_database;
     std::optional<std::filesystem::path> source_root;
+    ModuleDependencyScanMode             module_dependency_scan_mode = ModuleDependencyScanMode::Auto;
+    std::optional<std::filesystem::path> clang_scan_deps_executable;
     // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
     // 0 selects std::thread::hardware_concurrency().
     std::size_t                          jobs = 0;
@@ -191,13 +207,38 @@ struct MockMethodInfo {
     std::string              ref_qualifier; // "", "&", or "&&"
 };
 
+struct MockNamespaceScopeInfo {
+    std::string name;
+    bool        is_inline = false;
+    bool        is_exported = false;
+    std::size_t lexical_close_group = 0;
+    std::string reopen_prefix;
+};
+
 // Mockable class/struct description gathered from AST.
 struct MockClassInfo {
+    enum class DefinitionKind {
+        HeaderLike,
+        NamedModule,
+    };
+
     std::string               qualified_name;
     std::string               display_name; // pretty name for diagnostics/codegen
     // Absolute (or normalized) path to the file that contains the target type
     // definition used for registry include generation.
     std::string               definition_file;
+    DefinitionKind            definition_kind = DefinitionKind::HeaderLike;
+    // Source files that instantiate gentest::mock<T> for this target.
+    std::vector<std::string>  use_files;
+    // Owning named module for module-defined mocks. Empty for header-like definitions.
+    std::string               definition_module_name;
+    // Global-scope insertion point within `definition_file` where module-owned
+    // mock attachments can be injected safely.
+    std::optional<std::size_t> attachment_insertion_offset;
+    // Lexical namespace chain enclosing the injected attachment point. When
+    // non-empty, emitters close these scopes, inject the specialization at
+    // global scope, then reopen them before resuming the source text.
+    std::vector<MockNamespaceScopeInfo> attachment_namespace_chain;
     bool                      derive_for_virtual = false;
     bool                      has_accessible_default_ctor = false;
     bool                      has_virtual_destructor = false;

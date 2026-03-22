@@ -8,6 +8,8 @@ if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: SOURCE_DIR not set")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+
 find_program(_real_clang NAMES clang++-22 clang++-21 clang++-20 clang++ clang++.exe REQUIRED)
 file(TO_CMAKE_PATH "${_real_clang}" _real_clang_norm)
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
@@ -25,39 +27,28 @@ set(_depfile "${_work_dir}/dep_manifest.d")
 set(_output "${_work_dir}/dep_manifest.cpp")
 set(_mock_registry "${_work_dir}/dep_manifest_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/dep_manifest_mock_impl.hpp")
+set(_mock_registry_domain "${_work_dir}/dep_manifest_mock_registry__domain_0000_header.hpp")
+set(_mock_impl_domain "${_work_dir}/dep_manifest_mock_impl__domain_0000_header.hpp")
 
-file(WRITE "${_a_hpp}"
-  "#pragma once\n"
-  "inline int dep_a_value() { return 1; }\n")
-file(WRITE "${_b_hpp}"
-  "#pragma once\n"
-  "inline int dep_b_value() { return 2; }\n")
+file(COPY
+  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.hpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.hpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.cpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.cpp"
+  DESTINATION "${_work_dir}")
 
 file(TO_CMAKE_PATH "${_a_cpp}" _a_cpp_norm)
 file(TO_CMAKE_PATH "${_b_cpp}" _b_cpp_norm)
 
-file(WRITE "${_a_cpp}"
-  "#include \"a.hpp\"\n"
-  "#include \"gentest/attributes.h\"\n"
-  "[[using gentest: test(\"dep/a\")]] void dep_a() { (void)dep_a_value(); }\n")
-file(WRITE "${_b_cpp}"
-  "#include \"b.hpp\"\n"
-  "#include \"gentest/attributes.h\"\n"
-  "[[using gentest: test(\"dep/b\")]] void dep_b() { (void)dep_b_value(); }\n")
-
-file(WRITE "${_work_dir}/compile_commands.json"
-  "[\n"
-  "  {\n"
-  "    \"directory\": \"${_work_dir_norm}\",\n"
-  "    \"file\": \"${_a_cpp_norm}\",\n"
-  "    \"arguments\": [\"${_real_clang_norm}\", \"-std=c++20\", \"-I${_source_dir_norm}/include\", \"-I${_work_dir_norm}\", \"-c\", \"${_a_cpp_norm}\"]\n"
-  "  },\n"
-  "  {\n"
-  "    \"directory\": \"${_work_dir_norm}\",\n"
-  "    \"file\": \"${_b_cpp_norm}\",\n"
-  "    \"arguments\": [\"${_real_clang_norm}\", \"-std=c++20\", \"-I${_source_dir_norm}/include\", \"-I${_work_dir_norm}\", \"-c\", \"${_b_cpp_norm}\"]\n"
-  "  }\n"
-  "]\n")
+gentest_fixture_make_compdb_entry(_a_entry
+  DIRECTORY "${_work_dir_norm}"
+  FILE "${_a_cpp_norm}"
+  ARGUMENTS "${_real_clang_norm}" "-std=c++20" "-I${_source_dir_norm}/include" "-I${_work_dir_norm}" "-c" "${_a_cpp_norm}")
+gentest_fixture_make_compdb_entry(_b_entry
+  DIRECTORY "${_work_dir_norm}"
+  FILE "${_b_cpp_norm}"
+  ARGUMENTS "${_real_clang_norm}" "-std=c++20" "-I${_source_dir_norm}/include" "-I${_work_dir_norm}" "-c" "${_b_cpp_norm}")
+gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_a_entry}" "${_b_entry}")
 
 execute_process(
   COMMAND
@@ -81,6 +72,19 @@ if(NOT _rc EQUAL 0)
 endif()
 
 file(READ "${_depfile}" _depfile_text)
+foreach(_target IN ITEMS
+    "${_output}"
+    "${_mock_registry}"
+    "${_mock_impl}"
+    "${_mock_registry_domain}"
+    "${_mock_impl_domain}")
+  get_filename_component(_target_name "${_target}" NAME)
+  string(FIND "${_depfile_text}" "${_target_name}" _pos)
+  if(_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Manifest depfile is missing target '${_target_name}'. Full depfile:\n${_depfile_text}")
+  endif()
+endforeach()
 foreach(_needle IN ITEMS "a.cpp" "a.hpp" "b.cpp" "b.hpp" "compile_commands.json")
   string(FIND "${_depfile_text}" "${_needle}" _pos)
   if(_pos EQUAL -1)

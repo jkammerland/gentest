@@ -170,6 +170,7 @@ function(gentest_add_cmake_script_test)
 
     add_test(NAME ${GENTEST_NAME} COMMAND ${CMAKE_COMMAND} ${_cmd_args})
     set_property(TEST ${GENTEST_NAME} APPEND PROPERTY LABELS "cmake")
+    set_property(TEST ${GENTEST_NAME} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
 endfunction()
 
 function(gentest_add_check_counts)
@@ -253,18 +254,25 @@ function(gentest_add_check_inventory)
 endfunction()
 
 function(gentest_add_check_exit_code)
+    set(options NO_EMULATOR)
     set(one_value_args NAME PROG EXPECT_RC)
     set(multi_value_args ARGS)
-    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+    cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     if(NOT GENTEST_NAME OR NOT GENTEST_PROG OR GENTEST_EXPECT_RC STREQUAL "")
         message(FATAL_ERROR "gentest_add_check_exit_code: NAME, PROG, and EXPECT_RC are required")
+    endif()
+
+    set(_no_emulator_arg)
+    if(GENTEST_NO_EMULATOR)
+        set(_no_emulator_arg NO_EMULATOR)
     endif()
 
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckExitCode.cmake"
+        ${_no_emulator_arg}
         ARGS ${GENTEST_ARGS}
         DEFINES "EXPECT_RC=${GENTEST_EXPECT_RC}")
 endfunction()
