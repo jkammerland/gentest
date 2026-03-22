@@ -225,7 +225,7 @@ jobs:
             "-DLLVM_DIR=$env:LLVM_DIR",
             "-DClang_DIR=$env:Clang_DIR"
           )
-          if ("${{ matrix.preset }}" -eq "debug-system") {
+          if ("${{ matrix.preset }}" -in @("debug-system", "debug-system-cxx23")) {
             $cmakeArgs += "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON"
           }
           cmake @cmakeArgs
