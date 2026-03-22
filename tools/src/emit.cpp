@@ -224,6 +224,13 @@ struct SourceMockCodegenIncludes {
     [[nodiscard]] bool has_any_manual_codegen() const { return has_mock_codegen || has_registry_codegen || has_impl_codegen; }
 };
 
+struct PerSourceEmitData {
+    std::vector<TestCaseInfo>           cases;
+    std::vector<FixtureDeclInfo>        fixtures;
+    std::vector<const MockClassInfo *>  direct_module_mocks;
+    bool                                needs_mock_codegen_include = false;
+};
+
 bool is_mock_codegen_header_name(std::string_view header) {
     return header == "gentest/mock_codegen.h" || header == "gentest/mock_registry_codegen.h" || header == "gentest/mock_impl_codegen.h";
 }
@@ -860,28 +867,29 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
 
         // Group discovered cases by their originating translation unit so we
         // can emit one wrapper TU per input source.
-        std::map<std::string, std::vector<TestCaseInfo>> cases_by_tu;
+        std::unordered_map<std::string, PerSourceEmitData> per_source;
+        per_source.reserve(cases_for_render.size() + fixtures_for_render.size() + mocks.size());
         for (const auto &c : cases_for_render) {
-            cases_by_tu[normalize_path_key(fs::path(c.tu_filename))].push_back(c);
+            per_source[normalize_path_key(fs::path(c.tu_filename))].cases.push_back(c);
         }
-        std::map<std::string, std::vector<FixtureDeclInfo>> fixtures_by_tu;
         for (const auto &f : fixtures_for_render) {
-            fixtures_by_tu[normalize_path_key(fs::path(f.tu_filename))].push_back(f);
+            per_source[normalize_path_key(fs::path(f.tu_filename))].fixtures.push_back(f);
         }
-        std::unordered_map<std::string, std::vector<const MockClassInfo *>> direct_module_mocks_by_source;
-        std::unordered_map<std::string, bool>                               module_mock_codegen_include_by_source;
         for (const auto &mock : mocks) {
             if (mock.definition_kind == MockClassInfo::DefinitionKind::NamedModule && !mock.definition_file.empty()) {
-                direct_module_mocks_by_source[normalize_path_key(fs::path(mock.definition_file))].push_back(&mock);
+                per_source[normalize_path_key(fs::path(mock.definition_file))].direct_module_mocks.push_back(&mock);
             }
             if (mock.definition_kind != MockClassInfo::DefinitionKind::HeaderLike) {
                 continue;
             }
             for (const auto &use_file : mock.use_files) {
                 if (!use_file.empty()) {
-                    module_mock_codegen_include_by_source[normalize_path_key(fs::path(use_file))] = true;
+                    per_source[normalize_path_key(fs::path(use_file))].needs_mock_codegen_include = true;
                 }
             }
+        }
+        for (auto &[_, data] : per_source) {
+            std::ranges::sort(data.cases, {}, &TestCaseInfo::display_name);
         }
 
         const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
@@ -918,21 +926,16 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
 
         const std::size_t jobs = resolve_concurrency(opts.sources.size(), opts.jobs);
         std::vector<int>  statuses(opts.sources.size(), 0);
+        const std::vector<TestCaseInfo> empty_cases;
+        const std::vector<FixtureDeclInfo> empty_fixtures;
+        const std::vector<const MockClassInfo *> empty_mocks;
         parallel_for(opts.sources.size(), jobs, [&](std::size_t idx) {
             const fs::path source_path = fs::path(opts.sources[idx]);
             const std::string key      = normalize_path_key(source_path);
-            auto it                    = cases_by_tu.find(key);
-            std::vector<TestCaseInfo> tu_cases;
-            if (it != cases_by_tu.end()) {
-                tu_cases = it->second;
-            }
-            std::vector<FixtureDeclInfo> tu_fixtures;
-            auto fit = fixtures_by_tu.find(key);
-            if (fit != fixtures_by_tu.end()) {
-                tu_fixtures = fit->second;
-            }
-
-            std::ranges::sort(tu_cases, {}, &TestCaseInfo::display_name);
+            const auto source_it       = per_source.find(key);
+            const PerSourceEmitData *source_data = source_it != per_source.end() ? &source_it->second : nullptr;
+            const auto &tu_cases = source_data ? source_data->cases : empty_cases;
+            const auto &tu_fixtures = source_data ? source_data->fixtures : empty_fixtures;
 
             fs::path header_out = resolve_tu_header_output(opts, idx);
             if (!ensure_parent_dir(header_out)) {
@@ -989,10 +992,8 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
             }
 
             if (is_module_interface_source(opts, source_path)) {
-                const auto mock_it = direct_module_mocks_by_source.find(key);
-                const std::vector<const MockClassInfo *> empty_mocks;
-                const auto &source_mocks = mock_it != direct_module_mocks_by_source.end() ? mock_it->second : empty_mocks;
-                const bool needs_mock_codegen_include = module_mock_codegen_include_by_source.contains(key);
+                const auto &source_mocks = source_data ? source_data->direct_module_mocks : empty_mocks;
+                const bool needs_mock_codegen_include = source_data && source_data->needs_mock_codegen_include;
                 const std::string registration_header_name = (!tu_cases.empty() || !tu_fixtures.empty()) ? header_out.filename().string() : "";
                 const auto wrapper_source =
                     render_module_wrapper_source(source_path, source_mocks, needs_mock_codegen_include, registration_header_name);

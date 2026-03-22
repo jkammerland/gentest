@@ -27,6 +27,8 @@ set(_depfile "${_work_dir}/dep_manifest.d")
 set(_output "${_work_dir}/dep_manifest.cpp")
 set(_mock_registry "${_work_dir}/dep_manifest_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/dep_manifest_mock_impl.hpp")
+set(_mock_registry_domain "${_work_dir}/dep_manifest_mock_registry__domain_0000_header.hpp")
+set(_mock_impl_domain "${_work_dir}/dep_manifest_mock_impl__domain_0000_header.hpp")
 
 file(COPY
   "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.hpp"
@@ -70,6 +72,19 @@ if(NOT _rc EQUAL 0)
 endif()
 
 file(READ "${_depfile}" _depfile_text)
+foreach(_target IN ITEMS
+    "${_output}"
+    "${_mock_registry}"
+    "${_mock_impl}"
+    "${_mock_registry_domain}"
+    "${_mock_impl_domain}")
+  get_filename_component(_target_name "${_target}" NAME)
+  string(FIND "${_depfile_text}" "${_target_name}" _pos)
+  if(_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Manifest depfile is missing target '${_target_name}'. Full depfile:\n${_depfile_text}")
+  endif()
+endforeach()
 foreach(_needle IN ITEMS "a.cpp" "a.hpp" "b.cpp" "b.hpp" "compile_commands.json")
   string(FIND "${_depfile_text}" "${_needle}" _pos)
   if(_pos EQUAL -1)

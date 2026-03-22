@@ -1,6 +1,7 @@
 #include "discovery.hpp"
 #include "emit.hpp"
 #include "log.hpp"
+#include "mock_domain_plan.hpp"
 #include "mock_output_paths.hpp"
 #include "mock_discovery.hpp"
 #include "model.hpp"
@@ -276,32 +277,16 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     }
     if (!options.mock_registry_path.empty()) {
         targets.push_back(options.mock_registry_path);
-        targets.push_back(gentest::codegen::make_mock_domain_output_path(options.mock_registry_path, 0, "header"));
     }
     if (!options.mock_impl_path.empty()) {
         targets.push_back(options.mock_impl_path);
-        targets.push_back(gentest::codegen::make_mock_domain_output_path(options.mock_impl_path, 0, "header"));
     }
-    if (!options.mock_registry_path.empty() && !options.mock_impl_path.empty()) {
-        std::set<std::string> seen_modules;
-        std::size_t           idx = 1;
-        for (const auto &source : options.sources) {
-            std::optional<std::string> module_name;
-            if (const auto it = options.module_interface_names_by_source.find(source);
-                it != options.module_interface_names_by_source.end()) {
-                module_name = it->second;
-            } else {
-                module_name = named_module_name_from_source_file(source);
-            }
-            if (!module_name.has_value()) {
-                continue;
-            }
-            if (!seen_modules.insert(*module_name).second) {
-                continue;
-            }
-            targets.push_back(gentest::codegen::make_mock_domain_output_path(options.mock_registry_path, idx, *module_name));
-            targets.push_back(gentest::codegen::make_mock_domain_output_path(options.mock_impl_path, idx, *module_name));
-            ++idx;
+    for (const auto &domain : gentest::codegen::build_mock_output_domains(options)) {
+        if (!domain.registry_path.empty()) {
+            targets.push_back(domain.registry_path);
+        }
+        if (!domain.impl_path.empty()) {
+            targets.push_back(domain.impl_path);
         }
     }
     return targets;
