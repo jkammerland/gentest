@@ -520,8 +520,6 @@ endif()
 
 if(UNIX AND _gentest_codegen_runtime_rpaths)
     set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_codegen_runtime_rpaths}")
-    set_property(TARGET gentest_codegen APPEND PROPERTY INSTALL_RPATH "${_gentest_codegen_runtime_rpaths}")
-    set_property(TARGET gentest_codegen PROPERTY INSTALL_RPATH_USE_LINK_PATH TRUE)
 endif()
 
 # Provide generator with project version for --help output in generated code

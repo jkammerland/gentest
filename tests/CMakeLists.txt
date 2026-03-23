@@ -1887,6 +1887,30 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_mock_multi_imported_sibling APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_explicit_mock_target_surface
+    ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_surface
+    ${PROJECT_SOURCE_DIR}/cmake/CheckExplicitMockTargetSurface.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_explicit_mock_target_surface APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_explicit_mock_target_validation
+    ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_validation
+    ${PROJECT_SOURCE_DIR}/cmake/CheckExplicitMockTargetValidation.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_explicit_mock_target_validation APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_explicit_mock_target_install_export
+    ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_install_export
+    ${PROJECT_SOURCE_DIR}/cmake/CheckExplicitMockTargetInstallExport.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_explicit_mock_target_install_export APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_pcm_cache_isolation
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_pcm_cache_isolation
     ${PROJECT_SOURCE_DIR}/cmake/CheckModulePcmCacheIsolation.cmake

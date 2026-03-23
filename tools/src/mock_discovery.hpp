@@ -19,8 +19,11 @@ class MockUsageCollector : public clang::ast_matchers::MatchFinder::MatchCallbac
 
   private:
     void report(const clang::SourceManager &sm, clang::SourceLocation loc, std::string_view message) const;
+    void handle_mock_target_type(const clang::QualType &target_type, clang::SourceLocation use_loc,
+                                 const clang::ast_matchers::MatchFinder::MatchResult &result);
     void handle_specialization(const clang::ClassTemplateSpecializationDecl        &decl,
                                const clang::ast_matchers::MatchFinder::MatchResult &result);
+    void handle_typedef(const clang::TypedefNameDecl &decl, const clang::ast_matchers::MatchFinder::MatchResult &result);
 
     std::vector<MockClassInfo>                  &out_;
     llvm::DenseMap<const clang::CXXRecordDecl *, std::size_t> seen_;
