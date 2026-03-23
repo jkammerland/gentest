@@ -144,10 +144,29 @@ set(_installed_module_public_header "${_install_prefix}/include/public/fixture_m
 if(EXISTS "${_installed_module_public_header}")
   message(FATAL_ERROR "Did not expect an installed explicit mock public header for module defs, but found: ${_installed_module_public_header}")
 endif()
+file(GLOB _installed_public_headers "${_install_prefix}/include/public/*")
+set(_expected_public_headers "${_install_prefix}/include/public/fixture_header_mocks.hpp")
+list(SORT _installed_public_headers)
+if(NOT _installed_public_headers STREQUAL _expected_public_headers)
+  message(FATAL_ERROR
+    "Expected only the textual explicit mock public header to be installed under '${_install_prefix}/include/public'.\n"
+    "Expected: ${_expected_public_headers}\n"
+    "Actual:   ${_installed_public_headers}")
+endif()
 set(_installed_module_aggregate "${_install_prefix}/include/explicit_module_exported_mocks.cppm")
 if(NOT EXISTS "${_installed_module_aggregate}")
   message(FATAL_ERROR "Expected installed explicit mock aggregate module was not found: ${_installed_module_aggregate}")
 endif()
+
+file(GLOB _installed_root_headers "${_install_prefix}/include/*.hpp")
+foreach(_installed_root_header IN LISTS _installed_root_headers)
+  get_filename_component(_installed_root_name "${_installed_root_header}" NAME)
+  if(NOT _installed_root_name MATCHES "^explicit_(exported|module_exported)_mocks_mock_(impl|registry)(|__domain_.*)\\.hpp$")
+    message(FATAL_ERROR
+      "Expected only internal support headers at the install include root, but found unexpected header "
+      "'${_installed_root_header}'.")
+  endif()
+endforeach()
 
 file(GLOB _installed_staged_defs "${_install_prefix}/include/defs/*")
 if(NOT _installed_staged_defs)

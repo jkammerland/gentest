@@ -123,6 +123,22 @@ if(EXISTS "${_generated_module_header}")
   message(FATAL_ERROR
     "Did not expect a generated explicit mock public header for module defs, but found: ${_generated_module_header}")
 endif()
+file(GLOB _generated_module_public_headers "${_build_dir}/generated/module/public/*")
+if(_generated_module_public_headers)
+  message(FATAL_ERROR
+    "Did not expect any generated module public headers under '${_build_dir}/generated/module/public', but found: "
+    "${_generated_module_public_headers}")
+endif()
+
+file(GLOB _generated_module_root_headers "${_build_dir}/generated/module/*.hpp")
+foreach(_generated_module_root_header IN LISTS _generated_module_root_headers)
+  get_filename_component(_generated_module_root_name "${_generated_module_root_header}" NAME)
+  if(NOT _generated_module_root_name MATCHES "^explicit_module_mocks_mock_(impl|registry)(|__domain_.*)\\.hpp$")
+    message(FATAL_ERROR
+      "Expected module explicit mocks to emit only internal support headers at the output root, but found unexpected header "
+      "'${_generated_module_root_header}'.")
+  endif()
+endforeach()
 
 file(GLOB _generated_module_wrappers "${_build_dir}/generated/module/*.module.gentest.cppm")
 list(LENGTH _generated_module_wrappers _generated_module_wrapper_count)
