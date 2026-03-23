@@ -102,6 +102,28 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+file(GLOB _mock_provider_wrappers "${_build_dir}/generated/mocks/*.module.gentest.*")
+set(_alpha_wrapper_found FALSE)
+set(_beta_wrapper_found FALSE)
+foreach(_candidate IN LISTS _mock_provider_wrappers)
+  file(READ "${_candidate}" _candidate_text)
+  string(FIND "${_candidate_text}" "module gentest.multi_imported_sibling_provider_alpha;" _alpha_module_pos)
+  if(NOT _alpha_module_pos EQUAL -1)
+    set(_alpha_wrapper_found TRUE)
+  endif()
+  string(FIND "${_candidate_text}" "module gentest.multi_imported_sibling_provider_beta;" _beta_module_pos)
+  if(NOT _beta_module_pos EQUAL -1)
+    set(_beta_wrapper_found TRUE)
+  endif()
+endforeach()
+if(NOT _alpha_wrapper_found OR NOT _beta_wrapper_found)
+  message(FATAL_ERROR
+    "Expected explicit multi-imported-sibling mocks target to generate provider wrappers under '${_build_dir}/generated/mocks'.\n"
+    "Alpha found: ${_alpha_wrapper_found}\n"
+    "Beta found: ${_beta_wrapper_found}\n"
+    "Candidates: ${_mock_provider_wrappers}")
+endif()
+
 set(_prog "${_build_dir}/multi_imported_sibling_tests${CMAKE_EXECUTABLE_SUFFIX}")
 message(STATUS "Run classic importer acceptance case with two imported module mocks...")
 gentest_check_run_or_fail(

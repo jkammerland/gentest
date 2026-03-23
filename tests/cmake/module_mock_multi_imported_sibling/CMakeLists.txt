@@ -16,17 +16,20 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+gentest_add_mocks(multi_imported_sibling_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/provider_alpha.ixx
+        ${CMAKE_CURRENT_SOURCE_DIR}/provider_beta.ixx
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.cppm
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+    MODULE_NAME gentest.multi_imported_sibling_mocks
+    HEADER_NAME public/multi_imported_sibling_mocks.hpp)
+
 add_executable(multi_imported_sibling_tests
     main.cpp
     legacy_consumer.cpp)
 
-target_sources(multi_imported_sibling_tests
-    PRIVATE
-        FILE_SET multi_imported_sibling_cases TYPE CXX_MODULES FILES
-            ${CMAKE_CURRENT_SOURCE_DIR}/provider_alpha.ixx
-            ${CMAKE_CURRENT_SOURCE_DIR}/provider_beta.ixx)
-
-target_link_libraries(multi_imported_sibling_tests PRIVATE gentest gentest_runtime)
+target_link_libraries(multi_imported_sibling_tests PRIVATE gentest gentest_runtime multi_imported_sibling_mocks)
 target_compile_features(multi_imported_sibling_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(multi_imported_sibling_tests
