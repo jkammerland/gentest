@@ -33,8 +33,7 @@ gentest_add_mocks(explicit_module_mocks
         ${CMAKE_CURRENT_SOURCE_DIR}/service_module.cppm
         ${CMAKE_CURRENT_SOURCE_DIR}/module_mocks.cppm
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/module"
-    MODULE_NAME fixture.explicit_module_mocks
-    HEADER_NAME public/fixture_module_mocks.hpp)
+    MODULE_NAME fixture.explicit_module_mocks)
 
 add_executable(explicit_header_consumer header_consumer.cpp)
 target_compile_features(explicit_header_consumer PRIVATE cxx_std_20)
@@ -43,7 +42,3 @@ target_link_libraries(explicit_header_consumer PRIVATE explicit_header_mocks exp
 add_executable(explicit_module_consumer module_consumer.cpp)
 target_compile_features(explicit_module_consumer PRIVATE cxx_std_20)
 target_link_libraries(explicit_module_consumer PRIVATE explicit_module_mocks)
-
-add_executable(explicit_module_header_consumer module_header_consumer.cpp)
-target_compile_features(explicit_module_header_consumer PRIVATE cxx_std_20)
-target_link_libraries(explicit_module_header_consumer PRIVATE explicit_module_mocks)

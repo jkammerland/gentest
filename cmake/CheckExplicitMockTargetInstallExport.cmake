@@ -141,8 +141,8 @@ if(NOT EXISTS "${_installed_public_header}")
   message(FATAL_ERROR "Expected installed explicit mock public header was not found: ${_installed_public_header}")
 endif()
 set(_installed_module_public_header "${_install_prefix}/include/public/fixture_module_mocks.hpp")
-if(NOT EXISTS "${_installed_module_public_header}")
-  message(FATAL_ERROR "Expected installed explicit mock module header was not found: ${_installed_module_public_header}")
+if(EXISTS "${_installed_module_public_header}")
+  message(FATAL_ERROR "Did not expect an installed explicit mock public header for module defs, but found: ${_installed_module_public_header}")
 endif()
 set(_installed_module_aggregate "${_install_prefix}/include/explicit_module_exported_mocks.cppm")
 if(NOT EXISTS "${_installed_module_aggregate}")
@@ -178,8 +178,7 @@ gentest_check_run_or_fail(
 
 foreach(_consumer_exe IN ITEMS
     explicit_installed_consumer
-    explicit_installed_module_consumer
-    explicit_installed_module_header_consumer)
+    explicit_installed_module_consumer)
   message(STATUS "Run ${_consumer_exe}...")
   gentest_check_run_or_fail(
     COMMAND "${_consumer_build_dir}/${_consumer_exe}${CMAKE_EXECUTABLE_SUFFIX}"

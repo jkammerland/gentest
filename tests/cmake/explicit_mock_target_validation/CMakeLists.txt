@@ -35,6 +35,20 @@ elseif(TEST_CASE STREQUAL "textual_module_name")
             ${CMAKE_CURRENT_SOURCE_DIR}/defs_a.hpp
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
         MODULE_NAME fixture.validation_textual)
+elseif(TEST_CASE STREQUAL "module_header_name")
+    gentest_add_mocks(explicit_validation_module_header
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/good_module.cppm
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        MODULE_NAME fixture.validation_module_header
+        HEADER_NAME public/fixture_validation.hpp)
+elseif(TEST_CASE STREQUAL "mixed_surface_defs")
+    gentest_add_mocks(explicit_validation_mixed_defs
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/defs_a.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/good_module.cppm
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        MODULE_NAME fixture.validation_mixed_defs)
 elseif(TEST_CASE STREQUAL "absolute_header_name")
     gentest_add_mocks(explicit_validation_absolute_header
         DEFS
@@ -69,6 +83,11 @@ elseif(TEST_CASE STREQUAL "missing_named_module")
             ${CMAKE_CURRENT_SOURCE_DIR}/bad_module.cppm
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
         MODULE_NAME fixture.validation_missing_named_module)
+elseif(TEST_CASE STREQUAL "missing_module_name")
+    gentest_add_mocks(explicit_validation_missing_module_name
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/good_module.cppm
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 else()
     message(FATAL_ERROR "Unknown TEST_CASE='${TEST_CASE}'")
 endif()

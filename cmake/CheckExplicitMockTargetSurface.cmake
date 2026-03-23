@@ -112,12 +112,17 @@ gentest_check_run_or_fail(
 
 foreach(_generated_header IN ITEMS
     "${_build_dir}/generated/header/public/fixture_header_mocks.hpp"
-    "${_build_dir}/generated/header_extra/public/fixture_alt_header_mocks.hpp"
-    "${_build_dir}/generated/module/public/fixture_module_mocks.hpp")
+    "${_build_dir}/generated/header_extra/public/fixture_alt_header_mocks.hpp")
   if(NOT EXISTS "${_generated_header}")
     message(FATAL_ERROR "Expected generated explicit mock header was not written: ${_generated_header}")
   endif()
 endforeach()
+
+set(_generated_module_header "${_build_dir}/generated/module/public/fixture_module_mocks.hpp")
+if(EXISTS "${_generated_module_header}")
+  message(FATAL_ERROR
+    "Did not expect a generated explicit mock public header for module defs, but found: ${_generated_module_header}")
+endif()
 
 file(GLOB _generated_module_wrappers "${_build_dir}/generated/module/*.module.gentest.cppm")
 list(LENGTH _generated_module_wrappers _generated_module_wrapper_count)
@@ -132,7 +137,7 @@ if(NOT EXISTS "${_generated_module_aggregate}")
   message(FATAL_ERROR "Expected generated explicit mock aggregate module was not written: ${_generated_module_aggregate}")
 endif()
 
-foreach(_prog_name IN ITEMS explicit_header_consumer explicit_module_consumer explicit_module_header_consumer)
+foreach(_prog_name IN ITEMS explicit_header_consumer explicit_module_consumer)
   set(_prog_path "${_build_dir}/${_prog_name}${CMAKE_EXECUTABLE_SUFFIX}")
   message(STATUS "Run ${_prog_name}...")
   gentest_check_run_or_fail(
