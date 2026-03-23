@@ -113,6 +113,10 @@ Supported file kinds:
 - `.cpp`
 - `.cppm`
 
+For module defs, the file should behave like an ordinary named module unit and
+explicitly `import gentest.mock;` before declaring aliases based on
+`gentest::mock<T>`.
+
 V1 does not support arbitrary behavioral code in defs files.
 
 Surface rule:
@@ -149,6 +153,10 @@ Then both link the generated target:
 ```cmake
 target_link_libraries(my_tests PRIVATE test_mocks)
 ```
+
+The current contract is: link explicit mock targets before
+`gentest_attach_codegen()`, so the generated mock surface is already visible
+during codegen.
 
 The generated public surface must make both of these usable within that surface
 model:

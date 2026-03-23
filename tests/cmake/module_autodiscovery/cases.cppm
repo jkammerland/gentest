@@ -71,9 +71,7 @@
 
 export module gentest.module_auto_cases;
 
-#if !defined(GENTEST_CODEGEN)
 import gentest;
-#endif
 
 export namespace autodisc {
 

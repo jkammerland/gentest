@@ -16,19 +16,16 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+gentest_add_mocks(long_domain_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/provider.cppm
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.cppm
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+    MODULE_NAME gentest.long_domain_mocks)
+
 add_executable(long_domain_tests
-    main.cpp)
+    main.cpp
+    consumer.cpp)
 
-target_sources(long_domain_tests
-    PRIVATE
-        FILE_SET long_domain_cases TYPE CXX_MODULES FILES
-            ${CMAKE_CURRENT_SOURCE_DIR}/provider.cppm)
-
-target_link_libraries(long_domain_tests PRIVATE gentest gentest_main)
+gentest_link_mocks(long_domain_tests PRIVATE long_domain_mocks)
 target_compile_features(long_domain_tests PRIVATE cxx_std_20)
-target_include_directories(long_domain_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-
-gentest_attach_codegen(long_domain_tests
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
-    CLANG_ARGS
-        -I${CMAKE_CURRENT_SOURCE_DIR})

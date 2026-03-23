@@ -33,8 +33,21 @@ endforeach()
 
 unset(_gentest_test_suites)
 
+gentest_add_mocks(gentest_textual_suite_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/explicit_textual_mocks.hpp
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/explicit_textual_suite_mocks"
+    HEADER_NAME public/gentest_textual_suite_mocks.hpp)
+
+gentest_link_mocks(gentest_mocking_tests PRIVATE gentest_textual_suite_mocks)
+gentest_link_mocks(gentest_failing_tests PRIVATE gentest_textual_suite_mocks)
+if(TARGET ${PROJECT_NAME}_libassert_tests)
+    gentest_link_mocks(${PROJECT_NAME}_libassert_tests PRIVATE gentest_textual_suite_mocks)
+endif()
+
 # Concurrency target (no default add_test to avoid suite-wide failure)
 gentest_add_suite(concurrency TARGET ${PROJECT_NAME}_concurrency_tests NO_CTEST)
+gentest_link_mocks(${PROJECT_NAME}_concurrency_tests PRIVATE gentest_textual_suite_mocks)
 
 # Outcome semantics target (no default add_test; contains deliberate FAIL/XPASS cases)
 gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
@@ -66,6 +79,7 @@ endforeach()
 add_library(gentest_codegen_parallel_bench_obj OBJECT EXCLUDE_FROM_ALL ${_gentest_codegen_parallel_bench_sources})
 
 target_link_libraries(gentest_codegen_parallel_bench_obj PRIVATE gentest_main)
+gentest_link_mocks(gentest_codegen_parallel_bench_obj PRIVATE gentest_textual_suite_mocks)
 
 gentest_resolve_test_std(_gentest_parallel_bench_std_feature _gentest_parallel_bench_codegen_std_arg)
 target_compile_features(gentest_codegen_parallel_bench_obj PRIVATE ${_gentest_parallel_bench_std_feature})
@@ -487,12 +501,15 @@ gentest_add_check_death(
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
 # Generator negative tests for mocks: robust diagnostics
+set(_gentest_codegen_discover_mocks_arg --discover-mocks)
+
 gentest_add_check_death(
     NAME gentest_codegen_mock_incomplete_virtual_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "gentest::mock<T>: target type is incomplete"
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -509,6 +526,7 @@ gentest_add_check_death(
     PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "target definition must be in a header or header module"
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -525,6 +543,7 @@ gentest_add_check_death(
     PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "target definition must be in a header or header module"
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -536,49 +555,15 @@ gentest_add_check_death(
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
 gentest_add_check_exit_code(
-    NAME gentest_codegen_mock_named_module_codegen_ok
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    EXPECT_RC 0
-    ARGS
-        --check
-        --compdb ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/named_module_ok.cppm
-        --
-        ${_gentest_codegen_cross_target_arg}
-        -x
-        c++
-        -DGENTEST_CODEGEN=1
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
-
-gentest_add_check_exit_code(
     NAME gentest_codegen_mock_header_main_tu_ok
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
     EXPECT_RC 0
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
-        --
-        ${_gentest_codegen_cross_target_arg}
-        -x
-        c++
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
-
-gentest_add_check_exit_code(
-    NAME gentest_codegen_mock_named_module_ok
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    EXPECT_RC 0
-    ARGS
-        --check
-        --compdb ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/named_module_ok.cppm
         --
         ${_gentest_codegen_cross_target_arg}
         -x
@@ -593,6 +578,7 @@ gentest_add_check_death(
     PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "target definition must be in a header or header module"
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -611,6 +597,7 @@ gentest_add_check_death(
     PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "target definition must be in a header or header module"
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -627,6 +614,7 @@ gentest_add_check_death(
     PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "target definition must be in a header or header module"
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -637,12 +625,13 @@ gentest_add_check_death(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-gentest_add_check_death(
+gentest_add_check_exit_code(
     NAME gentest_codegen_mock_nonvirtual_defined_in_included_cu_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    EXPECT_RC 1
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -659,6 +648,7 @@ gentest_add_check_exit_code(
     PROG ${_gentest_codegen_prog}
     EXPECT_RC 0
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -675,6 +665,7 @@ gentest_add_check_exit_code(
     PROG ${_gentest_codegen_prog}
     EXPECT_RC 0
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -691,6 +682,7 @@ gentest_add_check_exit_code(
     PROG ${_gentest_codegen_prog}
     EXPECT_RC 0
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --output
         ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu.gentest.cpp
         --mock-registry
@@ -739,6 +731,7 @@ gentest_add_check_death(
     PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "cannot mock a type in an anonymous namespace"
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -755,6 +748,7 @@ gentest_add_check_death(
     PROG ${_gentest_codegen_prog}
     EXPECT_SUBSTRING "cannot mock a local class"
     ARGS
+        ${_gentest_codegen_discover_mocks_arg}
         --check
         --compdb
         ${CMAKE_BINARY_DIR}
@@ -764,6 +758,7 @@ gentest_add_check_death(
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
+unset(_gentest_codegen_discover_mocks_arg)
 
 # Generator negative tests for fixtures: disallow member tests on suite/global under strict mode
 gentest_add_check_death(
@@ -846,7 +841,6 @@ set_tests_properties(
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
     gentest_codegen_mock_nonvirtual_defined_in_cpp_msg
-    gentest_codegen_mock_named_module_codegen_ok
     gentest_codegen_mock_header_main_tu_ok
     gentest_codegen_mock_nonvirtual_defined_in_cu_msg
     gentest_codegen_mock_nonvirtual_defined_in_included_cpp_msg

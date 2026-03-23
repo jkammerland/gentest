@@ -16,6 +16,12 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+gentest_add_mocks(manual_include_whitespace_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/textual_mock_defs.hpp
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+    HEADER_NAME public/manual_include_whitespace_mocks.hpp)
+
 add_executable(manual_include_whitespace_tests
     main.cpp)
 
@@ -25,6 +31,7 @@ target_sources(manual_include_whitespace_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
 target_link_libraries(manual_include_whitespace_tests PRIVATE gentest gentest_runtime)
+gentest_link_mocks(manual_include_whitespace_tests PRIVATE manual_include_whitespace_mocks)
 target_compile_features(manual_include_whitespace_tests PRIVATE cxx_std_20)
 target_include_directories(manual_include_whitespace_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 

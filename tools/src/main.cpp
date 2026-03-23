@@ -424,7 +424,8 @@ bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_
     // Clang (which is embedded in our clang-tooling binary) rejects these.
     const bool is_module_mapping_arg =
         arg.starts_with("-fmodule-mapper=") || arg.starts_with("-fdeps-format=") || arg.starts_with("-fdeps-file=") ||
-        arg.starts_with("-fdeps-target=") || (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos);
+        arg.starts_with("-fdeps-target=") || arg.starts_with("-fmodule-file=") || arg.starts_with("-fprebuilt-module-path=") ||
+        (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos);
     return arg == "-fmodules-ts" || arg == "-fmodule-header" ||
         (!preserve_module_mapping_args && is_module_mapping_arg) ||
         arg == "-fconcepts-diagnostics-depth" ||
@@ -1533,7 +1534,7 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
             }
             if (!preserve_module_mapping_args &&
                 (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
-                 arg == "-fconcepts-diagnostics-depth")) {
+                 arg == "-fmodule-file" || arg == "-fprebuilt-module-path" || arg == "-fconcepts-diagnostics-depth")) {
                 skip_next_arg = true;
                 continue;
             }
@@ -2232,6 +2233,11 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         llvm::cl::desc("Max concurrency for TU wrapper mode parsing/emission (0=auto)"),
         llvm::cl::init(0),
         llvm::cl::cat(category)};
+    static llvm::cl::opt<bool>         discover_mocks_option{
+        "discover-mocks",
+        llvm::cl::desc("Enable explicit gentest::mock<T> discovery and generated mock outputs"),
+        llvm::cl::init(false),
+        llvm::cl::cat(category)};
     static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::OneOrMore,
                                                      llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  template_option{"template", llvm::cl::desc("Path to the template file used for code generation"),
@@ -2307,6 +2313,7 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         return !skip_env;
     }();
     opts.jobs = static_cast<std::size_t>(jobs_option.getValue());
+    opts.discover_mocks = discover_mocks_option.getValue();
     if (jobs_option.getNumOccurrences() == 0) {
         const auto jobs_env = get_env_value("GENTEST_CODEGEN_JOBS");
         if (jobs_env) {
@@ -3153,8 +3160,9 @@ int main(int argc, const char **argv) {
             std::vector<std::string> module_file_args;
             collect_existing_external_module_file_args(normalize_compdb_lookup_path(module_source.source_path.string()), module_file_args);
             module_file_args.reserve(module_source.imported_modules.size());
+            std::unordered_set<std::string> visited_module_imports;
             for (const auto &import_name : module_source.imported_modules) {
-                if (!append_module_arg_for_import(import_name, module_context, module_file_args)) {
+                if (!append_transitive_module_args_for_import(import_name, module_context, module_file_args, visited_module_imports)) {
                     state = ModuleBuildState::Failed;
                     return false;
                 }
@@ -3462,20 +3470,25 @@ int main(int argc, const char **argv) {
             std::vector<FixtureDeclInfo> local_fixtures;
             FixtureDeclCollector         fixture_collector{local_fixtures};
             std::vector<gentest::codegen::MockClassInfo> local_mocks;
-            MockUsageCollector                            mock_collector{local_mocks};
+            std::optional<MockUsageCollector>            mock_collector;
+            if (options.discover_mocks) {
+                mock_collector.emplace(local_mocks);
+            }
             std::vector<std::string>                      local_dependencies;
 
             MatchFinder finder;
             finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
             finder.addMatcher(cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("gentest.fixture"), &fixture_collector);
-            register_mock_matchers(finder, mock_collector);
+            if (mock_collector.has_value()) {
+                register_mock_matchers(finder, *mock_collector);
+            }
             MatchFinderActionFactory action_factory{finder, local_dependencies};
 
             ParseResult result;
             result.status = tool.run(&action_factory);
             result.had_test_errors = collector.has_errors();
             result.had_fixture_errors = fixture_collector.has_errors();
-            result.had_mock_errors = mock_collector.has_errors();
+            result.had_mock_errors = mock_collector.has_value() && mock_collector->has_errors();
             result.cases = std::move(local_cases);
             result.fixtures = std::move(local_fixtures);
             result.mocks = std::move(local_mocks);
@@ -3550,20 +3563,25 @@ int main(int argc, const char **argv) {
 
         TestCaseCollector  collector{cases, options.strict_fixture, allow_includes};
         FixtureDeclCollector fixture_collector{fixtures};
-        MockUsageCollector mock_collector{mocks};
+        std::optional<MockUsageCollector> mock_collector;
+        if (options.discover_mocks) {
+            mock_collector.emplace(mocks);
+        }
         std::vector<std::string> depfile_dependencies_local;
 
         MatchFinder finder;
         finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
         finder.addMatcher(cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("gentest.fixture"), &fixture_collector);
-        register_mock_matchers(finder, mock_collector);
+        if (mock_collector.has_value()) {
+            register_mock_matchers(finder, *mock_collector);
+        }
         MatchFinderActionFactory action_factory{finder, depfile_dependencies_local};
 
         const int status = tool.run(&action_factory);
         if (status != 0) {
             return status;
         }
-        if (collector.has_errors() || fixture_collector.has_errors() || mock_collector.has_errors()) {
+        if (collector.has_errors() || fixture_collector.has_errors() || (mock_collector.has_value() && mock_collector->has_errors())) {
             return 1;
         }
         depfile_dependencies = std::move(depfile_dependencies_local);

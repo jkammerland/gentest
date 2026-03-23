@@ -88,6 +88,7 @@ if(NOT _symlink_rc EQUAL 0)
 endif()
 
 set(_args
+  --discover-mocks
   --output "${_output_cpp}"
   --mock-registry "${_mock_registry}"
   --mock-impl "${_mock_impl}"

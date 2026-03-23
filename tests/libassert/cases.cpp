@@ -1,7 +1,6 @@
 #include "gentest/assert_libassert.h"
 // Bring in mock API (includes generated registry)
-#include "../mocking/types.h"
-#include "gentest/mock.h"
+#include "public/gentest_textual_suite_mocks.hpp"
 
 #include <ostream>
 

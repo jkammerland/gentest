@@ -4,8 +4,7 @@ using namespace gentest::asserts;
 #include <memory>
 #include <stdexcept>
 
-#include "mocking/types.h"
-#include "gentest/mock.h"
+#include "public/gentest_textual_suite_mocks.hpp"
 
 namespace failing {
 

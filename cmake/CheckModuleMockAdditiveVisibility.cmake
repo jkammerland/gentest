@@ -25,6 +25,33 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
+function(_gentest_find_mock_domain_artifact out_var generated_dir stem kind expected_text)
+  file(GLOB _candidates "${generated_dir}/${stem}__domain_*")
+  set(_matches "")
+  foreach(_candidate IN LISTS _candidates)
+    get_filename_component(_candidate_name "${_candidate}" NAME)
+    if(NOT _candidate_name MATCHES "^${stem}__domain_[0-9]+_.*\\.${kind}$")
+      continue()
+    endif()
+    file(READ "${_candidate}" _candidate_text)
+    string(FIND "${_candidate_text}" "${expected_text}" _candidate_pos)
+    if(NOT _candidate_pos EQUAL -1)
+      list(APPEND _matches "${_candidate}")
+    endif()
+  endforeach()
+
+  list(LENGTH _matches _match_count)
+  if(NOT _match_count EQUAL 1)
+    message(FATAL_ERROR
+      "Expected exactly one generated ${stem} domain artifact containing '${expected_text}', found ${_match_count}.\n"
+      "Candidates:\n${_candidates}\n"
+      "Matches:\n${_matches}")
+  endif()
+
+  list(GET _matches 0 _match)
+  set(${out_var} "${_match}" PARENT_SCOPE)
+endfunction()
+
 set(_work_dir "${BUILD_ROOT}/module_mock_additive_visibility")
 set(_src_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
@@ -99,75 +126,25 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 
 set(_generated_dir "${_build_dir}/generated")
-set(_header_registry "${_generated_dir}/additive_tests_mock_registry__domain_0000_header.hpp")
-set(_provider_registry "${_generated_dir}/additive_tests_mock_registry__domain_0001_gentest_additive_provider.hpp")
-set(_provider_wrapper "${_generated_dir}/tu_0001_provider.module.gentest.cppm")
-set(_header_consumer_wrapper "${_generated_dir}/tu_0002_header_consumer.module.gentest.cppm")
+set(_header_generated_dir "${_generated_dir}/header_mocks")
+set(_provider_generated_dir "${_generated_dir}/provider_mocks")
+set(_header_surface "${_header_generated_dir}/public/additive_header_mocks.hpp")
+set(_provider_surface "${_provider_generated_dir}/additive_provider_mocks.cppm")
 
 foreach(_generated_file IN ITEMS
-    "${_header_registry}"
-    "${_provider_registry}"
-    "${_provider_wrapper}"
-    "${_header_consumer_wrapper}")
+    "${_header_surface}"
+    "${_provider_surface}")
   if(NOT EXISTS "${_generated_file}")
-    message(FATAL_ERROR "Expected generated mock artifact was not written: ${_generated_file}")
+    message(FATAL_ERROR "Expected explicit mock surface was not written: ${_generated_file}")
   endif()
 endforeach()
 
-file(READ "${_header_registry}" _header_registry_text)
-file(READ "${_provider_registry}" _provider_registry_text)
-file(READ "${_provider_wrapper}" _provider_wrapper_text)
-file(READ "${_header_consumer_wrapper}" _header_consumer_wrapper_text)
-
-string(FIND "${_header_registry_text}" "shared::Service" _header_pos)
-if(_header_pos EQUAL -1)
-  message(FATAL_ERROR "Expected header-domain registry to contain shared::Service")
-endif()
-
-string(FIND "${_provider_registry_text}" "provider::Service" _provider_pos)
-if(_provider_pos EQUAL -1)
-  message(FATAL_ERROR "Expected provider module-domain registry to contain provider::Service")
-endif()
-
-string(FIND "${_provider_wrapper_text}" "#include <type_traits>" _provider_type_traits_pos)
-string(FIND "${_provider_wrapper_text}" "export module gentest.additive_provider;" _provider_module_pos)
-if(_provider_type_traits_pos EQUAL -1 OR _provider_module_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected provider module wrapper to contain relocated registration-support includes.\n${_provider_wrapper_text}")
-endif()
-if(_provider_type_traits_pos GREATER _provider_module_pos)
-  message(FATAL_ERROR
-    "Expected provider module wrapper to keep <type_traits> in the global module fragment.\n${_provider_wrapper_text}")
-endif()
-
-string(FIND "${_header_consumer_wrapper_text}" "#include <type_traits>" _header_consumer_type_traits_pos)
-string(FIND "${_header_consumer_wrapper_text}" "export module gentest.additive_header_consumer;" _header_consumer_module_pos)
-if(_header_consumer_type_traits_pos EQUAL -1 OR _header_consumer_module_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected header-consumer module wrapper to contain relocated registration-support includes.\n${_header_consumer_wrapper_text}")
-endif()
-if(_header_consumer_type_traits_pos GREATER _header_consumer_module_pos)
-  message(FATAL_ERROR
-    "Expected header-consumer module wrapper to keep <type_traits> in the global module fragment.\n${_header_consumer_wrapper_text}")
-endif()
-
-string(FIND "${_header_consumer_wrapper_text}" "#include \"gentest/mock_codegen.h\"" _header_consumer_codegen_include_pos)
-if(_header_consumer_module_pos EQUAL -1 OR _header_consumer_codegen_include_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected header-consumer module wrapper to contain a relocated mock_codegen include.\n${_header_consumer_wrapper_text}")
-endif()
-if(_header_consumer_codegen_include_pos GREATER _header_consumer_module_pos)
-  message(FATAL_ERROR
-    "Expected header-consumer mock_codegen include to live in the global module fragment.\n${_header_consumer_wrapper_text}")
-endif()
+_gentest_find_mock_domain_artifact(_header_registry "${_header_generated_dir}" "additive_header_mocks_mock_registry" "hpp" "shared::Service")
+_gentest_find_mock_domain_artifact(_provider_registry "${_provider_generated_dir}" "additive_provider_mocks_mock_registry" "hpp" "provider::Service")
 
 set(_prog "${_build_dir}/additive_tests${CMAKE_EXECUTABLE_SUFFIX}")
 gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=additive/provider_self
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=additive/header_defined_from_module
+  COMMAND "${_prog}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 

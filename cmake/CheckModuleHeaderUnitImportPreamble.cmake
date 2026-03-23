@@ -115,7 +115,13 @@ if(NOT _build_rc EQUAL 0)
 endif()
 
 if(_header_unit_unavailable)
-  message(STATUS "Header-unit import build is unavailable on this toolchain; validating generated wrapper ordering only")
+  message(STATUS "Header-unit import build is unavailable on this toolchain; skipping explicit mock consumer run")
+  return()
+endif()
+
+set(_mock_surface "${_build_dir}/generated/mocks/header_unit_import_preamble_mocks.cppm")
+if(NOT EXISTS "${_mock_surface}")
+  message(FATAL_ERROR "Expected explicit mock module surface was not written: ${_mock_surface}")
 endif()
 
 file(GLOB _wrapper_candidates "${_build_dir}/generated/*.module.gentest.cppm")
@@ -126,16 +132,31 @@ endif()
 list(GET _wrapper_candidates 0 _wrapper)
 file(READ "${_wrapper}" _wrapper_text)
 
-string(FIND "${_wrapper_text}" "// gentest_codegen: injected mock attachment." _injected_pos)
 string(FIND "${_wrapper_text}" "import <vector>;" _header_unit_import_pos)
 
-if(_injected_pos EQUAL -1 OR _header_unit_import_pos EQUAL -1)
+if(_header_unit_import_pos EQUAL -1)
   message(FATAL_ERROR
-    "Expected generated wrapper to contain both injected mock attachment and header-unit import.\n${_wrapper_text}\n${_build_out}\n${_build_err}")
+    "Expected generated wrapper to contain the header-unit import preamble.\n${_wrapper_text}\n${_build_out}\n${_build_err}")
 endif()
-if(NOT _header_unit_import_pos LESS _injected_pos)
-  message(FATAL_ERROR
-    "Expected header-unit import preamble to stay ahead of the injected mock attachment, but it did not.\n${_wrapper_text}")
+
+set(_exe_dir "${_build_dir}")
+if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
+  if(EXISTS "${_build_dir}/${BUILD_TYPE}/header_unit_import_preamble_tests${CMAKE_EXECUTABLE_SUFFIX}")
+    set(_exe_dir "${_build_dir}/${BUILD_TYPE}")
+  endif()
+endif()
+set(_exe "${_exe_dir}/header_unit_import_preamble_tests${CMAKE_EXECUTABLE_SUFFIX}")
+
+execute_process(
+  COMMAND "${_exe}" --run=header_unit/import_preamble
+  WORKING_DIRECTORY "${_work_dir}"
+  RESULT_VARIABLE _run_rc
+  OUTPUT_VARIABLE _run_out
+  ERROR_VARIABLE _run_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _run_rc EQUAL 0)
+  message(FATAL_ERROR "Running explicit header-unit import preamble case failed unexpectedly.\n${_run_out}\n${_run_err}")
 endif()
 
 message(STATUS "Module header-unit import preamble regression passed")

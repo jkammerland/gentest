@@ -59,10 +59,9 @@ file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
-gentest_resolve_clang_fixture_compilers(_clang _clangxx)
-
-if(NOT _clang OR NOT _clangxx)
-  gentest_skip_test("mixed module/non-module mock registry regression: no usable clang/clang++ pair was provided")
+gentest_resolve_clang_fixture_compilers(_effective_c_compiler _effective_cxx_compiler)
+if(NOT _effective_c_compiler OR NOT _effective_cxx_compiler)
+  gentest_skip_test("mixed explicit mock registry regression: no usable C/C++ compiler pair was provided")
   return()
 endif()
 
@@ -76,12 +75,12 @@ endif()
 
 set(_cmake_cache_args
   "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}"
-  "-DCMAKE_C_COMPILER=${_clang}"
-  "-DCMAKE_CXX_COMPILER=${_clangxx}")
+  "-DCMAKE_C_COMPILER=${_effective_c_compiler}"
+  "-DCMAKE_CXX_COMPILER=${_effective_cxx_compiler}")
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
   gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
   if(NOT _supported_ninja)
-    gentest_skip_test("mixed module/non-module mock registry regression: ${_supported_ninja_reason}")
+    gentest_skip_test("mixed explicit mock registry regression: ${_supported_ninja_reason}")
     return()
   endif()
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
@@ -100,7 +99,7 @@ endif()
 if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
 endif()
-gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
+gentest_find_clang_scan_deps(_clang_scan_deps "${_effective_cxx_compiler}")
 if(NOT "${_clang_scan_deps}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
 endif()
@@ -108,7 +107,7 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
-message(STATUS "Configure mixed module/non-module mock registry fixture...")
+message(STATUS "Configure mixed explicit mock registry fixture...")
 gentest_check_run_or_fail(
   COMMAND
     "${CMAKE_COMMAND}"
@@ -119,146 +118,35 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-message(STATUS "Build mixed target with legacy and named-module mocks...")
+message(STATUS "Build mixed explicit mock registry fixture...")
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target mixed_tests
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
 set(_generated_dir "${_build_dir}/generated")
-set(_dispatcher_registry "${_generated_dir}/mixed_tests_mock_registry.hpp")
-set(_dispatcher_impl "${_generated_dir}/mixed_tests_mock_impl.hpp")
-set(_module_wrapper "${_generated_dir}/tu_0001_cases.module.gentest.cppm")
-set(_manual_wrapper "${_generated_dir}/tu_0003_manual_include_cases.module.gentest.cppm")
-set(_same_block_wrapper "${_generated_dir}/tu_0004_same_block_cases.module.gentest.cppm")
-
-_gentest_find_mock_domain_artifact(_header_registry "${_generated_dir}" "mixed_tests_mock_registry" "hpp" "legacy::Service")
-_gentest_find_mock_domain_artifact(_header_impl "${_generated_dir}" "mixed_tests_mock_impl" "hpp" "legacy::Service")
-_gentest_find_mock_domain_artifact(_module_registry "${_generated_dir}" "mixed_tests_mock_registry" "hpp" "mixmod::Service")
-_gentest_find_mock_domain_artifact(_module_impl "${_generated_dir}" "mixed_tests_mock_impl" "hpp" "mixmod::Service")
-_gentest_find_mock_domain_artifact(_extra_registry "${_generated_dir}" "mixed_tests_mock_registry" "hpp" "extramod::Worker")
-_gentest_find_mock_domain_artifact(_extra_impl "${_generated_dir}" "mixed_tests_mock_impl" "hpp" "extramod::Worker")
-_gentest_find_mock_domain_artifact(_manual_registry "${_generated_dir}" "mixed_tests_mock_registry" "hpp" "manualinclude::Service")
-_gentest_find_mock_domain_artifact(_manual_impl "${_generated_dir}" "mixed_tests_mock_impl" "hpp" "manualinclude::Service")
-_gentest_find_mock_domain_artifact(_same_block_registry "${_generated_dir}" "mixed_tests_mock_registry" "hpp" "sameblock::Service")
-_gentest_find_mock_domain_artifact(_same_block_impl "${_generated_dir}" "mixed_tests_mock_impl" "hpp" "sameblock::Service")
+set(_header_generated_dir "${_generated_dir}/header_mocks")
+set(_module_generated_dir "${_generated_dir}/module_mocks")
+set(_header_surface "${_header_generated_dir}/public/mixed_legacy_mocks.hpp")
+set(_module_surface "${_module_generated_dir}/mixed_module_mocks.cppm")
 
 foreach(_generated_file IN ITEMS
-    "${_dispatcher_registry}"
-    "${_dispatcher_impl}"
-    "${_header_registry}"
-    "${_header_impl}"
-    "${_module_registry}"
-    "${_module_impl}"
-    "${_extra_registry}"
-    "${_extra_impl}"
-    "${_manual_registry}"
-    "${_manual_impl}"
-    "${_same_block_registry}"
-    "${_same_block_impl}"
-    "${_module_wrapper}"
-    "${_manual_wrapper}"
-    "${_same_block_wrapper}")
+    "${_header_surface}"
+    "${_module_surface}")
   if(NOT EXISTS "${_generated_file}")
-    message(FATAL_ERROR "Expected generated mock artifact was not written: ${_generated_file}")
+    message(FATAL_ERROR "Expected explicit mock surface was not written: ${_generated_file}")
   endif()
 endforeach()
 
-file(READ "${_header_registry}" _header_registry_text)
-file(READ "${_module_registry}" _module_registry_text)
-file(READ "${_extra_registry}" _extra_registry_text)
-file(READ "${_manual_registry}" _manual_registry_text)
-file(READ "${_same_block_registry}" _same_block_registry_text)
-file(READ "${_dispatcher_registry}" _dispatcher_registry_text)
-file(READ "${_module_wrapper}" _module_wrapper_text)
-file(READ "${_manual_wrapper}" _manual_wrapper_text)
-file(READ "${_same_block_wrapper}" _same_block_wrapper_text)
+_gentest_find_mock_domain_artifact(_header_registry "${_header_generated_dir}" "mixed_header_mocks_mock_registry" "hpp" "legacy::Service")
+_gentest_find_mock_domain_artifact(_module_registry "${_module_generated_dir}" "mixed_module_mocks_mock_registry" "hpp" "mixmod::Service")
+_gentest_find_mock_domain_artifact(_extra_registry "${_module_generated_dir}" "mixed_module_mocks_mock_registry" "hpp" "extramod::Worker")
+_gentest_find_mock_domain_artifact(_same_block_registry "${_module_generated_dir}" "mixed_module_mocks_mock_registry" "hpp" "sameblock::Service")
 
-string(FIND "${_header_registry_text}" "legacy::Service" _header_pos)
-if(_header_pos EQUAL -1)
-  message(FATAL_ERROR "Expected header-domain registry to contain legacy::Service")
-endif()
-
-string(FIND "${_module_registry_text}" "mixmod::Service" _module_pos)
-if(_module_pos EQUAL -1)
-  message(FATAL_ERROR "Expected module-domain registry to contain mixmod::Service")
-endif()
-
-string(FIND "${_extra_registry_text}" "extramod::Worker" _extra_pos)
-if(_extra_pos EQUAL -1)
-  message(FATAL_ERROR "Expected second module-domain registry to contain extramod::Worker")
-endif()
-
-string(FIND "${_manual_registry_text}" "manualinclude::Service" _manual_pos)
-if(_manual_pos EQUAL -1)
-  message(FATAL_ERROR "Expected manual-include module-domain registry to contain manualinclude::Service")
-endif()
-
-string(FIND "${_same_block_registry_text}" "sameblock::Service" _same_block_pos)
-if(_same_block_pos EQUAL -1)
-  message(FATAL_ERROR "Expected same-block module-domain registry to contain sameblock::Service")
-endif()
-
-get_filename_component(_header_registry_name "${_header_registry}" NAME)
-string(FIND "${_dispatcher_registry_text}" "${_header_registry_name}" _dispatcher_header_include_pos)
-if(_dispatcher_header_include_pos EQUAL -1)
-  message(FATAL_ERROR "Expected dispatcher registry to include the header-domain mock shard")
-endif()
-
-string(FIND "${_dispatcher_registry_text}" "GENTEST_MOCK_DOMAIN_REGISTRY_PATH" _dispatcher_domain_macro_pos)
-if(NOT _dispatcher_domain_macro_pos EQUAL -1)
-  message(FATAL_ERROR "Expected dispatcher registry to stop carrying unused source-local mock-domain hooks")
-endif()
-
-foreach(_wrapper_text IN ITEMS
-    "${_module_wrapper_text}"
-    "${_manual_wrapper_text}"
-    "${_same_block_wrapper_text}")
-  string(REGEX MATCH "export[^\n]*module[^\n]*;" _wrapper_module_decl "${_wrapper_text}")
-  if("${_wrapper_module_decl}" STREQUAL "")
-    message(FATAL_ERROR
-      "Expected mixed module wrapper to keep an export module declaration.\n${_wrapper_text}")
-  endif()
-  string(FIND "${_wrapper_text}" "${_wrapper_module_decl}" _wrapper_module_decl_pos)
-  string(FIND "${_wrapper_text}" "// gentest_codegen: injected registration support includes." _wrapper_reg_support_pos)
-  if(NOT _wrapper_reg_support_pos EQUAL -1 AND _wrapper_reg_support_pos GREATER _wrapper_module_decl_pos)
-    message(FATAL_ERROR
-      "Expected mixed module wrappers to keep injected registration support in the global module fragment.\n${_wrapper_text}")
-  endif()
-endforeach()
-
-string(FIND "${_manual_wrapper_text}" "export module gentest.mixed_module_manual_include_cases;" _manual_module_pos)
-string(FIND "${_manual_wrapper_text}" "#include \"gentest/mock_codegen.h\"" _manual_codegen_include_pos)
-if(_manual_module_pos EQUAL -1 OR _manual_codegen_include_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected manual-include wrapper to contain a relocated mock_codegen include.\n${_manual_wrapper_text}")
-endif()
-if(_manual_codegen_include_pos GREATER _manual_module_pos)
-  message(FATAL_ERROR
-    "Expected manual-include wrapper to relocate mock_codegen into the global module fragment.\n${_manual_wrapper_text}")
-endif()
-
-message(STATUS "Run mixed target acceptance cases...")
 set(_prog "${_build_dir}/mixed_tests${CMAKE_EXECUTABLE_SUFFIX}")
 gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=mixed/legacy_mock
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=mixed/module_mock
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=mixed/extra_module_mock
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=mixed/manual_include_module_mock
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=mixed/same_block_module_mock
+  COMMAND "${_prog}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-message(STATUS "Observed expected mixed legacy/header and named-module mock success")
+message(STATUS "Observed mixed explicit header and module mock registry success")

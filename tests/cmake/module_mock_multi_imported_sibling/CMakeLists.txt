@@ -28,7 +28,8 @@ add_executable(multi_imported_sibling_tests
     main.cpp
     legacy_consumer.cpp)
 
-target_link_libraries(multi_imported_sibling_tests PRIVATE gentest gentest_runtime multi_imported_sibling_mocks)
+target_link_libraries(multi_imported_sibling_tests PRIVATE gentest gentest_runtime)
+gentest_link_mocks(multi_imported_sibling_tests PRIVATE multi_imported_sibling_mocks)
 target_compile_features(multi_imported_sibling_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(multi_imported_sibling_tests

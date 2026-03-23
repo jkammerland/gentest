@@ -441,66 +441,112 @@ See [docs/fixtures_allocation.md](docs/fixtures_allocation.md) for the full allo
 
 ### Mocks
 
-`gentest::mock<T>` is generated from your test sources. It works for both virtual interfaces *and* non-virtual types
-(you don’t need `virtual` APIs just to mock them).
+`gentest::mock<T>` now comes from an explicit mock target. You declare mock defs once with
+`gentest_add_mocks(...)`, then your tests include or import the generated mock surface and link the mock target.
 
-Virtual interface example:
+Header-defined mock example:
+
+```cmake
+gentest_add_mocks(clock_mocks
+  DEFS ${CMAKE_CURRENT_SOURCE_DIR}/clock_mocks.hpp
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+  HEADER_NAME public/clock_mocks.hpp)
+
+add_executable(clock_tests cases.cpp)
+target_link_libraries(clock_tests PRIVATE gentest::gentest_main clock_mocks)
+gentest_attach_codegen(clock_tests)
+gentest_discover_tests(clock_tests)
+```
+
+Mock defs (`clock_mocks.hpp`):
+
+```cpp
+#pragma once
+
+#include "clock.h"
+
+namespace mytests::mocks {
+using ClockMock = gentest::mock<Clock>;
+}
+```
+
+Test (`cases.cpp`):
 
 ```cpp
 #include "gentest/attributes.h"
-#include "clock.h" // header that defines Clock
-#include "gentest/mock.h"
+#include "public/clock_mocks.hpp"
 using namespace gentest::asserts;
 
 int read_now(const Clock* c) { return c->now(); }
 
-[[gentest::test("mock/clock")]]
+[[using gentest: test("mock/clock")]]
 void mock_clock() {
-    gentest::mock<Clock> clock;
-    EXPECT_CALL(clock, now).times(1).returns(123);
+    mytests::mocks::ClockMock clock;
+    gentest::expect(clock, &Clock::now).times(1).returns(123);
     EXPECT_EQ(read_now(&clock), 123);
+}
+```
+
+After the generated surface is visible, raw `gentest::mock<T>` is also valid:
+
+```cpp
+gentest::mock<Clock> raw_clock;
+gentest::expect(raw_clock, &Clock::now).times(1).returns(456);
+```
+
+Named-module mock usage is the same idea, but the public surface is a generated module:
+
+```cmake
+gentest_add_mocks(service_mocks
+  DEFS
+    ${CMAKE_CURRENT_SOURCE_DIR}/service.cppm
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.cppm
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+  MODULE_NAME mytests.service_mocks)
+
+add_executable(module_tests
+  main.cpp
+  cases.cppm)
+target_link_libraries(module_tests PRIVATE gentest::gentest_runtime service_mocks)
+gentest_attach_codegen(module_tests)
+gentest_discover_tests(module_tests)
+```
+
+Link explicit mock targets before `gentest_attach_codegen()`, so codegen sees the generated mock surface during the first parse.
+
+Mock defs module (`mock_defs.cppm`):
+
+```cpp
+export module mytests.mock_defs;
+
+import gentest.mock;
+
+export import mytests.service;
+
+export namespace mytests::mocks {
+using ServiceMock = gentest::mock<mytests::Service>;
+}
+```
+
+Consumer module (`cases.cppm`):
+
+```cpp
+export module mytests.cases;
+
+import gentest;
+import mytests.service_mocks;
+
+[[using gentest: test("module/mock")]]
+void module_mock() {
+    mytests::mocks::ServiceMock mock_service;
+    gentest::expect(mock_service, &mytests::Service::compute).times(1).with(3).returns(9);
 }
 ```
 
 Safeguards:
 - Mocked target definitions may live in headers, header-like files, or named modules. Ordinary source files are still rejected by codegen.
 - Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
-- `gentest_codegen` emits required definition-header includes into the generated mock registry, so `gentest/mock.h` can resolve mocks without strict include order.
 - Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (Windows-only path constraint).
-
-Named-module mock usage:
-
-```cpp
-module;
-
-#if defined(GENTEST_CODEGEN)
-#define GENTEST_NO_AUTO_MOCK_INCLUDE 1
-#include "gentest/mock.h"
-#undef GENTEST_NO_AUTO_MOCK_INCLUDE
-#endif
-
-export module my.tests;
-
-import gentest;
-import gentest.mock;
-
-export namespace mytests {
-struct Service {
-    virtual ~Service() = default;
-    virtual int compute(int) = 0;
-};
-}
-
-export namespace mytests {
-[[using gentest: test("module/mock")]]
-void module_mock() {
-    gentest::mock<Service> mock_service;
-    gentest::expect(mock_service, &Service::compute).times(1).with(3).returns(9);
-}
-}
-```
-
-For named modules, normal builds only need `import gentest.mock;` for the API surface. The codegen parse path still loads `gentest/mock.h` in the global module fragment with auto-inclusion disabled, but target-local mock specializations are now injected automatically into generated module wrapper sources. No user `#include "gentest/mock_codegen.h"` step is required.
 
 Generated mock outputs are partitioned by visibility domain. A single target can mix classic/header-defined mocks with mocks defined in multiple named modules; classic TUs pick up the header-domain shard, and each named module source picks up only its own generated module-domain shard.
 
@@ -517,10 +563,11 @@ struct Sink {
 
 Test file (`cases.cpp`):
 
+Assume `public/sink_mocks.hpp` is the generated header surface from an explicit mock target, for example one that publishes `demo::mocks::SinkMock` and `demo::mocks::TickerMock`.
+
 ```cpp
 #include "gentest/attributes.h"
-#include "sink.h" // header that defines Sink::write(int)
-#include "gentest/mock.h"
+#include "public/sink_mocks.hpp"
 using namespace gentest::asserts;
 
 template <class SinkLike>
@@ -530,7 +577,7 @@ void emit(SinkLike* s) {
 
 [[gentest::test("mock/nonvirtual")]]
 void mock_nonvirtual() {
-    gentest::mock<Sink> sink;
+    demo::mocks::SinkMock sink;
     EXPECT_CALL(sink, write).times(1).with(7);
     emit(&sink);
 }
@@ -539,11 +586,10 @@ void mock_nonvirtual() {
 Matchers (`.where(...)` with `gentest::match` helpers):
 
 ```cpp
-#include "sink.h"
-#include "gentest/mock.h"
+#include "public/sink_mocks.hpp"
 using namespace gentest::match;
 
-gentest::mock<Sink> sink;
+demo::mocks::SinkMock sink;
 EXPECT_CALL(sink, write).times(2).where(InRange(10, 20));
 Sink* sink_ptr = &sink;
 sink_ptr->write(12);
@@ -556,7 +602,7 @@ struct Ticker {
     static int add(int lhs, int rhs) noexcept { return lhs + rhs; }
 };
 
-gentest::mock<Ticker> t;
+demo::mocks::TickerMock t;
 EXPECT_CALL(t, add).times(1).returns(123);
 EXPECT_EQ(t.add(4, 5), 123);
 ```

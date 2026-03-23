@@ -1,7 +1,6 @@
 #include "gentest/attributes.h"
 #include "gentest/bench_util.h"
-#include "gentest/mock.h"
-#include "service.hpp"
+#include "public/gentest_consumer_mocks.hpp"
 
 using namespace gentest::asserts;
 
@@ -27,7 +26,7 @@ void module_test(SuiteFixture &suite_fx, GlobalFixture &global_fx) {
 
 [[using gentest: test("consumer/module_mock")]]
 void module_mock() {
-    gentest::mock<Service> mock_service;
+    consumer::mocks::ServiceMock mock_service;
     gentest::expect(mock_service, &Service::compute).times(1).with(3).returns(9);
 
     Service *service = &mock_service;

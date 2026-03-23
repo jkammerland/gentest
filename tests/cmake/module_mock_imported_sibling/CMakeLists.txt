@@ -32,7 +32,8 @@ target_sources(imported_sibling_tests
         FILE_SET imported_sibling_cases TYPE CXX_MODULES FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/consumer.cppm)
 
-target_link_libraries(imported_sibling_tests PRIVATE gentest gentest_runtime imported_sibling_mocks)
+target_link_libraries(imported_sibling_tests PRIVATE gentest gentest_runtime)
+gentest_link_mocks(imported_sibling_tests PRIVATE imported_sibling_mocks)
 target_compile_features(imported_sibling_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(imported_sibling_tests

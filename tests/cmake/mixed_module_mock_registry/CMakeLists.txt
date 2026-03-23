@@ -16,22 +16,25 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+gentest_add_mocks(mixed_header_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/header_mock_defs.hpp
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/header_mocks"
+    HEADER_NAME public/mixed_legacy_mocks.hpp)
+
+gentest_add_mocks(mixed_module_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm
+        ${CMAKE_CURRENT_SOURCE_DIR}/extra_cases.cppm
+        ${CMAKE_CURRENT_SOURCE_DIR}/same_block_cases.cppm
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.cppm
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/module_mocks"
+    MODULE_NAME gentest.mixed_module_mocks)
+
 add_executable(mixed_tests
-    legacy.cpp)
+    main.cpp
+    legacy.cpp
+    module_consumer.cpp)
 
-target_sources(mixed_tests
-    PRIVATE
-        FILE_SET mixed_cases TYPE CXX_MODULES FILES
-            ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm
-            ${CMAKE_CURRENT_SOURCE_DIR}/extra_cases.cppm
-            ${CMAKE_CURRENT_SOURCE_DIR}/manual_include_cases.cppm
-            ${CMAKE_CURRENT_SOURCE_DIR}/same_block_cases.cppm)
-
-target_link_libraries(mixed_tests PRIVATE gentest gentest_main)
+gentest_link_mocks(mixed_tests PRIVATE mixed_header_mocks mixed_module_mocks)
 target_compile_features(mixed_tests PRIVATE cxx_std_20)
-target_include_directories(mixed_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-
-gentest_attach_codegen(mixed_tests
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
-    CLANG_ARGS
-        -I${CMAKE_CURRENT_SOURCE_DIR})

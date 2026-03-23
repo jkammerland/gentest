@@ -37,8 +37,15 @@ gentest_add_mocks(explicit_module_mocks
 
 add_executable(explicit_header_consumer header_consumer.cpp)
 target_compile_features(explicit_header_consumer PRIVATE cxx_std_20)
-target_link_libraries(explicit_header_consumer PRIVATE explicit_header_mocks explicit_header_mocks_extra)
+gentest_link_mocks(explicit_header_consumer PRIVATE explicit_header_mocks explicit_header_mocks_extra)
 
 add_executable(explicit_module_consumer module_consumer.cpp)
 target_compile_features(explicit_module_consumer PRIVATE cxx_std_20)
-target_link_libraries(explicit_module_consumer PRIVATE explicit_module_mocks)
+gentest_link_mocks(explicit_module_consumer PRIVATE explicit_module_mocks)
+
+add_executable(explicit_late_link_consumer late_link_cases.cpp)
+target_compile_features(explicit_late_link_consumer PRIVATE cxx_std_20)
+target_link_libraries(explicit_late_link_consumer PRIVATE gentest_main)
+gentest_attach_codegen(explicit_late_link_consumer
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/late_link")
+gentest_link_mocks(explicit_late_link_consumer PRIVATE explicit_header_mocks)

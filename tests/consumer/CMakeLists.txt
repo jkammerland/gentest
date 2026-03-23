@@ -43,12 +43,25 @@ endif()
 
 if(GENTEST_CONSUMER_USE_MODULES)
     target_compile_definitions(gentest_consumer PRIVATE GENTEST_CONSUMER_USE_MODULES=1)
+    gentest_add_mocks(gentest_consumer_explicit_mocks
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/service_module.cppm
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_mock_defs.cppm
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+        MODULE_NAME gentest.consumer_mocks)
     target_sources(gentest_consumer
         PRIVATE
             FILE_SET module_cases TYPE CXX_MODULES FILES
                 ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
+    gentest_link_mocks(gentest_consumer PRIVATE gentest_consumer_explicit_mocks)
 else()
+    gentest_add_mocks(gentest_consumer_explicit_mocks
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/header_mock_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+        HEADER_NAME public/gentest_consumer_mocks.hpp)
     target_sources(gentest_consumer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp)
+    gentest_link_mocks(gentest_consumer PRIVATE gentest_consumer_explicit_mocks)
 endif()
 
 gentest_attach_codegen(gentest_consumer

@@ -1,7 +1,7 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
+#include "public/gentest_textual_suite_mocks.hpp"
 #include "helper.hpp" // use mock<T> in non-annotated helper code
-#include "types.h"
 
 #include <array>
 #include <condition_variable>
@@ -11,12 +11,8 @@
 #include <vector>
 
 using namespace gentest::asserts;
-
-#include "gentest/mock.h"
-
 namespace mocking {
 
-#ifndef GENTEST_CODEGEN
 static_assert(!std::is_default_constructible_v<gentest::mock<NoDefault>>);
 static_assert(std::is_nothrow_constructible_v<gentest::mock<NoDefault>, int>);
 static_assert(std::is_constructible_v<gentest::mock<NoDefault>, int, long>);
@@ -29,7 +25,6 @@ static_assert(std::is_constructible_v<gentest::mock<NeedsInit>, int, long>);
 static_assert(!std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, int, long>);
 static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, short>);
 static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, short, int>);
-#endif
 
 [[using gentest: test("mocking/interface/returns")]]
 void interface_returns() {
@@ -79,18 +74,11 @@ void interface_reset() {
 
 [[using gentest: test("mocking/interface/non_default_ctor")]]
 void interface_non_default_ctor() {
-#ifdef GENTEST_CODEGEN
-    // Codegen parses this TU with a placeholder gentest::mock<T> to discover
-    // mockable methods; avoid relying on generated constructors/overrides here.
-    gentest::mock<NeedsInit> mock_clock{5};
-    EXPECT_CALL(mock_clock, now).times(1);
-#else
     gentest::mock<NeedsInit> mock_clock{5};
     EXPECT_CALL(mock_clock, now).times(1).returns(123);
 
     NeedsInit *iface = &mock_clock;
     EXPECT_EQ(iface->now(), 123);
-#endif
 }
 
 [[using gentest: test("mocking/concrete/invokes")]]
@@ -108,28 +96,18 @@ void concrete_invokes() {
 
 [[using gentest: test("mocking/concrete/non_default_ctor")]]
 void concrete_non_default_ctor() {
-#ifdef GENTEST_CODEGEN
-    gentest::mock<NoDefault> mock_nd{7};
-    EXPECT_CALL(mock_nd, work).times(1);
-#else
     gentest::mock<NoDefault> mock_nd{7};
     EXPECT_CALL(mock_nd, work).times(1).with(3);
 
     mock_nd.work(3);
-#endif
 }
 
 [[using gentest: test("mocking/concrete/static_member")]]
 void concrete_static_member() {
-#ifdef GENTEST_CODEGEN
-    gentest::mock<Ticker> mock_tick;
-    EXPECT_CALL(mock_tick, add).times(1);
-#else
     gentest::mock<Ticker> mock_tick;
     EXPECT_CALL(mock_tick, add).times(1).returns(123);
 
     EXPECT_EQ(mock_tick.add(4, 5), 123);
-#endif
 }
 
 [[using gentest: test("mocking/concrete/invokes_matches")]]

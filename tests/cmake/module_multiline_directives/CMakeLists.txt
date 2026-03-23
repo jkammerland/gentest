@@ -16,16 +16,23 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+gentest_add_mocks(multiline_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/provider.ixx
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.cppm
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+    MODULE_NAME gentest.multiline_mocks)
+
 add_executable(multiline_directive_tests
     main.cpp)
 
 target_sources(multiline_directive_tests
     PRIVATE
         FILE_SET multiline_cases TYPE CXX_MODULES FILES
-            ${CMAKE_CURRENT_SOURCE_DIR}/provider.ixx
             ${CMAKE_CURRENT_SOURCE_DIR}/consumer.cppm)
 
 target_link_libraries(multiline_directive_tests PRIVATE gentest gentest_runtime)
+gentest_link_mocks(multiline_directive_tests PRIVATE multiline_mocks)
 target_compile_features(multiline_directive_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(multiline_directive_tests

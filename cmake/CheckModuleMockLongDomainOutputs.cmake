@@ -110,11 +110,17 @@ file(READ "${_build_ninja}" _build_ninja_text)
 
 string(REGEX MATCH "generated/long_domain_tests_mock_registry__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_registry_rel "${_build_ninja_text}")
 if(_expected_registry_rel STREQUAL "")
-  message(FATAL_ERROR "Expected build.ninja to declare a long module registry domain output")
+  string(REGEX MATCH "generated/mocks/long_domain_mocks_mock_registry__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_registry_rel "${_build_ninja_text}")
+endif()
+if(_expected_registry_rel STREQUAL "")
+  message(FATAL_ERROR "Expected build.ninja to declare a long explicit module registry domain output")
 endif()
 string(REGEX MATCH "generated/long_domain_tests_mock_impl__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_impl_rel "${_build_ninja_text}")
 if(_expected_impl_rel STREQUAL "")
-  message(FATAL_ERROR "Expected build.ninja to declare a long module impl domain output")
+  string(REGEX MATCH "generated/mocks/long_domain_mocks_mock_impl__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_impl_rel "${_build_ninja_text}")
+endif()
+if(_expected_impl_rel STREQUAL "")
+  message(FATAL_ERROR "Expected build.ninja to declare a long explicit module impl domain output")
 endif()
 
 set(_expected_registry_output "${_build_dir}/${_expected_registry_rel}")
@@ -122,10 +128,10 @@ set(_expected_impl_output "${_build_dir}/${_expected_impl_rel}")
 
 file(GLOB _registry_domain_outputs
   LIST_DIRECTORIES FALSE
-  "${_build_dir}/generated/long_domain_tests_mock_registry__domain_0001_*.hpp")
+  "${_build_dir}/generated/mocks/long_domain_mocks_mock_registry__domain_0001_*.hpp")
 file(GLOB _impl_domain_outputs
   LIST_DIRECTORIES FALSE
-  "${_build_dir}/generated/long_domain_tests_mock_impl__domain_0001_*.hpp")
+  "${_build_dir}/generated/mocks/long_domain_mocks_mock_impl__domain_0001_*.hpp")
 
 list(LENGTH _registry_domain_outputs _registry_domain_count)
 if(NOT _registry_domain_count EQUAL 1)
@@ -158,7 +164,7 @@ endif()
 
 set(_prog "${_build_dir}/long_domain_tests${CMAKE_EXECUTABLE_SUFFIX}")
 gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=long_domain/provider_self
+  COMMAND "${_prog}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 

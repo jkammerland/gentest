@@ -1,14 +1,8 @@
 module;
 
-#if defined(GENTEST_CODEGEN)
-#include "gentest/runner.h"
-#endif
-
 export module gentest.same_line_consumer; import gentest.same_line_provider;
 
-#if !defined(GENTEST_CODEGEN)
 import gentest;
-#endif
 
 using namespace gentest::asserts;
 

@@ -1,6 +1,5 @@
 #include "gentest/runner.h"
-#include "gentest/mock.h"
-#include "mocking/types.h"
+#include "public/gentest_textual_suite_mocks.hpp"
 
 using namespace gentest::asserts;
 

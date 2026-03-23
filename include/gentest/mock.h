@@ -161,7 +161,7 @@ bool check_args_equal(const std::optional<Tuple> &expected, std::string_view met
                  if (!(std::get<I>(*expected) == std::get<I>(actual_tuple))) {
                      ::gentest::detail::record_failure(fmt::format(
                          "argument[{}] mismatch for {}: expected {}, got {}", I, method_name, to_string_fallback(std::get<I>(*expected)),
-                        to_string_fallback(std::get<I>(actual_tuple))), std::source_location::current());
+                        to_string_fallback(std::get<I>(actual_tuple))));
                      reported = true;
                  }
              }()),
@@ -183,8 +183,7 @@ bool check_args_by_predicates(const std::optional<TuplePred> &preds, std::string
               const auto &a  = std::get<I>(actual_tuple);
               if (!ap.test(a)) {
                   const std::string msg = ap.describe ? ap.describe(a) : std::string("predicate mismatch");
-                  ::gentest::detail::record_failure(
-                      fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg), std::source_location::current());
+                  ::gentest::detail::record_failure(fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg));
                   return false;
               }
               return true;
@@ -199,8 +198,7 @@ inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std
         return;
     already_verified = true;
     if (observed < expected) {
-        ::gentest::detail::record_failure(
-            fmt::format("expected {} call(s) to {} but observed {}", expected, method_name, observed), std::source_location::current());
+        ::gentest::detail::record_failure(fmt::format("expected {} call(s) to {} but observed {}", expected, method_name, observed));
     }
 }
 
@@ -419,7 +417,7 @@ class InstanceState {
         using ExpectationT = Expectation<R(Args...)>;
         auto expectation = std::static_pointer_cast<ExpectationT>(std::move(base_expectation));
         if (unexpected) {
-            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name), std::source_location::current());
+            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
         }
         if constexpr (std::is_void_v<R>) {
             expectation->invoke(method_name, std::forward<Args>(args)...);

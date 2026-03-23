@@ -109,6 +109,7 @@ configure_file("${_mock_cross_root_fixture_dir}/cross_root_input.cpp.in" "${_inp
 unset(CROSS_ROOT_HEADER)
 
 set(_args
+  --discover-mocks
   --output "${_output_cpp}"
   --mock-registry "${_mock_registry}"
   --mock-impl "${_mock_impl}"

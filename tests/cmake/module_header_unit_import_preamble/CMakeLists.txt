@@ -16,6 +16,13 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+gentest_add_mocks(header_unit_import_preamble_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/provider.cppm
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.cppm
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+    MODULE_NAME gentest.header_unit_import_preamble_mocks)
+
 add_executable(header_unit_import_preamble_tests
     main.cpp)
 
@@ -25,6 +32,7 @@ target_sources(header_unit_import_preamble_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
 target_link_libraries(header_unit_import_preamble_tests PRIVATE gentest gentest_runtime)
+gentest_link_mocks(header_unit_import_preamble_tests PRIVATE header_unit_import_preamble_mocks)
 target_compile_features(header_unit_import_preamble_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(header_unit_import_preamble_tests

@@ -1,9 +1,11 @@
-#if defined(GENTEST_CODEGEN)
-#include "gentest/runner.h"
-#else
-import gentest;
-import gentest.additive_provider;
-import gentest.additive_header_consumer;
-#endif
+#include "consumer_api.hpp"
 
-auto main(int argc, char **argv) -> int { return gentest::run_all_tests(argc, argv); }
+auto main() -> int {
+    if (!run_header_defined_from_module()) {
+        return 1;
+    }
+    if (!run_provider_self()) {
+        return 1;
+    }
+    return 0;
+}

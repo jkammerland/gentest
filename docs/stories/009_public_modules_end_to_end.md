@@ -63,4 +63,4 @@ This removes the last user-facing include step from the named-module mock flow. 
 
 ## Verified
 
-- `ctest --test-dir build/modules-clang -R '^(mocking|mocking_inventory|gentest_codegen_mock_named_module_codegen_ok|gentest_codegen_mock_named_module_ok|gentest_package_consumer)$' --output-on-failure`
+- `ctest --test-dir build/modules-clang -R '^(mocking|mocking_inventory|gentest_explicit_mock_target_surface|gentest_package_consumer)$' --output-on-failure`

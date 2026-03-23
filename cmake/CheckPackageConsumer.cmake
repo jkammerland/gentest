@@ -233,12 +233,25 @@ elseif(NOT PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
   list(APPEND _cmake_cache_args "-DGENTEST_BUILD_CODEGEN=ON")
 endif()
 
+set(_producer_source_surface_key "")
+foreach(_producer_surface_file IN ITEMS
+    "${SOURCE_DIR}/include/gentest/mock.h"
+    "${SOURCE_DIR}/include/gentest/gentest.cppm"
+    "${SOURCE_DIR}/include/gentest/gentest.mock.cppm"
+    "${SOURCE_DIR}/cmake/GentestCodegen.cmake"
+    "${SOURCE_DIR}/cmake/gentestConfig.cmake.in")
+  if(EXISTS "${_producer_surface_file}")
+    file(SHA256 "${_producer_surface_file}" _producer_surface_hash)
+    string(APPEND _producer_source_surface_key "|${_producer_surface_file}:${_producer_surface_hash}")
+  endif()
+endforeach()
+
 set(_work_dir_semantic_key
-  "${PACKAGE_NAME}|${CONSUMER_LINK_MODE}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}")
+  "${PACKAGE_NAME}|${CONSUMER_LINK_MODE}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}|${_producer_source_surface_key}")
 string(MD5 _work_dir_hash "${_work_dir_semantic_key}")
 string(SUBSTRING "${_work_dir_hash}" 0 12 _work_dir_hash_short)
 set(_producer_semantic_key
-  "${PACKAGE_NAME}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}")
+  "${PACKAGE_NAME}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}|${_producer_source_surface_key}")
 string(MD5 _producer_hash "${_producer_semantic_key}")
 string(SUBSTRING "${_producer_hash}" 0 12 _producer_hash_short)
 string(REGEX REPLACE "[^A-Za-z0-9]+" "_" _package_tag "${PACKAGE_NAME}")

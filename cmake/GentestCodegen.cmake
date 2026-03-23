@@ -159,15 +159,6 @@ function(_gentest_materialize_explicit_module_mock_defs output_dir out_defs out_
         string(MD5 _gentest_def_hash "${_gentest_def}")
         set(_gentest_materialized_def "${_gentest_defs_dir}/${_gentest_def_hash}_${_gentest_def_name}")
         _gentest_stage_explicit_mock_file("${_gentest_defs_dir}" "${_gentest_def}" "${_gentest_def_hash}_${_gentest_def_name}" _gentest_staged_files)
-        file(READ "${_gentest_materialized_def}" _gentest_def_content)
-        set(_gentest_bootstrap_block
-"\n#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n#include \"gentest/mock.h\"\n#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n")
-        if(_gentest_def_content MATCHES "^[ \t\r\n]*module;")
-            string(REGEX REPLACE "^([ \t\r\n]*module;)" "\\1${_gentest_bootstrap_block}" _gentest_def_content "${_gentest_def_content}")
-        else()
-            set(_gentest_def_content "module;${_gentest_bootstrap_block}\n${_gentest_def_content}")
-        endif()
-        file(WRITE "${_gentest_materialized_def}" "${_gentest_def_content}")
         list(APPEND _gentest_materialized_defs "${_gentest_materialized_def}")
         list(APPEND _gentest_public_files ${_gentest_staged_files})
         foreach(_gentest_staged_file IN LISTS _gentest_staged_files)
@@ -2020,6 +2011,7 @@ function(_gentest_attach_tu_wrapper_sources)
     set_property(TARGET ${GENTEST_TARGET} PROPERTY SOURCES "${_gentest_new_sources}")
 
     add_custom_target(gentest_codegen_${GENTEST_TARGET_ID} DEPENDS ${GENTEST_CODEGEN_OUTPUTS})
+    set_property(TARGET ${GENTEST_TARGET} PROPERTY GENTEST_CODEGEN_DEP_TARGET gentest_codegen_${GENTEST_TARGET_ID})
     if(TARGET gentest_codegen_all)
         add_dependencies(gentest_codegen_all gentest_codegen_${GENTEST_TARGET_ID})
     endif()
@@ -2110,6 +2102,10 @@ function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets
         if(NOT _gentest_current STREQUAL "${target}")
             get_target_property(_gentest_is_explicit_mock "${_gentest_current}" GENTEST_EXPLICIT_MOCK_TARGET)
             if(_gentest_is_explicit_mock)
+                get_target_property(_gentest_explicit_codegen_dep "${_gentest_current}" GENTEST_CODEGEN_DEP_TARGET)
+                if(_gentest_explicit_codegen_dep AND NOT _gentest_explicit_codegen_dep MATCHES "-NOTFOUND$")
+                    list(APPEND _gentest_result "${_gentest_explicit_codegen_dep}")
+                endif()
                 list(APPEND _gentest_result "${_gentest_current}")
             endif()
         endif()
@@ -2132,6 +2128,63 @@ function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets
 
     list(REMOVE_DUPLICATES _gentest_result)
     set(${out_targets} "${_gentest_result}" PARENT_SCOPE)
+endfunction()
+
+# Internal convenience helper for in-tree consumers that link explicit mock
+# targets after gentest_attach_codegen() has already added the codegen target.
+# The primary public contract remains: link explicit mock targets before
+# gentest_attach_codegen().
+function(gentest_link_mocks target)
+    if(NOT TARGET "${target}")
+        message(FATAL_ERROR "gentest_link_mocks(${target}): target does not exist")
+    endif()
+
+    set(_gentest_scope "PRIVATE")
+    set(_gentest_mock_targets ${ARGN})
+    if(ARGN)
+        list(GET ARGN 0 _gentest_first_arg)
+        if(_gentest_first_arg STREQUAL "PRIVATE" OR _gentest_first_arg STREQUAL "PUBLIC" OR _gentest_first_arg STREQUAL "INTERFACE")
+            set(_gentest_scope "${_gentest_first_arg}")
+            list(REMOVE_AT _gentest_mock_targets 0)
+        endif()
+    endif()
+
+    if(NOT _gentest_mock_targets)
+        message(FATAL_ERROR
+            "gentest_link_mocks(${target}): provide at least one explicit mock target. "
+            "Usage: gentest_link_mocks(<target> [PRIVATE|PUBLIC|INTERFACE] <mock-target>...)")
+    endif()
+
+    target_link_libraries(${target} ${_gentest_scope} ${_gentest_mock_targets})
+
+    get_target_property(_gentest_consumer_codegen_dep "${target}" GENTEST_CODEGEN_DEP_TARGET)
+    if(NOT _gentest_consumer_codegen_dep OR _gentest_consumer_codegen_dep MATCHES "-NOTFOUND$")
+        return()
+    endif()
+
+    foreach(_gentest_mock_target IN LISTS _gentest_mock_targets)
+        if(NOT TARGET "${_gentest_mock_target}")
+            continue()
+        endif()
+
+        get_target_property(_gentest_mock_alias_target "${_gentest_mock_target}" ALIASED_TARGET)
+        if(_gentest_mock_alias_target AND NOT _gentest_mock_alias_target STREQUAL "_gentest_mock_alias_target-NOTFOUND")
+            set(_gentest_mock_target_actual "${_gentest_mock_alias_target}")
+        else()
+            set(_gentest_mock_target_actual "${_gentest_mock_target}")
+        endif()
+
+        get_target_property(_gentest_is_explicit_mock "${_gentest_mock_target_actual}" GENTEST_EXPLICIT_MOCK_TARGET)
+        if(NOT _gentest_is_explicit_mock)
+            continue()
+        endif()
+
+        get_target_property(_gentest_mock_codegen_dep "${_gentest_mock_target_actual}" GENTEST_CODEGEN_DEP_TARGET)
+        if(_gentest_mock_codegen_dep AND NOT _gentest_mock_codegen_dep MATCHES "-NOTFOUND$")
+            add_dependencies(${_gentest_consumer_codegen_dep} ${_gentest_mock_codegen_dep})
+        endif()
+        add_dependencies(${_gentest_consumer_codegen_dep} ${_gentest_mock_target_actual})
+    endforeach()
 endfunction()
 
 function(gentest_attach_codegen target)
@@ -2364,6 +2417,10 @@ function(gentest_attach_codegen target)
     endif()
     if(GENTEST_QUIET_CLANG)
         list(APPEND _command --quiet-clang)
+    endif()
+    get_target_property(_gentest_attach_discovers_mocks ${target} GENTEST_EXPLICIT_MOCK_TARGET)
+    if(_gentest_attach_discovers_mocks)
+        list(APPEND _command --discover-mocks)
     endif()
     if(NOT "${GENTEST_CODEGEN_SCAN_DEPS_MODE}" STREQUAL "")
         list(APPEND _command "--scan-deps-mode=${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
