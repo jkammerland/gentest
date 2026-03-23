@@ -8,10 +8,19 @@
 import gentest.imported_sibling_provider;
 #endif
 
+#if defined(GENTEST_CODEGEN)
+#include "gentest/runner.h"
+#if !GENTEST_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN
+#define GENTEST_NO_AUTO_MOCK_INCLUDE 1
+#include "gentest/mock.h"
+#undef GENTEST_NO_AUTO_MOCK_INCLUDE
+#endif
+#else
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 #if !GENTEST_IMPORTED_SIBLING_LEGACY_IMPORT_BROKEN
-#include "public/imported_sibling_mocks.hpp"
+#include "gentest/mock.h"
+#endif
 #endif
 
 using namespace gentest::asserts;
@@ -24,7 +33,9 @@ void legacy_cpp_importer() {
     gentest::mock<imported_sibling::provider::Service> service;
     gentest::expect(service, &imported_sibling::provider::Service::compute).times(1).with(8).returns(21);
 
+#if !defined(GENTEST_CODEGEN)
     imported_sibling::provider::Service &base = service;
     EXPECT_EQ(base.compute(8), 21);
+#endif
 #endif
 }

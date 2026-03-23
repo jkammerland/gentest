@@ -104,22 +104,11 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 
 set(_generated_dir "${_build_dir}/generated")
-file(GLOB _mock_provider_wrappers "${_build_dir}/generated/mocks/*.module.gentest.*")
-set(_provider_wrapper "")
-foreach(_candidate IN LISTS _mock_provider_wrappers)
-  file(READ "${_candidate}" _candidate_text)
-  string(FIND "${_candidate_text}" "module gentest.imported_sibling_provider;" _provider_module_pos)
-  if(NOT _provider_module_pos EQUAL -1)
-    set(_provider_wrapper "${_candidate}")
-    set(_provider_wrapper_text "${_candidate_text}")
-    break()
-  endif()
-endforeach()
-if(_provider_wrapper STREQUAL "")
-  message(FATAL_ERROR
-    "Expected explicit imported-sibling mocks target to generate a provider module wrapper under '${_build_dir}/generated/mocks', "
-    "but none were found.\nCandidates: ${_mock_provider_wrappers}")
+set(_provider_wrapper "${_generated_dir}/tu_0002_provider.module.gentest.ixx")
+if(NOT EXISTS "${_provider_wrapper}")
+  message(FATAL_ERROR "Expected generated provider module wrapper was not written: ${_provider_wrapper}")
 endif()
+file(READ "${_provider_wrapper}" _provider_wrapper_text)
 string(FIND "${_provider_wrapper_text}" "#include <type_traits>" _provider_type_traits_pos)
 if(NOT _provider_type_traits_pos EQUAL -1)
   message(FATAL_ERROR
