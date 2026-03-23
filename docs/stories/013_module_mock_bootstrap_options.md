@@ -4,6 +4,9 @@
 > Decision update: Option 2 was chosen as the long-term direction. Follow-on
 > work is tracked in
 > [`014_explicit_mock_target_codegen.md`](014_explicit_mock_target_codegen.md).
+> That follow-on story is intentionally narrow: textual defs stay textual, and
+> module defs stay modular. Cross-surface bridge generation is not the default
+> goal.
 
 ## Goal
 
