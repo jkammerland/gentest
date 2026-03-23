@@ -69,13 +69,6 @@ elseif(TEST_CASE STREQUAL "missing_named_module")
             ${CMAKE_CURRENT_SOURCE_DIR}/bad_module.cppm
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
         MODULE_NAME fixture.validation_missing_named_module)
-elseif(TEST_CASE STREQUAL "module_only_header_name")
-    gentest_add_mocks(explicit_validation_module_only_header
-        DEFS
-            ${CMAKE_CURRENT_SOURCE_DIR}/good_module.cppm
-        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
-        MODULE_NAME fixture.validation_module_only
-        HEADER_NAME "fixture_validation_module_only.hpp")
 else()
     message(FATAL_ERROR "Unknown TEST_CASE='${TEST_CASE}'")
 endif()

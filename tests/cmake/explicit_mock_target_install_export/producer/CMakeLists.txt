@@ -31,7 +31,8 @@ gentest_add_mocks(explicit_module_exported_mocks
         ${CMAKE_CURRENT_SOURCE_DIR}/service_module.cppm
         ${CMAKE_CURRENT_SOURCE_DIR}/module_mocks.cppm
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_module"
-    MODULE_NAME fixture.explicit_module_mocks)
+    MODULE_NAME fixture.explicit_module_mocks
+    HEADER_NAME public/fixture_module_mocks.hpp)
 
 install(TARGETS explicit_exported_mocks
     EXPORT explicit_exported_mocksTargets
@@ -42,6 +43,7 @@ install(TARGETS explicit_exported_mocks
 install(TARGETS explicit_module_exported_mocks
     EXPORT explicit_exported_mocksTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    FILE_SET gentest_explicit_mock_headers DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILE_SET gentest_explicit_mock_module_headers DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILE_SET gentest_explicit_mock_modules_private DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILE_SET gentest_explicit_mock_aggregate_module DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"

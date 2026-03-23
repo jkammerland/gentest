@@ -112,7 +112,8 @@ gentest_check_run_or_fail(
 
 foreach(_generated_header IN ITEMS
     "${_build_dir}/generated/header/public/fixture_header_mocks.hpp"
-    "${_build_dir}/generated/header_extra/public/fixture_alt_header_mocks.hpp")
+    "${_build_dir}/generated/header_extra/public/fixture_alt_header_mocks.hpp"
+    "${_build_dir}/generated/module/public/fixture_module_mocks.hpp")
   if(NOT EXISTS "${_generated_header}")
     message(FATAL_ERROR "Expected generated explicit mock header was not written: ${_generated_header}")
   endif()
@@ -131,7 +132,7 @@ if(NOT EXISTS "${_generated_module_aggregate}")
   message(FATAL_ERROR "Expected generated explicit mock aggregate module was not written: ${_generated_module_aggregate}")
 endif()
 
-foreach(_prog_name IN ITEMS explicit_header_consumer explicit_module_consumer)
+foreach(_prog_name IN ITEMS explicit_header_consumer explicit_module_consumer explicit_module_header_consumer)
   set(_prog_path "${_build_dir}/${_prog_name}${CMAKE_EXECUTABLE_SUFFIX}")
   message(STATUS "Run ${_prog_name}...")
   gentest_check_run_or_fail(

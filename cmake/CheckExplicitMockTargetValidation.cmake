@@ -124,4 +124,3 @@ _gentest_expect_configure_failure("reserved_header_name" "reserved generated out
 _gentest_expect_configure_failure("generator_expression_defs" "generator-expression")
 _gentest_expect_configure_failure("generator_expression_output_dir" "OUTPUT_DIR")
 _gentest_expect_configure_failure("missing_named_module" "failed to")
-_gentest_expect_configure_failure("module_only_header_name" "textual header/source file")

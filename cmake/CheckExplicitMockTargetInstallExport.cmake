@@ -140,6 +140,10 @@ set(_installed_public_header "${_install_prefix}/include/public/fixture_header_m
 if(NOT EXISTS "${_installed_public_header}")
   message(FATAL_ERROR "Expected installed explicit mock public header was not found: ${_installed_public_header}")
 endif()
+set(_installed_module_public_header "${_install_prefix}/include/public/fixture_module_mocks.hpp")
+if(NOT EXISTS "${_installed_module_public_header}")
+  message(FATAL_ERROR "Expected installed explicit mock module header was not found: ${_installed_module_public_header}")
+endif()
 set(_installed_module_aggregate "${_install_prefix}/include/explicit_module_exported_mocks.cppm")
 if(NOT EXISTS "${_installed_module_aggregate}")
   message(FATAL_ERROR "Expected installed explicit mock aggregate module was not found: ${_installed_module_aggregate}")
@@ -172,7 +176,10 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-foreach(_consumer_exe IN ITEMS explicit_installed_consumer explicit_installed_module_consumer)
+foreach(_consumer_exe IN ITEMS
+    explicit_installed_consumer
+    explicit_installed_module_consumer
+    explicit_installed_module_header_consumer)
   message(STATUS "Run ${_consumer_exe}...")
   gentest_check_run_or_fail(
     COMMAND "${_consumer_build_dir}/${_consumer_exe}${CMAKE_EXECUTABLE_SUFFIX}"
