@@ -3039,11 +3039,24 @@ int main(int argc, const char **argv) {
                                                         "clang-scan-deps did not provide module dependency data");
                         return nullptr;
                     }
-                    imported_modules = parse_imported_named_modules_from_source(candidate, {}, std::string_view(*discovered_name),
-                                                                               candidate_include_search_paths,
-                                                                               build_augmented_scan_command_line(
-                                                                                   candidate_source_commands, candidate_driver_commands,
-                                                                                   candidate.string(), candidate.string()));
+                }
+
+                auto source_scanned_imports = parse_imported_named_modules_from_source(
+                    candidate, {}, std::string_view(*discovered_name), candidate_include_search_paths,
+                    build_augmented_scan_command_line(candidate_source_commands, candidate_driver_commands, candidate.string(),
+                                                      candidate.string()));
+                if (const auto wrapped_source = resolve_wrapped_source_from_codegen_shim(candidate.string()); wrapped_source.has_value()) {
+                    auto wrapped_imports = parse_imported_named_modules_from_source(
+                        *wrapped_source, {}, std::string_view(*discovered_name), candidate_include_search_paths,
+                        build_augmented_scan_command_line(candidate_source_commands, candidate_driver_commands, candidate.string(),
+                                                          candidate.string()));
+                    source_scanned_imports.insert(source_scanned_imports.end(), wrapped_imports.begin(), wrapped_imports.end());
+                }
+
+                if (!external_scan_deps_succeeded) {
+                    imported_modules = std::move(source_scanned_imports);
+                } else {
+                    imported_modules.insert(imported_modules.end(), source_scanned_imports.begin(), source_scanned_imports.end());
                 }
                 std::sort(imported_modules.begin(), imported_modules.end());
                 imported_modules.erase(std::unique(imported_modules.begin(), imported_modules.end()), imported_modules.end());
