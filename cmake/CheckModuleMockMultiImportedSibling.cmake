@@ -130,8 +130,8 @@ if(NOT EXISTS "${_aggregate_module}")
 endif()
 
 set(_prog "${_build_dir}/multi_imported_sibling_tests${CMAKE_EXECUTABLE_SUFFIX}")
-message(STATUS "Run classic importer acceptance case with two imported module mocks...")
+message(STATUS "Run module importer acceptance case with two imported module mocks...")
 gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=multi_imported_sibling/legacy_cpp_importer_two_module_mocks
+  COMMAND "${_prog}" --run=multi_imported_sibling/module_two_module_mocks
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)

@@ -3226,7 +3226,6 @@ int main(int argc, const char **argv) {
 
             state = ModuleBuildState::Building;
             std::vector<std::string> module_file_args;
-            append_preserved_scan_deps_module_args(module_source->scan_deps_module_args, module_file_args);
             module_file_args.reserve(module_source->imported_modules.size());
             for (const auto &import_name : module_source->imported_modules) {
                 if (!append_module_arg_for_import(import_name, module_source->resolution_context, module_file_args)) {
@@ -3308,7 +3307,6 @@ int main(int argc, const char **argv) {
 
             if (const auto *external_module = resolve_external_named_module_source(import_name, context);
                 external_module != nullptr) {
-                append_preserved_scan_deps_module_args(external_module->scan_deps_module_args, module_file_args);
                 const auto &nested_context = external_module->resolution_context;
                 for (const auto &nested_import : external_module->imported_modules) {
                     if (!append_transitive_module_args_for_import(nested_import, nested_context, module_file_args, visited)) {

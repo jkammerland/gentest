@@ -1,6 +1,6 @@
 export module gentest.mixed_module_mock_defs;
 
-import gentest.mock;
+export import gentest.mock;
 
 export import gentest.mixed_module_cases;
 export import gentest.mixed_module_extra_cases;

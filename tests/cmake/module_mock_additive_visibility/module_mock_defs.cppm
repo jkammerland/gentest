@@ -1,6 +1,6 @@
 export module gentest.additive_provider_mock_defs;
 
-import gentest.mock;
+export import gentest.mock;
 
 export import gentest.additive_provider;
 

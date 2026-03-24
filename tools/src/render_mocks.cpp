@@ -418,7 +418,7 @@ std::string build_mock_access(const MockClassInfo &cls) {
         const std::string fq_method    = fmt::format("::{}", method.qualified_name);
         const std::string branch_intro = first_branch ? "        if constexpr" : "        else if constexpr";
         first_branch                   = false;
-        body.append("{0} (std::is_same_v<MethodPtr, {1}>) {{\n", branch_intro, pointer_type);
+        body.append("{0} (::gentest::detail::mocking::same_v<MethodPtr, {1}>) {{\n", branch_intro, pointer_type);
         body.append("            if (method == static_cast<MethodPtr>(&{0}::{1})) {{\n", fq_type, method.method_name);
         body.append("                auto token = instance.__gentest_state_.identify(&{0}::{1});\n"
                     "                auto expectation = instance.__gentest_state_.template push_expectation<{2}>(token, \"{3}\");\n"

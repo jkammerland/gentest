@@ -25,8 +25,12 @@ gentest_add_mocks(multi_imported_sibling_mocks
     MODULE_NAME gentest.multi_imported_sibling_mocks)
 
 add_executable(multi_imported_sibling_tests
-    main.cpp
-    legacy_consumer.cpp)
+    main.cpp)
+
+target_sources(multi_imported_sibling_tests
+    PRIVATE
+        FILE_SET multi_imported_sibling_cases TYPE CXX_MODULES FILES
+            ${CMAKE_CURRENT_SOURCE_DIR}/consumer.cppm)
 
 target_link_libraries(multi_imported_sibling_tests PRIVATE gentest gentest_runtime)
 gentest_link_mocks(multi_imported_sibling_tests PRIVATE multi_imported_sibling_mocks)

@@ -1,6 +1,6 @@
 export module gentest.header_unit_import_preamble_mock_defs;
 
-import gentest.mock;
+export import gentest.mock;
 
 export import gentest.header_unit_import_preamble_provider;
 

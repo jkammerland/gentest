@@ -1,6 +1,6 @@
 export module gentest.long_domain_mock_defs;
 
-import gentest.mock;
+export import gentest.mock;
 
 export import gentest.module_mock_domain_name_is_far_beyond_thirty_two_chars_provider;
 

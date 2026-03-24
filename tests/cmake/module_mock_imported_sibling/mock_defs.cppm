@@ -1,6 +1,6 @@
 export module gentest.imported_sibling_mock_defs;
 
-import gentest.mock;
+export import gentest.mock;
 
 export import gentest.imported_sibling_provider;
 

@@ -534,7 +534,7 @@ std::optional<std::string> render_module_wrapper_source(const fs::path &source_p
             reserve_extra += registration_header_name.size() + 256;
         }
         if (needs_mock_api_include) {
-            reserve_extra += 160;
+            reserve_extra += 96;
         }
     }
 

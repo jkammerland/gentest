@@ -1,6 +1,6 @@
 export module gentest.multi_imported_sibling_mock_defs;
 
-import gentest.mock;
+export import gentest.mock;
 
 export import gentest.multi_imported_sibling_provider_alpha;
 export import gentest.multi_imported_sibling_provider_beta;

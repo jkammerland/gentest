@@ -98,6 +98,9 @@ struct MethodIdentityHash {
     }
 };
 
+template <typename Lhs, typename Rhs>
+inline constexpr bool same_v = std::is_same_v<Lhs, Rhs>;
+
 struct ExpectationBase {
     virtual ~ExpectationBase()                        = default;
     virtual void verify(std::string_view method_name) = 0;

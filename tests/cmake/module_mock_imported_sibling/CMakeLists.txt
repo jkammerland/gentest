@@ -24,8 +24,7 @@ gentest_add_mocks(imported_sibling_mocks
     MODULE_NAME gentest.imported_sibling_mocks)
 
 add_executable(imported_sibling_tests
-    main.cpp
-    legacy_consumer.cpp)
+    main.cpp)
 
 target_sources(imported_sibling_tests
     PRIVATE

@@ -1,6 +1,6 @@
 export module gentest.consumer_mock_defs;
 
-import gentest.mock;
+export import gentest.mock;
 
 export import gentest.consumer_service;
 

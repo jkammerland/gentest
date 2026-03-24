@@ -1,6 +1,6 @@
 export module gentest.multiline_mock_defs;
 
-import gentest.mock;
+export import gentest.mock;
 
 export import gentest.multiline_provider;
 

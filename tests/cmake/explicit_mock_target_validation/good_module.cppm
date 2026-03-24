@@ -1,6 +1,6 @@
 export module fixture.validation.good_module;
 
-import gentest.mock;
+export import gentest.mock;
 
 export namespace fixture::validation {
 

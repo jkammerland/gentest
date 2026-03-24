@@ -21,6 +21,7 @@ using ::gentest::detail::mocking::ExpectationHandle;
 using ::gentest::detail::mocking::ExpectationPusher;
 using ::gentest::detail::mocking::InstanceState;
 using ::gentest::detail::mocking::MethodTraits;
+using ::gentest::detail::mocking::same_v;
 }
 } // namespace detail
 
