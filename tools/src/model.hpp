@@ -102,6 +102,7 @@ struct CollectorOptions {
     std::vector<std::string>             sources;
     std::unordered_map<std::string, std::string> module_interface_names_by_source;
     std::unordered_set<std::string>      module_interface_sources;
+    std::unordered_map<std::string, std::vector<std::filesystem::path>> explicit_module_sources_by_name;
     std::vector<std::string>             clang_args;
     std::optional<std::filesystem::path> compilation_database;
     std::optional<std::filesystem::path> source_root;

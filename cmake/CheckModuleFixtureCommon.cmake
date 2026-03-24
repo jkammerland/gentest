@@ -136,6 +136,49 @@ function(gentest_compiler_version_output out_var compiler_path)
   set(${out_var} "${_out}\n${_err}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_is_known_compiler_launcher_name out_var tool_name)
+  string(TOLOWER "${tool_name}" _tool_name_lower)
+  if(_tool_name_lower STREQUAL "ccache"
+     OR _tool_name_lower STREQUAL "sccache"
+     OR _tool_name_lower STREQUAL "distcc"
+     OR _tool_name_lower STREQUAL "icecc"
+     OR _tool_name_lower STREQUAL "buildcache")
+    set(${out_var} TRUE PARENT_SCOPE)
+  else()
+    set(${out_var} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(gentest_compiler_path_is_launcher_wrapper out_var compiler_path)
+  if("${compiler_path}" STREQUAL "" OR NOT EXISTS "${compiler_path}")
+    set(${out_var} FALSE PARENT_SCOPE)
+    return()
+  endif()
+
+  set(_is_wrapper FALSE)
+
+  get_filename_component(_compiler_dir "${compiler_path}" DIRECTORY)
+  get_filename_component(_compiler_dir_name "${_compiler_dir}" NAME)
+  _gentest_is_known_compiler_launcher_name(_dir_is_launcher "${_compiler_dir_name}")
+  if(_dir_is_launcher)
+    set(_is_wrapper TRUE)
+  endif()
+
+  if(NOT _is_wrapper)
+    get_filename_component(_compiler_realpath "${compiler_path}" REALPATH)
+    if(NOT "${_compiler_realpath}" STREQUAL "")
+      get_filename_component(_compiler_real_name "${_compiler_realpath}" NAME)
+      string(REGEX REPLACE "\\.exe$" "" _compiler_real_name "${_compiler_real_name}")
+      _gentest_is_known_compiler_launcher_name(_real_is_launcher "${_compiler_real_name}")
+      if(_real_is_launcher)
+        set(_is_wrapper TRUE)
+      endif()
+    endif()
+  endif()
+
+  set(${out_var} ${_is_wrapper} PARENT_SCOPE)
+endfunction()
+
 function(gentest_is_supported_module_fixture_clang out_var compiler_path)
   gentest_is_clang_like(_is_clang_like "${compiler_path}")
   if(NOT _is_clang_like)
@@ -182,12 +225,14 @@ function(gentest_resolve_clang_fixture_compilers out_c out_cxx)
   set(_resolved_cxx "")
 
   gentest_is_supported_module_fixture_clang(_has_clang_c "${C_COMPILER}")
-  if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "" AND _has_clang_c)
+  gentest_compiler_path_is_launcher_wrapper(_c_is_launcher_wrapper "${C_COMPILER}")
+  if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "" AND _has_clang_c AND NOT _c_is_launcher_wrapper)
     set(_resolved_c "${C_COMPILER}")
   endif()
 
   gentest_is_supported_module_fixture_clang(_has_clang_cxx "${CXX_COMPILER}")
-  if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "" AND _has_clang_cxx)
+  gentest_compiler_path_is_launcher_wrapper(_cxx_is_launcher_wrapper "${CXX_COMPILER}")
+  if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "" AND _has_clang_cxx AND NOT _cxx_is_launcher_wrapper)
     set(_resolved_cxx "${CXX_COMPILER}")
   endif()
 

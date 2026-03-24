@@ -2228,6 +2228,11 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
         llvm::cl::desc("Path to the clang-scan-deps executable used for named-module dependency discovery"),
         llvm::cl::init(""),
         llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> external_module_source_option{
+        "external-module-source",
+        llvm::cl::desc("Explicit named-module source mapping (module=path)"),
+        llvm::cl::ZeroOrMore,
+        llvm::cl::cat(category)};
     static llvm::cl::opt<unsigned>     jobs_option{
         "jobs",
         llvm::cl::desc("Max concurrency for TU wrapper mode parsing/emission (0=auto)"),
@@ -2296,6 +2301,16 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     }
     if (scan_deps_executable_option.getNumOccurrences() != 0 && !scan_deps_executable_option.getValue().empty()) {
         opts.clang_scan_deps_executable = std::filesystem::path{scan_deps_executable_option.getValue()};
+    }
+    for (const auto &raw_mapping : external_module_source_option) {
+        const auto separator = raw_mapping.find('=');
+        if (separator == std::string::npos || separator == 0 || separator + 1 >= raw_mapping.size()) {
+            gentest::codegen::log_err("gentest_codegen: warning: ignoring invalid --external-module-source='{}'\n", raw_mapping);
+            continue;
+        }
+        const std::string     module_name = raw_mapping.substr(0, separator);
+        std::filesystem::path source_path{raw_mapping.substr(separator + 1)};
+        opts.explicit_module_sources_by_name[module_name].push_back(std::move(source_path));
     }
     opts.strict_fixture = [&] {
         if (strict_fixture_option.getValue()) {
@@ -2787,7 +2802,9 @@ int main(int argc, const char **argv) {
             if (source_commands.empty()) {
                 continue;
             }
-            auto existing_module_args = collect_module_file_args_from_command_line(source_commands.front().CommandLine);
+            const auto expanded_source_command =
+                expand_compile_command_response_files(source_commands.front().CommandLine, source_commands.front().Directory, false);
+            auto existing_module_args = collect_module_file_args_from_command_line(expanded_source_command);
             if (!existing_module_args.empty()) {
                 resolved_scan_deps_module_args_by_source[source_key] = normalize_module_file_args(std::move(existing_module_args));
             }
@@ -2859,6 +2876,37 @@ int main(int argc, const char **argv) {
         if (!filtered_args.empty()) {
             extra_module_args_by_source.emplace(source_key, std::move(filtered_args));
         }
+    }
+    for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+        const auto &source_commands = compile_commands[idx].empty() ? direct_compile_commands[idx] : compile_commands[idx];
+        if (source_commands.empty()) {
+            continue;
+        }
+
+        const auto expanded_source_command =
+            expand_compile_command_response_files(source_commands.front().CommandLine, source_commands.front().Directory, false);
+        auto existing_module_args = collect_module_file_args_from_command_line(expanded_source_command);
+        if (existing_module_args.empty()) {
+            continue;
+        }
+
+        std::vector<std::string> external_module_args;
+        external_module_args.reserve(existing_module_args.size());
+        for (const auto &arg : existing_module_args) {
+            const auto module_name = named_module_from_module_file_arg(arg);
+            if (module_name.has_value() && named_module_index_by_name.contains(std::string(*module_name))) {
+                continue;
+            }
+            external_module_args.push_back(arg);
+        }
+        if (external_module_args.empty()) {
+            continue;
+        }
+
+        const std::string source_key = normalize_compdb_lookup_path(options.sources[idx]);
+        auto              &merged_args = extra_module_args_by_source[source_key];
+        merged_args.insert(merged_args.end(), external_module_args.begin(), external_module_args.end());
+        merged_args = normalize_module_file_args(std::move(merged_args));
     }
 
     const bool has_any_named_module_imports = std::ranges::any_of(
@@ -3088,6 +3136,33 @@ int main(int argc, const char **argv) {
                     });
                 return &it->second;
             };
+
+            if (const auto explicit_it = options.explicit_module_sources_by_name.find(std::string(module_name));
+                explicit_it != options.explicit_module_sources_by_name.end()) {
+                std::vector<clang::tooling::CompileCommand> context_commands;
+                if (!context.command_line.empty()) {
+                    context_commands.push_back(clang::tooling::CompileCommand{
+                        context.working_directory,
+                        std::string{},
+                        context.command_line,
+                        std::string{}});
+                }
+                for (const auto &candidate_path : explicit_it->second) {
+                    const std::filesystem::path candidate = candidate_path;
+                    auto candidate_direct_commands = get_expanded_compile_commands_for_file(candidate.string());
+                    const auto &candidate_driver_commands = candidate_direct_commands.empty() ? context_commands : candidate_direct_commands;
+                    const auto &candidate_source_commands = candidate_direct_commands.empty() ? context_commands : candidate_direct_commands;
+                    const auto candidate_include_search_paths =
+                        candidate_direct_commands.empty()
+                        ? context.include_search_paths
+                        : scan_include_search_paths_from_compile_commands(candidate_source_commands, candidate);
+                    if (const auto *resolved =
+                            try_candidate(candidate, candidate_driver_commands, candidate_source_commands, candidate_include_search_paths);
+                        resolved != nullptr) {
+                        return resolved;
+                    }
+                }
+            }
 
             for (const auto &candidate_key : compdb_files) {
                 const std::filesystem::path candidate{candidate_key};

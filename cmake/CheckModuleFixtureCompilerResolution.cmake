@@ -33,6 +33,7 @@ function(_gentest_expect_compiler_pair label expected_c expected_cxx actual_c ac
 endfunction()
 
 set(_fake_apple_dir "${_work_dir}/fake_apple/bin")
+set(_fake_ccache_dir "${_work_dir}/fake_ccache/bin")
 set(_fake_path_dir "${_work_dir}/fake_path/bin")
 set(_fake_llvm_root "${_work_dir}/fake_llvm")
 set(_fake_llvm_bin "${_fake_llvm_root}/bin")
@@ -44,6 +45,12 @@ _gentest_write_fake_compiler("${_fake_path_dir}" "clang++" "clang version 99.0.0
 _gentest_write_fake_compiler("${_fake_llvm_bin}" "clang" "clang version 20.1.8" _fake_llvm_clang)
 _gentest_write_fake_compiler("${_fake_llvm_bin}" "clang++" "clang version 20.1.8" _fake_llvm_clangxx)
 _gentest_write_fake_compiler("${_fake_llvm_bin}" "clang-scan-deps" "clang-scan-deps version 20.1.8" _fake_llvm_scan_deps)
+_gentest_write_fake_compiler("${_fake_ccache_dir}" "ccache" "ccache version 4.10.0" _fake_ccache)
+
+file(CREATE_LINK "${_fake_ccache}" "${_fake_ccache_dir}/clang" SYMBOLIC)
+file(CREATE_LINK "${_fake_ccache}" "${_fake_ccache_dir}/clang++" SYMBOLIC)
+set(_fake_ccache_clang "${_fake_ccache_dir}/clang")
+set(_fake_ccache_clangxx "${_fake_ccache_dir}/clang++")
 
 file(MAKE_DIRECTORY "${_fake_llvm_root}/lib/cmake/llvm")
 
@@ -80,6 +87,18 @@ _gentest_expect_compiler_pair(
   "${_fake_llvm_clangxx}"
   "${_resolved_from_scan_c}"
   "${_resolved_from_scan_cxx}")
+
+set(C_COMPILER "${_fake_ccache_clang}")
+set(CXX_COMPILER "${_fake_ccache_clangxx}")
+set(C_COMPILER "${_fake_ccache_clang}" CACHE FILEPATH "" FORCE)
+set(CXX_COMPILER "${_fake_ccache_clangxx}" CACHE FILEPATH "" FORCE)
+gentest_resolve_clang_fixture_compilers(_resolved_from_wrapper_c _resolved_from_wrapper_cxx)
+_gentest_expect_compiler_pair(
+  "clang-scan-deps adjacency should override launcher-wrapped clang fixture compilers"
+  "${_fake_llvm_clang}"
+  "${_fake_llvm_clangxx}"
+  "${_resolved_from_wrapper_c}"
+  "${_resolved_from_wrapper_cxx}")
 
 set(ENV{PATH} "${_old_path}")
 message(STATUS "module fixture compiler resolution regression passed")

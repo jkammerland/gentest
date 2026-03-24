@@ -129,7 +129,7 @@ set(_generated_dir "${_build_dir}/generated")
 set(_header_generated_dir "${_generated_dir}/header_mocks")
 set(_module_generated_dir "${_generated_dir}/module_mocks")
 set(_header_surface "${_header_generated_dir}/public/mixed_legacy_mocks.hpp")
-set(_module_surface "${_module_generated_dir}/mixed_module_mocks.cppm")
+set(_module_surface "${_module_generated_dir}/gentest/mixed_module_mocks.cppm")
 
 foreach(_generated_file IN ITEMS
     "${_header_surface}"

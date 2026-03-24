@@ -124,7 +124,7 @@ if(NOT _alpha_wrapper_found OR NOT _beta_wrapper_found)
     "Candidates: ${_mock_provider_wrappers}")
 endif()
 
-set(_aggregate_module "${_build_dir}/generated/mocks/multi_imported_sibling_mocks.cppm")
+set(_aggregate_module "${_build_dir}/generated/mocks/gentest/multi_imported_sibling_mocks.cppm")
 if(NOT EXISTS "${_aggregate_module}")
   message(FATAL_ERROR "Expected explicit multi-imported-sibling aggregate module was not written: ${_aggregate_module}")
 endif()

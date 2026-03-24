@@ -140,15 +140,21 @@ foreach(_generated_module_root_header IN LISTS _generated_module_root_headers)
   endif()
 endforeach()
 
-file(GLOB _generated_module_wrappers "${_build_dir}/generated/module/*.module.gentest.cppm")
-list(LENGTH _generated_module_wrappers _generated_module_wrapper_count)
-if(NOT _generated_module_wrapper_count EQUAL 2)
+file(GLOB _generated_module_service_wrappers "${_build_dir}/generated/module/tu_*_service_module.module.gentest.cppm")
+file(GLOB _generated_module_mock_surface_wrappers "${_build_dir}/generated/module/tu_*_module_mocks.module.gentest.cppm")
+list(LENGTH _generated_module_service_wrappers _generated_module_service_wrapper_count)
+list(LENGTH _generated_module_mock_surface_wrappers _generated_module_mock_surface_wrapper_count)
+if(NOT _generated_module_service_wrapper_count EQUAL 1)
   message(FATAL_ERROR
-    "Expected exactly 2 generated explicit mock module wrappers, found ${_generated_module_wrapper_count}: "
-    "${_generated_module_wrappers}")
+    "Expected exactly one generated explicit mock provider wrapper for 'fixture.service_module', but found: "
+    "${_generated_module_service_wrappers}")
 endif()
-
-set(_generated_module_aggregate "${_build_dir}/generated/module/explicit_module_mocks.cppm")
+if(NOT _generated_module_mock_surface_wrapper_count EQUAL 1)
+  message(FATAL_ERROR
+    "Expected exactly one generated explicit mock surface wrapper for 'fixture.module_mocks', but found: "
+    "${_generated_module_mock_surface_wrappers}")
+endif()
+set(_generated_module_aggregate "${_build_dir}/generated/module/fixture/explicit_module_mocks.cppm")
 if(NOT EXISTS "${_generated_module_aggregate}")
   message(FATAL_ERROR "Expected generated explicit mock aggregate module was not written: ${_generated_module_aggregate}")
 endif()

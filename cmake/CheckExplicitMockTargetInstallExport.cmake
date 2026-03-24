@@ -109,6 +109,9 @@ endif()
 if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
   list(APPEND _consumer_cache_args "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
 endif()
+if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
+  list(APPEND _consumer_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
+endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _consumer_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
@@ -157,7 +160,7 @@ if(NOT _installed_public_headers STREQUAL _expected_public_headers)
     "Expected: ${_expected_public_headers}\n"
     "Actual:   ${_installed_public_headers}")
 endif()
-set(_installed_module_aggregate "${_install_prefix}/include/explicit_module_exported_mocks.cppm")
+set(_installed_module_aggregate "${_install_prefix}/include/fixture/explicit_module_mocks.cppm")
 if(NOT EXISTS "${_installed_module_aggregate}")
   message(FATAL_ERROR "Expected installed explicit mock aggregate module was not found: ${_installed_module_aggregate}")
 endif()
@@ -210,3 +213,11 @@ foreach(_consumer_exe IN ITEMS
     WORKING_DIRECTORY "${_work_dir}"
     STRIP_TRAILING_WHITESPACE)
 endforeach()
+
+message(STATUS "Run explicit_installed_module_codegen_consumer...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${_consumer_build_dir}/explicit_installed_module_codegen_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    "--run=explicit_mock_target/install_export_codegen_module_consumer"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)

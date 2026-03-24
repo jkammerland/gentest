@@ -51,9 +51,40 @@ function(_gentest_reserve_unique_owner property_prefix path_key owner out_prev_o
     set(${out_prev_owner} "${_gentest_prev_owner}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_expand_explicit_mock_search_root raw_root out_roots)
+    set(_gentest_roots "")
+    if("${raw_root}" STREQUAL "")
+        set(${out_roots} "" PARENT_SCOPE)
+        return()
+    endif()
+
+    if("${raw_root}" MATCHES "^\\$<BUILD_INTERFACE:(.*)>$")
+        set(_gentest_payload "${CMAKE_MATCH_1}")
+        foreach(_gentest_payload_root IN LISTS _gentest_payload)
+            _gentest_expand_explicit_mock_search_root("${_gentest_payload_root}" _gentest_payload_roots)
+            list(APPEND _gentest_roots ${_gentest_payload_roots})
+        endforeach()
+    elseif("${raw_root}" MATCHES "^\\$<INSTALL_INTERFACE:(.*)>$")
+        set(_gentest_payload "${CMAKE_MATCH_1}")
+        foreach(_gentest_payload_root IN LISTS _gentest_payload)
+            if(IS_ABSOLUTE "${_gentest_payload_root}")
+                list(APPEND _gentest_roots "${_gentest_payload_root}")
+            endif()
+        endforeach()
+    elseif("${raw_root}" MATCHES "\\$<")
+        set(${out_roots} "" PARENT_SCOPE)
+        return()
+    else()
+        list(APPEND _gentest_roots "${raw_root}")
+    endif()
+
+    list(REMOVE_DUPLICATES _gentest_roots)
+    set(${out_roots} "${_gentest_roots}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_stage_explicit_mock_file stage_dir source_file staged_rel out_staged_files)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source_file}")
-    string(MD5 _gentest_stage_key "${stage_dir}|${source_file}")
+    string(MD5 _gentest_stage_key "${stage_dir}|${source_file}|${staged_rel}")
     set(_gentest_stage_prop "GENTEST_EXPLICIT_MOCK_STAGE_${_gentest_stage_key}")
     get_property(_gentest_stage_done GLOBAL PROPERTY "${_gentest_stage_prop}")
     if(_gentest_stage_done)
@@ -88,13 +119,19 @@ function(_gentest_stage_explicit_mock_file stage_dir source_file staged_rel out_
         if(EXISTS "${_gentest_include_candidate}" AND NOT IS_DIRECTORY "${_gentest_include_candidate}")
             set(_gentest_include_abs "${_gentest_include_candidate}")
         else()
-            foreach(_gentest_search_root IN LISTS _gentest_search_roots)
-                if("${_gentest_search_root}" STREQUAL "" OR "${_gentest_search_root}" MATCHES "\\$<")
-                    continue()
-                endif()
-                file(REAL_PATH "${_gentest_include_path}" _gentest_include_candidate BASE_DIRECTORY "${_gentest_search_root}")
-                if(EXISTS "${_gentest_include_candidate}" AND NOT IS_DIRECTORY "${_gentest_include_candidate}")
-                    set(_gentest_include_abs "${_gentest_include_candidate}")
+            foreach(_gentest_search_root_raw IN LISTS _gentest_search_roots)
+                _gentest_expand_explicit_mock_search_root("${_gentest_search_root_raw}" _gentest_search_root_candidates)
+                foreach(_gentest_search_root IN LISTS _gentest_search_root_candidates)
+                    if("${_gentest_search_root}" STREQUAL "")
+                        continue()
+                    endif()
+                    file(REAL_PATH "${_gentest_include_path}" _gentest_include_candidate BASE_DIRECTORY "${_gentest_search_root}")
+                    if(EXISTS "${_gentest_include_candidate}" AND NOT IS_DIRECTORY "${_gentest_include_candidate}")
+                        set(_gentest_include_abs "${_gentest_include_candidate}")
+                        break()
+                    endif()
+                endforeach()
+                if(NOT "${_gentest_include_abs}" STREQUAL "")
                     break()
                 endif()
             endforeach()
@@ -179,6 +216,26 @@ function(_gentest_materialize_explicit_module_mock_defs output_dir out_defs out_
     list(REMOVE_DUPLICATES _gentest_public_files)
     set(${out_defs} "${_gentest_materialized_defs}" PARENT_SCOPE)
     set(${out_public_files} "${_gentest_public_files}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_append_target_list_property target property)
+    get_target_property(_gentest_existing_values ${target} ${property})
+    if(NOT _gentest_existing_values OR _gentest_existing_values MATCHES "-NOTFOUND$")
+        set(_gentest_existing_values "")
+    endif()
+    set(_gentest_updated_values ${_gentest_existing_values} ${ARGN})
+    list(REMOVE_DUPLICATES _gentest_updated_values)
+    set_property(TARGET ${target} PROPERTY ${property} "${_gentest_updated_values}")
+endfunction()
+
+function(_gentest_append_target_export_property target property)
+    get_target_property(_gentest_export_properties ${target} EXPORT_PROPERTIES)
+    if(NOT _gentest_export_properties OR _gentest_export_properties MATCHES "-NOTFOUND$")
+        set(_gentest_export_properties "")
+    endif()
+    list(APPEND _gentest_export_properties "${property}")
+    list(REMOVE_DUPLICATES _gentest_export_properties)
+    set_property(TARGET ${target} PROPERTY EXPORT_PROPERTIES "${_gentest_export_properties}")
 endfunction()
 
 function(_gentest_file_imports_gentest_mock input out_contains)
@@ -2088,6 +2145,7 @@ endfunction()
 
 function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets)
     set(_gentest_result "")
+    set(_gentest_explicit_mock_targets "")
     set(_gentest_queue "${target}")
     set(_gentest_seen "")
 
@@ -2116,6 +2174,7 @@ function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets
                     list(APPEND _gentest_result "${_gentest_explicit_codegen_dep}")
                 endif()
                 list(APPEND _gentest_result "${_gentest_current}")
+                list(APPEND _gentest_explicit_mock_targets "${_gentest_current}")
             endif()
         endif()
 
@@ -2137,6 +2196,10 @@ function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets
 
     list(REMOVE_DUPLICATES _gentest_result)
     set(${out_targets} "${_gentest_result}" PARENT_SCOPE)
+    if(ARGC GREATER 2)
+        list(REMOVE_DUPLICATES _gentest_explicit_mock_targets)
+        set(${ARGV2} "${_gentest_explicit_mock_targets}" PARENT_SCOPE)
+    endif()
 endfunction()
 
 # Internal convenience helper for in-tree consumers that link explicit mock
@@ -2207,6 +2270,10 @@ function(gentest_attach_codegen target)
     endif()
 
     string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
+    get_target_property(_gentest_attach_discovers_mocks ${target} GENTEST_EXPLICIT_MOCK_TARGET)
+    if(NOT _gentest_attach_discovers_mocks OR _gentest_attach_discovers_mocks MATCHES "-NOTFOUND$")
+        set(_gentest_attach_discovers_mocks FALSE)
+    endif()
 
     # Scan sources: explicit SOURCES preferred, otherwise pull from target and
     # any named module file sets attached to it.
@@ -2390,6 +2457,72 @@ function(gentest_attach_codegen target)
         endif()
     endforeach()
 
+    set(_gentest_codegen_deps "")
+    if(_gentest_codegen_target)
+        list(APPEND _gentest_codegen_deps ${_gentest_codegen_target})
+    endif()
+    _gentest_collect_codegen_dep_targets_from_link_graph(
+        ${target}
+        _gentest_linked_codegen_dep_targets
+        _gentest_linked_explicit_mock_targets)
+    if(_gentest_linked_codegen_dep_targets)
+        list(APPEND _gentest_codegen_deps ${_gentest_linked_codegen_dep_targets})
+    endif()
+    set(_gentest_external_module_source_mappings "")
+    foreach(_gentest_dep_target IN LISTS _gentest_linked_codegen_dep_targets)
+        if(NOT TARGET "${_gentest_dep_target}")
+            continue()
+        endif()
+
+        get_target_property(_gentest_mock_alias_target "${_gentest_dep_target}" ALIASED_TARGET)
+        if(_gentest_mock_alias_target AND NOT _gentest_mock_alias_target STREQUAL "_gentest_mock_alias_target-NOTFOUND")
+            set(_gentest_explicit_mock_target_actual "${_gentest_mock_alias_target}")
+        else()
+            set(_gentest_explicit_mock_target_actual "${_gentest_dep_target}")
+        endif()
+
+        get_target_property(_gentest_mock_is_imported "${_gentest_explicit_mock_target_actual}" IMPORTED)
+        if(_gentest_mock_is_imported)
+            get_target_property(_gentest_rel_module_sources "${_gentest_explicit_mock_target_actual}" GENTEST_EXPLICIT_MOCK_MODULE_REL_SOURCES)
+            if(NOT _gentest_rel_module_sources OR _gentest_rel_module_sources MATCHES "-NOTFOUND$")
+                continue()
+            endif()
+            get_target_property(_gentest_mock_include_dirs "${_gentest_explicit_mock_target_actual}" INTERFACE_INCLUDE_DIRECTORIES)
+            if(NOT _gentest_mock_include_dirs OR _gentest_mock_include_dirs MATCHES "-NOTFOUND$")
+                set(_gentest_mock_include_dirs "")
+            endif()
+            foreach(_gentest_rel_mapping IN LISTS _gentest_rel_module_sources)
+                if(NOT _gentest_rel_mapping MATCHES "^([^=]+)=(.+)$")
+                    continue()
+                endif()
+                set(_gentest_rel_module_name "${CMAKE_MATCH_1}")
+                set(_gentest_rel_source "${CMAKE_MATCH_2}")
+                foreach(_gentest_mock_include_dir IN LISTS _gentest_mock_include_dirs)
+                    _gentest_expand_explicit_mock_search_root("${_gentest_mock_include_dir}" _gentest_expanded_mock_include_dirs)
+                    foreach(_gentest_expanded_mock_include_dir IN LISTS _gentest_expanded_mock_include_dirs)
+                        if("${_gentest_expanded_mock_include_dir}" STREQUAL "" OR NOT IS_ABSOLUTE "${_gentest_expanded_mock_include_dir}")
+                            continue()
+                        endif()
+                        set(_gentest_mock_module_source "${_gentest_expanded_mock_include_dir}/${_gentest_rel_source}")
+                        if(EXISTS "${_gentest_mock_module_source}" AND NOT IS_DIRECTORY "${_gentest_mock_module_source}")
+                            list(APPEND _gentest_external_module_source_mappings
+                                 "${_gentest_rel_module_name}=${_gentest_mock_module_source}")
+                        endif()
+                    endforeach()
+                endforeach()
+            endforeach()
+        else()
+            get_target_property(_gentest_build_module_sources "${_gentest_explicit_mock_target_actual}" GENTEST_EXPLICIT_MOCK_MODULE_BUILD_SOURCES)
+            if(_gentest_build_module_sources AND NOT _gentest_build_module_sources MATCHES "-NOTFOUND$")
+                list(APPEND _gentest_external_module_source_mappings ${_gentest_build_module_sources})
+            endif()
+        endif()
+    endforeach()
+    list(REMOVE_DUPLICATES _gentest_external_module_source_mappings)
+    if(EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
+        list(APPEND _gentest_codegen_deps "${CMAKE_BINARY_DIR}/compile_commands.json")
+    endif()
+
     set(_command_launcher ${_gentest_codegen_executable})
     if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
         set(_gentest_ld_library_path "${GENTEST_TERMINFO_SHIM_DIR}")
@@ -2427,7 +2560,6 @@ function(gentest_attach_codegen target)
     if(GENTEST_QUIET_CLANG)
         list(APPEND _command --quiet-clang)
     endif()
-    get_target_property(_gentest_attach_discovers_mocks ${target} GENTEST_EXPLICIT_MOCK_TARGET)
     if(_gentest_attach_discovers_mocks)
         list(APPEND _command --discover-mocks)
     endif()
@@ -2444,6 +2576,9 @@ function(gentest_attach_codegen target)
     if(NOT "${_gentest_clang_scan_deps}" STREQUAL "")
         list(APPEND _command --clang-scan-deps "${_gentest_clang_scan_deps}")
     endif()
+    foreach(_gentest_external_module_source_mapping IN LISTS _gentest_external_module_source_mappings)
+        list(APPEND _command --external-module-source "${_gentest_external_module_source_mapping}")
+    endforeach()
 
     if(_gentest_mode STREQUAL "tu")
         # Classic translation units are scanned via generated wrapper sources so
@@ -2484,18 +2619,6 @@ function(gentest_attach_codegen target)
     endif()
     unset(_gentest_system_includes)
 
-    set(_gentest_codegen_deps "")
-    if(_gentest_codegen_target)
-        list(APPEND _gentest_codegen_deps ${_gentest_codegen_target})
-    endif()
-    _gentest_collect_codegen_dep_targets_from_link_graph(${target} _gentest_linked_codegen_dep_targets)
-    if(_gentest_linked_codegen_dep_targets)
-        list(APPEND _gentest_codegen_deps ${_gentest_linked_codegen_dep_targets})
-    endif()
-    if(EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
-        list(APPEND _gentest_codegen_deps "${CMAKE_BINARY_DIR}/compile_commands.json")
-    endif()
-
     cmake_policy(PUSH)
     if(POLICY CMP0171)
         cmake_policy(SET CMP0171 NEW)
@@ -2517,7 +2640,6 @@ function(gentest_attach_codegen target)
             ${_gentest_mock_registry_domain_outputs}
             ${_gentest_mock_impl_domain_outputs})
     endif()
-
     set(_gentest_custom_command_args
         OUTPUT ${_gentest_codegen_outputs}
         COMMAND ${_command}
@@ -2548,6 +2670,34 @@ function(gentest_attach_codegen target)
             MODULE_NAMES ${_gentest_module_names}
             EXTRA_CPP ${_gentest_extra_cpp}
             CODEGEN_OUTPUTS ${_gentest_codegen_outputs})
+    endif()
+
+    if(_gentest_attach_discovers_mocks AND _gentest_module_wrapper_outputs)
+        set(_gentest_explicit_mock_module_build_sources "")
+        set(_gentest_explicit_mock_module_rel_sources "")
+        list(LENGTH _gentest_wrapper_cpp _gentest_wrapper_count)
+        math(EXPR _gentest_last_wrapper_idx "${_gentest_wrapper_count} - 1")
+        foreach(_gentest_idx RANGE 0 ${_gentest_last_wrapper_idx})
+            list(GET _gentest_module_names ${_gentest_idx} _gentest_module_name)
+            if(_gentest_module_name STREQUAL "__gentest_no_module__")
+                continue()
+            endif()
+            list(GET _gentest_wrapper_cpp ${_gentest_idx} _gentest_module_wrapper)
+            list(APPEND _gentest_explicit_mock_module_build_sources "${_gentest_module_name}=${_gentest_module_wrapper}")
+            file(RELATIVE_PATH _gentest_module_wrapper_rel "${_gentest_output_dir}" "${_gentest_module_wrapper}")
+            list(APPEND _gentest_explicit_mock_module_rel_sources "${_gentest_module_name}=${_gentest_module_wrapper_rel}")
+        endforeach()
+        if(_gentest_explicit_mock_module_build_sources)
+            _gentest_append_target_list_property(
+                ${target}
+                GENTEST_EXPLICIT_MOCK_MODULE_BUILD_SOURCES
+                ${_gentest_explicit_mock_module_build_sources})
+            _gentest_append_target_list_property(
+                ${target}
+                GENTEST_EXPLICIT_MOCK_MODULE_REL_SOURCES
+                ${_gentest_explicit_mock_module_rel_sources})
+            _gentest_append_target_export_property(${target} GENTEST_EXPLICIT_MOCK_MODULE_REL_SOURCES)
+        endif()
     endif()
 
     get_filename_component(_gentest_mock_dir "${_gentest_mock_registry}" DIRECTORY)
@@ -2729,9 +2879,8 @@ function(gentest_add_mocks target)
                 continue()
             endif()
             foreach(_gentest_link_include_dir IN LISTS _gentest_link_include_dirs)
-                if(NOT "${_gentest_link_include_dir}" STREQUAL "")
-                    list(APPEND _gentest_explicit_mock_search_roots "${_gentest_link_include_dir}")
-                endif()
+                _gentest_expand_explicit_mock_search_root("${_gentest_link_include_dir}" _gentest_expanded_include_roots)
+                list(APPEND _gentest_explicit_mock_search_roots ${_gentest_expanded_include_roots})
             endforeach()
         endforeach()
     endforeach()
@@ -2796,6 +2945,7 @@ int ${_gentest_target_id}_explicit_mock_anchor = 0;\n\
 
     add_library(${target} STATIC)
     set_target_properties(${target} PROPERTIES GENTEST_EXPLICIT_MOCK_TARGET TRUE)
+    _gentest_append_target_export_property(${target} GENTEST_EXPLICIT_MOCK_TARGET)
     target_compile_features(${target} PUBLIC cxx_std_20)
     target_link_libraries(${target} PUBLIC gentest::gentest)
     if(GENTEST_LINK_LIBRARIES)
@@ -2880,7 +3030,12 @@ int ${_gentest_target_id}_explicit_mock_anchor = 0;\n\
     endif()
 
     if(GENTEST_MODULE_NAME)
-        set(_gentest_aggregate_module "${_gentest_output_dir}/${_gentest_target_id}.cppm")
+        set(_gentest_aggregate_module_rel "${GENTEST_MODULE_NAME}")
+        string(REPLACE "." "/" _gentest_aggregate_module_rel "${_gentest_aggregate_module_rel}")
+        string(REPLACE ":" "/" _gentest_aggregate_module_rel "${_gentest_aggregate_module_rel}")
+        set(_gentest_aggregate_module "${_gentest_output_dir}/${_gentest_aggregate_module_rel}.cppm")
+        get_filename_component(_gentest_aggregate_module_dir "${_gentest_aggregate_module}" DIRECTORY)
+        file(MAKE_DIRECTORY "${_gentest_aggregate_module_dir}")
         set(_gentest_aggregate_module_content
 "// This file is auto-generated by gentest (explicit mocks aggregate module).\n\
 // Do not edit manually.\n\
@@ -2889,6 +3044,7 @@ module;\n\
 \n\
 export module ${GENTEST_MODULE_NAME};\n\
 \n")
+        string(APPEND _gentest_aggregate_module_content "export import gentest;\n")
         string(APPEND _gentest_aggregate_module_content "export import gentest.mock;\n")
         foreach(_gentest_module_name IN LISTS _gentest_module_def_names)
             string(APPEND _gentest_aggregate_module_content "export import ${_gentest_module_name};\n")
@@ -2901,6 +3057,16 @@ export module ${GENTEST_MODULE_NAME};\n\
                     TYPE CXX_MODULES
                     BASE_DIRS "${_gentest_output_dir}"
                     FILES "${_gentest_aggregate_module}")
+        file(RELATIVE_PATH _gentest_aggregate_module_rel_from_output "${_gentest_output_dir}" "${_gentest_aggregate_module}")
+        _gentest_append_target_list_property(
+            ${target}
+            GENTEST_EXPLICIT_MOCK_MODULE_BUILD_SOURCES
+            "${GENTEST_MODULE_NAME}=${_gentest_aggregate_module}")
+        _gentest_append_target_list_property(
+            ${target}
+            GENTEST_EXPLICIT_MOCK_MODULE_REL_SOURCES
+            "${GENTEST_MODULE_NAME}=${_gentest_aggregate_module_rel_from_output}")
+        _gentest_append_target_export_property(${target} GENTEST_EXPLICIT_MOCK_MODULE_REL_SOURCES)
     endif()
 endfunction()
 

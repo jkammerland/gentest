@@ -119,7 +119,7 @@ if(_header_unit_unavailable)
   return()
 endif()
 
-set(_mock_surface "${_build_dir}/generated/mocks/header_unit_import_preamble_mocks.cppm")
+set(_mock_surface "${_build_dir}/generated/mocks/gentest/header_unit_import_preamble_mocks.cppm")
 if(NOT EXISTS "${_mock_surface}")
   message(FATAL_ERROR "Expected explicit mock module surface was not written: ${_mock_surface}")
 endif()

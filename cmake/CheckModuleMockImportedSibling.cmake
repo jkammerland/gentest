@@ -125,7 +125,7 @@ if(NOT _provider_type_traits_pos EQUAL -1)
     "Expected imported-sibling provider wrapper to avoid injecting <type_traits> into module purview.\n${_provider_wrapper_text}")
 endif()
 
-set(_aggregate_module "${_build_dir}/generated/mocks/imported_sibling_mocks.cppm")
+set(_aggregate_module "${_build_dir}/generated/mocks/gentest/imported_sibling_mocks.cppm")
 if(NOT EXISTS "${_aggregate_module}")
   message(FATAL_ERROR "Expected explicit mock aggregate module was not written: ${_aggregate_module}")
 endif()

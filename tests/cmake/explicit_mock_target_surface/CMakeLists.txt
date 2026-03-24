@@ -19,6 +19,7 @@ add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 gentest_add_mocks(explicit_header_mocks
     DEFS
         ${CMAKE_CURRENT_SOURCE_DIR}/header_mocks.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/aggregate_header_mocks.hpp
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/header"
     HEADER_NAME public/fixture_header_mocks.hpp)
 

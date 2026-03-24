@@ -1897,6 +1897,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_explicit_mock_target_validation APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_explicit_mock_target_staging
+    ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_surface
+    ${PROJECT_SOURCE_DIR}/cmake/CheckExplicitMockTargetStaging.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_explicit_mock_target_staging APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_explicit_mock_target_install_export
     ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_install_export
     ${PROJECT_SOURCE_DIR}/cmake/CheckExplicitMockTargetInstallExport.cmake
@@ -2230,18 +2238,15 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
 
     set(_gentest_package_test_module_compiler_args ${_gentest_package_test_compiler_args})
     if(UNIX)
-        gentest_is_clang_like(_gentest_package_test_top_level_is_clang "${CMAKE_CXX_COMPILER}")
-        if(NOT _gentest_package_test_top_level_is_clang)
-            gentest_resolve_clang_fixture_compilers(_gentest_package_test_module_c _gentest_package_test_module_cxx)
-            if(NOT "${_gentest_package_test_module_c}" STREQUAL "" AND NOT "${_gentest_package_test_module_cxx}" STREQUAL "")
-                set(_gentest_package_test_module_compiler_args
-                    -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_module_c}
-                    -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_module_cxx})
-                gentest_find_clang_scan_deps(_gentest_package_test_module_scan_deps "${_gentest_package_test_module_cxx}")
-                if(NOT "${_gentest_package_test_module_scan_deps}" STREQUAL "")
-                    list(APPEND _gentest_package_test_module_compiler_args
-                        -DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=${_gentest_package_test_module_scan_deps})
-                endif()
+        gentest_resolve_clang_fixture_compilers(_gentest_package_test_module_c _gentest_package_test_module_cxx)
+        if(NOT "${_gentest_package_test_module_c}" STREQUAL "" AND NOT "${_gentest_package_test_module_cxx}" STREQUAL "")
+            set(_gentest_package_test_module_compiler_args
+                -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_module_c}
+                -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_module_cxx})
+            gentest_find_clang_scan_deps(_gentest_package_test_module_scan_deps "${_gentest_package_test_module_cxx}")
+            if(NOT "${_gentest_package_test_module_scan_deps}" STREQUAL "")
+                list(APPEND _gentest_package_test_module_compiler_args
+                    -DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=${_gentest_package_test_module_scan_deps})
             endif()
         endif()
     endif()
