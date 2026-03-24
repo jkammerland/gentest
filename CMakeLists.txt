@@ -11,10 +11,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(GENTEST_TEST_CXX_STANDARD "20" CACHE STRING "C++ standard used to build gentest's test executables (20 or 23).")
 set_property(CACHE GENTEST_TEST_CXX_STANDARD PROPERTY STRINGS 20 23)
 
-# Export implicit compiler include directories to compile_commands.json
-# This makes system headers visible to tools like clangd and our gentest_codegen
-# without requiring runtime compiler queries
-set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
+# Do not materialize implicit compiler include directories into the real build
+# flags. That can break compiler-driven module dependency scanning on some
+# Clang/libstdc++ toolchains. gentest_codegen already falls back to
+# CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES directly when it needs system include
+# visibility for compile_commands-driven analysis.
 
 # Keep compile_commands.json free of experimental C++ modules flags so that
 # external tools (clangd, static analyzers) don't choke on unknown options.

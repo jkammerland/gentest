@@ -30,5 +30,19 @@ int main() {
         return 4;
     }
 
+    fixture::mocks::QuoteTaggedServiceMock quote_alias_mock;
+    gentest::expect(quote_alias_mock, &fixture::TaggedService<'\"'>::adjust).times(1).with(5).returns(11);
+    fixture::TaggedService<'\"'> *quote_service = &quote_alias_mock;
+    if (quote_service->adjust(5) != 11) {
+        return 5;
+    }
+
+    gentest::mock<fixture::TaggedService<'\\'>> slash_raw_mock;
+    gentest::expect(slash_raw_mock, &fixture::TaggedService<'\\'>::adjust).times(1).with(6).returns(13);
+    fixture::TaggedService<'\\'> *slash_service = &slash_raw_mock;
+    if (slash_service->adjust(6) != 13) {
+        return 6;
+    }
+
     return 0;
 }

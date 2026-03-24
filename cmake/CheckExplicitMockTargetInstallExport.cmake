@@ -94,6 +94,7 @@ endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
+gentest_append_windows_native_llvm_cache_args(_cmake_cache_args "${_clangxx}" ${_cmake_cache_args})
 gentest_append_host_apple_sysroot(_cmake_cache_args)
 
 set(_consumer_cache_args
@@ -111,6 +112,7 @@ endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _consumer_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
+gentest_append_windows_native_llvm_cache_args(_consumer_cache_args "${_clangxx}" ${_consumer_cache_args})
 gentest_append_host_apple_sysroot(_consumer_cache_args)
 
 message(STATUS "Configure explicit mock target producer...")
@@ -123,6 +125,8 @@ gentest_check_run_or_fail(
     ${_cmake_cache_args}
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+gentest_assert_windows_native_llvm_cache_args(
+  "${_producer_build_dir}" "${_clangxx}" "explicit mock install/export producer")
 
 message(STATUS "Build explicit mock target producer...")
 gentest_check_run_or_fail(
@@ -188,6 +192,8 @@ gentest_check_run_or_fail(
     ${_consumer_cache_args}
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+gentest_assert_windows_native_llvm_cache_args(
+  "${_consumer_build_dir}" "${_clangxx}" "explicit mock install/export consumer")
 
 message(STATUS "Build explicit mock target downstream consumer...")
 gentest_check_run_or_fail(

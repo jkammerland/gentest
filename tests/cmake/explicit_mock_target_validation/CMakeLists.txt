@@ -88,6 +88,12 @@ elseif(TEST_CASE STREQUAL "missing_module_name")
         DEFS
             ${CMAKE_CURRENT_SOURCE_DIR}/good_module.cppm
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+elseif(TEST_CASE STREQUAL "nested_module_class_scope")
+    gentest_add_mocks(explicit_validation_nested_scope
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/nested_module_class_scope.cppm
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        MODULE_NAME fixture.validation_nested_scope)
 else()
     message(FATAL_ERROR "Unknown TEST_CASE='${TEST_CASE}'")
 endif()

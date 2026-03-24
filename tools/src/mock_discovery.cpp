@@ -62,6 +62,13 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return result;
 }
 
+[[nodiscard]] std::string trim_leading_global_qualifier(std::string value) {
+    if (value.rfind("::", 0) == 0) {
+        value.erase(0, 2);
+    }
+    return value;
+}
+
 [[nodiscard]] std::string ref_qualifier_string(RefQualifierKind kind) {
     switch (kind) {
     case RQ_LValue: return "&";
@@ -323,6 +330,37 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
     return chain;
 }
 
+[[nodiscard]] std::optional<std::string> find_non_namespace_attachment_scope(const CXXRecordDecl &record) {
+    const DeclContext *decl_ctx = record.getDeclContext();
+    while (decl_ctx != nullptr) {
+        if (const auto *parent_record = llvm::dyn_cast<CXXRecordDecl>(decl_ctx)) {
+            std::string scope_name = parent_record->getQualifiedNameAsString();
+            if (scope_name.empty()) {
+                scope_name = "<unnamed-record-scope>";
+            }
+            return scope_name;
+        }
+        decl_ctx = decl_ctx->getParent();
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] const CXXRecordDecl *resolve_mock_target_definition_record(const CXXRecordDecl &record) {
+    if (const auto *definition = record.getDefinition()) {
+        return definition;
+    }
+    if (const auto *specialization = llvm::dyn_cast<ClassTemplateSpecializationDecl>(&record)) {
+        if (const auto *specialized_template = specialization->getSpecializedTemplate()) {
+            if (const auto *templated_decl = specialized_template->getTemplatedDecl()) {
+                if (const auto *definition = templated_decl->getDefinition()) {
+                    return definition;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
 } // namespace
 
 MockUsageCollector::MockUsageCollector(std::vector<MockClassInfo> &out) : out_(out) {}
@@ -357,8 +395,8 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         return;
     }
 
-    record = record->getDefinition();
-    if (record == nullptr) {
+    const auto *definition_record = resolve_mock_target_definition_record(*record);
+    if (definition_record == nullptr) {
         had_error_ = true;
         report(*result.SourceManager, use_loc,
                "gentest::mock<T>: target type is incomplete here; move the interface to a header and include it before the generated mock "
@@ -369,7 +407,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     const auto *canonical = record->getCanonicalDecl();
     const ASTContext    &ctx      = *result.Context;
     const SourceManager &sm       = *result.SourceManager;
-    const SourceLocation def_loc  = sm.getFileLoc(record->getBeginLoc());
+    const SourceLocation def_loc  = sm.getFileLoc(definition_record->getBeginLoc());
     const std::string    use_file = resolve_definition_file(sm, use_loc);
     if (const auto it = seen_.find(canonical); it != seen_.end()) {
         auto &existing = out_[it->second];
@@ -404,7 +442,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
                    "gentest::mock<T>: cannot mock a type in an anonymous namespace; move it to a named namespace");
             return;
         }
-        if (record->isLocalClass()) {
+        if (definition_record->isLocalClass()) {
             had_error_ = true;
             report(*result.SourceManager, use_loc,
                    "gentest::mock<T>: cannot mock a local class defined inside a function; move it to namespace scope");
@@ -412,13 +450,13 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         }
     }
 
-    if (record->hasAttr<FinalAttr>() || record->isEffectivelyFinal()) {
+    if (definition_record->hasAttr<FinalAttr>() || definition_record->isEffectivelyFinal()) {
         had_error_ = true;
         report(*result.SourceManager, use_loc, "gentest::mock cannot mock a final class");
         return;
     }
 
-    const auto *dtor = record->getDestructor();
+    const auto *dtor = definition_record->getDestructor();
     if (dtor && dtor->getAccess() == AS_private) {
         had_error_ = true;
         report(*result.SourceManager, use_loc, "gentest::mock requires a non-private destructor");
@@ -426,20 +464,20 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     }
 
     MockClassInfo info;
-    info.qualified_name     = record->getQualifiedNameAsString();
+    info.qualified_name     = trim_leading_global_qualifier(print_type(target_type, ctx));
     info.display_name       = info.qualified_name;
-    info.derive_for_virtual = record->isPolymorphic();
-    if (const auto *record_dtor = record->getDestructor()) {
+    info.derive_for_virtual = definition_record->isPolymorphic();
+    if (const auto *record_dtor = definition_record->getDestructor()) {
         info.has_virtual_destructor = record_dtor->isVirtual();
     } else {
         info.has_virtual_destructor = false;
     }
-    info.has_accessible_default_ctor = has_accessible_default_ctor(*record);
+    info.has_accessible_default_ctor = has_accessible_default_ctor(*definition_record);
 
     const std::string definition_file = resolve_definition_file(sm, def_loc);
     const auto definition_module = named_module_name_from_file(definition_file);
     const bool from_named_module =
-        (is_in_named_module_compat(*record) && !is_from_header_unit_compat(*record)) || definition_module.has_value();
+        (is_in_named_module_compat(*definition_record) && !is_from_header_unit_compat(*definition_record)) || definition_module.has_value();
     if (definition_file.empty() || (looks_like_source_or_module_interface(definition_file) && !from_named_module)) {
         had_error_                 = true;
         const std::string location = definition_file.empty() ? std::string{"<unknown-file>"} : definition_file;
@@ -454,10 +492,20 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     }
     info.definition_kind =
         from_named_module ? MockClassInfo::DefinitionKind::NamedModule : MockClassInfo::DefinitionKind::HeaderLike;
+    if (from_named_module) {
+        if (const auto enclosing_scope = find_non_namespace_attachment_scope(*definition_record)) {
+            had_error_ = true;
+            report(sm, use_loc,
+                   fmt::format("gentest::mock<{}>: named-module mock targets must be declared at namespace scope; nested type "
+                               "scope '{}' is not supported",
+                               record->getQualifiedNameAsString(), *enclosing_scope));
+            return;
+        }
+    }
     if (definition_module.has_value()) {
         info.definition_module_name = *definition_module;
-        info.attachment_insertion_offset = find_attachment_insertion_offset(*record, ctx, sm);
-        info.attachment_namespace_chain  = collect_attachment_namespace_chain(*record, ctx, sm);
+        info.attachment_insertion_offset = find_attachment_insertion_offset(*definition_record, ctx, sm);
+        info.attachment_namespace_chain  = collect_attachment_namespace_chain(*definition_record, ctx, sm);
     }
 
     // Capture constructors (excluding the default ctor which is tracked via
@@ -528,10 +576,10 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         info.constructors.push_back(std::move(ctor_info));
     };
 
-    for (const auto *ctor : record->ctors()) {
+    for (const auto *ctor : definition_record->ctors()) {
         capture_ctor(ctor);
     }
-    for (const auto *decl : record->decls()) {
+    for (const auto *decl : definition_record->decls()) {
         const auto *ft = llvm::dyn_cast<FunctionTemplateDecl>(decl);
         if (ft == nullptr)
             continue;
@@ -617,12 +665,12 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         info.methods.push_back(std::move(method_info));
     };
 
-    for (const auto *method : record->methods()) {
+    for (const auto *method : definition_record->methods()) {
         capture_method(method);
     }
 
     // Also capture function template declarations (non-virtual in practice).
-    for (const auto *decl : record->decls()) {
+    for (const auto *decl : definition_record->decls()) {
         if (const auto *ft = llvm::dyn_cast<FunctionTemplateDecl>(decl)) {
             if (const auto *templated = llvm::dyn_cast<CXXMethodDecl>(ft->getTemplatedDecl())) {
                 capture_method(templated);

@@ -1,5 +1,6 @@
 #include "mock_domain_plan.hpp"
 #include "mock_output_paths.hpp"
+#include "render.hpp"
 #include "render_mocks.hpp"
 #include "scan_utils.hpp"
 #include "templates_mocks.hpp"
@@ -91,19 +92,33 @@ std::string ensure_global_qualifiers(std::string value) {
 
 // Forward declarations
 std::string argument_list(const MockMethodInfo &method);
+std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &method);
 
-std::string dispatch_block(const std::string &indent, const MockMethodInfo &method, const std::string &fq_type,
-                           const std::string &tpl_usage) {
+std::string stable_method_identity_literal(const MockClassInfo &cls, const MockMethodInfo &method) {
+    return fmt::format("{}|{}", fmt::format("::{}", method.qualified_name), pointer_type_for(cls, method));
+}
+
+std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, const MockMethodInfo &method,
+                           const std::string &fq_type, const std::string &tpl_usage) {
     RenderBuffer block;
-    block.append("{0}auto token = this->__gentest_state_.identify(&{1}::{2}{3});\n", indent, fq_type, method.method_name,
-                 tpl_usage);
-    const std::string return_type   = ensure_global_qualifiers(method.return_type);
-    const std::string args          = argument_list(method);
-    const bool        returns_value = method.return_type != "void";
-    const std::string fq_method     = fmt::format("::{}", method.qualified_name);
-    const std::string dispatch_args = args.empty() ? std::string{} : fmt::format(", {}", args);
-    block.append("{0}{1}this->__gentest_state_.template dispatch<{2}>(token, \"{3}\"{4});\n", indent,
-                 returns_value ? "return " : "", return_type, fq_method, dispatch_args);
+    const std::string return_type       = ensure_global_qualifiers(method.return_type);
+    const std::string args              = argument_list(method);
+    const bool        returns_value     = method.return_type != "void";
+    const std::string fq_method         = fmt::format("::{}", method.qualified_name);
+    const std::string fq_method_escaped = escape_string(fq_method);
+    const std::string dispatch_args     = args.empty() ? std::string{} : fmt::format(", {}", args);
+    if (method.template_prefix.empty()) {
+        block.append("{0}auto token = ::gentest::detail::mocking::MethodIdentity::named(\"{1}\");\n", indent,
+                     escape_string(stable_method_identity_literal(cls, method)));
+        block.append("{0}auto fallback_token = this->__gentest_state_.identify(&{1}::{2});\n", indent, fq_type, method.method_name);
+        block.append("{0}{1}this->__gentest_state_.template dispatch_with_fallback<{2}>(token, fallback_token, \"{3}\"{4});\n", indent,
+                     returns_value ? "return " : "", return_type, fq_method_escaped, dispatch_args);
+    } else {
+        block.append("{0}auto token = this->__gentest_state_.identify(&{1}::{2}{3});\n", indent, fq_type, method.method_name,
+                     tpl_usage);
+        block.append("{0}{1}this->__gentest_state_.template dispatch<{2}>(token, \"{3}\"{4});\n", indent,
+                     returns_value ? "return " : "", return_type, fq_method_escaped, dispatch_args);
+    }
     return block.str();
 }
 
@@ -312,7 +327,7 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
             return out;
         }();
         decl.append_raw(" {\n");
-        decl.append_raw(dispatch_block("        ", method, fq_type, tpl_use));
+        decl.append_raw(dispatch_block("        ", cls, method, fq_type, tpl_use));
         decl.append_raw("    }");
     } else {
         decl.append_raw(";");
@@ -415,15 +430,17 @@ std::string build_mock_access(const MockClassInfo &cls) {
             }
             return args;
         }();
-        const std::string fq_method    = fmt::format("::{}", method.qualified_name);
-        const std::string branch_intro = first_branch ? "        if constexpr" : "        else if constexpr";
-        first_branch                   = false;
+        const std::string fq_method         = fmt::format("::{}", method.qualified_name);
+        const std::string fq_method_escaped = escape_string(fq_method);
+        const std::string stable_id_escaped = escape_string(stable_method_identity_literal(cls, method));
+        const std::string branch_intro      = first_branch ? "        if constexpr" : "        else if constexpr";
+        first_branch                        = false;
         body.append("{0} (::gentest::detail::mocking::same_v<MethodPtr, {1}>) {{\n", branch_intro, pointer_type);
         body.append("            if (method == static_cast<MethodPtr>(&{0}::{1})) {{\n", fq_type, method.method_name);
-        body.append("                auto token = instance.__gentest_state_.identify(&{0}::{1});\n"
-                    "                auto expectation = instance.__gentest_state_.template push_expectation<{2}>(token, \"{3}\");\n"
-                    "                return ExpectationHandle<{4}>{{expectation, \"{3}\"}};\n",
-                    fq_type, method.method_name, push_args, fq_method, signature);
+        body.append("                auto token = ::gentest::detail::mocking::MethodIdentity::named(\"{3}\");\n"
+                    "                auto expectation = instance.__gentest_state_.template push_expectation<{2}>(token, \"{4}\");\n"
+                    "                return ExpectationHandle<{5}>{{expectation, \"{4}\"}};\n",
+                    fq_type, method.method_name, push_args, stable_id_escaped, fq_method_escaped, signature);
         body.append_raw("            }\n");
         body.append_raw("        }\n");
     }
@@ -457,7 +474,7 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
         out += ">";
         return out;
     }();
-    def.append_raw(dispatch_block("    ", method, fq_type, tpl_usage));
+    def.append_raw(dispatch_block("    ", cls, method, fq_type, tpl_usage));
     def.append_raw("}\n");
     return def.str();
 }

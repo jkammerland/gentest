@@ -9,4 +9,10 @@ struct Service {
     virtual int compute(int value) = 0;
 };
 
+template <char Tag>
+struct TaggedService {
+    virtual ~TaggedService() = default;
+    virtual int adjust(int value) = 0;
+};
+
 } // namespace fixture

@@ -116,6 +116,61 @@ function(_gentest_expect_configure_failure test_case expected_substring)
   endif()
 endfunction()
 
+function(_gentest_expect_build_failure test_case expected_substring)
+  if(CMAKE_HOST_WIN32)
+    set(_work_dir "${BUILD_ROOT}/${test_case}_emts")
+  else()
+    set(_work_dir "${BUILD_ROOT}/${test_case}")
+  endif()
+  set(_src_dir "${_work_dir}/src")
+  set(_build_dir "${_work_dir}/build")
+  file(REMOVE_RECURSE "${_work_dir}")
+  file(MAKE_DIRECTORY "${_work_dir}")
+  file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
+
+  execute_process(
+    COMMAND
+      "${CMAKE_COMMAND}"
+      ${_cmake_gen_args}
+      -S "${_src_dir}"
+      -B "${_build_dir}"
+      ${_cmake_cache_args}
+      "-DTEST_CASE=${test_case}"
+    RESULT_VARIABLE _configure_rc
+    OUTPUT_VARIABLE _configure_out
+    ERROR_VARIABLE _configure_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _configure_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Expected configure success for TEST_CASE='${test_case}', but configure failed.\n"
+      "--- stdout ---\n${_configure_out}\n--- stderr ---\n${_configure_err}")
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}"
+    RESULT_VARIABLE _build_rc
+    OUTPUT_VARIABLE _build_out
+    ERROR_VARIABLE _build_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(_build_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Expected build failure for TEST_CASE='${test_case}', but build succeeded.\n"
+      "--- stdout ---\n${_build_out}\n--- stderr ---\n${_build_err}")
+  endif()
+
+  set(_all "${_build_out}\n${_build_err}")
+  string(FIND "${_all}" "${expected_substring}" _match_pos)
+  if(_match_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Build for TEST_CASE='${test_case}' failed, but missing expected substring '${expected_substring}'.\n"
+      "--- stdout ---\n${_build_out}\n--- stderr ---\n${_build_err}")
+  endif()
+endfunction()
+
 _gentest_expect_configure_failure("duplicate_output_dir" "Each explicit mock target must")
 _gentest_expect_configure_failure("textual_module_name" "MODULE_NAME is not")
 _gentest_expect_configure_failure("module_header_name" "HEADER_NAME is only")
@@ -127,3 +182,4 @@ _gentest_expect_configure_failure("generator_expression_defs" "generator-express
 _gentest_expect_configure_failure("generator_expression_output_dir" "OUTPUT_DIR")
 _gentest_expect_configure_failure("missing_named_module" "failed to")
 _gentest_expect_configure_failure("missing_module_name" "MODULE_NAME is")
+_gentest_expect_build_failure("nested_module_class_scope" "named-module mock targets must be declared at namespace scope")

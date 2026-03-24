@@ -84,6 +84,15 @@ struct MethodIdentity {
         return id;
     }
 
+    static MethodIdentity named(std::string_view name) {
+        MethodIdentity id;
+        id.bytes.resize(name.size());
+        if (!name.empty()) {
+            std::memcpy(id.bytes.data(), name.data(), name.size());
+        }
+        return id;
+    }
+
     bool operator==(const MethodIdentity &other) const noexcept { return bytes == other.bytes; }
 };
 
@@ -382,6 +391,11 @@ class InstanceState {
     }
 
     template <typename R, typename... Args> R dispatch(const MethodIdentity &id, std::string_view method_name, Args &&...args) {
+        return dispatch_with_fallback<R>(id, id, method_name, std::forward<Args>(args)...);
+    }
+
+    template <typename R, typename... Args>
+    R dispatch_with_fallback(const MethodIdentity &id, const MethodIdentity &fallback_id, std::string_view method_name, Args &&...args) {
         std::shared_ptr<ExpectationBase> base_expectation;
         bool                             nice_mode = false;
         bool                             unexpected = false;
@@ -389,8 +403,11 @@ class InstanceState {
             std::lock_guard<std::mutex> lk(mtx_);
             runtime_started_->store(true, std::memory_order_release);
             frozen_ = true;
-            auto                       it = methods_.find(id);
-            if (it != methods_.end() && it->second.next_expectation < it->second.expectations.size()) {
+            const auto try_take_expectation = [&](const MethodIdentity &candidate) -> bool {
+                auto it = methods_.find(candidate);
+                if (it == methods_.end() || it->second.next_expectation >= it->second.expectations.size()) {
+                    return false;
+                }
                 base_expectation = it->second.expectations[it->second.next_expectation];
                 auto expectation = std::static_pointer_cast<Expectation<R(Args...)>>(base_expectation);
                 unexpected       = !expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls;
@@ -398,7 +415,12 @@ class InstanceState {
                 if (!expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls) {
                     ++it->second.next_expectation;
                 }
-            } else {
+                return true;
+            };
+
+            const bool matched = try_take_expectation(id) ||
+                                 (!(fallback_id == id) && try_take_expectation(fallback_id));
+            if (!matched) {
                 nice_mode = nice_mode_;
             }
         }
