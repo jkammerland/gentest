@@ -426,7 +426,7 @@ bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_
         arg.starts_with("-fmodule-mapper=") || arg.starts_with("-fdeps-format=") || arg.starts_with("-fdeps-file=") ||
         arg.starts_with("-fdeps-target=") || arg.starts_with("-fmodule-file=") || arg.starts_with("-fprebuilt-module-path=") ||
         (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos);
-    return arg == "-fmodules-ts" || arg == "-fmodule-header" ||
+    return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg == "-fmodule-only" ||
         (!preserve_module_mapping_args && is_module_mapping_arg) ||
         arg == "-fconcepts-diagnostics-depth" ||
         arg.starts_with("-fconcepts-diagnostics-depth=") ||

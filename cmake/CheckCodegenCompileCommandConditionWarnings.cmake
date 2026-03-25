@@ -118,6 +118,35 @@ endfunction()
 
 _gentest_assert_condition_check_succeeds("${_work_dir}" "GNU-style -D/-U compile-command macros")
 
+find_program(_gxx NAMES g++ c++)
+if(_gxx)
+  set(_gcc_modules_compdb_dir "${_work_dir}/gcc_modules")
+  set(_gcc_modules_object "${_work_dir}/condition_gcc_modules.o")
+  file(MAKE_DIRECTORY "${_gcc_modules_compdb_dir}")
+  gentest_fixture_make_compdb_entry(
+    _gcc_modules_entry
+    DIRECTORY "${_work_dir}"
+    FILE "${_source}"
+    ARGUMENTS
+      "${_gxx}"
+      "-std=c++20"
+      "-fmodules-ts"
+      "-fmodule-only"
+      "-I${GENTEST_SOURCE_DIR}/include"
+      "-I${GENTEST_SOURCE_DIR}/tests"
+      "-DGENTEST_SCAN_ENABLED=1"
+      "-DGENTEST_SCAN_DISABLED=1"
+      "-UGENTEST_SCAN_DISABLED"
+      "-c"
+      "${_source}"
+      "-o"
+      "${_gcc_modules_object}")
+  gentest_fixture_write_compdb("${_gcc_modules_compdb_dir}/compile_commands.json" "${_gcc_modules_entry}")
+  _gentest_assert_condition_check_succeeds(
+    "${_gcc_modules_compdb_dir}"
+    "GCC-style module compile flags (-fmodules-ts -fmodule-only)")
+endif()
+
 if(CMAKE_HOST_WIN32)
   get_filename_component(_clang_dir "${_clangxx}" DIRECTORY)
   set(_clang_cl "${_clang_dir}/clang-cl.exe")
