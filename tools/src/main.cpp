@@ -33,11 +33,13 @@
 #include <fmt/core.h>
 #include <iterator>
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
+#include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/JSON.h>
+#include <llvm/Support/MD5.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/Process.h>
 #include <llvm/Support/Program.h>
@@ -229,19 +231,31 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     }
 }
 
-[[nodiscard]] std::vector<std::filesystem::path> depfile_targets_for(const CollectorOptions &options) {
-    auto sanitize_stem = [](std::string value) {
-        for (auto &ch : value) {
-            const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
-            if (!ok) {
-                ch = '_';
-            }
+[[nodiscard]] std::string sanitize_and_shorten_generated_stem(std::string value) {
+    for (auto &ch : value) {
+        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
+        if (!ok) {
+            ch = '_';
         }
-        if (value.empty()) {
-            return std::string{"tu"};
-        }
+    }
+    if (value.empty()) {
+        value = "tu";
+    }
+    if (value.size() <= 24) {
         return value;
-    };
+    }
+
+    llvm::MD5 hasher;
+    hasher.update(value);
+    llvm::MD5::MD5Result digest;
+    hasher.final(digest);
+
+    llvm::SmallString<32> digest_hex;
+    llvm::MD5::stringifyResult(digest, digest_hex);
+    return fmt::format("{}_{}", value.substr(0, 16), std::string_view{digest_hex.data(), 8});
+}
+
+[[nodiscard]] std::vector<std::filesystem::path> depfile_targets_for(const CollectorOptions &options) {
     auto is_module_interface_source = [&](const std::filesystem::path &path,
                                           const std::vector<std::filesystem::path> &include_search_paths = {}) {
         if (options.module_interface_sources.contains(path.string())) {
@@ -251,7 +265,7 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     };
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
         std::filesystem::path out = options.tu_output_dir;
-        const std::string     stem = sanitize_stem(std::filesystem::path(options.sources[idx]).stem().string());
+        const std::string     stem = sanitize_and_shorten_generated_stem(std::filesystem::path(options.sources[idx]).stem().string());
         const std::string     ext  = std::filesystem::path(options.sources[idx]).extension().string();
         out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
         return out;
@@ -2465,21 +2479,9 @@ int main(int argc, const char **argv) {
 
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
 
-    auto sanitize_module_wrapper_stem = [](std::string value) {
-        for (auto &ch : value) {
-            const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
-            if (!ok) {
-                ch = '_';
-            }
-        }
-        if (value.empty()) {
-            return std::string{"tu"};
-        }
-        return value;
-    };
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
         std::filesystem::path out = options.tu_output_dir;
-        const std::string     stem = sanitize_module_wrapper_stem(std::filesystem::path(options.sources[idx]).stem().string());
+        const std::string     stem = sanitize_and_shorten_generated_stem(std::filesystem::path(options.sources[idx]).stem().string());
         const std::string     ext  = std::filesystem::path(options.sources[idx]).extension().string();
         out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
         return out;

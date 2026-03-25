@@ -180,6 +180,7 @@ _gentest_expect_configure_failure("escaped_header_name" "stay within OUTPUT_DIR"
 _gentest_expect_configure_failure("reserved_header_name" "reserved generated output")
 _gentest_expect_configure_failure("generator_expression_defs" "generator-expression")
 _gentest_expect_configure_failure("generator_expression_output_dir" "OUTPUT_DIR")
+_gentest_expect_configure_failure("unsupported_include_root_genex" "BUILD_INTERFACE/INSTALL_INTERFACE")
 _gentest_expect_configure_failure("missing_named_module" "failed to")
 _gentest_expect_configure_failure("missing_module_name" "MODULE_NAME is")
 _gentest_expect_build_failure("nested_module_class_scope" "named-module mock targets must be declared at namespace scope")

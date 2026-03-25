@@ -77,6 +77,17 @@ elseif(TEST_CASE STREQUAL "generator_expression_output_dir")
         DEFS
             ${CMAKE_CURRENT_SOURCE_DIR}/defs_a.hpp
         OUTPUT_DIR "$<CONFIG>/generated")
+elseif(TEST_CASE STREQUAL "unsupported_include_root_genex")
+    add_library(explicit_validation_genex_include_root INTERFACE)
+    target_include_directories(explicit_validation_genex_include_root INTERFACE
+        "$<IF:$<BOOL:1>,${CMAKE_CURRENT_SOURCE_DIR},${CMAKE_CURRENT_BINARY_DIR}>")
+
+    gentest_add_mocks(explicit_validation_genex_include_root_mocks
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/defs_a.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/fixture_validation.hpp
+        LINK_LIBRARIES explicit_validation_genex_include_root)
 elseif(TEST_CASE STREQUAL "missing_named_module")
     gentest_add_mocks(explicit_validation_missing_named_module
         DEFS
