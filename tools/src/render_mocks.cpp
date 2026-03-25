@@ -205,6 +205,19 @@ bool supports_runtime_template_method_ptr_match(const MockMethodInfo &method, st
     return true;
 }
 
+bool pointer_type_depends_on_template_params(const MockMethodInfo &method, std::string_view pointer_type) {
+    if (method.template_prefix.empty()) {
+        return false;
+    }
+
+    for (const auto &name : method.template_param_names) {
+        if (contains_identifier_token(pointer_type, name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, const MockMethodInfo &method,
                            const std::string &fq_type, const std::string &tpl_usage) {
     RenderBuffer block;
@@ -550,11 +563,17 @@ std::string build_mock_access(const MockClassInfo &cls) {
     std::vector<std::string> compatibility_checks;
     compatibility_checks.reserve(cls.methods.size() + template_pointer_matchers.size());
     for (const auto &method : cls.methods) {
+        const std::string pointer_type = pointer_type_for(cls, method);
         if (!method.template_prefix.empty()) {
+            if (!supports_runtime_template_method_ptr_match(method, pointer_type)
+                && !pointer_type_depends_on_template_params(method, pointer_type)) {
+                compatibility_checks.push_back(
+                    fmt::format("(::gentest::detail::mocking::same_v<MethodPtr, {}> ? 1u : 0u)", pointer_type));
+            }
             continue;
         }
         compatibility_checks.push_back(
-            fmt::format("(::gentest::detail::mocking::same_v<MethodPtr, {}> ? 1u : 0u)", pointer_type_for(cls, method)));
+            fmt::format("(::gentest::detail::mocking::same_v<MethodPtr, {}> ? 1u : 0u)", pointer_type));
     }
     for (const auto &[matcher_name, _] : template_pointer_matchers) {
         compatibility_checks.push_back(fmt::format("({}<MethodPtr>::value ? 1u : 0u)", matcher_name));
