@@ -96,6 +96,19 @@ struct MethodIdentity {
     bool operator==(const MethodIdentity &other) const noexcept { return bytes == other.bytes; }
 };
 
+// Use a compile-time method token when the exact selected method is known.
+// MSVC-family Windows toolchains need this to avoid identical-code-folding
+// collisions; other toolchains keep the raw member-pointer bytes so distinct
+// template instantiations remain distinct identities.
+template <auto Method> inline MethodIdentity method_constant_identity() {
+#if defined(_MSC_VER)
+    constexpr std::string_view token = __FUNCSIG__;
+    return MethodIdentity::named(token);
+#else
+    return MethodIdentity::from(Method);
+#endif
+}
+
 struct MethodIdentityHash {
     std::size_t operator()(const MethodIdentity &id) const noexcept {
         std::size_t value = 1469598103934665603ull; // FNV-1a offset basis
@@ -646,6 +659,10 @@ template <class Mock> struct MockAccess {
         using Signature = typename mocking::MethodTraits<MethodPtr>::Signature;
         return mocking::ExpectationHandle<Signature>{};
     }
+    template <auto Method> static auto expect_constant(Mock &, std::string_view method_name) {
+        using Signature = typename mocking::MethodTraits<decltype(Method)>::Signature;
+        return mocking::ExpectationHandle<Signature>{{}, std::string(method_name)};
+    }
     static void set_nice(Mock &, bool) {}
 #endif
 };
@@ -654,6 +671,10 @@ template <class Mock> struct MockAccess {
 
 template <class Mock, class MethodPtr> auto expect(Mock &instance, MethodPtr method) {
     return detail::MockAccess<std::remove_cvref_t<Mock>>::expect(instance, method);
+}
+
+template <auto Method, class Mock> auto expect(Mock &instance, std::string_view method_name) {
+    return detail::MockAccess<std::remove_cvref_t<Mock>>::template expect_constant<Method>(instance, method_name);
 }
 
 template <class Mock>
@@ -668,8 +689,8 @@ void make_strict(Mock &instance) {
 // Convenience macros to configure expectations with a terse syntax.
 // Usage: EXPECT_CALL(mock, method).times(2)...
 #ifndef GENTEST_NO_EXPECT_CALL_MACROS
-#define EXPECT_CALL(instance, method) \
-    ::gentest::expect((instance), &std::remove_reference_t<decltype(instance)>::GentestTarget::method)
+#define EXPECT_CALL(instance, method)                                                                               \
+    ::gentest::expect<&std::remove_reference_t<decltype(instance)>::GentestTarget::method>((instance), #method)
 #define ASSERT_CALL(instance, method) EXPECT_CALL(instance, method)
 #endif
 

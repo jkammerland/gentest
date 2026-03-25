@@ -869,7 +869,7 @@ set(_gentest_suite_inventory_checks
     "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
     "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
     "templates|gentest_templates_tests|93|93|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
-    "mocking|gentest_mocking_tests|28|28|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
+    "mocking|gentest_mocking_tests|33|33|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
@@ -901,7 +901,7 @@ unset(_gentest_inventory_fail)
 unset(_gentest_inventory_skip)
 unset(_gentest_inventory_expected_list)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 6 SKIP 2)
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 7 SKIP 2)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -1053,6 +1053,14 @@ gentest_add_check_death(
     PROG gentest_failing_tests
     EXPECT_SUBSTRING "expected == 3"
     ARGS --run=failing/mocking/predicate_mismatch)
+
+if(WIN32 AND (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
+    gentest_add_check_death(
+        NAME mocking_ambiguous_method_pointer_message
+        PROG gentest_failing_tests
+        EXPECT_SUBSTRING "ambiguous mock method pointer for ::mocking::Ticker"
+        ARGS --run=failing/mocking/ambiguous_template_member_pointer)
+endif()
 
 # GitHub annotations smoke: ensure ::error lines present when enabled
 gentest_add_check_death(

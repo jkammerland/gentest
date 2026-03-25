@@ -148,12 +148,97 @@ void concrete_template_member_expect_int() {
     EXPECT_EQ(sum, 10);
 }
 
+[[using gentest: test("mocking/concrete/template_member_signature_collision")]]
+void concrete_template_member_signature_collision() {
+    gentest::mock<Ticker> mock_tick;
+    int                   tick_sum = 0;
+    int                   tadd_sum = 0;
+
+    EXPECT_CALL(mock_tick, tick).times(1).with(2).invokes([&](int v) { tick_sum += v; });
+    EXPECT_CALL(mock_tick, tadd<int>).times(2).with(5).invokes([&](int v) { tadd_sum += v; });
+
+    mock_tick.tick(2);
+    mock_tick.tadd(5);
+    mock_tick.tadd(5);
+
+    EXPECT_EQ(tick_sum, 2);
+    EXPECT_EQ(tadd_sum, 10);
+}
+
+[[using gentest: test("mocking/concrete/template_member_instantiation_split")]]
+void concrete_template_member_instantiation_split() {
+    gentest::mock<Ticker> mock_tick;
+    int                   int_sum  = 0;
+    long                  long_sum = 0;
+
+    EXPECT_CALL(mock_tick, tadd<int>).times(1).with(4).invokes([&](int v) { int_sum += v; });
+    EXPECT_CALL(mock_tick, tadd<long>).times(1).with(6L).invokes([&](long v) { long_sum += v; });
+
+    mock_tick.tadd(4);
+    mock_tick.tadd(6L);
+
+    EXPECT_EQ(int_sum, 4);
+    EXPECT_EQ(long_sum, 6L);
+}
+
+[[using gentest: test("mocking/concrete/direct_expect_signature_collision")]]
+void concrete_direct_expect_signature_collision() {
+    gentest::mock<Ticker> mock_tick;
+    int                   tick_sum = 0;
+    int                   tadd_sum = 0;
+
+    gentest::expect<&Ticker::tick>(mock_tick, "::mocking::Ticker::tick").times(1).with(3).invokes([&](int v) { tick_sum += v; });
+    EXPECT_CALL(mock_tick, tadd<int>).times(2).with(7).invokes([&](int v) { tadd_sum += v; });
+
+    mock_tick.tick(3);
+    mock_tick.tadd(7);
+    mock_tick.tadd(7);
+
+    EXPECT_EQ(tick_sum, 3);
+    EXPECT_EQ(tadd_sum, 14);
+}
+
+[[using gentest: test("mocking/concrete/direct_constant_expect_signature_collision")]]
+void concrete_direct_constant_expect_signature_collision() {
+    gentest::mock<Ticker> mock_tick;
+    int                   tick_sum = 0;
+    int                   tadd_sum = 0;
+
+    gentest::expect<&Ticker::tick>(mock_tick, "::mocking::Ticker::tick").times(1).with(4).invokes([&](int v) { tick_sum += v; });
+    gentest::expect<&Ticker::tadd<int>>(mock_tick, "::mocking::Ticker::tadd<int>").times(2).with(9).invokes([&](int v) {
+        tadd_sum += v;
+    });
+
+    mock_tick.tick(4);
+    mock_tick.tadd(9);
+    mock_tick.tadd(9);
+
+    EXPECT_EQ(tick_sum, 4);
+    EXPECT_EQ(tadd_sum, 18);
+}
+
 [[using gentest: test("mocking/template/forwarding_alias")]]
 void template_forwarding_alias() {
     gentest::mock<ForwardingAlias> mock_alias;
     TrackedMove                    value;
     int                            calls = 0;
     EXPECT_CALL(mock_alias, take<TrackedMove&>).times(1).invokes([&](const TrackedMove &) { ++calls; });
+
+    mock_alias.template take<TrackedMove&>(value);
+
+    EXPECT_EQ(calls, 1);
+    EXPECT_FALSE(value.moved);
+}
+
+[[using gentest: test("mocking/template/direct_unique_template_member_expect")]]
+void direct_unique_template_member_expect() {
+    gentest::mock<ForwardingAlias> mock_alias;
+    TrackedMove                    value;
+    int                            calls = 0;
+
+    gentest::expect(mock_alias, &ForwardingAlias::template take<TrackedMove&>)
+        .times(1)
+        .invokes([&](const TrackedMove &) { ++calls; });
 
     mock_alias.template take<TrackedMove&>(value);
 

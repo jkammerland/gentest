@@ -94,8 +94,115 @@ std::string ensure_global_qualifiers(std::string value) {
 std::string argument_list(const MockMethodInfo &method);
 std::string pointer_type_for(const MockClassInfo &cls, const MockMethodInfo &method);
 
-std::string stable_method_identity_literal(const MockClassInfo &cls, const MockMethodInfo &method) {
-    return fmt::format("{}|{}", fmt::format("::{}", method.qualified_name), pointer_type_for(cls, method));
+std::string_view trim_ascii(std::string_view text) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) {
+        text.remove_prefix(1);
+    }
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) {
+        text.remove_suffix(1);
+    }
+    return text;
+}
+
+std::vector<std::string_view> split_top_level_commas(std::string_view text) {
+    std::vector<std::string_view> parts;
+    std::size_t                   start  = 0;
+    int                           angles = 0;
+    int                           parens = 0;
+    int                           braces = 0;
+    int                           square = 0;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        switch (text[i]) {
+        case '<':
+            ++angles;
+            break;
+        case '>':
+            if (angles > 0) {
+                --angles;
+            }
+            break;
+        case '(':
+            ++parens;
+            break;
+        case ')':
+            if (parens > 0) {
+                --parens;
+            }
+            break;
+        case '{':
+            ++braces;
+            break;
+        case '}':
+            if (braces > 0) {
+                --braces;
+            }
+            break;
+        case '[':
+            ++square;
+            break;
+        case ']':
+            if (square > 0) {
+                --square;
+            }
+            break;
+        case ',':
+            if (angles == 0 && parens == 0 && braces == 0 && square == 0) {
+                parts.push_back(trim_ascii(text.substr(start, i - start)));
+                start = i + 1;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    parts.push_back(trim_ascii(text.substr(start)));
+    return parts;
+}
+
+bool contains_identifier_token(std::string_view text, std::string_view token) {
+    std::size_t pos = 0;
+    while ((pos = text.find(token, pos)) != std::string_view::npos) {
+        const bool left_ok =
+            pos == 0 || !(std::isalnum(static_cast<unsigned char>(text[pos - 1])) || text[pos - 1] == '_');
+        const std::size_t end = pos + token.size();
+        const bool        right_ok =
+            end >= text.size() || !(std::isalnum(static_cast<unsigned char>(text[end])) || text[end] == '_');
+        if (left_ok && right_ok) {
+            return true;
+        }
+        pos = end;
+    }
+    return false;
+}
+
+bool supports_runtime_template_method_ptr_match(const MockMethodInfo &method, std::string_view pointer_type) {
+    if (method.template_prefix.empty()) {
+        return false;
+    }
+    const std::size_t open = method.template_prefix.find('<');
+    const std::size_t close = method.template_prefix.rfind('>');
+    if (open == std::string::npos || close == std::string::npos || close <= open) {
+        return false;
+    }
+
+    const auto clauses = split_top_level_commas(method.template_prefix.substr(open + 1, close - open - 1));
+    if (clauses.empty()) {
+        return false;
+    }
+
+    for (const auto clause : clauses) {
+        const auto trimmed = trim_ascii(clause);
+        if (!(trimmed.rfind("typename", 0) == 0 || trimmed.rfind("class", 0) == 0)) {
+            return false;
+        }
+    }
+
+    for (const auto &name : method.template_param_names) {
+        if (!contains_identifier_token(pointer_type, name)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, const MockMethodInfo &method,
@@ -107,18 +214,14 @@ std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, 
     const std::string fq_method         = fmt::format("::{}", method.qualified_name);
     const std::string fq_method_escaped = escape_string(fq_method);
     const std::string dispatch_args     = args.empty() ? std::string{} : fmt::format(", {}", args);
-    if (method.template_prefix.empty()) {
-        block.append("{0}auto token = ::gentest::detail::mocking::MethodIdentity::named(\"{1}\");\n", indent,
-                     escape_string(stable_method_identity_literal(cls, method)));
-        block.append("{0}auto fallback_token = this->__gentest_state_.identify(&{1}::{2});\n", indent, fq_type, method.method_name);
-        block.append("{0}{1}this->__gentest_state_.template dispatch_with_fallback<{2}>(token, fallback_token, \"{3}\"{4});\n", indent,
-                     returns_value ? "return " : "", return_type, fq_method_escaped, dispatch_args);
-    } else {
-        block.append("{0}auto token = this->__gentest_state_.identify(&{1}::{2}{3});\n", indent, fq_type, method.method_name,
-                     tpl_usage);
-        block.append("{0}{1}this->__gentest_state_.template dispatch<{2}>(token, \"{3}\"{4});\n", indent,
-                     returns_value ? "return " : "", return_type, fq_method_escaped, dispatch_args);
-    }
+    const std::string pointer_type        = pointer_type_for(cls, method);
+    const std::string method_constant_ref = fmt::format("static_cast<{0}>(&{1}::{2}{3})", pointer_type, fq_type,
+                                                        method.method_name, tpl_usage);
+    const std::string raw_method_ref      = fmt::format("&{0}::{1}{2}", fq_type, method.method_name, tpl_usage);
+    block.append("{0}auto token = ::gentest::detail::mocking::method_constant_identity<{1}>();\n", indent, method_constant_ref);
+    block.append("{0}auto fallback_token = this->__gentest_state_.identify({1});\n", indent, raw_method_ref);
+    block.append("{0}{1}this->__gentest_state_.template dispatch_with_fallback<{2}>(token, fallback_token, \"{3}\"{4});\n", indent,
+                 returns_value ? "return " : "", return_type, fq_method_escaped, dispatch_args);
     return block.str();
 }
 
@@ -411,16 +514,78 @@ std::string build_mock_access(const MockClassInfo &cls) {
     RenderBuffer body;
     const std::string fq_type = fmt::format("::{}", cls.qualified_name);
     body.append("template <>\nstruct MockAccess<mock<{}>> {{\n", fq_type);
+    std::vector<std::pair<std::string, std::string>> template_pointer_matchers;
+    for (std::size_t i = 0; i < cls.methods.size(); ++i) {
+        const auto       &method       = cls.methods[i];
+        const std::string pointer_type = pointer_type_for(cls, method);
+        if (method.template_prefix.empty() || !supports_runtime_template_method_ptr_match(method, pointer_type)) {
+            continue;
+        }
+        const std::string matcher_name = fmt::format("method_ptr_matches_template_{}", i);
+        body.append("    template <class MethodPtr> struct {} : std::false_type {{}};\n", matcher_name);
+        body.append("    {}\n", method.template_prefix);
+        body.append("    struct {}<{}> : std::true_type {{}};\n\n", matcher_name, pointer_type);
+        template_pointer_matchers.emplace_back(matcher_name, pointer_type);
+    }
+    body.append_raw("    template <auto Method>\n");
+    body.append("    static auto expect_constant(mock<{0}> &instance, std::string_view method_name) {{\n", fq_type);
+    body.append_raw("        using ::gentest::detail::mocking::ExpectationHandle;\n");
+    body.append_raw("        using ::gentest::detail::mocking::MethodTraits;\n");
+    body.append_raw("        using Signature = typename MethodTraits<decltype(Method)>::Signature;\n");
+    body.append_raw("        auto token = ::gentest::detail::mocking::method_constant_identity<Method>();\n");
+    body.append_raw(
+        "        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, token, std::string(method_name));\n");
+    body.append_raw("        return ExpectationHandle<Signature>{expectation, std::string(method_name)};\n");
+    body.append_raw("    }\n");
+    body.append_raw("\n");
     body.append_raw("    template <class MethodPtr>\n");
     body.append("    static auto expect(mock<{0}> &instance, MethodPtr method) {{\n", fq_type);
     body.append_raw("        using ::gentest::detail::mocking::ExpectationHandle;\n");
     body.append_raw("        using ::gentest::detail::mocking::MethodTraits;\n");
+    body.append_raw("        using Signature = typename MethodTraits<MethodPtr>::Signature;\n");
+    std::unordered_map<std::string, std::size_t> pointer_type_counts;
+    for (const auto &method : cls.methods) {
+        ++pointer_type_counts[pointer_type_for(cls, method)];
+    }
+    std::vector<std::string> compatibility_checks;
+    compatibility_checks.reserve(cls.methods.size() + template_pointer_matchers.size());
+    for (const auto &method : cls.methods) {
+        if (!method.template_prefix.empty()) {
+            continue;
+        }
+        compatibility_checks.push_back(
+            fmt::format("(::gentest::detail::mocking::same_v<MethodPtr, {}> ? 1u : 0u)", pointer_type_for(cls, method)));
+    }
+    for (const auto &[matcher_name, _] : template_pointer_matchers) {
+        compatibility_checks.push_back(fmt::format("({}<MethodPtr>::value ? 1u : 0u)", matcher_name));
+    }
+    if (!compatibility_checks.empty()) {
+        std::string compatibility_expr;
+        for (std::size_t i = 0; i < compatibility_checks.size(); ++i) {
+            if (i != 0) {
+                compatibility_expr += "\n            + ";
+            }
+            compatibility_expr += compatibility_checks[i];
+        }
+        body.append_raw("#if defined(_MSC_VER)\n");
+        body.append("        constexpr std::size_t compatible_method_count = {};\n", compatibility_expr);
+        body.append_raw("        if constexpr (compatible_method_count > 1) {\n");
+        body.append(
+            "            ::gentest::detail::record_failure(\"ambiguous mock method pointer for {0}; use EXPECT_CALL(...) or gentest::expect<&T::method>(mock, \\\"name\\\") to select the exact method\");\n",
+            escape_string(fq_type));
+        body.append_raw("            return ExpectationHandle<Signature>{};\n");
+        body.append_raw("        }\n");
+        body.append_raw("#endif\n");
+    }
     bool first_branch = true;
     for (const auto &method : cls.methods) {
         if (!method.template_prefix.empty()) {
             continue; // rely on generic fallback for template member functions
         }
         const std::string pointer_type = pointer_type_for(cls, method);
+        if (pointer_type_counts[pointer_type] != 1) {
+            continue; // avoid ambiguous runtime member-pointer equality matches
+        }
         const std::string signature    = signature_from(method);
         const std::string push_args    = [&]() {
             std::string args = ensure_global_qualifiers(method.return_type);
@@ -432,19 +597,19 @@ std::string build_mock_access(const MockClassInfo &cls) {
         }();
         const std::string fq_method         = fmt::format("::{}", method.qualified_name);
         const std::string fq_method_escaped = escape_string(fq_method);
-        const std::string stable_id_escaped = escape_string(stable_method_identity_literal(cls, method));
+        const std::string method_constant_ref =
+            fmt::format("static_cast<{0}>(&{1}::{2})", pointer_type, fq_type, method.method_name);
         const std::string branch_intro      = first_branch ? "        if constexpr" : "        else if constexpr";
         first_branch                        = false;
         body.append("{0} (::gentest::detail::mocking::same_v<MethodPtr, {1}>) {{\n", branch_intro, pointer_type);
         body.append("            if (method == static_cast<MethodPtr>(&{0}::{1})) {{\n", fq_type, method.method_name);
-        body.append("                auto token = ::gentest::detail::mocking::MethodIdentity::named(\"{3}\");\n"
+        body.append("                auto token = ::gentest::detail::mocking::method_constant_identity<{3}>();\n"
                     "                auto expectation = instance.__gentest_state_.template push_expectation<{2}>(token, \"{4}\");\n"
                     "                return ExpectationHandle<{5}>{{expectation, \"{4}\"}};\n",
-                    fq_type, method.method_name, push_args, stable_id_escaped, fq_method_escaped, signature);
+                    fq_type, method.method_name, push_args, method_constant_ref, fq_method_escaped, signature);
         body.append_raw("            }\n");
         body.append_raw("        }\n");
     }
-    body.append_raw("        using Signature = typename MethodTraits<MethodPtr>::Signature;\n");
     body.append_raw("        auto token = instance.__gentest_state_.identify(method);\n");
     body.append_raw(
         "        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, token, \"(mock method)\");\n");

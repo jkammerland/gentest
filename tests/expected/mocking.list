@@ -4,6 +4,10 @@ mocking/mocking/concrete/non_default_ctor
 mocking/mocking/concrete/predicate_match
 mocking/mocking/concrete/static_member
 mocking/mocking/concrete/template_member_expect_int
+mocking/mocking/concrete/template_member_signature_collision
+mocking/mocking/concrete/template_member_instantiation_split
+mocking/mocking/concrete/direct_expect_signature_collision
+mocking/mocking/concrete/direct_constant_expect_signature_collision
 mocking/mocking/concurrency/adopted_ordered_dispatch
 mocking/mocking/concurrency/late_mutation_ignored_after_runtime_start
 mocking/mocking/crtp/bridge
@@ -26,3 +30,4 @@ mocking/mocking/move_only/refwrap_by_value
 mocking/mocking/move_only/with_eq
 mocking/mocking/nice/unexpected_ok
 mocking/mocking/template/forwarding_alias
+mocking/mocking/template/direct_unique_template_member_expect
