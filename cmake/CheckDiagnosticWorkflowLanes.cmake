@@ -232,7 +232,12 @@ _assert_row_contains("tsan-system" "ctest_parallel: 2" "set ctest_parallel: 2")
 _assert_workflow_contains("libclang-rt-\${{ matrix.clang_version }}-dev" "install the Clang compiler-rt development package so sanitizer presets can link")
 _assert_workflow_contains("GENTEST_CODEGEN_JOBS=\${{ matrix.codegen_jobs }}" "export GENTEST_CODEGEN_JOBS from the matrix so Alpine CI exercises parallel codegen explicitly")
 
-foreach(_asan_lane IN ITEMS "Ubuntu 24.04 • Clang 20" "Ubuntu 25.04 • Clang 20" "Fedora 43 • Clang")
+foreach(_asan_lane IN ITEMS
+    "Ubuntu 24.04 • Clang 20"
+    "Ubuntu 24.04 • LLVM 22"
+    "Ubuntu 25.04 • Clang 20"
+    "Fedora 43 • Clang 21"
+    "Fedora 43 • LLVM 22")
   _assert_named_row_contains("${_asan_lane}" "ASan+UBSan" "preset: alusan-system"
     "set preset: alusan-system for sanitizer coverage")
   _assert_named_row_contains("${_asan_lane}" "ASan+UBSan" "ctest_parallel: 2"
