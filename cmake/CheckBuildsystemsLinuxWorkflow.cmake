@@ -43,3 +43,35 @@ string(FIND "${_content}" "/home/ci/.local/bin/xmake r gentest_unit_xmake" _hard
 if(NOT _hardcoded_test_pos EQUAL -1)
   message(FATAL_ERROR "Xmake test step must not hardcode the ci-local xmake path.")
 endif()
+
+set(_meson_file "${SOURCE_DIR}/meson.build")
+set(_xmake_file "${SOURCE_DIR}/xmake.lua")
+set(_bazel_file "${SOURCE_DIR}/build_defs/gentest.bzl")
+set(_helper_file "${SOURCE_DIR}/scripts/gentest_buildsystem_codegen.py")
+
+foreach(_buildsystem_file IN LISTS _meson_file _xmake_file _bazel_file)
+  if(NOT EXISTS "${_buildsystem_file}")
+    message(FATAL_ERROR "Missing buildsystem integration file: ${_buildsystem_file}")
+  endif()
+
+  file(READ "${_buildsystem_file}" _buildsystem_content)
+
+  string(FIND "${_buildsystem_content}" "gentest_buildsystem_codegen.py" _helper_ref_pos)
+  if(_helper_ref_pos EQUAL -1)
+    message(FATAL_ERROR "${_buildsystem_file} must use the shared non-CMake per-TU codegen helper.")
+  endif()
+
+  string(FIND "${_buildsystem_content}" "--output" _manifest_pos)
+  if(NOT _manifest_pos EQUAL -1)
+    message(FATAL_ERROR "${_buildsystem_file} must not use legacy gentest_codegen --output manifest mode.")
+  endif()
+
+  string(FIND "${_buildsystem_content}" "--tu-out-dir" _tu_mode_pos)
+  if(NOT _tu_mode_pos EQUAL -1)
+    message(FATAL_ERROR "${_buildsystem_file} should route per-TU generation through the shared helper, not inline --tu-out-dir invocations.")
+  endif()
+endforeach()
+
+if(NOT EXISTS "${_helper_file}")
+  message(FATAL_ERROR "Missing shared non-CMake codegen helper: ${_helper_file}")
+endif()

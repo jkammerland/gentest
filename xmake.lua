@@ -3,7 +3,9 @@ set_languages("cxx20")
 
 add_rules("mode.debug", "mode.release")
 
+local project_root = os.scriptdir()
 local incdirs = {"include", "tests", "third_party/include"}
+local buildsystem_codegen = path.join(project_root, "scripts", "gentest_buildsystem_codegen.py")
 
 local gentest_common_defines = {"FMT_HEADER_ONLY"}
 local gentest_common_cxxflags = {}
@@ -25,7 +27,7 @@ local function resolve_codegen()
         return env_path, nil, nil
     end
 
-    local build_dir = path.join(os.projectdir(), "build", "xmake-codegen")
+    local build_dir = path.join(project_root, "build", "xmake-codegen")
     local bin = path.join(build_dir, "tools", "gentest_codegen")
     local compdb_dir = nil
     if os.isfile(path.join(build_dir, "compile_commands.json")) then
@@ -63,39 +65,50 @@ target("gentest_main")
     add_deps("gentest_runtime")
 
 local function gentest_suite(name)
-    local out = path.join("build", "gen", name, "test_impl.cpp")
+    local out_dir = path.join("build", "gen", name)
+    local wrapper_cpp = path.join(out_dir, "tu_0000_cases.gentest.cpp")
+    local wrapper_h = path.join(out_dir, "tu_0000_cases.gentest.h")
+    local source_file = path.join(project_root, "tests", name, "cases.cpp")
 
     target("gentest_" .. name .. "_xmake")
         set_kind("binary")
         add_includedirs(incdirs)
         add_defines(gentest_common_defines)
         add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
-        add_files(out, {always_added = true})
+        add_files(wrapper_cpp, {always_added = true})
         add_deps("gentest_main")
         before_buildcmd(function (target, batchcmds)
             local codegen, compdb_dir, cmake_build_dir = resolve_codegen()
             if cmake_build_dir and not os.isfile(codegen) then
-                batchcmds:vrunv("cmake", {"-S", os.projectdir(), "-B", cmake_build_dir, "-DCMAKE_BUILD_TYPE=Release",
+                batchcmds:vrunv("cmake", {"-S", project_root, "-B", cmake_build_dir, "-DCMAKE_BUILD_TYPE=Release",
                                          "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"})
                 batchcmds:vrunv("cmake", {"--build", cmake_build_dir, "--target", "gentest_codegen", "-j", "1"})
                 compdb_dir = cmake_build_dir
             end
 
-            local args = {"--output", out}
+            local args = {
+                buildsystem_codegen,
+                "--codegen", codegen,
+                "--source-root", project_root,
+                "--out-dir", path.join(project_root, out_dir),
+                "--wrapper-output", path.join(project_root, wrapper_cpp),
+                "--header-output", path.join(project_root, wrapper_h),
+                "--source-file", source_file,
+                "--wrapper-include", path.join(name, "cases.cpp"),
+            }
             if compdb_dir then
                 table.insert(args, "--compdb")
                 table.insert(args, compdb_dir)
             end
-            table.insert(args, path.join(os.projectdir(), "tests", name, "cases.cpp"))
-            table.insert(args, "--")
-            table.insert(args, "-std=c++20")
-            table.insert(args, "-DGENTEST_CODEGEN=1")
-            table.insert(args, "-Wno-unknown-attributes")
-            table.insert(args, "-Wno-attributes")
-            table.insert(args, "-Wno-unknown-warning-option")
-            table.insert(args, "-I" .. path.join(os.projectdir(), "include"))
-            table.insert(args, "-I" .. path.join(os.projectdir(), "tests"))
-            batchcmds:vrunv(codegen, args)
+            table.insert(args, "--clang-arg=-std=c++20")
+            table.insert(args, "--clang-arg=-DGENTEST_CODEGEN=1")
+            table.insert(args, "--clang-arg=-Wno-unknown-attributes")
+            table.insert(args, "--clang-arg=-Wno-attributes")
+            table.insert(args, "--clang-arg=-Wno-unknown-warning-option")
+            table.insert(args, "--clang-arg=-I" .. path.join(project_root, "include"))
+            table.insert(args, "--clang-arg=-I" .. path.join(project_root, "tests"))
+            table.insert(args, "--clang-arg=-I" .. path.join(project_root, "third_party", "include"))
+            batchcmds:vrunv("python3", args)
         end)
 end
 
@@ -108,5 +121,5 @@ target("poc_cross_aarch64_qemu")
     set_kind("phony")
     on_run(function ()
         -- Use a plain shell call; this target is marked local/manual in other build systems too.
-        os.vrunv("bash", {path.join(os.projectdir(), "scripts", "poc_cross_aarch64_qemu.sh")})
+        os.vrunv("bash", {path.join(project_root, "scripts", "poc_cross_aarch64_qemu.sh")})
     end)
