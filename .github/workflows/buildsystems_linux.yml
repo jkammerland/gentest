@@ -156,6 +156,17 @@ jobs:
             --host_action_env=CXX="${clang_cxx}" \
             --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
             --test_output=errors
+          bazel build \
+            //:gentest_consumer_textual_bazel \
+            --action_env=CCACHE_DISABLE=1 \
+            --host_action_env=CCACHE_DISABLE=1 \
+            --action_env=CC="${clang_cc}" \
+            --action_env=CXX="${clang_cxx}" \
+            --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+            --host_action_env=CC="${clang_cc}" \
+            --host_action_env=CXX="${clang_cxx}" \
+            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
+          ./bazel-bin/gentest_consumer_textual_bazel
 
   meson:
     name: Meson • ${{ matrix.name }}

@@ -3,13 +3,12 @@
 ## Goal
 
 Build on the already-shipped classic per-TU non-CMake baseline and bring Meson,
-Xmake, and Bazel to functional parity with the current CMake path for the
-remaining missing pieces:
+Xmake, and Bazel to functional parity with the current CMake product model for:
 
+- explicit mocks
 - named-module test sources
-- explicit mock targets
 - generated public mock surfaces
-- downstream/package-style consumption where the buildsystem can support it
+- test/codegen attachment for final consumer targets
 
 Classic per-TU suite support is now a precondition for this story, not part of
 the unfinished deliverable.
@@ -22,6 +21,11 @@ Implemented already:
   repository suites.
 - Legacy `gentest_codegen --output ...` manifest mode has been removed from the
   active non-CMake suite integrations.
+- Meson has an in-tree explicit textual mock consumer slice:
+  - defs file -> generated public header -> consumer test target
+- Bazel has the same in-tree explicit textual mock consumer slice.
+- Xmake does not have the explicit textual mock slice yet; it remains
+  classic-suite-only today.
 - The classic non-CMake paths are documented in:
   - [`docs/buildsystems/meson.md`](../buildsystems/meson.md)
   - [`docs/buildsystems/xmake.md`](../buildsystems/xmake.md)
@@ -29,16 +33,16 @@ Implemented already:
 
 Still missing:
 
-- named-module suite integration
-- explicit mock target APIs
-- public generated textual/module mock surfaces
-- module-aware consumer ordering / dependency propagation
-- downstream-facing reusable APIs with clear buildsystem contracts
+- reusable explicit mock attachment APIs
+- named-module test attachment APIs
+- public generated header/module mock surfaces
+- module-aware handoff from mock generation into test codegen
+- backend-specific plumbing for module compilation and consumption
 
 ## Product direction
 
-The parity target should match the current CMake model, not the older implicit
-mock-discovery model.
+The parity target should match the current explicit-mock model, not the older
+implicit mock-discovery model.
 
 Required design rules:
 
@@ -46,35 +50,15 @@ Required design rules:
 2. Mocks remain explicit-only.
 3. Header defs stay header-based.
 4. Module defs stay module-based.
-5. Linking a mock target is not enough by itself; consumers must still include
-   or import the generated public surface.
-6. Manifest mode stays legacy/fallback only.
+5. Mock generation and test codegen are two separate user-facing operations.
+6. Any metadata handoff between them is internal implementation detail.
+7. Manifest mode stays legacy/fallback only.
 
-## Parity target
+## Public model
 
-Each non-CMake backend should end up with equivalents of these conceptual APIs:
+Each non-CMake backend should expose only these two conceptual APIs:
 
-### 1. Attach codegen
-
-```text
-attach_codegen(test_target,
-               sources = [...],
-               module_sources = [...],
-               output_dir = ...,
-               clang_args = [...],
-               deps = [...])
-```
-
-Responsibilities:
-
-- generate classic per-TU shims for ordinary `.cpp` sources
-- preserve named-module units as module inputs
-- generate and compile module wrapper units where needed
-- propagate compile context into `gentest_codegen`
-- preserve correct dependency ordering for generated sources and downstream
-  targets
-
-### 2. Add explicit mocks
+### 1. Add mocks
 
 ```text
 add_mocks(mock_target,
@@ -96,18 +80,57 @@ Contract:
   - do not generate a public compatibility header by default
 - mixed textual + module defs in one target are rejected
 - mock discovery runs only from defs files
+- `add_mocks(...)` generates everything needed for downstream test targets:
+  - generated registry/impl artifacts
+  - compiled mock target
+  - public surface
+  - internal metadata for codegen/compile handoff
 
-### 3. Link explicit mocks
+### 2. Attach codegen
 
 ```text
-link_mocks(consumer_target, mock_targets = [...])
+attach_codegen(test_target,
+               sources = [...],
+               module_sources = [...],
+               output_dir = ...,
+               clang_args = [...],
+               deps = [...])
 ```
 
-Responsibilities:
+Contract:
 
-- make generated mock surfaces visible to consumer compilation
-- guarantee consumer codegen runs after required mock targets are ready
-- propagate include roots/module metadata into both codegen and compile steps
+- discovers tests/fixtures/cases from the given test sources
+- never discovers mocks from ordinary test sources
+- consumes metadata from any dependent mock targets listed in `deps`
+- generates all wrappers / generated headers / generated module wrappers needed
+  for the final test target
+
+There is no third public `link_mocks(...)` operation in this model. Ordinary
+target deps/links are sufficient at the user level. If a backend needs a helper
+for internal ordering, keep it private to the implementation.
+
+## Internal architecture
+
+The internal handoff should be:
+
+```text
+defs files
+  -> add_mocks()
+  -> compiled mock target + public surface + metadata
+
+test files
+  -> attach_codegen()
+  -> generated test wrappers
+  -> final target consumes mock metadata
+```
+
+That metadata must carry enough information for `attach_codegen(...)` to feed
+the right include roots or module mappings into both:
+
+- `gentest_codegen`
+- final compilation
+
+This is the only real coupling between the two user-facing operations.
 
 ## Buildsystem breakdown
 
@@ -115,14 +138,14 @@ Responsibilities:
 
 Target outcome:
 
-- support classic suites and named-module suites
-- support explicit textual mock targets
+- stabilize the already-landed explicit textual mock slice into a reusable API
+- support named-module test targets
 - support explicit module mock targets
-- expose generated module surfaces in a way Meson can compile and consume
+- keep the public API at `add_mocks(...)` + `attach_codegen(...)`
 
 Open work:
 
-- replace the current repo-local suite loop with reusable helper entrypoints
+- expose mock metadata from `add_mocks(...)` into `attach_codegen(...)`
 - make module wrapper generation first-class
 - avoid configure-time-only dependency snapshots for codegen-sensitive inputs
 - decide whether downstream package/export support is practical in Meson or
@@ -132,10 +155,10 @@ Open work:
 
 Target outcome:
 
-- support classic suites and named-module suites
-- support explicit textual and module mock targets
-- support stable codegen ordering without relying on fragile implicit fallback
-  behavior
+- add the first explicit textual mock slice
+- support named-module test targets
+- support explicit module mock targets
+- keep ordering/metadata handling internal to the helper layer
 
 Open work:
 
@@ -148,9 +171,10 @@ Open work:
 
 Target outcome:
 
-- support classic suites and named-module suites where Bazel toolchains can
-  truly model the module graph
-- support explicit textual and module mock targets
+- stabilize the already-landed explicit textual mock slice into reusable rules
+- support named-module test targets where Bazel toolchains can truly model the
+  module graph
+- support explicit module mock targets
 - provide rule-level semantics instead of repo-local macros only
 
 Open work:
@@ -158,29 +182,36 @@ Open work:
 - separate local convenience bootstrap from real reusable Bazel rules
 - decide the acceptable hermeticity level for `gentest_codegen`
 - make module support conditional on a real Bazel modules-capable toolchain path
-- define whether downstream parity includes install/export-style package
-  consumption, or whether Bazel parity should stop at in-workspace rule parity
+- keep metadata handoff hermetic enough for sandboxed actions
 
 ## Execution plan
 
-### Phase 2: explicit mock parity for non-CMake classic consumers
+### Phase 2: explicit textual mocks
 
-- add textual explicit mock target helpers for Meson, Xmake, and Bazel
-- keep the surface textual only
-- prove consumer ordering and compile visibility
+- finish textual explicit mocks in all three backends
+- generate a textual public header surface only
+- prove that `attach_codegen(...)` consumes the mock metadata without any public
+  third linking step
 - add docs and regression checks per backend
 
-### Phase 3: named-module test parity
+Current status:
 
-- add named-module test support per backend
+- Meson: repo-local slice implemented
+- Bazel: repo-local slice implemented
+- Xmake: not implemented yet
+
+### Phase 3: named-module tests
+
+- add `attach_codegen(...)` support for named-module test sources per backend
 - generate/compile module wrapper units where needed
-- prove public module import flows for in-tree consumers
+- prove final test targets can import their generated test module surfaces
 
-### Phase 4: module explicit mocks
+### Phase 4: explicit module mocks
 
-- add explicit module mock target support
-- generate aggregate public mock modules
-- prove module consumer imports and codegen ordering
+- add `add_mocks(...)` support for module defs
+- generate public named-module mock surfaces
+- prove `attach_codegen(...)` consumes module mock metadata and final targets
+  can import the generated mock surface
 
 ### Phase 5: downstream/reusable API polish
 
@@ -194,14 +225,14 @@ Open work:
 Minimum parity is reached when:
 
 - Meson, Xmake, and Bazel each support:
-  - named-module test suites
   - explicit textual mock targets
+  - named-module test targets
   - explicit module mock targets
-- the existing classic per-TU suite coverage remains green while the new
-  features land
 - the public surface contract is the same as CMake:
   - textual defs -> header surface
   - module defs -> module surface
+- the existing classic per-TU suite coverage remains green while the new
+  features land
 - user-facing docs exist for each backend
 - CI covers at least one green path for each supported backend feature slice
 - the old implicit/manifest non-CMake assumptions are removed from the docs and
@@ -211,5 +242,7 @@ Minimum parity is reached when:
 
 - Reintroducing implicit mock discovery.
 - Auto-generating cross-surface bridges by default.
+- Exposing a third public mock-linking API unless a backend truly cannot avoid
+  it.
 - Forcing identical implementation details across buildsystems when the public
   contract can stay the same.

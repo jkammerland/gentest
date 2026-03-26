@@ -5,22 +5,36 @@ from __future__ import annotations
 import argparse
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate a classic per-TU gentest shim and invoke gentest_codegen for non-CMake buildsystems."
+        description="Generate gentest non-CMake wrapper outputs and invoke gentest_codegen."
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["suite", "textual-mocks"],
+        default="suite",
+        help="Generation mode. `suite` emits classic per-TU test wrappers. `textual-mocks` emits explicit textual mock surfaces.",
     )
     parser.add_argument("--codegen", required=True, help="Path to gentest_codegen")
     parser.add_argument("--source-root", required=True, help="Project source root")
     parser.add_argument("--out-dir", required=True, help="Directory for generated shim/header outputs")
     parser.add_argument("--wrapper-output", required=True, help="Generated shim translation unit path")
     parser.add_argument("--header-output", required=True, help="Generated registration header path")
-    parser.add_argument("--source-file", required=True, help="Original source file backing the shim")
+    parser.add_argument("--source-file", help="Original source file backing the shim")
+    parser.add_argument("--defs-file", action="append", default=[], help="Explicit textual mock defs file")
+    parser.add_argument("--include-root", action="append", default=[], help="Include roots used to rewrite local quoted includes in staged defs")
+    parser.add_argument("--public-header", help="Generated public header for textual mock mode")
+    parser.add_argument("--anchor-output", help="Generated anchor source for textual mock mode")
+    parser.add_argument("--target-id", help="Stable identifier used for textual mock generated anchors")
     parser.add_argument("--depfile", default="", help="Optional depfile path to pass through to gentest_codegen")
     parser.add_argument("--compdb", default="", help="Optional compilation database directory")
+    parser.add_argument("--mock-registry", default="", help="Generated mock registry header path")
+    parser.add_argument("--mock-impl", default="", help="Generated mock implementation header path")
     parser.add_argument(
         "--clang-arg",
         action="append",
@@ -30,7 +44,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def write_shim(wrapper_output: pathlib.Path, source_file_for_include: pathlib.Path, header_output: pathlib.Path) -> None:
+def resolve_input_path(path_arg: str, source_root: pathlib.Path) -> pathlib.Path:
+    candidate = pathlib.Path(path_arg)
+    if candidate.is_absolute():
+        return candidate
+    cwd_candidate = (pathlib.Path.cwd() / candidate).absolute()
+    if cwd_candidate.exists():
+        return cwd_candidate
+    return (source_root / candidate).absolute()
+
+
+def write_suite_shim(wrapper_output: pathlib.Path, source_file_for_include: pathlib.Path, header_output: pathlib.Path) -> None:
     header_name = header_output.name
     try:
         wrapper_include = pathlib.Path(os.path.relpath(source_file_for_include, wrapper_output.parent)).as_posix()
@@ -52,6 +76,120 @@ def write_shim(wrapper_output: pathlib.Path, source_file_for_include: pathlib.Pa
     wrapper_output.parent.mkdir(parents=True, exist_ok=True)
     wrapper_output.write_text(content, encoding="utf-8")
 
+
+def rewrite_local_quoted_includes(
+    source_text: str,
+    source_file: pathlib.Path,
+    source_root: pathlib.Path,
+    include_roots: list[pathlib.Path],
+) -> str:
+    source_dir = source_file.parent
+    normalized_root = source_root.resolve()
+    normalized_include_roots = [root.resolve() for root in include_roots]
+
+    def replace_include(match: re.Match[str]) -> str:
+        include_path = match.group(1)
+        if os.path.isabs(include_path):
+            return match.group(0)
+        include_candidate = (source_dir / include_path).resolve()
+        if not include_candidate.exists() or include_candidate.is_dir():
+            return match.group(0)
+        rewritten = None
+        for include_root in normalized_include_roots:
+            try:
+                rewritten = include_candidate.relative_to(include_root).as_posix()
+                break
+            except ValueError:
+                continue
+        if rewritten is None:
+            try:
+                rewritten = include_candidate.relative_to(normalized_root).as_posix()
+            except ValueError:
+                return match.group(0)
+        return match.group(0).replace(f'"{include_path}"', f'"{rewritten}"')
+
+    return re.sub(r'#[ \t]*include[ \t]*"([^"]+)"', replace_include, source_text)
+
+
+def materialize_textual_mock_defs(
+    out_dir: pathlib.Path,
+    source_root: pathlib.Path,
+    defs_files: list[pathlib.Path],
+    include_roots: list[pathlib.Path],
+) -> list[pathlib.Path]:
+    defs_dir = out_dir / "defs"
+    defs_dir.mkdir(parents=True, exist_ok=True)
+    materialized: list[pathlib.Path] = []
+    for index, defs_file in enumerate(defs_files):
+        staged_path = defs_dir / f"def_{index:04d}_{defs_file.name}"
+        rewritten = rewrite_local_quoted_includes(defs_file.read_text(encoding="utf-8"), defs_file, source_root, include_roots)
+        staged_path.write_text(rewritten if rewritten.endswith("\n") else rewritten + "\n", encoding="utf-8")
+        materialized.append(staged_path)
+    return materialized
+
+
+def write_textual_mock_source(wrapper_output: pathlib.Path, defs_files_for_include: list[pathlib.Path], header_output: pathlib.Path) -> None:
+    content = """// This file is auto-generated by gentest (buildsystem explicit mocks).
+// Do not edit manually.
+
+#include "gentest/mock.h"
+"""
+    for defs_file in defs_files_for_include:
+        try:
+            defs_include = pathlib.Path(os.path.relpath(defs_file, wrapper_output.parent)).as_posix()
+        except ValueError:
+            defs_include = defs_file.as_posix()
+        content += f'#include "{defs_include}"\n'
+    content += f"""
+#if !defined(GENTEST_CODEGEN) && __has_include("{header_output.name}")
+#include "{header_output.name}"
+#endif
+"""
+    wrapper_output.parent.mkdir(parents=True, exist_ok=True)
+    wrapper_output.write_text(content, encoding="utf-8")
+
+
+def write_textual_mock_public_header(
+    public_header: pathlib.Path,
+    defs_files_for_include: list[pathlib.Path],
+    mock_registry: pathlib.Path,
+    mock_impl: pathlib.Path,
+) -> None:
+    content = """// This file is auto-generated by gentest (buildsystem explicit mocks).
+// Do not edit manually.
+
+#pragma once
+
+#define GENTEST_NO_AUTO_MOCK_INCLUDE 1
+#include "gentest/mock.h"
+"""
+    for defs_file in defs_files_for_include:
+        try:
+            defs_include = pathlib.Path(os.path.relpath(defs_file, public_header.parent)).as_posix()
+        except ValueError:
+            defs_include = defs_file.as_posix()
+        content += f'#include "{defs_include}"\n'
+    content += """#undef GENTEST_NO_AUTO_MOCK_INCLUDE
+
+"""
+    content += f'#include "{mock_registry.name}"\n'
+    content += f'#include "{mock_impl.name}"\n'
+    public_header.parent.mkdir(parents=True, exist_ok=True)
+    public_header.write_text(content, encoding="utf-8")
+
+
+def write_anchor_source(anchor_output: pathlib.Path, target_id: str) -> None:
+    content = f"""// This file is auto-generated by gentest (buildsystem explicit mocks anchor).
+// Do not edit manually.
+
+namespace gentest::detail {{
+int {target_id}_explicit_mock_anchor = 0;
+}} // namespace gentest::detail
+"""
+    anchor_output.parent.mkdir(parents=True, exist_ok=True)
+    anchor_output.write_text(content, encoding="utf-8")
+
+
 def infer_compdb_dir(codegen_path: pathlib.Path) -> pathlib.Path | None:
     candidates = [codegen_path.parent, codegen_path.parent.parent]
     for candidate in candidates:
@@ -60,46 +198,128 @@ def infer_compdb_dir(codegen_path: pathlib.Path) -> pathlib.Path | None:
     return None
 
 
-def main() -> int:
-    args = parse_args()
-
-    source_root = pathlib.Path(args.source_root).resolve()
-    source_file_arg = pathlib.Path(args.source_file)
-    if source_file_arg.is_absolute():
-        source_file = source_file_arg.resolve()
-        source_file_for_include = source_file
-    else:
-        source_file_for_include = source_root / source_file_arg
-        source_file = source_file_for_include.resolve()
-    if not source_file.exists():
-        print(f"source file does not exist: {source_file}", file=sys.stderr)
-        return 1
-
-    wrapper_output = pathlib.Path(args.wrapper_output).resolve()
-    header_output = pathlib.Path(args.header_output).resolve()
-    pathlib.Path(args.out_dir).mkdir(parents=True, exist_ok=True)
-
-    write_shim(wrapper_output, source_file_for_include, header_output)
-    codegen_path = pathlib.Path(args.codegen).resolve()
-
+def build_codegen_command(
+    *,
+    codegen_path: pathlib.Path,
+    source_root: pathlib.Path,
+    out_dir: pathlib.Path,
+    header_output: pathlib.Path,
+    scan_input: pathlib.Path,
+    depfile: str,
+    compdb_arg: str,
+    clang_args: list[str],
+    mock_registry: str,
+    mock_impl: str,
+    discover_mocks: bool,
+) -> list[str]:
     command = [
         str(codegen_path),
         "--source-root",
         str(source_root),
         "--tu-out-dir",
-        str(pathlib.Path(args.out_dir).resolve()),
+        str(out_dir.resolve()),
         "--tu-header-output",
         str(header_output),
     ]
-    if args.depfile:
-        command.extend(["--depfile", str(pathlib.Path(args.depfile).resolve())])
-    compdb_dir = pathlib.Path(args.compdb).resolve() if args.compdb else infer_compdb_dir(codegen_path)
+    if depfile:
+        command.extend(["--depfile", str(pathlib.Path(depfile).resolve())])
+    compdb_dir = pathlib.Path(compdb_arg).resolve() if compdb_arg else infer_compdb_dir(codegen_path)
     if compdb_dir:
         command.extend(["--compdb", str(compdb_dir)])
-    command.append(str(wrapper_output))
+    if mock_registry:
+        command.extend(["--mock-registry", str(pathlib.Path(mock_registry).resolve())])
+    if mock_impl:
+        command.extend(["--mock-impl", str(pathlib.Path(mock_impl).resolve())])
+    if discover_mocks:
+        command.append("--discover-mocks")
+    command.append(str(scan_input))
     command.append("--")
-    command.extend(args.clang_arg)
+    command.extend(clang_args)
+    return command
 
+
+def main() -> int:
+    args = parse_args()
+
+    source_root = pathlib.Path(args.source_root).resolve()
+    wrapper_output = pathlib.Path(args.wrapper_output).resolve()
+    header_output = pathlib.Path(args.header_output).resolve()
+    out_dir = pathlib.Path(args.out_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    codegen_path = pathlib.Path(args.codegen).resolve()
+
+    if args.mode == "suite":
+        if not args.source_file:
+            print("--source-file is required in suite mode", file=sys.stderr)
+            return 1
+        source_file = resolve_input_path(args.source_file, source_root)
+        if not source_file.exists():
+            print(f"source file does not exist: {source_file}", file=sys.stderr)
+            return 1
+        write_suite_shim(wrapper_output, source_file, header_output)
+        command = build_codegen_command(
+            codegen_path=codegen_path,
+            source_root=source_root,
+            out_dir=out_dir,
+            header_output=header_output,
+            scan_input=wrapper_output,
+            depfile=args.depfile,
+            compdb_arg=args.compdb,
+            clang_args=args.clang_arg,
+            mock_registry=args.mock_registry,
+            mock_impl=args.mock_impl,
+            discover_mocks=False,
+        )
+        subprocess.run(command, check=True)
+        return 0
+
+    if not args.defs_file:
+        print("--defs-file is required in textual-mocks mode", file=sys.stderr)
+        return 1
+    if not args.public_header:
+        print("--public-header is required in textual-mocks mode", file=sys.stderr)
+        return 1
+    if not args.anchor_output:
+        print("--anchor-output is required in textual-mocks mode", file=sys.stderr)
+        return 1
+    if not args.target_id:
+        print("--target-id is required in textual-mocks mode", file=sys.stderr)
+        return 1
+    if not args.mock_registry or not args.mock_impl:
+        print("--mock-registry and --mock-impl are required in textual-mocks mode", file=sys.stderr)
+        return 1
+
+    defs_files: list[pathlib.Path] = []
+    for defs_arg in args.defs_file:
+        defs_file = resolve_input_path(defs_arg, source_root)
+        if not defs_file.exists():
+            print(f"defs file does not exist: {defs_file}", file=sys.stderr)
+            return 1
+        defs_files.append(defs_file)
+
+    public_header = pathlib.Path(args.public_header).resolve()
+    anchor_output = pathlib.Path(args.anchor_output).resolve()
+    mock_registry = pathlib.Path(args.mock_registry).resolve()
+    mock_impl = pathlib.Path(args.mock_impl).resolve()
+    include_roots = [resolve_input_path(root_arg, source_root) for root_arg in args.include_root]
+    materialized_defs = materialize_textual_mock_defs(out_dir, source_root, defs_files, include_roots)
+    write_textual_mock_source(wrapper_output, materialized_defs, header_output)
+    write_textual_mock_public_header(public_header, materialized_defs, mock_registry, mock_impl)
+    write_anchor_source(anchor_output, args.target_id)
+
+    command = build_codegen_command(
+        codegen_path=codegen_path,
+        source_root=source_root,
+        out_dir=out_dir,
+        header_output=header_output,
+        scan_input=wrapper_output,
+        depfile=args.depfile,
+        compdb_arg=args.compdb,
+        clang_args=args.clang_arg,
+        mock_registry=args.mock_registry,
+        mock_impl=args.mock_impl,
+        discover_mocks=True,
+    )
     subprocess.run(command, check=True)
     return 0
 

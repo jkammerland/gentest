@@ -6,6 +6,7 @@ fs = import('fs')
 py = import('python').find_installation('python3')
 
 inc = include_directories('include', 'tests', 'third_party/include')
+build_inc = include_directories('.')
 
 # Build the runtime as a static library (compiled, not header-only)
 runtime_cargs = ['-DFMT_HEADER_ONLY']
@@ -136,6 +137,95 @@ foreach s : tests_suites
 
   test('meson_@0@'.format(s), exe)
 endforeach
+
+consumer_mock_out_dir = meson.current_build_dir()
+consumer_mock_defs_cpp = 'consumer_textual_mocks_defs.cpp'
+consumer_mock_anchor_cpp = 'consumer_textual_mocks_anchor.cpp'
+consumer_mock_codegen_h = 'tu_0000_consumer_textual_mocks_defs.gentest.h'
+consumer_mock_registry_h = 'consumer_textual_mocks_mock_registry.hpp'
+consumer_mock_impl_h = 'consumer_textual_mocks_mock_impl.hpp'
+consumer_mock_public_h = 'gentest_consumer_mocks.hpp'
+
+consumer_mocks = custom_target(
+  'gen_consumer_textual_mocks',
+  output: [
+    consumer_mock_defs_cpp,
+    consumer_mock_anchor_cpp,
+    consumer_mock_codegen_h,
+    consumer_mock_registry_h,
+    consumer_mock_impl_h,
+    consumer_mock_public_h,
+  ],
+  input: [
+    'tests/consumer/header_mock_defs.hpp',
+    'tests/consumer/service.hpp',
+    buildsystem_codegen,
+  ] + support_inputs,
+  command: [
+    py,
+    buildsystem_codegen,
+    '--mode', 'textual-mocks',
+    '--codegen', codegen,
+    '--source-root', meson.project_source_root(),
+    '--out-dir', consumer_mock_out_dir,
+    '--wrapper-output', join_paths(consumer_mock_out_dir, consumer_mock_defs_cpp),
+    '--anchor-output', join_paths(consumer_mock_out_dir, consumer_mock_anchor_cpp),
+    '--header-output', join_paths(consumer_mock_out_dir, consumer_mock_codegen_h),
+    '--public-header', join_paths(consumer_mock_out_dir, consumer_mock_public_h),
+    '--mock-registry', join_paths(consumer_mock_out_dir, consumer_mock_registry_h),
+    '--mock-impl', join_paths(consumer_mock_out_dir, consumer_mock_impl_h),
+    '--target-id', 'consumer_textual_mocks',
+    '--defs-file', '@INPUT0@',
+    '--include-root', join_paths(meson.project_source_root(), 'include'),
+    '--include-root', join_paths(meson.project_source_root(), 'tests'),
+    '--include-root', join_paths(meson.project_source_root(), 'third_party', 'include'),
+    '--compdb', meson.current_build_dir(),
+    clang_arg_flags,
+  ],
+  build_by_default: true
+)
+
+consumer_mock_lib = static_library(
+  'gentest_consumer_textual_mocks_meson',
+  [consumer_mocks[0], consumer_mocks[1]],
+  include_directories: [inc, build_inc],
+  cpp_args: runtime_cargs,
+  dependencies: runtime_deps,
+  link_with: [libgentest_runtime],
+)
+
+consumer_wrapper_cpp = 'tu_0000_consumer_textual_cases.gentest.cpp'
+consumer_wrapper_h = 'tu_0000_consumer_textual_cases.gentest.h'
+consumer_clang_arg_flags = clang_arg_flags + ['--clang-arg=-I@0@'.format(consumer_mock_out_dir)]
+consumer_codegen = custom_target(
+  'gen_consumer_textual_cases',
+  output: [consumer_wrapper_cpp, consumer_wrapper_h],
+  input: ['tests/buildsystems/consumer_textual_cases.cpp', buildsystem_codegen, consumer_mocks] + support_inputs,
+  command: [
+    py,
+    buildsystem_codegen,
+    '--codegen', codegen,
+    '--source-root', meson.project_source_root(),
+    '--out-dir', meson.current_build_dir(),
+    '--wrapper-output', join_paths(meson.current_build_dir(), consumer_wrapper_cpp),
+    '--header-output', join_paths(meson.current_build_dir(), consumer_wrapper_h),
+    '--source-file', '@INPUT0@',
+    '--compdb', meson.current_build_dir(),
+    consumer_clang_arg_flags,
+  ],
+  build_by_default: true
+)
+
+consumer_exe = executable(
+  'gentest_consumer_textual_meson',
+  [consumer_codegen[0], 'tests/consumer/main.cpp'],
+  include_directories: [inc, build_inc],
+  link_with: [libgentest_main, libgentest_runtime, consumer_mock_lib],
+  cpp_args: runtime_cargs,
+  dependencies: runtime_deps
+)
+
+test('meson_consumer_textual', consumer_exe)
 
 # Convenience: run the CMake-based cross-compile POC from Meson.
 bash = find_program('bash', required: false)

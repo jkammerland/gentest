@@ -38,6 +38,34 @@ local function resolve_codegen()
     return bin, compdb_dir, build_dir
 end
 
+local function ensure_codegen(batchcmds)
+    local codegen, compdb_dir, cmake_build_dir = resolve_codegen()
+    if cmake_build_dir and not os.isfile(codegen) then
+        batchcmds:vrunv("cmake", {"-S", project_root, "-B", cmake_build_dir, "-DCMAKE_BUILD_TYPE=Release",
+                                 "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"})
+        batchcmds:vrunv("cmake", {"--build", cmake_build_dir, "--target", "gentest_codegen", "-j", "1"})
+        if is_host("windows") then
+            if os.isfile(path.join(cmake_build_dir, "tools", "Release", "gentest_codegen.exe")) then
+                codegen = path.join(cmake_build_dir, "tools", "Release", "gentest_codegen.exe")
+            else
+                codegen = path.join(cmake_build_dir, "tools", "gentest_codegen.exe")
+            end
+        else
+            codegen = path.join(cmake_build_dir, "tools", "gentest_codegen")
+        end
+        compdb_dir = cmake_build_dir
+    end
+    return codegen, compdb_dir
+end
+
+local function ensure_generated_placeholder(filepath, content)
+    if os.isfile(filepath) then
+        return
+    end
+    os.mkdir(path.directory(filepath))
+    io.writefile(filepath, content)
+end
+
 target("gentest_runtime")
     set_kind("static")
     add_files("src/bench_stats.cpp")
@@ -67,7 +95,7 @@ target("gentest_main")
     add_deps("gentest_runtime")
 
 local function gentest_suite(name)
-    local buildir = get_config("buildir") or "build"
+    local buildir = get_config("builddir") or get_config("buildir") or "build"
     local plat = get_config("plat") or os.host()
     local arch = get_config("arch") or os.arch()
     local mode = get_config("mode") or "release"
@@ -77,6 +105,10 @@ local function gentest_suite(name)
     local wrapper_d = path.join(out_dir, "tu_0000_cases.gentest.d")
     local source_file = path.join(project_root, "tests", name, "cases.cpp")
 
+    ensure_generated_placeholder(wrapper_cpp, "// xmake placeholder generated source\n")
+    ensure_generated_placeholder(wrapper_h, "// xmake placeholder generated header\n")
+    ensure_generated_placeholder(wrapper_d, "")
+
     target("gentest_" .. name .. "_xmake")
         set_kind("binary")
         add_includedirs(incdirs)
@@ -85,22 +117,7 @@ local function gentest_suite(name)
         add_files(wrapper_cpp, {always_added = true})
         add_deps("gentest_main")
         before_buildcmd(function (target, batchcmds)
-            local codegen, compdb_dir, cmake_build_dir = resolve_codegen()
-            if cmake_build_dir and not os.isfile(codegen) then
-                batchcmds:vrunv("cmake", {"-S", project_root, "-B", cmake_build_dir, "-DCMAKE_BUILD_TYPE=Release",
-                                         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"})
-                batchcmds:vrunv("cmake", {"--build", cmake_build_dir, "--target", "gentest_codegen", "-j", "1"})
-                if is_host("windows") then
-                    if os.isfile(path.join(cmake_build_dir, "tools", "Release", "gentest_codegen.exe")) then
-                        codegen = path.join(cmake_build_dir, "tools", "Release", "gentest_codegen.exe")
-                    else
-                        codegen = path.join(cmake_build_dir, "tools", "gentest_codegen.exe")
-                    end
-                else
-                    codegen = path.join(cmake_build_dir, "tools", "gentest_codegen")
-                end
-                compdb_dir = cmake_build_dir
-            end
+            local codegen, compdb_dir = ensure_codegen(batchcmds)
 
             local args = {
                 buildsystem_codegen,

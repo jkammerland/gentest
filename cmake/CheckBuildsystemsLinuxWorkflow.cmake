@@ -34,6 +34,11 @@ if(_xmake_ci_version_pos EQUAL -1)
   message(FATAL_ERROR "Fedora xmake workflow must run the packaged xmake binary as the ci user.")
 endif()
 
+string(FIND "${_content}" "gentest_consumer_textual_bazel" _bazel_consumer_textual_pos)
+if(_bazel_consumer_textual_pos EQUAL -1)
+  message(FATAL_ERROR "buildsystems_linux workflow must validate the Bazel textual explicit-mock consumer slice.")
+endif()
+
 string(FIND "${_content}" "/home/ci/.local/bin/xmake f -c -m release" _hardcoded_build_pos)
 if(NOT _hardcoded_build_pos EQUAL -1)
   message(FATAL_ERROR "Xmake build step must not hardcode the ci-local xmake path.")
@@ -102,6 +107,11 @@ endif()
 string(FIND "${_helper_content}" "\"--tu-out-dir\"" _helper_tu_mode_pos)
 if(_helper_tu_mode_pos EQUAL -1)
   message(FATAL_ERROR "Shared non-CMake codegen helper must invoke gentest_codegen in per-TU mode.")
+endif()
+
+string(FIND "${_helper_content}" "\"textual-mocks\"" _helper_textual_mocks_pos)
+if(_helper_textual_mocks_pos EQUAL -1)
+  message(FATAL_ERROR "Shared non-CMake codegen helper must support the textual explicit-mock mode.")
 endif()
 
 string(FIND "${_helper_content}" "os.path.relpath" _helper_relpath_pos)

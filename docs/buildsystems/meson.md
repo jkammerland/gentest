@@ -1,15 +1,18 @@
 # Meson
 
-This Meson integration is currently a repo-local convenience path for the
-classic handwritten suites in this repository. It is not yet a general
-downstream Meson package API.
+This Meson integration is currently a repo-local convenience path for this
+repository. It is not yet a general downstream Meson package API.
 
 ## Current scope
 
 - Supports the classic suites in `tests/<suite>/cases.cpp`.
+- Supports one repo-local explicit textual mock slice:
+  - defs file: `tests/consumer/header_mock_defs.hpp`
+  - generated public header: `gentest_consumer_mocks.hpp`
+  - consumer test source: `tests/buildsystems/consumer_textual_cases.cpp`
 - Uses the shared per-TU helper in [`scripts/gentest_buildsystem_codegen.py`](../../scripts/gentest_buildsystem_codegen.py).
 - Generates a classic wrapper TU plus `tu_*.gentest.h` registration header per suite.
-- Does not currently support named-module suites, explicit mock targets, or an installed Meson-facing `gentest_attach_codegen(...)` equivalent.
+- Does not currently support named-module suites, module mock defs, or an installed Meson-facing `add_mocks(...)` / `attach_codegen(...)` API yet.
 
 The currently wired suites are:
 
@@ -17,6 +20,10 @@ The currently wired suites are:
 - `integration`
 - `fixtures`
 - `skiponly`
+
+The additional repo-local explicit textual mock test is:
+
+- `meson_consumer_textual`
 
 ## Prerequisites
 
@@ -68,6 +75,18 @@ The resulting executables are:
 - `gentest_integration_meson`
 - `gentest_fixtures_meson`
 - `gentest_skiponly_meson`
+- `gentest_consumer_textual_meson`
+
+For the textual mock slice, Meson also generates:
+
+- `build/meson/consumer_textual_mocks_defs.cpp`
+- `build/meson/consumer_textual_mocks_anchor.cpp`
+- `build/meson/consumer_textual_mocks_mock_registry.hpp`
+- `build/meson/consumer_textual_mocks_mock_impl.hpp`
+- `build/meson/gentest_consumer_mocks.hpp`
+
+The consumer source [`tests/buildsystems/consumer_textual_cases.cpp`](../../tests/buildsystems/consumer_textual_cases.cpp)
+then includes the generated public header and links the generated mock library.
 
 ## Adding another classic suite in this repo
 
@@ -82,8 +101,10 @@ meson test -C build/meson --print-errorlogs
 
 ## Limitations
 
-- This path is currently limited to the phase-1 classic-suite integration.
-- It is intentionally limited to classic/header-style suites.
+- This path currently supports:
+  - classic per-TU suites
+  - one in-tree textual explicit-mock slice
+- It is still intentionally limited to classic/header-style suites.
 - If you need modules, explicit mock targets, package export, or a reusable
   consumer-facing integration, use the CMake path for now. Follow-up parity work
   is tracked in [`docs/stories/015_non_cmake_full_parity.md`](../stories/015_non_cmake_full_parity.md).

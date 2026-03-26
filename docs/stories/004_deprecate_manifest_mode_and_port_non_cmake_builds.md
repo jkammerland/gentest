@@ -46,7 +46,6 @@ Current repo reality:
 - None of the non-CMake integrations currently expose an equivalent of:
   - `gentest_attach_codegen(...)`
   - `gentest_add_mocks(...)`
-  - `gentest_link_mocks(...)`
 
 So this story is now historical context plus phase-1 design/notes. The
 remaining non-CMake design story for modules and explicit mocks is
@@ -71,15 +70,16 @@ if the syntax is different:
    - no implicit header-to-module or module-to-header bridge generation by default
 
 4. **Consumer codegen must see generated mock targets before it executes.**
-   - this is a build-graph visibility/order guarantee, not necessarily an API
-     call-order rule
+   - this is a build-graph visibility/order guarantee
+   - any metadata handoff between mock generation and test codegen is an
+     internal implementation detail, not a third public API
 
 5. **Per-TU generation is the default codegen path.**
    - manifest mode remains legacy/fallback only
 
 ## Minimum non-CMake API shape
 
-Each non-CMake buildsystem should end up with equivalents of these three
+Each non-CMake buildsystem should end up with equivalents of these two
 operations:
 
 ### 1) Attach test codegen
@@ -139,24 +139,6 @@ Contract:
 - generated textual public paths such as `header_name` must stay within that
   target's generated tree and must not collide with reserved generated filenames
 
-### 3) Link explicit mocks
-
-Conceptual API:
-
-```text
-link_mocks(consumer_target, mock_targets = [...])
-```
-
-Responsibilities:
-
-- add the generated mock surface to the consumer compile graph
-- guarantee the build graph so consumer codegen sees those generated mock
-  surfaces before the codegen command executes
-- carry the correct include/module visibility into both compile and codegen steps
-- do not treat linking as sufficient by itself; consumers must still explicitly
-  `#include` the generated textual mock surface or `import` the generated module
-  surface
-
 ## Shared implementation model
 
 Regardless of buildsystem, the implementation should be split into the same
@@ -176,7 +158,8 @@ phases:
 
 4. **Consumer compilation**
    - compile generated shim TUs / generated module wrapper units
-   - make linked mock targets visible to both consumer codegen and consumer compilation
+   - make dependent mock-target metadata visible to both consumer codegen and
+     consumer compilation
 
 ## Buildsystem-specific breakdown
 

@@ -1,16 +1,19 @@
 # Bazel
 
-This Bazel integration is currently a repo-local convenience path for the
-classic handwritten suites in this repository. It is not yet a general
-downstream Bazel rule set.
+This Bazel integration is currently a repo-local convenience path for this
+repository. It is not yet a general downstream Bazel rule set.
 
 ## Current scope
 
 - Supports the classic suites in `tests/<suite>/cases.cpp`.
+- Supports one repo-local explicit textual mock slice:
+  - defs file: `tests/consumer/header_mock_defs.hpp`
+  - generated public header: `gen/consumer_textual_mocks/gentest_consumer_mocks.hpp`
+  - consumer test source: `tests/buildsystems/consumer_textual_cases.cpp`
 - Uses the shared per-TU helper in [`scripts/gentest_buildsystem_codegen.py`](../../scripts/gentest_buildsystem_codegen.py).
 - Bootstraps `gentest_codegen` through a local CMake genrule.
-- Does not currently support named-module suites, explicit mock targets, or a
-  reusable downstream Bazel `gentest_suite(...)` package outside this repo.
+- Does not currently support named-module suites, module mock defs, or a
+  reusable downstream Bazel `add_mocks(...)` / `attach_codegen(...)` rule set yet.
 
 The currently wired suites are:
 
@@ -18,6 +21,10 @@ The currently wired suites are:
 - `gentest_integration_bazel`
 - `gentest_fixtures_bazel`
 - `gentest_skiponly_bazel`
+
+The additional repo-local explicit textual mock target is:
+
+- `gentest_consumer_textual_bazel`
 
 There is also a generator lint target:
 
@@ -52,6 +59,18 @@ bazel build \
 ./bazel-bin/gentest_fixtures_bazel
 ./bazel-bin/gentest_skiponly_bazel
 ```
+
+For the textual mock slice, prefer build + direct execution:
+
+```bash
+bazel build //:gentest_consumer_textual_bazel
+./bazel-bin/gentest_consumer_textual_bazel
+```
+
+Some local container environments fail `bazel test` before the binary runs
+because Bazel's shell test wrapper cannot execute in the sandbox. The direct
+binary path above avoids that issue while still validating the generated mock
+surface and consumer test target.
 
 On Linux/macOS, you can also run the Bash-only invalid-codegen smoke check:
 
@@ -108,6 +127,17 @@ Per suite, the Bazel genrule writes:
 
 The generated wrapper is then compiled by the corresponding `cc_test`.
 
+For the textual mock slice, Bazel also writes:
+
+- `gen/consumer_textual_mocks/consumer_textual_mocks_defs.cpp`
+- `gen/consumer_textual_mocks/consumer_textual_mocks_anchor.cpp`
+- `gen/consumer_textual_mocks/gentest_consumer_mocks.hpp`
+- domain-specific generated mock headers under `gen/consumer_textual_mocks/`
+
+The consumer `cc_test` then compiles the wrapper from
+`gen/consumer_textual/tu_0000_consumer_textual_cases.gentest.cpp` and links the
+generated mock library.
+
 ## Adding another classic suite in this repo
 
 1. Add `tests/<suite>/cases.cpp`.
@@ -120,8 +150,10 @@ bazel test //:gentest_<suite>_bazel
 
 ## Limitations
 
-- This path is currently limited to the phase-1 classic-suite integration.
-- It is intentionally limited to classic/header-style suites.
+- This path currently supports:
+  - classic per-TU suites
+  - one in-tree textual explicit-mock slice
+- It is still intentionally limited to classic/header-style suites.
 - The `gentest_codegen` bootstrap rule is local and non-hermetic.
 - If you need modules, explicit mock targets, package export, or a reusable
   consumer-facing integration, use the CMake path for now. Follow-up parity work
