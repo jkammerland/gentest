@@ -2,6 +2,10 @@
 # vcpkg toolchains. Our tool does not depend on LibEdit.
 set(CMAKE_DISABLE_FIND_PACKAGE_LibEdit ON)
 
+if(${PROJECT_NAME}_INSTALL)
+    include(GNUInstallDirs)
+endif()
+
 # Minimal, version-flexible LLVM/Clang discovery (works with LLVM 18–22)
 # Prefer llvm-config if available to seed CMAKE_PREFIX_PATH without hardcoded paths.
 set(_gentest_llvm_config_candidates llvm-config)
@@ -328,7 +332,8 @@ set(GENTEST_CODEGEN_DEFAULT_THREAD_STACK_SIZE "${_gentest_codegen_default_thread
     "Default worker-thread stack size requested for gentest_codegen on Linux linkers (bytes); set 0 to keep the toolchain default")
 unset(_gentest_codegen_default_thread_stack_size)
 
-set(_gentest_codegen_runtime_rpaths "")
+set(_gentest_codegen_build_rpaths "")
+set(_gentest_codegen_install_rpaths "")
 
 function(_gentest_append_codegen_runtime_rpath path_value)
     if("${path_value}" STREQUAL "")
@@ -336,9 +341,12 @@ function(_gentest_append_codegen_runtime_rpath path_value)
     endif()
     get_filename_component(_gentest_runtime_abs "${path_value}" ABSOLUTE)
     if(EXISTS "${_gentest_runtime_abs}")
-        list(APPEND _gentest_codegen_runtime_rpaths "${_gentest_runtime_abs}")
-        list(REMOVE_DUPLICATES _gentest_codegen_runtime_rpaths)
-        set(_gentest_codegen_runtime_rpaths "${_gentest_codegen_runtime_rpaths}" PARENT_SCOPE)
+        list(APPEND _gentest_codegen_build_rpaths "${_gentest_runtime_abs}")
+        list(APPEND _gentest_codegen_install_rpaths "${_gentest_runtime_abs}")
+        list(REMOVE_DUPLICATES _gentest_codegen_build_rpaths)
+        list(REMOVE_DUPLICATES _gentest_codegen_install_rpaths)
+        set(_gentest_codegen_build_rpaths "${_gentest_codegen_build_rpaths}" PARENT_SCOPE)
+        set(_gentest_codegen_install_rpaths "${_gentest_codegen_install_rpaths}" PARENT_SCOPE)
     endif()
 endfunction()
 
@@ -376,7 +384,14 @@ endif()
 
 if(_gentest_use_local_tinfo_shim AND UNIX)
     set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
-    _gentest_append_codegen_runtime_rpath("${CMAKE_CURRENT_BINARY_DIR}")
+    if(${PROJECT_NAME}_INSTALL)
+        if(APPLE)
+            list(APPEND _gentest_codegen_install_rpaths "@loader_path/../${CMAKE_INSTALL_LIBDIR}")
+        else()
+            list(APPEND _gentest_codegen_install_rpaths "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+        endif()
+        list(REMOVE_DUPLICATES _gentest_codegen_install_rpaths)
+    endif()
     if(NOT APPLE)
         # Force the link editor to honor BUILD_RPATH ahead of the default search
         # directories so the bundled libtinfo shim is chosen over any host copy.
@@ -518,8 +533,12 @@ else()
             ${_gentest_fmt_target})
 endif()
 
-if(UNIX AND _gentest_codegen_runtime_rpaths)
-    set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_codegen_runtime_rpaths}")
+if(UNIX AND _gentest_codegen_build_rpaths)
+    set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_codegen_build_rpaths}")
+endif()
+
+if(UNIX AND ${PROJECT_NAME}_INSTALL AND _gentest_codegen_install_rpaths)
+    set_property(TARGET gentest_codegen APPEND PROPERTY INSTALL_RPATH "${_gentest_codegen_install_rpaths}")
 endif()
 
 # Provide generator with project version for --help output in generated code
@@ -532,9 +551,12 @@ if(NOT GENTEST_ENABLE_TEMPLATE_VALIDATION)
 endif()
 
 if(${PROJECT_NAME}_INSTALL)
-    include(GNUInstallDirs)
     install(TARGETS gentest_codegen
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    if(TARGET gentest_tinfo_shim)
+        install(TARGETS gentest_tinfo_shim
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
 endif()
 
 unset(_gentest_llvm_support)
@@ -543,4 +565,6 @@ unset(_gentest_clang_libs)
 unset(_gentest_llvm_libdirs)
 unset(_gentest_llvm_dso)
 unset(_gentest_llvm_dso_dir)
+unset(_gentest_codegen_build_rpaths)
+unset(_gentest_codegen_install_rpaths)
 unset(_gentest_fmt_target)
