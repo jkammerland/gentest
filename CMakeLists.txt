@@ -90,7 +90,7 @@ if(${PROJECT_NAME}_INSTALL)
     FetchContent_Declare(
         target_install_package
         GIT_REPOSITORY https://github.com/jkammerland/target_install_package.cmake.git
-        GIT_TAG v6.1.4
+        GIT_TAG v6.1.6
         FIND_PACKAGE_ARGS CONFIG QUIET
     )
     FetchContent_MakeAvailable(target_install_package)
