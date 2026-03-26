@@ -28,8 +28,9 @@ local function resolve_codegen()
         return env_path, nil, nil
     end
 
-    local build_dir = path.join(project_root, "build", "xmake-codegen")
-    local bin = path.join(build_dir, "tools", "gentest_codegen")
+    local build_dir = path.join(project_root, "build", "xmake-codegen", os.host(), os.arch())
+    local bin = is_host("windows") and path.join(build_dir, "tools", "Release", "gentest_codegen.exe") or
+                    path.join(build_dir, "tools", "gentest_codegen")
     local compdb_dir = nil
     if os.isfile(path.join(build_dir, "compile_commands.json")) then
         compdb_dir = build_dir
@@ -89,6 +90,15 @@ local function gentest_suite(name)
                 batchcmds:vrunv("cmake", {"-S", project_root, "-B", cmake_build_dir, "-DCMAKE_BUILD_TYPE=Release",
                                          "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"})
                 batchcmds:vrunv("cmake", {"--build", cmake_build_dir, "--target", "gentest_codegen", "-j", "1"})
+                if is_host("windows") then
+                    if os.isfile(path.join(cmake_build_dir, "tools", "Release", "gentest_codegen.exe")) then
+                        codegen = path.join(cmake_build_dir, "tools", "Release", "gentest_codegen.exe")
+                    else
+                        codegen = path.join(cmake_build_dir, "tools", "gentest_codegen.exe")
+                    end
+                else
+                    codegen = path.join(cmake_build_dir, "tools", "gentest_codegen")
+                end
                 compdb_dir = cmake_build_dir
             end
 

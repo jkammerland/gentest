@@ -54,7 +54,11 @@ libgentest_main = static_library(
 #   meson compile -C build/meson
 codegen_opt = get_option('codegen_path')
 if codegen_opt == ''
-  codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen')
+  if host_machine.system() == 'windows'
+    codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen.exe')
+  else
+    codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen')
+  endif
 elif not fs.is_absolute(codegen_opt)
   codegen_opt = join_paths(meson.project_source_root(), codegen_opt)
 endif
