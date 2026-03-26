@@ -104,7 +104,9 @@ if(${PROJECT_NAME}_INSTALL)
         PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
     target_install_package(${PROJECT_NAME}
         EXPORT_NAME ${PROJECT_NAME}
-        INCLUDE_ON_FIND_PACKAGE "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
+        INCLUDE_ON_FIND_PACKAGE
+            "${PROJECT_SOURCE_DIR}/cmake/GentestConfigImportedConfigMap.cmake"
+            "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
         PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
 
     set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
