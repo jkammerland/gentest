@@ -1,6 +1,17 @@
 # Story: deprecate manifest mode + port non-CMake builds to per‑TU generation
 
+>[!NOTE]
+> Phase 1 of this story is implemented: the repo-local Meson, Xmake, and Bazel
+> classic suites now use per-TU generation instead of legacy manifest mode.
+> Remaining modules/explicit-mocks parity work is tracked in
+> [`docs/stories/015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md).
+
 ## Goal
+
+This story covered phase 1 of the non-CMake migration: replacing legacy
+manifest-mode codegen with per-TU generation for the repo-local classic suites.
+Remaining full-parity work now lives in
+[`docs/stories/015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md).
 
 Treat manifest mode (single generated unity TU via `gentest_codegen --output ...`) as legacy and migrate non‑CMake build integrations
 (Bazel/Meson/Xmake) to the per‑TU registration workflow (shim TU + generated `tu_*.gentest.h`).
@@ -21,7 +32,7 @@ gentest currently supports two codegen output styles:
 - **Manifest mode (legacy)**: `gentest_codegen --output <test_impl.cpp> <sources...>`
   - Codegen emits a single generated TU that includes sources and registers all discovered cases.
 
-Today, the non‑CMake build files use manifest mode:
+Before phase 1, the non‑CMake build files used manifest mode:
 - `meson.build`
 - `xmake.lua`
 - `build_defs/gentest.bzl`
@@ -30,15 +41,16 @@ Current repo reality:
 
 - CMake is the only integration that supports named-module test sources, explicit
   mock targets, installed public modules, and module-aware mock linking.
-- Meson, Xmake, and Bazel only cover classic/header-style test suites through
-  `gentest_codegen --output ...`.
+- Meson, Xmake, and Bazel now cover the repo-local classic/header-style test
+  suites through shared per-TU wrapper generation.
 - None of the non-CMake integrations currently expose an equivalent of:
   - `gentest_attach_codegen(...)`
   - `gentest_add_mocks(...)`
   - `gentest_link_mocks(...)`
 
-So this story is not just “port per-TU mode”. It is the non-CMake design story
-for modules and explicit mocks.
+So this story is now historical context plus phase-1 design/notes. The
+remaining non-CMake design story for modules and explicit mocks is
+[`docs/stories/015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md).
 
 ## Design principles
 
@@ -334,8 +346,9 @@ gentest_cc_test(
 
 Implementation:
 
-- replace the current one-shot `genrule(... --output ...)`
-- create a rule that emits shim TUs + generated headers as declared outputs
+- replace the current repo-local `gentest_suite()` + `genrule` wiring with a
+  reusable rule/provider shape
+- keep emitting shim TUs + generated headers as declared outputs
 - compile only those shim TUs for classic sources
 - for module-authored tests, carry the original module units into codegen but
   compile generated module wrapper outputs in the final target
@@ -387,22 +400,27 @@ Bazel-specific open point:
 - decide early whether phase-1 Bazel remains local/non-hermetic or whether the
   rule design must become hermetic up front
 
-## Migration order
+## Historical migration order
 
-The smallest sane order is:
+The smallest sane order was:
 
-1. Port Meson/Xmake/Bazel from manifest mode to per-TU generation for classic
-   `.cpp` tests.
-2. Add explicit textual mock targets for all three.
-3. Add consumer-side mock-link ordering.
-4. Add named-module test-source support.
-5. Add explicit module mock targets.
-6. Add installed/package module-mock coverage where the buildsystem can model it.
+1. Completed in phase 1: port Meson/Xmake/Bazel from manifest mode to per-TU
+   generation for classic `.cpp` tests.
+2. Deferred to [`015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md):
+   explicit textual mock targets.
+3. Deferred to [`015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md):
+   consumer-side mock-link ordering.
+4. Deferred to [`015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md):
+   named-module test-source support.
+5. Deferred to [`015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md):
+   explicit module mock targets.
+6. Deferred to [`015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md):
+   installed/package module-mock coverage where the buildsystem can model it.
 
-Do not try to land module mocks first while the buildsystem still uses
-manifest-mode classic test generation.
+This story ended after step 1. The remaining steps moved to
+[`015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md).
 
-## Scope (must-do)
+## Historical phase-1 scope
 
 ### 1) Deprecation plan (manifest mode)
 
@@ -416,28 +434,31 @@ Keep manifest mode working for now, but make “per‑TU by default” the docum
     pointing to per‑TU mode.
   - Provide a suppress flag/env var if needed for CI logs once the migration is underway.
 
-### 2) Port Meson integration to per‑TU mode
+### 2) Meson phase-1 port to per‑TU mode
 
-Implementation sketch:
+Implemented shape:
 
-- Generate shim TUs in the Meson build dir, named like `tu_0000_cases.gentest.cpp` (stable, and collision-safe when shim basenames are unique case-insensitively).
+- Generate shim TUs in the Meson build dir with stable suite-qualified names.
+- In the shipped repo-local phase-1 wiring, the generated files are written in
+  the build dir as `tu_0000_<suite>_cases.gentest.cpp` and
+  `tu_0000_<suite>_cases.gentest.h`.
 - Run codegen with `--tu-out-dir` pointing at the same directory and pass `-DGENTEST_CODEGEN=1` after `--`.
 - Compile the shim TUs (not the original `.cpp`) into the test executable.
 
-Pseudo-code (Meson conceptually):
+Pseudo-code (Meson conceptually, matching the phase-1 repo-local shape):
 
 ```meson
-shim_dir = join_paths(meson.current_build_dir(), 'gentest', s)
-tu_shim = join_paths(shim_dir, 'tu_0000_cases.gentest.cpp')
+shim_dir = meson.current_build_dir()
+tu_shim = join_paths(shim_dir, 'tu_0000_' + s + '_cases.gentest.cpp')
 
 # 1) emit shim TU (custom_target or configure_file)
 # 2) run gentest_codegen --tu-out-dir shim_dir tu_shim -- -DGENTEST_CODEGEN=1 ...
 # 3) build exe with tu_shim (and main.cpp) instead of cases.cpp
 ```
 
-### 3) Port Xmake integration to per‑TU mode
+### 3) Xmake phase-1 port to per‑TU mode
 
-Implementation sketch:
+Implemented shape:
 
 - In `before_build`, write shim TU(s) using `io.writefile`.
 - Run `gentest_codegen --tu-out-dir <dir> <shim...> -- -DGENTEST_CODEGEN=1 ...`.
@@ -457,17 +478,16 @@ io.writefile(shim_cpp, [[
 os.execv(codegen, {"--tu-out-dir", out_dir, shim_cpp, "--", "-DGENTEST_CODEGEN=1", ...})
 ```
 
-### 4) Port Bazel integration to per‑TU mode
+### 4) Bazel phase-1 port to per‑TU mode
 
-Implementation sketch (Starlark macro/rule):
+Implemented shape (repo-local Starlark macro/rule):
 
-- Add a `gentest_per_tu_suite(...)` helper that:
-  - Generates shim TUs with stable names (rule output).
-  - Runs `gentest_codegen --tu-out-dir` on those shims.
-  - Compiles only the shim(s) into the `cc_test` (original `.cpp` should not be compiled separately).
-- Make the original `.cpp` available to the shim via:
-  - `textual_hdrs` (or `hdrs`) so changes trigger rebuilds, and
-  - a predictable include path (avoid embedding absolute paths where possible).
+- The shipped phase-1 repo-local path still uses `gentest_suite(...)`.
+- That macro emits shim TUs with stable names as rule outputs.
+- It runs `gentest_codegen --tu-out-dir` on those shims.
+- It compiles only the shim(s) into the `cc_test` for classic sources.
+- The next cleanup step is to replace that repo-local macro shape with reusable
+  rule/provider semantics, not to redo the per-TU migration itself.
 
 Notes:
 - Bazel users may not have a `compile_commands.json`; per‑TU mode should still work by passing the needed `-- ...` clang args
@@ -480,9 +500,9 @@ Notes:
 - Removing manifest mode entirely (only after all supported integrations migrate, and after a deprecation window).
 - Reworking the public API or changing test semantics (registration should remain behaviorally identical).
 
-## Acceptance criteria
+## Historical acceptance notes
 
-### Phase 1: classic per-TU parity
+### Phase 1: classic per-TU parity (completed)
 
 - Meson builds and runs the currently supported classic suite set using per-TU
   generation with no generated unity TU.
@@ -495,36 +515,13 @@ Notes:
   - generated shims are first-class build outputs
   - editing one supported suite only regenerates/rebuilds that suite
 
-### Phase 2: textual explicit mocks
+The later parity phases that originally followed phase 1 now live in
+[`015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md):
 
-- Meson/Xmake/Bazel each have a documented and tested explicit-mock target path
-  for textual defs.
-- Each frontend has at least one positive consumer regression that includes the
-  generated textual mock surface and links the mock target successfully.
-- Each frontend proves additive visibility for multiple linked mock targets on a
-  single consumer target, or explicitly defers that support.
-- Each frontend proves the consumer codegen step depends on the linked mock
-  target strongly enough that the generated mock surface is visible during the
-  first parse.
-
-### Phase 3: modules
-
-- A frontend only claims module support if it has explicit regression coverage
-  for module-authored test sources.
-- A frontend only claims explicit module-mock support if it has explicit
-  regression coverage for:
-  - module defs producing a generated module surface
-  - consumer import of that generated module surface
-  - no default header/module bridge generation
-- If a frontend does not support modules yet, the failure mode is explicit and
-  documented.
-
-### Phase 4: downstream/install-export
-
-- A frontend only claims downstream/exported mock-target support if it preserves
-  dependency/include/module metadata strongly enough for consumer builds.
-- If downstream/exported mock targets are not supported for a frontend, state
-  that explicitly rather than implying parity with CMake.
+- explicit textual mocks
+- named-module test support
+- explicit module mocks
+- downstream/install-export parity
 
 ### Documentation
 
@@ -533,7 +530,7 @@ Notes:
 ## Notes / references
 
 - CMake per‑TU implementation: `cmake/GentestCodegen.cmake`
-- Existing manifest consumers:
+- Former manifest consumers, now phase-1 per-TU classic integrations:
   - `meson.build`
   - `xmake.lua`
   - `build_defs/gentest.bzl`

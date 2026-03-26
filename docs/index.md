@@ -15,6 +15,12 @@
 - macOS: [`docs/install/macos.md`](install/macos.md)
 - Windows: [`docs/install/windows.md`](install/windows.md)
 
+## Repo-Local Buildsystem Guides
+
+- Meson (classic suites only): [`docs/buildsystems/meson.md`](buildsystems/meson.md)
+- Xmake (classic suites only): [`docs/buildsystems/xmake.md`](buildsystems/xmake.md)
+- Bazel (classic suites only): [`docs/buildsystems/bazel.md`](buildsystems/bazel.md)
+
 ## Cross-compiling
 
 - Linux → aarch64 (QEMU): [`docs/cross_compile/linux_aarch64_qemu.md`](cross_compile/linux_aarch64_qemu.md)
@@ -33,6 +39,7 @@
 - Runtime outcomes (`skip()` / `xfail()`): [`docs/stories/002_runtime_skip_and_xfail.md`](stories/002_runtime_skip_and_xfail.md)
 - Per‑TU registration wrappers (CMake): [`docs/stories/003_per_tu_registration_wrappers.md`](stories/003_per_tu_registration_wrappers.md)
 - Deprecate manifest + port non‑CMake builds: [`docs/stories/004_deprecate_manifest_mode_and_port_non_cmake_builds.md`](stories/004_deprecate_manifest_mode_and_port_non_cmake_builds.md)
+- Non-CMake full parity for modules and explicit mocks: [`docs/stories/015_non_cmake_full_parity.md`](stories/015_non_cmake_full_parity.md)
 - Parallel `gentest_codegen` jobs (TU mode): [`docs/stories/005_codegen_parallelism_jobs.md`](stories/005_codegen_parallelism_jobs.md)
 - Runtime regressions and CMake check hardening: [`docs/stories/006_runtime_regressions_and_cmake_checks.md`](stories/006_runtime_regressions_and_cmake_checks.md)
 - Runner modularization plan synthesis: [`docs/stories/007_runner_impl_modularization_plan.md`](stories/007_runner_impl_modularization_plan.md)
