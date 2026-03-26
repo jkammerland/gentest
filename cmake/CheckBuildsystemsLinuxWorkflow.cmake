@@ -75,3 +75,20 @@ endforeach()
 if(NOT EXISTS "${_helper_file}")
   message(FATAL_ERROR "Missing shared non-CMake codegen helper: ${_helper_file}")
 endif()
+
+file(READ "${_helper_file}" _helper_content)
+
+string(FIND "${_helper_content}" "\"--output\"" _helper_manifest_pos)
+if(NOT _helper_manifest_pos EQUAL -1)
+  message(FATAL_ERROR "Shared non-CMake codegen helper must not route through legacy gentest_codegen --output.")
+endif()
+
+string(FIND "${_helper_content}" "\"--tu-out-dir\"" _helper_tu_mode_pos)
+if(_helper_tu_mode_pos EQUAL -1)
+  message(FATAL_ERROR "Shared non-CMake codegen helper must invoke gentest_codegen in per-TU mode.")
+endif()
+
+string(FIND "${_helper_content}" "os.path.relpath" _helper_relpath_pos)
+if(_helper_relpath_pos EQUAL -1)
+  message(FATAL_ERROR "Shared non-CMake codegen helper must derive shim includes relative to the generated wrapper.")
+endif()

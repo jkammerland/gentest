@@ -6,6 +6,7 @@ add_rules("mode.debug", "mode.release")
 local project_root = os.scriptdir()
 local incdirs = {"include", "tests", "third_party/include"}
 local buildsystem_codegen = path.join(project_root, "scripts", "gentest_buildsystem_codegen.py")
+local python_program = is_host("windows") and "python" or "python3"
 
 local gentest_common_defines = {"FMT_HEADER_ONLY"}
 local gentest_common_cxxflags = {}
@@ -65,9 +66,14 @@ target("gentest_main")
     add_deps("gentest_runtime")
 
 local function gentest_suite(name)
-    local out_dir = path.join("build", "gen", name)
+    local buildir = get_config("buildir") or "build"
+    local plat = get_config("plat") or os.host()
+    local arch = get_config("arch") or os.arch()
+    local mode = get_config("mode") or "release"
+    local out_dir = path.join(buildir, "gen", plat, arch, mode, name)
     local wrapper_cpp = path.join(out_dir, "tu_0000_cases.gentest.cpp")
     local wrapper_h = path.join(out_dir, "tu_0000_cases.gentest.h")
+    local wrapper_d = path.join(out_dir, "tu_0000_cases.gentest.d")
     local source_file = path.join(project_root, "tests", name, "cases.cpp")
 
     target("gentest_" .. name .. "_xmake")
@@ -93,8 +99,8 @@ local function gentest_suite(name)
                 "--out-dir", path.join(project_root, out_dir),
                 "--wrapper-output", path.join(project_root, wrapper_cpp),
                 "--header-output", path.join(project_root, wrapper_h),
+                "--depfile", path.join(project_root, wrapper_d),
                 "--source-file", source_file,
-                "--wrapper-include", path.join(name, "cases.cpp"),
             }
             if compdb_dir then
                 table.insert(args, "--compdb")
@@ -102,13 +108,14 @@ local function gentest_suite(name)
             end
             table.insert(args, "--clang-arg=-std=c++20")
             table.insert(args, "--clang-arg=-DGENTEST_CODEGEN=1")
+            table.insert(args, "--clang-arg=-DFMT_HEADER_ONLY")
             table.insert(args, "--clang-arg=-Wno-unknown-attributes")
             table.insert(args, "--clang-arg=-Wno-attributes")
             table.insert(args, "--clang-arg=-Wno-unknown-warning-option")
             table.insert(args, "--clang-arg=-I" .. path.join(project_root, "include"))
             table.insert(args, "--clang-arg=-I" .. path.join(project_root, "tests"))
             table.insert(args, "--clang-arg=-I" .. path.join(project_root, "third_party", "include"))
-            batchcmds:vrunv("python3", args)
+            batchcmds:vrunv(python_program, args)
         end)
 end
 

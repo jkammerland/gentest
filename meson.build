@@ -63,6 +63,7 @@ codegen = codegen_opt
 clang_args = [
   '-std=c++20',
   '-DGENTEST_CODEGEN=1',
+  '-DFMT_HEADER_ONLY',
   '-Wno-unknown-attributes',
   '-Wno-attributes',
   '-Wno-unknown-warning-option',
@@ -77,6 +78,25 @@ endforeach
 
 tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 buildsystem_codegen = files('scripts/gentest_buildsystem_codegen.py')
+support_inputs_cmd = run_command(
+  py,
+  '-c',
+  '''import glob
+patterns = [
+  "include/**/*.h", "include/**/*.hh", "include/**/*.hpp", "include/**/*.hxx", "include/**/*.inc",
+  "third_party/include/**/*.h", "third_party/include/**/*.hh", "third_party/include/**/*.hpp",
+  "third_party/include/**/*.hxx", "tests/**/*.h", "tests/**/*.hh", "tests/**/*.hpp",
+  "tests/**/*.hxx", "tests/**/*.inc"
+]
+matches = sorted({path for pattern in patterns for path in glob.glob(pattern, recursive=True)})
+print("\n".join(matches))
+''',
+  check: true
+)
+support_inputs = []
+if support_inputs_cmd.stdout().strip() != ''
+  support_inputs = support_inputs_cmd.stdout().strip().split('\n')
+endif
 
 foreach s : tests_suites
   out_dir = meson.current_build_dir()
@@ -85,7 +105,7 @@ foreach s : tests_suites
   gen = custom_target(
     'gen_@0@'.format(s),
     output: [wrapper_cpp, wrapper_h],
-    input: 'tests/@0@/cases.cpp'.format(s),
+    input: ['tests/@0@/cases.cpp'.format(s), buildsystem_codegen] + support_inputs,
     command: [
       py,
       buildsystem_codegen,
@@ -94,8 +114,7 @@ foreach s : tests_suites
       '--out-dir', out_dir,
       '--wrapper-output', join_paths(out_dir, wrapper_cpp),
       '--header-output', join_paths(out_dir, wrapper_h),
-      '--source-file', '@INPUT@',
-      '--wrapper-include', '@0@/cases.cpp'.format(s),
+      '--source-file', '@INPUT0@',
       '--compdb', meson.current_build_dir(),
       clang_arg_flags,
     ],

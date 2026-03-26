@@ -6,6 +6,22 @@ _gentest_warning_copts = select({
 })
 
 def gentest_suite(name):
+    gentest_codegen_support_inputs = native.glob([
+        "include/**/*.h",
+        "include/**/*.hh",
+        "include/**/*.hpp",
+        "include/**/*.hxx",
+        "include/**/*.inc",
+        "third_party/include/**/*.h",
+        "third_party/include/**/*.hh",
+        "third_party/include/**/*.hpp",
+        "third_party/include/**/*.hxx",
+        "tests/**/*.h",
+        "tests/**/*.hh",
+        "tests/**/*.hpp",
+        "tests/**/*.hxx",
+        "tests/**/*.inc",
+    ], allow_empty = True)
     cc_library(
         name = '{}_cases_hdr'.format(name),
         hdrs = ['tests/{}/cases.cpp'.format(name)],
@@ -18,7 +34,7 @@ def gentest_suite(name):
         srcs = [
             'tests/{}/cases.cpp'.format(name),
             'scripts/gentest_buildsystem_codegen.py',
-        ],
+        ] + gentest_codegen_support_inputs,
         outs = [gen_cpp, gen_header],
         tools = [':gentest_codegen'],
         cmd = (
@@ -30,9 +46,9 @@ def gentest_suite(name):
             '--wrapper-output "$(@D)/gen/{0}/tu_0000_{0}_cases.gentest.cpp" '.format(name) +
             '--header-output "$(@D)/gen/{0}/tu_0000_{0}_cases.gentest.h" '.format(name) +
             '--source-file "$(location tests/{0}/cases.cpp)" '.format(name) +
-            '--wrapper-include "{0}/cases.cpp" '.format(name) +
             '--clang-arg=-std=c++20 ' +
             '--clang-arg=-DGENTEST_CODEGEN=1 ' +
+            '--clang-arg=-DFMT_HEADER_ONLY ' +
             '--clang-arg=-Wno-unknown-attributes ' +
             '--clang-arg=-Wno-attributes ' +
             '--clang-arg=-Wno-unknown-warning-option ' +
@@ -49,9 +65,9 @@ def gentest_suite(name):
             '--wrapper-output "$(@D)/gen/{0}/tu_0000_{0}_cases.gentest.cpp" '.format(name) +
             '--header-output "$(@D)/gen/{0}/tu_0000_{0}_cases.gentest.h" '.format(name) +
             '--source-file "$(location tests/{0}/cases.cpp)" '.format(name) +
-            '--wrapper-include "{0}/cases.cpp" '.format(name) +
             '--clang-arg=-std=c++20 ' +
             '--clang-arg=-DGENTEST_CODEGEN=1 ' +
+            '--clang-arg=-DFMT_HEADER_ONLY ' +
             '--clang-arg=-Wno-unknown-attributes ' +
             '--clang-arg=-Wno-attributes ' +
             '--clang-arg=-Wno-unknown-warning-option ' +
