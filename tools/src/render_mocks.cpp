@@ -185,7 +185,8 @@ bool supports_runtime_template_method_ptr_match(const MockMethodInfo &method, st
         return false;
     }
 
-    const auto clauses = split_top_level_commas(method.template_prefix.substr(open + 1, close - open - 1));
+    const std::string clause_text(method.template_prefix.substr(open + 1, close - open - 1));
+    const auto        clauses = split_top_level_commas(clause_text);
     if (clauses.empty()) {
         return false;
     }
