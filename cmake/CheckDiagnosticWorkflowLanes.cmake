@@ -227,12 +227,17 @@ endforeach()
 
 _assert_row_contains("coverage-system" "run_coverage: true" "mark run_coverage: true")
 _assert_row_contains("coverage-system" "ctest_parallel: 1" "set ctest_parallel: 1")
-_assert_row_contains("alusan-system" "build_type: ASan+UBSan" "set build_type: ASan+UBSan")
-_assert_row_contains("alusan-system" "ctest_parallel: 2" "set ctest_parallel: 2")
 _assert_row_contains("tsan-system" "build_type: TSan" "set build_type: TSan")
 _assert_row_contains("tsan-system" "ctest_parallel: 2" "set ctest_parallel: 2")
 _assert_workflow_contains("libclang-rt-\${{ matrix.clang_version }}-dev" "install the Clang compiler-rt development package so sanitizer presets can link")
 _assert_workflow_contains("GENTEST_CODEGEN_JOBS=\${{ matrix.codegen_jobs }}" "export GENTEST_CODEGEN_JOBS from the matrix so Alpine CI exercises parallel codegen explicitly")
+
+foreach(_asan_lane IN ITEMS "Ubuntu 24.04 • Clang 20" "Ubuntu 25.04 • Clang 20" "Fedora 43 • Clang")
+  _assert_named_row_contains("${_asan_lane}" "ASan+UBSan" "preset: alusan-system"
+    "set preset: alusan-system for sanitizer coverage")
+  _assert_named_row_contains("${_asan_lane}" "ASan+UBSan" "ctest_parallel: 2"
+    "set ctest_parallel: 2 for sanitizer coverage")
+endforeach()
 
 foreach(_alpine_build_type IN ITEMS debug release)
   _assert_named_row_contains("Alpine 3.21 • Clang 19" "${_alpine_build_type}" "codegen_jobs: 2"

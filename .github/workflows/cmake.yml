@@ -363,6 +363,18 @@ jobs:
             clang_version: "20"
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
+            build_type: ASan+UBSan
+            preset: alusan-system
+            ctest_parallel: 2
+          - name: Ubuntu 25.04 • Clang 20
+            container: ubuntu:25.04
+            pkg_manager: apt
+            compiler: clang
+            cc: clang-20
+            cxx: clang++-20
+            clang_version: "20"
+            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: release
           - name: Ubuntu 25.04 • GCC
             container: ubuntu:25.04
@@ -522,6 +534,17 @@ jobs:
             llvm_dir: /usr/lib64/cmake/llvm
             clang_dir: /usr/lib64/cmake/clang
             build_type: debug
+          - name: Fedora 43 • Clang
+            container: fedora:43
+            pkg_manager: dnf
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            llvm_dir: /usr/lib64/cmake/llvm
+            clang_dir: /usr/lib64/cmake/clang
+            build_type: ASan+UBSan
+            preset: alusan-system
+            ctest_parallel: 2
           - name: Fedora 43 • Clang
             container: fedora:43
             pkg_manager: dnf
