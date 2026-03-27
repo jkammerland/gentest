@@ -114,6 +114,19 @@ foreach(_expected IN ITEMS
 endforeach()
 
 execute_process(
+  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --run=consumer/consumer/module_test --kind=test
+  WORKING_DIRECTORY "${SOURCE_DIR}"
+  RESULT_VARIABLE _plain_test_rc
+  OUTPUT_VARIABLE _plain_test_out
+  ERROR_VARIABLE _plain_test_err)
+if(NOT _plain_test_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Bazel module consumer test case failed.\n"
+    "stdout:\n${_plain_test_out}\n"
+    "stderr:\n${_plain_test_err}")
+endif()
+
+execute_process(
   COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --run=consumer/consumer/module_mock --kind=test
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _test_rc

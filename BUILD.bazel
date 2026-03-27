@@ -242,7 +242,6 @@ gentest_add_mocks_textual(
     name = 'gentest_consumer_textual_mocks',
     defs = ['tests/consumer/header_mock_defs.hpp'],
     public_header = 'gentest_consumer_mocks.hpp',
-    staged_support_headers = ['deps/0478dfbbe6c184098f87ed47b43d96f9_service.hpp'],
     linkopts = _gentest_linkopts,
 )
 
@@ -250,7 +249,7 @@ gentest_attach_codegen_textual(
     name = 'gentest_consumer_textual_bazel',
     src = 'tests/consumer/cases.cpp',
     main = 'tests/consumer/main.cpp',
-    mock_targets = ['//:gentest_consumer_textual_mocks'],
+    mock_targets = [':gentest_consumer_textual_mocks'],
     linkopts = _gentest_linkopts,
     source_includes = ['tests', 'tests/consumer'],
 )
@@ -262,18 +261,6 @@ gentest_add_mocks_modules(
         'tests/consumer/module_mock_defs.cppm',
     ],
     module_name = 'gentest.consumer_mocks',
-    defs_modules = [
-        'gentest.consumer_service',
-        'gentest.consumer_mock_defs',
-    ],
-    generated_module_wrappers = [
-        'tu_0000_def_0000_service_module.module.gentest.cppm',
-        'tu_0001_def_0001_module__11e4b565.module.gentest.cppm',
-    ],
-    generated_module_headers = [
-        'tu_0000_def_0000_service_module.gentest.h',
-        'tu_0001_def_0001_module__11e4b565.gentest.h',
-    ],
     linkopts = _gentest_linkopts,
 )
 
@@ -281,7 +268,7 @@ gentest_attach_codegen_modules(
     name = 'gentest_consumer_module_bazel',
     src = 'tests/consumer/cases.cppm',
     main = 'tests/consumer/main.cpp',
-    mock_targets = ['//:gentest_consumer_module_mocks'],
+    mock_targets = [':gentest_consumer_module_mocks'],
     deps = [
         ':gentest',
         ':gentest_bench_util',

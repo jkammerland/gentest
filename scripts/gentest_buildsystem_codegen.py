@@ -485,6 +485,27 @@ def resolve_compdb_dir(compdb_arg: str, codegen_path: pathlib.Path, *, infer_def
     return None
 
 
+def load_mock_metadata_set(metadata_args: list[str], source_root: pathlib.Path) -> tuple[list[str], list[str]]:
+    metadata_include_roots: list[str] = []
+    metadata_module_sources: list[str] = []
+    for metadata_arg in metadata_args:
+        metadata = load_mock_metadata(resolve_input_path(metadata_arg, source_root))
+        metadata_include_roots.extend(mock_metadata_include_roots(metadata))
+        metadata_module_sources.extend(mock_metadata_module_mappings(metadata))
+    return metadata_include_roots, metadata_module_sources
+
+
+def normalize_external_module_sources(external_module_sources: list[str], source_root: pathlib.Path) -> list[str]:
+    normalized: list[str] = []
+    for module_source in external_module_sources:
+        if "=" not in module_source:
+            normalized.append(module_source)
+            continue
+        module_name, source_path = module_source.split("=", 1)
+        normalized.append(f"{module_name}={resolve_input_path(source_path, source_root)}")
+    return normalized
+
+
 def find_clang_driver() -> pathlib.Path | None:
     def is_clang_driver(candidate: str) -> bool:
         name = pathlib.Path(candidate).name.lower()
@@ -724,13 +745,12 @@ def main() -> int:
             return 1
         header_output = pathlib.Path(args.header_output).resolve()
         include_roots = [resolve_input_path(root_arg, source_root) for root_arg in args.include_root]
-        compdb_dir = resolve_compdb_dir(args.compdb, codegen_path, infer_default=args.kind == "textual")
-        metadata_include_roots: list[str] = []
-        metadata_module_sources: list[str] = []
-        for metadata_arg in args.mock_metadata:
-            metadata = load_mock_metadata(resolve_input_path(metadata_arg, source_root))
-            metadata_include_roots.extend(mock_metadata_include_roots(metadata))
-            metadata_module_sources.extend(mock_metadata_module_mappings(metadata))
+        compdb_dir = resolve_compdb_dir(
+            args.compdb,
+            codegen_path,
+            infer_default=args.kind == "textual" or args.backend == "xmake",
+        )
+        metadata_include_roots, metadata_module_sources = load_mock_metadata_set(args.mock_metadata, source_root)
         suite_clang_args = normalize_textual_mock_clang_args(
             append_include_clang_args(args.clang_arg, metadata_include_roots),
             source_root=source_root,
@@ -765,7 +785,7 @@ def main() -> int:
             mock_registry=args.mock_registry,
             mock_impl=args.mock_impl,
             discover_mocks=False,
-            external_module_sources=args.external_module_source + metadata_module_sources,
+            external_module_sources=normalize_external_module_sources(args.external_module_source + metadata_module_sources, source_root),
         )
         subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
         sanitize_depfile(
@@ -819,9 +839,14 @@ def main() -> int:
     mock_registry = pathlib.Path(args.mock_registry).resolve()
     mock_impl = pathlib.Path(args.mock_impl).resolve()
     include_roots = [resolve_input_path(root_arg, source_root) for root_arg in args.include_root]
-    compdb_dir = resolve_compdb_dir(args.compdb, codegen_path, infer_default=args.kind == "textual")
+    compdb_dir = resolve_compdb_dir(
+        args.compdb,
+        codegen_path,
+        infer_default=args.kind == "textual" or args.backend == "xmake",
+    )
+    metadata_include_roots, metadata_module_sources = load_mock_metadata_set(args.mock_metadata, source_root)
     normalized_clang_args = normalize_textual_mock_clang_args(
-        args.clang_arg,
+        append_include_clang_args(args.clang_arg, metadata_include_roots),
         source_root=source_root,
         compdb_dir=compdb_dir,
     )
@@ -851,7 +876,7 @@ def main() -> int:
             mock_registry=args.mock_registry,
             mock_impl=args.mock_impl,
             discover_mocks=True,
-            external_module_sources=args.external_module_source,
+            external_module_sources=normalize_external_module_sources(args.external_module_source + metadata_module_sources, source_root),
         )
         subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
         sanitize_depfile(args.depfile, [wrapper_output, header_output, public_header, mock_registry, mock_impl, anchor_output, *materialized_defs])
@@ -884,7 +909,7 @@ def main() -> int:
         mock_registry=args.mock_registry,
         mock_impl=args.mock_impl,
         discover_mocks=True,
-        external_module_sources=args.external_module_source,
+        external_module_sources=normalize_external_module_sources(args.external_module_source + metadata_module_sources, source_root),
     )
     subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
     generated_module_wrappers = [module_wrapper_output_path(out_dir, defs_file, index) for index, defs_file in enumerate(materialized_module_defs)]

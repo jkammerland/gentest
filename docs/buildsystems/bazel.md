@@ -4,6 +4,12 @@ This Bazel support is still repo-local. The macros in
 [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl) are usable in this
 repository, but they are not packaged as a downstream rule set yet.
 
+The checked-in repo-local targets now use the 2-step explicit model without
+spelling hashed textual staged outputs or generated module wrapper/header names
+in [`BUILD.bazel`](../../BUILD.bazel). Those details are internalized inside
+[`build_defs/gentest.bzl`](../../build_defs/gentest.bzl) for the checked-in
+consumer defs sets.
+
 ## Current repo-local macro surface
 
 Textual/classic support:
@@ -17,31 +23,25 @@ Named-module support:
 - `gentest_add_mocks_modules(...)`
 - `gentest_attach_codegen_modules(...)`
 
-The current repo-local module macros are explicit rather than inferred.
+The repo-local helpers expose the 2-step explicit model:
 
-`gentest_add_mocks_modules(...)` currently requires:
+- `gentest_add_mocks_textual(...)`:
+  - required: `name`, `defs`, `public_header`
+  - optional: `defines`, `clang_args`, `deps`, `linkopts`
+- `gentest_attach_codegen_textual(...)`:
+  - required: `name`, `src`, `main`, same-package `mock_targets`
+  - optional: `defines`, `clang_args`, `deps`, `linkopts`, `source_includes`
+- `gentest_add_mocks_modules(...)`:
+  - required: `name`, `defs`, `module_name`
+  - optional: `defines`, `clang_args`, `external_module_sources`, `deps`,
+    `linkopts`
+- `gentest_attach_codegen_modules(...)`:
+  - required: `name`, `src`, `main`, same-package `mock_targets`
+  - optional: `defines`, `clang_args`, `external_module_sources`, `deps`,
+    `linkopts`, `source_includes`
 
-- `name`
-- `defs`
-- `module_name`
-- `defs_modules`
-- `generated_module_wrappers`
-- `generated_module_headers`
-
-`gentest_attach_codegen_modules(...)` currently requires:
-
-- `name`
-- `src`
-- `main`
-- same-package `mock_targets`
-
-The module macros also accept repo-local tuning knobs, but not the exact same
-set:
-
-- `gentest_add_mocks_modules(...)` supports `external_module_sources`, `deps`,
-  and `linkopts`
-- `gentest_attach_codegen_modules(...)` supports `external_module_sources`,
-  `deps`, `linkopts`, `defines`, and `source_includes`
+Both textual and module helpers thread `defines` / `clang_args` through the
+codegen scan context and the final compile surface.
 
 ## Current repo-local targets
 
@@ -66,7 +66,25 @@ module macros:
 - `gentest_mock`
 - `gentest_bench_util`
 
-## Module example
+## Repo-local examples
+
+The checked-in repo-local textual path looks like this:
+
+```python
+gentest_add_mocks_textual(
+    name = "gentest_consumer_textual_mocks",
+    defs = ["tests/consumer/header_mock_defs.hpp"],
+    public_header = "gentest_consumer_mocks.hpp",
+)
+
+gentest_attach_codegen_textual(
+    name = "gentest_consumer_textual_bazel",
+    src = "tests/consumer/cases.cpp",
+    main = "tests/consumer/main.cpp",
+    mock_targets = [":gentest_consumer_textual_mocks"],
+    source_includes = ["tests", "tests/consumer"],
+)
+```
 
 The checked-in repo-local module path looks like this:
 
@@ -78,18 +96,6 @@ gentest_add_mocks_modules(
         "tests/consumer/module_mock_defs.cppm",
     ],
     module_name = "gentest.consumer_mocks",
-    defs_modules = [
-        "gentest.consumer_service",
-        "gentest.consumer_mock_defs",
-    ],
-    generated_module_wrappers = [
-        "tu_0000_def_0000_service_module.module.gentest.cppm",
-        "tu_0001_def_0001_module__11e4b565.module.gentest.cppm",
-    ],
-    generated_module_headers = [
-        "tu_0000_def_0000_service_module.gentest.h",
-        "tu_0001_def_0001_module__11e4b565.gentest.h",
-    ],
 )
 
 gentest_attach_codegen_modules(
@@ -187,6 +193,8 @@ GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
 bazelisk build \
   //:gentest_consumer_module_bazel \
   --experimental_cpp_modules \
+  --spawn_strategy=local \
+  --strategy=CppCompile=local \
   --action_env=CCACHE_DISABLE=1 \
   --host_action_env=CCACHE_DISABLE=1 \
   --action_env=CC="${clang_cc}" \
@@ -214,7 +222,7 @@ The checked-in Linux workflow validates:
 - classic suites
 - the textual Bazel consumer
 - the module Bazel consumer under the explicit Clang + `--experimental_cpp_modules`
-  contract, including mock/bench/jitter execution
+  contract, including test/mock/bench/jitter execution
 
 For local module runs, keep the same constraints:
 
@@ -248,9 +256,14 @@ The generated test wrapper target also emits:
 - `gentest_attach_codegen_textual(...)` and
   `gentest_attach_codegen_modules(...)` currently require same-package
   `mock_targets`.
-- `gentest_add_mocks_modules(...)` currently requires callers to spell out
-  `defs_modules`, `generated_module_wrappers`, and `generated_module_headers`
-  explicitly.
+- The checked-in textual defs set has its staged `deps/...` outputs
+  internalized in [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl).
+  Additional repo-local textual defs graphs that stage support headers still
+  require extending that internal map.
+- The checked-in module defs set has its generated wrapper/header/module-name
+  metadata internalized in
+  [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl). Additional
+  repo-local module defs sets still require extending that internal map.
 - The codegen bootstrap is intentionally non-hermetic today: Bazel shells out
   to CMake to build `gentest_codegen`.
 - The module path is still repo-local/toolchain-sensitive rather than a

@@ -2198,18 +2198,21 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeTextualConsumerRegistration.cmake
     cmake)
+set_property(TEST gentest_xmake_textual_consumer_registration APPEND PROPERTY LABELS "xmake")
 
 _gentest_add_cmake_helper_test(
     gentest_xmake_textual_consumer
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeTextualConsumer.cmake
     cmake)
+set_property(TEST gentest_xmake_textual_consumer APPEND PROPERTY LABELS "xmake")
 
 _gentest_add_cmake_helper_test(
     gentest_xmake_module_consumer
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeModuleConsumer.cmake
     cmake)
+set_property(TEST gentest_xmake_module_consumer APPEND PROPERTY LABELS "xmake" "modules")
 
 _gentest_add_cmake_helper_test(
     gentest_bazel_textual_consumer

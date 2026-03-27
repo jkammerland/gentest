@@ -1,5 +1,14 @@
 local gentest_state = {}
 
+local function fail(message)
+    print(message)
+    if is_host("windows") then
+        os.vrunv("cmd", {"/c", "exit", "1"})
+    else
+        os.vrunv("false", {})
+    end
+end
+
 -- Configure the shared Xmake helper context. External consumers can override
 -- codegen_project_root to point at a gentest checkout, or set GENTEST_CODEGEN
 -- to use a prebuilt generator directly.
@@ -10,7 +19,7 @@ end
 local function state_value(key)
     local value = gentest_state[key]
     if value == nil then
-        raise("gentest_configure must provide `" .. key .. "`")
+        fail("gentest_configure must provide `" .. key .. "`")
     end
     return value
 end
@@ -93,10 +102,40 @@ local function registered_target_metadata()
     return metadata
 end
 
-local function append_common_codegen_clang_args(args, extra_include_dirs)
+local function append_codegen_define_args(args, defines, seen_defines)
+    for _, define in ipairs(defines or {}) do
+        local define_arg = tostring(define or "")
+        if define_arg ~= "" then
+            if not define_arg:match("^[-/]D") then
+                define_arg = "-D" .. define_arg
+            end
+            if not seen_defines[define_arg] then
+                seen_defines[define_arg] = true
+                table.insert(args, "--clang-arg=" .. define_arg)
+            end
+        end
+    end
+end
+
+local function append_user_clang_args(args, clang_args)
+    for _, clang_arg in ipairs(clang_args or {}) do
+        local arg_text = tostring(clang_arg or "")
+        if arg_text ~= "" then
+            if arg_text:find("^%-%-clang%-arg=") then
+                table.insert(args, arg_text)
+            else
+                table.insert(args, "--clang-arg=" .. arg_text)
+            end
+        end
+    end
+end
+
+local function append_common_codegen_clang_args(args, extra_include_dirs, extra_defines, extra_clang_args)
     table.insert(args, "--clang-arg=-std=c++20")
     table.insert(args, "--clang-arg=-DGENTEST_CODEGEN=1")
-    table.insert(args, "--clang-arg=-DFMT_HEADER_ONLY")
+    local seen_defines = {}
+    append_codegen_define_args(args, gentest_common_defines(), seen_defines)
+    append_codegen_define_args(args, extra_defines, seen_defines)
     table.insert(args, "--clang-arg=-Wno-unknown-attributes")
     table.insert(args, "--clang-arg=-Wno-attributes")
     table.insert(args, "--clang-arg=-Wno-unknown-warning-option")
@@ -104,8 +143,9 @@ local function append_common_codegen_clang_args(args, extra_include_dirs)
         table.insert(args, "--clang-arg=-I" .. include_dir)
     end
     for _, include_dir in ipairs(extra_include_dirs or {}) do
-        table.insert(args, "--clang-arg=-I" .. include_dir)
+        table.insert(args, "--clang-arg=-I" .. project_path(include_dir))
     end
+    append_user_clang_args(args, extra_clang_args)
 end
 
 local function default_external_module_sources()
@@ -119,7 +159,7 @@ end
 local function require_opt(opts, key, operation)
     local value = opts[key]
     if value == nil or value == "" then
-        raise(operation .. " requires `" .. key .. "`")
+        fail(operation .. " requires `" .. key .. "`")
     end
     return value
 end
@@ -127,7 +167,7 @@ end
 local function require_kind(opts, operation)
     local kind = opts.kind or "textual"
     if kind ~= "textual" and kind ~= "modules" then
-        raise(operation .. " only supports kind='textual' or kind='modules'")
+        fail(operation .. " only supports kind='textual' or kind='modules'")
     end
     return kind
 end
@@ -379,7 +419,7 @@ local function parse_module_name(module_source_text)
         module_name = module_source_text:match("^%s*module%s+([^;]+)%s*;")
     end
     if not module_name then
-        raise("unable to determine module name from module source")
+        fail("unable to determine module name from module source")
     end
     return module_name:gsub("^%s+", ""):gsub("%s+$", "")
 end
@@ -409,6 +449,112 @@ local function anchor_placeholder(target_id)
         "} // namespace gentest::detail",
         "",
     }, "\n")
+end
+
+local function json_escape(text)
+    return (text or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
+end
+
+local function json_unescape(text)
+    return (text or ""):gsub("\\n", "\n"):gsub('\\"', '"'):gsub("\\\\", "\\")
+end
+
+local function decode_string_array(metadata_text, key)
+    local values = {}
+    local body = metadata_text:match('"' .. key .. '"%s*:%s*%[(.-)%]')
+    if not body then
+        return values
+    end
+    for value in body:gmatch('"(.-)"') do
+        table.insert(values, json_unescape(value))
+    end
+    return values
+end
+
+local function decode_string_value(metadata_text, key)
+    local value = metadata_text:match('"' .. key .. '"%s*:%s*"(.-)"')
+    if not value then
+        return nil
+    end
+    return json_unescape(value)
+end
+
+local function decode_module_sources(metadata_text)
+    local values = {}
+    local body = metadata_text:match('"module_sources"%s*:%s*%[(.-)%]')
+    if not body then
+        return values
+    end
+    for object_body in body:gmatch("%b{}") do
+        local module_name = object_body:match('"module_name"%s*:%s*"(.-)"')
+        local module_path = object_body:match('"path"%s*:%s*"(.-)"')
+        if module_name and module_path then
+            table.insert(values, {
+                module_name = json_unescape(module_name),
+                path = json_unescape(module_path),
+            })
+        end
+    end
+    return values
+end
+
+local function decode_public_surface(metadata_text)
+    local body = metadata_text:match('"public_surface"%s*:%s*(%b{})')
+    if not body then
+        return {}
+    end
+    local payload = {}
+    for _, key in ipairs({"type", "path", "module_name"}) do
+        local value = decode_string_value(body, key)
+        if value then
+            payload[key] = value
+        end
+    end
+    return payload
+end
+
+local function encode_string_array(values)
+    local encoded = {}
+    for _, value in ipairs(values or {}) do
+        table.insert(encoded, '"' .. json_escape(value) .. '"')
+    end
+    return "[" .. table.concat(encoded, ", ") .. "]"
+end
+
+local function encode_module_sources(values)
+    local encoded = {}
+    for _, value in ipairs(values or {}) do
+        table.insert(
+            encoded,
+            '{"module_name":"' .. json_escape(value.module_name or "") .. '","path":"' .. json_escape(value.path or "") .. '"}'
+        )
+    end
+    return "[" .. table.concat(encoded, ", ") .. "]"
+end
+
+local function encode_mock_metadata(payload)
+    local fragments = {
+        '{',
+        '"schema_version": ' .. tostring(payload.schema_version or 1),
+        ', "mode": "' .. json_escape(payload.mode or "mocks") .. '"',
+        ', "backend": "' .. json_escape(payload.backend or "xmake") .. '"',
+        ', "kind": "' .. json_escape(payload.kind or "textual") .. '"',
+        ', "target_id": "' .. json_escape(payload.target_id or "") .. '"',
+        ', "out_dir": "' .. json_escape(payload.out_dir or "") .. '"',
+        ', "include_dirs": ' .. encode_string_array(payload.include_dirs or {}),
+        ', "public_surface": {"type":"' .. json_escape((payload.public_surface or {}).type or "") .. '"',
+    }
+    if payload.public_surface and payload.public_surface.path then
+        table.insert(fragments, ',"path":"' .. json_escape(payload.public_surface.path) .. '"')
+    end
+    if payload.public_surface and payload.public_surface.module_name then
+        table.insert(fragments, ',"module_name":"' .. json_escape(payload.public_surface.module_name) .. '"')
+    end
+    table.insert(fragments, "}")
+    table.insert(fragments, ', "module_sources": ' .. encode_module_sources(payload.module_sources or {}))
+    table.insert(fragments, ', "support_headers": ' .. encode_string_array(payload.support_headers or {}))
+    table.insert(fragments, "}")
+    return table.concat(fragments)
 end
 
 local function collect_dep_inputs(deps)
@@ -446,6 +592,110 @@ local function collect_dep_inputs(deps)
     return dep_targets, include_dirs, metadata_paths
 end
 
+local function load_mock_metadata(metadata_path)
+    local metadata_text = io.readfile(metadata_path)
+    if not metadata_text then
+        fail("failed to read mock metadata `" .. metadata_path .. "`")
+    end
+    return {
+        schema_version = tonumber(metadata_text:match('"schema_version"%s*:%s*(%d+)') or "1"),
+        mode = decode_string_value(metadata_text, "mode"),
+        backend = decode_string_value(metadata_text, "backend"),
+        kind = decode_string_value(metadata_text, "kind"),
+        target_id = decode_string_value(metadata_text, "target_id"),
+        out_dir = decode_string_value(metadata_text, "out_dir"),
+        include_dirs = decode_string_array(metadata_text, "include_dirs"),
+        public_surface = decode_public_surface(metadata_text),
+        module_sources = decode_module_sources(metadata_text),
+        support_headers = decode_string_array(metadata_text, "support_headers"),
+    }
+end
+
+local function collect_mock_metadata_inputs(metadata_paths)
+    local include_dirs = {}
+    local module_sources = {}
+    local support_headers = {}
+    local seen_includes = {}
+    local seen_modules = {}
+    local seen_headers = {}
+    for _, metadata_path in ipairs(metadata_paths or {}) do
+        local payload = load_mock_metadata(metadata_path)
+        for _, include_dir in ipairs(payload.include_dirs or {}) do
+            append_unique(include_dirs, seen_includes, include_dir)
+        end
+        for _, module_source in ipairs(payload.module_sources or {}) do
+            if type(module_source) == "table" then
+                local module_name = module_source.module_name or ""
+                local module_path = module_source.path or ""
+                if module_name ~= "" and module_path ~= "" then
+                    append_unique(module_sources, seen_modules, module_name .. "=" .. module_path)
+                end
+            end
+        end
+        for _, support_header in ipairs(payload.support_headers or {}) do
+            append_unique(support_headers, seen_headers, support_header)
+        end
+    end
+    return include_dirs, module_sources, support_headers
+end
+
+local function merge_generated_mock_metadata(metadata_path, dep_metadata_paths)
+    if not dep_metadata_paths or #dep_metadata_paths == 0 then
+        return
+    end
+    local payload = load_mock_metadata(metadata_path)
+    local dep_include_dirs, dep_module_sources, dep_support_headers = collect_mock_metadata_inputs(dep_metadata_paths)
+
+    local include_dirs = {}
+    local seen_includes = {}
+    for _, include_dir in ipairs(payload.include_dirs or {}) do
+        append_unique(include_dirs, seen_includes, include_dir)
+    end
+    for _, include_dir in ipairs(dep_include_dirs) do
+        append_unique(include_dirs, seen_includes, include_dir)
+    end
+
+    local support_headers = {}
+    local seen_support_headers = {}
+    for _, support_header in ipairs(payload.support_headers or {}) do
+        append_unique(support_headers, seen_support_headers, support_header)
+    end
+    for _, support_header in ipairs(dep_support_headers) do
+        append_unique(support_headers, seen_support_headers, support_header)
+    end
+
+    local module_sources = {}
+    local seen_module_sources = {}
+    for _, module_source in ipairs(payload.module_sources or {}) do
+        if type(module_source) == "table" then
+            local module_name = module_source.module_name or ""
+            local module_path = module_source.path or ""
+            if module_name ~= "" and module_path ~= "" then
+                local key = module_name .. "=" .. module_path
+                if not seen_module_sources[key] then
+                    seen_module_sources[key] = true
+                    table.insert(module_sources, {module_name = module_name, path = module_path})
+                end
+            end
+        end
+    end
+    for _, mapping in ipairs(dep_module_sources) do
+        local module_name, module_path = mapping:match("^([^=]+)=(.+)$")
+        if module_name and module_path then
+            local key = module_name .. "=" .. module_path
+            if not seen_module_sources[key] then
+                seen_module_sources[key] = true
+                table.insert(module_sources, {module_name = module_name, path = module_path})
+            end
+        end
+    end
+
+    payload.include_dirs = include_dirs
+    payload.module_sources = module_sources
+    payload.support_headers = support_headers
+    io.writefile(metadata_path, encode_mock_metadata(payload) .. "\n")
+end
+
 local function collect_target_package_include_dirs(target)
     local include_dirs = {}
     local seen_includes = {}
@@ -461,6 +711,34 @@ local function collect_target_package_include_dirs(target)
         end
     end
     return include_dirs
+end
+
+local function is_clang_tool(toolpath)
+    local toolname = path.filename(toolpath or ""):lower()
+    return toolname == "clang++" or toolname == "clang" or toolname == "clang-cl" or toolname:match("^clang%+%+%-%d+$") or
+               toolname:match("^clang%-%d+$")
+end
+
+local function configured_cxx_tool_hint()
+    return get_config("cxx") or os.getenv("CXX") or ""
+end
+
+local function require_clang_module_toolchain(target, operation)
+    local cxx_tool = target and target.tool and target:tool("cxx") or ""
+    if cxx_tool == "" then
+        cxx_tool = configured_cxx_tool_hint()
+        if cxx_tool == "" then
+            return
+        end
+    end
+    if is_clang_tool(cxx_tool) then
+        return
+    end
+    fail(
+        operation .. "(kind='modules') requires a Clang C++ toolchain in Xmake. "
+            .. "Configure Xmake with CC=clang and CXX=clang++ (or clang-cl on Windows). "
+            .. "Resolved cxx tool: `" .. tostring(cxx_tool) .. "`"
+    )
 end
 
 local function run_command(batchcmds, program, args)
@@ -485,7 +763,16 @@ local function resolve_codegen()
             end
         end
         if os.isfile(resolved_env_path) then
-            return resolved_env_path, nil, nil
+            local env_compdb_dir = nil
+            local env_parent = path.directory(resolved_env_path)
+            local env_grandparent = env_parent and path.directory(env_parent) or nil
+            for _, candidate in ipairs({env_parent, env_grandparent}) do
+                if candidate and os.isfile(path.join(candidate, "compile_commands.json")) then
+                    env_compdb_dir = candidate
+                    break
+                end
+            end
+            return resolved_env_path, env_compdb_dir, nil
         end
     end
 
@@ -568,6 +855,10 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, config)
             table.insert(args, "--external-module-source")
             table.insert(args, module_source)
         end
+        for _, module_source in ipairs(config.dep_module_sources or {}) do
+            table.insert(args, "--external-module-source")
+            table.insert(args, module_source)
+        end
     end
     for _, include_dir in ipairs(resolved_incdirs()) do
         table.insert(args, "--include-root")
@@ -577,11 +868,15 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, config)
         table.insert(args, "--defs-file")
         table.insert(args, defs_file)
     end
+    for _, metadata_path in ipairs(config.metadata_paths or {}) do
+        table.insert(args, "--mock-metadata")
+        table.insert(args, metadata_path)
+    end
     if compdb_dir then
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
     end
-    append_common_codegen_clang_args(args, config.extra_includes)
+    append_common_codegen_clang_args(args, config.extra_includes, config.defines, config.clang_args)
     run_command(batchcmds, python_program(), args)
 end
 
@@ -617,18 +912,21 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, config)
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
     end
-    append_common_codegen_clang_args(args, config.extra_includes)
+    append_common_codegen_clang_args(args, config.extra_includes, config.defines, config.clang_args)
     run_command(batchcmds, python_program(), args)
 end
 
 function gentest_add_mocks(opts)
     local kind = require_kind(opts, "gentest_add_mocks")
+    if kind == "modules" then
+        require_clang_module_toolchain(nil, "gentest_add_mocks")
+    end
 
     local target_name = require_opt(opts, "name", "gentest_add_mocks")
     local output_dir = require_opt(opts, "output_dir", "gentest_add_mocks")
     local defs = require_opt(opts, "defs", "gentest_add_mocks")
     if type(defs) ~= "table" or #defs == 0 then
-        raise("gentest_add_mocks requires `defs` to contain at least one file")
+        fail("gentest_add_mocks requires `defs` to contain at least one file")
     end
 
     local target_id = opts.target_id or sanitize_target_id(target_name)
@@ -647,10 +945,15 @@ function gentest_add_mocks(opts)
         target_id = target_id,
         metadata_output = project_path(metadata_json),
         extra_includes = {},
+        metadata_paths = {},
+        dep_module_sources = {},
+        defines = opts.defines or {},
+        clang_args = opts.clang_args or {},
     }
     local add_public_files = {}
     local add_private_files = {}
     local include_dirs = {out_dir_abs}
+    local seen_registered_includes = {[out_dir_abs] = true}
     local defs_cpp = nil
     local codegen_h = nil
     local public_header = nil
@@ -679,16 +982,23 @@ function gentest_add_mocks(opts)
     for _, defs_file in ipairs(defs) do
         table.insert(config.defs, project_path(defs_file))
     end
-    local dep_targets, dep_include_dirs = collect_dep_inputs(opts.deps)
+    local dep_targets, dep_include_dirs, dep_metadata_paths = collect_dep_inputs(opts.deps)
+    config.metadata_paths = dep_metadata_paths
 
     set_policy("build.fence", true)
-    add_packages("fmt")
+    if os.host() == "windows" then
+        add_packages("fmt")
+    end
     add_includedirs(incdirs())
     add_includedirs(out_dir_abs, {public = true})
     for _, include_dir in ipairs(dep_include_dirs) do
         add_includedirs(include_dir)
+        append_unique(include_dirs, seen_registered_includes, include_dir)
     end
     add_defines(gentest_common_defines())
+    if opts.defines and #opts.defines > 0 then
+        add_defines(table.unpack(opts.defines))
+    end
     add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
     for _, private_file in ipairs(add_private_files) do
         add_files(private_file, {always_added = true})
@@ -740,9 +1050,31 @@ function gentest_add_mocks(opts)
         write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
     end)
     before_buildcmd(function (target, batchcmds)
+        if kind == "modules" then
+            require_clang_module_toolchain(target, "gentest_add_mocks")
+        end
         local codegen, compdb_dir = ensure_codegen(batchcmds)
         config.extra_includes = collect_target_package_include_dirs(target)
+        local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.metadata_paths)
+        local seen_build_includes = {}
+        for _, include_dir in ipairs(config.extra_includes) do
+            seen_build_includes[include_dir] = true
+        end
+        for _, include_dir in ipairs(dep_include_dirs) do
+            if not seen_build_includes[include_dir] then
+                seen_build_includes[include_dir] = true
+                table.insert(config.extra_includes, include_dir)
+            end
+        end
+        for _, include_dir in ipairs(dep_metadata_include_dirs) do
+            if not seen_build_includes[include_dir] then
+                seen_build_includes[include_dir] = true
+                table.insert(config.extra_includes, include_dir)
+            end
+        end
+        config.dep_module_sources = dep_module_sources
         run_mock_codegen(batchcmds, codegen, compdb_dir, config)
+        merge_generated_mock_metadata(config.metadata_output, config.metadata_paths)
     end)
 
     registered_target_metadata()[target_name] = {
@@ -755,6 +1087,9 @@ end
 
 function gentest_attach_codegen(opts)
     local kind = require_kind(opts, "gentest_attach_codegen")
+    if kind == "modules" then
+        require_clang_module_toolchain(nil, "gentest_attach_codegen")
+    end
 
     local target_name = require_opt(opts, "name", "gentest_attach_codegen")
     local source = require_opt(opts, "source", "gentest_attach_codegen")
@@ -791,9 +1126,13 @@ function gentest_attach_codegen(opts)
         source_file = project_path(source),
         extra_includes = extra_includes,
         metadata_paths = metadata_paths,
+        defines = opts.defines or {},
+        clang_args = opts.clang_args or {},
     }
 
-    add_packages("fmt")
+    if os.host() == "windows" then
+        add_packages("fmt")
+    end
     add_includedirs(incdirs())
     for _, include_dir in ipairs(extra_includes) do
         add_includedirs(include_dir)
@@ -823,6 +1162,9 @@ function gentest_attach_codegen(opts)
         end
     end)
     before_buildcmd(function (target, batchcmds)
+        if kind == "modules" then
+            require_clang_module_toolchain(target, "gentest_attach_codegen")
+        end
         local codegen, compdb_dir = ensure_codegen(batchcmds)
         local package_include_dirs = collect_target_package_include_dirs(target)
         for _, include_dir in ipairs(package_include_dirs) do

@@ -155,6 +155,8 @@ Current repo state:
 - there is still no reusable Meson helper API
 - the checked-in repo supports textual consumers only
 - the helper intentionally rejects `--backend meson --kind modules`
+- the textual path still snapshots support headers/fragments at configure time,
+  so new included support files require `meson setup --reconfigure`
 
 Open work:
 
@@ -170,13 +172,20 @@ Current repo state:
 - repo-local helper functions exist for both textual and module paths
 - module mock generation and module test attachment are wired through the same
   helper surface
+- the documented `GENTEST_CODEGEN=...` flow now reuses an adjacent
+  `compile_commands.json` automatically when present
+- mock dependency metadata now flows through the helper-owned Xmake metadata
+  handoff instead of relying on callers to restate transitive inputs manually
+- public `defines` / `clang_args` now flow into both final Xmake compilation
+  and `gentest_codegen`
 - the checked-in Linux workflow validates both the textual and module consumers
+  through list/test/bench/jitter execution under a Clang contract
 
 Open work:
 
 - package/version the helper layer for downstream consumers
-- expose more advanced module/codegen tuning without forcing users to patch the
-  helper
+- expose more advanced external-module mapping control without forcing users to
+  patch the helper
 - add broader workflow coverage beyond the checked-in repo-local targets
 
 ### Bazel
@@ -188,12 +197,14 @@ Current repo state:
 - the macros now synthesize repo-local metadata and `compile_commands.json`
   inputs so `gentest_codegen` can scan the module path
 - the checked-in Linux workflow validates the module consumer under an explicit
-  Clang + `--experimental_cpp_modules` contract
+  Clang + `--experimental_cpp_modules` contract, including mock/bench/jitter
+  execution
 
 Open work:
 
 - turn the repo-local macros into a cleaner downstream rule surface
-- reduce the manual caller burden around generated wrapper/header names
+- generalize the current internalized repo-local naming maps into a real
+  downstream rule surface
 - make the codegen bootstrap more hermetic
 - add module-path workflow coverage once the toolchain contract is solid enough
 

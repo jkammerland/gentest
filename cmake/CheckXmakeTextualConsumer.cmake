@@ -19,11 +19,49 @@ if(NOT _xmake)
   return()
 endif()
 
+set(_gentest_clang_search_paths
+  /usr/lib64/llvm22/bin
+  /usr/lib64/llvm21/bin
+  /usr/lib64/llvm20/bin
+  /usr/lib/llvm-22/bin
+  /usr/lib/llvm-21/bin
+  /usr/lib/llvm-20/bin
+  /usr/bin
+  /bin)
+
+find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20
+  PATHS ${_gentest_clang_search_paths}
+  NO_DEFAULT_PATH)
+if(NOT _clang_cxx)
+  find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20)
+endif()
+if(NOT _clang_cxx)
+  message(STATUS "clang++ not found; skipping Xmake textual consumer smoke check.")
+  return()
+endif()
+
+find_program(_clang_cc NAMES clang clang-22 clang-21 clang-20
+  PATHS ${_gentest_clang_search_paths}
+  NO_DEFAULT_PATH)
+if(NOT _clang_cc)
+  find_program(_clang_cc NAMES clang clang-22 clang-21 clang-20)
+endif()
+if(NOT _clang_cc)
+  message(STATUS "clang not found; skipping Xmake textual consumer smoke check.")
+  return()
+endif()
+
 set(_out_dir "${CMAKE_CURRENT_BINARY_DIR}/tmp_xmake_textual_consumer")
 file(REMOVE_RECURSE "${_out_dir}")
+file(MAKE_DIRECTORY "${_out_dir}/tmp")
 
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" -E env "GENTEST_CODEGEN=${_codegen}"
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "GENTEST_CODEGEN=${_codegen}"
+          "GENTEST_XMAKE_SKIP_MODULE_TARGETS=1"
+          "CC=${_clang_cc}"
+          "CXX=${_clang_cxx}"
+          "TMPDIR=${_out_dir}/tmp"
           "${_xmake}" f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _cfg_rc
@@ -37,8 +75,13 @@ if(NOT _cfg_rc EQUAL 0)
 endif()
 
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" -E env "GENTEST_CODEGEN=${_codegen}"
-          "${_xmake}" build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "GENTEST_CODEGEN=${_codegen}"
+          "GENTEST_XMAKE_SKIP_MODULE_TARGETS=1"
+          "CC=${_clang_cc}"
+          "CXX=${_clang_cxx}"
+          "TMPDIR=${_out_dir}/tmp"
+          "${_xmake}" build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD
           gentest_consumer_textual_xmake
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _build_rc
@@ -50,6 +93,21 @@ if(NOT _build_rc EQUAL 0)
     "stdout:\n${_build_out}\n"
     "stderr:\n${_build_err}")
 endif()
+
+set(_build_log "${_build_out}\n${_build_err}")
+foreach(_expected IN ITEMS
+    "--clang-arg=-DGENTEST_XMAKE_TEXTUAL_MOCKS_DEFINE=1"
+    "--clang-arg=-DGENTEST_XMAKE_TEXTUAL_MOCKS_CODEGEN=1"
+    "--clang-arg=-DGENTEST_XMAKE_TEXTUAL_CONSUMER_DEFINE=1"
+    "--clang-arg=-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1")
+  string(FIND "${_build_log}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "xmake textual consumer build did not pass through expected codegen flag '${_expected}'.\n"
+      "stdout:\n${_build_out}\n"
+      "stderr:\n${_build_err}")
+  endif()
+endforeach()
 
 file(GLOB_RECURSE _consumer_bins
   LIST_DIRECTORIES FALSE

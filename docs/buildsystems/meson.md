@@ -4,6 +4,15 @@ This Meson support is still repo-local. The checked-in [`meson.build`](../../mes
 wires concrete targets for this repository; there is no installed Meson module
 or reusable `gentest_add_mocks()` / `gentest_attach_codegen()` API yet.
 
+The intended Meson-facing contract is still the same 2-step model as the main
+non-CMake story:
+
+1. add explicit mocks
+2. attach test codegen separately
+
+`kind` is explicit in both operations. Meson currently supports only the
+textual half of that contract.
+
 ## Current repo-local surface
 
 Meson currently defines these targets:

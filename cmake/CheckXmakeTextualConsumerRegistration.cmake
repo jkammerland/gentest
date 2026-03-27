@@ -8,6 +8,38 @@ if(NOT _xmake)
   return()
 endif()
 
+set(_gentest_clang_search_paths
+  /usr/lib64/llvm22/bin
+  /usr/lib64/llvm21/bin
+  /usr/lib64/llvm20/bin
+  /usr/lib/llvm-22/bin
+  /usr/lib/llvm-21/bin
+  /usr/lib/llvm-20/bin
+  /usr/bin
+  /bin)
+
+find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20
+  PATHS ${_gentest_clang_search_paths}
+  NO_DEFAULT_PATH)
+if(NOT _clang_cxx)
+  find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20)
+endif()
+if(NOT _clang_cxx)
+  message(STATUS "clang++ not found; skipping Xmake consumer target registration check.")
+  return()
+endif()
+
+find_program(_clang_cc NAMES clang clang-22 clang-21 clang-20
+  PATHS ${_gentest_clang_search_paths}
+  NO_DEFAULT_PATH)
+if(NOT _clang_cc)
+  find_program(_clang_cc NAMES clang clang-22 clang-21 clang-20)
+endif()
+if(NOT _clang_cc)
+  message(STATUS "clang not found; skipping Xmake consumer target registration check.")
+  return()
+endif()
+
 set(_xmake_file "${SOURCE_DIR}/xmake.lua")
 if(NOT EXISTS "${_xmake_file}")
   message(FATAL_ERROR "Missing xmake.lua: ${_xmake_file}")
@@ -16,6 +48,7 @@ endif()
 set(_tmp_dir "${CMAKE_CURRENT_BINARY_DIR}/tmp_xmake_target_registration")
 file(REMOVE_RECURSE "${_tmp_dir}")
 file(MAKE_DIRECTORY "${_tmp_dir}")
+file(MAKE_DIRECTORY "${_tmp_dir}/tmp")
 file(COPY_FILE "${_xmake_file}" "${_tmp_dir}/xmake.lua")
 if(EXISTS "${SOURCE_DIR}/xmake")
   file(COPY "${SOURCE_DIR}/xmake" DESTINATION "${_tmp_dir}")
@@ -28,7 +61,8 @@ file(COPY "${SOURCE_DIR}/include/gentest" DESTINATION "${_tmp_dir}/include")
 file(COPY_FILE "${SOURCE_DIR}/src/gentest_main.cpp" "${_tmp_dir}/src/gentest_main.cpp")
 
 execute_process(
-  COMMAND "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -l targets
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -l targets
   RESULT_VARIABLE _list_rc
   OUTPUT_VARIABLE _list_out
   ERROR_VARIABLE _list_err)
@@ -54,7 +88,8 @@ foreach(_target
 endforeach()
 
 execute_process(
-  COMMAND "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_textual_xmake
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_textual_xmake
   RESULT_VARIABLE _target_rc
   OUTPUT_VARIABLE _target_out
   ERROR_VARIABLE _target_err)
@@ -80,7 +115,8 @@ if(_source_pos EQUAL -1)
 endif()
 
 execute_process(
-  COMMAND "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_mocks_xmake
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_mocks_xmake
   RESULT_VARIABLE _module_mocks_rc
   OUTPUT_VARIABLE _module_mocks_out
   ERROR_VARIABLE _module_mocks_err)
@@ -105,7 +141,8 @@ foreach(_expected IN ITEMS
 endforeach()
 
 execute_process(
-  COMMAND "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_xmake
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_xmake
   RESULT_VARIABLE _module_target_rc
   OUTPUT_VARIABLE _module_target_out
   ERROR_VARIABLE _module_target_err)

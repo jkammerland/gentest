@@ -299,27 +299,31 @@ jobs:
         run: |
           set -euxo pipefail
           codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
+          clang_cxx="$(command -v clang++ || command -v clang++-22 || command -v clang++-21 || command -v clang++-20)"
+          clang_cc="$(command -v clang || command -v clang-22 || command -v clang-21 || command -v clang-20)"
           if [ "${{ matrix.pkg_manager }}" = "dnf" ]; then
             xmake_bin="$(command -v xmake)"
           else
             xmake_bin="/home/ci/.local/bin/xmake"
           fi
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" f -c -y -m release"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" build -y"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" f -c -y -m release"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" build -y"
 
       - name: Test
         run: |
           set -euxo pipefail
           codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
+          clang_cxx="$(command -v clang++ || command -v clang++-22 || command -v clang++-21 || command -v clang++-20)"
+          clang_cc="$(command -v clang || command -v clang-22 || command -v clang-21 || command -v clang-20)"
           if [ "${{ matrix.pkg_manager }}" = "dnf" ]; then
             xmake_bin="$(command -v xmake)"
           else
             xmake_bin="/home/ci/.local/bin/xmake"
           fi
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_unit_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_integration_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_fixtures_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_skiponly_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_unit_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_integration_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_fixtures_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_skiponly_xmake"
           consumer_textual_bin="$(find "${GITHUB_WORKSPACE}" -type f \( -name 'gentest_consumer_textual_xmake' -o -name 'gentest_consumer_textual_xmake.exe' \) | head -n 1)"
           test -n "${consumer_textual_bin}"
           su - ci -c "\"${consumer_textual_bin}\" --list"

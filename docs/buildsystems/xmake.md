@@ -12,6 +12,14 @@ After `includes("xmake/gentest.lua")`, the repo-local surface is:
 - `gentest_add_mocks({...})`
 - `gentest_attach_codegen({...})`
 
+The contract is the same 2-step model as the main story docs:
+
+1. `gentest_add_mocks({...})`
+2. `gentest_attach_codegen({...})`
+
+`kind` is explicit in both calls. There is no auto-detection and no separate
+public mock-linking API.
+
 Current `gentest_add_mocks({...})` options:
 
 - required:
@@ -25,6 +33,8 @@ Current `gentest_add_mocks({...})` options:
   - `module_name`
 - optional:
   - `deps`
+  - `defines`
+  - `clang_args`
   - `headerfiles`
   - `target_id`
 
@@ -39,7 +49,13 @@ Current `gentest_attach_codegen({...})` options:
   - `deps`
   - `main`
   - `defines`
+  - `clang_args`
   - `includes`
+
+`defines` and `clang_args` are forwarded to both the final Xmake compile and
+the `gentest_codegen` invocation. For module targets, the helper also requires
+Clang and fails fast with a clear error if Xmake resolves a non-Clang C++
+compiler.
 
 ## Current repo-local targets
 
@@ -58,7 +74,8 @@ The checked-in [`xmake.lua`](../../xmake.lua) wires:
   - `gentest_consumer_module_xmake`
 
 The module slice uses the actual helper API, not a hard-coded one-off path.
-The validated checked-in path uses Clang toolchains, including on Windows.
+The validated checked-in path uses Clang toolchains, including on Windows, and
+the helper enforces that contract for module targets.
 
 ## Module example
 
@@ -100,12 +117,17 @@ cmake --preset=host-codegen
 cmake --build --preset=host-codegen --parallel
 
 export GENTEST_CODEGEN="$PWD/build/host-codegen/tools/gentest_codegen"
+CC="$(command -v clang)" CXX="$(command -v clang++)" \
 xmake f -c -y -m release -o build/xmake
 xmake b -a -y
 ```
 
 If `GENTEST_CODEGEN` is not set, the helper falls back to a repo-local CMake
 bootstrap under `build/xmake-codegen/<host>/<arch>`.
+
+When `GENTEST_CODEGEN` points at a CMake build tree, the helper now also picks
+up the adjacent `compile_commands.json` automatically for module codegen. That
+is the supported repo-local path for the checked-in module consumer.
 
 For fuller consumer validation, run the built binaries directly and exercise the
 mock/bench/jitter surface:
@@ -148,7 +170,6 @@ Notable generated module files are:
 - Repo-local only. There is no install/export or packaged Xmake integration yet.
 - The helper API currently hard-wires the external module mappings for
   `gentest`, `gentest.mock`, and `gentest.bench_util`.
-- There is no public option yet for extra external module mappings or custom
-  clang/codegen arguments.
+- There is still no public option for extra external module mappings.
 - The checked-in targets are the validated surface today; treat broader
   downstream use as follow-up work, not a finished product feature.

@@ -1,8 +1,11 @@
 set_project("gentest")
 set_languages("cxx20")
+set_policy("build.ccache", false)
 
 add_rules("mode.debug", "mode.release")
-add_requires("fmt")
+if os.host() == "windows" then
+    add_requires("fmt")
+end
 
 local project_root = os.scriptdir()
 local codegen_project_root = project_root
@@ -31,6 +34,8 @@ local function current_gen_root()
     return path.join(buildir, "gen", plat, arch, mode)
 end
 
+local enable_module_targets = os.getenv("GENTEST_XMAKE_SKIP_MODULE_TARGETS") ~= "1"
+
 includes("xmake/gentest.lua")
 gentest_configure({
     project_root = project_root,
@@ -44,7 +49,9 @@ gentest_configure({
 
 target("gentest_runtime")
     set_kind("static")
-    add_packages("fmt")
+    if os.host() == "windows" then
+        add_packages("fmt")
+    end
     add_files("src/bench_stats.cpp")
     add_files("src/runtime_context.cpp")
     add_files("src/runner_case_invoker.cpp")
@@ -63,20 +70,26 @@ target("gentest_runtime")
     add_defines(gentest_common_defines)
     add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
 
-target("gentest")
-    set_kind("static")
-    add_packages("fmt")
-    add_includedirs(incdirs, {public = true})
-    add_defines(gentest_common_defines)
-    add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
-    add_files("include/gentest/gentest.cppm", {public = true})
-    add_files("include/gentest/gentest.mock.cppm", {public = true})
-    add_files("include/gentest/gentest.bench_util.cppm", {public = true})
-    add_deps("gentest_runtime", {public = true})
+if enable_module_targets then
+    target("gentest")
+        set_kind("static")
+        if os.host() == "windows" then
+            add_packages("fmt")
+        end
+        add_includedirs(incdirs, {public = true})
+        add_defines(gentest_common_defines)
+        add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
+        add_files("include/gentest/gentest.cppm", {public = true})
+        add_files("include/gentest/gentest.mock.cppm", {public = true})
+        add_files("include/gentest/gentest.bench_util.cppm", {public = true})
+        add_deps("gentest_runtime", {public = true})
+end
 
 target("gentest_main")
     set_kind("static")
-    add_packages("fmt")
+    if os.host() == "windows" then
+        add_packages("fmt")
+    end
     add_files("src/gentest_main.cpp")
     add_includedirs(incdirs)
     add_defines(gentest_common_defines)
@@ -111,6 +124,8 @@ target("gentest_consumer_textual_mocks_xmake")
         output_dir = path.join(current_gen_root(), "consumer_textual_mocks"),
         deps = {"gentest_runtime"},
         target_id = "consumer_textual_mocks",
+        defines = {"GENTEST_XMAKE_TEXTUAL_MOCKS_DEFINE=1"},
+        clang_args = {"-DGENTEST_XMAKE_TEXTUAL_MOCKS_CODEGEN=1"},
     })
 
 target("gentest_consumer_textual_xmake")
@@ -122,32 +137,39 @@ target("gentest_consumer_textual_xmake")
         main = "tests/consumer/main.cpp",
         output_dir = path.join(current_gen_root(), "consumer_textual"),
         deps = {"gentest_main", "gentest_consumer_textual_mocks_xmake"},
+        defines = {"GENTEST_XMAKE_TEXTUAL_CONSUMER_DEFINE=1"},
+        clang_args = {"-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1"},
     })
 
-target("gentest_consumer_module_mocks_xmake")
-    set_kind("static")
-    gentest_add_mocks({
-        name = "gentest_consumer_module_mocks_xmake",
-        kind = "modules",
-        defs = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
-        headerfiles = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
-        module_name = "gentest.consumer_mocks",
-        output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
-        deps = {"gentest"},
-        target_id = "consumer_module_mocks",
-    })
+if enable_module_targets then
+    target("gentest_consumer_module_mocks_xmake")
+        set_kind("static")
+        gentest_add_mocks({
+            name = "gentest_consumer_module_mocks_xmake",
+            kind = "modules",
+            defs = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+            headerfiles = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+            module_name = "gentest.consumer_mocks",
+            output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
+            deps = {"gentest"},
+            target_id = "consumer_module_mocks",
+            defines = {"GENTEST_XMAKE_MODULE_MOCKS_DEFINE=1"},
+            clang_args = {"-DGENTEST_XMAKE_MODULE_MOCKS_CODEGEN=1"},
+        })
 
-target("gentest_consumer_module_xmake")
-    set_kind("binary")
-    gentest_attach_codegen({
-        name = "gentest_consumer_module_xmake",
-        kind = "modules",
-        source = "tests/consumer/cases.cppm",
-        main = "tests/consumer/main.cpp",
-        output_dir = path.join(current_gen_root(), "consumer_module"),
-        deps = {"gentest_main", "gentest", "gentest_consumer_module_mocks_xmake"},
-        defines = {"GENTEST_CONSUMER_USE_MODULES=1"},
-    })
+    target("gentest_consumer_module_xmake")
+        set_kind("binary")
+        gentest_attach_codegen({
+            name = "gentest_consumer_module_xmake",
+            kind = "modules",
+            source = "tests/consumer/cases.cppm",
+            main = "tests/consumer/main.cpp",
+            output_dir = path.join(current_gen_root(), "consumer_module"),
+            deps = {"gentest_main", "gentest", "gentest_consumer_module_mocks_xmake"},
+            defines = {"GENTEST_CONSUMER_USE_MODULES=1", "GENTEST_XMAKE_MODULE_CONSUMER_DEFINE=1"},
+            clang_args = {"-DGENTEST_XMAKE_MODULE_CONSUMER_CODEGEN=1"},
+        })
+end
 
 target("poc_cross_aarch64_qemu")
     set_kind("phony")

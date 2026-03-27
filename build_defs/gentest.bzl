@@ -62,8 +62,25 @@ def _gentest_is_local_label(label_or_name):
         return label_or_name.count(":") == 1 and "/" not in label_or_name[3:]
     return not label_or_name.startswith("//") and not label_or_name.startswith("@") and ":" not in label_or_name and "/" not in label_or_name
 
-def _gentest_codegen_args(extra_args = []):
-    return " ".join(_gentest_codegen_common_args + extra_args)
+def _gentest_define_clang_args(defines):
+    return ["--clang-arg=-D{}".format(define) for define in defines]
+
+def _gentest_extra_clang_args(clang_args):
+    return ["--clang-arg={}".format(arg) for arg in clang_args]
+
+def _gentest_compile_args(defines = [], clang_args = []):
+    return ["-D{}".format(define) for define in defines] + clang_args
+
+def _gentest_compile_copts(defines = [], clang_args = []):
+    return _gentest_common_copts + _gentest_warning_copts + _gentest_define_copts(defines) + clang_args
+
+def _gentest_codegen_args(extra_args = [], defines = [], clang_args = []):
+    return " ".join(
+        _gentest_codegen_common_args +
+        _gentest_define_clang_args(defines) +
+        _gentest_extra_clang_args(clang_args) +
+        extra_args,
+    )
 
 def _gentest_unique(items):
     seen = {}
@@ -88,6 +105,35 @@ def _gentest_define_copts(defines):
         "@bazel_tools//src/conditions:windows": ["/D{}".format(define) for define in defines],
         "//conditions:default": ["-D{}".format(define) for define in defines],
     })
+
+_gentest_repo_local_textual_support_headers = {
+    "tests/consumer/header_mock_defs.hpp": ["deps/0478dfbbe6c184098f87ed47b43d96f9_service.hpp"],
+}
+
+_gentest_repo_local_module_specs = {
+    "tests/consumer/service_module.cppm|tests/consumer/module_mock_defs.cppm": struct(
+        defs_modules = [
+            "gentest.consumer_service",
+            "gentest.consumer_mock_defs",
+        ],
+        generated_module_wrappers = [
+            "tu_0000_def_0000_service_module.module.gentest.cppm",
+            "tu_0001_def_0001_module__11e4b565.module.gentest.cppm",
+        ],
+        generated_module_headers = [
+            "tu_0000_def_0000_service_module.gentest.h",
+            "tu_0001_def_0001_module__11e4b565.gentest.h",
+        ],
+    ),
+}
+
+def _gentest_repo_local_textual_staged_support_headers(defs):
+    if len(defs) != 1:
+        return []
+    return _gentest_repo_local_textual_support_headers.get(defs[0], [])
+
+def _gentest_repo_local_module_spec(defs):
+    return _gentest_repo_local_module_specs.get("|".join(defs))
 
 def _gentest_file_ext(path):
     basename = path.split("/")[-1]
@@ -192,6 +238,7 @@ def _gentest_module_compdb_script(
         primary_include_dirs,
         base_include_dirs,
         external_module_inputs,
+        extra_compile_args = [],
         metadata_files = []):
     return (
         "import json, os, pathlib\n" +
@@ -203,6 +250,7 @@ def _gentest_module_compdb_script(
         "primary_files = {}\n".format(_gentest_py_list(primary_files)) +
         "primary_include_dirs = {}\n".format(_gentest_py_list(primary_include_dirs)) +
         "external_module_inputs = {}\n".format(_gentest_py_list(external_module_inputs)) +
+        "extra_compile_args = {}\n".format(_gentest_py_list(extra_compile_args)) +
         "metadata_files = {}\n".format(_gentest_py_list(metadata_files)) +
         "metadata_include_dirs = []\n" +
         "metadata_module_sources = []\n" +
@@ -223,6 +271,7 @@ def _gentest_module_compdb_script(
         "    include_dirs = list(dict.fromkeys(include_dirs))\n" +
         "    arguments = [compiler, \"-std=c++20\", \"-DFMT_HEADER_ONLY\", \"-Wno-unknown-attributes\", \"-Wno-attributes\", \"-Wno-unknown-warning-option\"]\n" +
         "    arguments.extend([\"-I\" + include_dir for include_dir in include_dirs])\n" +
+        "    arguments.extend(extra_compile_args)\n" +
         "    arguments.extend([\"-c\", str(path)])\n" +
         "    entries.append({\"directory\": str(cwd), \"file\": str(path), \"arguments\": arguments})\n" +
         "for path_text in primary_files:\n" +
@@ -248,6 +297,7 @@ def _gentest_module_compdb_cmd_unix(
         primary_include_dirs,
         base_include_dirs,
         external_module_inputs,
+        extra_compile_args = [],
         metadata_files = []):
     script = _gentest_module_compdb_script(
         compdb_json = compdb_json,
@@ -255,6 +305,7 @@ def _gentest_module_compdb_cmd_unix(
         primary_include_dirs = primary_include_dirs,
         base_include_dirs = base_include_dirs,
         external_module_inputs = external_module_inputs,
+        extra_compile_args = extra_compile_args,
         metadata_files = metadata_files,
     )
     return "python3 -c 'exec({})' && ".format(_gentest_py_quote(script))
@@ -265,6 +316,7 @@ def _gentest_module_compdb_cmd_bat(
         primary_include_dirs,
         base_include_dirs,
         external_module_inputs,
+        extra_compile_args = [],
         metadata_files = []):
     script = _gentest_module_compdb_script(
         compdb_json = compdb_json,
@@ -272,6 +324,7 @@ def _gentest_module_compdb_cmd_bat(
         primary_include_dirs = primary_include_dirs,
         base_include_dirs = base_include_dirs,
         external_module_inputs = external_module_inputs,
+        extra_compile_args = extra_compile_args,
         metadata_files = metadata_files,
     )
     return 'python -c "exec({})" && '.format(_gentest_py_quote(script).replace('"', '\\"'))
@@ -337,16 +390,15 @@ def gentest_add_mocks_textual(
         name,
         defs,
         public_header,
-        staged_support_headers = [],
+        defines = [],
+        clang_args = [],
         deps = [],
         linkopts = [],
         visibility = None):
     if len(defs) != 1:
         fail("gentest_add_mocks_textual currently requires exactly one defs file")
 
-    # staged_support_headers lists staged outputs under gen/<name>/... that the
-    # helper must declare up front for Bazel. The current repo-local consumer
-    # slice keeps this explicit until the staging contract is hidden internally.
+    staged_support_headers = _gentest_repo_local_textual_staged_support_headers(defs)
     defs_file = defs[0]
     defs_basename = defs_file.split("/")[-1]
     gen_dir = "gen/{}".format(name)
@@ -400,7 +452,7 @@ def gentest_add_mocks_textual(
             "--include-root include " +
             "--include-root tests " +
             "--include-root third_party/include " +
-            _gentest_codegen_args()
+            _gentest_codegen_args(defines = defines, clang_args = clang_args)
         ),
         cmd_bat = (
             'if not exist $(@D)\\{0} mkdir $(@D)\\{0} && '.format(gen_dir.replace("/", "\\")) +
@@ -422,7 +474,7 @@ def gentest_add_mocks_textual(
             "--include-root include " +
             "--include-root tests " +
             "--include-root third_party/include " +
-            _gentest_codegen_args()
+            _gentest_codegen_args(defines = defines, clang_args = clang_args)
         ),
         tags = ["no-sandbox"],
     )
@@ -439,7 +491,8 @@ def gentest_add_mocks_textual(
             codegen_h,
             staged_defs_h,
         ] + staged_hdr_outs,
-        copts = _gentest_common_copts + _gentest_warning_copts,
+        defines = defines,
+        copts = _gentest_compile_copts(defines, clang_args),
         includes = [gen_dir],
         linkopts = linkopts,
         deps = [":gentest_runtime"] + deps,
@@ -454,6 +507,8 @@ def gentest_attach_codegen_textual(
         main,
         mock_targets = [],
         deps = [],
+        defines = [],
+        clang_args = [],
         linkopts = [],
         source_includes = [],
         visibility = None):
@@ -496,7 +551,11 @@ def gentest_attach_codegen_textual(
             '--wrapper-output "$(@D)/{0}/tu_0000_{1}.gentest.cpp" '.format(gen_dir, source_stem) +
             '--header-output "$(@D)/{0}/tu_0000_{1}.gentest.h" '.format(gen_dir, source_stem) +
             '--source-file "{0}" '.format(src) +
-            _gentest_codegen_args(_gentest_mock_include_unix(mock_names) + _gentest_source_include_args(source_includes))
+            _gentest_codegen_args(
+                _gentest_mock_include_unix(mock_names) + _gentest_source_include_args(source_includes),
+                defines = defines,
+                clang_args = clang_args,
+            )
         ),
         cmd_bat = (
             'if not exist $(@D)\\{0} mkdir $(@D)\\{0} && '.format(gen_dir.replace("/", "\\")) +
@@ -510,7 +569,11 @@ def gentest_attach_codegen_textual(
             '--wrapper-output "$(@D)/{0}/tu_0000_{1}.gentest.cpp" '.format(gen_dir, source_stem) +
             '--header-output "$(@D)/{0}/tu_0000_{1}.gentest.h" '.format(gen_dir, source_stem) +
             '--source-file "{0}" '.format(src) +
-            _gentest_codegen_args(_gentest_mock_include_bat(mock_names) + _gentest_source_include_args(source_includes))
+            _gentest_codegen_args(
+                _gentest_mock_include_bat(mock_names) + _gentest_source_include_args(source_includes),
+                defines = defines,
+                clang_args = clang_args,
+            )
         ),
         tags = ["no-sandbox"],
     )
@@ -518,7 +581,8 @@ def gentest_attach_codegen_textual(
     cc_test(
         name = name,
         srcs = [wrapper_cpp, wrapper_h, main],
-        copts = _gentest_common_copts + _gentest_warning_copts,
+        defines = defines,
+        copts = _gentest_compile_copts(defines, clang_args),
         linkopts = linkopts,
         deps = [":gentest_main", ":" + source_hdr_name] + mock_targets + deps,
         visibility = visibility,
@@ -531,16 +595,51 @@ def gentest_add_mocks_modules(
         name,
         defs,
         module_name,
-        defs_modules,
-        generated_module_wrappers,
-        generated_module_headers,
-        staged_support_headers = [],
         external_module_sources = [],
+        defines = [],
+        clang_args = [],
         deps = [],
         linkopts = [],
         visibility = None):
     if len(defs) == 0:
         fail("gentest_add_mocks_modules requires at least one defs file")
+
+    module_spec = _gentest_repo_local_module_spec(defs)
+    if module_spec == None:
+        fail(
+            "gentest_add_mocks_modules currently internalizes generated module names only for the checked-in repo-local defs sets; "
+            + "extend _gentest_repo_local_module_specs in build_defs/gentest.bzl for defs={}".format(defs),
+        )
+
+    _gentest_add_mocks_modules_impl(
+        name = name,
+        defs = defs,
+        module_name = module_name,
+        defs_modules = module_spec.defs_modules,
+        generated_module_wrappers = module_spec.generated_module_wrappers,
+        generated_module_headers = module_spec.generated_module_headers,
+        external_module_sources = external_module_sources,
+        defines = defines,
+        clang_args = clang_args,
+        deps = deps,
+        linkopts = linkopts,
+        visibility = visibility,
+    )
+
+def _gentest_add_mocks_modules_impl(
+        name,
+        defs,
+        module_name,
+        defs_modules,
+        generated_module_wrappers,
+        generated_module_headers,
+        staged_support_headers = [],
+        external_module_sources = [],
+        defines = [],
+        clang_args = [],
+        deps = [],
+        linkopts = [],
+        visibility = None):
     if len(defs) != len(defs_modules):
         fail("gentest_add_mocks_modules requires defs_modules to align 1:1 with defs")
     if len(defs) != len(generated_module_wrappers):
@@ -573,6 +672,7 @@ def gentest_add_mocks_modules(
         _gentest_default_external_module_sources() + external_module_sources,
     )
     compdb_base_include_dirs = ["include", "tests", "third_party/include"] + _gentest_fmt_include_dirs
+    raw_compile_args = _gentest_compile_args(defines, clang_args)
     gen_srcs = _gentest_unique(defs + [
         "scripts/gentest_buildsystem_codegen.py",
     ] + support_inputs + _gentest_default_external_module_inputs() + _gentest_external_module_source_inputs(external_module_sources))
@@ -606,6 +706,7 @@ def gentest_add_mocks_modules(
                 primary_include_dirs = ["$(@D)/{}".format(gen_dir), "$(@D)/{}/defs".format(gen_dir)],
                 base_include_dirs = compdb_base_include_dirs,
                 external_module_inputs = _gentest_default_external_module_inputs() + _gentest_external_module_source_inputs(external_module_sources),
+                extra_compile_args = raw_compile_args,
             ) +
             'python3 "$(location scripts/gentest_buildsystem_codegen.py)" ' +
             "--backend bazel " +
@@ -626,7 +727,7 @@ def gentest_add_mocks_modules(
             "--include-root include " +
             "--include-root tests " +
             "--include-root third_party/include " +
-            _gentest_codegen_args()
+            _gentest_codegen_args(defines = defines, clang_args = clang_args)
         ),
         cmd_bat = (
             'if not exist $(@D)\\{0} mkdir $(@D)\\{0} && '.format(gen_dir.replace("/", "\\")) +
@@ -636,6 +737,7 @@ def gentest_add_mocks_modules(
                 primary_include_dirs = ["$(@D)/{}".format(gen_dir), "$(@D)/{}/defs".format(gen_dir)],
                 base_include_dirs = compdb_base_include_dirs,
                 external_module_inputs = _gentest_default_external_module_inputs() + _gentest_external_module_source_inputs(external_module_sources),
+                extra_compile_args = raw_compile_args,
             ) +
             'python "$(location scripts/gentest_buildsystem_codegen.py)" ' +
             "--backend bazel " +
@@ -656,7 +758,7 @@ def gentest_add_mocks_modules(
             "--include-root include " +
             "--include-root tests " +
             "--include-root third_party/include " +
-            _gentest_codegen_args()
+            _gentest_codegen_args(defines = defines, clang_args = clang_args)
         ),
         tags = ["no-sandbox"],
     )
@@ -676,7 +778,8 @@ def gentest_add_mocks_modules(
             name = wrapper_target_name,
             module_interfaces = [wrapper_cpp],
             hdrs = shared_hdrs,
-            copts = _gentest_common_copts + _gentest_warning_copts,
+            defines = defines,
+            copts = _gentest_compile_copts(defines, clang_args),
             includes = [gen_dir],
             linkopts = linkopts,
             deps = _gentest_unique(
@@ -694,7 +797,8 @@ def gentest_add_mocks_modules(
         srcs = [anchor_cpp],
         module_interfaces = [aggregate_cppm],
         hdrs = shared_hdrs,
-        copts = _gentest_common_copts + _gentest_warning_copts,
+        defines = defines,
+        copts = _gentest_compile_copts(defines, clang_args),
         includes = [gen_dir],
         linkopts = linkopts,
         deps = _gentest_unique(
@@ -716,6 +820,7 @@ def gentest_attach_codegen_modules(
         mock_targets = [],
         deps = [],
         defines = [],
+        clang_args = [],
         linkopts = [],
         source_includes = [],
         external_module_sources = [],
@@ -753,6 +858,7 @@ def gentest_attach_codegen_modules(
         '--mock-metadata "$(location :{0})"'.format(_gentest_module_metadata_target(mock_name))
         for mock_name in mock_names
     ])
+    raw_compile_args = _gentest_compile_args(defines, clang_args)
 
     native.genrule(
         name = "gen_{}".format(name),
@@ -770,6 +876,7 @@ def gentest_attach_codegen_modules(
                 primary_include_dirs = _gentest_unique(["$(@D)/{}".format(gen_dir)] + source_includes),
                 base_include_dirs = compdb_base_include_dirs,
                 external_module_inputs = _gentest_default_external_module_inputs() + _gentest_external_module_source_inputs(external_module_sources),
+                extra_compile_args = raw_compile_args,
                 metadata_files = ["$(location {0})".format(label) for label in mock_metadata_labels],
             ) +
             'python3 "$(location scripts/gentest_buildsystem_codegen.py)" ' +
@@ -786,7 +893,11 @@ def gentest_attach_codegen_modules(
             include_root_args + " " +
             external_module_args_unix + " " +
             mock_metadata_args + " " +
-            _gentest_codegen_args(_gentest_source_include_args(source_includes))
+            _gentest_codegen_args(
+                _gentest_source_include_args(source_includes),
+                defines = defines,
+                clang_args = clang_args,
+            )
         ),
         cmd_bat = (
             'if not exist $(@D)\\{0} mkdir $(@D)\\{0} && '.format(gen_dir.replace("/", "\\")) +
@@ -796,6 +907,7 @@ def gentest_attach_codegen_modules(
                 primary_include_dirs = _gentest_unique(["$(@D)/{}".format(gen_dir)] + source_includes),
                 base_include_dirs = compdb_base_include_dirs,
                 external_module_inputs = _gentest_default_external_module_inputs() + _gentest_external_module_source_inputs(external_module_sources),
+                extra_compile_args = raw_compile_args,
                 metadata_files = ["$(location {0})".format(label) for label in mock_metadata_labels],
             ) +
             'python "$(location scripts/gentest_buildsystem_codegen.py)" ' +
@@ -812,7 +924,11 @@ def gentest_attach_codegen_modules(
             include_root_args + " " +
             external_module_args_bat + " " +
             mock_metadata_args + " " +
-            _gentest_codegen_args(_gentest_source_include_args(source_includes))
+            _gentest_codegen_args(
+                _gentest_source_include_args(source_includes),
+                defines = defines,
+                clang_args = clang_args,
+            )
         ),
         tags = ["no-sandbox"],
     )
@@ -822,7 +938,7 @@ def gentest_attach_codegen_modules(
         srcs = [main, wrapper_h],
         defines = defines,
         module_interfaces = [wrapper_cpp],
-        copts = _gentest_common_copts + _gentest_warning_copts + _gentest_define_copts(defines),
+        copts = _gentest_compile_copts(defines, clang_args),
         includes = _gentest_unique(source_includes + [gen_dir]),
         linkopts = linkopts,
         deps = _gentest_unique(mock_targets + deps),
