@@ -168,6 +168,22 @@ jobs:
             --host_action_env=CXX="${clang_cxx}" \
             --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
           ./bazel-bin/gentest_consumer_textual_bazel
+          env \
+            CC="${clang_cc}" \
+            CXX="${clang_cxx}" \
+            GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+            bazel build \
+            //:gentest_consumer_module_bazel \
+            --experimental_cpp_modules \
+            --action_env=CCACHE_DISABLE=1 \
+            --host_action_env=CCACHE_DISABLE=1 \
+            --action_env=CC="${clang_cc}" \
+            --action_env=CXX="${clang_cxx}" \
+            --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+            --repo_env=CC="${clang_cc}" \
+            --repo_env=CXX="${clang_cxx}" \
+            --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
+          ./bazel-bin/gentest_consumer_module_bazel --list
 
   meson:
     name: Meson • ${{ matrix.name }}
@@ -299,3 +315,4 @@ jobs:
           su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_fixtures_xmake"
           su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_skiponly_xmake"
           su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_consumer_textual_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_consumer_module_xmake"

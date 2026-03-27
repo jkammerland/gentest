@@ -15,32 +15,20 @@ Meson currently defines these targets:
   - `gentest_skiponly_meson`
 - textual explicit-mock consumer:
   - `gentest_consumer_textual_meson`
-- named-module consumer:
-  - `gentest_consumer_module_meson`
 
-The classic suites and textual consumer are part of the normal `meson compile`
-and `meson test` flow. The module consumer is repo-local/manual:
+There is no checked-in Meson module consumer target. Meson is textual-only for
+now.
 
-- it is only defined when Meson reports `cpp.get_id()` as `clang` or `gcc`
-- it is `build_by_default: false`
-- it is not registered in `meson test`
+## Module API status
 
-## How the repo-local module path works
+The shared helper exposes an explicit module shape:
 
-The checked-in module target is split in two stages:
+- `gentest_buildsystem_codegen.py --backend meson --mode suite --kind modules`
+- `gentest_buildsystem_codegen.py --backend meson --mode mocks --kind modules`
 
-1. `gentest_buildsystem_codegen.py --backend generic --kind modules` generates:
-   - explicit mock metadata
-   - generated mock module wrappers
-   - a generated aggregate public module
-   - the generated test module wrapper
-2. `meson.build` compiles the resulting module graph with explicit
-   `custom_target(...)` steps.
-
-That distinction is intentional. The helper still rejects
-`--backend meson --kind modules` on purpose, because there is no reusable
-Meson-facing module helper surface yet. The repo-local checked-in module target
-uses the generic helper backend and Meson-owned compilation steps instead.
+Both entrypoints are intentional fail-fast boundaries today. They exist so the
+Meson-facing API shape is explicit, but they stop immediately with a clear
+error instead of pretending the backend can compile named modules reliably.
 
 ## Build and run
 
@@ -67,13 +55,6 @@ meson compile -C build/meson
 meson test -C build/meson --print-errorlogs
 ```
 
-Manual module consumer run:
-
-```bash
-meson compile -C build/meson gentest_consumer_module_meson
-./build/meson/gentest_consumer_module_meson
-```
-
 ## Generated outputs
 
 Classic suites still generate the usual per-TU wrapper pair in `build/meson/`:
@@ -90,23 +71,10 @@ The textual consumer also writes:
 - `consumer_textual_mocks_mock_impl.hpp`
 - `gentest_consumer_mocks.hpp`
 
-The repo-local module consumer additionally writes module-specific artifacts
-under `build/meson/`, including:
-
-- `consumer_module_mocks_mock_metadata.json`
-- `gentest/consumer_mocks.cppm`
-- `suite_0000.cppm`
-- `tu_0000_suite_0000.module.gentest.cppm`
-- `tu_0000_suite_0000.gentest.h`
-- staged defs/support files under `defs/` and `deps/`
-
 ## Limitations
 
 - Repo-local only. There is no packaged Meson integration yet.
-- There is no reusable Meson helper API for textual or module targets yet.
-- The module path is limited to the checked-in consumer target pattern in
-  [`meson.build`](../../meson.build).
-- `meson test` currently validates the classic suites and the textual consumer,
-  not the module consumer.
-- The helper still fails fast for `--backend meson --kind modules`; that is an
-  intentional boundary until a real Meson-facing module API exists.
+- There is no reusable Meson helper API for external/downstream projects yet.
+- Meson named-module support is intentionally unsupported for now.
+- The helper still fails fast for `--backend meson --kind modules`; that is the
+  supported boundary until Meson module behavior is reliable enough to promote.

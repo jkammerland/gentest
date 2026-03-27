@@ -28,13 +28,6 @@ Current `gentest_add_mocks({...})` options:
   - `headerfiles`
   - `target_id`
 
-Return value:
-
-- textual mocks return `target`, `include_dir`, `include_dirs`, `public_header`,
-  `metadata_path`
-- module mocks return `target`, `include_dir`, `include_dirs`, `public_module`,
-  `module_name`, `metadata_path`
-
 Current `gentest_attach_codegen({...})` options:
 
 - required:
@@ -71,26 +64,30 @@ The module slice uses the actual helper API, not a hard-coded one-off path.
 The current checked-in module path looks like this:
 
 ```lua
-local consumer_module_mocks = gentest_add_mocks({
-    name = "gentest_consumer_module_mocks_xmake",
-    kind = "modules",
-    defs = {"tests/consumer/simple_module_mock_defs.cppm"},
-    headerfiles = {"tests/consumer/simple_module_mock_defs.cppm"},
-    module_name = "gentest.consumer_simple_mocks",
-    output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
-    deps = {"gentest"},
-    target_id = "consumer_module_mocks",
-})
+target("gentest_consumer_module_mocks_xmake")
+    set_kind("static")
+    gentest_add_mocks({
+        name = "gentest_consumer_module_mocks_xmake",
+        kind = "modules",
+        defs = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+        headerfiles = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+        module_name = "gentest.consumer_mocks",
+        output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
+        deps = {"gentest"},
+        target_id = "consumer_module_mocks",
+    })
 
-gentest_attach_codegen({
-    name = "gentest_consumer_module_xmake",
-    kind = "modules",
-    source = "tests/buildsystems/consumer_simple_module_cases.cppm",
-    main = "tests/consumer/main.cpp",
-    output_dir = path.join(current_gen_root(), "consumer_module"),
-    deps = {"gentest_main", "gentest", consumer_module_mocks},
-    defines = {"GENTEST_CONSUMER_USE_MODULES=1"},
-})
+target("gentest_consumer_module_xmake")
+    set_kind("binary")
+    gentest_attach_codegen({
+        name = "gentest_consumer_module_xmake",
+        kind = "modules",
+        source = "tests/consumer/cases.cppm",
+        main = "tests/consumer/main.cpp",
+        output_dir = path.join(current_gen_root(), "consumer_module"),
+        deps = {"gentest_main", "gentest", "gentest_consumer_module_mocks_xmake"},
+        defines = {"GENTEST_CONSUMER_USE_MODULES=1"},
+    })
 ```
 
 ## Build and run
@@ -126,7 +123,7 @@ The module slice adds:
 Notable generated module files are:
 
 - generated mock module wrapper `.cppm` files
-- `gentest/consumer_simple_mocks.cppm`
+- `gentest/consumer_mocks.cppm`
 - `tu_0000_suite_0000.module.gentest.cppm`
 - `tu_0000_suite_0000.gentest.h`
 - mock metadata JSON alongside the generated mock surface

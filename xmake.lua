@@ -86,13 +86,15 @@ target("gentest_main")
     add_deps("gentest_runtime", {public = true})
 
 local function gentest_suite(name)
-    gentest_attach_codegen({
-        name = "gentest_" .. name .. "_xmake",
-        kind = "textual",
-        source = path.join("tests", name, "cases.cpp"),
-        output_dir = path.join(current_gen_root(), name),
-        deps = {"gentest_main"},
-    })
+    target("gentest_" .. name .. "_xmake")
+        set_kind("binary")
+        gentest_attach_codegen({
+            name = "gentest_" .. name .. "_xmake",
+            kind = "textual",
+            source = path.join("tests", name, "cases.cpp"),
+            output_dir = path.join(current_gen_root(), name),
+            deps = {"gentest_main"},
+        })
 end
 
 gentest_suite("unit")
@@ -100,46 +102,54 @@ gentest_suite("integration")
 gentest_suite("fixtures")
 gentest_suite("skiponly")
 
-local consumer_textual_mocks = gentest_add_mocks({
-    name = "gentest_consumer_textual_mocks_xmake",
-    kind = "textual",
-    defs = {"tests/consumer/header_mock_defs.hpp"},
-    headerfiles = {"tests/consumer/header_mock_defs.hpp", "tests/consumer/service.hpp"},
-    header_name = "gentest_consumer_mocks.hpp",
-    output_dir = path.join(current_gen_root(), "consumer_textual_mocks"),
-    deps = {"gentest_runtime"},
-    target_id = "consumer_textual_mocks",
-})
+target("gentest_consumer_textual_mocks_xmake")
+    set_kind("static")
+    gentest_add_mocks({
+        name = "gentest_consumer_textual_mocks_xmake",
+        kind = "textual",
+        defs = {"tests/consumer/header_mock_defs.hpp"},
+        headerfiles = {"tests/consumer/header_mock_defs.hpp", "tests/consumer/service.hpp"},
+        header_name = "gentest_consumer_mocks.hpp",
+        output_dir = path.join(current_gen_root(), "consumer_textual_mocks"),
+        deps = {"gentest_runtime"},
+        target_id = "consumer_textual_mocks",
+    })
 
-gentest_attach_codegen({
-    name = "gentest_consumer_textual_xmake",
-    kind = "textual",
-    source = "tests/buildsystems/consumer_textual_cases.cpp",
-    main = "tests/consumer/main.cpp",
-    output_dir = path.join(current_gen_root(), "consumer_textual"),
-    deps = {"gentest_main", consumer_textual_mocks},
-})
+target("gentest_consumer_textual_xmake")
+    set_kind("binary")
+    gentest_attach_codegen({
+        name = "gentest_consumer_textual_xmake",
+        kind = "textual",
+        source = "tests/buildsystems/consumer_textual_cases.cpp",
+        main = "tests/consumer/main.cpp",
+        output_dir = path.join(current_gen_root(), "consumer_textual"),
+        deps = {"gentest_main", "gentest_consumer_textual_mocks_xmake"},
+    })
 
-local consumer_module_mocks = gentest_add_mocks({
-    name = "gentest_consumer_module_mocks_xmake",
-    kind = "modules",
-    defs = {"tests/consumer/simple_module_mock_defs.cppm"},
-    headerfiles = {"tests/consumer/simple_module_mock_defs.cppm"},
-    module_name = "gentest.consumer_simple_mocks",
-    output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
-    deps = {"gentest"},
-    target_id = "consumer_module_mocks",
-})
+target("gentest_consumer_module_mocks_xmake")
+    set_kind("static")
+    gentest_add_mocks({
+        name = "gentest_consumer_module_mocks_xmake",
+        kind = "modules",
+        defs = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+        headerfiles = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+        module_name = "gentest.consumer_mocks",
+        output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
+        deps = {"gentest"},
+        target_id = "consumer_module_mocks",
+    })
 
-gentest_attach_codegen({
-    name = "gentest_consumer_module_xmake",
-    kind = "modules",
-    source = "tests/buildsystems/consumer_simple_module_cases.cppm",
-    main = "tests/consumer/main.cpp",
-    output_dir = path.join(current_gen_root(), "consumer_module"),
-    deps = {"gentest_main", "gentest", consumer_module_mocks},
-    defines = {"GENTEST_CONSUMER_USE_MODULES=1"},
-})
+target("gentest_consumer_module_xmake")
+    set_kind("binary")
+    gentest_attach_codegen({
+        name = "gentest_consumer_module_xmake",
+        kind = "modules",
+        source = "tests/consumer/cases.cppm",
+        main = "tests/consumer/main.cpp",
+        output_dir = path.join(current_gen_root(), "consumer_module"),
+        deps = {"gentest_main", "gentest", "gentest_consumer_module_mocks_xmake"},
+        defines = {"GENTEST_CONSUMER_USE_MODULES=1"},
+    })
 
 target("poc_cross_aarch64_qemu")
     set_kind("phony")

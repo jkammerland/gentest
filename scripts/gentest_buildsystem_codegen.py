@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -476,10 +477,93 @@ def infer_compdb_dir(codegen_path: pathlib.Path) -> pathlib.Path | None:
     return None
 
 
-def resolve_compdb_dir(compdb_arg: str, codegen_path: pathlib.Path) -> pathlib.Path | None:
+def resolve_compdb_dir(compdb_arg: str, codegen_path: pathlib.Path, *, infer_default: bool = True) -> pathlib.Path | None:
     if compdb_arg:
         return pathlib.Path(compdb_arg).resolve()
-    return infer_compdb_dir(codegen_path)
+    if infer_default:
+        return infer_compdb_dir(codegen_path)
+    return None
+
+
+def find_clang_driver() -> pathlib.Path | None:
+    def is_clang_driver(candidate: str) -> bool:
+        name = pathlib.Path(candidate).name.lower()
+        def has_numeric_suffix_after(text: str, prefix: str) -> bool:
+            if not text.startswith(prefix):
+                return False
+            suffix = text[len(prefix):]
+            return bool(suffix) and suffix.isdigit()
+
+        return (
+            name in ("clang++", "clang", "clang-cl")
+            or has_numeric_suffix_after(name, "clang++-")
+            or has_numeric_suffix_after(name, "clang-")
+        )
+
+    candidates: list[str] = []
+    for env_name in ("CLANGXX", "CXX"):
+        value = os.environ.get(env_name, "").strip()
+        if value and is_clang_driver(value):
+            candidates.append(value)
+    llvm_bin = os.environ.get("LLVM_BIN", "").strip()
+    if llvm_bin:
+        llvm_bin_path = pathlib.Path(llvm_bin)
+        candidates.extend(
+            [
+                str(llvm_bin_path / "clang++"),
+                str(llvm_bin_path / "clang++-22"),
+                str(llvm_bin_path / "clang++-21"),
+                str(llvm_bin_path / "clang-cl"),
+            ]
+        )
+    candidates.extend(["clang++-22", "clang++-21", "clang++", "clang-cl"])
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved:
+            return pathlib.Path(resolved).resolve()
+        candidate_path = pathlib.Path(candidate)
+        if candidate_path.is_absolute() and candidate_path.exists():
+            return candidate_path.resolve()
+    return None
+
+
+def query_clang_resource_dir() -> str | None:
+    driver = find_clang_driver()
+    if driver is None:
+        return None
+    try:
+        completed = subprocess.run(
+            [str(driver), "-print-resource-dir"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    resource_dir = completed.stdout.strip()
+    return resource_dir or None
+
+
+def derive_clang_c_driver(clang_cxx_driver: pathlib.Path) -> str:
+    name = clang_cxx_driver.name
+    if "clang++" in name:
+        return str(clang_cxx_driver.with_name(name.replace("clang++", "clang", 1)))
+    return str(clang_cxx_driver)
+
+
+def build_codegen_env(*, kind: str, compdb_dir: pathlib.Path | None) -> dict[str, str] | None:
+    if kind != "modules" or compdb_dir is not None:
+        return None
+    clang_driver = find_clang_driver()
+    resource_dir = query_clang_resource_dir()
+    env = os.environ.copy()
+    if clang_driver is not None:
+        env["CXX"] = str(clang_driver)
+        env["CC"] = derive_clang_c_driver(clang_driver)
+    if resource_dir:
+        env["GENTEST_CODEGEN_RESOURCE_DIR"] = resource_dir
+    return env
 
 
 def normalize_textual_mock_clang_args(
@@ -528,6 +612,18 @@ def normalize_textual_mock_clang_args(
         normalized.append(arg)
         index += 1
     return normalized
+
+
+def ensure_clang_resource_dir_arg(clang_args: list[str], *, enabled: bool) -> list[str]:
+    if not enabled:
+        return list(clang_args)
+    for arg in clang_args:
+        if arg.startswith("-resource-dir="):
+            return list(clang_args)
+    resource_dir = query_clang_resource_dir()
+    if not resource_dir:
+        return list(clang_args)
+    return ["-resource-dir=" + resource_dir, *clang_args]
 
 
 def build_codegen_command(
@@ -601,7 +697,7 @@ def main() -> int:
             return 1
         header_output = pathlib.Path(args.header_output).resolve()
         include_roots = [resolve_input_path(root_arg, source_root) for root_arg in args.include_root]
-        compdb_dir = resolve_compdb_dir(args.compdb, codegen_path)
+        compdb_dir = resolve_compdb_dir(args.compdb, codegen_path, infer_default=args.kind == "textual")
         metadata_include_roots: list[str] = []
         metadata_module_sources: list[str] = []
         for metadata_arg in args.mock_metadata:
@@ -612,6 +708,10 @@ def main() -> int:
             append_include_clang_args(args.clang_arg, metadata_include_roots),
             source_root=source_root,
             compdb_dir=compdb_dir,
+        )
+        suite_clang_args = ensure_clang_resource_dir_arg(
+            suite_clang_args,
+            enabled=args.kind == "modules" and compdb_dir is None,
         )
         if args.kind == "textual":
             write_suite_shim(wrapper_output, source_file, header_output)
@@ -640,7 +740,7 @@ def main() -> int:
             discover_mocks=False,
             external_module_sources=args.external_module_source + metadata_module_sources,
         )
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
         if args.kind == "modules":
             expected_wrapper = module_wrapper_output_path(out_dir, staged_source, 0)
             if not expected_wrapper.exists():
@@ -688,11 +788,15 @@ def main() -> int:
     mock_registry = pathlib.Path(args.mock_registry).resolve()
     mock_impl = pathlib.Path(args.mock_impl).resolve()
     include_roots = [resolve_input_path(root_arg, source_root) for root_arg in args.include_root]
-    compdb_dir = resolve_compdb_dir(args.compdb, codegen_path)
+    compdb_dir = resolve_compdb_dir(args.compdb, codegen_path, infer_default=args.kind == "textual")
     normalized_clang_args = normalize_textual_mock_clang_args(
         args.clang_arg,
         source_root=source_root,
         compdb_dir=compdb_dir,
+    )
+    normalized_clang_args = ensure_clang_resource_dir_arg(
+        normalized_clang_args,
+        enabled=args.kind == "modules" and compdb_dir is None,
     )
     metadata_output = pathlib.Path(args.metadata_output).resolve() if args.metadata_output else None
     if args.kind == "textual":
@@ -718,7 +822,7 @@ def main() -> int:
             discover_mocks=True,
             external_module_sources=args.external_module_source,
         )
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
         if metadata_output is not None:
             write_mock_metadata(
                 metadata_output,
@@ -750,7 +854,7 @@ def main() -> int:
         discover_mocks=True,
         external_module_sources=args.external_module_source,
     )
-    subprocess.run(command, check=True)
+    subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
     generated_module_wrappers = [module_wrapper_output_path(out_dir, defs_file, index) for index, defs_file in enumerate(materialized_module_defs)]
     missing_module_wrappers = [path for path in generated_module_wrappers if not path.exists()]
     if missing_module_wrappers:

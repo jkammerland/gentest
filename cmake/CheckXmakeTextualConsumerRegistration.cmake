@@ -86,9 +86,10 @@ if(NOT _module_mocks_rc EQUAL 0)
 endif()
 
 foreach(_expected IN ITEMS
-    "gentest/consumer_simple_mocks.cppm"
+    "gentest/consumer_mocks.cppm"
     "gentest"
-    "simple_module_mock_defs.cppm")
+    "service_module.cppm"
+    "module_mock_defs.cppm")
   string(FIND "${_module_mocks_out}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR

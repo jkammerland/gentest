@@ -110,19 +110,6 @@ def _gentest_default_external_module_inputs():
         "include/gentest/gentest.bench_util.cppm",
     ]
 
-def _gentest_bazel_module_boundary_out(name):
-    return "gen/bazel_module_boundary/{}.unsupported.txt".format(name)
-
-def gentest_bazel_module_boundary(name, target_kind, visibility = None):
-    native.genrule(
-        name = name,
-        outs = [_gentest_bazel_module_boundary_out(name)],
-        cmd = '"$(location tests/buildsystems/bazel_module_boundary.sh)" --fail "{0}" "{1}"'.format("//:{}".format(name), target_kind),
-        cmd_bat = 'powershell -NoProfile -Command "$msg = @\'gentest Bazel named-module target //:{0} ({1}) is intentionally disabled. Use the textual Bazel targets or CMake for named-module support. See docs/buildsystems/bazel.md.\'@; [Console]::Error.WriteLine($msg); exit 1"'.format(name, target_kind),
-        tools = ["tests/buildsystems/bazel_module_boundary.sh"],
-        visibility = visibility,
-    )
-
 def _gentest_external_module_source_args_unix(external_module_sources):
     args = []
     for module_source in external_module_sources:

@@ -399,10 +399,73 @@ private:
     std::vector<std::string> &dependencies_;
 };
 
+bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang::SourceManager &sm, bool allow_includes) {
+    const auto has_cpp_extension_local = [](llvm::StringRef path) {
+        return path.ends_with_insensitive(".cc") || path.ends_with_insensitive(".cpp") || path.ends_with_insensitive(".cxx");
+    };
+    clang::SourceLocation loc = decl.getBeginLoc();
+    if (loc.isInvalid()) {
+        loc = decl.getLocation();
+    }
+    if (loc.isInvalid()) {
+        return false;
+    }
+    if (loc.isMacroID()) {
+        loc = sm.getExpansionLoc(loc);
+    }
+    if (loc.isInvalid()) {
+        return false;
+    }
+    if (sm.isInSystemHeader(loc) || sm.isWrittenInBuiltinFile(loc)) {
+        return false;
+    }
+    if (sm.isWrittenInMainFile(loc)) {
+        return true;
+    }
+    if (!allow_includes) {
+        return false;
+    }
+    return has_cpp_extension_local(sm.getFilename(loc));
+}
+
+std::vector<clang::Decl *> build_codegen_traversal_scope(clang::ASTContext &context, bool allow_includes) {
+    std::vector<clang::Decl *> scope;
+    auto                      *tu = context.getTranslationUnitDecl();
+    auto                      &sm = context.getSourceManager();
+    for (clang::Decl *decl : tu->decls()) {
+        if (decl != nullptr && should_traverse_decl_in_codegen_scope(*decl, sm, allow_includes)) {
+            scope.push_back(decl);
+        }
+    }
+    return scope;
+}
+
+class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
+public:
+    ScopedTraversalASTConsumer(std::unique_ptr<clang::ASTConsumer> inner, bool allow_includes)
+        : inner_(std::move(inner)), allow_includes_(allow_includes) {}
+
+    void Initialize(clang::ASTContext &context) override { inner_->Initialize(context); }
+
+    bool HandleTopLevelDecl(clang::DeclGroupRef decl_group) override { return inner_->HandleTopLevelDecl(decl_group); }
+
+    void HandleTranslationUnit(clang::ASTContext &context) override {
+        const auto scope = build_codegen_traversal_scope(context, allow_includes_);
+        if (!scope.empty()) {
+            context.setTraversalScope(scope);
+        }
+        inner_->HandleTranslationUnit(context);
+    }
+
+private:
+    std::unique_ptr<clang::ASTConsumer> inner_;
+    bool                                allow_includes_ = false;
+};
+
 class MatchFinderAction final : public clang::ASTFrontendAction {
 public:
-    MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies)
-        : finder_(finder), dependencies_(dependencies) {}
+    MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes)
+        : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(compiler.getSourceManager(), dependencies_));
@@ -410,26 +473,28 @@ public:
         if (!normalized.empty()) {
             dependencies_.push_back(normalized);
         }
-        return finder_.newASTConsumer();
+        return std::make_unique<ScopedTraversalASTConsumer>(finder_.newASTConsumer(), allow_includes_);
     }
 
 private:
     clang::ast_matchers::MatchFinder &finder_;
     std::vector<std::string>         &dependencies_;
+    bool                              allow_includes_ = false;
 };
 
 class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
 public:
-    MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies)
-        : finder_(finder), dependencies_(dependencies) {}
+    MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes)
+        : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<MatchFinderAction>(finder_, dependencies_);
+        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_);
     }
 
 private:
     clang::ast_matchers::MatchFinder &finder_;
     std::vector<std::string>         &dependencies_;
+    bool                              allow_includes_ = false;
 };
 
 bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_args = false) {
@@ -934,6 +999,10 @@ bool should_log_scan_deps_decisions() {
     return get_env_value("GENTEST_CODEGEN_LOG_SCAN_DEPS").has_value();
 }
 
+bool should_log_module_import_resolution() {
+    return get_env_value("GENTEST_CODEGEN_LOG_MODULE_IMPORTS").has_value();
+}
+
 std::string basename_without_extension(std::string_view path) {
     if (path.empty()) {
         return {};
@@ -1007,6 +1076,8 @@ std::optional<std::string> find_option_value(std::span<const std::string> args, 
     return std::nullopt;
 }
 
+bool has_numeric_suffix_after(std::string_view text, std::string_view prefix);
+
 std::optional<std::string> infer_compiler_from_resource_dir(std::string_view compiler_name, std::string_view resource_dir) {
     if (compiler_name.empty() || resource_dir.empty()) {
         return std::nullopt;
@@ -1028,8 +1099,8 @@ std::optional<std::string> infer_compiler_from_resource_dir(std::string_view com
 
     const std::string compiler_basename = basename_without_extension(compiler_name);
     const bool compiler_is_clang_like = compiler_basename == "clang" || compiler_basename == "clang++" ||
-        compiler_basename == "clang-cl" || llvm::StringRef{compiler_basename}.starts_with("clang-") ||
-        llvm::StringRef{compiler_basename}.starts_with("clang++-");
+        compiler_basename == "clang-cl" || has_numeric_suffix_after(compiler_basename, "clang-") ||
+        has_numeric_suffix_after(compiler_basename, "clang++-");
     if (compiler_is_clang_like) {
         append_candidate(std::filesystem::path(std::string(compiler_name)).filename().string());
     } else {
@@ -1082,6 +1153,15 @@ std::optional<std::string> extract_clang_version_suffix(std::string_view compile
         }
     }
     return std::nullopt;
+}
+
+bool has_numeric_suffix_after(std::string_view text, std::string_view prefix) {
+    if (!llvm::StringRef{text}.starts_with(prefix)) {
+        return false;
+    }
+    const auto suffix = std::string_view{text}.substr(prefix.size());
+    return !suffix.empty() &&
+        std::ranges::all_of(suffix, [](unsigned char ch) { return std::isdigit(ch) != 0; });
 }
 
 std::string resolve_clang_scan_deps_executable(std::string_view explicit_path, std::string_view compiler_path) {
@@ -1745,8 +1825,8 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
     std::string launch_program = command_line.front();
     std::string launch_basename = basename_without_extension(launch_program);
     const bool launch_is_clang_like = launch_basename == "clang" || launch_basename == "clang++" ||
-        launch_basename == "clang-cl" || llvm::StringRef{launch_basename}.starts_with("clang-") ||
-        llvm::StringRef{launch_basename}.starts_with("clang++-");
+        launch_basename == "clang-cl" || has_numeric_suffix_after(launch_basename, "clang-") ||
+        has_numeric_suffix_after(launch_basename, "clang++-");
     if (!launch_is_clang_like) {
         if (const auto resource_dir = find_option_value(launch_args, "-resource-dir", "-resource-dir=");
             resource_dir.has_value()) {
@@ -1904,8 +1984,8 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
 
 bool is_clang_like_compiler(std::string_view path) {
     const std::string name = basename_without_extension(path);
-    return name == "clang" || name == "clang++" || name == "clang-cl" || llvm::StringRef{name}.starts_with("clang-") ||
-        llvm::StringRef{name}.starts_with("clang++-");
+    return name == "clang" || name == "clang++" || name == "clang-cl" || has_numeric_suffix_after(name, "clang-") ||
+        has_numeric_suffix_after(name, "clang++-");
 }
 
 std::optional<std::size_t> parse_jobs_string(std::string_view raw_value) {
@@ -2393,6 +2473,17 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     if (!source_root_option.getValue().empty()) {
         opts.source_root = std::filesystem::path{source_root_option.getValue()};
     }
+    if (!opts.explicit_module_sources_by_name.empty()) {
+        const std::filesystem::path explicit_module_base =
+            opts.source_root.has_value() ? *opts.source_root : std::filesystem::current_path();
+        for (auto &[_, source_paths] : opts.explicit_module_sources_by_name) {
+            for (auto &source_path : source_paths) {
+                if (source_path.is_relative()) {
+                    source_path = explicit_module_base / source_path;
+                }
+            }
+        }
+    }
     if (!template_option.getValue().empty()) {
         opts.template_path = std::filesystem::path{template_option.getValue()};
     } else if (!kTemplateDir.empty()) {
@@ -2856,6 +2947,12 @@ int main(int argc, const char **argv) {
             std::sort(imports.begin(), imports.end());
             imports.erase(std::unique(imports.begin(), imports.end()), imports.end());
             imported_named_modules_by_source[idx] = std::move(imports);
+            if (should_log_module_import_resolution()) {
+                gentest::codegen::log_err("gentest_codegen: source-scanned module imports for '{}':\n", options.sources[idx]);
+                for (const auto &import_name : imported_named_modules_by_source[idx]) {
+                    gentest::codegen::log_err("  {}\n", import_name);
+                }
+            }
         }
     }
 
@@ -3036,6 +3133,10 @@ int main(int argc, const char **argv) {
                                                       build_augmented_scan_command_line(candidate_source_commands,
                                                                                         candidate_driver_commands,
                                                                                         candidate.string(), candidate.string()));
+                if (should_log_module_import_resolution()) {
+                    gentest::codegen::log_err("gentest_codegen: explicit candidate '{}' discovered as '{}'\n",
+                                              candidate.string(), discovered_name.value_or(std::string{"<none>"}));
+                }
                 if (!discovered_name.has_value() || *discovered_name != module_name) {
                     return nullptr;
                 }
@@ -3149,6 +3250,9 @@ int main(int argc, const char **argv) {
 
             if (const auto explicit_it = options.explicit_module_sources_by_name.find(std::string(module_name));
                 explicit_it != options.explicit_module_sources_by_name.end()) {
+                if (should_log_module_import_resolution()) {
+                    gentest::codegen::log_err("gentest_codegen: resolving explicit external module '{}'\n", module_name);
+                }
                 std::vector<clang::tooling::CompileCommand> context_commands;
                 if (!context.command_line.empty()) {
                     context_commands.push_back(clang::tooling::CompileCommand{
@@ -3169,6 +3273,10 @@ int main(int argc, const char **argv) {
                     if (const auto *resolved =
                             try_candidate(candidate, candidate_driver_commands, candidate_source_commands, candidate_include_search_paths);
                         resolved != nullptr) {
+                        if (should_log_module_import_resolution()) {
+                            gentest::codegen::log_err("gentest_codegen: resolved explicit external module '{}' -> '{}'\n",
+                                                      module_name, candidate.string());
+                        }
                         return resolved;
                     }
                 }
@@ -3578,7 +3686,7 @@ int main(int argc, const char **argv) {
             if (mock_collector.has_value()) {
                 register_mock_matchers(finder, *mock_collector);
             }
-            MatchFinderActionFactory action_factory{finder, local_dependencies};
+            MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes};
 
             ParseResult result;
             result.status = tool.run(&action_factory);
@@ -3677,7 +3785,7 @@ int main(int argc, const char **argv) {
         if (mock_collector.has_value()) {
             register_mock_matchers(finder, *mock_collector);
         }
-        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local};
+        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes};
 
         const int status = tool.run(&action_factory);
         if (status != 0) {

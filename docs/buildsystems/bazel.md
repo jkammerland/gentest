@@ -123,17 +123,42 @@ bazelisk build //:gentest_consumer_textual_bazel
 Module consumer:
 
 ```bash
-bazelisk build //:gentest_consumer_module_bazel
-./bazel-bin/gentest_consumer_module_bazel
+clang_resource_dir="$(clang++ -print-resource-dir)"
+
+CC="$(command -v clang)" \
+CXX="$(command -v clang++)" \
+GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+bazelisk build \
+  //:gentest_consumer_module_bazel \
+  --experimental_cpp_modules \
+  --action_env=CCACHE_DISABLE=1 \
+  --host_action_env=CCACHE_DISABLE=1 \
+  --action_env=CC="$(command -v clang)" \
+  --action_env=CXX="$(command -v clang++)" \
+  --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+  --repo_env=CC="$(command -v clang)" \
+  --repo_env=CXX="$(command -v clang++)" \
+  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
+
+./bazel-bin/gentest_consumer_module_bazel --list
 ```
 
-In practice, the repo-local Bazel path is still toolchain-sensitive. The Linux
-workflow currently validates the classic suites and the textual consumer only.
-For local module runs, using the same Clang-oriented environment as the textual
-lane is the safest path:
+In practice, the repo-local Bazel module path is still toolchain-sensitive.
+Use the Clang-oriented contract above rather than relying on Bazel's default
+host toolchain discovery.
+
+The checked-in Linux workflow validates:
+
+- classic suites
+- the textual Bazel consumer
+- the module Bazel consumer under the explicit Clang + `--experimental_cpp_modules`
+  contract
+
+For local module runs, keep the same constraints:
 
 - set `CC` / `CXX` to the Clang toolchain Bazel should use
 - set `GENTEST_CODEGEN_RESOURCE_DIR="$(clang++ -print-resource-dir)"`
+- pass `--experimental_cpp_modules`
 - disable ccache inside Bazel actions when needed
 
 ## Generated outputs
@@ -166,6 +191,5 @@ The generated test wrapper target also emits:
   explicitly.
 - The codegen bootstrap is intentionally non-hermetic today: Bazel shells out
   to CMake to build `gentest_codegen`.
-- The checked-in Linux workflow does not run the Bazel module target yet, so
-  treat the module path as repo-local/toolchain-sensitive rather than a
+- The module path is still repo-local/toolchain-sensitive rather than a
   polished downstream contract.

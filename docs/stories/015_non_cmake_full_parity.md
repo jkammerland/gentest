@@ -21,8 +21,7 @@ Implemented already:
   repository suites.
 - Legacy `gentest_codegen --output ...` manifest mode has been removed from the
   active non-CMake suite integrations.
-- Meson has a repo-local textual consumer target and a repo-local module
-  consumer target.
+- Meson has a repo-local textual consumer target.
 - Xmake has repo-local textual and module helper APIs in
   [`xmake/gentest.lua`](../../xmake/gentest.lua).
 - Bazel has repo-local textual and module macros in
@@ -36,7 +35,6 @@ Still missing for real "full parity":
 
 - packaged/downstream Meson helper APIs
 - install/export-quality non-CMake surfaces
-- workflow coverage for the module paths
 - hermetic/polished Bazel codegen bootstrap
 - API polish for extra module mappings / advanced codegen options outside the
   checked-in repo-local use cases
@@ -155,17 +153,15 @@ This is the only real coupling between the two user-facing operations.
 Current repo state:
 
 - there is still no reusable Meson helper API
-- the checked-in repo now has a real module consumer target
-- the helper still intentionally rejects `--backend meson --kind modules`
-- the repo-local module path works by using the generic helper backend plus
-  Meson-owned manual module compilation steps
+- the checked-in repo supports textual consumers only
+- the helper intentionally rejects `--backend meson --kind modules`
 
 Open work:
 
-- decide whether Meson should grow a real helper surface at all
-- if yes, convert the current checked-in module wiring into a supported API
-- add workflow coverage for the module target instead of only the classic and
-  textual lanes
+- decide whether Meson should grow a real module helper surface at all
+- keep the API shape explicit even while module execution is unsupported
+- if Meson module behavior becomes reliable enough later, reintroduce a real
+  module target on top of the same 2-step contract
 
 ### Xmake
 
@@ -174,6 +170,7 @@ Current repo state:
 - repo-local helper functions exist for both textual and module paths
 - module mock generation and module test attachment are wired through the same
   helper surface
+- the checked-in Linux workflow validates both the textual and module consumers
 
 Open work:
 
@@ -190,6 +187,8 @@ Current repo state:
 - the checked-in repo wires module mock and module consumer targets
 - the macros now synthesize repo-local metadata and `compile_commands.json`
   inputs so `gentest_codegen` can scan the module path
+- the checked-in Linux workflow validates the module consumer under an explicit
+  Clang + `--experimental_cpp_modules` contract
 
 Open work:
 

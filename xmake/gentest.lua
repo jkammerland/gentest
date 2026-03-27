@@ -79,6 +79,15 @@ local function gentest_common_cxxflags()
     return state_value("gentest_common_cxxflags")
 end
 
+local function registered_target_metadata()
+    local metadata = gentest_state["registered_target_metadata"]
+    if metadata == nil then
+        metadata = {}
+        gentest_state["registered_target_metadata"] = metadata
+    end
+    return metadata
+end
+
 local function append_common_codegen_clang_args(args, extra_include_dirs)
     table.insert(args, "--clang-arg=-std=c++20")
     table.insert(args, "--clang-arg=-DGENTEST_CODEGEN=1")
@@ -404,6 +413,7 @@ local function collect_dep_inputs(deps)
     local seen_targets = {}
     local seen_includes = {}
     local seen_metadata = {}
+    local metadata_by_target = registered_target_metadata()
     for _, dep in ipairs(deps or {}) do
         if type(dep) == "table" then
             append_unique(dep_targets, seen_targets, dep.target)
@@ -416,6 +426,16 @@ local function collect_dep_inputs(deps)
             end
         else
             append_unique(dep_targets, seen_targets, dep)
+            local registered = metadata_by_target[dep]
+            if registered then
+                append_unique(metadata_paths, seen_metadata, registered.metadata_path)
+                if registered.include_dir then
+                    append_unique(include_dirs, seen_includes, registered.include_dir)
+                end
+                for _, extra_include in ipairs(registered.include_dirs or {}) do
+                    append_unique(include_dirs, seen_includes, extra_include)
+                end
+            end
         end
     end
     return dep_targets, include_dirs, metadata_paths
@@ -632,87 +652,77 @@ function gentest_add_mocks(opts)
     end
     local dep_targets, dep_include_dirs = collect_dep_inputs(opts.deps)
 
-    target(target_name)
-        set_kind("static")
-        set_policy("build.fence", true)
-        add_packages("fmt")
-        add_includedirs(incdirs())
-        add_includedirs(out_dir_abs, {public = true})
-        for _, include_dir in ipairs(dep_include_dirs) do
-            add_includedirs(include_dir)
-        end
-        add_defines(gentest_common_defines())
-        add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
-        if #add_private_files > 0 then
-            add_files(table.unpack(add_private_files), {always_added = true})
-        end
-        if #add_public_files > 0 then
-            add_files(table.unpack(add_public_files), {public = true, always_added = true})
-        end
-        if public_module then
-            add_files(public_module, {public = true, always_added = true})
-        end
-        if opts.headerfiles and #opts.headerfiles > 0 then
-            add_headerfiles(table.unpack(opts.headerfiles))
-        else
-            add_headerfiles(table.unpack(defs))
-        end
-        if #dep_targets > 0 then
-            add_deps(table.unpack(dep_targets))
-        end
-        on_load(function (_)
-            if kind == "textual" then
-                write_generated_file(os.mkdir, io.writefile, defs_cpp, textual_mock_source_placeholder(defs_cpp, defs, codegen_h))
-                write_generated_file(os.mkdir, io.writefile, anchor_cpp, anchor_placeholder(target_id))
-                write_generated_file(
-                    os.mkdir,
-                    io.writefile,
-                    public_header,
-                    textual_public_header_placeholder(public_header, defs, mock_registry_h, mock_impl_h)
-                )
-                write_generated_file(os.mkdir, io.writefile, mock_registry_h, header_placeholder())
-                write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
-                return
-            end
-
-            for index, defs_file in ipairs(defs) do
-                local zero_index = index - 1
-                local staged_rel = module_defs_stage_rel(output_dir, defs_file, zero_index)
-                local wrapper_rel = module_wrapper_output_rel(output_dir, staged_rel, zero_index)
-                write_generated_file(os.mkdir, io.writefile, module_header_output_rel(output_dir, staged_rel, zero_index), header_placeholder())
-                copy_generated_file(os.mkdir, os.cp, wrapper_rel, defs_file)
-            end
+    set_policy("build.fence", true)
+    add_packages("fmt")
+    add_includedirs(incdirs())
+    add_includedirs(out_dir_abs, {public = true})
+    for _, include_dir in ipairs(dep_include_dirs) do
+        add_includedirs(include_dir)
+    end
+    add_defines(gentest_common_defines())
+    add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
+    for _, private_file in ipairs(add_private_files) do
+        add_files(private_file, {always_added = true})
+    end
+    for _, public_file in ipairs(add_public_files) do
+        add_files(public_file, {public = true, always_added = true})
+    end
+    if public_module then
+        add_files(public_module, {public = true, always_added = true})
+    end
+    if opts.headerfiles and #opts.headerfiles > 0 then
+        add_headerfiles(table.unpack(opts.headerfiles))
+    else
+        add_headerfiles(table.unpack(defs))
+    end
+    if #dep_targets > 0 then
+        add_deps(table.unpack(dep_targets))
+    end
+    on_load(function (_)
+        if kind == "textual" then
+            write_generated_file(os.mkdir, io.writefile, defs_cpp, textual_mock_source_placeholder(defs_cpp, defs, codegen_h))
+            write_generated_file(os.mkdir, io.writefile, anchor_cpp, anchor_placeholder(target_id))
             write_generated_file(
                 os.mkdir,
                 io.writefile,
-                module_public_output_rel(output_dir, config.module_name),
-                module_aggregate_placeholder(io.readfile, config.module_name, defs)
+                public_header,
+                textual_public_header_placeholder(public_header, defs, mock_registry_h, mock_impl_h)
             )
-            write_generated_file(os.mkdir, io.writefile, anchor_cpp, anchor_placeholder(target_id))
             write_generated_file(os.mkdir, io.writefile, mock_registry_h, header_placeholder())
             write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
-        end)
-        before_buildcmd(function (_, batchcmds)
-            local codegen, compdb_dir = ensure_codegen(batchcmds)
-            run_mock_codegen(batchcmds, codegen, compdb_dir, config)
-        end)
+            return
+        end
 
-    if kind == "textual" then
-        return {
-            target = target_name,
-            include_dir = out_dir_abs,
-            include_dirs = include_dirs,
-            public_header = public_surface.path,
-            metadata_path = config.metadata_output,
-        }
-    end
-    return {
+        for index, defs_file in ipairs(defs) do
+            local zero_index = index - 1
+            local staged_rel = module_defs_stage_rel(output_dir, defs_file, zero_index)
+            local wrapper_rel = module_wrapper_output_rel(output_dir, staged_rel, zero_index)
+            write_generated_file(os.mkdir, io.writefile, module_header_output_rel(output_dir, staged_rel, zero_index), header_placeholder())
+            copy_generated_file(os.mkdir, os.cp, wrapper_rel, defs_file)
+        end
+        write_generated_file(
+            os.mkdir,
+            io.writefile,
+            module_public_output_rel(output_dir, config.module_name),
+            module_aggregate_placeholder(io.readfile, config.module_name, defs)
+        )
+        write_generated_file(os.mkdir, io.writefile, anchor_cpp, anchor_placeholder(target_id))
+        write_generated_file(os.mkdir, io.writefile, mock_registry_h, header_placeholder())
+        write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
+    end)
+    before_buildcmd(function (_, batchcmds)
+        local codegen, compdb_dir = ensure_codegen(batchcmds)
+        run_mock_codegen(batchcmds, codegen, compdb_dir, config)
+    end)
+
+    registered_target_metadata()[target_name] = {
         target = target_name,
         include_dir = out_dir_abs,
         include_dirs = include_dirs,
-        module_name = public_surface.module_name,
-        public_module = public_surface.path,
         metadata_path = config.metadata_output,
+        public_header = kind == "textual" and public_surface.path or nil,
+        public_module = kind == "modules" and public_surface.path or nil,
+        module_name = kind == "modules" and public_surface.module_name or nil,
     }
 end
 
@@ -756,39 +766,37 @@ function gentest_attach_codegen(opts)
         metadata_paths = metadata_paths,
     }
 
-    target(target_name)
-        set_kind("binary")
-        add_packages("fmt")
-        add_includedirs(incdirs())
-        for _, include_dir in ipairs(extra_includes) do
-            add_includedirs(include_dir)
-        end
-        add_defines(gentest_common_defines())
-        if opts.defines and #opts.defines > 0 then
-            add_defines(table.unpack(opts.defines))
-        end
-        add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
-        if kind == "modules" then
-            add_files(wrapper_cpp, {public = true, always_added = true})
+    add_packages("fmt")
+    add_includedirs(incdirs())
+    for _, include_dir in ipairs(extra_includes) do
+        add_includedirs(include_dir)
+    end
+    add_defines(gentest_common_defines())
+    if opts.defines and #opts.defines > 0 then
+        add_defines(table.unpack(opts.defines))
+    end
+    add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
+    if kind == "modules" then
+        add_files(wrapper_cpp, {public = true, always_added = true})
+    else
+        add_files(wrapper_cpp, {always_added = true})
+    end
+    if main_source then
+        add_files(main_source, {always_added = true})
+    end
+    if #dep_targets > 0 then
+        add_deps(table.unpack(dep_targets))
+    end
+    on_load(function (_)
+        if kind == "textual" then
+            write_generated_file(os.mkdir, io.writefile, wrapper_cpp, suite_wrapper_placeholder(wrapper_cpp, source, wrapper_h))
         else
-            add_files(wrapper_cpp, {always_added = true})
+            write_generated_file(os.mkdir, io.writefile, wrapper_h, header_placeholder())
+            copy_generated_file(os.mkdir, os.cp, wrapper_cpp, source)
         end
-        if main_source then
-            add_files(main_source, {always_added = true})
-        end
-        if #dep_targets > 0 then
-            add_deps(table.unpack(dep_targets))
-        end
-        on_load(function (_)
-            if kind == "textual" then
-                write_generated_file(os.mkdir, io.writefile, wrapper_cpp, suite_wrapper_placeholder(wrapper_cpp, source, wrapper_h))
-            else
-                write_generated_file(os.mkdir, io.writefile, wrapper_h, header_placeholder())
-                copy_generated_file(os.mkdir, os.cp, wrapper_cpp, source)
-            end
-        end)
-        before_buildcmd(function (_, batchcmds)
-            local codegen, compdb_dir = ensure_codegen(batchcmds)
-            run_suite_codegen(batchcmds, codegen, compdb_dir, config)
-        end)
+    end)
+    before_buildcmd(function (_, batchcmds)
+        local codegen, compdb_dir = ensure_codegen(batchcmds)
+        run_suite_codegen(batchcmds, codegen, compdb_dir, config)
+    end)
 end
