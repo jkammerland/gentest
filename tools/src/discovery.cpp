@@ -51,10 +51,6 @@ bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
     return true;
 }
 
-bool has_cpp_extension(llvm::StringRef path) {
-    return ends_with_ci(path, ".cc") || ends_with_ci(path, ".cpp") || ends_with_ci(path, ".cxx");
-}
-
 std::string mis_scoped_gentest_message(std::string_view attribute) {
     return fmt::format("attribute '{}' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification", attribute);
 }
@@ -313,13 +309,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     const bool in_main_file = sm->isWrittenInMainFile(loc);
     if (!in_main_file) {
         if (!allow_includes_) {
-            return;
-        }
-        // TU shim mode: the shim includes a single original translation unit
-        // (*.cc/*.cpp/*.cxx). Avoid discovering tests in headers, since the
-        // build system does not yet track header deps for codegen.
-        const llvm::StringRef inc_file = sm->getFilename(loc);
-        if (!has_cpp_extension(inc_file)) {
             return;
         }
     }

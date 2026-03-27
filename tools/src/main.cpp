@@ -400,9 +400,6 @@ private:
 };
 
 bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang::SourceManager &sm, bool allow_includes) {
-    const auto has_cpp_extension_local = [](llvm::StringRef path) {
-        return path.ends_with_insensitive(".cc") || path.ends_with_insensitive(".cpp") || path.ends_with_insensitive(".cxx");
-    };
     clang::SourceLocation loc = decl.getBeginLoc();
     if (loc.isInvalid()) {
         loc = decl.getLocation();
@@ -425,7 +422,7 @@ bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang:
     if (!allow_includes) {
         return false;
     }
-    return has_cpp_extension_local(sm.getFilename(loc));
+    return true;
 }
 
 std::vector<clang::Decl *> build_codegen_traversal_scope(clang::ASTContext &context, bool allow_includes) {
@@ -450,9 +447,11 @@ public:
     bool HandleTopLevelDecl(clang::DeclGroupRef decl_group) override { return inner_->HandleTopLevelDecl(decl_group); }
 
     void HandleTranslationUnit(clang::ASTContext &context) override {
-        const auto scope = build_codegen_traversal_scope(context, allow_includes_);
-        if (!scope.empty()) {
-            context.setTraversalScope(scope);
+        if (!allow_includes_) {
+            const auto scope = build_codegen_traversal_scope(context, false);
+            if (!scope.empty()) {
+                context.setTraversalScope(scope);
+            }
         }
         inner_->HandleTranslationUnit(context);
     }

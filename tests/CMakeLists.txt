@@ -2206,6 +2206,12 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_bazel_module_consumer
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBazelModuleConsumer.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_non_cmake_module_wiring
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckNonCmakeModuleWiring.cmake

@@ -49,6 +49,16 @@ if(_bazel_cpp_modules_flag_pos EQUAL -1)
   message(FATAL_ERROR "buildsystems_linux workflow must enable Bazel C++20 modules for the module consumer slice.")
 endif()
 
+string(FIND "${_content}" "./bazel-bin/gentest_consumer_module_bazel --list" _bazel_module_list_pos)
+if(_bazel_module_list_pos EQUAL -1)
+  message(FATAL_ERROR "buildsystems_linux workflow must run the Bazel module consumer listing after building it.")
+endif()
+
+string(FIND "${_content}" "GENTEST_CODEGEN_RESOURCE_DIR" _bazel_resource_dir_pos)
+if(_bazel_resource_dir_pos EQUAL -1)
+  message(FATAL_ERROR "buildsystems_linux workflow must wire the explicit Clang resource dir into the Bazel module consumer lane.")
+endif()
+
 string(FIND "${_content}" "gentest_consumer_textual_xmake" _xmake_consumer_textual_pos)
 if(_xmake_consumer_textual_pos EQUAL -1)
   message(FATAL_ERROR "buildsystems_linux workflow must validate the Xmake textual explicit-mock consumer slice.")

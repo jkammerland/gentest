@@ -85,9 +85,9 @@ tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 buildsystem_codegen = files('scripts/gentest_buildsystem_codegen.py')
 # The repo-local Meson integration keeps the explicit 2-step model:
 # generate mocks first, then attach codegen to the consuming test surface.
-# Textual targets use the helper's Meson backend directly. Named-module targets
-# reuse the same backend-agnostic substrate, but Meson drives the module
-# compilation itself because the native named-module path is not reliable here.
+# Only textual targets are wired here today. The helper still exposes the
+# explicit modules API shape, but Meson module execution intentionally fails
+# fast until the backend is reliable enough.
 support_inputs_cmd = run_command(
   py,
   '-c',

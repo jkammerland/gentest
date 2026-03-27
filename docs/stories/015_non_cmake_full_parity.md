@@ -218,29 +218,34 @@ Current status:
 
 Status:
 
-- Meson: repo-local checked-in target exists, but there is still no reusable
-  Meson helper API
+- Meson: no checked-in module target; the explicit modules API exists but
+  intentionally fails fast until the backend is reliable enough
 - Xmake: repo-local helper path exists
 - Bazel: repo-local macro path exists
 
 Remaining work:
 
-- turn those repo-local paths into a supported downstream contract
-- add workflow coverage for at least one module lane per backend
+- turn the supported repo-local paths into a downstream contract
+- keep Meson in explicit fail-fast mode unless its module backend becomes
+  reliable enough to justify a real checked-in path
+- add workflow coverage for at least one supported module lane per backend
 
 ### Phase 4: explicit module mocks
 
 Status:
 
-- Meson: repo-local checked-in path exists
+- Meson: API exists but execution is intentionally unsupported for now
 - Xmake: repo-local helper path exists
 - Bazel: repo-local macro path exists
 
 Remaining work:
 
-- package/polish the APIs
+- package/polish the supported APIs
 - document downstream expectations and limits
-- add stronger regression and workflow coverage around the module paths
+- keep Meson docs/tests explicit about the unsupported module boundary until
+  the backend status changes
+- add stronger regression and workflow coverage around the supported module
+  paths
 
 ### Phase 5: downstream/reusable API polish
 
