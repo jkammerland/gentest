@@ -250,7 +250,7 @@ gentest_attach_codegen_textual(
     name = 'gentest_consumer_textual_bazel',
     src = 'tests/buildsystems/consumer_textual_cases.cpp',
     main = 'tests/consumer/main.cpp',
-    mock_targets = [':gentest_consumer_textual_mocks'],
+    mock_targets = ['//:gentest_consumer_textual_mocks'],
     linkopts = _gentest_linkopts,
     source_includes = ['tests', 'tests/buildsystems', 'tests/consumer'],
 )
@@ -281,7 +281,7 @@ gentest_attach_codegen_modules(
     name = 'gentest_consumer_module_bazel',
     src = 'tests/consumer/cases.cppm',
     main = 'tests/consumer/main.cpp',
-    mock_targets = [':gentest_consumer_module_mocks'],
+    mock_targets = ['//:gentest_consumer_module_mocks'],
     deps = [
         ':gentest',
         ':gentest_bench_util',

@@ -1717,7 +1717,12 @@ inline std::string normalize_scan_module_preamble_source(std::string_view text) 
     return out;
 }
 
-inline std::optional<std::string> parse_include_header_from_scan_line(std::string_view line) {
+struct ScanIncludeDirective {
+    std::string header;
+    bool        angled = false;
+};
+
+inline std::optional<ScanIncludeDirective> parse_include_directive_from_scan_line(std::string_view line) {
     std::string trimmed = trim_ascii_copy(line);
     if (trimmed.empty() || trimmed.front() != '#') {
         return std::nullopt;
@@ -1752,7 +1757,17 @@ inline std::optional<std::string> parse_include_header_from_scan_line(std::strin
     if (end == std::string_view::npos) {
         return std::nullopt;
     }
-    return std::string{cursor.substr(1, end - 1)};
+    return ScanIncludeDirective{
+        .header = std::string{cursor.substr(1, end - 1)},
+        .angled = open == '<',
+    };
+}
+
+inline std::optional<std::string> parse_include_header_from_scan_line(std::string_view line) {
+    if (const auto include = parse_include_directive_from_scan_line(line); include.has_value()) {
+        return include->header;
+    }
+    return std::nullopt;
 }
 
 inline std::optional<std::string> named_module_name_from_source_file(const std::filesystem::path &path,

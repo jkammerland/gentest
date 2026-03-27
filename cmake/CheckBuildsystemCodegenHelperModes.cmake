@@ -195,6 +195,50 @@ if(_generic_suite_module_decl_pos EQUAL -1)
     "Wrapper:\n${_generic_suite_wrapper_text}")
 endif()
 
+set(_hidden_import_dir "${BUILD_ROOT}/generic_module_suite_hidden_imports")
+file(MAKE_DIRECTORY "${_hidden_import_dir}")
+file(WRITE "${_hidden_import_dir}/hidden_imports.inc"
+  "import gentest;\n")
+file(WRITE "${_hidden_import_dir}/hidden_cases.cppm"
+  "export module gentest.hidden_cases;\n"
+  "#include \"hidden_imports.inc\"\n"
+  "\n"
+  "export namespace consumer {\n"
+  "[[using gentest: test(\"consumer/hidden_import_fragment\")]]\n"
+  "void hidden_import_fragment() {}\n"
+  "} // namespace consumer\n")
+
+set(_hidden_import_suite_dir "${BUILD_ROOT}/generic_module_suite_hidden_import_output")
+file(MAKE_DIRECTORY "${_hidden_import_suite_dir}")
+
+execute_process(
+  COMMAND "${Python3_EXECUTABLE}" "${_helper}"
+    --mode suite
+    --backend generic
+    --kind modules
+    --codegen "${PROG}"
+    --source-root "${SOURCE_DIR}"
+    --out-dir "${_hidden_import_suite_dir}"
+    --wrapper-output "${_hidden_import_suite_dir}/tu_0000_suite_0000.module.gentest.cppm"
+    --header-output "${_hidden_import_suite_dir}/tu_0000_suite_0000.gentest.h"
+    --source-file "${_hidden_import_dir}/hidden_cases.cppm"
+    --include-root "${SOURCE_DIR}/include"
+    --include-root "${SOURCE_DIR}/tests"
+    --include-root "${SOURCE_DIR}/third_party/include"
+    --include-root "${_hidden_import_dir}"
+    --external-module-source "gentest=include/gentest/gentest.cppm"
+    ${_clang_args}
+  RESULT_VARIABLE _hidden_import_suite_rc
+  OUTPUT_VARIABLE _hidden_import_suite_out
+  ERROR_VARIABLE _hidden_import_suite_err)
+
+if(NOT _hidden_import_suite_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Generic module suite helper mode should discover imports hidden in included fragments.\n"
+    "stdout:\n${_hidden_import_suite_out}\n"
+    "stderr:\n${_hidden_import_suite_err}")
+endif()
+
 set(_gentest_clang_search_paths
   /usr/lib64/llvm22/bin
   /usr/lib64/llvm21/bin

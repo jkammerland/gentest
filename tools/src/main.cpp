@@ -83,6 +83,7 @@ using gentest::codegen::scan::is_preprocessor_directive_scan_line;
 using gentest::codegen::scan::looks_like_import_scan_prefix;
 using gentest::codegen::scan::named_module_name_from_source_file;
 using gentest::codegen::scan::normalize_scan_module_preamble_source;
+using gentest::codegen::scan::parse_include_directive_from_scan_line;
 using gentest::codegen::scan::parse_imported_module_name_from_scan_line;
 using gentest::codegen::scan::parse_include_header_from_scan_line;
 using gentest::codegen::scan::parse_named_module_name_from_scan_line;
@@ -753,11 +754,6 @@ std::vector<std::string> parse_imported_named_modules_from_source(const std::fil
                                                                   std::string_view current_module_name = {},
                                                                   const std::vector<std::filesystem::path> &include_search_paths = {},
                                                                   std::span<const std::string> command_line = {}) {
-    std::ifstream in(path);
-    if (!in) {
-        return {};
-    }
-
     const auto partition_sep = current_module_name.find(':');
     const std::string current_primary_module =
         current_module_name.empty() ? std::string{} : std::string(current_module_name.substr(0, partition_sep));
@@ -765,54 +761,109 @@ std::vector<std::string> parse_imported_named_modules_from_source(const std::fil
     std::vector<std::string> imports;
     std::unordered_set<std::string> seen;
     const bool allow_all_named_imports = known_modules.empty();
-    gentest::codegen::scan::ScanStreamState scan_state;
-    scan_state.source_path = path;
-    scan_state.source_directory = path.parent_path();
-    scan_state.include_search_paths =
-        gentest::codegen::scan::default_scan_include_search_paths(scan_state.source_directory, include_search_paths);
-    populate_scan_macros_from_command_line(scan_state, command_line);
-    std::string line;
-    std::string pending;
-    bool        pending_active = false;
-    while (std::getline(in, line)) {
-        const auto processed = process_scan_physical_line(line, scan_state);
-        if (!processed.is_active_code) {
-            continue;
+
+    auto resolve_scan_include = [&](const std::filesystem::path &including_file,
+                                    const gentest::codegen::scan::ScanIncludeDirective &include) -> std::optional<std::filesystem::path> {
+        if (include.header.empty() || include.angled) {
+            return std::nullopt;
+        }
+        const std::filesystem::path include_path{include.header};
+        std::error_code             ec;
+        const auto local_candidate = (including_file.parent_path() / include_path).lexically_normal();
+        if (std::filesystem::exists(local_candidate, ec)) {
+            return local_candidate;
+        }
+        ec.clear();
+        for (const auto &dir : include_search_paths) {
+            if (dir.empty()) {
+                continue;
+            }
+            const auto candidate = (dir / include_path).lexically_normal();
+            if (std::filesystem::exists(candidate, ec)) {
+                return candidate;
+            }
+            ec.clear();
+        }
+        return std::nullopt;
+    };
+
+    std::unordered_set<std::string> visited_paths;
+    auto scan_file = [&](const auto &self, const std::filesystem::path &scan_path,
+                         const std::unordered_map<std::string, std::string> &inherited_macros) -> void {
+        std::error_code ec;
+        const auto canonical_scan_path = std::filesystem::weakly_canonical(scan_path, ec);
+        const std::string visit_key = ec ? scan_path.lexically_normal().generic_string() : canonical_scan_path.generic_string();
+        if (!visited_paths.insert(visit_key).second) {
+            return;
         }
 
-        for (const auto &statement : split_scan_statements(processed.stripped)) {
-            if (!pending_active) {
-                if (!looks_like_import_scan_prefix(statement)) {
-                    continue;
-                }
-                pending = statement;
-                pending_active = true;
-            } else {
-                pending.push_back(' ');
-                pending.append(statement);
-            }
+        std::ifstream in(scan_path);
+        if (!in) {
+            return;
+        }
 
-            if (statement.find(';') == std::string::npos) {
+        gentest::codegen::scan::ScanStreamState scan_state;
+        scan_state.source_path = scan_path;
+        scan_state.source_directory = scan_path.parent_path();
+        scan_state.include_search_paths =
+            gentest::codegen::scan::default_scan_include_search_paths(scan_state.source_directory, include_search_paths);
+        populate_scan_macros_from_command_line(scan_state, command_line);
+        scan_state.object_like_macros.insert(inherited_macros.begin(), inherited_macros.end());
+
+        std::string line;
+        std::string pending;
+        bool        pending_active = false;
+        while (std::getline(in, line)) {
+            const bool branch_active_before = scan_state.current_branch_active;
+            const auto processed = process_scan_physical_line(line, scan_state);
+            if (processed.is_preprocessor && branch_active_before) {
+                const auto include_directive = parse_include_directive_from_scan_line(line);
+                if (include_directive.has_value()) {
+                    if (const auto resolved = resolve_scan_include(scan_path, *include_directive); resolved.has_value()) {
+                        self(self, *resolved, scan_state.object_like_macros);
+                    }
+                }
+            }
+            if (!processed.is_active_code) {
                 continue;
             }
 
-            auto import_name = parse_imported_module_name_from_scan_line(pending);
-            pending.clear();
-            pending_active = false;
-            if (!import_name.has_value()) {
-                continue;
-            }
-            if (import_name->front() == ':') {
-                if (current_primary_module.empty()) {
+            for (const auto &statement : split_scan_statements(processed.stripped)) {
+                if (!pending_active) {
+                    if (!looks_like_import_scan_prefix(statement)) {
+                        continue;
+                    }
+                    pending = statement;
+                    pending_active = true;
+                } else {
+                    pending.push_back(' ');
+                    pending.append(statement);
+                }
+
+                if (statement.find(';') == std::string::npos) {
                     continue;
                 }
-                *import_name = current_primary_module + *import_name;
-            }
-            if ((allow_all_named_imports || known_modules.contains(*import_name)) && seen.insert(*import_name).second) {
-                imports.push_back(*import_name);
+
+                auto import_name = parse_imported_module_name_from_scan_line(pending);
+                pending.clear();
+                pending_active = false;
+                if (!import_name.has_value()) {
+                    continue;
+                }
+                if (import_name->front() == ':') {
+                    if (current_primary_module.empty()) {
+                        continue;
+                    }
+                    *import_name = current_primary_module + *import_name;
+                }
+                if ((allow_all_named_imports || known_modules.contains(*import_name)) && seen.insert(*import_name).second) {
+                    imports.push_back(*import_name);
+                }
             }
         }
-    }
+    };
+
+    scan_file(scan_file, path, {});
     return imports;
 }
 

@@ -5,6 +5,11 @@ _gentest_warning_copts = select({
     "//conditions:default": ["-Wno-attributes"],
 })
 
+_gentest_fmt_include_dirs = [
+    "external/+http_archive+fmt/include",
+    "external/fmt/include",
+]
+
 _gentest_common_copts = [
     "-std=c++20",
     "-DFMT_HEADER_ONLY",
@@ -23,7 +28,7 @@ _gentest_codegen_common_args = [
     "--clang-arg=-Iinclude",
     "--clang-arg=-Itests",
     "--clang-arg=-Ithird_party/include",
-]
+] + ["--clang-arg=-I{}".format(include_dir) for include_dir in _gentest_fmt_include_dirs]
 
 def _gentest_codegen_support_inputs():
     return native.glob([
@@ -46,11 +51,15 @@ def _gentest_codegen_support_inputs():
 def _gentest_local_name(label_or_name):
     if label_or_name.startswith(":"):
         return label_or_name[1:]
+    if label_or_name.startswith("//:"):
+        return label_or_name[3:]
     return label_or_name
 
 def _gentest_is_local_label(label_or_name):
     if label_or_name.startswith(":"):
         return label_or_name.count(":") == 1 and "/" not in label_or_name[1:]
+    if label_or_name.startswith("//:"):
+        return label_or_name.count(":") == 1 and "/" not in label_or_name[3:]
     return not label_or_name.startswith("//") and not label_or_name.startswith("@") and ":" not in label_or_name and "/" not in label_or_name
 
 def _gentest_codegen_args(extra_args = []):
@@ -557,7 +566,7 @@ def gentest_add_mocks_modules(
     external_module_args_bat = _gentest_external_module_source_args_bat(
         _gentest_default_external_module_sources() + external_module_sources,
     )
-    compdb_base_include_dirs = ["include", "tests", "third_party/include"]
+    compdb_base_include_dirs = ["include", "tests", "third_party/include"] + _gentest_fmt_include_dirs
     gen_srcs = _gentest_unique(defs + [
         "scripts/gentest_buildsystem_codegen.py",
     ] + support_inputs + _gentest_default_external_module_inputs() + _gentest_external_module_source_inputs(external_module_sources))
@@ -726,7 +735,7 @@ def gentest_attach_codegen_modules(
     mock_gen_labels = [":gen_{}".format(mock_name) for mock_name in mock_names]
     mock_metadata_labels = [":{}".format(_gentest_module_metadata_target(mock_name)) for mock_name in mock_names]
     include_roots = _gentest_unique(["include", "tests", "third_party/include"] + source_includes)
-    compdb_base_include_dirs = ["include", "tests", "third_party/include"]
+    compdb_base_include_dirs = ["include", "tests", "third_party/include"] + _gentest_fmt_include_dirs
     include_root_args = " ".join(["--include-root {}".format(include_dir) for include_dir in include_roots])
     external_module_args_unix = _gentest_external_module_source_args_unix(
         _gentest_default_external_module_sources() + external_module_sources,

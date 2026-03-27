@@ -69,6 +69,9 @@ execute_process(
           --action_env=CC=${_clang_cc}
           --action_env=CXX=${_clang_cxx}
           --action_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}
+          --host_action_env=CC=${_clang_cc}
+          --host_action_env=CXX=${_clang_cxx}
+          --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}
           --repo_env=CC=${_clang_cc}
           --repo_env=CXX=${_clang_cxx}
           --repo_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}

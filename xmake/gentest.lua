@@ -441,6 +441,23 @@ local function collect_dep_inputs(deps)
     return dep_targets, include_dirs, metadata_paths
 end
 
+local function collect_target_package_include_dirs(target)
+    local include_dirs = {}
+    local seen_includes = {}
+    if not target or not target.orderpkgs then
+        return include_dirs
+    end
+    for _, pkg in ipairs(target:orderpkgs() or {}) do
+        for _, include_dir in ipairs(pkg:get("sysincludedirs") or {}) do
+            append_unique(include_dirs, seen_includes, include_dir)
+        end
+        for _, include_dir in ipairs(pkg:get("includedirs") or {}) do
+            append_unique(include_dirs, seen_includes, include_dir)
+        end
+    end
+    return include_dirs
+end
+
 local function run_command(batchcmds, program, args)
     if batchcmds then
         batchcmds:vrunv(program, args)
@@ -546,11 +563,11 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, config)
         table.insert(args, "--defs-file")
         table.insert(args, defs_file)
     end
-    if compdb_dir and config.kind ~= "modules" then
+    if compdb_dir then
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
     end
-    append_common_codegen_clang_args(args)
+    append_common_codegen_clang_args(args, config.extra_includes)
     run_command(batchcmds, python_program(), args)
 end
 
@@ -582,7 +599,7 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, config)
         table.insert(args, "--mock-metadata")
         table.insert(args, metadata_path)
     end
-    if compdb_dir and config.kind ~= "modules" then
+    if compdb_dir then
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
     end
@@ -615,6 +632,7 @@ function gentest_add_mocks(opts)
         mock_impl = project_path(mock_impl_h),
         target_id = target_id,
         metadata_output = project_path(metadata_json),
+        extra_includes = {},
     }
     local add_public_files = {}
     local add_private_files = {}
@@ -710,8 +728,9 @@ function gentest_add_mocks(opts)
         write_generated_file(os.mkdir, io.writefile, mock_registry_h, header_placeholder())
         write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
     end)
-    before_buildcmd(function (_, batchcmds)
+    before_buildcmd(function (target, batchcmds)
         local codegen, compdb_dir = ensure_codegen(batchcmds)
+        config.extra_includes = collect_target_package_include_dirs(target)
         run_mock_codegen(batchcmds, codegen, compdb_dir, config)
     end)
 
@@ -795,8 +814,12 @@ function gentest_attach_codegen(opts)
             copy_generated_file(os.mkdir, os.cp, wrapper_cpp, source)
         end
     end)
-    before_buildcmd(function (_, batchcmds)
+    before_buildcmd(function (target, batchcmds)
         local codegen, compdb_dir = ensure_codegen(batchcmds)
+        local package_include_dirs = collect_target_package_include_dirs(target)
+        for _, include_dir in ipairs(package_include_dirs) do
+            append_unique(config.extra_includes, seen_extra_includes, include_dir)
+        end
         run_suite_codegen(batchcmds, codegen, compdb_dir, config)
     end)
 end
