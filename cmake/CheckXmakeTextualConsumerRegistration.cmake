@@ -9,14 +9,14 @@ if(NOT _xmake)
 endif()
 
 set(_gentest_clang_search_paths
+  /usr/bin
+  /bin
   /usr/lib64/llvm22/bin
   /usr/lib64/llvm21/bin
   /usr/lib64/llvm20/bin
   /usr/lib/llvm-22/bin
   /usr/lib/llvm-21/bin
-  /usr/lib/llvm-20/bin
-  /usr/bin
-  /bin)
+  /usr/lib/llvm-20/bin)
 
 find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20
   PATHS ${_gentest_clang_search_paths}
@@ -104,8 +104,33 @@ string(FIND "${_target_out}" "gentest_consumer_textual_mocks_xmake" _dep_pos)
 if(_dep_pos EQUAL -1)
   message(FATAL_ERROR
     "gentest_consumer_textual_xmake should depend on gentest_consumer_textual_mocks_xmake.\n"
-    "xmake target output:\n${_target_out}")
+      "xmake target output:\n${_target_out}")
 endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_textual_mocks_xmake
+  RESULT_VARIABLE _textual_mocks_rc
+  OUTPUT_VARIABLE _textual_mocks_out
+  ERROR_VARIABLE _textual_mocks_err)
+if(NOT _textual_mocks_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake show -t gentest_consumer_textual_mocks_xmake failed for clean textual registration check.\n"
+    "stdout:\n${_textual_mocks_out}\n"
+    "stderr:\n${_textual_mocks_err}")
+endif()
+
+foreach(_expected IN ITEMS
+    "gentest_consumer_mocks.hpp"
+    "header_mock_defs.hpp"
+    "service.hpp")
+  string(FIND "${_textual_mocks_out}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "gentest_consumer_textual_mocks_xmake should expose '${_expected}'.\n"
+      "xmake target output:\n${_textual_mocks_out}")
+  endif()
+endforeach()
 
 string(FIND "${_target_out}" "tu_0000_cases.gentest.cpp" _source_pos)
 if(_source_pos EQUAL -1)

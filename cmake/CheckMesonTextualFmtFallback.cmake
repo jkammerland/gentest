@@ -19,6 +19,8 @@ if(NOT _meson)
   return()
 endif()
 
+find_program(_pkg_config NAMES pkg-config pkgconf)
+
 set(_gentest_clang_search_paths
   /usr/lib64/llvm22/bin
   /usr/lib64/llvm21/bin
@@ -202,3 +204,108 @@ foreach(_expected IN ITEMS
       "stdout:\n${_list_out}")
   endif()
 endforeach()
+
+if(_pkg_config)
+  set(_synthetic_pkgconfig_root "${_scratch_root}/synthetic-pkgconfig")
+  set(_synthetic_fmt_root "${_scratch_root}/synthetic-fmt")
+  set(_synthetic_fmt_include "${_synthetic_fmt_root}/include")
+  set(_synthetic_fmt_flag "-I${_synthetic_fmt_include}")
+  file(MAKE_DIRECTORY "${_synthetic_pkgconfig_root}")
+  file(MAKE_DIRECTORY "${_synthetic_fmt_include}")
+  file(CREATE_LINK "${_fmt_include_root}/fmt" "${_synthetic_fmt_include}/fmt" SYMBOLIC)
+  set(_synthetic_pc_text [=[
+prefix=@PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: fmt
+Description: synthetic fmt pkg-config package for Meson codegen coverage
+Version: 99.0.0
+Cflags: -I${includedir}
+Libs:
+]=])
+  string(REPLACE "@PREFIX@" "${_synthetic_fmt_root}" _synthetic_pc_text "${_synthetic_pc_text}")
+  file(WRITE "${_synthetic_pkgconfig_root}/fmt.pc" "${_synthetic_pc_text}")
+
+  set(_pkgconfig_out_dir "${_scratch_root}/meson-fmt-pkgconfig")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PKG_CONFIG_LIBDIR=${_synthetic_pkgconfig_root}"
+            "PKG_CONFIG_PATH=${_synthetic_pkgconfig_root}"
+            "CMAKE_PREFIX_PATH=${_scratch_root}/empty-cmake-prefix"
+            "CMAKE_SYSTEM_PREFIX_PATH=${_scratch_root}/empty-cmake-prefix"
+            "CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=FALSE"
+            "CMAKE_FIND_USE_PACKAGE_REGISTRY=FALSE"
+            "CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY=TRUE"
+            "CMAKE_DISABLE_FIND_PACKAGE_fmt=TRUE"
+            "TMPDIR=${_scratch_root}/tmp"
+            "CC=${_real_cc}"
+            "CXX=${_real_cxx}"
+            "${_meson}" setup "${_pkgconfig_out_dir}" "${SOURCE_DIR}" "--wipe" "-Dcodegen_path=${_fake_codegen}"
+    RESULT_VARIABLE _pkg_setup_rc
+    OUTPUT_VARIABLE _pkg_setup_out
+    ERROR_VARIABLE _pkg_setup_err)
+  if(NOT _pkg_setup_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Meson setup failed for the pkg-config fmt propagation check.\n"
+      "stdout:\n${_pkg_setup_out}\n"
+      "stderr:\n${_pkg_setup_err}")
+  endif()
+
+  set(_pkg_dependencies_json "${_pkgconfig_out_dir}/meson-info/intro-dependencies.json")
+  if(NOT EXISTS "${_pkg_dependencies_json}")
+    message(FATAL_ERROR
+      "Meson setup did not emit intro-dependencies.json for the pkg-config fmt propagation check: ${_pkg_dependencies_json}")
+  endif()
+  file(READ "${_pkg_dependencies_json}" _pkg_dependencies_content)
+  string(FIND "${_pkg_dependencies_content}" "\"name\": \"fmt\"" _pkg_fmt_dependency_pos)
+  if(_pkg_fmt_dependency_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson should resolve fmt via the synthetic pkg-config package in the pkg-config propagation check.\n"
+      "dependencies:\n${_pkg_dependencies_content}\n"
+      "stdout:\n${_pkg_setup_out}\n"
+      "stderr:\n${_pkg_setup_err}")
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PKG_CONFIG_LIBDIR=${_synthetic_pkgconfig_root}"
+            "PKG_CONFIG_PATH=${_synthetic_pkgconfig_root}"
+            "CMAKE_PREFIX_PATH=${_scratch_root}/empty-cmake-prefix"
+            "CMAKE_SYSTEM_PREFIX_PATH=${_scratch_root}/empty-cmake-prefix"
+            "CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=FALSE"
+            "CMAKE_FIND_USE_PACKAGE_REGISTRY=FALSE"
+            "CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY=TRUE"
+            "CMAKE_DISABLE_FIND_PACKAGE_fmt=TRUE"
+            "TMPDIR=${_scratch_root}/tmp"
+            "CC=${_real_cc}"
+            "CXX=${_real_cxx}"
+            "${_meson}" compile -C "${_pkgconfig_out_dir}" -v gentest_consumer_textual_meson
+    RESULT_VARIABLE _pkg_build_rc
+    OUTPUT_VARIABLE _pkg_build_out
+    ERROR_VARIABLE _pkg_build_err)
+  if(NOT _pkg_build_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Meson compile failed for the pkg-config fmt propagation check.\n"
+      "stdout:\n${_pkg_build_out}\n"
+      "stderr:\n${_pkg_build_err}")
+  endif()
+
+  set(_pkg_build_log "${_pkg_build_out}\n${_pkg_build_err}")
+  string(FIND "${_pkg_build_log}" "${_synthetic_fmt_flag}" _synthetic_fmt_flag_pos)
+  if(_synthetic_fmt_flag_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson compile did not forward the synthetic pkg-config fmt include root '${_synthetic_fmt_flag}' into codegen.\n"
+      "stdout:\n${_pkg_build_out}\n"
+      "stderr:\n${_pkg_build_err}")
+  endif()
+
+  string(FIND "${_pkg_build_log}" "${_fallback_include_flag}" _pkg_fallback_include_pos)
+  if(NOT _pkg_fallback_include_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson compile unexpectedly used the adjacent fmt fallback include root '${_fallback_include_flag}' during the pkg-config propagation check.\n"
+      "stdout:\n${_pkg_build_out}\n"
+      "stderr:\n${_pkg_build_err}")
+  endif()
+endif()

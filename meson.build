@@ -8,13 +8,13 @@ inc = include_directories('include', 'tests', 'third_party/include')
 build_inc = include_directories('.')
 
 # Resolve the repo-local codegen path early so non-CMake backends can also reuse
-# the adjacent CMake-fetched fmt headers when no system fmt dependency is found.
+# the generator binary from a nearby host build.
 codegen_opt = get_option('codegen_path')
 if codegen_opt == ''
   if host_machine.system() == 'windows'
-    codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen.exe')
+    codegen_opt = join_paths(meson.project_source_root(), 'build', 'host-codegen', 'tools', 'gentest_codegen.exe')
   else
-    codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen')
+    codegen_opt = join_paths(meson.project_source_root(), 'build', 'host-codegen', 'tools', 'gentest_codegen')
   endif
 elif not fs.is_absolute(codegen_opt)
   codegen_opt = join_paths(meson.project_source_root(), codegen_opt)
@@ -22,6 +22,16 @@ endif
 codegen = codegen_opt
 
 fmt_dep = dependency('fmt', required: false, method: 'pkg-config')
+pkg_config = find_program('pkg-config', 'pkgconf', required: false)
+fmt_pkgconfig_include_dirs = []
+if fmt_dep.found() and pkg_config.found()
+  fmt_pkgconfig_cflags_cmd = run_command(pkg_config, '--cflags-only-I', 'fmt', check: true)
+  foreach arg : fmt_pkgconfig_cflags_cmd.stdout().strip().split()
+    if arg.startswith('-I')
+      fmt_pkgconfig_include_dirs += [arg.substring(2)]
+    endif
+  endforeach
+endif
 fmt_fallback_include_cmd = run_command(
   py,
   '-c',
@@ -94,7 +104,7 @@ libgentest_main = static_library(
 # Helper to attach code generation via an external generator binary.
 # Configure the generator path via the Meson option `-Dcodegen_path=...`.
 # Example:
-#   meson setup build/meson -Dcodegen_path=build/debug-system/tools/gentest_codegen
+#   meson setup build/meson -Dcodegen_path=build/host-codegen/tools/gentest_codegen
 #   meson compile -C build/meson
 
 clang_args = [
@@ -108,6 +118,9 @@ clang_args = [
   '-I@0@'.format(join_paths(meson.project_source_root(), 'tests')),
   '-I@0@'.format(join_paths(meson.project_source_root(), 'third_party', 'include')),
 ]
+foreach fmt_include_dir : fmt_pkgconfig_include_dirs
+  clang_args += ['-I@0@'.format(fmt_include_dir)]
+endforeach
 if use_fmt_fallback
   clang_args += ['-I@0@'.format(fmt_fallback_include_dir)]
 endif

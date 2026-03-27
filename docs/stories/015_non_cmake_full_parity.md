@@ -222,7 +222,7 @@ Open work:
 - generate a textual public header surface only
 - prove the repo-local integrations can consume the generated textual surface
   without any public third linking step
-- add docs and regression checks per backend
+- add docs and regression checks for each backend's supported surface
 - then harden those slices toward reusable helper/public-API form
 
 Current status:
@@ -245,7 +245,8 @@ Remaining work:
 - turn the supported repo-local paths into a downstream contract
 - keep Meson in explicit fail-fast mode unless its module backend becomes
   reliable enough to justify a real checked-in path
-- add workflow coverage for at least one supported module lane per backend
+- add workflow coverage for at least one supported module lane for each backend
+  that intentionally supports modules
 
 ### Phase 4: explicit module mocks
 

@@ -1046,6 +1046,9 @@ function gentest_add_mocks(opts)
     if public_module then
         add_files(public_module, {public = true, always_added = true})
     end
+    if public_header then
+        add_headerfiles(public_header, {public = true})
+    end
     if opts.headerfiles and #opts.headerfiles > 0 then
         add_headerfiles(table.unpack(opts.headerfiles))
     else

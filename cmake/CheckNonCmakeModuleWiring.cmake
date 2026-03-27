@@ -7,13 +7,15 @@ set(_xmake_file "${SOURCE_DIR}/xmake.lua")
 set(_xmake_helper_file "${SOURCE_DIR}/xmake/gentest.lua")
 set(_bazel_rules_file "${SOURCE_DIR}/build_defs/gentest.bzl")
 set(_bazel_root_file "${SOURCE_DIR}/BUILD.bazel")
+set(_bazel_module_file "${SOURCE_DIR}/MODULE.bazel")
 
 foreach(_required IN ITEMS
     "${_meson_file}"
     "${_xmake_file}"
     "${_xmake_helper_file}"
     "${_bazel_rules_file}"
-    "${_bazel_root_file}")
+    "${_bazel_root_file}"
+    "${_bazel_module_file}")
   if(NOT EXISTS "${_required}")
     message(FATAL_ERROR "Missing non-CMake module wiring file: ${_required}")
   endif()
@@ -79,5 +81,18 @@ foreach(_expected IN ITEMS
   string(FIND "${_bazel_root_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "BUILD.bazel is missing repo-local module wiring token: ${_expected}")
+  endif()
+endforeach()
+
+file(READ "${_bazel_module_file}" _bazel_module_content)
+foreach(_expected IN ITEMS
+    "module(name = \"gentest\""
+    "bazel_dep(name = \"rules_cc\""
+    "bazel_dep(name = \"rules_shell\""
+    "http_archive("
+    "name = \"fmt\"")
+  string(FIND "${_bazel_module_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "MODULE.bazel is missing repo-local module wiring token: ${_expected}")
   endif()
 endforeach()

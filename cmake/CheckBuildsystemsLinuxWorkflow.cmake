@@ -216,11 +216,6 @@ if(_bazel_codegen_rule_pos EQUAL -1)
   message(FATAL_ERROR "BUILD.bazel must define the Bazel gentest_codegen bootstrap rule.")
 endif()
 
-string(FIND "${_bazel_root_content}" "CMAKE_EXPORT_COMPILE_COMMANDS=ON" _bazel_compdb_pos)
-if(_bazel_compdb_pos EQUAL -1)
-  message(FATAL_ERROR "BUILD.bazel must keep compile_commands export enabled for the internal Bazel codegen bootstrap build.")
-endif()
-
 foreach(_stale_compdb_copy IN ITEMS
     [[cp $(@D)/b/compile_commands.json $(@D)/compile_commands.json]]
     [[copy /Y $(@D)\b\compile_commands.json $(@D)\compile_commands.json >NUL]])

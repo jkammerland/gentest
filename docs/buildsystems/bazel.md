@@ -138,7 +138,7 @@ bazelisk test \
 Textual consumer:
 
 ```bash
-clang_candidates=(
+clang_cxx_candidates=(
   /usr/lib64/llvm22/bin/clang++
   /usr/lib64/llvm21/bin/clang++
   /usr/lib64/llvm20/bin/clang++
@@ -146,15 +146,34 @@ clang_candidates=(
   /usr/lib/llvm-21/bin/clang++
   /usr/lib/llvm-20/bin/clang++
 )
-for clang_cxx in "${clang_candidates[@]}"; do
+for clang_cxx in "${clang_cxx_candidates[@]}"; do
   if [ -x "${clang_cxx}" ]; then
     break
   fi
 done
 if [ ! -x "${clang_cxx}" ]; then
-  clang_cxx="$(command -v clang++ || command -v clang)"
+  clang_cxx="$(command -v clang++)"
 fi
-clang_cc="${clang_cxx%++}"
+clang_cc_candidates=(
+  /usr/lib64/llvm22/bin/clang
+  /usr/lib64/llvm21/bin/clang
+  /usr/lib64/llvm20/bin/clang
+  /usr/lib/llvm-22/bin/clang
+  /usr/lib/llvm-21/bin/clang
+  /usr/lib/llvm-20/bin/clang
+)
+for clang_cc in "${clang_cc_candidates[@]}"; do
+  if [ -x "${clang_cc}" ]; then
+    break
+  fi
+done
+if [ ! -x "${clang_cc}" ]; then
+  clang_cc="$(command -v clang)"
+fi
+if [ ! -x "${clang_cxx}" ] || [ ! -x "${clang_cc}" ]; then
+  echo "clang/clang++ not found" >&2
+  exit 1
+fi
 clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
 
 CC="${clang_cc}" \
@@ -183,7 +202,7 @@ bazelisk build \
 Module consumer:
 
 ```bash
-clang_candidates=(
+clang_cxx_candidates=(
   /usr/lib64/llvm22/bin/clang++
   /usr/lib64/llvm21/bin/clang++
   /usr/lib64/llvm20/bin/clang++
@@ -191,15 +210,34 @@ clang_candidates=(
   /usr/lib/llvm-21/bin/clang++
   /usr/lib/llvm-20/bin/clang++
 )
-for clang_cxx in "${clang_candidates[@]}"; do
+for clang_cxx in "${clang_cxx_candidates[@]}"; do
   if [ -x "${clang_cxx}" ]; then
     break
   fi
 done
 if [ ! -x "${clang_cxx}" ]; then
-  clang_cxx="$(command -v clang++ || command -v clang)"
+  clang_cxx="$(command -v clang++)"
 fi
-clang_cc="${clang_cxx%++}"
+clang_cc_candidates=(
+  /usr/lib64/llvm22/bin/clang
+  /usr/lib64/llvm21/bin/clang
+  /usr/lib64/llvm20/bin/clang
+  /usr/lib/llvm-22/bin/clang
+  /usr/lib/llvm-21/bin/clang
+  /usr/lib/llvm-20/bin/clang
+)
+for clang_cc in "${clang_cc_candidates[@]}"; do
+  if [ -x "${clang_cc}" ]; then
+    break
+  fi
+done
+if [ ! -x "${clang_cc}" ]; then
+  clang_cc="$(command -v clang)"
+fi
+if [ ! -x "${clang_cxx}" ] || [ ! -x "${clang_cc}" ]; then
+  echo "clang/clang++ not found" >&2
+  exit 1
+fi
 clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
 
 CC="${clang_cc}" \
