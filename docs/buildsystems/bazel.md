@@ -121,31 +121,88 @@ bazelisk test \
 Textual consumer:
 
 ```bash
-bazelisk build //:gentest_consumer_textual_bazel
-./bazel-bin/gentest_consumer_textual_bazel
+clang_candidates=(
+  /usr/lib64/llvm22/bin/clang++
+  /usr/lib64/llvm21/bin/clang++
+  /usr/lib64/llvm20/bin/clang++
+  /usr/lib/llvm-22/bin/clang++
+  /usr/lib/llvm-21/bin/clang++
+  /usr/lib/llvm-20/bin/clang++
+)
+for clang_cxx in "${clang_candidates[@]}"; do
+  if [ -x "${clang_cxx}" ]; then
+    break
+  fi
+done
+clang_cc="${clang_cxx%++}"
+clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
+
+CC="${clang_cc}" \
+CXX="${clang_cxx}" \
+GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+bazelisk build \
+  //:gentest_consumer_textual_bazel \
+  --spawn_strategy=local \
+  --strategy=CppCompile=local \
+  --action_env=CCACHE_DISABLE=1 \
+  --host_action_env=CCACHE_DISABLE=1 \
+  --action_env=CC="${clang_cc}" \
+  --action_env=CXX="${clang_cxx}" \
+  --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+  --host_action_env=CC="${clang_cc}" \
+  --host_action_env=CXX="${clang_cxx}" \
+  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+  --repo_env=CC="${clang_cc}" \
+  --repo_env=CXX="${clang_cxx}" \
+  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
+
+./bazel-bin/gentest_consumer_textual_bazel --list
+./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test
+./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench
+./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter
 ```
 
 Module consumer:
 
 ```bash
-clang_resource_dir="$(clang++ -print-resource-dir)"
+clang_candidates=(
+  /usr/lib64/llvm22/bin/clang++
+  /usr/lib64/llvm21/bin/clang++
+  /usr/lib64/llvm20/bin/clang++
+  /usr/lib/llvm-22/bin/clang++
+  /usr/lib/llvm-21/bin/clang++
+  /usr/lib/llvm-20/bin/clang++
+)
+for clang_cxx in "${clang_candidates[@]}"; do
+  if [ -x "${clang_cxx}" ]; then
+    break
+  fi
+done
+clang_cc="${clang_cxx%++}"
+clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
 
-CC="$(command -v clang)" \
-CXX="$(command -v clang++)" \
+CC="${clang_cc}" \
+CXX="${clang_cxx}" \
 GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
 bazelisk build \
   //:gentest_consumer_module_bazel \
   --experimental_cpp_modules \
   --action_env=CCACHE_DISABLE=1 \
   --host_action_env=CCACHE_DISABLE=1 \
-  --action_env=CC="$(command -v clang)" \
-  --action_env=CXX="$(command -v clang++)" \
+  --action_env=CC="${clang_cc}" \
+  --action_env=CXX="${clang_cxx}" \
   --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-  --repo_env=CC="$(command -v clang)" \
-  --repo_env=CXX="$(command -v clang++)" \
+  --host_action_env=CC="${clang_cc}" \
+  --host_action_env=CXX="${clang_cxx}" \
+  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+  --repo_env=CC="${clang_cc}" \
+  --repo_env=CXX="${clang_cxx}" \
   --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
 
 ./bazel-bin/gentest_consumer_module_bazel --list
+./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test
+./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench
+./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter
 ```
 
 In practice, the repo-local Bazel module path is still toolchain-sensitive.
@@ -157,7 +214,7 @@ The checked-in Linux workflow validates:
 - classic suites
 - the textual Bazel consumer
 - the module Bazel consumer under the explicit Clang + `--experimental_cpp_modules`
-  contract
+  contract, including mock/bench/jitter execution
 
 For local module runs, keep the same constraints:
 

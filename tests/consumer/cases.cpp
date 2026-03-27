@@ -1,6 +1,6 @@
 #include "gentest/attributes.h"
 #include "gentest/bench_util.h"
-#include "public/gentest_consumer_mocks.hpp"
+#include "gentest_consumer_mocks.hpp"
 
 using namespace gentest::asserts;
 

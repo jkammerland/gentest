@@ -651,7 +651,6 @@ function gentest_add_mocks(opts)
     local add_public_files = {}
     local add_private_files = {}
     local include_dirs = {out_dir_abs}
-    local public_surface = nil
     local defs_cpp = nil
     local codegen_h = nil
     local public_header = nil
@@ -665,7 +664,6 @@ function gentest_add_mocks(opts)
         config.header_output = project_path(codegen_h)
         config.public_header = project_path(public_header)
         add_private_files = {defs_cpp, anchor_cpp}
-        public_surface = {type = "header", path = project_path(public_header)}
     else
         local module_name = require_opt(opts, "module_name", "gentest_add_mocks")
         config.module_name = module_name
@@ -677,7 +675,6 @@ function gentest_add_mocks(opts)
         end
         public_module = module_public_output_rel(output_dir, module_name)
         table.insert(add_private_files, anchor_cpp)
-        public_surface = {type = "module", module_name = module_name, path = project_path(public_module)}
     end
     for _, defs_file in ipairs(defs) do
         table.insert(config.defs, project_path(defs_file))
@@ -753,9 +750,6 @@ function gentest_add_mocks(opts)
         include_dir = out_dir_abs,
         include_dirs = include_dirs,
         metadata_path = config.metadata_output,
-        public_header = kind == "textual" and public_surface.path or nil,
-        public_module = kind == "modules" and public_surface.path or nil,
-        module_name = kind == "modules" and public_surface.module_name or nil,
     }
 end
 

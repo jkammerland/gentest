@@ -1,10 +1,10 @@
 if(NOT DEFINED SOURCE_DIR)
-  message(FATAL_ERROR "CheckBazelModuleConsumer.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckBazelTextualConsumer.cmake: SOURCE_DIR not set")
 endif()
 
 find_program(_bazel NAMES bazelisk bazel)
 if(NOT _bazel)
-  message(STATUS "bazel/bazelisk not found; skipping Bazel module consumer smoke check.")
+  message(STATUS "bazel/bazelisk not found; skipping Bazel textual consumer smoke check.")
   return()
 endif()
 
@@ -25,7 +25,7 @@ if(NOT _clang_cxx)
   find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20)
 endif()
 if(NOT _clang_cxx)
-  message(STATUS "clang++ not found; skipping Bazel module consumer smoke check.")
+  message(STATUS "clang++ not found; skipping Bazel textual consumer smoke check.")
   return()
 endif()
 
@@ -36,7 +36,7 @@ if(NOT _clang_cc)
   find_program(_clang_cc NAMES clang clang-22 clang-21 clang-20)
 endif()
 if(NOT _clang_cc)
-  message(STATUS "clang not found; skipping Bazel module consumer smoke check.")
+  message(STATUS "clang not found; skipping Bazel textual consumer smoke check.")
   return()
 endif()
 
@@ -48,7 +48,7 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE)
 if(NOT _resource_rc EQUAL 0 OR _resource_out STREQUAL "")
   message(FATAL_ERROR
-    "Failed to query clang resource dir for the Bazel module consumer smoke check.\n"
+    "Failed to query clang resource dir for the Bazel textual consumer smoke check.\n"
     "stdout:\n${_resource_out}\n"
     "stderr:\n${_resource_err}")
 endif()
@@ -61,7 +61,6 @@ execute_process(
           "CXX=${_clang_cxx}"
           "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
           "${_bazel}" build
-          --experimental_cpp_modules
           --spawn_strategy=local
           --strategy=CppCompile=local
           --action_env=CCACHE_DISABLE=1
@@ -75,27 +74,27 @@ execute_process(
           --repo_env=CC=${_clang_cc}
           --repo_env=CXX=${_clang_cxx}
           --repo_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}
-          //:gentest_consumer_module_bazel
+          //:gentest_consumer_textual_bazel
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _build_rc
   OUTPUT_VARIABLE _build_out
   ERROR_VARIABLE _build_err)
 if(NOT _build_rc EQUAL 0)
   message(FATAL_ERROR
-    "Bazel build failed for gentest_consumer_module_bazel.\n"
+    "Bazel build failed for gentest_consumer_textual_bazel.\n"
     "stdout:\n${_build_out}\n"
     "stderr:\n${_build_err}")
 endif()
 
 execute_process(
-  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --list
+  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_textual_bazel" --list
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _list_rc
   OUTPUT_VARIABLE _list_out
   ERROR_VARIABLE _list_err)
 if(NOT _list_rc EQUAL 0)
   message(FATAL_ERROR
-    "Running the Bazel module consumer listing failed.\n"
+    "Running the Bazel textual consumer listing failed.\n"
     "stdout:\n${_list_out}\n"
     "stderr:\n${_list_err}")
 endif()
@@ -108,46 +107,46 @@ foreach(_expected IN ITEMS
   string(FIND "${_list_out}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR
-      "The Bazel module consumer listing is missing '${_expected}'.\n"
+      "The Bazel textual consumer listing is missing '${_expected}'.\n"
       "stdout:\n${_list_out}")
   endif()
 endforeach()
 
 execute_process(
-  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --run=consumer/consumer/module_mock --kind=test
+  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_textual_bazel" --run=consumer/consumer/module_mock --kind=test
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _test_rc
   OUTPUT_VARIABLE _test_out
   ERROR_VARIABLE _test_err)
 if(NOT _test_rc EQUAL 0)
   message(FATAL_ERROR
-    "Running the Bazel module consumer mock case failed.\n"
+    "Running the Bazel textual consumer mock case failed.\n"
     "stdout:\n${_test_out}\n"
     "stderr:\n${_test_err}")
 endif()
 
 execute_process(
-  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --run=consumer/consumer/module_bench --kind=bench
+  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_textual_bazel" --run=consumer/consumer/module_bench --kind=bench
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _bench_rc
   OUTPUT_VARIABLE _bench_out
   ERROR_VARIABLE _bench_err)
 if(NOT _bench_rc EQUAL 0)
   message(FATAL_ERROR
-    "Running the Bazel module consumer bench failed.\n"
+    "Running the Bazel textual consumer bench failed.\n"
     "stdout:\n${_bench_out}\n"
     "stderr:\n${_bench_err}")
 endif()
 
 execute_process(
-  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --run=consumer/consumer/module_jitter --kind=jitter
+  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_textual_bazel" --run=consumer/consumer/module_jitter --kind=jitter
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _jitter_rc
   OUTPUT_VARIABLE _jitter_out
   ERROR_VARIABLE _jitter_err)
 if(NOT _jitter_rc EQUAL 0)
   message(FATAL_ERROR
-    "Running the Bazel module consumer jitter case failed.\n"
+    "Running the Bazel textual consumer jitter case failed.\n"
     "stdout:\n${_jitter_out}\n"
     "stderr:\n${_jitter_err}")
 endif()

@@ -24,7 +24,6 @@ file(MAKE_DIRECTORY "${_tmp_dir}/tests")
 file(MAKE_DIRECTORY "${_tmp_dir}/include")
 file(MAKE_DIRECTORY "${_tmp_dir}/src")
 file(COPY "${SOURCE_DIR}/tests/consumer" DESTINATION "${_tmp_dir}/tests")
-file(COPY "${SOURCE_DIR}/tests/buildsystems" DESTINATION "${_tmp_dir}/tests")
 file(COPY "${SOURCE_DIR}/include/gentest" DESTINATION "${_tmp_dir}/include")
 file(COPY_FILE "${SOURCE_DIR}/src/gentest_main.cpp" "${_tmp_dir}/src/gentest_main.cpp")
 
@@ -70,6 +69,13 @@ string(FIND "${_target_out}" "gentest_consumer_textual_mocks_xmake" _dep_pos)
 if(_dep_pos EQUAL -1)
   message(FATAL_ERROR
     "gentest_consumer_textual_xmake should depend on gentest_consumer_textual_mocks_xmake.\n"
+    "xmake target output:\n${_target_out}")
+endif()
+
+string(FIND "${_target_out}" "tu_0000_cases.gentest.cpp" _source_pos)
+if(_source_pos EQUAL -1)
+  message(FATAL_ERROR
+    "gentest_consumer_textual_xmake should generate the shared consumer wrapper for cases.cpp.\n"
     "xmake target output:\n${_target_out}")
 endif()
 

@@ -76,5 +76,8 @@ The textual consumer also writes:
 - Repo-local only. There is no packaged Meson integration yet.
 - There is no reusable Meson helper API for external/downstream projects yet.
 - Meson named-module support is intentionally unsupported for now.
+- The current repo-local Meson path still snapshots support headers/fragments at
+  configure time. If you add new included support files, rerun
+  `meson setup --reconfigure ...` before compiling again.
 - The helper still fails fast for `--backend meson --kind modules`; that is the
   supported boundary until Meson module behavior is reliable enough to promote.

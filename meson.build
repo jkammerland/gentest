@@ -160,9 +160,9 @@ consumer_mock_public_h = 'gentest_consumer_mocks.hpp'
 consumer_mocks = custom_target(
   'gen_consumer_textual_mocks',
   output: [
+    consumer_mock_codegen_h,
     consumer_mock_defs_cpp,
     consumer_mock_anchor_cpp,
-    consumer_mock_codegen_h,
     consumer_mock_registry_h,
     consumer_mock_impl_h,
     consumer_mock_domain_registry_h,
@@ -172,7 +172,6 @@ consumer_mocks = custom_target(
   ],
   input: [
     'tests/consumer/header_mock_defs.hpp',
-    'tests/consumer/service.hpp',
     buildsystem_codegen,
   ] + support_inputs,
   command: [
@@ -203,7 +202,7 @@ consumer_mocks = custom_target(
 
 consumer_mock_lib = static_library(
   'gentest_consumer_textual_mocks_meson',
-  [consumer_mocks[0], consumer_mocks[1]],
+  [consumer_mocks[1], consumer_mocks[2]],
   include_directories: [inc, build_inc],
   cpp_args: runtime_cargs,
   dependencies: runtime_deps,
@@ -216,7 +215,7 @@ consumer_clang_arg_flags = clang_arg_flags + ['--clang-arg=-I@0@'.format(consume
 consumer_codegen = custom_target(
   'gen_consumer_textual_cases',
   output: [consumer_wrapper_cpp, consumer_wrapper_h],
-  input: ['tests/buildsystems/consumer_textual_cases.cpp', buildsystem_codegen, consumer_mocks] + support_inputs,
+  input: ['tests/consumer/cases.cpp', buildsystem_codegen, consumer_mocks] + support_inputs,
   command: [
     py,
     buildsystem_codegen,

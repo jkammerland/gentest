@@ -2200,9 +2200,21 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_xmake_textual_consumer
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeTextualConsumer.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_xmake_module_consumer
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeModuleConsumer.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_bazel_textual_consumer
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBazelTextualConsumer.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(

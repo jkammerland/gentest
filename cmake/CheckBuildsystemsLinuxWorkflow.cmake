@@ -39,6 +39,11 @@ if(_bazel_consumer_textual_pos EQUAL -1)
   message(FATAL_ERROR "buildsystems_linux workflow must validate the Bazel textual explicit-mock consumer slice.")
 endif()
 
+string(FIND "${_content}" "./bazel-bin/gentest_consumer_textual_bazel --list" _bazel_textual_list_pos)
+if(_bazel_textual_list_pos EQUAL -1)
+  message(FATAL_ERROR "buildsystems_linux workflow must run the Bazel textual consumer listing after building it.")
+endif()
+
 string(FIND "${_content}" "gentest_consumer_module_bazel" _bazel_consumer_module_pos)
 if(_bazel_consumer_module_pos EQUAL -1)
   message(FATAL_ERROR "buildsystems_linux workflow must validate the Bazel module consumer slice.")
@@ -54,6 +59,19 @@ if(_bazel_module_list_pos EQUAL -1)
   message(FATAL_ERROR "buildsystems_linux workflow must run the Bazel module consumer listing after building it.")
 endif()
 
+foreach(_consumer_run IN ITEMS
+    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test"
+    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench"
+    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter"
+    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test"
+    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench"
+    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter")
+  string(FIND "${_content}" "${_consumer_run}" _consumer_run_pos)
+  if(_consumer_run_pos EQUAL -1)
+    message(FATAL_ERROR "buildsystems_linux workflow must execute '${_consumer_run}'.")
+  endif()
+endforeach()
+
 string(FIND "${_content}" "GENTEST_CODEGEN_RESOURCE_DIR" _bazel_resource_dir_pos)
 if(_bazel_resource_dir_pos EQUAL -1)
   message(FATAL_ERROR "buildsystems_linux workflow must wire the explicit Clang resource dir into the Bazel module consumer lane.")
@@ -68,6 +86,26 @@ string(FIND "${_content}" "gentest_consumer_module_xmake" _xmake_consumer_module
 if(_xmake_consumer_module_pos EQUAL -1)
   message(FATAL_ERROR "buildsystems_linux workflow must validate the Xmake module consumer slice.")
 endif()
+
+foreach(_xmake_binary_var IN ITEMS "consumer_textual_bin" "consumer_module_bin")
+  string(FIND "${_content}" "${_xmake_binary_var}=\"$(find " _xmake_binary_pos)
+  if(_xmake_binary_pos EQUAL -1)
+    message(FATAL_ERROR "buildsystems_linux workflow must resolve ${_xmake_binary_var} before executing the Xmake consumer binaries.")
+  endif()
+endforeach()
+
+foreach(_literal IN ITEMS
+    [[consumer_textual_bin]]
+    [[consumer_module_bin]]
+    [[--list]]
+    [[--run=consumer/consumer/module_mock --kind=test]]
+    [[--run=consumer/consumer/module_bench --kind=bench]]
+    [[--run=consumer/consumer/module_jitter --kind=jitter]])
+  string(FIND "${_content}" "${_literal}" _literal_pos)
+  if(_literal_pos EQUAL -1)
+    message(FATAL_ERROR "buildsystems_linux workflow must contain '${_literal}' for the Xmake consumer execution path.")
+  endif()
+endforeach()
 
 string(FIND "${_content}" "/home/ci/.local/bin/xmake f -c -m release" _hardcoded_build_pos)
 if(NOT _hardcoded_build_pos EQUAL -1)

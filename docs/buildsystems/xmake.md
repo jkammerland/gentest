@@ -58,6 +58,7 @@ The checked-in [`xmake.lua`](../../xmake.lua) wires:
   - `gentest_consumer_module_xmake`
 
 The module slice uses the actual helper API, not a hard-coded one-off path.
+The validated checked-in path uses Clang toolchains, including on Windows.
 
 ## Module example
 
@@ -101,12 +102,26 @@ cmake --build --preset=host-codegen --parallel
 export GENTEST_CODEGEN="$PWD/build/host-codegen/tools/gentest_codegen"
 xmake f -c -y -m release -o build/xmake
 xmake b -a -y
-xmake r -y gentest_consumer_textual_xmake
-xmake r -y gentest_consumer_module_xmake
 ```
 
 If `GENTEST_CODEGEN` is not set, the helper falls back to a repo-local CMake
 bootstrap under `build/xmake-codegen/<host>/<arch>`.
+
+For fuller consumer validation, run the built binaries directly and exercise the
+mock/bench/jitter surface:
+
+```bash
+consumer_textual_bin="$(find build/xmake -type f -name 'gentest_consumer_textual_xmake' | head -n 1)"
+consumer_module_bin="$(find build/xmake -type f -name 'gentest_consumer_module_xmake' | head -n 1)"
+
+"${consumer_textual_bin}" --run=consumer/consumer/module_mock --kind=test
+"${consumer_textual_bin}" --run=consumer/consumer/module_bench --kind=bench
+"${consumer_textual_bin}" --run=consumer/consumer/module_jitter --kind=jitter
+
+"${consumer_module_bin}" --run=consumer/consumer/module_mock --kind=test
+"${consumer_module_bin}" --run=consumer/consumer/module_bench --kind=bench
+"${consumer_module_bin}" --run=consumer/consumer/module_jitter --kind=jitter
+```
 
 ## Generated outputs
 

@@ -59,7 +59,7 @@ else()
         DEFS
             ${CMAKE_CURRENT_SOURCE_DIR}/header_mock_defs.hpp
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
-        HEADER_NAME public/gentest_consumer_mocks.hpp)
+        HEADER_NAME gentest_consumer_mocks.hpp)
     target_sources(gentest_consumer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp)
     gentest_link_mocks(gentest_consumer PRIVATE gentest_consumer_explicit_mocks)
 endif()

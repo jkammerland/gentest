@@ -11,20 +11,24 @@ endif()
 
 file(MAKE_DIRECTORY "${BUILD_ROOT}")
 
+set(_suite_out_dir "${BUILD_ROOT}/meson_suite_modules")
+set(_suite_wrapper "${_suite_out_dir}/shim.cpp")
+set(_suite_header "${_suite_out_dir}/shim.h")
+file(REMOVE_RECURSE "${_suite_out_dir}")
+
 set(_common_args
   --backend meson
   --kind modules
   --codegen "${PROG}"
   --source-root "${SOURCE_DIR}"
-  --out-dir "${BUILD_ROOT}"
-  --wrapper-output "${BUILD_ROOT}/shim.cpp"
-  --header-output "${BUILD_ROOT}/shim.h")
+  --out-dir "${_suite_out_dir}"
+  --wrapper-output "${_suite_wrapper}"
+  --header-output "${_suite_header}")
 
 execute_process(
   COMMAND "${Python3_EXECUTABLE}" "${_helper}"
     --mode suite
     ${_common_args}
-    --source-file "${SOURCE_DIR}/tests/unit/cases.cpp"
   RESULT_VARIABLE _suite_rc
   OUTPUT_VARIABLE _suite_out
   ERROR_VARIABLE _suite_err)
@@ -38,14 +42,41 @@ if(_suite_msg_pos EQUAL -1)
   message(FATAL_ERROR "Meson module suite helper mode should explain the explicit unsupported state.\nSTDERR:\n${_suite_err}")
 endif()
 
+foreach(_unexpected IN ITEMS
+    "${_suite_out_dir}"
+    "${_suite_wrapper}"
+    "${_suite_header}")
+  if(EXISTS "${_unexpected}")
+    message(FATAL_ERROR "Meson module suite helper mode must fail fast without creating generated state: ${_unexpected}")
+  endif()
+endforeach()
+
+set(_mocks_out_dir "${BUILD_ROOT}/meson_mocks_modules")
+set(_mocks_wrapper "${_mocks_out_dir}/shim.cpp")
+set(_mocks_header "${_mocks_out_dir}/shim.h")
+set(_mocks_public "${_mocks_out_dir}/public.hpp")
+set(_mocks_anchor "${_mocks_out_dir}/anchor.cpp")
+set(_mocks_registry "${_mocks_out_dir}/mock_registry.hpp")
+set(_mocks_impl "${_mocks_out_dir}/mock_impl.hpp")
+set(_mocks_metadata "${_mocks_out_dir}/mock_metadata.json")
+file(REMOVE_RECURSE "${_mocks_out_dir}")
+
 execute_process(
   COMMAND "${Python3_EXECUTABLE}" "${_helper}"
     --mode mocks
-    ${_common_args}
-    --public-header "${BUILD_ROOT}/public.hpp"
-    --anchor-output "${BUILD_ROOT}/anchor.cpp"
-    --mock-registry "${BUILD_ROOT}/mock_registry.hpp"
-    --mock-impl "${BUILD_ROOT}/mock_impl.hpp"
+    --backend meson
+    --kind modules
+    --codegen "${PROG}"
+    --source-root "${SOURCE_DIR}"
+    --out-dir "${_mocks_out_dir}"
+    --wrapper-output "${_mocks_wrapper}"
+    --header-output "${_mocks_header}"
+    --public-header "${_mocks_public}"
+    --anchor-output "${_mocks_anchor}"
+    --mock-registry "${_mocks_registry}"
+    --mock-impl "${_mocks_impl}"
+    --module-name gentest.consumer_mocks
+    --metadata-output "${_mocks_metadata}"
     --target-id demo_mocks
     --defs-file "${SOURCE_DIR}/tests/consumer/module_mock_defs.cppm"
   RESULT_VARIABLE _mocks_rc
@@ -60,6 +91,20 @@ string(FIND "${_mocks_err}" "Meson add_mocks(kind=modules) is intentionally unsu
 if(_mocks_msg_pos EQUAL -1)
   message(FATAL_ERROR "Meson module mock helper mode should explain the explicit unsupported state.\nSTDERR:\n${_mocks_err}")
 endif()
+
+foreach(_unexpected IN ITEMS
+    "${_mocks_out_dir}"
+    "${_mocks_wrapper}"
+    "${_mocks_header}"
+    "${_mocks_public}"
+    "${_mocks_anchor}"
+    "${_mocks_registry}"
+    "${_mocks_impl}"
+    "${_mocks_metadata}")
+  if(EXISTS "${_unexpected}")
+    message(FATAL_ERROR "Meson module mock helper mode must fail fast without creating generated state: ${_unexpected}")
+  endif()
+endforeach()
 
 if(NOT EXISTS "${PROG}")
   message(FATAL_ERROR "gentest_codegen executable not found: ${PROG}")

@@ -670,18 +670,43 @@ def build_codegen_command(
     return command
 
 
+def sanitize_depfile(depfile: str, generated_outputs: list[pathlib.Path]) -> None:
+    if not depfile:
+        return
+    depfile_path = pathlib.Path(depfile).resolve()
+    if not depfile_path.exists():
+        return
+    depfile_text = depfile_path.read_text(encoding="utf-8")
+    if ":" not in depfile_text:
+        return
+    target_text, deps_text = depfile_text.split(":", 1)
+    generated_paths = {path.resolve() for path in generated_outputs}
+    filtered_deps: list[str] = []
+    for dep_entry in deps_text.split():
+        dep_path = pathlib.Path(dep_entry)
+        if not dep_path.is_absolute():
+            dep_path = (depfile_path.parent / dep_path).resolve()
+        else:
+            dep_path = dep_path.resolve()
+        if dep_path in generated_paths:
+            continue
+        filtered_deps.append(dep_entry)
+    depfile_path.write_text(f"{target_text.strip()} : {' '.join(filtered_deps)}\n", encoding="utf-8")
+
+
 def main() -> int:
     args = normalize_mode_and_kind(parse_args())
 
     source_root = pathlib.Path(args.source_root).resolve()
     wrapper_output = pathlib.Path(args.wrapper_output).resolve() if args.wrapper_output else None
     out_dir = pathlib.Path(args.out_dir).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
     codegen_path = pathlib.Path(args.codegen).resolve()
 
     if args.kind == "modules" and args.backend == "meson":
         print(unsupported_modules_message(args.backend, args.mode), file=sys.stderr)
         return 1
+
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     if args.mode == "suite":
         if not args.source_file:
@@ -743,6 +768,10 @@ def main() -> int:
             external_module_sources=args.external_module_source + metadata_module_sources,
         )
         subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
+        sanitize_depfile(
+            args.depfile,
+            [wrapper_output, header_output] if args.kind == "textual" else [staged_source, expected_wrapper, header_output],
+        )
         if args.kind == "modules":
             expected_wrapper = module_wrapper_output_path(out_dir, staged_source, 0)
             if not expected_wrapper.exists():
@@ -825,6 +854,7 @@ def main() -> int:
             external_module_sources=args.external_module_source,
         )
         subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
+        sanitize_depfile(args.depfile, [wrapper_output, header_output, public_header, mock_registry, mock_impl, anchor_output, *materialized_defs])
         if metadata_output is not None:
             write_mock_metadata(
                 metadata_output,
@@ -858,6 +888,10 @@ def main() -> int:
     )
     subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
     generated_module_wrappers = [module_wrapper_output_path(out_dir, defs_file, index) for index, defs_file in enumerate(materialized_module_defs)]
+    sanitize_depfile(
+        args.depfile,
+        [anchor_output, mock_registry, mock_impl, metadata_output, *materialized_module_defs, *generated_module_wrappers, *module_header_outputs, *public_files],
+    )
     missing_module_wrappers = [path for path in generated_module_wrappers if not path.exists()]
     if missing_module_wrappers:
         print(f"module mock defs did not produce named-module wrappers: {missing_module_wrappers}", file=sys.stderr)

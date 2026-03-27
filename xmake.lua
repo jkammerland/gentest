@@ -118,7 +118,7 @@ target("gentest_consumer_textual_xmake")
     gentest_attach_codegen({
         name = "gentest_consumer_textual_xmake",
         kind = "textual",
-        source = "tests/buildsystems/consumer_textual_cases.cpp",
+        source = "tests/consumer/cases.cpp",
         main = "tests/consumer/main.cpp",
         output_dir = path.join(current_gen_root(), "consumer_textual"),
         deps = {"gentest_main", "gentest_consumer_textual_mocks_xmake"},

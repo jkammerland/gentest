@@ -3,8 +3,9 @@
 >[!NOTE]
 > Phase 1 of this story is implemented: the repo-local Meson, Xmake, and Bazel
 > classic suites now use per-TU generation instead of legacy manifest mode.
-> Repo-local non-CMake module support has since landed too, but the remaining
-> packaging/API/CI parity work is tracked in
+> Repo-local Xmake and Bazel module support has since landed too, while Meson
+> remains textual-only with explicit fail-fast module entrypoints. The
+> remaining packaging/API/CI parity work is tracked in
 > [`docs/stories/015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md).
 
 ## Goal
@@ -44,8 +45,8 @@ Current repo reality:
 - Meson, Xmake, and Bazel cover the repo-local classic/header-style suites
   through shared per-TU wrapper generation.
 - Meson, Xmake, and Bazel also have repo-local textual explicit-mock slices.
-- Meson now has a repo-local module consumer target, but not a reusable Meson
-  helper API.
+- Meson remains textual-only; its module entrypoints are explicit fail-fast
+  boundaries rather than a checked-in module consumer path.
 - Xmake now exposes repo-local `gentest_add_mocks(...)` and
   `gentest_attach_codegen(...)` helpers for textual and module paths.
 - Bazel now exposes repo-local textual and module macros in
