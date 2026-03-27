@@ -20,14 +20,15 @@ if(NOT _xmake)
 endif()
 
 set(_gentest_clang_search_paths
+  /usr/bin
+  /bin
   /usr/lib64/llvm22/bin
   /usr/lib64/llvm21/bin
   /usr/lib64/llvm20/bin
   /usr/lib/llvm-22/bin
   /usr/lib/llvm-21/bin
   /usr/lib/llvm-20/bin
-  /usr/bin
-  /bin)
+)
 
 find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20
   PATHS ${_gentest_clang_search_paths}

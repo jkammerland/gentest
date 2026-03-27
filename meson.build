@@ -21,7 +21,7 @@ elif not fs.is_absolute(codegen_opt)
 endif
 codegen = codegen_opt
 
-fmt_dep = dependency('fmt', required: false)
+fmt_dep = dependency('fmt', required: false, method: 'pkg-config')
 fmt_fallback_include_cmd = run_command(
   py,
   '-c',
@@ -45,8 +45,9 @@ for candidate in candidates:
   check: true
 )
 fmt_fallback_include_dir = fmt_fallback_include_cmd.stdout().strip()
+use_fmt_fallback = not fmt_dep.found() and fmt_fallback_include_dir != ''
 project_includes = [inc]
-if fmt_fallback_include_dir != ''
+if use_fmt_fallback
   project_includes += [include_directories(fmt_fallback_include_dir)]
 endif
 
@@ -107,7 +108,7 @@ clang_args = [
   '-I@0@'.format(join_paths(meson.project_source_root(), 'tests')),
   '-I@0@'.format(join_paths(meson.project_source_root(), 'third_party', 'include')),
 ]
-if fmt_fallback_include_dir != ''
+if use_fmt_fallback
   clang_args += ['-I@0@'.format(fmt_fallback_include_dir)]
 endif
 clang_arg_flags = []

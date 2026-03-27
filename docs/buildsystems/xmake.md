@@ -54,8 +54,9 @@ Current `gentest_attach_codegen({...})` options:
 
 `defines` and `clang_args` are forwarded to both the final Xmake compile and
 the `gentest_codegen` invocation. For module targets, the helper also requires
-Clang and fails fast with a clear error if Xmake resolves a non-Clang C++
-compiler.
+Clang. The checked-in configure/build path fails fast with a clear error if the
+configured compiler is non-Clang; clean target registration alone is not the
+stronger contract today.
 
 ## Current repo-local targets
 
@@ -74,8 +75,14 @@ The checked-in [`xmake.lua`](../../xmake.lua) wires:
   - `gentest_consumer_module_xmake`
 
 The module slice uses the actual helper API, not a hard-coded one-off path.
-The validated checked-in path uses Clang toolchains, including on Windows, and
-the helper enforces that contract for module targets.
+The validated checked-in lane is Linux-based. The helper also carries
+Windows-specific Clang handling, but the documented smoke path here is the
+Linux configure/build path. The helper enforces the Clang contract on that
+checked-in configure/build path for module targets.
+
+Current validation is strongest for the direct checked-in consumer path. The
+helper-owned metadata handoff is what that path uses, but broader transitive
+mock/module visibility cases are still a follow-up area.
 
 ## Module example
 
@@ -117,10 +124,33 @@ cmake --preset=host-codegen
 cmake --build --preset=host-codegen --parallel
 
 export GENTEST_CODEGEN="$PWD/build/host-codegen/tools/gentest_codegen"
-CC="$(command -v clang)" CXX="$(command -v clang++)" \
+clang_candidates=(
+  /usr/bin/clang++
+  /bin/clang++
+  /usr/lib64/llvm22/bin/clang++
+  /usr/lib64/llvm21/bin/clang++
+  /usr/lib64/llvm20/bin/clang++
+  /usr/lib/llvm-22/bin/clang++
+  /usr/lib/llvm-21/bin/clang++
+  /usr/lib/llvm-20/bin/clang++
+)
+for clang_cxx in "${clang_candidates[@]}"; do
+  if [ -x "${clang_cxx}" ]; then
+    break
+  fi
+done
+if [ ! -x "${clang_cxx}" ]; then
+  clang_cxx="$(command -v clang++)"
+fi
+clang_cc="${clang_cxx%++}"
+
+CC="${clang_cc}" CXX="${clang_cxx}" \
 xmake f -c -y -m release -o build/xmake
 xmake b -a -y
 ```
+
+On Fedora-style hosts, prefer the real `/usr/bin/clang{,++}` binaries over
+`ccache` wrapper paths for the module lane. That matches the checked smoke path.
 
 If `GENTEST_CODEGEN` is not set, the helper falls back to a repo-local CMake
 bootstrap under `build/xmake-codegen/<host>/<arch>`.
@@ -131,9 +161,9 @@ the repo-local path reuses adjacent CMake-fetched `fmt` headers when needed.
 That is the supported repo-local path for the checked-in module consumer.
 
 One local caveat: the checked-in module CMake smoke test currently skips
-installed Xmake versions older than `3.0.8`. The helper API is still the same,
-but the local regression only treats `3.0.8+` as supported enough for the
-module smoke lane.
+installed Xmake versions older than `3.0.6`. The helper API is still the same,
+but the local regression treats `3.0.6+` as the minimum supported enough for
+the module smoke lane.
 
 For fuller consumer validation, run the built binaries directly and exercise the
 plain test, mock, bench, and jitter surface:

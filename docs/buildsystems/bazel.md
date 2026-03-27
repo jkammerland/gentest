@@ -43,6 +43,17 @@ The repo-local helpers expose the 2-step explicit model:
 Both textual and module helpers thread `defines` / `clang_args` through the
 codegen scan context and the final compile surface.
 
+Those `clang_args` values are treated as literal compiler flags. They are not a
+shell fragment surface, and Bazel make-variable expansion inside user-supplied
+`clang_args` is intentionally not supported.
+
+Current repo-local note:
+
+- the textual path does not rely on an adjacent `compile_commands.json`
+  alongside `gentest_codegen`
+- the module path still synthesizes its own explicit module compdb inputs inside
+  the repo-local macros
+
 ## Current repo-local targets
 
 The checked-in [`BUILD.bazel`](../../BUILD.bazel) wires:
@@ -160,10 +171,7 @@ bazelisk build \
   --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
   --host_action_env=CC="${clang_cc}" \
   --host_action_env=CXX="${clang_cxx}" \
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-  --repo_env=CC="${clang_cc}" \
-  --repo_env=CXX="${clang_cxx}" \
-  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
+  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
 
 ./bazel-bin/gentest_consumer_textual_bazel --list
 ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test

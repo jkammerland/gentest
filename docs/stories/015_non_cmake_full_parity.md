@@ -1,12 +1,12 @@
-# Story: non-CMake full parity for modules and explicit mocks
+# Story: non-CMake parity for explicit mocks and supported module paths
 
 ## Goal
 
-Build on the already-shipped classic per-TU non-CMake baseline and bring Meson,
-Xmake, and Bazel to functional parity with the current CMake product model for:
+Build on the already-shipped classic per-TU non-CMake baseline and bring the
+supported non-CMake backends to parity with the current CMake product model for:
 
 - explicit mocks
-- named-module test sources
+- named-module test sources where the backend is intentionally supported
 - generated public mock surfaces
 - test/codegen attachment for final consumer targets
 
@@ -31,7 +31,7 @@ Implemented already:
   - [`docs/buildsystems/xmake.md`](../buildsystems/xmake.md)
   - [`docs/buildsystems/bazel.md`](../buildsystems/bazel.md)
 
-Still missing for real "full parity":
+Still missing for real parity:
 
 - packaged/downstream Meson helper APIs
 - install/export-quality non-CMake surfaces
@@ -158,7 +158,8 @@ Current repo state:
 - the textual path still snapshots support headers/fragments at configure time,
   so new included support files require `meson setup --reconfigure`
 - the checked-in textual path now reuses adjacent CMake-fetched `fmt` headers
-  automatically when `codegen_path` points at a repo-local host-codegen build
+  only as a fallback when Meson does not resolve a system `fmt` dependency via
+  `pkg-config`
 
 Open work:
 
@@ -174,12 +175,12 @@ Current repo state:
 - repo-local helper functions exist for both textual and module paths
 - module mock generation and module test attachment are wired through the same
   helper surface
-- the documented `GENTEST_CODEGEN=...` flow now reuses an adjacent
-  `compile_commands.json` automatically when present
+- the documented `GENTEST_CODEGEN=...` flow reuses an explicit adjacent
+  `compile_commands.json` only on the checked-in direct path
 - the same repo-local path now reuses adjacent CMake-fetched `fmt` headers when
   the Xmake compiler environment does not already provide them
 - mock dependency metadata now flows through the helper-owned Xmake metadata
-  handoff instead of relying on callers to restate transitive inputs manually
+  handoff for the checked-in direct consumer path
 - public `defines` / `clang_args` now flow into both final Xmake compilation
   and `gentest_codegen`
 - the checked-in Linux workflow validates both the textual and module consumers
@@ -210,7 +211,8 @@ Open work:
 - generalize the current internalized repo-local naming maps into a real
   downstream rule surface
 - make the codegen bootstrap more hermetic
-- add module-path workflow coverage once the toolchain contract is solid enough
+- broaden module-path workflow coverage beyond the checked-in direct consumer
+  lane
 
 ## Execution plan
 
@@ -273,14 +275,15 @@ Remaining work:
 
 Full parity is reached when:
 
-- Meson, Xmake, and Bazel each expose a documented, reusable, non-repo-local
-  helper surface for the supported path
+- Meson, Xmake, and Bazel each expose a documented helper surface for the
+  supported path
 - textual defs still produce a header surface and module defs still produce a
   module surface
 - the existing classic per-TU suite coverage remains green
 - user-facing docs exist for each backend and stay honest about repo-local vs
   packaged support
-- CI covers the module paths instead of only the classic/textual baseline lanes
+- CI covers the supported module paths instead of only the classic/textual
+  baseline lanes
 - the remaining repo-local-only implementation quirks are either removed or
   documented as intentional product limits
 

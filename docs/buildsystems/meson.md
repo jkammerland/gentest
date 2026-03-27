@@ -14,10 +14,10 @@ non-CMake story:
 textual half of that contract.
 
 When `-Dcodegen_path=...` points at a repo-local CMake build of
-`gentest_codegen`, the checked-in Meson wiring also reuses the adjacent
-`_deps/fmt-src/include` fallback automatically. That keeps the repo-local path
-self-contained on hosts where a system `fmt` package is not already visible to
-the compiler.
+`gentest_codegen`, the checked-in Meson wiring reuses the adjacent
+`_deps/fmt-src/include` headers only as a fallback when Meson does not resolve a
+system `fmt` dependency through `pkg-config`. That keeps the repo-local path
+self-contained on hosts where `fmt` is not already visible to the build.
 
 ## Current repo-local surface
 

@@ -493,7 +493,10 @@ def infer_compdb_dir(codegen_path: pathlib.Path) -> pathlib.Path | None:
 
 def resolve_compdb_dir(compdb_arg: str, codegen_path: pathlib.Path, *, infer_default: bool = True) -> pathlib.Path | None:
     if compdb_arg:
-        return pathlib.Path(compdb_arg).resolve()
+        compdb_path = pathlib.Path(compdb_arg).resolve()
+        if compdb_path.is_file():
+            return compdb_path.parent
+        return compdb_path
     if infer_default:
         return infer_compdb_dir(codegen_path)
     return None
@@ -764,7 +767,7 @@ def main() -> int:
         compdb_dir = resolve_compdb_dir(
             args.compdb,
             codegen_path,
-            infer_default=args.kind == "textual" or args.backend == "xmake",
+            infer_default=args.backend == "xmake",
         )
         metadata_include_roots, metadata_module_sources = load_mock_metadata_set(args.mock_metadata, source_root)
         suite_clang_args = normalize_textual_mock_clang_args(
@@ -858,7 +861,7 @@ def main() -> int:
     compdb_dir = resolve_compdb_dir(
         args.compdb,
         codegen_path,
-        infer_default=args.kind == "textual" or args.backend == "xmake",
+        infer_default=args.backend == "xmake",
     )
     metadata_include_roots, metadata_module_sources = load_mock_metadata_set(args.mock_metadata, source_root)
     normalized_clang_args = normalize_textual_mock_clang_args(

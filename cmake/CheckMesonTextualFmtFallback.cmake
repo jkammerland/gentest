@@ -87,6 +87,7 @@ set(_scratch_root "${_scratch_base}/gentest_meson_textual_fmt_fallback_${_scratc
 file(REMOVE_RECURSE "${_scratch_root}")
 file(MAKE_DIRECTORY "${_scratch_root}")
 file(MAKE_DIRECTORY "${_scratch_root}/empty-pkgconfig")
+file(MAKE_DIRECTORY "${_scratch_root}/empty-cmake-prefix")
 file(MAKE_DIRECTORY "${_scratch_root}/tmp")
 
 get_filename_component(_codegen_name "${_codegen}" NAME)
@@ -105,6 +106,12 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           "PKG_CONFIG_LIBDIR=${_scratch_root}/empty-pkgconfig"
           "PKG_CONFIG_PATH=${_scratch_root}/empty-pkgconfig"
+          "CMAKE_PREFIX_PATH=${_scratch_root}/empty-cmake-prefix"
+          "CMAKE_SYSTEM_PREFIX_PATH=${_scratch_root}/empty-cmake-prefix"
+          "CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=FALSE"
+          "CMAKE_FIND_USE_PACKAGE_REGISTRY=FALSE"
+          "CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY=TRUE"
+          "CMAKE_DISABLE_FIND_PACKAGE_fmt=TRUE"
           "TMPDIR=${_scratch_root}/tmp"
           "CC=${_real_cc}"
           "CXX=${_real_cxx}"
@@ -119,10 +126,30 @@ if(NOT _setup_rc EQUAL 0)
     "stderr:\n${_setup_err}")
 endif()
 
+set(_meson_dependencies_json "${_out_dir}/meson-info/intro-dependencies.json")
+if(NOT EXISTS "${_meson_dependencies_json}")
+  message(FATAL_ERROR "Meson setup did not emit intro-dependencies.json for the fmt fallback check: ${_meson_dependencies_json}")
+endif()
+file(READ "${_meson_dependencies_json}" _meson_dependencies_content)
+string(FIND "${_meson_dependencies_content}" "\"name\": \"fmt\"" _fmt_dependency_pos)
+if(NOT _fmt_dependency_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Meson still resolved a system fmt dependency during the fmt fallback check, so the fallback path was not isolated.\n"
+    "dependencies:\n${_meson_dependencies_content}\n"
+    "stdout:\n${_setup_out}\n"
+    "stderr:\n${_setup_err}")
+endif()
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           "PKG_CONFIG_LIBDIR=${_scratch_root}/empty-pkgconfig"
           "PKG_CONFIG_PATH=${_scratch_root}/empty-pkgconfig"
+          "CMAKE_PREFIX_PATH=${_scratch_root}/empty-cmake-prefix"
+          "CMAKE_SYSTEM_PREFIX_PATH=${_scratch_root}/empty-cmake-prefix"
+          "CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=FALSE"
+          "CMAKE_FIND_USE_PACKAGE_REGISTRY=FALSE"
+          "CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY=TRUE"
+          "CMAKE_DISABLE_FIND_PACKAGE_fmt=TRUE"
           "TMPDIR=${_scratch_root}/tmp"
           "CC=${_real_cc}"
           "CXX=${_real_cxx}"

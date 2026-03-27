@@ -60,20 +60,21 @@ if(NOT _xmake_version_rc EQUAL 0)
 endif()
 string(REGEX MATCH "xmake v([0-9]+\\.[0-9]+\\.[0-9]+)" _xmake_version_match "${_xmake_version_out}")
 set(_xmake_version "${CMAKE_MATCH_1}")
-if(_xmake_version STREQUAL "" OR _xmake_version VERSION_LESS "3.0.8")
-  message(STATUS "xmake ${_xmake_version} is older than 3.0.8; skipping Xmake module consumer smoke check.")
+if(_xmake_version STREQUAL "" OR _xmake_version VERSION_LESS "3.0.6")
+  message(STATUS "xmake ${_xmake_version} is older than 3.0.6; skipping Xmake module consumer smoke check.")
   return()
 endif()
 
 set(_gentest_clang_search_paths
+  /usr/bin
+  /bin
   /usr/lib64/llvm22/bin
   /usr/lib64/llvm21/bin
   /usr/lib64/llvm20/bin
   /usr/lib/llvm-22/bin
   /usr/lib/llvm-21/bin
   /usr/lib/llvm-20/bin
-  /usr/bin
-  /bin)
+)
 
 find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20
   PATHS ${_gentest_clang_search_paths}

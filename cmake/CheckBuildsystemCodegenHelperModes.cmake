@@ -110,6 +110,17 @@ foreach(_unexpected IN ITEMS
   endif()
 endforeach()
 
+set(_bazel_helper_file "${SOURCE_DIR}/build_defs/gentest.bzl")
+if(NOT EXISTS "${_bazel_helper_file}")
+  message(FATAL_ERROR "Missing Bazel helper file: ${_bazel_helper_file}")
+endif()
+file(READ "${_bazel_helper_file}" _bazel_helper_content)
+string(FIND "${_bazel_helper_content}" "[_gentest_shell_quote_unix(arg) for arg in raw_extra_args]" _bazel_raw_quote_pos)
+if(_bazel_raw_quote_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Bazel helper must keep quoting raw_extra_args so internal mock include args remain one argv token after shell expansion.")
+endif()
+
 if(NOT EXISTS "${PROG}")
   message(FATAL_ERROR "gentest_codegen executable not found: ${PROG}")
 endif()

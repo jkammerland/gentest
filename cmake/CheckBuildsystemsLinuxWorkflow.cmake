@@ -120,6 +120,16 @@ foreach(_host_env_literal IN ITEMS
   endif()
 endforeach()
 
+foreach(_repo_env_literal IN ITEMS
+    [[--repo_env=CC="${clang_cc}" \]]
+    [[--repo_env=CXX="${clang_cxx}" \]]
+    [[--repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"]])
+  string(FIND "${_content}" "${_repo_env_literal}" _repo_env_literal_pos)
+  if(_repo_env_literal_pos EQUAL -1)
+    message(FATAL_ERROR "buildsystems_linux workflow must contain '${_repo_env_literal}' for the Bazel module consumer lane.")
+  endif()
+endforeach()
+
 string(FIND "${_content}" "/home/ci/.local/bin/xmake f -c -m release" _hardcoded_build_pos)
 if(NOT _hardcoded_build_pos EQUAL -1)
   message(FATAL_ERROR "Xmake build step must not hardcode the ci-local xmake path.")
@@ -208,8 +218,17 @@ endif()
 
 string(FIND "${_bazel_root_content}" "CMAKE_EXPORT_COMPILE_COMMANDS=ON" _bazel_compdb_pos)
 if(_bazel_compdb_pos EQUAL -1)
-  message(FATAL_ERROR "BUILD.bazel must export a compile_commands.json alongside the Bazel-built gentest_codegen tool.")
+  message(FATAL_ERROR "BUILD.bazel must keep compile_commands export enabled for the internal Bazel codegen bootstrap build.")
 endif()
+
+foreach(_stale_compdb_copy IN ITEMS
+    [[cp $(@D)/b/compile_commands.json $(@D)/compile_commands.json]]
+    [[copy /Y $(@D)\b\compile_commands.json $(@D)\compile_commands.json >NUL]])
+  string(FIND "${_bazel_root_content}" "${_stale_compdb_copy}" _stale_compdb_copy_pos)
+  if(NOT _stale_compdb_copy_pos EQUAL -1)
+    message(FATAL_ERROR "BUILD.bazel must not advertise a copied tool-adjacent Bazel compile_commands contract anymore: ${_stale_compdb_copy}")
+  endif()
+endforeach()
 
 string(FIND "${_bazel_root_content}" "gentest_consumer_module_mocks" _bazel_module_mocks_pos)
 if(_bazel_module_mocks_pos EQUAL -1)

@@ -59,7 +59,6 @@ genrule(
           "rm -rf $(@D)/b && mkdir -p $(@D)/b && " +
           "\"$${GENTEST_CMAKE_BIN}\" -S . -B $(@D)/b $$GENTEST_CMAKE_ARGS && " +
           "\"$${GENTEST_CMAKE_BIN}\" --build $(@D)/b --target gentest_codegen -j 1 && " +
-          "if [ -f $(@D)/b/compile_commands.json ]; then cp $(@D)/b/compile_commands.json $(@D)/compile_commands.json; fi && " +
           "cp $(@D)/b/tools/gentest_codegen $@",
     tags = ['no-sandbox', 'local'],
     target_compatible_with = select({
@@ -81,7 +80,6 @@ genrule(
               "if exist $(@D)\\b rmdir /S /Q $(@D)\\b && mkdir $(@D)\\b && " +
               "\"%GENTEST_CMAKE_BIN%\" -S . -B $(@D)\\b %GENTEST_CMAKE_ARGS% && " +
               "\"%GENTEST_CMAKE_BIN%\" --build $(@D)\\b --target gentest_codegen --config Release && " +
-              "if exist $(@D)\\b\\compile_commands.json copy /Y $(@D)\\b\\compile_commands.json $(@D)\\compile_commands.json >NUL && " +
               "(if exist $(@D)\\b\\tools\\Release\\gentest_codegen.exe " +
               "(copy /Y $(@D)\\b\\tools\\Release\\gentest_codegen.exe $@ >NUL) " +
               "else (copy /Y $(@D)\\b\\tools\\gentest_codegen.exe $@ >NUL))",
