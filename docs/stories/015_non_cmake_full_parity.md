@@ -288,6 +288,44 @@ Full parity is reached when:
 - the remaining repo-local-only implementation quirks are either removed or
   documented as intentional product limits
 
+## Current rough edges
+
+The agreed-scope implementation is complete, but a few ugly details remain and
+are intentionally documented here rather than treated as invisible debt.
+
+### Bazel
+
+- the repo-local macros in [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl)
+  still internalize checked-in defs-set knowledge for the current module and
+  textual consumers
+- `mock_targets` are still same-package only on the repo-local path
+- the codegen bootstrap is still repo-local and not yet hermetic or packaged as
+  a downstream rule set
+
+### Meson
+
+- module API shape exists, but `kind=modules` intentionally fails fast rather
+  than executing
+- the textual path still snapshots support headers/fragments at configure time,
+  so adding new support includes still requires `meson setup --reconfigure`
+- there is still no reusable/published Meson helper module; the checked-in
+  wiring is repo-local
+
+### Xmake
+
+- the helper in [`xmake/gentest.lua`](../../xmake/gentest.lua) is usable, but it
+  is still a repo-local helper rather than a separately packaged integration
+- the current validation is strong for the checked-in targets, but it is still
+  centered on repo-local consumer shapes rather than arbitrary downstream
+  project layouts
+
+### General
+
+- some regression coverage is still source-shape/static-contract oriented rather
+  than purely behavioral
+- the non-CMake support is honest and working for the checked-in scope, but it
+  is not yet install/export-quality across all backends
+
 ## Non-goals
 
 - Reintroducing implicit mock discovery.
