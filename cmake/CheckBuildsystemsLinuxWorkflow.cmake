@@ -89,6 +89,11 @@ if(_meson_consumer_textual_pos EQUAL -1)
   message(FATAL_ERROR "meson.build must keep the textual explicit-mock consumer slice wired.")
 endif()
 
+string(FIND "${_meson_content}" "'--kind', 'textual'" _meson_kind_textual_pos)
+if(_meson_kind_textual_pos EQUAL -1)
+  message(FATAL_ERROR "meson.build must pass the explicit textual kind to the shared helper.")
+endif()
+
 if(NOT EXISTS "${_bazel_root_file}")
   message(FATAL_ERROR "Missing Bazel root file: ${_bazel_root_file}")
 endif()
@@ -123,6 +128,16 @@ endif()
 string(FIND "${_helper_content}" "\"textual-mocks\"" _helper_textual_mocks_pos)
 if(_helper_textual_mocks_pos EQUAL -1)
   message(FATAL_ERROR "Shared non-CMake codegen helper must support the textual explicit-mock mode.")
+endif()
+
+string(FIND "${_helper_content}" "\"--kind\"" _helper_kind_pos)
+if(_helper_kind_pos EQUAL -1)
+  message(FATAL_ERROR "Shared non-CMake codegen helper must expose an explicit kind argument.")
+endif()
+
+string(FIND "${_helper_content}" "\"modules\"" _helper_modules_pos)
+if(_helper_modules_pos EQUAL -1)
+  message(FATAL_ERROR "Shared non-CMake codegen helper must expose the modules kind, even when unsupported.")
 endif()
 
 string(FIND "${_helper_content}" "os.path.relpath" _helper_relpath_pos)

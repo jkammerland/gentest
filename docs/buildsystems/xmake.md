@@ -1,14 +1,14 @@
 # Xmake
 
 This Xmake integration is currently a repo-local convenience path for this
-repository. It covers the classic handwritten suites plus one in-tree textual
-explicit-mock consumer slice, but it is not yet a general downstream Xmake
-package API.
+repository. It covers the classic handwritten suites, and it has an in-tree
+textual explicit-mock slice under active stabilization, but it is not yet a
+general downstream Xmake package API.
 
 ## Current scope
 
 - Supports the classic suites in `tests/<suite>/cases.cpp`.
-- Supports one repo-local explicit textual mock slice:
+- Has one repo-local explicit textual mock slice under active stabilization:
   - defs file: `tests/consumer/header_mock_defs.hpp`
   - generated public header: `build/xmake/gen/<plat>/<arch>/<mode>/consumer_textual_mocks/gentest_consumer_mocks.hpp`
   - consumer test source: `tests/buildsystems/consumer_textual_cases.cpp`
@@ -127,7 +127,7 @@ xmake r gentest_<suite>_xmake
 
 - This path currently supports:
   - classic per-TU suites
-  - one in-tree textual explicit-mock slice
+  - one in-tree textual explicit-mock slice under active stabilization
 - It is intentionally limited to classic/header-style suites.
 - If you need named modules, module mock defs, reusable/public Xmake
   `add_mocks(...)` / `attach_codegen(...)` helpers, or package/export parity,

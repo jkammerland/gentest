@@ -83,6 +83,10 @@ endforeach
 
 tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 buildsystem_codegen = files('scripts/gentest_buildsystem_codegen.py')
+# The shared helper exposes explicit textual/modules kinds. Meson intentionally
+# uses `kind=textual` only today; `kind=modules` exists as a fail-fast API
+# shape but is not supported yet because Meson's named-module path is flaky in
+# this environment.
 support_inputs_cmd = run_command(
   py,
   '-c',
@@ -114,6 +118,9 @@ foreach s : tests_suites
     command: [
       py,
       buildsystem_codegen,
+      '--backend', 'meson',
+      '--mode', 'suite',
+      '--kind', 'textual',
       '--codegen', codegen,
       '--source-root', meson.project_source_root(),
       '--out-dir', out_dir,
@@ -170,7 +177,9 @@ consumer_mocks = custom_target(
   command: [
     py,
     buildsystem_codegen,
-    '--mode', 'textual-mocks',
+    '--backend', 'meson',
+    '--mode', 'mocks',
+    '--kind', 'textual',
     '--codegen', codegen,
     '--source-root', meson.project_source_root(),
     '--out-dir', consumer_mock_out_dir,
@@ -210,6 +219,9 @@ consumer_codegen = custom_target(
   command: [
     py,
     buildsystem_codegen,
+    '--backend', 'meson',
+    '--mode', 'suite',
+    '--kind', 'textual',
     '--codegen', codegen,
     '--source-root', meson.project_source_root(),
     '--out-dir', meson.current_build_dir(),

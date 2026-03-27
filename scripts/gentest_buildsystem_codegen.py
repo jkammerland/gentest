@@ -16,9 +16,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=["suite", "textual-mocks"],
+        choices=["suite", "mocks", "textual-mocks"],
         default="suite",
-        help="Generation mode. `suite` emits classic per-TU test wrappers. `textual-mocks` emits explicit textual mock surfaces.",
+        help=(
+            "Generation mode. `suite` emits test/codegen wrappers. `mocks` emits explicit mock surfaces. "
+            "`textual-mocks` is a legacy alias for `--mode mocks --kind textual`."
+        ),
+    )
+    parser.add_argument(
+        "--kind",
+        choices=["textual", "modules"],
+        default="textual",
+        help="Explicit source/surface kind. No auto-detection is performed.",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["generic", "meson", "xmake", "bazel"],
+        default="generic",
+        help="Optional backend label used for clearer diagnostics.",
     )
     parser.add_argument("--codegen", required=True, help="Path to gentest_codegen")
     parser.add_argument("--source-root", required=True, help="Project source root")
@@ -42,6 +57,31 @@ def parse_args() -> argparse.Namespace:
         help="Extra clang/gentest_codegen argument appended after `--`",
     )
     return parser.parse_args()
+
+
+def normalize_mode_and_kind(args: argparse.Namespace) -> argparse.Namespace:
+    if args.mode == "textual-mocks":
+        if args.kind != "textual":
+            raise SystemExit("`--mode textual-mocks` only supports `--kind textual`.")
+        args.mode = "mocks"
+    return args
+
+
+def unsupported_modules_message(backend: str, mode: str) -> str:
+    operation = "attach_codegen" if mode == "suite" else "add_mocks"
+    if backend == "meson":
+        return (
+            "Meson "
+            + operation
+            + "(kind=modules) is intentionally unsupported for now because named-module "
+            "dependency handling is not reliable enough in the current Meson/toolchain path. "
+            "Use kind=textual for Meson, or use CMake/Xmake for named modules."
+        )
+    return (
+        "The shared non-CMake helper does not implement "
+        + operation
+        + "(kind=modules) yet."
+    )
 
 
 def resolve_input_path(path_arg: str, source_root: pathlib.Path) -> pathlib.Path:
@@ -291,7 +331,7 @@ def build_codegen_command(
 
 
 def main() -> int:
-    args = parse_args()
+    args = normalize_mode_and_kind(parse_args())
 
     source_root = pathlib.Path(args.source_root).resolve()
     wrapper_output = pathlib.Path(args.wrapper_output).resolve()
@@ -299,6 +339,10 @@ def main() -> int:
     out_dir = pathlib.Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     codegen_path = pathlib.Path(args.codegen).resolve()
+
+    if args.kind == "modules":
+        print(unsupported_modules_message(args.backend, args.mode), file=sys.stderr)
+        return 1
 
     if args.mode == "suite":
         if not args.source_file:
@@ -327,19 +371,19 @@ def main() -> int:
         return 0
 
     if not args.defs_file:
-        print("--defs-file is required in textual-mocks mode", file=sys.stderr)
+        print("--defs-file is required in mocks mode", file=sys.stderr)
         return 1
     if not args.public_header:
-        print("--public-header is required in textual-mocks mode", file=sys.stderr)
+        print("--public-header is required in mocks mode", file=sys.stderr)
         return 1
     if not args.anchor_output:
-        print("--anchor-output is required in textual-mocks mode", file=sys.stderr)
+        print("--anchor-output is required in mocks mode", file=sys.stderr)
         return 1
     if not args.target_id:
-        print("--target-id is required in textual-mocks mode", file=sys.stderr)
+        print("--target-id is required in mocks mode", file=sys.stderr)
         return 1
     if not args.mock_registry or not args.mock_impl:
-        print("--mock-registry and --mock-impl are required in textual-mocks mode", file=sys.stderr)
+        print("--mock-registry and --mock-impl are required in mocks mode", file=sys.stderr)
         return 1
 
     defs_files: list[pathlib.Path] = []

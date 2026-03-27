@@ -91,6 +91,7 @@ Conceptual API:
 
 ```text
 attach_codegen(test_target,
+               kind = textual | modules,
                sources = [...],
                output_dir = ...,
                clang_args = [...],
@@ -113,6 +114,7 @@ Conceptual API:
 
 ```text
 add_mocks(mock_target,
+          kind = textual | modules,
           defs = [...],
           output_dir = ...,
           deps = [...],
@@ -170,18 +172,18 @@ phases:
 
 Meson should get two helper layers:
 
-- `gentest_codegen_suite(...)`
-- `gentest_mock_target(...)`
+- `gentest_attach_codegen(...)`
+- `gentest_add_mocks(...)`
 
 #### Meson: ordinary tests and modules
 
 Target shape:
 
 ```meson
-gentest_codegen_suite(
+gentest_attach_codegen(
   'my_tests',
+  kind: 'textual',
   sources: ['cases.cpp', 'helpers.cpp'],
-  module_sources: ['cases.cppm'],
   deps: [libgentest_runtime, libgentest_main],
 )
 ```
@@ -192,21 +194,23 @@ Implementation:
   `build/<target>/gentest/tu_*.gentest.cpp`
 - run `gentest_codegen --tu-out-dir <dir>` over those shim TUs
 - compile shim TUs instead of the original classic sources
-- for module-authored tests, preserve the authored module units as codegen inputs
-  but compile generated module wrapper units in the final target, matching the
-  current CMake registration/attachment model
+- for explicit `kind: 'modules'`, preserve the authored module units as codegen
+  inputs but compile generated module wrapper units in the final target,
+  matching the current CMake registration/attachment model
 - make the generated shims first-class build outputs and first-class compile
   database inputs
 - if Meson cannot yet model the required named-module graph cleanly for a case,
-  fail explicitly and predictably rather than silently falling back to textual hacks
+  fail explicitly and predictably rather than silently falling back to textual
+  hacks. This is the current intended behavior for Meson `kind: 'modules'`.
 
 #### Meson: explicit mocks
 
 Target shape:
 
 ```meson
-gentest_mock_target(
+gentest_add_mocks(
   'service_mocks',
+  kind: 'modules',
   defs: ['service.cppm', 'mock_defs.cppm'],
   output_dir: 'build/gentest/mocks/service',
   deps: [service_support],
@@ -217,8 +221,9 @@ gentest_mock_target(
 or textual:
 
 ```meson
-gentest_mock_target(
+gentest_add_mocks(
   'clock_mocks',
+  kind: 'textual',
   defs: ['clock_mocks.hpp'],
   output_dir: 'build/gentest/mocks/clock',
   deps: [clock_support],

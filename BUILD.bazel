@@ -169,7 +169,9 @@ genrule(
     cmd = (
         "mkdir -p $(@D)/gen/consumer_textual_mocks && " +
         'python3 "$(location scripts/gentest_buildsystem_codegen.py)" ' +
-        '--mode textual-mocks ' +
+        '--backend bazel ' +
+        '--mode mocks ' +
+        '--kind textual ' +
         '--codegen "$(location :gentest_codegen)" ' +
         '--source-root . ' +
         '--out-dir "$(@D)/gen/consumer_textual_mocks" ' +
@@ -197,7 +199,9 @@ genrule(
     cmd_bat = (
         "if not exist $(@D)\\gen\\consumer_textual_mocks mkdir $(@D)\\gen\\consumer_textual_mocks && " +
         'python "$(location scripts/gentest_buildsystem_codegen.py)" ' +
-        '--mode textual-mocks ' +
+        '--backend bazel ' +
+        '--mode mocks ' +
+        '--kind textual ' +
         '--codegen "$(location :gentest_codegen)" ' +
         '--source-root . ' +
         '--out-dir "$(@D)/gen/consumer_textual_mocks" ' +
@@ -265,6 +269,9 @@ genrule(
     cmd = (
         "mkdir -p $(@D)/gen/consumer_textual && " +
         'python3 "$(location scripts/gentest_buildsystem_codegen.py)" ' +
+        '--backend bazel ' +
+        '--mode suite ' +
+        '--kind textual ' +
         '--codegen "$(location :gentest_codegen)" ' +
         '--source-root . ' +
         '--out-dir "$(@D)/gen/consumer_textual" ' +
@@ -285,6 +292,9 @@ genrule(
     cmd_bat = (
         "if not exist $(@D)\\gen\\consumer_textual mkdir $(@D)\\gen\\consumer_textual && " +
         'python "$(location scripts/gentest_buildsystem_codegen.py)" ' +
+        '--backend bazel ' +
+        '--mode suite ' +
+        '--kind textual ' +
         '--codegen "$(location :gentest_codegen)" ' +
         '--source-root . ' +
         '--out-dir "$(@D)/gen/consumer_textual" ' +

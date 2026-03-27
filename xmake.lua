@@ -91,7 +91,9 @@ end
 local function run_textual_mock_codegen(batchcmds, codegen, compdb_dir, config)
     local args = {
         buildsystem_codegen,
-        "--mode", "textual-mocks",
+        "--backend", "xmake",
+        "--mode", "mocks",
+        "--kind", "textual",
         "--codegen", codegen,
         "--source-root", project_root,
         "--out-dir", config.out_dir_abs,
@@ -162,6 +164,9 @@ local function gentest_suite(name)
 
             local args = {
                 buildsystem_codegen,
+                "--backend", "xmake",
+                "--mode", "suite",
+                "--kind", "textual",
                 "--codegen", codegen,
                 "--source-root", project_root,
                 "--out-dir", project_path(out_dir),
@@ -243,6 +248,9 @@ local function gentest_textual_consumer()
 
             local args = {
                 buildsystem_codegen,
+                "--backend", "xmake",
+                "--mode", "suite",
+                "--kind", "textual",
                 "--codegen", codegen,
                 "--source-root", project_root,
                 "--out-dir", project_path(consumer_out_dir),

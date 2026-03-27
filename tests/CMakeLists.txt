@@ -2188,6 +2188,12 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_buildsystem_codegen_helper_modes
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBuildsystemCodegenHelperModes.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_qemu_workflow_presets
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckQemuWorkflowPresets.cmake

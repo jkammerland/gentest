@@ -55,12 +55,16 @@ Required design rules:
 
 ## Public model
 
-Each non-CMake backend should expose only these two conceptual APIs:
+Each non-CMake backend should expose only these two conceptual APIs. The kind
+must be explicit in the API. The implementation may validate that the provided
+files really match the declared kind, but it should not auto-detect or silently
+switch modes.
 
 ### 1. Add mocks
 
 ```text
 add_mocks(mock_target,
+          kind = textual | modules,
           defs = [...],
           output_dir = ...,
           deps = [...],
@@ -89,6 +93,7 @@ Contract:
 
 ```text
 attach_codegen(test_target,
+               kind = textual | modules,
                sources = [...],
                module_sources = [...],
                output_dir = ...,
@@ -138,15 +143,17 @@ This is the only real coupling between the two user-facing operations.
 Target outcome:
 
 - stabilize the already-landed explicit textual mock slice into a reusable API
-- support named-module test targets
-- support explicit module mock targets
 - keep the public API at `add_mocks(...)` + `attach_codegen(...)`
+- expose the modules-shaped API now, but fail fast when `kind = modules`
+- defer real named-module Meson support until the backend/toolchain path is
+  reliable enough
 
 Open work:
 
 - expose mock metadata from `add_mocks(...)` into `attach_codegen(...)`
-- make module wrapper generation first-class
 - avoid configure-time-only dependency snapshots for codegen-sensitive inputs
+- keep module requests explicit and reject them predictably at configure/build
+  time instead of attempting brittle fallback behavior
 - decide whether downstream package/export support is practical in Meson or
   whether the parity line should stop at in-tree consumer parity
 
@@ -199,20 +206,25 @@ Current status:
 
 - Meson: repo-local slice implemented
 - Bazel: repo-local slice implemented
-- Xmake: repo-local slice implemented
+- Xmake: repo-local slice still needs stabilization
 
 ### Phase 3: named-module tests
 
-- add `attach_codegen(...)` support for named-module test sources per backend
+- add `attach_codegen(kind=modules, ...)` support for named-module test sources
+  per backend where the buildsystem/toolchain path is good enough
 - generate/compile module wrapper units where needed
 - prove final test targets can import their generated test module surfaces
+- Meson is explicitly out of scope for this phase until its local named-module
+  behavior is reliable enough to support as a product feature
 
 ### Phase 4: explicit module mocks
 
-- add `add_mocks(...)` support for module defs
+- add `add_mocks(kind=modules, ...)` support for module defs
 - generate public named-module mock surfaces
 - prove `attach_codegen(...)` consumes module mock metadata and final targets
   can import the generated mock surface
+- Meson is explicitly out of scope for this phase until its local named-module
+  behavior is reliable enough to support as a product feature
 
 ### Phase 5: downstream/reusable API polish
 
@@ -225,7 +237,11 @@ Current status:
 
 Minimum parity is reached when:
 
-- Meson, Xmake, and Bazel each support:
+- Meson supports:
+  - explicit textual mock targets
+  - explicit textual test/codegen attachment
+  - explicit modules-shaped APIs that fail fast with a clear diagnostic
+- Xmake and Bazel each support:
   - explicit textual mock targets
   - named-module test targets
   - explicit module mock targets

@@ -17,7 +17,7 @@
 
 ## Repo-Local Buildsystem Guides
 
-- Meson (classic suites only): [`docs/buildsystems/meson.md`](buildsystems/meson.md)
+- Meson (textual only; modules fail fast): [`docs/buildsystems/meson.md`](buildsystems/meson.md)
 - Xmake (classic suites only): [`docs/buildsystems/xmake.md`](buildsystems/xmake.md)
 - Bazel (classic suites only): [`docs/buildsystems/bazel.md`](buildsystems/bazel.md)
 

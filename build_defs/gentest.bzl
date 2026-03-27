@@ -40,6 +40,9 @@ def gentest_suite(name):
         cmd = (
             "mkdir -p $(@D) && " +
             'python3 "$(location scripts/gentest_buildsystem_codegen.py)" ' +
+            '--backend bazel ' +
+            '--mode suite ' +
+            '--kind textual ' +
             '--codegen "$(location :gentest_codegen)" ' +
             '--source-root . ' +
             '--out-dir "$(@D)/gen/{0}" '.format(name) +
@@ -59,6 +62,9 @@ def gentest_suite(name):
         cmd_bat = (
             "if not exist $(@D) mkdir $(@D) && " +
             'python "$(location scripts/gentest_buildsystem_codegen.py)" ' +
+            '--backend bazel ' +
+            '--mode suite ' +
+            '--kind textual ' +
             '--codegen "$(location :gentest_codegen)" ' +
             '--source-root . ' +
             '--out-dir "$(@D)/gen/{0}" '.format(name) +
