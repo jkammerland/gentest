@@ -68,19 +68,37 @@ def _gentest_define_clang_args(defines):
 def _gentest_extra_clang_args(clang_args):
     return ["--clang-arg={}".format(arg) for arg in clang_args]
 
+def _gentest_shell_quote_unix(value):
+    return '"{}"'.format(
+        value.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`"),
+    )
+
+def _gentest_cmd_quote_bat(value):
+    return '"{}"'.format(value.replace('"', '""'))
+
 def _gentest_compile_args(defines = [], clang_args = []):
     return ["-D{}".format(define) for define in defines] + clang_args
 
 def _gentest_compile_copts(defines = [], clang_args = []):
     return _gentest_common_copts + _gentest_warning_copts + _gentest_define_copts(defines) + clang_args
 
-def _gentest_codegen_args(extra_args = [], defines = [], clang_args = []):
-    return " ".join(
-        _gentest_codegen_common_args +
+def _gentest_codegen_args_unix(extra_args = [], defines = [], clang_args = []):
+    return " ".join([
+        _gentest_shell_quote_unix(arg)
+        for arg in _gentest_codegen_common_args +
         _gentest_define_clang_args(defines) +
         _gentest_extra_clang_args(clang_args) +
-        extra_args,
-    )
+        extra_args
+    ])
+
+def _gentest_codegen_args_bat(extra_args = [], defines = [], clang_args = []):
+    return " ".join([
+        _gentest_cmd_quote_bat(arg)
+        for arg in _gentest_codegen_common_args +
+        _gentest_define_clang_args(defines) +
+        _gentest_extra_clang_args(clang_args) +
+        extra_args
+    ])
 
 def _gentest_unique(items):
     seen = {}
@@ -308,7 +326,7 @@ def _gentest_module_compdb_cmd_unix(
         extra_compile_args = extra_compile_args,
         metadata_files = metadata_files,
     )
-    return "python3 -c 'exec({})' && ".format(_gentest_py_quote(script))
+    return "python3 -c {} && ".format(_gentest_shell_quote_unix("exec({})".format(_gentest_py_quote(script))))
 
 def _gentest_module_compdb_cmd_bat(
         compdb_json,
@@ -358,7 +376,7 @@ def gentest_suite(name):
             '--wrapper-output "$(@D)/gen/{0}/tu_0000_{0}_cases.gentest.cpp" '.format(name) +
             '--header-output "$(@D)/gen/{0}/tu_0000_{0}_cases.gentest.h" '.format(name) +
             '--source-file "$(location tests/{0}/cases.cpp)" '.format(name) +
-            _gentest_codegen_args()
+            _gentest_codegen_args_unix()
         ),
         cmd_bat = (
             "if not exist $(@D) mkdir $(@D) && " +
@@ -372,7 +390,7 @@ def gentest_suite(name):
             '--wrapper-output "$(@D)/gen/{0}/tu_0000_{0}_cases.gentest.cpp" '.format(name) +
             '--header-output "$(@D)/gen/{0}/tu_0000_{0}_cases.gentest.h" '.format(name) +
             '--source-file "$(location tests/{0}/cases.cpp)" '.format(name) +
-            _gentest_codegen_args()
+            _gentest_codegen_args_bat()
         ),
         tags = ["no-sandbox"],
     )
@@ -452,7 +470,7 @@ def gentest_add_mocks_textual(
             "--include-root include " +
             "--include-root tests " +
             "--include-root third_party/include " +
-            _gentest_codegen_args(defines = defines, clang_args = clang_args)
+            _gentest_codegen_args_unix(defines = defines, clang_args = clang_args)
         ),
         cmd_bat = (
             'if not exist $(@D)\\{0} mkdir $(@D)\\{0} && '.format(gen_dir.replace("/", "\\")) +
@@ -474,7 +492,7 @@ def gentest_add_mocks_textual(
             "--include-root include " +
             "--include-root tests " +
             "--include-root third_party/include " +
-            _gentest_codegen_args(defines = defines, clang_args = clang_args)
+            _gentest_codegen_args_bat(defines = defines, clang_args = clang_args)
         ),
         tags = ["no-sandbox"],
     )
@@ -551,7 +569,7 @@ def gentest_attach_codegen_textual(
             '--wrapper-output "$(@D)/{0}/tu_0000_{1}.gentest.cpp" '.format(gen_dir, source_stem) +
             '--header-output "$(@D)/{0}/tu_0000_{1}.gentest.h" '.format(gen_dir, source_stem) +
             '--source-file "{0}" '.format(src) +
-            _gentest_codegen_args(
+            _gentest_codegen_args_unix(
                 _gentest_mock_include_unix(mock_names) + _gentest_source_include_args(source_includes),
                 defines = defines,
                 clang_args = clang_args,
@@ -569,7 +587,7 @@ def gentest_attach_codegen_textual(
             '--wrapper-output "$(@D)/{0}/tu_0000_{1}.gentest.cpp" '.format(gen_dir, source_stem) +
             '--header-output "$(@D)/{0}/tu_0000_{1}.gentest.h" '.format(gen_dir, source_stem) +
             '--source-file "{0}" '.format(src) +
-            _gentest_codegen_args(
+            _gentest_codegen_args_bat(
                 _gentest_mock_include_bat(mock_names) + _gentest_source_include_args(source_includes),
                 defines = defines,
                 clang_args = clang_args,
@@ -727,7 +745,7 @@ def _gentest_add_mocks_modules_impl(
             "--include-root include " +
             "--include-root tests " +
             "--include-root third_party/include " +
-            _gentest_codegen_args(defines = defines, clang_args = clang_args)
+            _gentest_codegen_args_unix(defines = defines, clang_args = clang_args)
         ),
         cmd_bat = (
             'if not exist $(@D)\\{0} mkdir $(@D)\\{0} && '.format(gen_dir.replace("/", "\\")) +
@@ -758,7 +776,7 @@ def _gentest_add_mocks_modules_impl(
             "--include-root include " +
             "--include-root tests " +
             "--include-root third_party/include " +
-            _gentest_codegen_args(defines = defines, clang_args = clang_args)
+            _gentest_codegen_args_bat(defines = defines, clang_args = clang_args)
         ),
         tags = ["no-sandbox"],
     )
@@ -893,7 +911,7 @@ def gentest_attach_codegen_modules(
             include_root_args + " " +
             external_module_args_unix + " " +
             mock_metadata_args + " " +
-            _gentest_codegen_args(
+            _gentest_codegen_args_unix(
                 _gentest_source_include_args(source_includes),
                 defines = defines,
                 clang_args = clang_args,
@@ -924,7 +942,7 @@ def gentest_attach_codegen_modules(
             include_root_args + " " +
             external_module_args_bat + " " +
             mock_metadata_args + " " +
-            _gentest_codegen_args(
+            _gentest_codegen_args_bat(
                 _gentest_source_include_args(source_includes),
                 defines = defines,
                 clang_args = clang_args,

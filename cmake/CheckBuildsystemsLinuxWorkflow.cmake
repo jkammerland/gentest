@@ -60,9 +60,11 @@ if(_bazel_module_list_pos EQUAL -1)
 endif()
 
 foreach(_consumer_run IN ITEMS
+    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test"
     "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test"
     "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench"
     "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter"
+    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_test --kind=test"
     "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test"
     "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench"
     "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter")
@@ -98,12 +100,23 @@ foreach(_literal IN ITEMS
     [[consumer_textual_bin]]
     [[consumer_module_bin]]
     [[--list]]
+    [[--run=consumer/consumer/module_test --kind=test]]
     [[--run=consumer/consumer/module_mock --kind=test]]
     [[--run=consumer/consumer/module_bench --kind=bench]]
     [[--run=consumer/consumer/module_jitter --kind=jitter]])
   string(FIND "${_content}" "${_literal}" _literal_pos)
   if(_literal_pos EQUAL -1)
     message(FATAL_ERROR "buildsystems_linux workflow must contain '${_literal}' for the Xmake consumer execution path.")
+  endif()
+endforeach()
+
+foreach(_host_env_literal IN ITEMS
+    [[--host_action_env=CC="${clang_cc}" \]]
+    [[--host_action_env=CXX="${clang_cxx}" \]]
+    [[--host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \]])
+  string(FIND "${_content}" "${_host_env_literal}" _host_env_literal_pos)
+  if(_host_env_literal_pos EQUAL -1)
+    message(FATAL_ERROR "buildsystems_linux workflow must contain '${_host_env_literal}' for the Bazel module consumer lane.")
   endif()
 endforeach()
 

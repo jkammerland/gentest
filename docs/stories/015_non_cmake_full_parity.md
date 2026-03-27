@@ -183,7 +183,7 @@ Current repo state:
 - public `defines` / `clang_args` now flow into both final Xmake compilation
   and `gentest_codegen`
 - the checked-in Linux workflow validates both the textual and module consumers
-  through list/test/bench/jitter execution under a Clang contract
+  through list/test/mock/bench/jitter execution under a Clang contract
 
 Open work:
 
@@ -201,8 +201,8 @@ Current repo state:
 - the macros now synthesize repo-local metadata and `compile_commands.json`
   inputs so `gentest_codegen` can scan the module path
 - the checked-in Linux workflow validates the module consumer under an explicit
-  Clang + `--experimental_cpp_modules` contract, including mock/bench/jitter
-  execution
+  Clang + `--experimental_cpp_modules` contract, including
+  test/mock/bench/jitter execution
 
 Open work:
 

@@ -205,6 +205,18 @@ foreach(_expected IN ITEMS
 endforeach()
 
 execute_process(
+  COMMAND "${_consumer_bin}" --run=consumer/consumer/module_test --kind=test
+  RESULT_VARIABLE _module_test_rc
+  OUTPUT_VARIABLE _module_test_out
+  ERROR_VARIABLE _module_test_err)
+if(NOT _module_test_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Xmake module consumer plain test case failed.\n"
+    "stdout:\n${_module_test_out}\n"
+    "stderr:\n${_module_test_err}")
+endif()
+
+execute_process(
   COMMAND "${_consumer_bin}" --run=consumer/consumer/module_mock --kind=test
   RESULT_VARIABLE _test_rc
   OUTPUT_VARIABLE _test_out

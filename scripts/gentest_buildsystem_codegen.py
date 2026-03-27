@@ -126,11 +126,11 @@ def default_header_output_path(out_dir: pathlib.Path, source_file: pathlib.Path,
 def resolve_input_path(path_arg: str, source_root: pathlib.Path) -> pathlib.Path:
     candidate = pathlib.Path(path_arg)
     if candidate.is_absolute():
-        return candidate
-    cwd_candidate = (pathlib.Path.cwd() / candidate).absolute()
+        return pathlib.Path(os.path.abspath(candidate))
+    cwd_candidate = pathlib.Path(os.path.abspath(pathlib.Path.cwd() / candidate))
     if cwd_candidate.exists():
         return cwd_candidate
-    return (source_root / candidate).absolute()
+    return pathlib.Path(os.path.abspath(source_root / candidate))
 
 
 def write_suite_shim(wrapper_output: pathlib.Path, source_file_for_include: pathlib.Path, header_output: pathlib.Path) -> None:

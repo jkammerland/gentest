@@ -1,0 +1,177 @@
+if(NOT DEFINED SOURCE_DIR)
+  message(FATAL_ERROR "CheckMesonTextualFmtFallback.cmake: SOURCE_DIR not set")
+endif()
+if(NOT DEFINED BUILD_ROOT)
+  message(FATAL_ERROR "CheckMesonTextualFmtFallback.cmake: BUILD_ROOT not set")
+endif()
+if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
+  message(FATAL_ERROR "CheckMesonTextualFmtFallback.cmake: PROG not set")
+endif()
+
+if(WIN32)
+  message(STATUS "Skipping Meson fmt fallback check on Windows.")
+  return()
+endif()
+
+find_program(_meson NAMES meson)
+if(NOT _meson)
+  message(STATUS "GENTEST_SKIP_TEST: meson not found")
+  return()
+endif()
+
+set(_gentest_clang_search_paths
+  /usr/lib64/llvm22/bin
+  /usr/lib64/llvm21/bin
+  /usr/lib64/llvm20/bin
+  /usr/lib/llvm-22/bin
+  /usr/lib/llvm-21/bin
+  /usr/lib/llvm-20/bin
+  /usr/bin
+  /bin)
+
+find_program(_real_cc NAMES clang clang-22 clang-21 clang-20 gcc
+  PATHS ${_gentest_clang_search_paths}
+  NO_DEFAULT_PATH)
+find_program(_real_cxx NAMES clang++ clang++-22 clang++-21 clang++-20 g++
+  PATHS ${_gentest_clang_search_paths}
+  NO_DEFAULT_PATH)
+if(NOT _real_cc)
+  set(_real_cc "${C_COMPILER}")
+endif()
+if(NOT _real_cxx)
+  set(_real_cxx "${CXX_COMPILER}")
+endif()
+
+find_path(_fmt_include_root NAMES fmt/core.h
+  PATHS
+    /usr/include
+    /usr/local/include
+    /opt/homebrew/include
+    /opt/local/include)
+if(NOT _fmt_include_root)
+  message(STATUS "GENTEST_SKIP_TEST: fmt headers not found")
+  return()
+endif()
+
+set(_codegen "${PROG}")
+if(NOT IS_ABSOLUTE "${_codegen}")
+  get_filename_component(_codegen "${_codegen}" REALPATH BASE_DIR "${CMAKE_BINARY_DIR}")
+endif()
+if(NOT EXISTS "${_codegen}")
+  message(FATAL_ERROR "CheckMesonTextualFmtFallback.cmake: resolved codegen path does not exist: ${_codegen}")
+endif()
+
+string(MD5 _scratch_hash "${BUILD_ROOT}")
+set(_scratch_base "")
+foreach(_candidate IN ITEMS "/dev/shm" "/tmp")
+  if(EXISTS "${_candidate}")
+    set(_probe_file "${_candidate}/gentest_meson_fmt_probe_${_scratch_hash}")
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" -E touch "${_probe_file}"
+      RESULT_VARIABLE _probe_rc
+      OUTPUT_QUIET
+      ERROR_QUIET)
+    if(_probe_rc EQUAL 0)
+      file(REMOVE "${_probe_file}")
+      set(_scratch_base "${_candidate}")
+      break()
+    endif()
+  endif()
+endforeach()
+if("${_scratch_base}" STREQUAL "")
+  message(STATUS "GENTEST_SKIP_TEST: no writable scratch root available for Meson fmt fallback check")
+  return()
+endif()
+
+set(_scratch_root "${_scratch_base}/gentest_meson_textual_fmt_fallback_${_scratch_hash}")
+file(REMOVE_RECURSE "${_scratch_root}")
+file(MAKE_DIRECTORY "${_scratch_root}")
+file(MAKE_DIRECTORY "${_scratch_root}/empty-pkgconfig")
+file(MAKE_DIRECTORY "${_scratch_root}/tmp")
+
+get_filename_component(_codegen_name "${_codegen}" NAME)
+set(_fake_codegen_root "${_scratch_root}/host-codegen")
+set(_fake_codegen "${_fake_codegen_root}/tools/${_codegen_name}")
+set(_fake_fmt_include "${_fake_codegen_root}/_deps/fmt-src/include")
+file(MAKE_DIRECTORY "${_fake_codegen_root}/tools")
+file(MAKE_DIRECTORY "${_fake_fmt_include}")
+file(CREATE_LINK "${_codegen}" "${_fake_codegen}" SYMBOLIC)
+file(CREATE_LINK "${_fmt_include_root}/fmt" "${_fake_fmt_include}/fmt" SYMBOLIC)
+
+set(_out_dir "${_scratch_root}/meson-fmt-fallback")
+set(_fallback_include_flag "-I${_fake_fmt_include}")
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PKG_CONFIG_LIBDIR=${_scratch_root}/empty-pkgconfig"
+          "PKG_CONFIG_PATH=${_scratch_root}/empty-pkgconfig"
+          "TMPDIR=${_scratch_root}/tmp"
+          "CC=${_real_cc}"
+          "CXX=${_real_cxx}"
+          "${_meson}" setup "${_out_dir}" "${SOURCE_DIR}" "--wipe" "-Dcodegen_path=${_fake_codegen}"
+  RESULT_VARIABLE _setup_rc
+  OUTPUT_VARIABLE _setup_out
+  ERROR_VARIABLE _setup_err)
+if(NOT _setup_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson setup failed for the fmt fallback check.\n"
+    "stdout:\n${_setup_out}\n"
+    "stderr:\n${_setup_err}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PKG_CONFIG_LIBDIR=${_scratch_root}/empty-pkgconfig"
+          "PKG_CONFIG_PATH=${_scratch_root}/empty-pkgconfig"
+          "TMPDIR=${_scratch_root}/tmp"
+          "CC=${_real_cc}"
+          "CXX=${_real_cxx}"
+          "${_meson}" compile -C "${_out_dir}" -v gentest_consumer_textual_meson
+  RESULT_VARIABLE _build_rc
+  OUTPUT_VARIABLE _build_out
+  ERROR_VARIABLE _build_err)
+if(NOT _build_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson compile failed for the fmt fallback check.\n"
+    "stdout:\n${_build_out}\n"
+    "stderr:\n${_build_err}")
+endif()
+
+set(_build_log "${_build_out}\n${_build_err}")
+string(FIND "${_build_log}" "${_fallback_include_flag}" _fallback_include_pos)
+if(_fallback_include_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Meson compile did not use the adjacent fmt fallback include root '${_fallback_include_flag}'.\n"
+    "stdout:\n${_build_out}\n"
+    "stderr:\n${_build_err}")
+endif()
+
+set(_consumer_bin "${_out_dir}/gentest_consumer_textual_meson")
+if(NOT EXISTS "${_consumer_bin}")
+  message(FATAL_ERROR "Expected built Meson consumer binary was not found: ${_consumer_bin}")
+endif()
+
+execute_process(
+  COMMAND "${_consumer_bin}" --list
+  RESULT_VARIABLE _list_rc
+  OUTPUT_VARIABLE _list_out
+  ERROR_VARIABLE _list_err)
+if(NOT _list_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson textual consumer listing failed in the fmt fallback check.\n"
+    "stdout:\n${_list_out}\n"
+    "stderr:\n${_list_err}")
+endif()
+
+foreach(_expected IN ITEMS
+    "consumer/consumer/module_test"
+    "consumer/consumer/module_mock"
+    "consumer/consumer/module_bench"
+    "consumer/consumer/module_jitter")
+  string(FIND "${_list_out}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson textual consumer listing is missing '${_expected}' in the fmt fallback check.\n"
+      "stdout:\n${_list_out}")
+  endif()
+endforeach()

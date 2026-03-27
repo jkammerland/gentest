@@ -84,7 +84,12 @@ The textual consumer also writes:
 - `tu_0000_consumer_textual_mocks_defs.gentest.h`
 - `consumer_textual_mocks_mock_registry.hpp`
 - `consumer_textual_mocks_mock_impl.hpp`
+- `consumer_textual_mocks_mock_metadata.json`
 - `gentest_consumer_mocks.hpp`
+
+That metadata JSON is helper-owned plumbing between the explicit mock step and
+the textual attach step. It is generated and consumed automatically; it is not
+part of the public user surface.
 
 ## Limitations
 

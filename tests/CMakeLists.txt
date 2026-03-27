@@ -2194,6 +2194,13 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_meson_textual_fmt_fallback
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckMesonTextualFmtFallback.cmake
+    cmake)
+set_property(TEST gentest_meson_textual_fmt_fallback APPEND PROPERTY LABELS "meson")
+
+_gentest_add_cmake_helper_test(
     gentest_xmake_textual_consumer_registration
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeTextualConsumerRegistration.cmake

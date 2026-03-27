@@ -136,16 +136,18 @@ but the local regression only treats `3.0.8+` as supported enough for the
 module smoke lane.
 
 For fuller consumer validation, run the built binaries directly and exercise the
-mock/bench/jitter surface:
+plain test, mock, bench, and jitter surface:
 
 ```bash
 consumer_textual_bin="$(find build/xmake -type f -name 'gentest_consumer_textual_xmake' | head -n 1)"
 consumer_module_bin="$(find build/xmake -type f -name 'gentest_consumer_module_xmake' | head -n 1)"
 
+"${consumer_textual_bin}" --run=consumer/consumer/module_test --kind=test
 "${consumer_textual_bin}" --run=consumer/consumer/module_mock --kind=test
 "${consumer_textual_bin}" --run=consumer/consumer/module_bench --kind=bench
 "${consumer_textual_bin}" --run=consumer/consumer/module_jitter --kind=jitter
 
+"${consumer_module_bin}" --run=consumer/consumer/module_test --kind=test
 "${consumer_module_bin}" --run=consumer/consumer/module_mock --kind=test
 "${consumer_module_bin}" --run=consumer/consumer/module_bench --kind=bench
 "${consumer_module_bin}" --run=consumer/consumer/module_jitter --kind=jitter

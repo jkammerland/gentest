@@ -271,6 +271,14 @@ local function shorten_stem_digest(text)
     return digest
 end
 
+local function anchor_symbol_name(target_id)
+    local sanitized = sanitize_target_id(target_id)
+    if sanitized == "" or sanitized:match("^[0-9]") then
+        sanitized = "_" .. sanitized
+    end
+    return sanitized .. "_" .. shorten_stem_digest(target_id):sub(1, 12) .. "_explicit_mock_anchor"
+end
+
 local function shorten_generated_stem(stem)
     local sanitized = stem:gsub("[^%w_]", "_")
     if sanitized == "" then
@@ -445,7 +453,7 @@ local function anchor_placeholder(target_id)
     return table.concat({
         "// generated placeholder",
         "namespace gentest::detail {",
-        "int " .. target_id .. "_explicit_mock_anchor = 0;",
+        "int " .. anchor_symbol_name(target_id) .. " = 0;",
         "} // namespace gentest::detail",
         "",
     }, "\n")
@@ -577,8 +585,10 @@ local function resolve_dep_inputs(deps)
     local metadata_paths = {}
     local seen_includes = {}
     local seen_metadata = {}
+    local seen_targets = {}
     local metadata_by_target = registered_target_metadata()
-    for _, dep in ipairs(deps or {}) do
+
+    local function visit_dep(dep)
         if type(dep) == "table" then
             if dep.metadata_path then
                 append_unique(metadata_paths, seen_metadata, dep.metadata_path)
@@ -591,7 +601,8 @@ local function resolve_dep_inputs(deps)
             end
             dep = dep.target
         end
-        if dep then
+        if dep and not seen_targets[dep] then
+            seen_targets[dep] = true
             local registered = metadata_by_target[dep]
             if registered then
                 append_unique(metadata_paths, seen_metadata, registered.metadata_path)
@@ -601,8 +612,15 @@ local function resolve_dep_inputs(deps)
                 for _, extra_include in ipairs(registered.include_dirs or {}) do
                     append_unique(include_dirs, seen_includes, extra_include)
                 end
+                for _, nested_dep in ipairs(registered.deps or {}) do
+                    visit_dep(nested_dep)
+                end
             end
         end
+    end
+
+    for _, dep in ipairs(deps or {}) do
+        visit_dep(dep)
     end
     return include_dirs, metadata_paths
 end
@@ -1109,6 +1127,7 @@ function gentest_add_mocks(opts)
         include_dir = out_dir_abs,
         include_dirs = include_dirs,
         metadata_path = config.metadata_output,
+        deps = opts.deps or {},
     }
 end
 
