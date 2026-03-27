@@ -17,6 +17,9 @@ set(_tmp_dir "${CMAKE_CURRENT_BINARY_DIR}/tmp_xmake_target_registration")
 file(REMOVE_RECURSE "${_tmp_dir}")
 file(MAKE_DIRECTORY "${_tmp_dir}")
 file(COPY_FILE "${_xmake_file}" "${_tmp_dir}/xmake.lua")
+if(EXISTS "${SOURCE_DIR}/xmake")
+  file(COPY "${SOURCE_DIR}/xmake" DESTINATION "${_tmp_dir}")
+endif()
 
 execute_process(
   COMMAND "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -l targets

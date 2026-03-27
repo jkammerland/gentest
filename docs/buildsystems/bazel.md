@@ -1,19 +1,26 @@
 # Bazel
 
-This Bazel integration is currently a repo-local convenience path for this
-repository. It is not yet a general downstream Bazel rule set.
+This Bazel integration is currently a repo-local textual API for this
+repository. It now exposes repo-local textual macros in
+[`build_defs/gentest.bzl`](../../build_defs/gentest.bzl):
+
+- `gentest_add_mocks_textual(...)`
+- `gentest_attach_codegen_textual(...)`
+
+It is still not a packaged downstream Bazel rule set, and it still does not
+support modules.
 
 ## Current scope
 
 - Supports the classic suites in `tests/<suite>/cases.cpp`.
-- Supports one repo-local explicit textual mock slice:
+- Supports one repo-local explicit textual mock slice built through the textual
+  macros:
   - defs file: `tests/consumer/header_mock_defs.hpp`
   - generated public header: `gen/consumer_textual_mocks/gentest_consumer_mocks.hpp`
   - consumer test source: `tests/buildsystems/consumer_textual_cases.cpp`
 - Uses the shared per-TU helper in [`scripts/gentest_buildsystem_codegen.py`](../../scripts/gentest_buildsystem_codegen.py).
 - Bootstraps `gentest_codegen` through a local CMake genrule.
-- Does not currently support named-module suites, module mock defs, or a
-  reusable downstream Bazel `add_mocks(...)` / `attach_codegen(...)` rule set yet.
+- Does not currently support named-module suites or module mock defs.
 
 The currently wired suites are:
 
@@ -24,7 +31,49 @@ The currently wired suites are:
 
 The additional repo-local explicit textual mock target is:
 
+- `gentest_consumer_textual_mocks`
+
+The helper-based textual consumer target is:
+
 - `gentest_consumer_textual_bazel`
+
+## Current textual macro API
+
+Inside this repo, the textual Bazel surface looks like this:
+
+```python
+load("//build_defs:gentest.bzl", "gentest_add_mocks_textual", "gentest_attach_codegen_textual", "gentest_suite")
+
+gentest_add_mocks_textual(
+    name = "gentest_consumer_textual_mocks",
+    defs = ["tests/consumer/header_mock_defs.hpp"],
+    public_header = "gentest_consumer_mocks.hpp",
+    # Current repo-local limitation: this explicitly lists staged generated
+    # support-header outputs under gen/<name>/...
+    staged_support_headers = ["deps/0478dfbbe6c184098f87ed47b43d96f9_service.hpp"],
+)
+
+gentest_attach_codegen_textual(
+    name = "gentest_consumer_textual_bazel",
+    src = "tests/buildsystems/consumer_textual_cases.cpp",
+    main = "tests/consumer/main.cpp",
+    mock_targets = [":gentest_consumer_textual_mocks"],
+    source_includes = ["tests", "tests/buildsystems", "tests/consumer"],
+)
+```
+
+The important rule is still the same as CMake:
+
+- mocks are explicit
+- tests attach codegen separately
+- textual mock consumers include the generated public header
+
+Current textual macro constraints:
+
+- `gentest_add_mocks_textual(...)` currently accepts exactly one defs file
+- `staged_support_headers` lists generated staged outputs under `gen/<name>/...`
+- `mock_targets` in `gentest_attach_codegen_textual(...)` currently use same-package labels only
+- `source_includes` is forwarded into both wrapper compilation and `gentest_codegen`
 
 There is also a generator lint target:
 
@@ -185,14 +234,15 @@ bazelisk test //:gentest_<suite>_bazel
 
 - This path currently supports:
   - classic per-TU suites
-  - one in-tree textual explicit-mock slice
+  - textual explicit mocks through `gentest_add_mocks_textual(...)`
+  - textual test attachment through `gentest_attach_codegen_textual(...)`
 - It is still intentionally limited to classic/header-style suites.
 - The `gentest_codegen` bootstrap rule is local and non-hermetic.
 - Windows Bazel validation is currently blocked by a host-level Bazel bootstrap
   failure before the gentest repo is analyzed. That still reproduces on the
   current `9.0.0` pin and on local probes of Bazel `8.4.2` and `7.7.0`. Use
   Meson/Xmake/CMake on Windows for now.
-- If you need named modules, module mock defs, reusable/public Bazel
-  `add_mocks(...)` / `attach_codegen(...)` rules, or package/export parity, use
-  the CMake path for now. Follow-up parity work is tracked in
+- If you need named modules, module mock defs, package/export parity, or a
+  packaged downstream Bazel rule set beyond these repo-local textual macros,
+  use the CMake path for now. Follow-up parity work is tracked in
   [`docs/stories/015_non_cmake_full_parity.md`](../stories/015_non_cmake_full_parity.md).

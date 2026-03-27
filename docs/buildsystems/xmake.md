@@ -1,20 +1,25 @@
 # Xmake
 
-This Xmake integration is currently a repo-local convenience path for this
-repository. It covers the classic handwritten suites, and it has an in-tree
-textual explicit-mock slice under active stabilization, but it is not yet a
-general downstream Xmake package API.
+This Xmake integration is currently a repo-local textual API for this
+repository. It covers the classic handwritten suites, and it now exposes
+textual helper entry points in [`xmake/gentest.lua`](../../xmake/gentest.lua):
+
+- `gentest_add_mocks({ kind = "textual", ... })`
+- `gentest_attach_codegen({ kind = "textual", ... })`
+
+It is still not a packaged downstream Xmake integration yet, and it still does
+not support modules.
 
 ## Current scope
 
 - Supports the classic suites in `tests/<suite>/cases.cpp`.
-- Has one repo-local explicit textual mock slice under active stabilization:
+- Has one repo-local explicit textual mock slice built through the helper API:
   - defs file: `tests/consumer/header_mock_defs.hpp`
   - generated public header: `build/xmake/gen/<plat>/<arch>/<mode>/consumer_textual_mocks/gentest_consumer_mocks.hpp`
   - consumer test source: `tests/buildsystems/consumer_textual_cases.cpp`
 - Uses the shared per-TU helper in [`scripts/gentest_buildsystem_codegen.py`](../../scripts/gentest_buildsystem_codegen.py).
 - Generates a classic wrapper TU plus `tu_*.gentest.h` registration header per suite.
-- Does not currently support named-module suites, module mock defs, or an installed Xmake-facing `add_mocks(...)` / `attach_codegen(...)` API yet.
+- Does not currently support named-module suites or module mock defs.
 
 The currently wired suites are:
 
@@ -25,12 +30,71 @@ The currently wired suites are:
 
 The additional repo-local explicit textual mock target is:
 
+- `gentest_consumer_textual_mocks_xmake`
+
+The helper-based textual consumer target is:
+
 - `gentest_consumer_textual_xmake`
+
+## Current textual helper API
+
+Inside this repo, the Xmake helper surface looks like this:
+
+```lua
+add_requires("fmt")
+
+includes("xmake/gentest.lua")
+
+local function current_gen_root()
+    local buildir = get_config("builddir") or get_config("buildir") or "build"
+    local plat = get_config("plat") or os.host()
+    local arch = get_config("arch") or os.arch()
+    local mode = get_config("mode") or "release"
+    return path.join(buildir, "gen", plat, arch, mode)
+end
+
+gentest_configure({
+    project_root = os.scriptdir(),
+    codegen_project_root = os.scriptdir(),
+    incdirs = {"include", "tests", "third_party/include"},
+    buildsystem_codegen = path.join(os.scriptdir(), "scripts", "gentest_buildsystem_codegen.py"),
+    python_program = "python3",
+    gentest_common_defines = {"FMT_HEADER_ONLY"},
+    gentest_common_cxxflags = {"-Wno-attributes"},
+})
+
+local mocks = gentest_add_mocks({
+    name = "gentest_consumer_textual_mocks_xmake",
+    kind = "textual",
+    defs = {"tests/consumer/header_mock_defs.hpp"},
+    headerfiles = {"tests/consumer/header_mock_defs.hpp", "tests/consumer/service.hpp"},
+    header_name = "gentest_consumer_mocks.hpp",
+    output_dir = path.join(current_gen_root(), "consumer_textual_mocks"),
+    deps = {"gentest_runtime"},
+})
+
+gentest_attach_codegen({
+    name = "gentest_consumer_textual_xmake",
+    kind = "textual",
+    source = "tests/buildsystems/consumer_textual_cases.cpp",
+    main = "tests/consumer/main.cpp",
+    output_dir = path.join(current_gen_root(), "consumer_textual"),
+    deps = {"gentest_main", mocks.target},
+    includes = {mocks.include_dir},
+})
+```
+
+The important rule is still the same as CMake:
+
+- mocks are explicit
+- tests attach codegen separately
+- textual mock consumers include the generated public header
 
 ## Recommended usage
 
 Build `gentest_codegen` with CMake first and point Xmake at it explicitly.
-That is the most deterministic path.
+That is the most deterministic path, especially for consumers outside the
+gentest source tree.
 
 Prerequisites:
 
@@ -70,12 +134,14 @@ xmake r -y gentest_consumer_textual_xmake
 
 ## Fallback generator bootstrap
 
-If `GENTEST_CODEGEN` is not set, `xmake.lua` falls back to building the
+If `GENTEST_CODEGEN` is not set, the helper falls back to building the
 generator with CMake under:
 
 - `build/xmake-codegen/<host>/<arch>`
 
-That fallback is intended as a convenience, not the preferred CI or local path.
+That fallback assumes `codegen_project_root` is the gentest source tree. For
+external consumers, set `GENTEST_CODEGEN` explicitly or point
+`codegen_project_root` at a gentest checkout.
 
 The Xmake path now also resolves `fmt` through Xmake packages. Use `-y` in
 non-interactive runs so the initial package install does not block.
@@ -142,9 +208,10 @@ xmake r -y gentest_<suite>_xmake
 
 - This path currently supports:
   - classic per-TU suites
-  - one in-tree textual explicit-mock slice under active stabilization
+  - textual explicit mocks through `gentest_add_mocks(...)`
+  - textual test attachment through `gentest_attach_codegen(...)`
 - It is intentionally limited to classic/header-style suites.
 - If you need named modules, module mock defs, reusable/public Xmake
-  `add_mocks(...)` / `attach_codegen(...)` helpers, or package/export parity,
+  package/export parity, or a packaged downstream Xmake integration,
   use the CMake path for now. Follow-up parity work is tracked in
   [`docs/stories/015_non_cmake_full_parity.md`](../stories/015_non_cmake_full_parity.md).
