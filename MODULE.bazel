@@ -12,3 +12,21 @@ bazel_dep(name = "rules_cc", version = "0.2.14")
 
 # Bazel 9+ no longer ships built-in shell rules; use rules_shell for `sh_*`.
 bazel_dep(name = "rules_shell", version = "0.6.1")
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "fmt",
+    urls = ["https://github.com/fmtlib/fmt/releases/download/12.1.0/fmt-12.1.0.zip"],
+    strip_prefix = "fmt-12.1.0",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "fmt",
+    hdrs = glob(["include/fmt/**/*.h"]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+""",
+)

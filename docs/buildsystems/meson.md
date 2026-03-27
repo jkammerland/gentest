@@ -94,10 +94,17 @@ meson test -C build/meson --print-errorlogs
 Windows:
 
 ```powershell
-meson setup build/meson -Dcodegen_path=build/host-codegen/tools/gentest_codegen.exe
+$llvm = 'C:\Tools\llvm-21.1.4\bin'
+$env:CC = "$llvm\clang-cl.exe"
+$env:CXX = "$llvm\clang-cl.exe"
+$env:AR = "$llvm\llvm-lib.exe"
+meson setup build/meson -Dcodegen_path=build/host-codegen/tools/gentest_codegen.exe --vsenv
 meson compile -C build/meson
 meson test -C build/meson --print-errorlogs
 ```
+
+On Windows, prefer `clang-cl` plus `--vsenv`. The GNU-style `clang++` Meson path
+can produce archives that do not link cleanly with the MSVC linker.
 
 ## What Meson generates
 

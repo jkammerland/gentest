@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import pathlib
 import re
@@ -117,38 +118,85 @@ def write_suite_shim(wrapper_output: pathlib.Path, source_file_for_include: path
     wrapper_output.write_text(content, encoding="utf-8")
 
 
-def rewrite_local_quoted_includes(
-    source_text: str,
+INCLUDE_PATTERN = re.compile(r'#[ \t]*include[ \t]*"([^"]+)"')
+
+
+def resolve_stageable_include(
+    include_path: str,
     source_file: pathlib.Path,
     source_root: pathlib.Path,
     include_roots: list[pathlib.Path],
-) -> str:
+) -> pathlib.Path | None:
     source_dir = source_file.parent
-    normalized_root = source_root.resolve()
-    normalized_include_roots = [root.resolve() for root in include_roots]
+    normalized_root = source_root.absolute()
+    normalized_include_roots = [root.absolute() for root in include_roots]
+    if os.path.isabs(include_path):
+        return None
+    include_candidate = (source_dir / include_path).absolute()
+    if not include_candidate.exists() or include_candidate.is_dir():
+        return None
+    for include_root in normalized_include_roots:
+        try:
+            include_candidate.relative_to(include_root)
+            return include_candidate
+        except ValueError:
+            continue
+    try:
+        include_candidate.relative_to(normalized_root)
+        return include_candidate
+    except ValueError:
+        return None
+
+
+def stable_stage_dep_path(out_dir: pathlib.Path, source_file: pathlib.Path, source_root: pathlib.Path) -> pathlib.Path:
+    try:
+        stable_key = source_file.absolute().relative_to(source_root.absolute()).as_posix()
+    except ValueError:
+        stable_key = source_file.absolute().as_posix()
+    digest = hashlib.md5(stable_key.encode("utf-8")).hexdigest()
+    return out_dir / "deps" / f"{digest}_{source_file.name}"
+
+
+def stage_textual_file(
+    *,
+    source_file: pathlib.Path,
+    staged_path: pathlib.Path,
+    source_root: pathlib.Path,
+    include_roots: list[pathlib.Path],
+    staged_files: dict[pathlib.Path, pathlib.Path],
+) -> pathlib.Path:
+    source_file = source_file.absolute()
+    if source_file in staged_files:
+        return staged_files[source_file]
+    staged_files[source_file] = staged_path
+    source_text = source_file.read_text(encoding="utf-8")
 
     def replace_include(match: re.Match[str]) -> str:
         include_path = match.group(1)
-        if os.path.isabs(include_path):
+        include_candidate = resolve_stageable_include(include_path, source_file, source_root, include_roots)
+        if include_candidate is None:
             return match.group(0)
-        include_candidate = (source_dir / include_path).resolve()
-        if not include_candidate.exists() or include_candidate.is_dir():
-            return match.group(0)
-        rewritten = None
-        for include_root in normalized_include_roots:
-            try:
-                rewritten = include_candidate.relative_to(include_root).as_posix()
-                break
-            except ValueError:
-                continue
-        if rewritten is None:
-            try:
-                rewritten = include_candidate.relative_to(normalized_root).as_posix()
-            except ValueError:
-                return match.group(0)
+        staged_dep = staged_files.get(include_candidate)
+        if staged_dep is None:
+            staged_dep = stable_stage_dep_path(
+                staged_path.parent.parent if staged_path.parent.name == "deps" else staged_path.parent,
+                include_candidate,
+                source_root,
+            )
+            stage_textual_file(
+                source_file=include_candidate,
+                staged_path=staged_dep,
+                source_root=source_root,
+                include_roots=include_roots,
+                staged_files=staged_files,
+            )
+        rewritten = pathlib.Path(os.path.relpath(staged_dep, staged_path.parent)).as_posix()
         return match.group(0).replace(f'"{include_path}"', f'"{rewritten}"')
 
-    return re.sub(r'#[ \t]*include[ \t]*"([^"]+)"', replace_include, source_text)
+    rewritten = INCLUDE_PATTERN.sub(replace_include, source_text)
+    staged_path.parent.mkdir(parents=True, exist_ok=True)
+    staged_path.write_text(rewritten if rewritten.endswith("\n") else rewritten + "\n", encoding="utf-8")
+    return staged_path
 
 
 def materialize_textual_mock_defs(
@@ -159,11 +207,18 @@ def materialize_textual_mock_defs(
 ) -> list[pathlib.Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     materialized: list[pathlib.Path] = []
+    staged_files: dict[pathlib.Path, pathlib.Path] = {}
     for index, defs_file in enumerate(defs_files):
         staged_path = out_dir / f"def_{index:04d}_{defs_file.name}"
-        rewritten = rewrite_local_quoted_includes(defs_file.read_text(encoding="utf-8"), defs_file, source_root, include_roots)
-        staged_path.write_text(rewritten if rewritten.endswith("\n") else rewritten + "\n", encoding="utf-8")
-        materialized.append(staged_path)
+        materialized.append(
+            stage_textual_file(
+                source_file=defs_file,
+                staged_path=staged_path,
+                source_root=source_root,
+                include_roots=include_roots,
+                staged_files=staged_files,
+            )
+        )
     return materialized
 
 

@@ -46,13 +46,13 @@ cmake --preset=host-codegen
 cmake --build --preset=host-codegen --parallel
 
 export GENTEST_CODEGEN="$PWD/build/host-codegen/tools/gentest_codegen"
-xmake f -c -m release -o build/xmake
-xmake b -a
-xmake r gentest_unit_xmake
-xmake r gentest_integration_xmake
-xmake r gentest_fixtures_xmake
-xmake r gentest_skiponly_xmake
-xmake r gentest_consumer_textual_xmake
+xmake f -c -y -m release -o build/xmake
+xmake b -a -y
+xmake r -y gentest_unit_xmake
+xmake r -y gentest_integration_xmake
+xmake r -y gentest_fixtures_xmake
+xmake r -y gentest_skiponly_xmake
+xmake r -y gentest_consumer_textual_xmake
 ```
 
 Windows:
@@ -62,10 +62,10 @@ cmake --preset=host-codegen
 cmake --build --preset=host-codegen --parallel
 
 $env:GENTEST_CODEGEN="$PWD\\build\\host-codegen\\tools\\gentest_codegen.exe"
-xmake f -c -m release -o build/xmake
-xmake b -a
-xmake r gentest_unit_xmake
-xmake r gentest_consumer_textual_xmake
+xmake f -c -y -m release -o build/xmake
+xmake b -a -y
+xmake r -y gentest_unit_xmake
+xmake r -y gentest_consumer_textual_xmake
 ```
 
 ## Fallback generator bootstrap
@@ -76,6 +76,9 @@ generator with CMake under:
 - `build/xmake-codegen/<host>/<arch>`
 
 That fallback is intended as a convenience, not the preferred CI or local path.
+
+The Xmake path now also resolves `fmt` through Xmake packages. Use `-y` in
+non-interactive runs so the initial package install does not block.
 
 ## What Xmake generates
 
@@ -120,7 +123,7 @@ The consumer executable then compiles:
 
 ```bash
 xmake b -a
-xmake r gentest_<suite>_xmake
+xmake r -y gentest_<suite>_xmake
 ```
 
 ## Limitations

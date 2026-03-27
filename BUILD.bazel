@@ -5,6 +5,7 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 _gentest_linkopts = select({
     '@bazel_tools//src/conditions:windows': [],
+    '@bazel_tools//src/conditions:darwin': [],
     '//conditions:default': ['-fuse-ld=bfd'],
 })
 
@@ -32,9 +33,23 @@ genrule(
     # Still, we want Bazel to rebuild `gentest_codegen` when the generator sources/config change.
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen'],
-    cmd = "set -e; rm -rf $(@D)/b && mkdir -p $(@D)/b && " +
-          "cmake -S . -B $(@D)/b -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && " +
-          "cmake --build $(@D)/b --target gentest_codegen -j 1 && " +
+    cmd = "set -e; " +
+          "GENTEST_CMAKE_ARGS='-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'; " +
+          "if [ -x /opt/homebrew/bin/cmake ]; then GENTEST_CMAKE_BIN=/opt/homebrew/bin/cmake; " +
+          "else GENTEST_CMAKE_BIN=$$(command -v cmake); fi && " +
+          "if [ -x /opt/homebrew/bin/ninja ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -G Ninja -DCMAKE_MAKE_PROGRAM=/opt/homebrew/bin/ninja\"; fi && " +
+          "if [ -n \"$${CC:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_C_COMPILER=$$CC\"; " +
+          "elif [ -x /opt/homebrew/opt/llvm/bin/clang ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_C_COMPILER=/opt/homebrew/opt/llvm/bin/clang\"; fi && " +
+          "if [ -n \"$${CXX:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_CXX_COMPILER=$$CXX\"; " +
+          "elif [ -x /opt/homebrew/opt/llvm/bin/clang++ ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm/bin/clang++\"; fi && " +
+          "if [ -n \"$${LLVM_DIR:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DLLVM_DIR=$$LLVM_DIR\"; " +
+          "elif [ -d /opt/homebrew/opt/llvm/lib/cmake/llvm ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DLLVM_DIR=/opt/homebrew/opt/llvm/lib/cmake/llvm\"; fi && " +
+          "if [ -n \"$${Clang_DIR:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DClang_DIR=$$Clang_DIR\"; " +
+          "elif [ -d /opt/homebrew/opt/llvm/lib/cmake/clang ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DClang_DIR=/opt/homebrew/opt/llvm/lib/cmake/clang\"; fi && " +
+          "if [ -z \"$${GENTEST_CMAKE_BIN}\" ]; then echo 'gentest bazel: cmake not found' >&2; exit 127; fi && " +
+          "rm -rf $(@D)/b && mkdir -p $(@D)/b && " +
+          "\"$${GENTEST_CMAKE_BIN}\" -S . -B $(@D)/b $$GENTEST_CMAKE_ARGS && " +
+          "\"$${GENTEST_CMAKE_BIN}\" --build $(@D)/b --target gentest_codegen -j 1 && " +
           "if [ -f $(@D)/b/compile_commands.json ]; then cp $(@D)/b/compile_commands.json $(@D)/compile_commands.json; fi && " +
           "cp $(@D)/b/tools/gentest_codegen $@",
     tags = ['no-sandbox', 'local'],
@@ -48,9 +63,15 @@ genrule(
     name = 'gentest_codegen_build_windows',
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen.exe'],
-    cmd_bat = "if exist $(@D)\\b rmdir /S /Q $(@D)\\b && mkdir $(@D)\\b && " +
-              "cmake -S . -B $(@D)\\b -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && " +
-              "cmake --build $(@D)\\b --target gentest_codegen --config Release && " +
+    cmd_bat = "set GENTEST_CMAKE_ARGS=-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && " +
+              "if defined CC set GENTEST_CMAKE_ARGS=%GENTEST_CMAKE_ARGS% -DCMAKE_C_COMPILER=\"%CC%\" && " +
+              "if defined CXX set GENTEST_CMAKE_ARGS=%GENTEST_CMAKE_ARGS% -DCMAKE_CXX_COMPILER=\"%CXX%\" && " +
+              "if defined LLVM_DIR set GENTEST_CMAKE_ARGS=%GENTEST_CMAKE_ARGS% -DLLVM_DIR=\"%LLVM_DIR%\" && " +
+              "if defined Clang_DIR set GENTEST_CMAKE_ARGS=%GENTEST_CMAKE_ARGS% -DClang_DIR=\"%Clang_DIR%\" && " +
+              "if exist \"%ProgramFiles%\\CMake\\bin\\cmake.exe\" (set GENTEST_CMAKE_BIN=%ProgramFiles%\\CMake\\bin\\cmake.exe) else (set GENTEST_CMAKE_BIN=cmake) && " +
+              "if exist $(@D)\\b rmdir /S /Q $(@D)\\b && mkdir $(@D)\\b && " +
+              "\"%GENTEST_CMAKE_BIN%\" -S . -B $(@D)\\b %GENTEST_CMAKE_ARGS% && " +
+              "\"%GENTEST_CMAKE_BIN%\" --build $(@D)\\b --target gentest_codegen --config Release && " +
               "if exist $(@D)\\b\\compile_commands.json copy /Y $(@D)\\b\\compile_commands.json $(@D)\\compile_commands.json >NUL && " +
               "(if exist $(@D)\\b\\tools\\Release\\gentest_codegen.exe " +
               "(copy /Y $(@D)\\b\\tools\\Release\\gentest_codegen.exe $@ >NUL) " +
@@ -117,6 +138,7 @@ cc_library(
     }),
     includes = ['include', 'third_party/include'],
     linkopts = _gentest_linkopts,
+    deps = ['@fmt//:fmt'],
     visibility = ['//visibility:public'],
 )
 
@@ -128,7 +150,10 @@ cc_library(
         '//conditions:default': ['-Wno-attributes'],
     }),
     linkopts = _gentest_linkopts,
-    deps = [':gentest_runtime'],
+    deps = [
+        ':gentest_runtime',
+        '@fmt//:fmt',
+    ],
     visibility = ['//visibility:public'],
 )
 
@@ -164,6 +189,7 @@ genrule(
         'gen/consumer_textual_mocks/consumer_textual_mocks_mock_impl__domain_0000_header.hpp',
         'gen/consumer_textual_mocks/gentest_consumer_mocks.hpp',
         'gen/consumer_textual_mocks/def_0000_header_mock_defs.hpp',
+        'gen/consumer_textual_mocks/deps/0478dfbbe6c184098f87ed47b43d96f9_service.hpp',
     ],
     tools = [':gentest_codegen'],
     cmd = (
@@ -243,6 +269,7 @@ cc_library(
         'gen/consumer_textual_mocks/consumer_textual_mocks_mock_impl__domain_0000_header.hpp',
         'gen/consumer_textual_mocks/tu_0000_consumer_textual_mocks_defs.gentest.h',
         'gen/consumer_textual_mocks/def_0000_header_mock_defs.hpp',
+        'gen/consumer_textual_mocks/deps/0478dfbbe6c184098f87ed47b43d96f9_service.hpp',
         'tests/consumer/service.hpp',
     ],
     copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({

@@ -35,7 +35,7 @@ helper target, not part of the cross-platform quickstart.
 
 ## Build and run
 
-The simplest cross-platform local path is:
+On Linux, the simplest local path is:
 
 ```bash
 bazel test \
@@ -67,6 +67,15 @@ bazel build //:gentest_consumer_textual_bazel
 ./bazel-bin/gentest_consumer_textual_bazel
 ```
 
+On macOS with Homebrew LLVM, force Bazel onto the LLVM Clang toolchain first:
+
+```bash
+export CC=/opt/homebrew/opt/llvm/bin/clang
+export CXX=/opt/homebrew/opt/llvm/bin/clang++
+bazel build //:gentest_consumer_textual_bazel
+./bazel-bin/gentest_consumer_textual_bazel
+```
+
 Some local container environments fail `bazel test` before the binary runs
 because Bazel's shell test wrapper cannot execute in the sandbox. The direct
 binary path above avoids that issue while still validating the generated mock
@@ -88,6 +97,13 @@ The Bazel path shells out to CMake to build `gentest_codegen`. That means:
 - the host needs the LLVM/Clang development packages required to build
   `gentest_codegen`
 - this bootstrap is intentionally non-hermetic for now
+
+On macOS, the Bazel path expects Homebrew `cmake`, `ninja`, and LLVM under
+their standard prefixes:
+
+- `/opt/homebrew/bin/cmake`
+- `/opt/homebrew/bin/ninja`
+- `/opt/homebrew/opt/llvm/...`
 
 If you want Bazel to use a specific host compiler, pass it through the action
 environment, for example:
@@ -157,6 +173,9 @@ bazel test //:gentest_<suite>_bazel
   - one in-tree textual explicit-mock slice
 - It is still intentionally limited to classic/header-style suites.
 - The `gentest_codegen` bootstrap rule is local and non-hermetic.
+- Windows Bazel validation is currently blocked by a host-level Bazel bootstrap
+  failure before the gentest repo is analyzed. Use Meson/Xmake/CMake on Windows
+  for now.
 - If you need named modules, module mock defs, reusable/public Bazel
   `add_mocks(...)` / `attach_codegen(...)` rules, or package/export parity, use
   the CMake path for now. Follow-up parity work is tracked in
