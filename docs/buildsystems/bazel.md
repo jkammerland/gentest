@@ -35,8 +35,13 @@ The current repo-local module macros are explicit rather than inferred.
 - `main`
 - same-package `mock_targets`
 
-Both module macros also accept repo-local tuning knobs such as
-`external_module_sources`, `deps`, `linkopts`, and `source_includes`.
+The module macros also accept repo-local tuning knobs, but not the exact same
+set:
+
+- `gentest_add_mocks_modules(...)` supports `external_module_sources`, `deps`,
+  and `linkopts`
+- `gentest_attach_codegen_modules(...)` supports `external_module_sources`,
+  `deps`, `linkopts`, and `source_includes`
 
 ## Current repo-local targets
 
