@@ -57,6 +57,17 @@ target("gentest_runtime")
     add_defines(gentest_common_defines)
     add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
 
+target("gentest")
+    set_kind("static")
+    add_packages("fmt")
+    add_includedirs(incdirs, {public = true})
+    add_defines(gentest_common_defines)
+    add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
+    add_files("include/gentest/gentest.cppm", {public = true})
+    add_files("include/gentest/gentest.mock.cppm", {public = true})
+    add_files("include/gentest/gentest.bench_util.cppm", {public = true})
+    add_deps("gentest_runtime", {public = true})
+
 target("gentest_main")
     set_kind("static")
     add_packages("fmt")
@@ -64,7 +75,7 @@ target("gentest_main")
     add_includedirs(incdirs)
     add_defines(gentest_common_defines)
     add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
-    add_deps("gentest_runtime")
+    add_deps("gentest", {public = true})
 
 local function gentest_suite(name)
     gentest_attach_codegen({
@@ -98,8 +109,26 @@ gentest_attach_codegen({
     source = "tests/buildsystems/consumer_textual_cases.cpp",
     main = "tests/consumer/main.cpp",
     output_dir = path.join(current_gen_root(), "consumer_textual"),
-    deps = {"gentest_main", consumer_textual_mocks.target},
-    includes = {consumer_textual_mocks.include_dir},
+    deps = {"gentest_main", consumer_textual_mocks},
+})
+
+local consumer_module_mocks = gentest_add_mocks({
+    name = "gentest_consumer_module_mocks_xmake",
+    kind = "modules",
+    defs = {"tests/consumer/simple_module_mock_defs.cppm"},
+    headerfiles = {"tests/consumer/simple_module_mock_defs.cppm"},
+    module_name = "gentest.consumer_simple_mocks",
+    output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
+    deps = {"gentest"},
+    target_id = "consumer_module_mocks",
+})
+
+gentest_attach_codegen({
+    name = "gentest_consumer_module_xmake",
+    kind = "modules",
+    source = "tests/buildsystems/consumer_simple_module_cases.cppm",
+    output_dir = path.join(current_gen_root(), "consumer_module"),
+    deps = {"gentest_main", consumer_module_mocks},
 })
 
 target("poc_cross_aarch64_qemu")

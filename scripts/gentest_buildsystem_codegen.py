@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import pathlib
 import re
@@ -39,14 +40,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--codegen", required=True, help="Path to gentest_codegen")
     parser.add_argument("--source-root", required=True, help="Project source root")
     parser.add_argument("--out-dir", required=True, help="Directory for generated shim/header outputs")
-    parser.add_argument("--wrapper-output", required=True, help="Generated shim translation unit path")
-    parser.add_argument("--header-output", required=True, help="Generated registration header path")
+    parser.add_argument("--wrapper-output", help="Generated shim or module-wrapper path")
+    parser.add_argument("--header-output", help="Generated registration header path")
     parser.add_argument("--source-file", help="Original source file backing the shim")
     parser.add_argument("--defs-file", action="append", default=[], help="Explicit textual mock defs file")
     parser.add_argument("--include-root", action="append", default=[], help="Include roots used to rewrite local quoted includes in staged defs")
     parser.add_argument("--public-header", help="Generated public header for textual mock mode")
+    parser.add_argument("--module-name", help="Generated public aggregate module name for module mock mode")
     parser.add_argument("--anchor-output", help="Generated anchor source for textual mock mode")
     parser.add_argument("--target-id", help="Stable identifier used for textual mock generated anchors")
+    parser.add_argument("--metadata-output", help="Optional metadata JSON emitted by mocks mode")
+    parser.add_argument(
+        "--mock-metadata",
+        action="append",
+        default=[],
+        help="Metadata JSON emitted by a prior explicit mock generation step",
+    )
+    parser.add_argument(
+        "--external-module-source",
+        action="append",
+        default=[],
+        help="Explicit module-name=source-path mapping forwarded to gentest_codegen",
+    )
     parser.add_argument("--depfile", default="", help="Optional depfile path to pass through to gentest_codegen")
     parser.add_argument("--compdb", default="", help="Optional compilation database directory")
     parser.add_argument("--mock-registry", default="", help="Generated mock registry header path")
@@ -83,6 +98,27 @@ def unsupported_modules_message(backend: str, mode: str) -> str:
         + operation
         + "(kind=modules) yet."
     )
+
+
+def format_index(index: int) -> str:
+    return f"{index:04d}"
+
+
+def shorten_generated_stem(stem: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9_]", "_", stem)
+    if not sanitized:
+        sanitized = "tu"
+    if len(sanitized) <= 24:
+        return sanitized
+    return f"{sanitized[:16]}_{sanitized[-7:]}"
+
+
+def module_wrapper_output_path(out_dir: pathlib.Path, source_file: pathlib.Path, index: int) -> pathlib.Path:
+    return out_dir / f"tu_{format_index(index)}_{shorten_generated_stem(source_file.stem)}.module.gentest{source_file.suffix}"
+
+
+def default_header_output_path(out_dir: pathlib.Path, source_file: pathlib.Path, index: int) -> pathlib.Path:
+    return out_dir / f"tu_{format_index(index)}_{shorten_generated_stem(source_file.stem)}.gentest.h"
 
 
 def resolve_input_path(path_arg: str, source_root: pathlib.Path) -> pathlib.Path:
@@ -222,6 +258,67 @@ def materialize_textual_mock_defs(
     return materialized
 
 
+def materialize_module_suite_source(
+    out_dir: pathlib.Path,
+    source_root: pathlib.Path,
+    source_file: pathlib.Path,
+    include_roots: list[pathlib.Path],
+) -> pathlib.Path:
+    staged_files: dict[pathlib.Path, pathlib.Path] = {}
+    staged_path = out_dir / f"suite_{format_index(0)}{source_file.suffix or '.cppm'}"
+    return stage_textual_file(
+        source_file=source_file,
+        staged_path=staged_path,
+        source_root=source_root,
+        include_roots=include_roots,
+        staged_files=staged_files,
+    )
+
+
+def stage_module_mock_defs_path(out_dir: pathlib.Path, defs_file: pathlib.Path, index: int) -> pathlib.Path:
+    return out_dir / "defs" / f"def_{format_index(index)}_{defs_file.name}"
+
+
+def materialize_module_mock_defs(
+    out_dir: pathlib.Path,
+    source_root: pathlib.Path,
+    defs_files: list[pathlib.Path],
+    include_roots: list[pathlib.Path],
+) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
+    defs_dir = out_dir / "defs"
+    defs_dir.mkdir(parents=True, exist_ok=True)
+    root_support_dir = out_dir / "deps"
+    materialized: list[pathlib.Path] = []
+    public_files: list[pathlib.Path] = []
+    staged_files: dict[pathlib.Path, pathlib.Path] = {}
+    for index, defs_file in enumerate(defs_files):
+        staged_path = stage_module_mock_defs_path(out_dir, defs_file, index)
+        staged_primary = stage_textual_file(
+            source_file=defs_file,
+            staged_path=staged_path,
+            source_root=source_root,
+            include_roots=include_roots,
+            staged_files=staged_files,
+        )
+        materialized.append(staged_primary)
+        for staged_file in staged_files.values():
+            if staged_file not in public_files:
+                public_files.append(staged_file)
+        for staged_file in list(staged_files.values()):
+            staged_file = staged_file.resolve()
+            try:
+                staged_file.relative_to(defs_dir / "deps")
+            except ValueError:
+                continue
+            root_support_dir.mkdir(parents=True, exist_ok=True)
+            root_support = root_support_dir / staged_file.name
+            if not root_support.exists() or staged_file.read_bytes() != root_support.read_bytes():
+                root_support.write_bytes(staged_file.read_bytes())
+            if root_support not in public_files:
+                public_files.append(root_support)
+    return materialized, public_files
+
+
 def write_textual_mock_source(wrapper_output: pathlib.Path, defs_files_for_include: list[pathlib.Path], header_output: pathlib.Path) -> None:
     content = """// This file is auto-generated by gentest (buildsystem explicit mocks).
 // Do not edit manually.
@@ -282,6 +379,92 @@ int {target_id}_explicit_mock_anchor = 0;
 """
     anchor_output.parent.mkdir(parents=True, exist_ok=True)
     anchor_output.write_text(content, encoding="utf-8")
+
+
+def write_module_mock_aggregate(
+    aggregate_output: pathlib.Path,
+    module_name: str,
+    imported_module_names: list[str],
+) -> None:
+    content = f"""// This file is auto-generated by gentest (buildsystem explicit mocks aggregate module).
+// Do not edit manually.
+
+module;
+
+export module {module_name};
+
+export import gentest;
+export import gentest.mock;
+"""
+    for imported_module_name in imported_module_names:
+        content += f"export import {imported_module_name};\n"
+    aggregate_output.parent.mkdir(parents=True, exist_ok=True)
+    aggregate_output.write_text(content, encoding="utf-8")
+
+
+def load_mock_metadata(metadata_path: pathlib.Path) -> dict:
+    try:
+        return json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"failed to load mock metadata '{metadata_path}': {exc}") from exc
+
+
+def mock_metadata_module_mappings(metadata: dict) -> list[str]:
+    mappings: list[str] = []
+    for entry in metadata.get("module_sources", []):
+        module_name = entry.get("module_name", "")
+        path_text = entry.get("path", "")
+        if module_name and path_text:
+            mappings.append(f"{module_name}={path_text}")
+    return mappings
+
+
+def mock_metadata_include_roots(metadata: dict) -> list[str]:
+    return [path_text for path_text in metadata.get("include_dirs", []) if path_text]
+
+
+def append_include_clang_args(clang_args: list[str], include_dirs: list[str]) -> list[str]:
+    normalized_args = list(clang_args)
+    existing_compact = {arg for arg in clang_args if arg.startswith("-I") and len(arg) > 2}
+    existing_split: set[str] = set()
+    for index, arg in enumerate(clang_args[:-1]):
+        if arg in ("-I", "-isystem", "/I"):
+            existing_split.add(clang_args[index + 1])
+    for include_dir in include_dirs:
+        compact = f"-I{include_dir}"
+        if compact in existing_compact or include_dir in existing_split:
+            continue
+        normalized_args.append(compact)
+        existing_compact.add(compact)
+    return normalized_args
+
+
+def write_mock_metadata(
+    metadata_output: pathlib.Path,
+    *,
+    backend: str,
+    kind: str,
+    target_id: str,
+    out_dir: pathlib.Path,
+    include_dirs: list[pathlib.Path],
+    public_surface: dict,
+    module_sources: list[tuple[str, pathlib.Path]],
+    support_headers: list[pathlib.Path],
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "mode": "mocks",
+        "backend": backend,
+        "kind": kind,
+        "target_id": target_id,
+        "out_dir": str(out_dir),
+        "include_dirs": [str(path) for path in include_dirs],
+        "public_surface": public_surface,
+        "module_sources": [{"module_name": module_name, "path": str(path)} for module_name, path in module_sources],
+        "support_headers": [str(path) for path in support_headers],
+    }
+    metadata_output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def infer_compdb_dir(codegen_path: pathlib.Path) -> pathlib.Path | None:
@@ -351,14 +534,15 @@ def build_codegen_command(
     codegen_path: pathlib.Path,
     source_root: pathlib.Path,
     out_dir: pathlib.Path,
-    header_output: pathlib.Path,
-    scan_input: pathlib.Path,
+    header_outputs: list[pathlib.Path],
+    scan_inputs: list[pathlib.Path],
     depfile: str,
     compdb_dir: pathlib.Path | None,
     clang_args: list[str],
     mock_registry: str,
     mock_impl: str,
     discover_mocks: bool,
+    external_module_sources: list[str],
 ) -> list[str]:
     command = [
         str(codegen_path),
@@ -366,9 +550,9 @@ def build_codegen_command(
         str(source_root),
         "--tu-out-dir",
         str(out_dir.resolve()),
-        "--tu-header-output",
-        str(header_output),
     ]
+    for header_output in header_outputs:
+        command.extend(["--tu-header-output", str(header_output)])
     if depfile:
         command.extend(["--depfile", str(pathlib.Path(depfile).resolve())])
     if compdb_dir:
@@ -379,7 +563,9 @@ def build_codegen_command(
         command.extend(["--mock-impl", str(pathlib.Path(mock_impl).resolve())])
     if discover_mocks:
         command.append("--discover-mocks")
-    command.append(str(scan_input))
+    for external_module_source in external_module_sources:
+        command.extend(["--external-module-source", external_module_source])
+    command.extend(str(scan_input) for scan_input in scan_inputs)
     command.append("--")
     command.extend(clang_args)
     return command
@@ -389,13 +575,12 @@ def main() -> int:
     args = normalize_mode_and_kind(parse_args())
 
     source_root = pathlib.Path(args.source_root).resolve()
-    wrapper_output = pathlib.Path(args.wrapper_output).resolve()
-    header_output = pathlib.Path(args.header_output).resolve()
+    wrapper_output = pathlib.Path(args.wrapper_output).resolve() if args.wrapper_output else None
     out_dir = pathlib.Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     codegen_path = pathlib.Path(args.codegen).resolve()
 
-    if args.kind == "modules":
+    if args.kind == "modules" and args.backend == "meson":
         print(unsupported_modules_message(args.backend, args.mode), file=sys.stderr)
         return 1
 
@@ -403,33 +588,67 @@ def main() -> int:
         if not args.source_file:
             print("--source-file is required in suite mode", file=sys.stderr)
             return 1
+        if not args.wrapper_output:
+            print("--wrapper-output is required in suite mode", file=sys.stderr)
+            return 1
+        if not args.header_output:
+            print("--header-output is required in suite mode", file=sys.stderr)
+            return 1
         source_file = resolve_input_path(args.source_file, source_root)
         if not source_file.exists():
             print(f"source file does not exist: {source_file}", file=sys.stderr)
             return 1
+        header_output = pathlib.Path(args.header_output).resolve()
+        include_roots = [resolve_input_path(root_arg, source_root) for root_arg in args.include_root]
         compdb_dir = resolve_compdb_dir(args.compdb, codegen_path)
-        write_suite_shim(wrapper_output, source_file, header_output)
+        metadata_include_roots: list[str] = []
+        metadata_module_sources: list[str] = []
+        for metadata_arg in args.mock_metadata:
+            metadata = load_mock_metadata(resolve_input_path(metadata_arg, source_root))
+            metadata_include_roots.extend(mock_metadata_include_roots(metadata))
+            metadata_module_sources.extend(mock_metadata_module_mappings(metadata))
+        suite_clang_args = normalize_textual_mock_clang_args(
+            append_include_clang_args(args.clang_arg, metadata_include_roots),
+            source_root=source_root,
+            compdb_dir=compdb_dir,
+        )
+        if args.kind == "textual":
+            write_suite_shim(wrapper_output, source_file, header_output)
+            scan_inputs = [wrapper_output]
+        else:
+            staged_source = materialize_module_suite_source(out_dir, source_root, source_file, include_roots)
+            expected_wrapper = module_wrapper_output_path(out_dir, staged_source, 0)
+            if wrapper_output != expected_wrapper:
+                print(
+                    f"module suite wrapper output must be '{expected_wrapper}' for source '{source_file}'",
+                    file=sys.stderr,
+                )
+                return 1
+            scan_inputs = [staged_source]
         command = build_codegen_command(
             codegen_path=codegen_path,
             source_root=source_root,
             out_dir=out_dir,
-            header_output=header_output,
-            scan_input=wrapper_output,
+            header_outputs=[header_output],
+            scan_inputs=scan_inputs,
             depfile=args.depfile,
             compdb_dir=compdb_dir,
-            clang_args=args.clang_arg,
+            clang_args=suite_clang_args,
             mock_registry=args.mock_registry,
             mock_impl=args.mock_impl,
             discover_mocks=False,
+            external_module_sources=args.external_module_source + metadata_module_sources,
         )
         subprocess.run(command, check=True)
+        if args.kind == "modules":
+            expected_wrapper = module_wrapper_output_path(out_dir, staged_source, 0)
+            if not expected_wrapper.exists():
+                print(f"module wrapper was not generated: {expected_wrapper}", file=sys.stderr)
+                return 1
         return 0
 
     if not args.defs_file:
         print("--defs-file is required in mocks mode", file=sys.stderr)
-        return 1
-    if not args.public_header:
-        print("--public-header is required in mocks mode", file=sys.stderr)
         return 1
     if not args.anchor_output:
         print("--anchor-output is required in mocks mode", file=sys.stderr)
@@ -440,6 +659,21 @@ def main() -> int:
     if not args.mock_registry or not args.mock_impl:
         print("--mock-registry and --mock-impl are required in mocks mode", file=sys.stderr)
         return 1
+    if args.kind == "textual" and not args.wrapper_output:
+        print("--wrapper-output is required for textual mocks mode", file=sys.stderr)
+        return 1
+    if args.kind == "textual" and not args.header_output:
+        print("--header-output is required for textual mocks mode", file=sys.stderr)
+        return 1
+    if args.kind == "textual" and not args.public_header:
+        print("--public-header is required for textual mocks mode", file=sys.stderr)
+        return 1
+    if args.kind == "modules" and not args.module_name:
+        print("--module-name is required for module mocks mode", file=sys.stderr)
+        return 1
+    if args.kind == "modules" and not args.metadata_output:
+        print("--metadata-output is required for module mocks mode", file=sys.stderr)
+        return 1
 
     defs_files: list[pathlib.Path] = []
     for defs_arg in args.defs_file:
@@ -449,7 +683,6 @@ def main() -> int:
             return 1
         defs_files.append(defs_file)
 
-    public_header = pathlib.Path(args.public_header).resolve()
     anchor_output = pathlib.Path(args.anchor_output).resolve()
     mock_registry = pathlib.Path(args.mock_registry).resolve()
     mock_impl = pathlib.Path(args.mock_impl).resolve()
@@ -460,25 +693,104 @@ def main() -> int:
         source_root=source_root,
         compdb_dir=compdb_dir,
     )
-    materialized_defs = materialize_textual_mock_defs(out_dir, source_root, defs_files, include_roots)
-    write_textual_mock_source(wrapper_output, materialized_defs, header_output)
-    write_textual_mock_public_header(public_header, materialized_defs, mock_registry, mock_impl)
-    write_anchor_source(anchor_output, args.target_id)
+    metadata_output = pathlib.Path(args.metadata_output).resolve() if args.metadata_output else None
+    if args.kind == "textual":
+        wrapper_output = pathlib.Path(args.wrapper_output).resolve()
+        header_output = pathlib.Path(args.header_output).resolve()
+        public_header = pathlib.Path(args.public_header).resolve()
+        materialized_defs = materialize_textual_mock_defs(out_dir, source_root, defs_files, include_roots)
+        write_textual_mock_source(wrapper_output, materialized_defs, header_output)
+        write_textual_mock_public_header(public_header, materialized_defs, mock_registry, mock_impl)
+        write_anchor_source(anchor_output, args.target_id)
 
+        command = build_codegen_command(
+            codegen_path=codegen_path,
+            source_root=source_root,
+            out_dir=out_dir,
+            header_outputs=[header_output],
+            scan_inputs=[wrapper_output],
+            depfile=args.depfile,
+            compdb_dir=compdb_dir,
+            clang_args=normalized_clang_args,
+            mock_registry=args.mock_registry,
+            mock_impl=args.mock_impl,
+            discover_mocks=True,
+            external_module_sources=args.external_module_source,
+        )
+        subprocess.run(command, check=True)
+        if metadata_output is not None:
+            write_mock_metadata(
+                metadata_output,
+                backend=args.backend,
+                kind="textual",
+                target_id=args.target_id,
+                out_dir=out_dir,
+                include_dirs=[out_dir],
+                public_surface={"type": "header", "path": str(public_header)},
+                module_sources=[],
+                support_headers=[public_header, mock_registry, mock_impl],
+            )
+        return 0
+
+    materialized_module_defs, public_files = materialize_module_mock_defs(out_dir, source_root, defs_files, include_roots)
+    write_anchor_source(anchor_output, args.target_id)
+    module_header_outputs = [default_header_output_path(out_dir, defs_file, index) for index, defs_file in enumerate(materialized_module_defs)]
     command = build_codegen_command(
         codegen_path=codegen_path,
         source_root=source_root,
         out_dir=out_dir,
-        header_output=header_output,
-        scan_input=wrapper_output,
+        header_outputs=module_header_outputs,
+        scan_inputs=materialized_module_defs,
         depfile=args.depfile,
         compdb_dir=compdb_dir,
         clang_args=normalized_clang_args,
         mock_registry=args.mock_registry,
         mock_impl=args.mock_impl,
         discover_mocks=True,
+        external_module_sources=args.external_module_source,
     )
     subprocess.run(command, check=True)
+    generated_module_wrappers = [module_wrapper_output_path(out_dir, defs_file, index) for index, defs_file in enumerate(materialized_module_defs)]
+    missing_module_wrappers = [path for path in generated_module_wrappers if not path.exists()]
+    if missing_module_wrappers:
+        print(f"module mock defs did not produce named-module wrappers: {missing_module_wrappers}", file=sys.stderr)
+        return 1
+
+    module_name_pattern = re.compile(r"(?m)^[ \t]*(?:export[ \t]+)?module[ \t]+([^;]+?)[ \t]*;[ \t]*$")
+    module_mappings: list[tuple[str, pathlib.Path]] = []
+    imported_module_names: list[str] = []
+    for generated_wrapper in generated_module_wrappers:
+        wrapper_text = generated_wrapper.read_text(encoding="utf-8")
+        match = module_name_pattern.search(wrapper_text)
+        if match is None:
+            print(f"unable to determine module name from generated wrapper: {generated_wrapper}", file=sys.stderr)
+            return 1
+        module_name = match.group(1).strip()
+        if module_name == "":
+            print(f"generated wrapper has empty module name: {generated_wrapper}", file=sys.stderr)
+            return 1
+        module_mappings.append((module_name, generated_wrapper))
+        imported_module_names.append(module_name)
+
+    aggregate_rel = args.module_name.replace(".", "/").replace(":", "/")
+    aggregate_output = out_dir / f"{aggregate_rel}.cppm"
+    write_module_mock_aggregate(aggregate_output, args.module_name, imported_module_names)
+    module_mappings.append((args.module_name, aggregate_output))
+
+    module_support_headers = [path for path in public_files if path.suffix in {".h", ".hh", ".hpp", ".hxx", ".inc"}]
+    module_support_headers.extend([mock_registry, mock_impl])
+    module_support_headers = list(dict.fromkeys(module_support_headers))
+    write_mock_metadata(
+        metadata_output,
+        backend=args.backend,
+        kind="modules",
+        target_id=args.target_id,
+        out_dir=out_dir,
+        include_dirs=[out_dir],
+        public_surface={"type": "module", "module_name": args.module_name, "path": str(aggregate_output)},
+        module_sources=module_mappings,
+        support_headers=module_support_headers,
+    )
     return 0
 
 
