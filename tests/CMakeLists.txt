@@ -2194,6 +2194,12 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_xmake_textual_consumer_registration
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeTextualConsumerRegistration.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_qemu_workflow_presets
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckQemuWorkflowPresets.cmake

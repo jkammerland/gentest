@@ -109,9 +109,18 @@ Contract:
 - generates all wrappers / generated headers / generated module wrappers needed
   for the final test target
 
-There is no third public `link_mocks(...)` operation in this model. Ordinary
-target deps/links are sufficient at the user level. If a backend needs a helper
-for internal ordering, keep it private to the implementation.
+There is no third public `link_mocks(...)` operation in this target model for
+non-CMake parity. Ordinary target deps/links are sufficient at the user level.
+If a backend needs a helper for internal ordering, keep it private to the
+implementation.
+
+Current-state note:
+
+- the shipped CMake package still exposes `gentest_link_mocks()` today
+- this story is intentionally targeting a simpler non-CMake public model rather
+  than requiring that helper to exist everywhere
+- if CMake eventually converges on the same 2-step contract, that is follow-up
+  cleanup rather than a prerequisite for this story
 
 ## Internal architecture
 

@@ -15,6 +15,7 @@ concurrency:
 
 env:
   CCACHE_DISABLE: 1
+  XMAKE_VERSION: "3.0.8"
 
 jobs:
   bazel:
@@ -266,7 +267,9 @@ jobs:
             xmake_bin="$(command -v xmake)"
             su - ci -c "\"${xmake_bin}\" --version"
           else
-            su - ci -c "curl -fsSL https://xmake.io/shget.text | bash"
+            su - ci -c "mkdir -p /home/ci/.local/bin"
+            su - ci -c "curl -fsSL -o /home/ci/.local/bin/xmake https://github.com/xmake-io/xmake/releases/download/v${XMAKE_VERSION}/xmake-bundle-v${XMAKE_VERSION}.linux.x86_64"
+            su - ci -c "chmod +x /home/ci/.local/bin/xmake"
             su - ci -c "/home/ci/.local/bin/xmake --version"
           fi
 

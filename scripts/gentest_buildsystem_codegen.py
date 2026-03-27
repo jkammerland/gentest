@@ -76,7 +76,7 @@ def unsupported_modules_message(backend: str, mode: str) -> str:
             + operation
             + "(kind=modules) is intentionally unsupported for now because named-module "
             "dependency handling is not reliable enough in the current Meson/toolchain path. "
-            "Use kind=textual for Meson, or use CMake/Xmake for named modules."
+            "Use kind=textual for Meson, or use CMake for named modules."
         )
     return (
         "The shared non-CMake helper does not implement "

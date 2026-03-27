@@ -33,12 +33,23 @@ There is also a generator lint target:
 `codegen_check_invalid` is a Bash-based repo check. Treat it as a Unix-like
 helper target, not part of the cross-platform quickstart.
 
+## Bazel baseline
+
+This repo-local Bazel path is currently pinned to Bazel `9.0.0` through
+[`/.bazelversion`](../../.bazelversion).
+
+- prefer `bazelisk` or a `bazel` wrapper backed by Bazelisk so the pin is
+  respected automatically
+- dependency resolution currently comes from [`MODULE.bazel`](../../MODULE.bazel)
+- [`WORKSPACE`](../../WORKSPACE) is present only as the legacy workspace root
+  marker; it is not the active dependency definition path
+
 ## Build and run
 
 On Linux, the simplest local path is:
 
 ```bash
-bazel test \
+bazelisk test \
   //:gentest_unit_bazel \
   //:gentest_integration_bazel \
   //:gentest_fixtures_bazel \
@@ -48,7 +59,7 @@ bazel test \
 If you want to validate build and runtime separately on Linux/macOS:
 
 ```bash
-bazel build \
+bazelisk build \
   //:gentest_unit_bazel \
   //:gentest_integration_bazel \
   //:gentest_fixtures_bazel \
@@ -63,7 +74,7 @@ bazel build \
 For the textual mock slice, prefer build + direct execution:
 
 ```bash
-bazel build //:gentest_consumer_textual_bazel
+bazelisk build //:gentest_consumer_textual_bazel
 ./bazel-bin/gentest_consumer_textual_bazel
 ```
 
@@ -72,7 +83,7 @@ On macOS with Homebrew LLVM, force Bazel onto the LLVM Clang toolchain first:
 ```bash
 export CC=/opt/homebrew/opt/llvm/bin/clang
 export CXX=/opt/homebrew/opt/llvm/bin/clang++
-bazel build //:gentest_consumer_textual_bazel
+bazelisk build //:gentest_consumer_textual_bazel
 ./bazel-bin/gentest_consumer_textual_bazel
 ```
 
@@ -84,7 +95,7 @@ surface and consumer test target.
 On Linux/macOS, you can also run the Bash-only invalid-codegen smoke check:
 
 ```bash
-bazel test //:codegen_check_invalid
+bazelisk test //:codegen_check_invalid
 ```
 
 ## Toolchain notes
@@ -109,7 +120,7 @@ If you want Bazel to use a specific host compiler, pass it through the action
 environment, for example:
 
 ```bash
-bazel test \
+bazelisk test \
   //:gentest_unit_bazel \
   --action_env=CC=clang-20 \
   --action_env=CXX=clang++-20 \
@@ -121,7 +132,7 @@ If `gentest_codegen` cannot discover the Clang resource directory in your Bazel
 environment, set it explicitly in the Bazel action environment:
 
 ```bash
-bazel test \
+bazelisk test \
   //:gentest_unit_bazel \
   --action_env=GENTEST_CODEGEN_RESOURCE_DIR="$(clang++ -print-resource-dir)"
 ```
@@ -131,7 +142,7 @@ actions:
 
 ```bash
 export GENTEST_CODEGEN_RESOURCE_DIR="$(clang++ -print-resource-dir)"
-bazel test //:gentest_unit_bazel --action_env=GENTEST_CODEGEN_RESOURCE_DIR
+bazelisk test //:gentest_unit_bazel --action_env=GENTEST_CODEGEN_RESOURCE_DIR
 ```
 
 ## What Bazel generates
@@ -148,9 +159,13 @@ For the textual mock slice, Bazel also writes:
 - `gen/consumer_textual_mocks/consumer_textual_mocks_defs.cpp`
 - `gen/consumer_textual_mocks/consumer_textual_mocks_anchor.cpp`
 - `gen/consumer_textual_mocks/tu_0000_consumer_textual_mocks_defs.gentest.h`
+- `gen/consumer_textual_mocks/consumer_textual_mocks_mock_registry.hpp`
+- `gen/consumer_textual_mocks/consumer_textual_mocks_mock_impl.hpp`
+- `gen/consumer_textual_mocks/consumer_textual_mocks_mock_registry__domain_0000_header.hpp`
+- `gen/consumer_textual_mocks/consumer_textual_mocks_mock_impl__domain_0000_header.hpp`
 - `gen/consumer_textual_mocks/gentest_consumer_mocks.hpp`
 - `gen/consumer_textual_mocks/def_0000_header_mock_defs.hpp`
-- domain-specific generated mock headers under `gen/consumer_textual_mocks/`
+- staged textual support headers under `gen/consumer_textual_mocks/deps/`
 
 The consumer `cc_test` then compiles the wrapper from
 `gen/consumer_textual/tu_0000_consumer_textual_cases.gentest.cpp` and links the
@@ -163,7 +178,7 @@ generated mock library.
 3. Run:
 
 ```bash
-bazel test //:gentest_<suite>_bazel
+bazelisk test //:gentest_<suite>_bazel
 ```
 
 ## Limitations
@@ -174,8 +189,9 @@ bazel test //:gentest_<suite>_bazel
 - It is still intentionally limited to classic/header-style suites.
 - The `gentest_codegen` bootstrap rule is local and non-hermetic.
 - Windows Bazel validation is currently blocked by a host-level Bazel bootstrap
-  failure before the gentest repo is analyzed. Use Meson/Xmake/CMake on Windows
-  for now.
+  failure before the gentest repo is analyzed. That still reproduces on the
+  current `9.0.0` pin and on local probes of Bazel `8.4.2` and `7.7.0`. Use
+  Meson/Xmake/CMake on Windows for now.
 - If you need named modules, module mock defs, reusable/public Bazel
   `add_mocks(...)` / `attach_codegen(...)` rules, or package/export parity, use
   the CMake path for now. Follow-up parity work is tracked in

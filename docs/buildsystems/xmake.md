@@ -80,6 +80,18 @@ That fallback is intended as a convenience, not the preferred CI or local path.
 The Xmake path now also resolves `fmt` through Xmake packages. Use `-y` in
 non-interactive runs so the initial package install does not block.
 
+If the consumer textual targets appear to be missing locally even though
+[`xmake.lua`](../../xmake.lua) defines them, clear the repo-local Xmake cache
+first:
+
+```bash
+rm -rf .xmake
+xmake show -l targets
+```
+
+In this repo, `xmake f -c` has not always been enough to invalidate stale local
+target-graph state.
+
 ## What Xmake generates
 
 Per suite, Xmake writes generated files under:
