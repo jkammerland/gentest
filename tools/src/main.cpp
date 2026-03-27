@@ -1479,6 +1479,7 @@ bool has_sysroot_arg(std::span<const std::string> args);
 std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line);
 std::string compiler_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line,
                                             const std::string                        &default_compiler_path);
+bool is_clang_like_compiler(std::string_view path);
 
 clang::tooling::CommandLineArguments build_adjusted_command_line(
     const clang::tooling::CommandLineArguments              &command_line,
@@ -1516,13 +1517,17 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
     const std::string                    normalized_target = normalize_compdb_lookup_path(file.str(), compdb_dir);
     if (!sanitized_command_line.empty()) {
         const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(sanitized_command_line).value_or(0);
+        const std::string probed_compiler_path =
+            compiler_for_resource_dir_probe(sanitized_command_line, std::string(default_compiler_path));
         if (!forced_compiler_path.empty()) {
             adjusted.emplace_back(std::string(forced_compiler_path));
+        } else if (!is_clang_like_compiler(sanitized_command_line[compiler_index]) && !probed_compiler_path.empty()) {
+            adjusted.emplace_back(probed_compiler_path);
         } else {
             adjusted.emplace_back(sanitized_command_line[compiler_index]);
         }
-        const std::string resource_dir =
-            resource_dir_for_compiler(compiler_for_resource_dir_probe(sanitized_command_line, std::string(default_compiler_path)));
+        const std::string resource_dir = resource_dir_for_compiler(
+            probed_compiler_path.empty() ? std::string(default_compiler_path) : probed_compiler_path);
         if (!resource_dir.empty()) {
             adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
         }
@@ -1541,6 +1546,9 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
             const auto &arg = sanitized_command_line[i];
             if (skip_next_arg) {
                 skip_next_arg = false;
+                continue;
+            }
+            if (arg == "--") {
                 continue;
             }
             if (is_shell_control_token(arg)) {
@@ -3442,8 +3450,15 @@ int main(int argc, const char **argv) {
                 extra_module_it != extra_module_args_by_source.end()
                 ? std::span<const std::string>(extra_module_it->second.data(), extra_module_it->second.size())
                 : std::span<const std::string>{};
-            return build_adjusted_command_line(command_line, file, resource_dir_for_compiler, default_compiler_path, default_sysroot,
-                                               extra_args, compdb_dir, extra_module_args);
+            auto adjusted = build_adjusted_command_line(command_line, file, resource_dir_for_compiler, default_compiler_path,
+                                                        default_sysroot, extra_args, compdb_dir, extra_module_args);
+            if (const auto log_parse = get_env_value("GENTEST_CODEGEN_LOG_PARSE_COMMANDS"); log_parse && *log_parse != "0") {
+                gentest::codegen::log_err("gentest_codegen: parse command for '{}':\n", file.str());
+                for (const auto &arg : adjusted) {
+                    gentest::codegen::log_err("  {}\n", arg);
+                }
+            }
+            return adjusted;
         };
     }();
 
@@ -3530,11 +3545,13 @@ int main(int argc, const char **argv) {
                 base_fs,
             };
             const auto overlay_include_paths = scan_include_search_paths_from_compile_commands(compile_commands[idx], options.sources[idx]);
-            const auto normalized_overlay = build_normalized_module_source_overlay(
-                options.sources[idx], overlay_include_paths,
-                std::span<const std::string>(scan_command_lines[idx].data(), scan_command_lines[idx].size()));
-            if (normalized_overlay.has_value()) {
-                tool.mapVirtualFile(options.sources[idx], *normalized_overlay);
+            if (named_module_sources.empty() && !has_any_named_module_imports) {
+                const auto normalized_overlay = build_normalized_module_source_overlay(
+                    options.sources[idx], overlay_include_paths,
+                    std::span<const std::string>(scan_command_lines[idx].data(), scan_command_lines[idx].size()));
+                if (normalized_overlay.has_value()) {
+                    tool.mapVirtualFile(options.sources[idx], *normalized_overlay);
+                }
             }
             tool.setDiagnosticConsumer(tu_diag_consumer.get());
             tool.appendArgumentsAdjuster(args_adjuster);
@@ -3552,8 +3569,12 @@ int main(int argc, const char **argv) {
             std::vector<std::string>                      local_dependencies;
 
             MatchFinder finder;
-            finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
-            finder.addMatcher(cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("gentest.fixture"), &fixture_collector);
+            finder.addMatcher(
+                traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
+                &collector);
+            finder.addMatcher(
+                traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
+                &fixture_collector);
             if (mock_collector.has_value()) {
                 register_mock_matchers(finder, *mock_collector);
             }
@@ -3624,12 +3645,14 @@ int main(int argc, const char **argv) {
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
             const auto overlay_include_paths =
                 scan_include_search_paths_from_compile_commands(compile_commands[i], options.sources[i]);
-            if (auto normalized_overlay = build_normalized_module_source_overlay(
-                    options.sources[i], overlay_include_paths,
-                    std::span<const std::string>(scan_command_lines[i].data(), scan_command_lines[i].size()));
-                normalized_overlay.has_value()) {
-                normalized_overlays.push_back(std::move(*normalized_overlay));
-                tool.mapVirtualFile(options.sources[i], normalized_overlays.back());
+            if (named_module_sources.empty() && !has_any_named_module_imports) {
+                if (auto normalized_overlay = build_normalized_module_source_overlay(
+                        options.sources[i], overlay_include_paths,
+                        std::span<const std::string>(scan_command_lines[i].data(), scan_command_lines[i].size()));
+                    normalized_overlay.has_value()) {
+                    normalized_overlays.push_back(std::move(*normalized_overlay));
+                    tool.mapVirtualFile(options.sources[i], normalized_overlays.back());
+                }
             }
         }
         tool.setDiagnosticConsumer(diag_consumer.get());
@@ -3645,8 +3668,12 @@ int main(int argc, const char **argv) {
         std::vector<std::string> depfile_dependencies_local;
 
         MatchFinder finder;
-        finder.addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("gentest.func"), &collector);
-        finder.addMatcher(cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("gentest.fixture"), &fixture_collector);
+        finder.addMatcher(
+            traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
+            &collector);
+        finder.addMatcher(
+            traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
+            &fixture_collector);
         if (mock_collector.has_value()) {
             register_mock_matchers(finder, *mock_collector);
         }

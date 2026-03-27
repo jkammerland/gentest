@@ -20,6 +20,13 @@ file(COPY_FILE "${_xmake_file}" "${_tmp_dir}/xmake.lua")
 if(EXISTS "${SOURCE_DIR}/xmake")
   file(COPY "${SOURCE_DIR}/xmake" DESTINATION "${_tmp_dir}")
 endif()
+file(MAKE_DIRECTORY "${_tmp_dir}/tests")
+file(MAKE_DIRECTORY "${_tmp_dir}/include")
+file(MAKE_DIRECTORY "${_tmp_dir}/src")
+file(COPY "${SOURCE_DIR}/tests/consumer" DESTINATION "${_tmp_dir}/tests")
+file(COPY "${SOURCE_DIR}/tests/buildsystems" DESTINATION "${_tmp_dir}/tests")
+file(COPY "${SOURCE_DIR}/include/gentest" DESTINATION "${_tmp_dir}/include")
+file(COPY_FILE "${SOURCE_DIR}/src/gentest_main.cpp" "${_tmp_dir}/src/gentest_main.cpp")
 
 execute_process(
   COMMAND "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -l targets
@@ -36,6 +43,8 @@ endif()
 foreach(_target
     gentest_consumer_textual_mocks_xmake
     gentest_consumer_textual_xmake
+    gentest_consumer_module_mocks_xmake
+    gentest_consumer_module_xmake
     gentest_unit_xmake)
   string(FIND "${_list_out}" "${_target}" _target_pos)
   if(_target_pos EQUAL -1)
@@ -63,3 +72,53 @@ if(_dep_pos EQUAL -1)
     "gentest_consumer_textual_xmake should depend on gentest_consumer_textual_mocks_xmake.\n"
     "xmake target output:\n${_target_out}")
 endif()
+
+execute_process(
+  COMMAND "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_mocks_xmake
+  RESULT_VARIABLE _module_mocks_rc
+  OUTPUT_VARIABLE _module_mocks_out
+  ERROR_VARIABLE _module_mocks_err)
+if(NOT _module_mocks_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake show -t gentest_consumer_module_mocks_xmake failed for clean module registration check.\n"
+    "stdout:\n${_module_mocks_out}\n"
+    "stderr:\n${_module_mocks_err}")
+endif()
+
+foreach(_expected IN ITEMS
+    "gentest/consumer_simple_mocks.cppm"
+    "gentest"
+    "simple_module_mock_defs.cppm")
+  string(FIND "${_module_mocks_out}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "gentest_consumer_module_mocks_xmake should expose '${_expected}'.\n"
+      "xmake target output:\n${_module_mocks_out}")
+  endif()
+endforeach()
+
+execute_process(
+  COMMAND "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_xmake
+  RESULT_VARIABLE _module_target_rc
+  OUTPUT_VARIABLE _module_target_out
+  ERROR_VARIABLE _module_target_err)
+if(NOT _module_target_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake show -t gentest_consumer_module_xmake failed for clean module registration check.\n"
+    "stdout:\n${_module_target_out}\n"
+    "stderr:\n${_module_target_err}")
+endif()
+
+foreach(_expected IN ITEMS
+    "gentest_consumer_module_mocks_xmake"
+    "gentest"
+    "GENTEST_CONSUMER_USE_MODULES=1"
+    "tests/consumer/main.cpp"
+    "tu_0000_suite_0000.module.gentest.cppm")
+  string(FIND "${_module_target_out}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "gentest_consumer_module_xmake should expose '${_expected}'.\n"
+      "xmake target output:\n${_module_target_out}")
+  endif()
+endforeach()

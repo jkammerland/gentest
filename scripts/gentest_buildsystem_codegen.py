@@ -110,7 +110,8 @@ def shorten_generated_stem(stem: str) -> str:
         sanitized = "tu"
     if len(sanitized) <= 24:
         return sanitized
-    return f"{sanitized[:16]}_{sanitized[-7:]}"
+    digest = hashlib.md5(sanitized.encode("utf-8")).hexdigest()[:8]
+    return f"{sanitized[:16]}_{digest}"
 
 
 def module_wrapper_output_path(out_dir: pathlib.Path, source_file: pathlib.Path, index: int) -> pathlib.Path:

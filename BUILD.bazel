@@ -268,11 +268,11 @@ gentest_add_mocks_modules(
     ],
     generated_module_wrappers = [
         'tu_0000_def_0000_service_module.module.gentest.cppm',
-        'tu_0001_def_0001_module__ck_defs.module.gentest.cppm',
+        'tu_0001_def_0001_module__11e4b565.module.gentest.cppm',
     ],
     generated_module_headers = [
         'tu_0000_def_0000_service_module.gentest.h',
-        'tu_0001_def_0001_module__ck_defs.gentest.h',
+        'tu_0001_def_0001_module__11e4b565.gentest.h',
     ],
     linkopts = _gentest_linkopts,
 )

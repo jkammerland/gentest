@@ -1,101 +1,109 @@
 # Bazel
 
-This Bazel integration is currently a repo-local textual API for this
-repository. It now exposes repo-local textual macros in
-[`build_defs/gentest.bzl`](../../build_defs/gentest.bzl):
+This Bazel support is still repo-local. The macros in
+[`build_defs/gentest.bzl`](../../build_defs/gentest.bzl) are usable in this
+repository, but they are not packaged as a downstream rule set yet.
 
+## Current repo-local macro surface
+
+Textual/classic support:
+
+- `gentest_suite(name)`
 - `gentest_add_mocks_textual(...)`
 - `gentest_attach_codegen_textual(...)`
 
-It is still not a packaged downstream Bazel rule set, and it still does not
-support modules.
+Named-module support:
 
-## Current scope
+- `gentest_add_mocks_modules(...)`
+- `gentest_attach_codegen_modules(...)`
 
-- Supports the classic suites in `tests/<suite>/cases.cpp`.
-- Supports one repo-local explicit textual mock slice built through the textual
-  macros:
-  - defs file: `tests/consumer/header_mock_defs.hpp`
-  - generated public header: `gen/consumer_textual_mocks/gentest_consumer_mocks.hpp`
-  - consumer test source: `tests/buildsystems/consumer_textual_cases.cpp`
-- Uses the shared per-TU helper in [`scripts/gentest_buildsystem_codegen.py`](../../scripts/gentest_buildsystem_codegen.py).
-- Bootstraps `gentest_codegen` through a local CMake genrule.
-- Does not currently support named-module suites or module mock defs.
+The current repo-local module macros are explicit rather than inferred.
 
-The currently wired suites are:
+`gentest_add_mocks_modules(...)` currently requires:
 
-- `gentest_unit_bazel`
-- `gentest_integration_bazel`
-- `gentest_fixtures_bazel`
-- `gentest_skiponly_bazel`
+- `name`
+- `defs`
+- `module_name`
+- `defs_modules`
+- `generated_module_wrappers`
+- `generated_module_headers`
 
-The additional repo-local explicit textual mock target is:
+`gentest_attach_codegen_modules(...)` currently requires:
 
-- `gentest_consumer_textual_mocks`
+- `name`
+- `src`
+- `main`
+- same-package `mock_targets`
 
-The helper-based textual consumer target is:
+Both module macros also accept repo-local tuning knobs such as
+`external_module_sources`, `deps`, `linkopts`, and `source_includes`.
 
-- `gentest_consumer_textual_bazel`
+## Current repo-local targets
 
-## Current textual macro API
+The checked-in [`BUILD.bazel`](../../BUILD.bazel) wires:
 
-Inside this repo, the textual Bazel surface looks like this:
+- classic suites:
+  - `gentest_unit_bazel`
+  - `gentest_integration_bazel`
+  - `gentest_fixtures_bazel`
+  - `gentest_skiponly_bazel`
+- textual explicit mocks:
+  - `gentest_consumer_textual_mocks`
+  - `gentest_consumer_textual_bazel`
+- named-module explicit mocks:
+  - `gentest_consumer_module_mocks`
+  - `gentest_consumer_module_bazel`
+
+The repo root also publishes the public module carrier libraries used by the
+module macros:
+
+- `gentest`
+- `gentest_mock`
+- `gentest_bench_util`
+
+## Module example
+
+The checked-in repo-local module path looks like this:
 
 ```python
-load("//build_defs:gentest.bzl", "gentest_add_mocks_textual", "gentest_attach_codegen_textual", "gentest_suite")
-
-gentest_add_mocks_textual(
-    name = "gentest_consumer_textual_mocks",
-    defs = ["tests/consumer/header_mock_defs.hpp"],
-    public_header = "gentest_consumer_mocks.hpp",
-    # Current repo-local limitation: this explicitly lists staged generated
-    # support-header outputs under gen/<name>/...
-    staged_support_headers = ["deps/0478dfbbe6c184098f87ed47b43d96f9_service.hpp"],
+gentest_add_mocks_modules(
+    name = "gentest_consumer_module_mocks",
+    defs = [
+        "tests/consumer/service_module.cppm",
+        "tests/consumer/module_mock_defs.cppm",
+    ],
+    module_name = "gentest.consumer_mocks",
+    defs_modules = [
+        "gentest.consumer_service",
+        "gentest.consumer_mock_defs",
+    ],
+    generated_module_wrappers = [
+        "tu_0000_def_0000_service_module.module.gentest.cppm",
+        "tu_0001_def_0001_module__11e4b565.module.gentest.cppm",
+    ],
+    generated_module_headers = [
+        "tu_0000_def_0000_service_module.gentest.h",
+        "tu_0001_def_0001_module__11e4b565.gentest.h",
+    ],
 )
 
-gentest_attach_codegen_textual(
-    name = "gentest_consumer_textual_bazel",
-    src = "tests/buildsystems/consumer_textual_cases.cpp",
+gentest_attach_codegen_modules(
+    name = "gentest_consumer_module_bazel",
+    src = "tests/consumer/cases.cppm",
     main = "tests/consumer/main.cpp",
-    mock_targets = [":gentest_consumer_textual_mocks"],
-    source_includes = ["tests", "tests/buildsystems", "tests/consumer"],
+    mock_targets = [":gentest_consumer_module_mocks"],
+    deps = [
+        ":gentest",
+        ":gentest_bench_util",
+    ],
+    defines = ["GENTEST_CONSUMER_USE_MODULES=1"],
+    source_includes = ["tests", "tests/consumer"],
 )
 ```
-
-The important rule is still the same as CMake:
-
-- mocks are explicit
-- tests attach codegen separately
-- textual mock consumers include the generated public header
-
-Current textual macro constraints:
-
-- `gentest_add_mocks_textual(...)` currently accepts exactly one defs file
-- `staged_support_headers` lists generated staged outputs under `gen/<name>/...`
-- `mock_targets` in `gentest_attach_codegen_textual(...)` currently use same-package labels only
-- `source_includes` is forwarded into both wrapper compilation and `gentest_codegen`
-
-There is also a generator lint target:
-
-- `codegen_check_invalid`
-
-`codegen_check_invalid` is a Bash-based repo check. Treat it as a Unix-like
-helper target, not part of the cross-platform quickstart.
-
-## Bazel baseline
-
-This repo-local Bazel path is currently pinned to Bazel `9.0.0` through
-[`/.bazelversion`](../../.bazelversion).
-
-- prefer `bazelisk` or a `bazel` wrapper backed by Bazelisk so the pin is
-  respected automatically
-- dependency resolution currently comes from [`MODULE.bazel`](../../MODULE.bazel)
-- [`WORKSPACE`](../../WORKSPACE) is present only as the legacy workspace root
-  marker; it is not the active dependency definition path
 
 ## Build and run
 
-On Linux, the simplest local path is:
+Classic suites:
 
 ```bash
 bazelisk test \
@@ -105,144 +113,59 @@ bazelisk test \
   //:gentest_skiponly_bazel
 ```
 
-If you want to validate build and runtime separately on Linux/macOS:
-
-```bash
-bazelisk build \
-  //:gentest_unit_bazel \
-  //:gentest_integration_bazel \
-  //:gentest_fixtures_bazel \
-  //:gentest_skiponly_bazel
-
-./bazel-bin/gentest_unit_bazel
-./bazel-bin/gentest_integration_bazel
-./bazel-bin/gentest_fixtures_bazel
-./bazel-bin/gentest_skiponly_bazel
-```
-
-For the textual mock slice, prefer build + direct execution:
+Textual consumer:
 
 ```bash
 bazelisk build //:gentest_consumer_textual_bazel
 ./bazel-bin/gentest_consumer_textual_bazel
 ```
 
-On macOS with Homebrew LLVM, force Bazel onto the LLVM Clang toolchain first:
+Module consumer:
 
 ```bash
-export CC=/opt/homebrew/opt/llvm/bin/clang
-export CXX=/opt/homebrew/opt/llvm/bin/clang++
-bazelisk build //:gentest_consumer_textual_bazel
-./bazel-bin/gentest_consumer_textual_bazel
+bazelisk build //:gentest_consumer_module_bazel
+./bazel-bin/gentest_consumer_module_bazel
 ```
 
-Some local container environments fail `bazel test` before the binary runs
-because Bazel's shell test wrapper cannot execute in the sandbox. The direct
-binary path above avoids that issue while still validating the generated mock
-surface and consumer test target.
+In practice, the repo-local Bazel path is still toolchain-sensitive. The Linux
+workflow currently validates the classic suites and the textual consumer only.
+For local module runs, using the same Clang-oriented environment as the textual
+lane is the safest path:
 
-On Linux/macOS, you can also run the Bash-only invalid-codegen smoke check:
+- set `CC` / `CXX` to the Clang toolchain Bazel should use
+- set `GENTEST_CODEGEN_RESOURCE_DIR="$(clang++ -print-resource-dir)"`
+- disable ccache inside Bazel actions when needed
 
-```bash
-bazelisk test //:codegen_check_invalid
-```
+## Generated outputs
 
-## Toolchain notes
+The module macros generate repo-local artifacts under `gen/<name>/`, including:
 
-The Bazel path shells out to CMake to build `gentest_codegen`. That means:
+- staged defs/support files
+- generated mock module wrappers
+- generated module wrapper headers
+- a generated aggregate public module
+- mock metadata JSON
+- a repo-local `compile_commands.json` used to give `gentest_codegen` a module
+  scan context inside the Bazel action
 
-- `cmake` must be available on `PATH`
-- `python3` on Linux/macOS, `python` on Windows, must be available for the
-  shared codegen helper
-- the host needs the LLVM/Clang development packages required to build
-  `gentest_codegen`
-- this bootstrap is intentionally non-hermetic for now
+The generated test wrapper target also emits:
 
-On macOS, the Bazel path expects Homebrew `cmake`, `ninja`, and LLVM under
-their standard prefixes:
-
-- `/opt/homebrew/bin/cmake`
-- `/opt/homebrew/bin/ninja`
-- `/opt/homebrew/opt/llvm/...`
-
-If you want Bazel to use a specific host compiler, pass it through the action
-environment, for example:
-
-```bash
-bazelisk test \
-  //:gentest_unit_bazel \
-  --action_env=CC=clang-20 \
-  --action_env=CXX=clang++-20 \
-  --host_action_env=CC=clang-20 \
-  --host_action_env=CXX=clang++-20
-```
-
-If `gentest_codegen` cannot discover the Clang resource directory in your Bazel
-environment, set it explicitly in the Bazel action environment:
-
-```bash
-bazelisk test \
-  //:gentest_unit_bazel \
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR="$(clang++ -print-resource-dir)"
-```
-
-If you prefer exporting it once in your shell, also forward it into Bazel
-actions:
-
-```bash
-export GENTEST_CODEGEN_RESOURCE_DIR="$(clang++ -print-resource-dir)"
-bazelisk test //:gentest_unit_bazel --action_env=GENTEST_CODEGEN_RESOURCE_DIR
-```
-
-## What Bazel generates
-
-Per suite, the Bazel genrule writes:
-
-- `gen/<suite>/tu_0000_<suite>_cases.gentest.cpp`
-- `gen/<suite>/tu_0000_<suite>_cases.gentest.h`
-
-The generated wrapper is then compiled by the corresponding `cc_test`.
-
-For the textual mock slice, Bazel also writes:
-
-- `gen/consumer_textual_mocks/consumer_textual_mocks_defs.cpp`
-- `gen/consumer_textual_mocks/consumer_textual_mocks_anchor.cpp`
-- `gen/consumer_textual_mocks/tu_0000_consumer_textual_mocks_defs.gentest.h`
-- `gen/consumer_textual_mocks/consumer_textual_mocks_mock_registry.hpp`
-- `gen/consumer_textual_mocks/consumer_textual_mocks_mock_impl.hpp`
-- `gen/consumer_textual_mocks/consumer_textual_mocks_mock_registry__domain_0000_header.hpp`
-- `gen/consumer_textual_mocks/consumer_textual_mocks_mock_impl__domain_0000_header.hpp`
-- `gen/consumer_textual_mocks/gentest_consumer_mocks.hpp`
-- `gen/consumer_textual_mocks/def_0000_header_mock_defs.hpp`
-- staged textual support headers under `gen/consumer_textual_mocks/deps/`
-
-The consumer `cc_test` then compiles the wrapper from
-`gen/consumer_textual/tu_0000_consumer_textual_cases.gentest.cpp` and links the
-generated mock library.
-
-## Adding another classic suite in this repo
-
-1. Add `tests/<suite>/cases.cpp`.
-2. Add `gentest_suite("<suite>")` in [`BUILD.bazel`](../../BUILD.bazel).
-3. Run:
-
-```bash
-bazelisk test //:gentest_<suite>_bazel
-```
+- `gen/<name>/suite_0000.cppm`
+- `gen/<name>/tu_0000_suite_0000.module.gentest.cppm`
+- `gen/<name>/tu_0000_suite_0000.gentest.h`
 
 ## Limitations
 
-- This path currently supports:
-  - classic per-TU suites
-  - textual explicit mocks through `gentest_add_mocks_textual(...)`
-  - textual test attachment through `gentest_attach_codegen_textual(...)`
-- It is still intentionally limited to classic/header-style suites.
-- The `gentest_codegen` bootstrap rule is local and non-hermetic.
-- Windows Bazel validation is currently blocked by a host-level Bazel bootstrap
-  failure before the gentest repo is analyzed. That still reproduces on the
-  current `9.0.0` pin and on local probes of Bazel `8.4.2` and `7.7.0`. Use
-  Meson/Xmake/CMake on Windows for now.
-- If you need named modules, module mock defs, package/export parity, or a
-  packaged downstream Bazel rule set beyond these repo-local textual macros,
-  use the CMake path for now. Follow-up parity work is tracked in
-  [`docs/stories/015_non_cmake_full_parity.md`](../stories/015_non_cmake_full_parity.md).
+- Repo-local only. There is no packaged downstream Bazel rule set yet.
+- `gentest_add_mocks_textual(...)` currently accepts exactly one defs file.
+- `gentest_attach_codegen_textual(...)` and
+  `gentest_attach_codegen_modules(...)` currently require same-package
+  `mock_targets`.
+- `gentest_add_mocks_modules(...)` currently requires callers to spell out
+  `defs_modules`, `generated_module_wrappers`, and `generated_module_headers`
+  explicitly.
+- The codegen bootstrap is intentionally non-hermetic today: Bazel shells out
+  to CMake to build `gentest_codegen`.
+- The checked-in Linux workflow does not run the Bazel module target yet, so
+  treat the module path as repo-local/toolchain-sensitive rather than a
+  polished downstream contract.

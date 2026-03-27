@@ -72,9 +72,9 @@ clang_args = [
   '-Wno-unknown-attributes',
   '-Wno-attributes',
   '-Wno-unknown-warning-option',
-  '-I@SOURCE_ROOT@/include',
-  '-I@SOURCE_ROOT@/tests',
-  '-I@SOURCE_ROOT@/third_party/include',
+  '-I@0@'.format(join_paths(meson.project_source_root(), 'include')),
+  '-I@0@'.format(join_paths(meson.project_source_root(), 'tests')),
+  '-I@0@'.format(join_paths(meson.project_source_root(), 'third_party', 'include')),
 ]
 clang_arg_flags = []
 foreach arg : clang_args
@@ -83,10 +83,11 @@ endforeach
 
 tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 buildsystem_codegen = files('scripts/gentest_buildsystem_codegen.py')
-# The shared helper exposes explicit textual/modules kinds. Meson intentionally
-# uses `kind=textual` only today; `kind=modules` exists as a fail-fast API
-# shape but is not supported yet because Meson's named-module path is flaky in
-# this environment.
+# The repo-local Meson integration keeps the explicit 2-step model:
+# generate mocks first, then attach codegen to the consuming test surface.
+# Textual targets use the helper's Meson backend directly. Named-module targets
+# reuse the same backend-agnostic substrate, but Meson drives the module
+# compilation itself because the native named-module path is not reliable here.
 support_inputs_cmd = run_command(
   py,
   '-c',
@@ -106,6 +107,80 @@ support_inputs = []
 if support_inputs_cmd.stdout().strip() != ''
   support_inputs = support_inputs_cmd.stdout().strip().split('\n')
 endif
+
+module_stem_script = '''
+import hashlib
+import re
+import sys
+
+stem = sys.argv[1]
+sanitized = re.sub(r"[^A-Za-z0-9_]", "_", stem)
+if not sanitized:
+    sanitized = "tu"
+if len(sanitized) > 24:
+    sanitized = sanitized[:16] + "_" + hashlib.md5(sanitized.encode("utf-8")).hexdigest()[:8]
+print(sanitized)
+'''
+
+module_metadata_compile_script = '''
+import json
+import pathlib
+import subprocess
+import sys
+
+metadata_path = pathlib.Path(sys.argv[1])
+module_name = sys.argv[2]
+output_obj = sys.argv[3]
+output_pcm = sys.argv[4]
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+source_path = ""
+for entry in metadata.get("module_sources", []):
+    if entry.get("module_name") == module_name:
+        source_path = entry.get("path", "")
+        break
+if source_path == "":
+    raise SystemExit(f"module source not found in {metadata_path}: {module_name}")
+
+command = sys.argv[5:] + ["-c", source_path, "-o", output_obj]
+if output_pcm != "-":
+    command.append(f"-fmodule-output={output_pcm}")
+subprocess.run(command, check=True)
+'''
+
+module_codegen_backend = 'generic'
+module_public_external_sources = [
+  '--external-module-source', 'gentest=@0@'.format(join_paths(meson.project_source_root(), 'include', 'gentest', 'gentest.cppm')),
+  '--external-module-source', 'gentest.bench_util=@0@'.format(join_paths(meson.project_source_root(), 'include', 'gentest', 'gentest.bench_util.cppm')),
+  '--external-module-source', 'gentest.mock=@0@'.format(join_paths(meson.project_source_root(), 'include', 'gentest', 'gentest.mock.cppm')),
+]
+module_compile_args = [
+  '-std=c++20',
+  '-DFMT_HEADER_ONLY',
+  '-I@0@'.format(join_paths(meson.project_source_root(), 'include')),
+  '-I@0@'.format(join_paths(meson.project_source_root(), 'tests')),
+  '-I@0@'.format(join_paths(meson.project_source_root(), 'third_party', 'include')),
+  '-I@0@'.format(meson.current_build_dir()),
+] + cpp.get_supported_arguments(['-Wno-unknown-attributes', '-Wno-attributes', '-Wno-unknown-warning-option'])
+module_interface_compile_base = []
+module_import_compile_base = []
+module_compile_supported = false
+module_obj_ext = 'o'
+if host_machine.system() == 'windows'
+  module_obj_ext = 'obj'
+endif
+if cpp.get_id() == 'clang'
+  module_compile_supported = true
+  module_interface_compile_base = cpp.cmd_array() + module_compile_args + ['-fprebuilt-module-path=@BUILD_ROOT@']
+  module_import_compile_base = cpp.cmd_array() + module_compile_args + ['-fprebuilt-module-path=@BUILD_ROOT@']
+elif cpp.get_id() == 'gcc'
+  module_compile_supported = true
+  module_interface_compile_base = cpp.cmd_array() + module_compile_args + ['-fmodules-ts']
+  module_import_compile_base = cpp.cmd_array() + module_compile_args + ['-fmodules-ts']
+endif
+
+consumer_module_suite_stem = run_command(py, '-c', module_stem_script, 'suite_0000', check: true).stdout().strip()
+consumer_module_wrapper_cpp = 'tu_0000_@0@.module.gentest.cppm'.format(consumer_module_suite_stem)
+consumer_module_wrapper_h = 'tu_0000_@0@.gentest.h'.format(consumer_module_suite_stem)
 
 foreach s : tests_suites
   out_dir = meson.current_build_dir()
@@ -244,6 +319,248 @@ consumer_exe = executable(
 )
 
 test('meson_consumer_textual', consumer_exe)
+
+if module_compile_supported
+  consumer_module_mock_anchor_cpp = 'consumer_module_mocks_anchor.cpp'
+  consumer_module_mock_registry_h = 'consumer_module_mocks_mock_registry.hpp'
+  consumer_module_mock_impl_h = 'consumer_module_mocks_mock_impl.hpp'
+  consumer_module_mock_metadata_json = 'consumer_module_mocks_mock_metadata.json'
+  consumer_module_mocks = custom_target(
+    'gen_consumer_module_mocks',
+    output: [
+      consumer_module_mock_anchor_cpp,
+      consumer_module_mock_registry_h,
+      consumer_module_mock_impl_h,
+      consumer_module_mock_metadata_json,
+    ],
+    input: [
+      'tests/consumer/service_module.cppm',
+      'tests/consumer/module_mock_defs.cppm',
+      buildsystem_codegen,
+    ] + support_inputs,
+    command: [
+      py,
+      buildsystem_codegen,
+      '--backend', module_codegen_backend,
+      '--mode', 'mocks',
+      '--kind', 'modules',
+      '--codegen', codegen,
+      '--source-root', meson.project_source_root(),
+      '--out-dir', meson.current_build_dir(),
+      '--anchor-output', join_paths(meson.current_build_dir(), consumer_module_mock_anchor_cpp),
+      '--mock-registry', join_paths(meson.current_build_dir(), consumer_module_mock_registry_h),
+      '--mock-impl', join_paths(meson.current_build_dir(), consumer_module_mock_impl_h),
+      '--target-id', 'consumer_module_mocks',
+      '--metadata-output', join_paths(meson.current_build_dir(), consumer_module_mock_metadata_json),
+      '--module-name', 'gentest.consumer_mocks',
+      '--defs-file', '@INPUT0@',
+      '--defs-file', '@INPUT1@',
+      '--include-root', join_paths(meson.project_source_root(), 'include'),
+      '--include-root', join_paths(meson.project_source_root(), 'tests'),
+      '--include-root', join_paths(meson.project_source_root(), 'third_party', 'include'),
+      '--compdb', meson.current_build_dir(),
+      '--external-module-source', 'gentest.mock=@0@'.format(join_paths(meson.project_source_root(), 'include', 'gentest', 'gentest.mock.cppm')),
+      clang_arg_flags,
+    ],
+    build_by_default: false,
+  )
+  consumer_module_mock_metadata = consumer_module_mocks[3]
+  consumer_module_mock_anchor = consumer_module_mocks[0]
+  consumer_module_suite_codegen = custom_target(
+    'gen_consumer_module_cases',
+    output: [consumer_module_wrapper_cpp, consumer_module_wrapper_h],
+    input: ['tests/consumer/cases.cppm', buildsystem_codegen, consumer_module_mock_metadata] + support_inputs,
+    command: [
+      py,
+      buildsystem_codegen,
+      '--backend', module_codegen_backend,
+      '--mode', 'suite',
+      '--kind', 'modules',
+      '--codegen', codegen,
+      '--source-root', meson.project_source_root(),
+      '--out-dir', meson.current_build_dir(),
+      '--wrapper-output', join_paths(meson.current_build_dir(), consumer_module_wrapper_cpp),
+      '--header-output', join_paths(meson.current_build_dir(), consumer_module_wrapper_h),
+      '--source-file', '@INPUT0@',
+      '--mock-metadata', '@INPUT2@',
+      '--compdb', meson.current_build_dir(),
+      '--include-root', join_paths(meson.project_source_root(), 'include'),
+      '--include-root', join_paths(meson.project_source_root(), 'tests'),
+      '--include-root', join_paths(meson.project_source_root(), 'third_party', 'include'),
+      module_public_external_sources,
+      clang_arg_flags,
+    ],
+    build_by_default: false,
+  )
+
+  if cpp.get_id() == 'clang'
+    gentest_module = custom_target(
+      'compile_gentest_module',
+      output: ['gentest.@0@'.format(module_obj_ext), 'gentest.pcm'],
+      input: ['include/gentest/gentest.cppm'] + support_inputs,
+      command: module_interface_compile_base + ['-c', '@INPUT0@', '-o', '@OUTPUT0@', '-fmodule-output=@OUTPUT1@'],
+      build_by_default: false,
+    )
+    gentest_bench_util_module = custom_target(
+      'compile_gentest_bench_util_module',
+      output: ['gentest.bench_util.@0@'.format(module_obj_ext), 'gentest.bench_util.pcm'],
+      input: ['include/gentest/gentest.bench_util.cppm'] + support_inputs,
+      command: module_interface_compile_base + ['-c', '@INPUT0@', '-o', '@OUTPUT0@', '-fmodule-output=@OUTPUT1@'],
+      build_by_default: false,
+    )
+    gentest_mock_module = custom_target(
+      'compile_gentest_mock_module',
+      output: ['gentest.mock.@0@'.format(module_obj_ext), 'gentest.mock.pcm'],
+      input: ['include/gentest/gentest.mock.cppm'] + support_inputs,
+      command: module_interface_compile_base + ['-c', '@INPUT0@', '-o', '@OUTPUT0@', '-fmodule-output=@OUTPUT1@'],
+      build_by_default: false,
+    )
+    consumer_service_module = custom_target(
+      'compile_consumer_service_module',
+      output: ['gentest.consumer_service.@0@'.format(module_obj_ext), 'gentest.consumer_service.pcm'],
+      input: [consumer_module_mock_metadata],
+      command: [
+        py, '-c', module_metadata_compile_script,
+        '@INPUT0@', 'gentest.consumer_service', '@OUTPUT0@', '@OUTPUT1@',
+        module_interface_compile_base,
+      ],
+      build_by_default: false,
+    )
+    consumer_mock_defs_module = custom_target(
+      'compile_consumer_mock_defs_module',
+      output: ['gentest.consumer_mock_defs.@0@'.format(module_obj_ext), 'gentest.consumer_mock_defs.pcm'],
+      input: [consumer_module_mock_metadata],
+      depends: [consumer_service_module, gentest_mock_module],
+      command: [
+        py, '-c', module_metadata_compile_script,
+        '@INPUT0@', 'gentest.consumer_mock_defs', '@OUTPUT0@', '@OUTPUT1@',
+        module_interface_compile_base,
+      ],
+      build_by_default: false,
+    )
+    consumer_mocks_module = custom_target(
+      'compile_consumer_mocks_module',
+      output: ['gentest.consumer_mocks.@0@'.format(module_obj_ext), 'gentest.consumer_mocks.pcm'],
+      input: [consumer_module_mock_metadata],
+      depends: [consumer_service_module, consumer_mock_defs_module, gentest_mock_module],
+      command: [
+        py, '-c', module_metadata_compile_script,
+        '@INPUT0@', 'gentest.consumer_mocks', '@OUTPUT0@', '@OUTPUT1@',
+        module_interface_compile_base,
+      ],
+      build_by_default: false,
+    )
+    consumer_cases_module = custom_target(
+      'compile_consumer_cases_module',
+      output: ['gentest.consumer_cases.@0@'.format(module_obj_ext), 'gentest.consumer_cases.pcm'],
+      input: [consumer_module_suite_codegen[0]],
+      depends: [consumer_module_suite_codegen, consumer_mocks_module, gentest_module, gentest_bench_util_module, gentest_mock_module],
+      command: module_interface_compile_base + ['-c', '@INPUT0@', '-o', '@OUTPUT0@', '-fmodule-output=@OUTPUT1@'],
+      build_by_default: false,
+    )
+    consumer_module_main = custom_target(
+      'compile_consumer_module_main',
+      output: ['gentest.consumer_module_main.@0@'.format(module_obj_ext)],
+      input: ['tests/consumer/main.cpp'],
+      depends: [consumer_cases_module, consumer_mocks_module, gentest_module, gentest_bench_util_module, gentest_mock_module],
+      command: module_import_compile_base + ['-DGENTEST_CONSUMER_USE_MODULES=1', '-c', '@INPUT0@', '-o', '@OUTPUT@'],
+      build_by_default: false,
+    )
+  else
+    gentest_module = custom_target(
+      'compile_gentest_module',
+      output: 'gentest.@0@'.format(module_obj_ext),
+      input: ['include/gentest/gentest.cppm'] + support_inputs,
+      command: module_interface_compile_base + ['-c', '@INPUT0@', '-o', '@OUTPUT@'],
+      build_by_default: false,
+    )
+    gentest_bench_util_module = custom_target(
+      'compile_gentest_bench_util_module',
+      output: 'gentest.bench_util.@0@'.format(module_obj_ext),
+      input: ['include/gentest/gentest.bench_util.cppm'] + support_inputs,
+      command: module_interface_compile_base + ['-c', '@INPUT0@', '-o', '@OUTPUT@'],
+      build_by_default: false,
+    )
+    gentest_mock_module = custom_target(
+      'compile_gentest_mock_module',
+      output: 'gentest.mock.@0@'.format(module_obj_ext),
+      input: ['include/gentest/gentest.mock.cppm'] + support_inputs,
+      command: module_interface_compile_base + ['-c', '@INPUT0@', '-o', '@OUTPUT@'],
+      build_by_default: false,
+    )
+    consumer_service_module = custom_target(
+      'compile_consumer_service_module',
+      output: 'gentest.consumer_service.@0@'.format(module_obj_ext),
+      input: [consumer_module_mock_metadata],
+      command: [
+        py, '-c', module_metadata_compile_script,
+        '@INPUT0@', 'gentest.consumer_service', '@OUTPUT@', '-',
+        module_interface_compile_base,
+      ],
+      build_by_default: false,
+    )
+    consumer_mock_defs_module = custom_target(
+      'compile_consumer_mock_defs_module',
+      output: 'gentest.consumer_mock_defs.@0@'.format(module_obj_ext),
+      input: [consumer_module_mock_metadata],
+      depends: [consumer_service_module, gentest_mock_module],
+      command: [
+        py, '-c', module_metadata_compile_script,
+        '@INPUT0@', 'gentest.consumer_mock_defs', '@OUTPUT@', '-',
+        module_interface_compile_base,
+      ],
+      build_by_default: false,
+    )
+    consumer_mocks_module = custom_target(
+      'compile_consumer_mocks_module',
+      output: 'gentest.consumer_mocks.@0@'.format(module_obj_ext),
+      input: [consumer_module_mock_metadata],
+      depends: [consumer_service_module, consumer_mock_defs_module, gentest_mock_module],
+      command: [
+        py, '-c', module_metadata_compile_script,
+        '@INPUT0@', 'gentest.consumer_mocks', '@OUTPUT@', '-',
+        module_interface_compile_base,
+      ],
+      build_by_default: false,
+    )
+    consumer_cases_module = custom_target(
+      'compile_consumer_cases_module',
+      output: 'gentest.consumer_cases.@0@'.format(module_obj_ext),
+      input: [consumer_module_suite_codegen[0]],
+      depends: [consumer_module_suite_codegen, consumer_mocks_module, gentest_module, gentest_bench_util_module, gentest_mock_module],
+      command: module_interface_compile_base + ['-c', '@INPUT0@', '-o', '@OUTPUT@'],
+      build_by_default: false,
+    )
+    consumer_module_main = custom_target(
+      'compile_consumer_module_main',
+      output: 'gentest.consumer_module_main.@0@'.format(module_obj_ext),
+      input: ['tests/consumer/main.cpp'],
+      depends: [consumer_cases_module, consumer_mocks_module, gentest_module, gentest_bench_util_module, gentest_mock_module],
+      command: module_import_compile_base + ['-DGENTEST_CONSUMER_USE_MODULES=1', '-c', '@INPUT0@', '-o', '@OUTPUT@'],
+      build_by_default: false,
+    )
+  endif
+
+  executable(
+    'gentest_consumer_module_meson',
+    [consumer_module_mock_anchor],
+    objects: [
+      gentest_module[0],
+      gentest_bench_util_module[0],
+      gentest_mock_module[0],
+      consumer_service_module[0],
+      consumer_mock_defs_module[0],
+      consumer_mocks_module[0],
+      consumer_cases_module[0],
+      consumer_module_main[0],
+    ],
+    include_directories: [inc, build_inc],
+    link_with: [libgentest_main, libgentest_runtime],
+    cpp_args: runtime_cargs,
+    dependencies: runtime_deps,
+    build_by_default: false,
+  )
+endif
 
 # Convenience: run the CMake-based cross-compile POC from Meson.
 bash = find_program('bash', required: false)

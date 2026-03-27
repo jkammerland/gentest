@@ -3,7 +3,8 @@
 >[!NOTE]
 > Phase 1 of this story is implemented: the repo-local Meson, Xmake, and Bazel
 > classic suites now use per-TU generation instead of legacy manifest mode.
-> Remaining modules/explicit-mocks parity work is tracked in
+> Repo-local non-CMake module support has since landed too, but the remaining
+> packaging/API/CI parity work is tracked in
 > [`docs/stories/015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md).
 
 ## Goal
@@ -39,16 +40,19 @@ Before phase 1, the non‑CMake build files used manifest mode:
 
 Current repo reality:
 
-- CMake is still the only integration that supports named-module test sources,
-  reusable explicit mock targets, installed public modules, and module-aware
-  mock linking.
-- Meson, Xmake, and Bazel now cover the repo-local classic/header-style test
-  suites through shared per-TU wrapper generation.
-- Meson, Xmake, and Bazel also have repo-local textual explicit-mock slices:
-  - defs file -> generated public header -> consumer test target
-- None of the non-CMake integrations currently expose an equivalent of:
-  - `gentest_attach_codegen(...)`
-  - `gentest_add_mocks(...)`
+- CMake is still the most complete packaged/downstream surface.
+- Meson, Xmake, and Bazel cover the repo-local classic/header-style suites
+  through shared per-TU wrapper generation.
+- Meson, Xmake, and Bazel also have repo-local textual explicit-mock slices.
+- Meson now has a repo-local module consumer target, but not a reusable Meson
+  helper API.
+- Xmake now exposes repo-local `gentest_add_mocks(...)` and
+  `gentest_attach_codegen(...)` helpers for textual and module paths.
+- Bazel now exposes repo-local textual and module macros in
+  [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl).
+- The Linux workflow still validates the classic suites and textual consumer
+  slices; the module paths remain local regression coverage rather than active
+  workflow lanes.
 
 So this story is now historical context plus phase-1 design/notes. The
 remaining non-CMake design story for modules and explicit mocks is

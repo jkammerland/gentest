@@ -14,6 +14,9 @@ class MockUsageCollector : public clang::ast_matchers::MatchFinder::MatchCallbac
     explicit MockUsageCollector(std::vector<MockClassInfo> &out);
 
     void run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
+    std::optional<clang::TraversalKind> getCheckTraversalKind() const override {
+        return clang::TK_IgnoreUnlessSpelledInSource;
+    }
 
     [[nodiscard]] bool has_errors() const;
 

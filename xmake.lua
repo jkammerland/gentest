@@ -5,6 +5,14 @@ add_rules("mode.debug", "mode.release")
 add_requires("fmt")
 
 local project_root = os.scriptdir()
+local codegen_project_root = project_root
+local xmake_file = path.join(project_root, "xmake.lua")
+if os.islink and os.readlink then
+    local ok, resolved_xmake = pcall(os.readlink, xmake_file)
+    if ok and resolved_xmake and resolved_xmake ~= "" then
+        codegen_project_root = path.directory(resolved_xmake)
+    end
+end
 local incdirs = {"include", "tests", "third_party/include"}
 local buildsystem_codegen = path.join(project_root, "scripts", "gentest_buildsystem_codegen.py")
 local python_program = is_host("windows") and "python" or "python3"
@@ -28,7 +36,7 @@ end
 includes("xmake/gentest.lua")
 gentest_configure({
     project_root = project_root,
-    codegen_project_root = project_root,
+    codegen_project_root = codegen_project_root,
     incdirs = incdirs,
     buildsystem_codegen = buildsystem_codegen,
     python_program = python_program,
@@ -75,7 +83,7 @@ target("gentest_main")
     add_includedirs(incdirs)
     add_defines(gentest_common_defines)
     add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
-    add_deps("gentest", {public = true})
+    add_deps("gentest_runtime", {public = true})
 
 local function gentest_suite(name)
     gentest_attach_codegen({
@@ -127,8 +135,10 @@ gentest_attach_codegen({
     name = "gentest_consumer_module_xmake",
     kind = "modules",
     source = "tests/buildsystems/consumer_simple_module_cases.cppm",
+    main = "tests/consumer/main.cpp",
     output_dir = path.join(current_gen_root(), "consumer_module"),
-    deps = {"gentest_main", consumer_module_mocks},
+    deps = {"gentest_main", "gentest", consumer_module_mocks},
+    defines = {"GENTEST_CONSUMER_USE_MODULES=1"},
 })
 
 target("poc_cross_aarch64_qemu")

@@ -1,4 +1,4 @@
-export module gentest.consumer_simple_cases;
+export module gentest.consumer_cases;
 
 import gentest.consumer_simple_mocks;
 

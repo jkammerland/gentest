@@ -21,22 +21,25 @@ Implemented already:
   repository suites.
 - Legacy `gentest_codegen --output ...` manifest mode has been removed from the
   active non-CMake suite integrations.
-- Meson has an in-tree explicit textual mock consumer slice:
-  - defs file -> generated public header -> consumer test target
-- Bazel has the same in-tree explicit textual mock consumer slice.
-- Xmake now has the same in-tree explicit textual mock consumer slice.
-- The classic non-CMake paths are documented in:
+- Meson has a repo-local textual consumer target and a repo-local module
+  consumer target.
+- Xmake has repo-local textual and module helper APIs in
+  [`xmake/gentest.lua`](../../xmake/gentest.lua).
+- Bazel has repo-local textual and module macros in
+  [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl).
+- All three buildsystem guides now document the current repo-local surfaces:
   - [`docs/buildsystems/meson.md`](../buildsystems/meson.md)
   - [`docs/buildsystems/xmake.md`](../buildsystems/xmake.md)
   - [`docs/buildsystems/bazel.md`](../buildsystems/bazel.md)
 
-Still missing:
+Still missing for real "full parity":
 
-- reusable explicit mock attachment APIs
-- named-module test attachment APIs
-- reusable public generated header/module mock surfaces
-- module-aware handoff from mock generation into test codegen
-- backend-specific plumbing for module compilation and consumption
+- packaged/downstream Meson helper APIs
+- install/export-quality non-CMake surfaces
+- workflow coverage for the module paths
+- hermetic/polished Bazel codegen bootstrap
+- API polish for extra module mappings / advanced codegen options outside the
+  checked-in repo-local use cases
 
 ## Product direction
 
@@ -149,56 +152,51 @@ This is the only real coupling between the two user-facing operations.
 
 ### Meson
 
-Target outcome:
+Current repo state:
 
-- stabilize the already-landed explicit textual mock slice into a reusable API
-- keep the public API at `add_mocks(...)` + `attach_codegen(...)`
-- expose the modules-shaped API now, but fail fast when `kind = modules`
-- defer real named-module Meson support until the backend/toolchain path is
-  reliable enough
+- there is still no reusable Meson helper API
+- the checked-in repo now has a real module consumer target
+- the helper still intentionally rejects `--backend meson --kind modules`
+- the repo-local module path works by using the generic helper backend plus
+  Meson-owned manual module compilation steps
 
 Open work:
 
-- expose mock metadata from `add_mocks(...)` into `attach_codegen(...)`
-- avoid configure-time-only dependency snapshots for codegen-sensitive inputs
-- keep module requests explicit and reject them predictably at configure/build
-  time instead of attempting brittle fallback behavior
-- decide whether downstream package/export support is practical in Meson or
-  whether the parity line should stop at in-tree consumer parity
+- decide whether Meson should grow a real helper surface at all
+- if yes, convert the current checked-in module wiring into a supported API
+- add workflow coverage for the module target instead of only the classic and
+  textual lanes
 
 ### Xmake
 
-Target outcome:
+Current repo state:
 
-- stabilize the already-landed explicit textual mock slice into reusable helper
-  APIs
-- support named-module test targets
-- support explicit module mock targets
-- keep ordering/metadata handling internal to the helper layer
+- repo-local helper functions exist for both textual and module paths
+- module mock generation and module test attachment are wired through the same
+  helper surface
 
 Open work:
 
-- define reusable helper functions instead of repo-local wiring only
-- carry enough compile context for module-aware codegen and scan-deps
-- support generated module surfaces and consumer imports
-- document and test Windows-native behavior as a first-class path
+- package/version the helper layer for downstream consumers
+- expose more advanced module/codegen tuning without forcing users to patch the
+  helper
+- add broader workflow coverage beyond the checked-in repo-local targets
 
 ### Bazel
 
-Target outcome:
+Current repo state:
 
-- stabilize the already-landed explicit textual mock slice into reusable rules
-- support named-module test targets where Bazel toolchains can truly model the
-  module graph
-- support explicit module mock targets
-- provide rule-level semantics instead of repo-local macros only
+- repo-local textual and module macros both exist
+- the checked-in repo wires module mock and module consumer targets
+- the macros now synthesize repo-local metadata and `compile_commands.json`
+  inputs so `gentest_codegen` can scan the module path
 
 Open work:
 
-- separate local convenience bootstrap from real reusable Bazel rules
-- decide the acceptable hermeticity level for `gentest_codegen`
-- make module support conditional on a real Bazel modules-capable toolchain path
-- keep metadata handoff hermetic enough for sandboxed actions
+- turn the repo-local macros into a cleaner downstream rule surface
+- reduce the manual caller burden around generated wrapper/header names
+- make the codegen bootstrap more hermetic
+- add module-path workflow coverage once the toolchain contract is solid enough
 
 ## Execution plan
 
@@ -213,27 +211,37 @@ Open work:
 
 Current status:
 
-- Meson: repo-local slice implemented
-- Bazel: repo-local slice implemented
-- Xmake: repo-local slice still needs stabilization
+- Meson: repo-local textual slice implemented
+- Xmake: repo-local textual slice implemented
+- Bazel: repo-local textual slice implemented
 
 ### Phase 3: named-module tests
 
-- add `attach_codegen(kind=modules, ...)` support for named-module test sources
-  per backend where the buildsystem/toolchain path is good enough
-- generate/compile module wrapper units where needed
-- prove final test targets can import their generated test module surfaces
-- Meson is explicitly out of scope for this phase until its local named-module
-  behavior is reliable enough to support as a product feature
+Status:
+
+- Meson: repo-local checked-in target exists, but there is still no reusable
+  Meson helper API
+- Xmake: repo-local helper path exists
+- Bazel: repo-local macro path exists
+
+Remaining work:
+
+- turn those repo-local paths into a supported downstream contract
+- add workflow coverage for at least one module lane per backend
 
 ### Phase 4: explicit module mocks
 
-- add `add_mocks(kind=modules, ...)` support for module defs
-- generate public named-module mock surfaces
-- prove `attach_codegen(...)` consumes module mock metadata and final targets
-  can import the generated mock surface
-- Meson is explicitly out of scope for this phase until its local named-module
-  behavior is reliable enough to support as a product feature
+Status:
+
+- Meson: repo-local checked-in path exists
+- Xmake: repo-local helper path exists
+- Bazel: repo-local macro path exists
+
+Remaining work:
+
+- package/polish the APIs
+- document downstream expectations and limits
+- add stronger regression and workflow coverage around the module paths
 
 ### Phase 5: downstream/reusable API polish
 
@@ -244,25 +252,18 @@ Current status:
 
 ## Acceptance criteria
 
-Minimum parity is reached when:
+Full parity is reached when:
 
-- Meson supports:
-  - explicit textual mock targets
-  - explicit textual test/codegen attachment
-  - explicit modules-shaped APIs that fail fast with a clear diagnostic
-- Xmake and Bazel each support:
-  - explicit textual mock targets
-  - named-module test targets
-  - explicit module mock targets
-- the public surface contract is the same as CMake:
-  - textual defs -> header surface
-  - module defs -> module surface
-- the existing classic per-TU suite coverage remains green while the new
-  features land
-- user-facing docs exist for each backend
-- CI covers at least one green path for each supported backend feature slice
-- the old implicit/manifest non-CMake assumptions are removed from the docs and
-  active backend code
+- Meson, Xmake, and Bazel each expose a documented, reusable, non-repo-local
+  helper surface for the supported path
+- textual defs still produce a header surface and module defs still produce a
+  module surface
+- the existing classic per-TU suite coverage remains green
+- user-facing docs exist for each backend and stay honest about repo-local vs
+  packaged support
+- CI covers the module paths instead of only the classic/textual baseline lanes
+- the remaining repo-local-only implementation quirks are either removed or
+  documented as intentional product limits
 
 ## Non-goals
 
