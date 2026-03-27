@@ -39,10 +39,13 @@ Before phase 1, the non‑CMake build files used manifest mode:
 
 Current repo reality:
 
-- CMake is the only integration that supports named-module test sources, explicit
-  mock targets, installed public modules, and module-aware mock linking.
+- CMake is still the only integration that supports named-module test sources,
+  reusable explicit mock targets, installed public modules, and module-aware
+  mock linking.
 - Meson, Xmake, and Bazel now cover the repo-local classic/header-style test
   suites through shared per-TU wrapper generation.
+- Meson, Xmake, and Bazel also have repo-local textual explicit-mock slices:
+  - defs file -> generated public header -> consumer test target
 - None of the non-CMake integrations currently expose an equivalent of:
   - `gentest_attach_codegen(...)`
   - `gentest_add_mocks(...)`

@@ -144,6 +144,9 @@ consumer_mock_anchor_cpp = 'consumer_textual_mocks_anchor.cpp'
 consumer_mock_codegen_h = 'tu_0000_consumer_textual_mocks_defs.gentest.h'
 consumer_mock_registry_h = 'consumer_textual_mocks_mock_registry.hpp'
 consumer_mock_impl_h = 'consumer_textual_mocks_mock_impl.hpp'
+consumer_mock_domain_registry_h = 'consumer_textual_mocks_mock_registry__domain_0000_header.hpp'
+consumer_mock_domain_impl_h = 'consumer_textual_mocks_mock_impl__domain_0000_header.hpp'
+consumer_mock_staged_defs_h = 'def_0000_header_mock_defs.hpp'
 consumer_mock_public_h = 'gentest_consumer_mocks.hpp'
 
 consumer_mocks = custom_target(
@@ -154,6 +157,9 @@ consumer_mocks = custom_target(
     consumer_mock_codegen_h,
     consumer_mock_registry_h,
     consumer_mock_impl_h,
+    consumer_mock_domain_registry_h,
+    consumer_mock_domain_impl_h,
+    consumer_mock_staged_defs_h,
     consumer_mock_public_h,
   ],
   input: [

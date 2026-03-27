@@ -163,7 +163,7 @@ genrule(
         'gen/consumer_textual_mocks/consumer_textual_mocks_mock_registry__domain_0000_header.hpp',
         'gen/consumer_textual_mocks/consumer_textual_mocks_mock_impl__domain_0000_header.hpp',
         'gen/consumer_textual_mocks/gentest_consumer_mocks.hpp',
-        'gen/consumer_textual_mocks/defs/def_0000_header_mock_defs.hpp',
+        'gen/consumer_textual_mocks/def_0000_header_mock_defs.hpp',
     ],
     tools = [':gentest_codegen'],
     cmd = (
@@ -238,7 +238,7 @@ cc_library(
         'gen/consumer_textual_mocks/consumer_textual_mocks_mock_registry__domain_0000_header.hpp',
         'gen/consumer_textual_mocks/consumer_textual_mocks_mock_impl__domain_0000_header.hpp',
         'gen/consumer_textual_mocks/tu_0000_consumer_textual_mocks_defs.gentest.h',
-        'gen/consumer_textual_mocks/defs/def_0000_header_mock_defs.hpp',
+        'gen/consumer_textual_mocks/def_0000_header_mock_defs.hpp',
         'tests/consumer/service.hpp',
     ],
     copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({

@@ -117,11 +117,10 @@ def materialize_textual_mock_defs(
     defs_files: list[pathlib.Path],
     include_roots: list[pathlib.Path],
 ) -> list[pathlib.Path]:
-    defs_dir = out_dir / "defs"
-    defs_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     materialized: list[pathlib.Path] = []
     for index, defs_file in enumerate(defs_files):
-        staged_path = defs_dir / f"def_{index:04d}_{defs_file.name}"
+        staged_path = out_dir / f"def_{index:04d}_{defs_file.name}"
         rewritten = rewrite_local_quoted_includes(defs_file.read_text(encoding="utf-8"), defs_file, source_root, include_roots)
         staged_path.write_text(rewritten if rewritten.endswith("\n") else rewritten + "\n", encoding="utf-8")
         materialized.append(staged_path)
@@ -198,6 +197,60 @@ def infer_compdb_dir(codegen_path: pathlib.Path) -> pathlib.Path | None:
     return None
 
 
+def resolve_compdb_dir(compdb_arg: str, codegen_path: pathlib.Path) -> pathlib.Path | None:
+    if compdb_arg:
+        return pathlib.Path(compdb_arg).resolve()
+    return infer_compdb_dir(codegen_path)
+
+
+def normalize_textual_mock_clang_args(
+    clang_args: list[str],
+    *,
+    source_root: pathlib.Path,
+    compdb_dir: pathlib.Path | None,
+) -> list[str]:
+    if compdb_dir is not None and compdb_dir == source_root:
+        return list(clang_args)
+
+    def normalize_path(path_text: str) -> str:
+        if not path_text or os.path.isabs(path_text):
+            return path_text
+        if path_text.startswith("-") or path_text.startswith("@"):
+            return path_text
+        source_candidate = (source_root / path_text).resolve()
+        if source_candidate.exists():
+            return str(source_candidate)
+        return path_text
+
+    normalized: list[str] = []
+    index = 0
+    while index < len(clang_args):
+        arg = clang_args[index]
+        if arg in ("-I", "-isystem", "/I"):
+            normalized.append(arg)
+            if index + 1 < len(clang_args):
+                normalized.append(normalize_path(clang_args[index + 1]))
+                index += 2
+                continue
+            index += 1
+            continue
+        if arg.startswith("-I") and len(arg) > 2:
+            normalized.append("-I" + normalize_path(arg[2:]))
+            index += 1
+            continue
+        if arg.startswith("/I") and len(arg) > 2:
+            normalized.append("/I" + normalize_path(arg[2:]))
+            index += 1
+            continue
+        if arg.startswith("-isystem") and len(arg) > len("-isystem"):
+            normalized.append("-isystem" + normalize_path(arg[len("-isystem") :]))
+            index += 1
+            continue
+        normalized.append(arg)
+        index += 1
+    return normalized
+
+
 def build_codegen_command(
     *,
     codegen_path: pathlib.Path,
@@ -206,7 +259,7 @@ def build_codegen_command(
     header_output: pathlib.Path,
     scan_input: pathlib.Path,
     depfile: str,
-    compdb_arg: str,
+    compdb_dir: pathlib.Path | None,
     clang_args: list[str],
     mock_registry: str,
     mock_impl: str,
@@ -223,7 +276,6 @@ def build_codegen_command(
     ]
     if depfile:
         command.extend(["--depfile", str(pathlib.Path(depfile).resolve())])
-    compdb_dir = pathlib.Path(compdb_arg).resolve() if compdb_arg else infer_compdb_dir(codegen_path)
     if compdb_dir:
         command.extend(["--compdb", str(compdb_dir)])
     if mock_registry:
@@ -256,6 +308,7 @@ def main() -> int:
         if not source_file.exists():
             print(f"source file does not exist: {source_file}", file=sys.stderr)
             return 1
+        compdb_dir = resolve_compdb_dir(args.compdb, codegen_path)
         write_suite_shim(wrapper_output, source_file, header_output)
         command = build_codegen_command(
             codegen_path=codegen_path,
@@ -264,7 +317,7 @@ def main() -> int:
             header_output=header_output,
             scan_input=wrapper_output,
             depfile=args.depfile,
-            compdb_arg=args.compdb,
+            compdb_dir=compdb_dir,
             clang_args=args.clang_arg,
             mock_registry=args.mock_registry,
             mock_impl=args.mock_impl,
@@ -302,6 +355,12 @@ def main() -> int:
     mock_registry = pathlib.Path(args.mock_registry).resolve()
     mock_impl = pathlib.Path(args.mock_impl).resolve()
     include_roots = [resolve_input_path(root_arg, source_root) for root_arg in args.include_root]
+    compdb_dir = resolve_compdb_dir(args.compdb, codegen_path)
+    normalized_clang_args = normalize_textual_mock_clang_args(
+        args.clang_arg,
+        source_root=source_root,
+        compdb_dir=compdb_dir,
+    )
     materialized_defs = materialize_textual_mock_defs(out_dir, source_root, defs_files, include_roots)
     write_textual_mock_source(wrapper_output, materialized_defs, header_output)
     write_textual_mock_public_header(public_header, materialized_defs, mock_registry, mock_impl)
@@ -314,8 +373,8 @@ def main() -> int:
         header_output=header_output,
         scan_input=wrapper_output,
         depfile=args.depfile,
-        compdb_arg=args.compdb,
-        clang_args=args.clang_arg,
+        compdb_dir=compdb_dir,
+        clang_args=normalized_clang_args,
         mock_registry=args.mock_registry,
         mock_impl=args.mock_impl,
         discover_mocks=True,

@@ -295,3 +295,4 @@ jobs:
           su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r gentest_integration_xmake"
           su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r gentest_fixtures_xmake"
           su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r gentest_skiponly_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r gentest_consumer_textual_xmake"

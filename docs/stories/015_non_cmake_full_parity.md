@@ -24,8 +24,7 @@ Implemented already:
 - Meson has an in-tree explicit textual mock consumer slice:
   - defs file -> generated public header -> consumer test target
 - Bazel has the same in-tree explicit textual mock consumer slice.
-- Xmake does not have the explicit textual mock slice yet; it remains
-  classic-suite-only today.
+- Xmake now has the same in-tree explicit textual mock consumer slice.
 - The classic non-CMake paths are documented in:
   - [`docs/buildsystems/meson.md`](../buildsystems/meson.md)
   - [`docs/buildsystems/xmake.md`](../buildsystems/xmake.md)
@@ -35,7 +34,7 @@ Still missing:
 
 - reusable explicit mock attachment APIs
 - named-module test attachment APIs
-- public generated header/module mock surfaces
+- reusable public generated header/module mock surfaces
 - module-aware handoff from mock generation into test codegen
 - backend-specific plumbing for module compilation and consumption
 
@@ -155,7 +154,8 @@ Open work:
 
 Target outcome:
 
-- add the first explicit textual mock slice
+- stabilize the already-landed explicit textual mock slice into reusable helper
+  APIs
 - support named-module test targets
 - support explicit module mock targets
 - keep ordering/metadata handling internal to the helper layer
@@ -188,17 +188,18 @@ Open work:
 
 ### Phase 2: explicit textual mocks
 
-- finish textual explicit mocks in all three backends
+- complete the repo-local textual explicit-mock slices in all three backends
 - generate a textual public header surface only
-- prove that `attach_codegen(...)` consumes the mock metadata without any public
-  third linking step
+- prove the repo-local integrations can consume the generated textual surface
+  without any public third linking step
 - add docs and regression checks per backend
+- then harden those slices toward reusable helper/public-API form
 
 Current status:
 
 - Meson: repo-local slice implemented
 - Bazel: repo-local slice implemented
-- Xmake: not implemented yet
+- Xmake: repo-local slice implemented
 
 ### Phase 3: named-module tests
 

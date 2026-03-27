@@ -131,7 +131,9 @@ For the textual mock slice, Bazel also writes:
 
 - `gen/consumer_textual_mocks/consumer_textual_mocks_defs.cpp`
 - `gen/consumer_textual_mocks/consumer_textual_mocks_anchor.cpp`
+- `gen/consumer_textual_mocks/tu_0000_consumer_textual_mocks_defs.gentest.h`
 - `gen/consumer_textual_mocks/gentest_consumer_mocks.hpp`
+- `gen/consumer_textual_mocks/def_0000_header_mock_defs.hpp`
 - domain-specific generated mock headers under `gen/consumer_textual_mocks/`
 
 The consumer `cc_test` then compiles the wrapper from
@@ -155,6 +157,7 @@ bazel test //:gentest_<suite>_bazel
   - one in-tree textual explicit-mock slice
 - It is still intentionally limited to classic/header-style suites.
 - The `gentest_codegen` bootstrap rule is local and non-hermetic.
-- If you need modules, explicit mock targets, package export, or a reusable
-  consumer-facing integration, use the CMake path for now. Follow-up parity work
-  is tracked in [`docs/stories/015_non_cmake_full_parity.md`](../stories/015_non_cmake_full_parity.md).
+- If you need named modules, module mock defs, reusable/public Bazel
+  `add_mocks(...)` / `attach_codegen(...)` rules, or package/export parity, use
+  the CMake path for now. Follow-up parity work is tracked in
+  [`docs/stories/015_non_cmake_full_parity.md`](../stories/015_non_cmake_full_parity.md).

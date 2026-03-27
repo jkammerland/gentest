@@ -81,8 +81,12 @@ For the textual mock slice, Meson also generates:
 
 - `build/meson/consumer_textual_mocks_defs.cpp`
 - `build/meson/consumer_textual_mocks_anchor.cpp`
+- `build/meson/tu_0000_consumer_textual_mocks_defs.gentest.h`
 - `build/meson/consumer_textual_mocks_mock_registry.hpp`
 - `build/meson/consumer_textual_mocks_mock_impl.hpp`
+- `build/meson/consumer_textual_mocks_mock_registry__domain_0000_header.hpp`
+- `build/meson/consumer_textual_mocks_mock_impl__domain_0000_header.hpp`
+- `build/meson/def_0000_header_mock_defs.hpp`
 - `build/meson/gentest_consumer_mocks.hpp`
 
 The consumer source [`tests/buildsystems/consumer_textual_cases.cpp`](../../tests/buildsystems/consumer_textual_cases.cpp)
@@ -105,6 +109,7 @@ meson test -C build/meson --print-errorlogs
   - classic per-TU suites
   - one in-tree textual explicit-mock slice
 - It is still intentionally limited to classic/header-style suites.
-- If you need modules, explicit mock targets, package export, or a reusable
-  consumer-facing integration, use the CMake path for now. Follow-up parity work
-  is tracked in [`docs/stories/015_non_cmake_full_parity.md`](../stories/015_non_cmake_full_parity.md).
+- If you need named modules, module mock defs, reusable/public Meson-facing
+  `add_mocks(...)` / `attach_codegen(...)` helpers, or package/export parity,
+  use the CMake path for now. Follow-up parity work is tracked in
+  [`docs/stories/015_non_cmake_full_parity.md`](../stories/015_non_cmake_full_parity.md).
