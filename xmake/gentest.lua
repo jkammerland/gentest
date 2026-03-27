@@ -30,6 +30,11 @@ local function project_path(filepath)
     return path.join(project_root(), filepath)
 end
 
+local function configured_build_dir()
+    local builddir = get_config("builddir") or get_config("buildir") or "build"
+    return project_path(builddir)
+end
+
 local function resolved_incdirs()
     local result = {}
     for _, include_dir in ipairs(incdirs()) do
@@ -480,10 +485,6 @@ local function resolve_codegen()
             end
         end
         if os.isfile(resolved_env_path) then
-            local compdb_dir = path.directory(path.directory(resolved_env_path))
-            if os.isfile(path.join(compdb_dir, "compile_commands.json")) then
-                return resolved_env_path, compdb_dir, nil
-            end
             return resolved_env_path, nil, nil
         end
     end
@@ -496,6 +497,14 @@ local function resolve_codegen()
         compdb_dir = build_dir
     end
     return bin, compdb_dir, build_dir
+end
+
+local function existing_project_compdb_dir()
+    local build_dir = configured_build_dir()
+    if os.isfile(path.join(build_dir, "compile_commands.json")) then
+        return build_dir
+    end
+    return nil
 end
 
 local function ensure_codegen(batchcmds)
@@ -519,6 +528,11 @@ local function ensure_codegen(batchcmds)
             codegen = path.join(cmake_build_dir, "tools", "gentest_codegen")
         end
         compdb_dir = cmake_build_dir
+    end
+
+    local project_compdb_dir = existing_project_compdb_dir()
+    if project_compdb_dir then
+        compdb_dir = project_compdb_dir
     end
 
     gentest_state["_resolved_codegen"] = {path = codegen, compdb_dir = compdb_dir}

@@ -18,12 +18,10 @@ local buildsystem_codegen = path.join(project_root, "scripts", "gentest_buildsys
 local python_program = is_host("windows") and "python" or "python3"
 
 local gentest_common_defines = {"FMT_HEADER_ONLY"}
-local gentest_common_cxxflags = {}
-if is_plat("windows") then
-    gentest_common_cxxflags = {"/wd5030"}
-else
-    gentest_common_cxxflags = {"-Wno-attributes"}
-end
+-- The validated checked-in Xmake path uses Clang, including on Windows.
+-- Keep the common warning suppression in Clang/GNU form here instead of
+-- forcing MSVC-only /wd flags into clang++ builds.
+local gentest_common_cxxflags = {"-Wno-attributes"}
 
 local function current_gen_root()
     local buildir = get_config("builddir") or get_config("buildir") or "build"

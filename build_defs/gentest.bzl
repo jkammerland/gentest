@@ -83,6 +83,12 @@ def _gentest_mock_include_bat(mock_names):
 def _gentest_source_include_args(source_includes):
     return ["--clang-arg=-I{}".format(include_dir) for include_dir in source_includes]
 
+def _gentest_define_copts(defines):
+    return select({
+        "@bazel_tools//src/conditions:windows": ["/D{}".format(define) for define in defines],
+        "//conditions:default": ["-D{}".format(define) for define in defines],
+    })
+
 def _gentest_file_ext(path):
     basename = path.split("/")[-1]
     parts = basename.split(".")
@@ -816,7 +822,7 @@ def gentest_attach_codegen_modules(
         srcs = [main, wrapper_h],
         defines = defines,
         module_interfaces = [wrapper_cpp],
-        copts = _gentest_common_copts + _gentest_warning_copts,
+        copts = _gentest_common_copts + _gentest_warning_copts + _gentest_define_copts(defines),
         includes = _gentest_unique(source_includes + [gen_dir]),
         linkopts = linkopts,
         deps = _gentest_unique(mock_targets + deps),
