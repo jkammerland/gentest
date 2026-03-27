@@ -41,7 +41,7 @@ set:
 - `gentest_add_mocks_modules(...)` supports `external_module_sources`, `deps`,
   and `linkopts`
 - `gentest_attach_codegen_modules(...)` supports `external_module_sources`,
-  `deps`, `linkopts`, and `source_includes`
+  `deps`, `linkopts`, `defines`, and `source_includes`
 
 ## Current repo-local targets
 
