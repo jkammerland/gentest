@@ -1,7 +1,7 @@
 local gentest_state = {}
 
 local function fail(message)
-    print(message)
+    print("error: " .. message)
     if is_host("windows") then
         os.vrunv("cmd", {"/c", "exit", "1"})
     else
@@ -557,26 +557,41 @@ local function encode_mock_metadata(payload)
     return table.concat(fragments)
 end
 
-local function collect_dep_inputs(deps)
+local function collect_dep_targets(deps)
     local dep_targets = {}
+    local seen_targets = {}
+    for _, dep in ipairs(deps or {}) do
+        if type(dep) == "table" then
+            if dep.target then
+                append_unique(dep_targets, seen_targets, dep.target)
+            end
+        else
+            append_unique(dep_targets, seen_targets, dep)
+        end
+    end
+    return dep_targets
+end
+
+local function resolve_dep_inputs(deps)
     local include_dirs = {}
     local metadata_paths = {}
-    local seen_targets = {}
     local seen_includes = {}
     local seen_metadata = {}
     local metadata_by_target = registered_target_metadata()
     for _, dep in ipairs(deps or {}) do
         if type(dep) == "table" then
-            append_unique(dep_targets, seen_targets, dep.target)
-            append_unique(metadata_paths, seen_metadata, dep.metadata_path)
+            if dep.metadata_path then
+                append_unique(metadata_paths, seen_metadata, dep.metadata_path)
+            end
             if dep.include_dir then
                 append_unique(include_dirs, seen_includes, dep.include_dir)
             end
             for _, extra_include in ipairs(dep.include_dirs or {}) do
                 append_unique(include_dirs, seen_includes, extra_include)
             end
-        else
-            append_unique(dep_targets, seen_targets, dep)
+            dep = dep.target
+        end
+        if dep then
             local registered = metadata_by_target[dep]
             if registered then
                 append_unique(metadata_paths, seen_metadata, registered.metadata_path)
@@ -589,7 +604,7 @@ local function collect_dep_inputs(deps)
             end
         end
     end
-    return dep_targets, include_dirs, metadata_paths
+    return include_dirs, metadata_paths
 end
 
 local function load_mock_metadata(metadata_path)
@@ -715,6 +730,7 @@ end
 
 local function is_clang_tool(toolpath)
     local toolname = path.filename(toolpath or ""):lower()
+    toolname = toolname:gsub("%.exe$", "")
     return toolname == "clang++" or toolname == "clang" or toolname == "clang-cl" or toolname:match("^clang%+%+%-%d+$") or
                toolname:match("^clang%-%d+$")
 end
@@ -764,13 +780,19 @@ local function resolve_codegen()
         end
         if os.isfile(resolved_env_path) then
             local env_compdb_dir = nil
-            local env_parent = path.directory(resolved_env_path)
-            local env_grandparent = env_parent and path.directory(env_parent) or nil
-            for _, candidate in ipairs({env_parent, env_grandparent}) do
-                if candidate and os.isfile(path.join(candidate, "compile_commands.json")) then
+            local candidate = path.directory(resolved_env_path)
+            local remaining = 8
+            while candidate and remaining > 0 do
+                if os.isfile(path.join(candidate, "compile_commands.json")) then
                     env_compdb_dir = candidate
                     break
                 end
+                local parent = path.directory(candidate)
+                if not parent or parent == candidate then
+                    break
+                end
+                candidate = parent
+                remaining = remaining - 1
             end
             return resolved_env_path, env_compdb_dir, nil
         end
@@ -947,6 +969,7 @@ function gentest_add_mocks(opts)
         extra_includes = {},
         metadata_paths = {},
         dep_module_sources = {},
+        deps = opts.deps or {},
         defines = opts.defines or {},
         clang_args = opts.clang_args or {},
     }
@@ -982,24 +1005,20 @@ function gentest_add_mocks(opts)
     for _, defs_file in ipairs(defs) do
         table.insert(config.defs, project_path(defs_file))
     end
-    local dep_targets, dep_include_dirs, dep_metadata_paths = collect_dep_inputs(opts.deps)
-    config.metadata_paths = dep_metadata_paths
+    local dep_targets = collect_dep_targets(opts.deps)
 
     set_policy("build.fence", true)
-    if os.host() == "windows" then
-        add_packages("fmt")
-    end
+    add_packages("fmt")
     add_includedirs(incdirs())
     add_includedirs(out_dir_abs, {public = true})
-    for _, include_dir in ipairs(dep_include_dirs) do
-        add_includedirs(include_dir)
-        append_unique(include_dirs, seen_registered_includes, include_dir)
-    end
     add_defines(gentest_common_defines())
     if opts.defines and #opts.defines > 0 then
         add_defines(table.unpack(opts.defines))
     end
     add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
+    if opts.clang_args and #opts.clang_args > 0 then
+        add_cxxflags(table.unpack(opts.clang_args), {force = true})
+    end
     for _, private_file in ipairs(add_private_files) do
         add_files(private_file, {always_added = true})
     end
@@ -1017,7 +1036,7 @@ function gentest_add_mocks(opts)
     if #dep_targets > 0 then
         add_deps(table.unpack(dep_targets))
     end
-    on_load(function (_)
+    on_load(function (target)
         if kind == "textual" then
             write_generated_file(os.mkdir, io.writefile, defs_cpp, textual_mock_source_placeholder(defs_cpp, defs, codegen_h))
             write_generated_file(os.mkdir, io.writefile, anchor_cpp, anchor_placeholder(target_id))
@@ -1029,25 +1048,31 @@ function gentest_add_mocks(opts)
             )
             write_generated_file(os.mkdir, io.writefile, mock_registry_h, header_placeholder())
             write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
-            return
+        else
+            for index, defs_file in ipairs(defs) do
+                local zero_index = index - 1
+                local staged_rel = module_defs_stage_rel(output_dir, defs_file, zero_index)
+                local wrapper_rel = module_wrapper_output_rel(output_dir, staged_rel, zero_index)
+                write_generated_file(os.mkdir, io.writefile, module_header_output_rel(output_dir, staged_rel, zero_index), header_placeholder())
+                copy_generated_file(os.mkdir, os.cp, wrapper_rel, defs_file)
+            end
+            write_generated_file(
+                os.mkdir,
+                io.writefile,
+                module_public_output_rel(output_dir, config.module_name),
+                module_aggregate_placeholder(io.readfile, config.module_name, defs)
+            )
+            write_generated_file(os.mkdir, io.writefile, anchor_cpp, anchor_placeholder(target_id))
+            write_generated_file(os.mkdir, io.writefile, mock_registry_h, header_placeholder())
+            write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
         end
 
-        for index, defs_file in ipairs(defs) do
-            local zero_index = index - 1
-            local staged_rel = module_defs_stage_rel(output_dir, defs_file, zero_index)
-            local wrapper_rel = module_wrapper_output_rel(output_dir, staged_rel, zero_index)
-            write_generated_file(os.mkdir, io.writefile, module_header_output_rel(output_dir, staged_rel, zero_index), header_placeholder())
-            copy_generated_file(os.mkdir, os.cp, wrapper_rel, defs_file)
+        local dep_include_dirs, dep_metadata_paths = resolve_dep_inputs(config.deps)
+        config.metadata_paths = dep_metadata_paths
+        for _, include_dir in ipairs(dep_include_dirs) do
+            target:add("includedirs", include_dir)
+            append_unique(include_dirs, seen_registered_includes, include_dir)
         end
-        write_generated_file(
-            os.mkdir,
-            io.writefile,
-            module_public_output_rel(output_dir, config.module_name),
-            module_aggregate_placeholder(io.readfile, config.module_name, defs)
-        )
-        write_generated_file(os.mkdir, io.writefile, anchor_cpp, anchor_placeholder(target_id))
-        write_generated_file(os.mkdir, io.writefile, mock_registry_h, header_placeholder())
-        write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
     end)
     before_buildcmd(function (target, batchcmds)
         if kind == "modules" then
@@ -1055,6 +1080,8 @@ function gentest_add_mocks(opts)
         end
         local codegen, compdb_dir = ensure_codegen(batchcmds)
         config.extra_includes = collect_target_package_include_dirs(target)
+        local dep_include_dirs, dep_metadata_paths = resolve_dep_inputs(config.deps)
+        config.metadata_paths = dep_metadata_paths
         local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.metadata_paths)
         local seen_build_includes = {}
         for _, include_dir in ipairs(config.extra_includes) do
@@ -1113,10 +1140,7 @@ function gentest_attach_codegen(opts)
     for _, include_dir in ipairs(opts.includes or {}) do
         append_unique(extra_includes, seen_extra_includes, include_dir)
     end
-    local dep_targets, dep_include_dirs, metadata_paths = collect_dep_inputs(opts.deps)
-    for _, include_dir in ipairs(dep_include_dirs) do
-        append_unique(extra_includes, seen_extra_includes, include_dir)
-    end
+    local dep_targets = collect_dep_targets(opts.deps)
     local config = {
         kind = kind,
         out_dir_abs = out_dir_abs,
@@ -1125,23 +1149,22 @@ function gentest_attach_codegen(opts)
         depfile = project_path(wrapper_d),
         source_file = project_path(source),
         extra_includes = extra_includes,
-        metadata_paths = metadata_paths,
+        metadata_paths = {},
+        deps = opts.deps or {},
         defines = opts.defines or {},
         clang_args = opts.clang_args or {},
     }
 
-    if os.host() == "windows" then
-        add_packages("fmt")
-    end
+    add_packages("fmt")
     add_includedirs(incdirs())
-    for _, include_dir in ipairs(extra_includes) do
-        add_includedirs(include_dir)
-    end
     add_defines(gentest_common_defines())
     if opts.defines and #opts.defines > 0 then
         add_defines(table.unpack(opts.defines))
     end
     add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
+    if opts.clang_args and #opts.clang_args > 0 then
+        add_cxxflags(table.unpack(opts.clang_args), {force = true})
+    end
     if kind == "modules" then
         add_files(wrapper_cpp, {public = true, always_added = true})
     else
@@ -1153,12 +1176,22 @@ function gentest_attach_codegen(opts)
     if #dep_targets > 0 then
         add_deps(table.unpack(dep_targets))
     end
-    on_load(function (_)
+    on_load(function (target)
         if kind == "textual" then
             write_generated_file(os.mkdir, io.writefile, wrapper_cpp, suite_wrapper_placeholder(wrapper_cpp, source, wrapper_h))
         else
             write_generated_file(os.mkdir, io.writefile, wrapper_h, header_placeholder())
             copy_generated_file(os.mkdir, os.cp, wrapper_cpp, source)
+        end
+
+        local dep_include_dirs, dep_metadata_paths = resolve_dep_inputs(config.deps)
+        config.metadata_paths = dep_metadata_paths
+        for _, include_dir in ipairs(extra_includes) do
+            target:add("includedirs", include_dir)
+        end
+        for _, include_dir in ipairs(dep_include_dirs) do
+            append_unique(extra_includes, seen_extra_includes, include_dir)
+            target:add("includedirs", include_dir)
         end
     end)
     before_buildcmd(function (target, batchcmds)
@@ -1166,6 +1199,11 @@ function gentest_attach_codegen(opts)
             require_clang_module_toolchain(target, "gentest_attach_codegen")
         end
         local codegen, compdb_dir = ensure_codegen(batchcmds)
+        local dep_include_dirs, dep_metadata_paths = resolve_dep_inputs(config.deps)
+        config.metadata_paths = dep_metadata_paths
+        for _, include_dir in ipairs(dep_include_dirs) do
+            append_unique(config.extra_includes, seen_extra_includes, include_dir)
+        end
         local package_include_dirs = collect_target_package_include_dirs(target)
         for _, include_dir in ipairs(package_include_dirs) do
             append_unique(config.extra_includes, seen_extra_includes, include_dir)

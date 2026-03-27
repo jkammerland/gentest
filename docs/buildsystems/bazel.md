@@ -140,6 +140,9 @@ for clang_cxx in "${clang_candidates[@]}"; do
     break
   fi
 done
+if [ ! -x "${clang_cxx}" ]; then
+  clang_cxx="$(command -v clang++ || command -v clang)"
+fi
 clang_cc="${clang_cxx%++}"
 clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
 
@@ -163,6 +166,7 @@ bazelisk build \
   --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
 
 ./bazel-bin/gentest_consumer_textual_bazel --list
+./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test
 ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test
 ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench
 ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter
@@ -184,6 +188,9 @@ for clang_cxx in "${clang_candidates[@]}"; do
     break
   fi
 done
+if [ ! -x "${clang_cxx}" ]; then
+  clang_cxx="$(command -v clang++ || command -v clang)"
+fi
 clang_cc="${clang_cxx%++}"
 clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
 
@@ -208,6 +215,7 @@ bazelisk build \
   --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
 
 ./bazel-bin/gentest_consumer_module_bazel --list
+./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_test --kind=test
 ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test
 ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench
 ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter

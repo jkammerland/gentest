@@ -212,6 +212,21 @@ if(_generic_metadata_public_pos EQUAL -1)
   message(FATAL_ERROR "Generic module mock metadata must record the generated aggregate module.\n${_generic_metadata_text}")
 endif()
 
+execute_process(
+  COMMAND "${Python3_EXECUTABLE}" -c
+    "import importlib.util, pathlib, sys; helper = pathlib.Path(sys.argv[1]); spec = importlib.util.spec_from_file_location('gentest_buildsystem_codegen', helper); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module); a = module.anchor_symbol_name('a-b'); b = module.anchor_symbol_name('a.b'); print(a); print(b); sys.exit(0 if a != b else 1)"
+    "${_helper}"
+  RESULT_VARIABLE _anchor_symbols_rc
+  OUTPUT_VARIABLE _anchor_symbols_out
+  ERROR_VARIABLE _anchor_symbols_err)
+
+if(NOT _anchor_symbols_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Distinct target ids must not collapse to the same anchor symbol.\n"
+    "stdout:\n${_anchor_symbols_out}\n"
+    "stderr:\n${_anchor_symbols_err}")
+endif()
+
 set(_module_suite_dir "${BUILD_ROOT}/generic_module_suite")
 file(MAKE_DIRECTORY "${_module_suite_dir}")
 

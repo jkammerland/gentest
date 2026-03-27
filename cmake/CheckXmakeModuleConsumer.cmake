@@ -25,8 +25,9 @@ if(NOT WIN32)
   if(_gnu_cxx AND _gnu_cc)
     set(_nonclang_out_dir "${CMAKE_CURRENT_BINARY_DIR}/tmp_xmake_module_consumer_nonclang")
     file(REMOVE_RECURSE "${_nonclang_out_dir}")
+    file(MAKE_DIRECTORY "${_nonclang_out_dir}/tmp")
     execute_process(
-      COMMAND "${CMAKE_COMMAND}" -E env "GENTEST_CODEGEN=${_codegen}" "CC=${_gnu_cc}" "CXX=${_gnu_cxx}"
+      COMMAND "${CMAKE_COMMAND}" -E env "GENTEST_CODEGEN=${_codegen}" "CC=${_gnu_cc}" "CXX=${_gnu_cxx}" "TMPDIR=${_nonclang_out_dir}/tmp"
               "${_xmake}" f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_nonclang_out_dir}" -m debug -c -y
       WORKING_DIRECTORY "${SOURCE_DIR}"
       RESULT_VARIABLE _nonclang_cfg_rc

@@ -168,6 +168,7 @@ jobs:
             --host_action_env=CXX="${clang_cxx}" \
             --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
           ./bazel-bin/gentest_consumer_textual_bazel --list
+          ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter
@@ -187,6 +188,7 @@ jobs:
             --repo_env=CXX="${clang_cxx}" \
             --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
           ./bazel-bin/gentest_consumer_module_bazel --list
+          ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_test --kind=test
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter

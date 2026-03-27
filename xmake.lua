@@ -3,9 +3,7 @@ set_languages("cxx20")
 set_policy("build.ccache", false)
 
 add_rules("mode.debug", "mode.release")
-if os.host() == "windows" then
-    add_requires("fmt")
-end
+add_requires("fmt")
 
 local project_root = os.scriptdir()
 local codegen_project_root = project_root
@@ -49,9 +47,7 @@ gentest_configure({
 
 target("gentest_runtime")
     set_kind("static")
-    if os.host() == "windows" then
-        add_packages("fmt")
-    end
+    add_packages("fmt")
     add_files("src/bench_stats.cpp")
     add_files("src/runtime_context.cpp")
     add_files("src/runner_case_invoker.cpp")
@@ -73,9 +69,7 @@ target("gentest_runtime")
 if enable_module_targets then
     target("gentest")
         set_kind("static")
-        if os.host() == "windows" then
-            add_packages("fmt")
-        end
+        add_packages("fmt")
         add_includedirs(incdirs, {public = true})
         add_defines(gentest_common_defines)
         add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
@@ -87,9 +81,7 @@ end
 
 target("gentest_main")
     set_kind("static")
-    if os.host() == "windows" then
-        add_packages("fmt")
-    end
+    add_packages("fmt")
     add_files("src/gentest_main.cpp")
     add_includedirs(incdirs)
     add_defines(gentest_common_defines)

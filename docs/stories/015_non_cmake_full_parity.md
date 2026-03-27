@@ -157,6 +157,8 @@ Current repo state:
 - the helper intentionally rejects `--backend meson --kind modules`
 - the textual path still snapshots support headers/fragments at configure time,
   so new included support files require `meson setup --reconfigure`
+- the checked-in textual path now reuses adjacent CMake-fetched `fmt` headers
+  automatically when `codegen_path` points at a repo-local host-codegen build
 
 Open work:
 
@@ -174,6 +176,8 @@ Current repo state:
   helper surface
 - the documented `GENTEST_CODEGEN=...` flow now reuses an adjacent
   `compile_commands.json` automatically when present
+- the same repo-local path now reuses adjacent CMake-fetched `fmt` headers when
+  the Xmake compiler environment does not already provide them
 - mock dependency metadata now flows through the helper-owned Xmake metadata
   handoff instead of relying on callers to restate transitive inputs manually
 - public `defines` / `clang_args` now flow into both final Xmake compilation

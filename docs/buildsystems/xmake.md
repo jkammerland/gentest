@@ -126,8 +126,14 @@ If `GENTEST_CODEGEN` is not set, the helper falls back to a repo-local CMake
 bootstrap under `build/xmake-codegen/<host>/<arch>`.
 
 When `GENTEST_CODEGEN` points at a CMake build tree, the helper now also picks
-up the adjacent `compile_commands.json` automatically for module codegen. That
-is the supported repo-local path for the checked-in module consumer.
+up the adjacent `compile_commands.json` automatically for module codegen, and
+the repo-local path reuses adjacent CMake-fetched `fmt` headers when needed.
+That is the supported repo-local path for the checked-in module consumer.
+
+One local caveat: the checked-in module CMake smoke test currently skips
+installed Xmake versions older than `3.0.8`. The helper API is still the same,
+but the local regression only treats `3.0.8+` as supported enough for the
+module smoke lane.
 
 For fuller consumer validation, run the built binaries directly and exercise the
 mock/bench/jitter surface:

@@ -1,12 +1,54 @@
 project('gentest', 'cpp', default_options: ['cpp_std=c++20'])
 
-fmt_dep = dependency('fmt', required: false)
 cpp = meson.get_compiler('cpp')
 fs = import('fs')
 py = import('python').find_installation('python3')
 
 inc = include_directories('include', 'tests', 'third_party/include')
 build_inc = include_directories('.')
+
+# Resolve the repo-local codegen path early so non-CMake backends can also reuse
+# the adjacent CMake-fetched fmt headers when no system fmt dependency is found.
+codegen_opt = get_option('codegen_path')
+if codegen_opt == ''
+  if host_machine.system() == 'windows'
+    codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen.exe')
+  else
+    codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen')
+  endif
+elif not fs.is_absolute(codegen_opt)
+  codegen_opt = join_paths(meson.project_source_root(), codegen_opt)
+endif
+codegen = codegen_opt
+
+fmt_dep = dependency('fmt', required: false)
+fmt_fallback_include_cmd = run_command(
+  py,
+  '-c',
+  '''import os, sys
+source_root = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else ''
+codegen = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else ''
+parent = os.path.dirname(os.path.dirname(codegen)) if codegen else ''
+candidates = []
+if parent:
+    candidates.append(os.path.join(parent, '_deps', 'fmt-src', 'include'))
+for candidate in candidates:
+    if os.path.isdir(candidate):
+        if source_root and os.path.commonpath([source_root, candidate]) == source_root:
+            print(os.path.relpath(candidate, source_root))
+        else:
+            print(candidate)
+        break
+''',
+  meson.project_source_root(),
+  codegen,
+  check: true
+)
+fmt_fallback_include_dir = fmt_fallback_include_cmd.stdout().strip()
+project_includes = [inc]
+if fmt_fallback_include_dir != ''
+  project_includes += [include_directories(fmt_fallback_include_dir)]
+endif
 
 # Build the runtime as a static library (compiled, not header-only)
 runtime_cargs = ['-DFMT_HEADER_ONLY']
@@ -35,7 +77,7 @@ libgentest_runtime = static_library(
     'src/runner_test_executor.cpp',
     'src/runner_test_plan.cpp',
   ],
-  include_directories: inc,
+  include_directories: project_includes,
   cpp_args: runtime_cargs,
   dependencies: runtime_deps,
 )
@@ -43,7 +85,7 @@ libgentest_runtime = static_library(
 libgentest_main = static_library(
   'gentest_main',
   ['src/gentest_main.cpp'],
-  include_directories: inc,
+  include_directories: project_includes,
   cpp_args: runtime_cargs,
   dependencies: runtime_deps,
 )
@@ -53,17 +95,6 @@ libgentest_main = static_library(
 # Example:
 #   meson setup build/meson -Dcodegen_path=build/debug-system/tools/gentest_codegen
 #   meson compile -C build/meson
-codegen_opt = get_option('codegen_path')
-if codegen_opt == ''
-  if host_machine.system() == 'windows'
-    codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen.exe')
-  else
-    codegen_opt = join_paths(meson.project_source_root(), 'build', 'debug-system', 'tools', 'gentest_codegen')
-  endif
-elif not fs.is_absolute(codegen_opt)
-  codegen_opt = join_paths(meson.project_source_root(), codegen_opt)
-endif
-codegen = codegen_opt
 
 clang_args = [
   '-std=c++20',
@@ -76,6 +107,9 @@ clang_args = [
   '-I@0@'.format(join_paths(meson.project_source_root(), 'tests')),
   '-I@0@'.format(join_paths(meson.project_source_root(), 'third_party', 'include')),
 ]
+if fmt_fallback_include_dir != ''
+  clang_args += ['-I@0@'.format(fmt_fallback_include_dir)]
+endif
 clang_arg_flags = []
 foreach arg : clang_args
   clang_arg_flags += ['--clang-arg=@0@'.format(arg)]
@@ -137,7 +171,7 @@ foreach s : tests_suites
   exe = executable(
     'gentest_@0@_meson'.format(s),
     [gen[0]],
-    include_directories: inc,
+    include_directories: project_includes,
     link_with: [libgentest_main, libgentest_runtime],
     cpp_args: runtime_cargs,
     dependencies: runtime_deps
@@ -156,6 +190,7 @@ consumer_mock_domain_registry_h = 'consumer_textual_mocks_mock_registry__domain_
 consumer_mock_domain_impl_h = 'consumer_textual_mocks_mock_impl__domain_0000_header.hpp'
 consumer_mock_staged_defs_h = 'def_0000_header_mock_defs.hpp'
 consumer_mock_public_h = 'gentest_consumer_mocks.hpp'
+consumer_mock_metadata = 'consumer_textual_mocks_mock_metadata.json'
 
 consumer_mocks = custom_target(
   'gen_consumer_textual_mocks',
@@ -169,6 +204,7 @@ consumer_mocks = custom_target(
     consumer_mock_domain_impl_h,
     consumer_mock_staged_defs_h,
     consumer_mock_public_h,
+    consumer_mock_metadata,
   ],
   input: [
     'tests/consumer/header_mock_defs.hpp',
@@ -190,6 +226,7 @@ consumer_mocks = custom_target(
     '--mock-registry', join_paths(consumer_mock_out_dir, consumer_mock_registry_h),
     '--mock-impl', join_paths(consumer_mock_out_dir, consumer_mock_impl_h),
     '--target-id', 'consumer_textual_mocks',
+    '--metadata-output', join_paths(consumer_mock_out_dir, consumer_mock_metadata),
     '--defs-file', '@INPUT0@',
     '--include-root', join_paths(meson.project_source_root(), 'include'),
     '--include-root', join_paths(meson.project_source_root(), 'tests'),
@@ -203,7 +240,7 @@ consumer_mocks = custom_target(
 consumer_mock_lib = static_library(
   'gentest_consumer_textual_mocks_meson',
   [consumer_mocks[1], consumer_mocks[2]],
-  include_directories: [inc, build_inc],
+  include_directories: project_includes + [build_inc],
   cpp_args: runtime_cargs,
   dependencies: runtime_deps,
   link_with: [libgentest_runtime],
@@ -211,7 +248,6 @@ consumer_mock_lib = static_library(
 
 consumer_wrapper_cpp = 'tu_0000_consumer_textual_cases.gentest.cpp'
 consumer_wrapper_h = 'tu_0000_consumer_textual_cases.gentest.h'
-consumer_clang_arg_flags = clang_arg_flags + ['--clang-arg=-I@0@'.format(consumer_mock_out_dir)]
 consumer_codegen = custom_target(
   'gen_consumer_textual_cases',
   output: [consumer_wrapper_cpp, consumer_wrapper_h],
@@ -229,7 +265,8 @@ consumer_codegen = custom_target(
     '--header-output', join_paths(meson.current_build_dir(), consumer_wrapper_h),
     '--source-file', '@INPUT0@',
     '--compdb', meson.current_build_dir(),
-    consumer_clang_arg_flags,
+    '--mock-metadata', join_paths(consumer_mock_out_dir, consumer_mock_metadata),
+    clang_arg_flags,
   ],
   build_by_default: true
 )
@@ -237,7 +274,7 @@ consumer_codegen = custom_target(
 consumer_exe = executable(
   'gentest_consumer_textual_meson',
   [consumer_codegen[0], 'tests/consumer/main.cpp'],
-  include_directories: [inc, build_inc],
+  include_directories: project_includes + [build_inc],
   link_with: [libgentest_main, libgentest_runtime, consumer_mock_lib],
   cpp_args: runtime_cargs,
   dependencies: runtime_deps

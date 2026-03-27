@@ -13,6 +13,12 @@ non-CMake story:
 `kind` is explicit in both operations. Meson currently supports only the
 textual half of that contract.
 
+When `-Dcodegen_path=...` points at a repo-local CMake build of
+`gentest_codegen`, the checked-in Meson wiring also reuses the adjacent
+`_deps/fmt-src/include` fallback automatically. That keeps the repo-local path
+self-contained on hosts where a system `fmt` package is not already visible to
+the compiler.
+
 ## Current repo-local surface
 
 Meson currently defines these targets:
