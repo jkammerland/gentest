@@ -97,10 +97,10 @@ endif()
 
 set(_build_log "${_build_out}\n${_build_err}")
 foreach(_expected IN ITEMS
-    "--clang-arg=-DGENTEST_XMAKE_TEXTUAL_MOCKS_DEFINE=1"
-    "--clang-arg=-DGENTEST_XMAKE_TEXTUAL_MOCKS_CODEGEN=1"
-    "--clang-arg=-DGENTEST_XMAKE_TEXTUAL_CONSUMER_DEFINE=1"
-    "--clang-arg=-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1")
+    "-DGENTEST_XMAKE_TEXTUAL_MOCKS_DEFINE=1"
+    "-DGENTEST_XMAKE_TEXTUAL_MOCKS_CODEGEN=1"
+    "-DGENTEST_XMAKE_TEXTUAL_CONSUMER_DEFINE=1"
+    "-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1")
   string(FIND "${_build_log}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR

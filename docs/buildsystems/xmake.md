@@ -31,6 +31,7 @@ Current `gentest_add_mocks({...})` options:
   - `header_name`
 - modules-only:
   - `module_name`
+  - `defs_modules`
 - optional:
   - `deps`
   - `defines`
@@ -55,8 +56,7 @@ Current `gentest_attach_codegen({...})` options:
 `defines` and `clang_args` are forwarded to both the final Xmake compile and
 the `gentest_codegen` invocation. For module targets, the helper also requires
 Clang. The checked-in configure/build path fails fast with a clear error if the
-configured compiler is non-Clang; clean target registration alone is not the
-stronger contract today.
+configured compiler is non-Clang.
 
 ## Current repo-local targets
 
@@ -74,15 +74,11 @@ The checked-in [`xmake.lua`](../../xmake.lua) wires:
   - `gentest_consumer_module_mocks_xmake`
   - `gentest_consumer_module_xmake`
 
-The module slice uses the actual helper API, not a hard-coded one-off path.
-The validated checked-in lane is Linux-based. The helper also carries
-Windows-specific Clang handling, but the documented smoke path here is the
-Linux configure/build path. The helper enforces the Clang contract on that
-checked-in configure/build path for module targets.
-
-Current validation is strongest for the direct checked-in consumer path. The
-helper-owned metadata handoff is what that path uses, but broader transitive
-mock/module visibility cases are still a follow-up area.
+The module slice uses the same native helper API as the textual path, not a
+hard-coded one-off route. The validated checked-in lane is Linux-based. The
+helper also carries Windows-specific Clang handling, but the documented smoke
+path here is the Linux configure/build path. The helper enforces the Clang
+contract on that checked-in configure/build path for module targets.
 
 ## Module example
 
@@ -95,6 +91,7 @@ target("gentest_consumer_module_mocks_xmake")
         name = "gentest_consumer_module_mocks_xmake",
         kind = "modules",
         defs = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+        defs_modules = {"gentest.consumer_service", "gentest.consumer_mock_defs"},
         headerfiles = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
         module_name = "gentest.consumer_mocks",
         output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
@@ -201,9 +198,8 @@ Notable generated module files are:
 
 - generated mock module wrapper `.cppm` files
 - `gentest/consumer_mocks.cppm`
-- `tu_0000_suite_0000.module.gentest.cppm`
-- `tu_0000_suite_0000.gentest.h`
-- mock metadata JSON alongside the generated mock surface
+- `tu_0000_cases.module.gentest.cppm`
+- `tu_0000_cases.gentest.h`
 
 ## Limitations
 

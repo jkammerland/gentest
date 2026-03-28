@@ -36,14 +36,10 @@ now.
 
 ## Module API status
 
-The shared helper exposes an explicit module shape:
-
-- `gentest_buildsystem_codegen.py --backend meson --mode suite --kind modules`
-- `gentest_buildsystem_codegen.py --backend meson --mode mocks --kind modules`
-
-Both entrypoints are intentional fail-fast boundaries today. They exist so the
-Meson-facing API shape is explicit, but they stop immediately with a clear
-error instead of pretending the backend can compile named modules reliably.
+The repo-local Meson surface keeps the modules shape explicit, but named-module
+targets are an intentional fail-fast boundary today. Meson textual integration
+is native; Meson modules are deliberately unsupported until the backend is
+reliable enough to justify a real checked-in path.
 
 ## Build and run
 
@@ -84,12 +80,7 @@ The textual consumer also writes:
 - `tu_0000_consumer_textual_mocks_defs.gentest.h`
 - `consumer_textual_mocks_mock_registry.hpp`
 - `consumer_textual_mocks_mock_impl.hpp`
-- `consumer_textual_mocks_mock_metadata.json`
 - `gentest_consumer_mocks.hpp`
-
-That metadata JSON is helper-owned plumbing between the explicit mock step and
-the textual attach step. It is generated and consumed automatically; it is not
-part of the public user surface.
 
 ## Limitations
 
@@ -99,5 +90,5 @@ part of the public user surface.
 - The current repo-local Meson path still snapshots support headers/fragments at
   configure time. If you add new included support files, rerun
   `meson setup --reconfigure ...` before compiling again.
-- The helper still fails fast for `--backend meson --kind modules`; that is the
-  supported boundary until Meson module behavior is reliable enough to promote.
+- The checked-in surface keeps the modules boundary explicit, but the actual
+  implementation still rejects Meson named-module targets on purpose.

@@ -10,6 +10,16 @@ load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
+filegroup(
+    name = "gentest_public_headers",
+    srcs = glob([
+        "include/gentest/*.h",
+        "include/gentest/detail/*.h",
+        "third_party/include/tabulate/*.hpp",
+    ], allow_empty = False),
+    visibility = ["//visibility:public"],
+)
+
 _gentest_linkopts = select({
     '@bazel_tools//src/conditions:windows': [],
     '@bazel_tools//src/conditions:darwin': [],
@@ -271,6 +281,10 @@ gentest_add_mocks_modules(
     defs = [
         'tests/consumer/service_module.cppm',
         'tests/consumer/module_mock_defs.cppm',
+    ],
+    defs_modules = [
+        'gentest.consumer_service',
+        'gentest.consumer_mock_defs',
     ],
     module_name = 'gentest.consumer_mocks',
     linkopts = _gentest_linkopts,

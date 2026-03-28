@@ -231,16 +231,7 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
     if (resolved.empty()) {
         return resolved;
     }
-
-    std::error_code       ec;
-    std::filesystem::path p{resolved};
-    if (p.is_relative()) {
-        const std::filesystem::path abs = std::filesystem::absolute(p, ec);
-        if (!ec) {
-            p = abs;
-        }
-    }
-    return p.lexically_normal().generic_string();
+    return std::filesystem::path{resolved}.lexically_normal().generic_string();
 }
 
 [[nodiscard]] std::optional<std::size_t> location_offset_in_file(const SourceManager &sm, SourceLocation loc) {

@@ -293,7 +293,7 @@ The module macros generate repo-local artifacts under `gen/<name>/`, including:
 - generated mock module wrappers
 - generated module wrapper headers
 - a generated aggregate public module
-- mock metadata JSON
+- native `GentestGeneratedInfo` provider metadata
 - a repo-local `compile_commands.json` used to give `gentest_codegen` a module
   scan context inside the Bazel action
 

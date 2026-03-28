@@ -142,69 +142,66 @@ endif()
 
 set(_meson_file "${SOURCE_DIR}/meson.build")
 set(_xmake_file "${SOURCE_DIR}/xmake.lua")
+set(_xmake_helper_file "${SOURCE_DIR}/xmake/gentest.lua")
 set(_bazel_file "${SOURCE_DIR}/build_defs/gentest.bzl")
 set(_bazel_root_file "${SOURCE_DIR}/BUILD.bazel")
-set(_helper_file "${SOURCE_DIR}/scripts/gentest_buildsystem_codegen.py")
 
-foreach(_buildsystem_file IN LISTS _meson_file _xmake_file _bazel_file)
-  if(NOT EXISTS "${_buildsystem_file}")
-    message(FATAL_ERROR "Missing buildsystem integration file: ${_buildsystem_file}")
-  endif()
-
-  file(READ "${_buildsystem_file}" _buildsystem_content)
-
-  string(FIND "${_buildsystem_content}" "gentest_buildsystem_codegen.py" _helper_ref_pos)
-  if(_helper_ref_pos EQUAL -1)
-    message(FATAL_ERROR "${_buildsystem_file} must use the shared non-CMake per-TU codegen helper.")
-  endif()
-
-  string(FIND "${_buildsystem_content}" "--output" _manifest_pos)
-  if(NOT _manifest_pos EQUAL -1)
-    message(FATAL_ERROR "${_buildsystem_file} must not use legacy gentest_codegen --output manifest mode.")
-  endif()
-
-  string(FIND "${_buildsystem_content}" "--tu-out-dir" _tu_mode_pos)
-  if(NOT _tu_mode_pos EQUAL -1)
-    message(FATAL_ERROR "${_buildsystem_file} should route per-TU generation through the shared helper, not inline --tu-out-dir invocations.")
+foreach(_required_file IN ITEMS
+    "${_meson_file}"
+    "${_xmake_file}"
+    "${_xmake_helper_file}"
+    "${_bazel_file}"
+    "${_bazel_root_file}")
+  if(NOT EXISTS "${_required_file}")
+    message(FATAL_ERROR "Missing buildsystem integration file: ${_required_file}")
   endif()
 endforeach()
 
 file(READ "${_meson_file}" _meson_content)
-string(FIND "${_meson_content}" "meson_consumer_textual" _meson_consumer_textual_pos)
-if(_meson_consumer_textual_pos EQUAL -1)
-  message(FATAL_ERROR "meson.build must keep the textual explicit-mock consumer slice wired.")
+string(FIND "${_meson_content}" "gentest_buildsystem_codegen.py" _meson_helper_pos)
+if(NOT _meson_helper_pos EQUAL -1)
+  message(FATAL_ERROR "meson.build must not route textual codegen through scripts/gentest_buildsystem_codegen.py anymore.")
 endif()
-
-string(FIND "${_meson_content}" "'--kind', 'textual'" _meson_kind_textual_pos)
-if(_meson_kind_textual_pos EQUAL -1)
-  message(FATAL_ERROR "meson.build must pass the explicit textual kind to the shared helper.")
-endif()
+foreach(_expected IN ITEMS
+    "meson_consumer_textual"
+    "Meson named-module support is"
+    "wrapper_template = files('meson/tu_wrapper.cpp.in')"
+    "'--tu-out-dir'")
+  string(FIND "${_meson_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "meson.build is missing expected native textual token: ${_expected}")
+  endif()
+endforeach()
 
 file(READ "${_xmake_file}" _xmake_content)
-string(FIND "${_xmake_content}" "gentest_consumer_module_mocks_xmake" _xmake_module_mocks_pos)
-if(_xmake_module_mocks_pos EQUAL -1)
-  message(FATAL_ERROR "xmake.lua must keep the repo-local module mock target wired.")
-endif()
-
-string(FIND "${_xmake_content}" "gentest_consumer_module_xmake" _xmake_module_consumer_pos)
-if(_xmake_module_consumer_pos EQUAL -1)
-  message(FATAL_ERROR "xmake.lua must keep the repo-local module consumer target wired.")
-endif()
-
-string(FIND "${_xmake_content}" "kind = \"modules\"" _xmake_kind_modules_pos)
-if(_xmake_kind_modules_pos EQUAL -1)
-  message(FATAL_ERROR "xmake.lua must keep explicit kind='modules' wiring for the repo-local module path.")
-endif()
-
-string(FIND "${_xmake_content}" "module_name = \"gentest.consumer_mocks\"" _xmake_module_name_pos)
-if(_xmake_module_name_pos EQUAL -1)
-  message(FATAL_ERROR "xmake.lua must keep the repo-local module mock aggregate name wired.")
-endif()
-
-string(FIND "${_xmake_content}" "GENTEST_CONSUMER_USE_MODULES=1" _xmake_module_define_pos)
-if(_xmake_module_define_pos EQUAL -1)
-  message(FATAL_ERROR "xmake.lua must keep the repo-local module consumer main-switch define wired.")
-endif()
+file(READ "${_xmake_helper_file}" _xmake_helper_content)
+foreach(_xmake_blob IN ITEMS "_xmake_content" "_xmake_helper_content")
+  string(FIND "${${_xmake_blob}}" "gentest_buildsystem_codegen.py" _helper_ref_pos)
+  if(NOT _helper_ref_pos EQUAL -1)
+    message(FATAL_ERROR "Xmake integration must not reference scripts/gentest_buildsystem_codegen.py anymore (${_xmake_blob}).")
+  endif()
+endforeach()
+foreach(_expected IN ITEMS
+    "gentest_consumer_module_mocks_xmake"
+    "gentest_consumer_module_xmake"
+    "GENTEST_CONSUMER_USE_MODULES=1")
+  string(FIND "${_xmake_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "xmake.lua is missing expected native Xmake token: ${_expected}")
+  endif()
+endforeach()
+foreach(_expected IN ITEMS
+    "function gentest_add_mocks(opts)"
+    "function gentest_attach_codegen(opts)"
+    "run_command(batchcmds, codegen, args)"
+    "module_public_output_rel"
+    "registered_target_metadata()"
+    "collect_mock_metadata_inputs")
+  string(FIND "${_xmake_helper_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "xmake/gentest.lua is missing expected native helper token: ${_expected}")
+  endif()
+endforeach()
 
 if(NOT EXISTS "${_bazel_root_file}")
   message(FATAL_ERROR "Missing Bazel root file: ${_bazel_root_file}")
@@ -240,65 +237,36 @@ if(_bazel_add_module_macro_use_pos EQUAL -1)
   message(FATAL_ERROR "BUILD.bazel must exercise the repo-local Bazel module mock macro.")
 endif()
 
+string(FIND "${_bazel_root_content}" "defs_modules = [" _bazel_defs_modules_pos)
+if(_bazel_defs_modules_pos EQUAL -1)
+  message(FATAL_ERROR "BUILD.bazel must pass explicit defs_modules for the repo-local Bazel module mock macro.")
+endif()
+
 string(FIND "${_bazel_root_content}" "gentest_attach_codegen_modules(" _bazel_attach_module_macro_use_pos)
 if(_bazel_attach_module_macro_use_pos EQUAL -1)
   message(FATAL_ERROR "BUILD.bazel must exercise the repo-local Bazel module suite macro.")
 endif()
 
-if(NOT EXISTS "${_helper_file}")
-  message(FATAL_ERROR "Missing shared non-CMake codegen helper: ${_helper_file}")
-endif()
-
-file(READ "${_helper_file}" _helper_content)
-
-string(FIND "${_helper_content}" "\"--output\"" _helper_manifest_pos)
-if(NOT _helper_manifest_pos EQUAL -1)
-  message(FATAL_ERROR "Shared non-CMake codegen helper must not route through legacy gentest_codegen --output.")
-endif()
-
-string(FIND "${_helper_content}" "\"--tu-out-dir\"" _helper_tu_mode_pos)
-if(_helper_tu_mode_pos EQUAL -1)
-  message(FATAL_ERROR "Shared non-CMake codegen helper must invoke gentest_codegen in per-TU mode.")
-endif()
-
-string(FIND "${_helper_content}" "\"textual-mocks\"" _helper_textual_mocks_pos)
-if(_helper_textual_mocks_pos EQUAL -1)
-  message(FATAL_ERROR "Shared non-CMake codegen helper must support the textual explicit-mock mode.")
-endif()
-
-string(FIND "${_helper_content}" "\"--kind\"" _helper_kind_pos)
-if(_helper_kind_pos EQUAL -1)
-  message(FATAL_ERROR "Shared non-CMake codegen helper must expose an explicit kind argument.")
-endif()
-
-string(FIND "${_helper_content}" "\"modules\"" _helper_modules_pos)
-if(_helper_modules_pos EQUAL -1)
-  message(FATAL_ERROR "Shared non-CMake codegen helper must expose the modules kind, even when unsupported.")
-endif()
-
-string(FIND "${_helper_content}" "os.path.relpath" _helper_relpath_pos)
-if(_helper_relpath_pos EQUAL -1)
-  message(FATAL_ERROR "Shared non-CMake codegen helper must derive shim includes relative to the generated wrapper.")
-endif()
-
 file(READ "${_bazel_file}" _bazel_content)
-
-string(FIND "${_bazel_content}" "def gentest_add_mocks_modules(" _bazel_module_macro_pos)
-if(_bazel_module_macro_pos EQUAL -1)
-  message(FATAL_ERROR "build_defs/gentest.bzl must define the repo-local Bazel module mock macro.")
+string(FIND "${_bazel_content}" "gentest_buildsystem_codegen.py" _bazel_helper_pos)
+if(NOT _bazel_helper_pos EQUAL -1)
+  message(FATAL_ERROR "build_defs/gentest.bzl must not reference scripts/gentest_buildsystem_codegen.py anymore.")
 endif()
 
-string(FIND "${_bazel_content}" "def gentest_attach_codegen_modules(" _bazel_attach_module_macro_pos)
-if(_bazel_attach_module_macro_pos EQUAL -1)
-  message(FATAL_ERROR "build_defs/gentest.bzl must define the repo-local Bazel module suite macro.")
-endif()
-
-string(FIND "${_bazel_content}" "compile_commands.json" _bazel_module_compdb_pos)
-if(_bazel_module_compdb_pos EQUAL -1)
-  message(FATAL_ERROR "build_defs/gentest.bzl must keep the repo-local Bazel module compile_commands handoff.")
-endif()
-
-string(FIND "${_bazel_content}" "_mock_metadata" _bazel_module_metadata_pos)
-if(_bazel_module_metadata_pos EQUAL -1)
-  message(FATAL_ERROR "build_defs/gentest.bzl must keep the repo-local Bazel module metadata handoff.")
-endif()
+foreach(_expected IN ITEMS
+    "GentestGeneratedInfo = provider("
+    "def gentest_add_mocks_modules("
+    "def gentest_attach_codegen_modules("
+    "_gentest_module_mocks_codegen = rule("
+    "_gentest_module_suite_codegen = rule("
+    "ctx.actions.expand_template("
+    "ctx.actions.write("
+    "ctx.actions.run("
+    "use_default_shell_env = True"
+    "defs_modules"
+    "output_group = \"module_interfaces\"")
+  string(FIND "${_bazel_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "build_defs/gentest.bzl is missing expected native Bazel token: ${_expected}")
+  endif()
+endforeach()

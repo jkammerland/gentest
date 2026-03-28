@@ -752,7 +752,7 @@ DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &op
         registry_dir = ".";
     }
     std::error_code ec;
-    registry_dir = normalize_absolute_lexical(registry_dir);
+    registry_dir = registry_dir.lexically_normal();
 
     for (const auto *cls : classes) {
         if (!cls) {
@@ -770,7 +770,7 @@ DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &op
         }
 
         fs::path def_path{cls->definition_file};
-        def_path = normalize_absolute_lexical(def_path);
+        def_path = def_path.lexically_normal();
         def_path = remap_to_visible_source_path(def_path, source_aliases);
 
         fs::path include_path;

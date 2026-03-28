@@ -1,12 +1,9 @@
 local gentest_state = {}
+local fail
 
-local function fail(message)
+fail = function(message)
     print("error: " .. message)
-    if is_host("windows") then
-        os.vrunv("cmd", {"/c", "exit", "1"})
-    else
-        os.vrunv("false", {})
-    end
+    return gentest_fail_abort()
 end
 
 -- Configure the shared Xmake helper context. External consumers can override
@@ -77,14 +74,6 @@ local function codegen_project_root()
     return configured
 end
 
-local function buildsystem_codegen()
-    return state_value("buildsystem_codegen")
-end
-
-local function python_program()
-    return state_value("python_program")
-end
-
 local function gentest_common_defines()
     return state_value("gentest_common_defines")
 end
@@ -117,6 +106,21 @@ local function append_codegen_define_args(args, defines, seen_defines)
     end
 end
 
+local function append_raw_define_args(args, defines, seen_defines)
+    for _, define in ipairs(defines or {}) do
+        local define_arg = tostring(define or "")
+        if define_arg ~= "" then
+            if not define_arg:match("^[-/]D") then
+                define_arg = "-D" .. define_arg
+            end
+            if not seen_defines[define_arg] then
+                seen_defines[define_arg] = true
+                table.insert(args, define_arg)
+            end
+        end
+    end
+end
+
 local function append_user_clang_args(args, clang_args)
     for _, clang_arg in ipairs(clang_args or {}) do
         local arg_text = tostring(clang_arg or "")
@@ -125,6 +129,19 @@ local function append_user_clang_args(args, clang_args)
                 table.insert(args, arg_text)
             else
                 table.insert(args, "--clang-arg=" .. arg_text)
+            end
+        end
+    end
+end
+
+local function append_raw_user_clang_args(args, clang_args)
+    for _, clang_arg in ipairs(clang_args or {}) do
+        local arg_text = tostring(clang_arg or "")
+        if arg_text ~= "" then
+            if arg_text:find("^%-%-clang%-arg=") then
+                table.insert(args, arg_text:sub(13))
+            else
+                table.insert(args, arg_text)
             end
         end
     end
@@ -146,6 +163,26 @@ local function append_common_codegen_clang_args(args, extra_include_dirs, extra_
         table.insert(args, "--clang-arg=-I" .. project_path(include_dir))
     end
     append_user_clang_args(args, extra_clang_args)
+end
+
+local function append_common_codegen_driver_args(args, extra_include_dirs, extra_defines, extra_clang_args)
+    local seen_defines = {}
+    table.insert(args, "--")
+    table.insert(args, "-std=c++20")
+    table.insert(args, "-DGENTEST_CODEGEN=1")
+    append_raw_define_args(args, gentest_common_defines(), seen_defines)
+    append_raw_define_args(args, extra_defines, seen_defines)
+    table.insert(args, "-Wno-unknown-attributes")
+    table.insert(args, "-Wno-attributes")
+    table.insert(args, "-Wno-unknown-warning-option")
+    for _, include_dir in ipairs(resolved_incdirs()) do
+        table.insert(args, "-I" .. include_dir)
+    end
+    for _, include_dir in ipairs(extra_include_dirs or {}) do
+        table.insert(args, "-I" .. project_path(include_dir))
+    end
+    append_raw_user_clang_args(args, gentest_common_cxxflags())
+    append_raw_user_clang_args(args, extra_clang_args)
 end
 
 local function default_external_module_sources()
@@ -298,10 +335,6 @@ local function file_ext(filepath)
     return ext
 end
 
-local function module_suite_staged_source_rel(output_dir, source)
-    return path.join(output_dir, "suite_0000" .. file_ext(source))
-end
-
 local function module_wrapper_output_rel(output_dir, source, index)
     return path.join(
         output_dir,
@@ -313,13 +346,13 @@ local function module_header_output_rel(output_dir, source, index)
     return path.join(output_dir, string.format("tu_%04d_%s.gentest.h", index, shorten_generated_stem(basename_stem(source))))
 end
 
-local function module_defs_stage_rel(output_dir, defs_file, index)
-    return path.join(output_dir, "defs", string.format("def_%04d_%s", index, path.filename(defs_file)))
-end
-
 local function module_public_output_rel(output_dir, module_name)
     local rel = module_name:gsub("%.", "/"):gsub(":", "/")
     return path.join(output_dir, rel .. ".cppm")
+end
+
+local function template_path(filename)
+    return project_path(path.join("xmake", "templates", filename))
 end
 
 local function append_unique(result, seen, value)
@@ -329,240 +362,38 @@ local function append_unique(result, seen, value)
     end
 end
 
-local function ensure_parent_dir(mkdir_fn, filepath)
-    local dirpath = path.directory(filepath)
-    if dirpath and dirpath ~= "" then
-        mkdir_fn(dirpath)
-    end
-end
-
-local function write_generated_file(mkdir_fn, writefile_fn, relpath, contents)
-    local filepath = project_path(relpath)
-    ensure_parent_dir(mkdir_fn, filepath)
-    writefile_fn(filepath, contents)
-    return filepath
-end
-
-local function copy_generated_file(mkdir_fn, copy_fn, relpath, source_relpath)
-    local filepath = project_path(relpath)
-    ensure_parent_dir(mkdir_fn, filepath)
-    copy_fn(project_path(source_relpath), filepath)
-    return filepath
-end
-
-local function read_project_file(readfile_fn, relpath)
-    return readfile_fn(project_path(relpath))
-end
-
 local function relative_include(from_relpath, to_relpath)
     return path.translate(path.relative(project_path(to_relpath), path.directory(project_path(from_relpath))))
 end
 
-local function suite_wrapper_placeholder(wrapper_rel, source_rel, header_rel)
-    return table.concat({
-        "// generated placeholder",
-        "",
-        "#include \"" .. relative_include(wrapper_rel, source_rel) .. "\"",
-        "",
-        "#if !defined(GENTEST_CODEGEN) && __has_include(\"" .. path.filename(header_rel) .. "\")",
-        "#include \"" .. path.filename(header_rel) .. "\"",
-        "#endif",
-        "",
-    }, "\n")
-end
-
-local function textual_mock_source_placeholder(wrapper_rel, defs, header_rel)
-    local lines = {
-        "// generated placeholder",
-        "",
-        "#include \"gentest/mock.h\"",
-    }
-    for _, defs_file in ipairs(defs) do
-        table.insert(lines, "#include \"" .. relative_include(wrapper_rel, defs_file) .. "\"")
+local function include_lines(from_relpath, relpaths)
+    local lines = {}
+    for _, relpath in ipairs(relpaths or {}) do
+        table.insert(lines, "#include \"" .. relative_include(from_relpath, relpath) .. "\"")
     end
-    table.insert(lines, "")
-    table.insert(lines, "#if !defined(GENTEST_CODEGEN) && __has_include(\"" .. path.filename(header_rel) .. "\")")
-    table.insert(lines, "#include \"" .. path.filename(header_rel) .. "\"")
-    table.insert(lines, "#endif")
-    table.insert(lines, "")
     return table.concat(lines, "\n")
 end
 
-local function textual_public_header_placeholder(public_header_rel, defs, mock_registry_rel, mock_impl_rel)
-    local lines = {
-        "// generated placeholder",
-        "#pragma once",
-        "",
-        "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1",
-        "#include \"gentest/mock.h\"",
-    }
-    for _, defs_file in ipairs(defs) do
-        table.insert(lines, "#include \"" .. relative_include(public_header_rel, defs_file) .. "\"")
+local function export_import_lines(module_names)
+    local lines = {}
+    for _, module_name in ipairs(module_names or {}) do
+        table.insert(lines, "export import " .. module_name .. ";")
     end
-    table.insert(lines, "#undef GENTEST_NO_AUTO_MOCK_INCLUDE")
-    table.insert(lines, "")
-    table.insert(lines, "#include \"" .. path.filename(mock_registry_rel) .. "\"")
-    table.insert(lines, "#include \"" .. path.filename(mock_impl_rel) .. "\"")
-    table.insert(lines, "")
     return table.concat(lines, "\n")
 end
 
-local function header_placeholder()
-    return table.concat({
-        "// generated placeholder",
-        "#pragma once",
-        "",
-    }, "\n")
+local function add_generated_template(template_name, output_rel, variables)
+    add_configfiles(template_path(template_name), {
+        filename = output_rel,
+        variables = variables or {},
+    })
 end
 
-local function parse_module_name(module_source_text)
-    local module_name = module_source_text:match("[\r\n]%s*export%s+module%s+([^;]+)%s*;")
-    if not module_name then
-        module_name = module_source_text:match("^%s*export%s+module%s+([^;]+)%s*;")
-    end
-    if not module_name then
-        module_name = module_source_text:match("[\r\n]%s*module%s+([^;]+)%s*;")
-    end
-    if not module_name then
-        module_name = module_source_text:match("^%s*module%s+([^;]+)%s*;")
-    end
-    if not module_name then
-        fail("unable to determine module name from module source")
-    end
-    return module_name:gsub("^%s+", ""):gsub("%s+$", "")
-end
-
-local function module_aggregate_placeholder(readfile_fn, module_name, defs)
-    local lines = {
-        "// generated placeholder",
-        "module;",
-        "",
-        "export module " .. module_name .. ";",
-        "",
-        "export import gentest;",
-        "export import gentest.mock;",
-    }
-    for _, defs_file in ipairs(defs) do
-        table.insert(lines, "export import " .. parse_module_name(read_project_file(readfile_fn, defs_file)) .. ";")
-    end
-    table.insert(lines, "")
-    return table.concat(lines, "\n")
-end
-
-local function anchor_placeholder(target_id)
-    return table.concat({
-        "// generated placeholder",
-        "namespace gentest::detail {",
-        "int " .. anchor_symbol_name(target_id) .. " = 0;",
-        "} // namespace gentest::detail",
-        "",
-    }, "\n")
-end
-
-local function json_escape(text)
-    return (text or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
-end
-
-local function json_unescape(text)
-    return (text or ""):gsub("\\n", "\n"):gsub('\\"', '"'):gsub("\\\\", "\\")
-end
-
-local function decode_string_array(metadata_text, key)
-    local values = {}
-    local body = metadata_text:match('"' .. key .. '"%s*:%s*%[(.-)%]')
-    if not body then
-        return values
-    end
-    for value in body:gmatch('"(.-)"') do
-        table.insert(values, json_unescape(value))
-    end
-    return values
-end
-
-local function decode_string_value(metadata_text, key)
-    local value = metadata_text:match('"' .. key .. '"%s*:%s*"(.-)"')
-    if not value then
-        return nil
-    end
-    return json_unescape(value)
-end
-
-local function decode_module_sources(metadata_text)
-    local values = {}
-    local body = metadata_text:match('"module_sources"%s*:%s*%[(.-)%]')
-    if not body then
-        return values
-    end
-    for object_body in body:gmatch("%b{}") do
-        local module_name = object_body:match('"module_name"%s*:%s*"(.-)"')
-        local module_path = object_body:match('"path"%s*:%s*"(.-)"')
-        if module_name and module_path then
-            table.insert(values, {
-                module_name = json_unescape(module_name),
-                path = json_unescape(module_path),
-            })
-        end
-    end
-    return values
-end
-
-local function decode_public_surface(metadata_text)
-    local body = metadata_text:match('"public_surface"%s*:%s*(%b{})')
-    if not body then
-        return {}
-    end
-    local payload = {}
-    for _, key in ipairs({"type", "path", "module_name"}) do
-        local value = decode_string_value(body, key)
-        if value then
-            payload[key] = value
-        end
-    end
-    return payload
-end
-
-local function encode_string_array(values)
-    local encoded = {}
-    for _, value in ipairs(values or {}) do
-        table.insert(encoded, '"' .. json_escape(value) .. '"')
-    end
-    return "[" .. table.concat(encoded, ", ") .. "]"
-end
-
-local function encode_module_sources(values)
-    local encoded = {}
-    for _, value in ipairs(values or {}) do
-        table.insert(
-            encoded,
-            '{"module_name":"' .. json_escape(value.module_name or "") .. '","path":"' .. json_escape(value.path or "") .. '"}'
-        )
-    end
-    return "[" .. table.concat(encoded, ", ") .. "]"
-end
-
-local function encode_mock_metadata(payload)
-    local fragments = {
-        '{',
-        '"schema_version": ' .. tostring(payload.schema_version or 1),
-        ', "mode": "' .. json_escape(payload.mode or "mocks") .. '"',
-        ', "backend": "' .. json_escape(payload.backend or "xmake") .. '"',
-        ', "kind": "' .. json_escape(payload.kind or "textual") .. '"',
-        ', "target_id": "' .. json_escape(payload.target_id or "") .. '"',
-        ', "out_dir": "' .. json_escape(payload.out_dir or "") .. '"',
-        ', "include_dirs": ' .. encode_string_array(payload.include_dirs or {}),
-        ', "public_surface": {"type":"' .. json_escape((payload.public_surface or {}).type or "") .. '"',
-    }
-    if payload.public_surface and payload.public_surface.path then
-        table.insert(fragments, ',"path":"' .. json_escape(payload.public_surface.path) .. '"')
-    end
-    if payload.public_surface and payload.public_surface.module_name then
-        table.insert(fragments, ',"module_name":"' .. json_escape(payload.public_surface.module_name) .. '"')
-    end
-    table.insert(fragments, "}")
-    table.insert(fragments, ', "module_sources": ' .. encode_module_sources(payload.module_sources or {}))
-    table.insert(fragments, ', "support_headers": ' .. encode_string_array(payload.support_headers or {}))
-    table.insert(fragments, "}")
-    return table.concat(fragments)
+local function add_generated_copy(source_relpath, output_rel)
+    add_configfiles(project_path(source_relpath), {
+        filename = output_rel,
+        onlycopy = true,
+    })
 end
 
 local function collect_dep_targets(deps)
@@ -582,17 +413,12 @@ end
 
 local function resolve_dep_inputs(deps)
     local include_dirs = {}
-    local metadata_paths = {}
     local seen_includes = {}
-    local seen_metadata = {}
     local seen_targets = {}
     local metadata_by_target = registered_target_metadata()
 
     local function visit_dep(dep)
         if type(dep) == "table" then
-            if dep.metadata_path then
-                append_unique(metadata_paths, seen_metadata, dep.metadata_path)
-            end
             if dep.include_dir then
                 append_unique(include_dirs, seen_includes, dep.include_dir)
             end
@@ -605,7 +431,6 @@ local function resolve_dep_inputs(deps)
             seen_targets[dep] = true
             local registered = metadata_by_target[dep]
             if registered then
-                append_unique(metadata_paths, seen_metadata, registered.metadata_path)
                 if registered.include_dir then
                     append_unique(include_dirs, seen_includes, registered.include_dir)
                 end
@@ -622,37 +447,23 @@ local function resolve_dep_inputs(deps)
     for _, dep in ipairs(deps or {}) do
         visit_dep(dep)
     end
-    return include_dirs, metadata_paths
+    return include_dirs
 end
 
-local function load_mock_metadata(metadata_path)
-    local metadata_text = io.readfile(metadata_path)
-    if not metadata_text then
-        fail("failed to read mock metadata `" .. metadata_path .. "`")
-    end
-    return {
-        schema_version = tonumber(metadata_text:match('"schema_version"%s*:%s*(%d+)') or "1"),
-        mode = decode_string_value(metadata_text, "mode"),
-        backend = decode_string_value(metadata_text, "backend"),
-        kind = decode_string_value(metadata_text, "kind"),
-        target_id = decode_string_value(metadata_text, "target_id"),
-        out_dir = decode_string_value(metadata_text, "out_dir"),
-        include_dirs = decode_string_array(metadata_text, "include_dirs"),
-        public_surface = decode_public_surface(metadata_text),
-        module_sources = decode_module_sources(metadata_text),
-        support_headers = decode_string_array(metadata_text, "support_headers"),
-    }
-end
-
-local function collect_mock_metadata_inputs(metadata_paths)
+local function collect_mock_metadata_inputs(deps)
     local include_dirs = {}
     local module_sources = {}
     local support_headers = {}
     local seen_includes = {}
     local seen_modules = {}
     local seen_headers = {}
-    for _, metadata_path in ipairs(metadata_paths or {}) do
-        local payload = load_mock_metadata(metadata_path)
+    local seen_targets = {}
+    local metadata_by_target = registered_target_metadata()
+
+    local function merge_payload(payload)
+        if not payload then
+            return
+        end
         for _, include_dir in ipairs(payload.include_dirs or {}) do
             append_unique(include_dirs, seen_includes, include_dir)
         end
@@ -669,64 +480,28 @@ local function collect_mock_metadata_inputs(metadata_paths)
             append_unique(support_headers, seen_headers, support_header)
         end
     end
-    return include_dirs, module_sources, support_headers
-end
 
-local function merge_generated_mock_metadata(metadata_path, dep_metadata_paths)
-    if not dep_metadata_paths or #dep_metadata_paths == 0 then
-        return
-    end
-    local payload = load_mock_metadata(metadata_path)
-    local dep_include_dirs, dep_module_sources, dep_support_headers = collect_mock_metadata_inputs(dep_metadata_paths)
-
-    local include_dirs = {}
-    local seen_includes = {}
-    for _, include_dir in ipairs(payload.include_dirs or {}) do
-        append_unique(include_dirs, seen_includes, include_dir)
-    end
-    for _, include_dir in ipairs(dep_include_dirs) do
-        append_unique(include_dirs, seen_includes, include_dir)
-    end
-
-    local support_headers = {}
-    local seen_support_headers = {}
-    for _, support_header in ipairs(payload.support_headers or {}) do
-        append_unique(support_headers, seen_support_headers, support_header)
-    end
-    for _, support_header in ipairs(dep_support_headers) do
-        append_unique(support_headers, seen_support_headers, support_header)
-    end
-
-    local module_sources = {}
-    local seen_module_sources = {}
-    for _, module_source in ipairs(payload.module_sources or {}) do
-        if type(module_source) == "table" then
-            local module_name = module_source.module_name or ""
-            local module_path = module_source.path or ""
-            if module_name ~= "" and module_path ~= "" then
-                local key = module_name .. "=" .. module_path
-                if not seen_module_sources[key] then
-                    seen_module_sources[key] = true
-                    table.insert(module_sources, {module_name = module_name, path = module_path})
+    local function visit_dep(dep)
+        if type(dep) == "table" and dep.mock_metadata then
+            merge_payload(dep.mock_metadata)
+            dep = dep.target
+        end
+        if dep and not seen_targets[dep] then
+            seen_targets[dep] = true
+            local registered = metadata_by_target[dep]
+            if registered then
+                merge_payload(registered.mock_metadata)
+                for _, nested_dep in ipairs(registered.deps or {}) do
+                    visit_dep(nested_dep)
                 end
             end
         end
     end
-    for _, mapping in ipairs(dep_module_sources) do
-        local module_name, module_path = mapping:match("^([^=]+)=(.+)$")
-        if module_name and module_path then
-            local key = module_name .. "=" .. module_path
-            if not seen_module_sources[key] then
-                seen_module_sources[key] = true
-                table.insert(module_sources, {module_name = module_name, path = module_path})
-            end
-        end
-    end
 
-    payload.include_dirs = include_dirs
-    payload.module_sources = module_sources
-    payload.support_headers = support_headers
-    io.writefile(metadata_path, encode_mock_metadata(payload) .. "\n")
+    for _, dep in ipairs(deps or {}) do
+        visit_dep(dep)
+    end
+    return include_dirs, module_sources, support_headers
 end
 
 local function collect_target_package_include_dirs(target)
@@ -744,6 +519,61 @@ local function collect_target_package_include_dirs(target)
         end
     end
     return include_dirs
+end
+
+local function textual_mock_metadata_payload(config)
+    return {
+        schema_version = 1,
+        mode = "mocks",
+        backend = "xmake",
+        kind = "textual",
+        target_id = config.target_id,
+        out_dir = config.out_dir_abs,
+        include_dirs = {config.out_dir_abs},
+        public_surface = {
+            type = "header",
+            path = config.public_header,
+        },
+        module_sources = {},
+        support_headers = {
+            config.public_header,
+            config.mock_registry,
+            config.mock_impl,
+        },
+    }
+end
+
+local function module_mock_metadata_payload(config)
+    local module_sources = {}
+    for index, module_name in ipairs(config.defs_modules or {}) do
+        table.insert(module_sources, {
+            module_name = module_name,
+            path = config.module_wrapper_outputs[index],
+        })
+    end
+    table.insert(module_sources, {
+        module_name = config.module_name,
+        path = config.public_module,
+    })
+    return {
+        schema_version = 1,
+        mode = "mocks",
+        backend = "xmake",
+        kind = "modules",
+        target_id = config.target_id,
+        out_dir = config.out_dir_abs,
+        include_dirs = {config.out_dir_abs},
+        public_surface = {
+            type = "module",
+            path = config.public_module,
+            module_name = config.module_name,
+        },
+        module_sources = module_sources,
+        support_headers = {
+            config.mock_registry,
+            config.mock_impl,
+        },
+    }
 end
 
 local function is_clang_tool(toolpath)
@@ -868,29 +698,25 @@ end
 
 local function run_mock_codegen(batchcmds, codegen, compdb_dir, config)
     local args = {
-        buildsystem_codegen(),
-        "--backend", "xmake",
-        "--mode", "mocks",
-        "--kind", config.kind,
-        "--codegen", codegen,
         "--source-root", project_root(),
-        "--out-dir", config.out_dir_abs,
-        "--anchor-output", config.anchor_output,
+        "--tu-out-dir", config.out_dir_abs,
         "--mock-registry", config.mock_registry,
         "--mock-impl", config.mock_impl,
-        "--target-id", config.target_id,
-        "--metadata-output", config.metadata_output,
+        "--discover-mocks",
     }
     if config.kind == "textual" then
-        table.insert(args, "--wrapper-output")
-        table.insert(args, config.wrapper_output)
-        table.insert(args, "--header-output")
+        table.insert(args, "--tu-header-output")
         table.insert(args, config.header_output)
-        table.insert(args, "--public-header")
-        table.insert(args, config.public_header)
+        table.insert(args, config.wrapper_output)
     else
-        table.insert(args, "--module-name")
-        table.insert(args, config.module_name)
+        for _, header_output in ipairs(config.module_header_outputs or {}) do
+            table.insert(args, "--tu-header-output")
+            table.insert(args, header_output)
+        end
+        if compdb_dir then
+            table.insert(args, "--compdb")
+            table.insert(args, compdb_dir)
+        end
         for _, module_source in ipairs(default_external_module_sources()) do
             table.insert(args, "--external-module-source")
             table.insert(args, module_source)
@@ -899,61 +725,51 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, config)
             table.insert(args, "--external-module-source")
             table.insert(args, module_source)
         end
+        for _, defs_file in ipairs(config.defs or {}) do
+            table.insert(args, defs_file)
+        end
     end
-    for _, include_dir in ipairs(resolved_incdirs()) do
-        table.insert(args, "--include-root")
-        table.insert(args, include_dir)
-    end
-    for _, defs_file in ipairs(config.defs) do
-        table.insert(args, "--defs-file")
-        table.insert(args, defs_file)
-    end
-    for _, metadata_path in ipairs(config.metadata_paths or {}) do
-        table.insert(args, "--mock-metadata")
-        table.insert(args, metadata_path)
-    end
-    if compdb_dir then
+    if config.kind == "textual" and compdb_dir then
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
     end
-    append_common_codegen_clang_args(args, config.extra_includes, config.defines, config.clang_args)
-    run_command(batchcmds, python_program(), args)
+    append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args)
+    run_command(batchcmds, codegen, args)
 end
 
 local function run_suite_codegen(batchcmds, codegen, compdb_dir, config)
     local args = {
-        buildsystem_codegen(),
-        "--backend", "xmake",
-        "--mode", "suite",
-        "--kind", config.kind,
-        "--codegen", codegen,
         "--source-root", project_root(),
-        "--out-dir", config.out_dir_abs,
-        "--wrapper-output", config.wrapper_output,
-        "--header-output", config.header_output,
-        "--depfile", config.depfile,
-        "--source-file", config.source_file,
+        "--tu-out-dir", config.out_dir_abs,
+        "--tu-header-output", config.header_output,
     }
+    if config.depfile and config.depfile ~= "" then
+        table.insert(args, "--depfile")
+        table.insert(args, config.depfile)
+    end
     if config.kind == "modules" then
-        for _, include_dir in ipairs(resolved_incdirs()) do
-            table.insert(args, "--include-root")
-            table.insert(args, include_dir)
+        if compdb_dir then
+            table.insert(args, "--compdb")
+            table.insert(args, compdb_dir)
         end
         for _, module_source in ipairs(default_external_module_sources()) do
             table.insert(args, "--external-module-source")
             table.insert(args, module_source)
         end
+        for _, module_source in ipairs(config.dep_module_sources or {}) do
+            table.insert(args, "--external-module-source")
+            table.insert(args, module_source)
+        end
+        table.insert(args, config.source_file)
+    else
+        if compdb_dir then
+            table.insert(args, "--compdb")
+            table.insert(args, compdb_dir)
+        end
+        table.insert(args, config.source_file)
     end
-    for _, metadata_path in ipairs(config.metadata_paths) do
-        table.insert(args, "--mock-metadata")
-        table.insert(args, metadata_path)
-    end
-    if compdb_dir then
-        table.insert(args, "--compdb")
-        table.insert(args, compdb_dir)
-    end
-    append_common_codegen_clang_args(args, config.extra_includes, config.defines, config.clang_args)
-    run_command(batchcmds, python_program(), args)
+    append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args)
+    run_command(batchcmds, codegen, args)
 end
 
 function gentest_add_mocks(opts)
@@ -968,13 +784,19 @@ function gentest_add_mocks(opts)
     if type(defs) ~= "table" or #defs == 0 then
         fail("gentest_add_mocks requires `defs` to contain at least one file")
     end
+    local defs_modules = nil
+    if kind == "modules" then
+        defs_modules = require_opt(opts, "defs_modules", "gentest_add_mocks")
+        if type(defs_modules) ~= "table" or #defs_modules ~= #defs then
+            fail("gentest_add_mocks(kind='modules') requires `defs_modules` with one explicit module name per defs file")
+        end
+    end
 
     local target_id = opts.target_id or sanitize_target_id(target_name)
     local out_dir_abs = project_path(output_dir)
     local anchor_cpp = path.join(output_dir, target_id .. "_anchor.cpp")
     local mock_registry_h = path.join(output_dir, target_id .. "_mock_registry.hpp")
     local mock_impl_h = path.join(output_dir, target_id .. "_mock_impl.hpp")
-    local metadata_json = path.join(output_dir, target_id .. "_mock_metadata.json")
     local config = {
         kind = kind,
         defs = {},
@@ -983,13 +805,12 @@ function gentest_add_mocks(opts)
         mock_registry = project_path(mock_registry_h),
         mock_impl = project_path(mock_impl_h),
         target_id = target_id,
-        metadata_output = project_path(metadata_json),
         extra_includes = {},
-        metadata_paths = {},
         dep_module_sources = {},
         deps = opts.deps or {},
         defines = opts.defines or {},
         clang_args = opts.clang_args or {},
+        defs_modules = defs_modules or {},
     }
     local add_public_files = {}
     local add_private_files = {}
@@ -1011,13 +832,18 @@ function gentest_add_mocks(opts)
     else
         local module_name = require_opt(opts, "module_name", "gentest_add_mocks")
         config.module_name = module_name
+        config.module_wrapper_outputs = {}
+        config.module_header_outputs = {}
         for index, defs_file in ipairs(defs) do
             local zero_index = index - 1
-            local staged_rel = module_defs_stage_rel(output_dir, defs_file, zero_index)
-            local wrapper_rel = module_wrapper_output_rel(output_dir, staged_rel, zero_index)
+            local wrapper_rel = module_wrapper_output_rel(output_dir, defs_file, zero_index)
+            local header_rel = module_header_output_rel(output_dir, defs_file, zero_index)
+            table.insert(config.module_wrapper_outputs, project_path(wrapper_rel))
+            table.insert(config.module_header_outputs, project_path(header_rel))
             table.insert(add_public_files, wrapper_rel)
         end
         public_module = module_public_output_rel(output_dir, module_name)
+        config.public_module = project_path(public_module)
         table.insert(add_private_files, anchor_cpp)
     end
     for _, defs_file in ipairs(defs) do
@@ -1026,6 +852,7 @@ function gentest_add_mocks(opts)
     local dep_targets = collect_dep_targets(opts.deps)
 
     set_policy("build.fence", true)
+    set_configdir(project_root())
     add_packages("fmt")
     add_includedirs(incdirs())
     add_includedirs(out_dir_abs, {public = true})
@@ -1057,39 +884,36 @@ function gentest_add_mocks(opts)
     if #dep_targets > 0 then
         add_deps(table.unpack(dep_targets))
     end
-    on_load(function (target)
-        if kind == "textual" then
-            write_generated_file(os.mkdir, io.writefile, defs_cpp, textual_mock_source_placeholder(defs_cpp, defs, codegen_h))
-            write_generated_file(os.mkdir, io.writefile, anchor_cpp, anchor_placeholder(target_id))
-            write_generated_file(
-                os.mkdir,
-                io.writefile,
-                public_header,
-                textual_public_header_placeholder(public_header, defs, mock_registry_h, mock_impl_h)
-            )
-            write_generated_file(os.mkdir, io.writefile, mock_registry_h, header_placeholder())
-            write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
-        else
-            for index, defs_file in ipairs(defs) do
-                local zero_index = index - 1
-                local staged_rel = module_defs_stage_rel(output_dir, defs_file, zero_index)
-                local wrapper_rel = module_wrapper_output_rel(output_dir, staged_rel, zero_index)
-                write_generated_file(os.mkdir, io.writefile, module_header_output_rel(output_dir, staged_rel, zero_index), header_placeholder())
-                copy_generated_file(os.mkdir, os.cp, wrapper_rel, defs_file)
-            end
-            write_generated_file(
-                os.mkdir,
-                io.writefile,
-                module_public_output_rel(output_dir, config.module_name),
-                module_aggregate_placeholder(io.readfile, config.module_name, defs)
-            )
-            write_generated_file(os.mkdir, io.writefile, anchor_cpp, anchor_placeholder(target_id))
-            write_generated_file(os.mkdir, io.writefile, mock_registry_h, header_placeholder())
-            write_generated_file(os.mkdir, io.writefile, mock_impl_h, header_placeholder())
+    add_generated_template("anchor.cpp.in", anchor_cpp, {
+        ANCHOR_SYMBOL = anchor_symbol_name(target_id),
+    })
+    add_generated_template("header.hpp.in", mock_registry_h, {})
+    add_generated_template("header.hpp.in", mock_impl_h, {})
+    if kind == "textual" then
+        add_generated_template("textual_mock_defs.cpp.in", defs_cpp, {
+            DEFS_INCLUDES = include_lines(defs_cpp, defs),
+            HEADER_FILENAME = path.filename(codegen_h),
+        })
+        add_generated_template("textual_mock_public.hpp.in", public_header, {
+            DEFS_INCLUDES = include_lines(public_header, defs),
+            MOCK_REGISTRY_FILENAME = path.filename(mock_registry_h),
+            MOCK_IMPL_FILENAME = path.filename(mock_impl_h),
+        })
+    else
+        for index, defs_file in ipairs(defs) do
+            local zero_index = index - 1
+            local wrapper_rel = module_wrapper_output_rel(output_dir, defs_file, zero_index)
+            local header_rel = module_header_output_rel(output_dir, defs_file, zero_index)
+            add_generated_copy(defs_file, wrapper_rel)
+            add_generated_template("header.hpp.in", header_rel, {})
         end
-
-        local dep_include_dirs, dep_metadata_paths = resolve_dep_inputs(config.deps)
-        config.metadata_paths = dep_metadata_paths
+        add_generated_template("module_public.cppm.in", public_module, {
+            MODULE_NAME = config.module_name,
+            EXPORTED_IMPORTS = export_import_lines(config.defs_modules),
+        })
+    end
+    on_load(function (target)
+        local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(dep_include_dirs) do
             target:add("includedirs", include_dir)
             append_unique(include_dirs, seen_registered_includes, include_dir)
@@ -1101,9 +925,8 @@ function gentest_add_mocks(opts)
         end
         local codegen, compdb_dir = ensure_codegen(batchcmds)
         config.extra_includes = collect_target_package_include_dirs(target)
-        local dep_include_dirs, dep_metadata_paths = resolve_dep_inputs(config.deps)
-        config.metadata_paths = dep_metadata_paths
-        local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.metadata_paths)
+        local dep_include_dirs = resolve_dep_inputs(config.deps)
+        local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.deps)
         local seen_build_includes = {}
         for _, include_dir in ipairs(config.extra_includes) do
             seen_build_includes[include_dir] = true
@@ -1122,15 +945,14 @@ function gentest_add_mocks(opts)
         end
         config.dep_module_sources = dep_module_sources
         run_mock_codegen(batchcmds, codegen, compdb_dir, config)
-        merge_generated_mock_metadata(config.metadata_output, config.metadata_paths)
     end)
 
     registered_target_metadata()[target_name] = {
         target = target_name,
         include_dir = out_dir_abs,
         include_dirs = include_dirs,
-        metadata_path = config.metadata_output,
         deps = opts.deps or {},
+        mock_metadata = kind == "textual" and textual_mock_metadata_payload(config) or module_mock_metadata_payload(config),
     }
 end
 
@@ -1152,9 +974,8 @@ function gentest_attach_codegen(opts)
         wrapper_cpp = path.join(output_dir, "tu_0000_" .. source_basename .. ".gentest.cpp")
         wrapper_h = path.join(output_dir, "tu_0000_" .. source_basename .. ".gentest.h")
     else
-        local staged_rel = module_suite_staged_source_rel(output_dir, source)
-        wrapper_cpp = module_wrapper_output_rel(output_dir, staged_rel, 0)
-        wrapper_h = module_header_output_rel(output_dir, staged_rel, 0)
+        wrapper_cpp = module_wrapper_output_rel(output_dir, source, 0)
+        wrapper_h = module_header_output_rel(output_dir, source, 0)
     end
     local wrapper_d = path.join(output_dir, basename_stem(wrapper_h) .. ".d")
     local extra_includes = {}
@@ -1171,12 +992,12 @@ function gentest_attach_codegen(opts)
         depfile = project_path(wrapper_d),
         source_file = project_path(source),
         extra_includes = extra_includes,
-        metadata_paths = {},
+        dep_module_sources = {},
         deps = opts.deps or {},
         defines = opts.defines or {},
         clang_args = opts.clang_args or {},
     }
-
+    set_configdir(project_root())
     add_packages("fmt")
     add_includedirs(incdirs())
     add_defines(gentest_common_defines())
@@ -1198,16 +1019,17 @@ function gentest_attach_codegen(opts)
     if #dep_targets > 0 then
         add_deps(table.unpack(dep_targets))
     end
+    if kind == "textual" then
+        add_generated_template("suite_wrapper.cpp.in", wrapper_cpp, {
+            SOURCE_INCLUDE = relative_include(wrapper_cpp, source),
+            HEADER_FILENAME = path.filename(wrapper_h),
+        })
+    else
+        add_generated_template("header.hpp.in", wrapper_h, {})
+        add_generated_copy(source, wrapper_cpp)
+    end
     on_load(function (target)
-        if kind == "textual" then
-            write_generated_file(os.mkdir, io.writefile, wrapper_cpp, suite_wrapper_placeholder(wrapper_cpp, source, wrapper_h))
-        else
-            write_generated_file(os.mkdir, io.writefile, wrapper_h, header_placeholder())
-            copy_generated_file(os.mkdir, os.cp, wrapper_cpp, source)
-        end
-
-        local dep_include_dirs, dep_metadata_paths = resolve_dep_inputs(config.deps)
-        config.metadata_paths = dep_metadata_paths
+        local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(extra_includes) do
             target:add("includedirs", include_dir)
         end
@@ -1221,15 +1043,19 @@ function gentest_attach_codegen(opts)
             require_clang_module_toolchain(target, "gentest_attach_codegen")
         end
         local codegen, compdb_dir = ensure_codegen(batchcmds)
-        local dep_include_dirs, dep_metadata_paths = resolve_dep_inputs(config.deps)
-        config.metadata_paths = dep_metadata_paths
+        local dep_include_dirs = resolve_dep_inputs(config.deps)
+        local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.deps)
         for _, include_dir in ipairs(dep_include_dirs) do
+            append_unique(config.extra_includes, seen_extra_includes, include_dir)
+        end
+        for _, include_dir in ipairs(dep_metadata_include_dirs) do
             append_unique(config.extra_includes, seen_extra_includes, include_dir)
         end
         local package_include_dirs = collect_target_package_include_dirs(target)
         for _, include_dir in ipairs(package_include_dirs) do
             append_unique(config.extra_includes, seen_extra_includes, include_dir)
         end
+        config.dep_module_sources = dep_module_sources
         run_suite_codegen(batchcmds, codegen, compdb_dir, config)
     end)
 end

@@ -179,8 +179,8 @@ Current repo state:
   `compile_commands.json` only on the checked-in direct path
 - the same repo-local path now reuses adjacent CMake-fetched `fmt` headers when
   the Xmake compiler environment does not already provide them
-- mock dependency metadata now flows through the helper-owned Xmake metadata
-  handoff for the checked-in direct consumer path
+- mock dependency metadata now flows through native Xmake target metadata for
+  the checked-in direct consumer path
 - public `defines` / `clang_args` now flow into both final Xmake compilation
   and `gentest_codegen`
 - the checked-in Linux workflow validates both the textual and module consumers

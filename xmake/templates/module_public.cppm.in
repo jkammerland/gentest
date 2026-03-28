@@ -1,0 +1,9 @@
+// generated placeholder
+module;
+
+export module ${MODULE_NAME};
+
+export import gentest;
+export import gentest.mock;
+${EXPORTED_IMPORTS}
+

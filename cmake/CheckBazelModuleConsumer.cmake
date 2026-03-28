@@ -127,6 +127,11 @@ if(WIN32)
   set(_path_sep ";")
 endif()
 set(_tool_path "${_clang_bin_dir}${_path_sep}$ENV{PATH}")
+get_filename_component(_source_parent "${SOURCE_DIR}" DIRECTORY)
+set(_bazel_output_root "${_source_parent}/.bazel-smoke-output-module")
+set(_bazel_repo_contents_cache "${_source_parent}/.bazel-repo-contents")
+file(MAKE_DIRECTORY "${_bazel_output_root}")
+file(MAKE_DIRECTORY "${_bazel_repo_contents_cache}")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
@@ -138,8 +143,9 @@ execute_process(
           "LLVM_DIR=${_llvm_dir}"
           "Clang_DIR=${_clang_dir}"
           "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
-          "${_bazel}" build
+          "${_bazel}" --output_user_root=${_bazel_output_root} build
           --experimental_cpp_modules
+          --repo_contents_cache=${_bazel_repo_contents_cache}
           --spawn_strategy=local
           --strategy=CppCompile=local
           --action_env=CCACHE_DISABLE=1

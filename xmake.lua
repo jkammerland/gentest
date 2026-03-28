@@ -15,9 +15,6 @@ if os.islink and os.readlink then
     end
 end
 local incdirs = {"include", "tests", "third_party/include"}
-local buildsystem_codegen = path.join(project_root, "scripts", "gentest_buildsystem_codegen.py")
-local python_program = is_host("windows") and "python" or "python3"
-
 local gentest_common_defines = {"FMT_HEADER_ONLY"}
 -- The validated checked-in Xmake path uses Clang, including on Windows.
 -- Keep the common warning suppression in Clang/GNU form here instead of
@@ -39,8 +36,6 @@ gentest_configure({
     project_root = project_root,
     codegen_project_root = codegen_project_root,
     incdirs = incdirs,
-    buildsystem_codegen = buildsystem_codegen,
-    python_program = python_program,
     gentest_common_defines = gentest_common_defines,
     gentest_common_cxxflags = gentest_common_cxxflags,
 })
@@ -140,6 +135,7 @@ if enable_module_targets then
             name = "gentest_consumer_module_mocks_xmake",
             kind = "modules",
             defs = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+            defs_modules = {"gentest.consumer_service", "gentest.consumer_mock_defs"},
             headerfiles = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
             module_name = "gentest.consumer_mocks",
             output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
