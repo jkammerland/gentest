@@ -8,7 +8,7 @@
 module(name = "gentest", version = "1.0.0")
 
 # Bazel 9+ moved core C++ rules into rules_cc.
-bazel_dep(name = "rules_cc", version = "0.2.14")
+bazel_dep(name = "rules_cc", version = "0.2.17")
 
 # Bazel 9+ no longer ships built-in shell rules; use rules_shell for `sh_*`.
 bazel_dep(name = "rules_shell", version = "0.6.1")
