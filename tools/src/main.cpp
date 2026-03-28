@@ -1647,17 +1647,43 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
     const std::string                    normalized_target = normalize_compdb_lookup_path(file.str(), compdb_dir);
     if (!sanitized_command_line.empty()) {
         const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(sanitized_command_line).value_or(0);
+        const auto       &compiler_arg = sanitized_command_line[compiler_index];
         const std::string probed_compiler_path =
             compiler_for_resource_dir_probe(sanitized_command_line, std::string(default_compiler_path));
-        if (!forced_compiler_path.empty()) {
-            adjusted.emplace_back(std::string(forced_compiler_path));
-        } else if (!is_clang_like_compiler(sanitized_command_line[compiler_index]) && !probed_compiler_path.empty()) {
-            adjusted.emplace_back(probed_compiler_path);
-        } else {
-            adjusted.emplace_back(sanitized_command_line[compiler_index]);
-        }
+        const auto compiler_arg_is_explicit_path = [&]() {
+            const std::filesystem::path compiler_path{compiler_arg};
+            return compiler_path.is_absolute() || compiler_arg.find('/') != std::string::npos ||
+                compiler_arg.find('\\') != std::string::npos;
+        };
+        auto resolve_clang_compiler_path = [&](std::string_view candidate, bool explicit_path) {
+            std::string selected = resolve_program_invocation_path(candidate);
+            if (!explicit_path && selected == candidate && !default_compiler_path.empty()) {
+                const std::string resolved_default = resolve_program_invocation_path(default_compiler_path);
+                if (!resolved_default.empty() && is_clang_like_compiler(resolved_default)) {
+                    selected = resolved_default;
+                }
+            }
+            return selected;
+        };
+        auto select_compiler_path = [&]() {
+            if (!forced_compiler_path.empty()) {
+                const std::filesystem::path forced_path{std::string(forced_compiler_path)};
+                const bool forced_is_explicit_path = forced_path.is_absolute() ||
+                    forced_compiler_path.find('/') != std::string_view::npos ||
+                    forced_compiler_path.find('\\') != std::string_view::npos;
+                return resolve_clang_compiler_path(forced_compiler_path, forced_is_explicit_path);
+            }
+
+            if (!is_clang_like_compiler(compiler_arg)) {
+                return probed_compiler_path.empty() ? resolve_program_invocation_path(compiler_arg) : probed_compiler_path;
+            }
+
+            return resolve_clang_compiler_path(compiler_arg, compiler_arg_is_explicit_path());
+        };
+        const std::string selected_compiler_path = select_compiler_path();
+        adjusted.emplace_back(selected_compiler_path.empty() ? compiler_arg : selected_compiler_path);
         const std::string resource_dir = resource_dir_for_compiler(
-            probed_compiler_path.empty() ? std::string(default_compiler_path) : probed_compiler_path);
+            selected_compiler_path.empty() ? std::string(default_compiler_path) : selected_compiler_path);
         if (!resource_dir.empty()) {
             adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
         }

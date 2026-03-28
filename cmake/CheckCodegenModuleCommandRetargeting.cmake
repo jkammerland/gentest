@@ -22,6 +22,7 @@ if("${_clangxx}" STREQUAL "")
 endif()
 
 file(TO_CMAKE_PATH "${_clangxx}" _clangxx_norm)
+file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 
 function(_gentest_run_codegen_expect_success)
   set(one_value_args NAME COMPDB_DIR TU_OUT_DIR SOURCE_FILE)
@@ -98,6 +99,50 @@ _gentest_run_codegen_expect_success(
   NAME "relative include path under compile-command cwd"
   COMPDB_DIR "${_relative_include_dir}"
   SOURCE_FILE "${_relative_include_source_abs}")
+
+set(_env_fallback_dir "${_work_dir}/env_default_compiler")
+set(_env_fallback_generated_dir "${_env_fallback_dir}/generated")
+set(_env_fallback_empty_path "${_env_fallback_dir}/empty-path")
+file(MAKE_DIRECTORY "${_env_fallback_generated_dir}" "${_env_fallback_empty_path}")
+gentest_fixture_write_file("${_env_fallback_dir}/suite.cppm" [=[
+export module gentest.retarget.env_default_compiler;
+import gentest;
+
+[[using gentest: test("retarget/env_default_compiler")]]
+void env_default_compiler_case() {}
+]=])
+file(TO_CMAKE_PATH "${_env_fallback_dir}" _env_fallback_dir_norm)
+file(TO_CMAKE_PATH "${_env_fallback_dir}/suite.cppm" _env_fallback_source_abs)
+gentest_fixture_make_compdb_entry(_env_fallback_entry
+  DIRECTORY "${_env_fallback_dir_norm}"
+  FILE "suite.cppm"
+  ARGUMENTS "clang++" "-std=c++20" "-I${_source_dir_norm}/include" "-c" "suite.cppm" "-o" "suite.o")
+gentest_fixture_write_compdb("${_env_fallback_dir}/compile_commands.json" "${_env_fallback_entry}")
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+    "PATH=${_env_fallback_empty_path}"
+    "CXX=${_clangxx_norm}"
+    "${PROG}" --check --compdb "${_env_fallback_dir}" --tu-out-dir "${_env_fallback_generated_dir}" "${_env_fallback_source_abs}"
+  WORKING_DIRECTORY "${_env_fallback_dir}"
+  RESULT_VARIABLE _env_fallback_rc
+  OUTPUT_VARIABLE _env_fallback_out
+  ERROR_VARIABLE _env_fallback_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+
+if(NOT _env_fallback_rc EQUAL 0)
+  message(FATAL_ERROR
+    "module precompile compiler fallback: gentest_codegen should use CXX when the compdb names bare clang++ and PATH cannot resolve it.\n"
+    "Output:\n${_env_fallback_out}\nErrors:\n${_env_fallback_err}")
+endif()
+
+string(FIND "${_env_fallback_err}" "Executable \"clang++\" doesn't exist" _env_fallback_missing_driver_pos)
+if(NOT _env_fallback_missing_driver_pos EQUAL -1)
+  message(FATAL_ERROR
+    "module precompile compiler fallback: gentest_codegen still tried to execute bare clang++ instead of the CXX override.\n"
+    "Output:\n${_env_fallback_out}\nErrors:\n${_env_fallback_err}")
+endif()
 
 set(_response_dir "${_work_dir}/response_file")
 set(_response_generated_dir "${_response_dir}/generated")
