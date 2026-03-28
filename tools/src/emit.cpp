@@ -1048,7 +1048,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
         }
         render::MockOutputs outputs;
         if (rendered.outputs.has_value()) {
-            outputs = std::move(*rendered.outputs);
+            outputs = *rendered.outputs;
         } else {
             outputs.registry_header     = "#pragma once\n\n// gentest_codegen: no mocks discovered.\n";
             outputs.implementation_unit = "// gentest_codegen: no mocks discovered.\n";

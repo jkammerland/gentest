@@ -145,9 +145,9 @@ inline void wait_for_adopted_tokens(const std::shared_ptr<TestContextInfo> &ctx)
 inline void request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
     auto ctx = current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        std::fputs("gentest: fatal: skip called without an active test context.\n"
-                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
-                   stderr);
+        (void)std::fputs("gentest: fatal: skip called without an active test context.\n"
+                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         stderr);
         std::abort();
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
@@ -160,9 +160,9 @@ inline void record_failure(std::string msg) {
     auto  ctx    = current_test_storage();
     auto &buffer = current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
-                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
-                   stderr);
+        (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
+                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         stderr);
         std::abort();
     }
     if (buffer.owner != ctx.get()) {
@@ -185,9 +185,9 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
     auto  ctx    = current_test_storage();
     auto &buffer = current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
-                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
-                   stderr);
+        (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
+                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         stderr);
         std::abort();
     }
     if (buffer.owner != ctx.get()) {
@@ -348,14 +348,14 @@ template <typename L, typename R> inline void append_cmp_values(std::string &out
 
 [[noreturn]] inline void terminate_no_exceptions_fatal(std::string_view origin) {
     ::gentest::detail::run_noexceptions_fatal_hook();
-    std::fputs("gentest: exceptions are disabled; terminating after fatal assertion", stderr);
+    (void)std::fputs("gentest: exceptions are disabled; terminating after fatal assertion", stderr);
     if (!origin.empty()) {
-        std::fputs(" (origin: ", stderr);
-        std::fwrite(origin.data(), 1, origin.size(), stderr);
-        std::fputs(")", stderr);
+        (void)std::fputs(" (origin: ", stderr);
+        (void)std::fwrite(origin.data(), 1, origin.size(), stderr);
+        (void)std::fputs(")", stderr);
     }
-    std::fputs(".\n", stderr);
-    std::fflush(stderr);
+    (void)std::fputs(".\n", stderr);
+    (void)std::fflush(stderr);
     std::terminate();
 }
 

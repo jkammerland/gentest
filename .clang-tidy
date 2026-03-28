@@ -6,6 +6,7 @@ Checks: >-
   -modernize-use-nodiscard,
   -modernize-use-using,
   -modernize-use-std-numbers,
+  -modernize-use-scoped-lock,
   performance-*,
   -performance-enum-size,
   bugprone-*,

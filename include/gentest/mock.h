@@ -80,7 +80,7 @@ struct MethodIdentity {
     template <class MethodPtr> static MethodIdentity from(MethodPtr ptr) {
         MethodIdentity id;
         id.bytes.resize(sizeof(MethodPtr));
-        std::memcpy(id.bytes.data(), &ptr, sizeof(MethodPtr));
+        std::memcpy(id.bytes.data(), static_cast<const void *>(std::addressof(ptr)), sizeof(MethodPtr));
         return id;
     }
 
@@ -314,13 +314,13 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
         action = std::move(next_action);
     }
 
-    R invoke(std::string_view method_name, Args... args) {
+    R invoke(std::string_view method_name, const std::decay_t<Args> &...args) {
         std::function<R(const std::decay_t<Args>&...)> action_snapshot;
         {
             std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
             action_snapshot = action;
         }
-        (void)this->check_args(method_name, std::forward<Args>(args)...);
+        (void)this->check_args(method_name, args...);
         if (action_snapshot) {
             return action_snapshot(args...);
         }
@@ -344,13 +344,13 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommo
         action = std::move(next_action);
     }
 
-    void invoke(std::string_view method_name, Args... args) {
+    void invoke(std::string_view method_name, const std::decay_t<Args> &...args) {
         std::function<void(const std::decay_t<Args>&...)> action_snapshot;
         {
             std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
             action_snapshot = action;
         }
-        (void)this->check_args(method_name, std::forward<Args>(args)...);
+        (void)this->check_args(method_name, args...);
         if (action_snapshot) {
             action_snapshot(args...);
         }
@@ -614,28 +614,39 @@ struct MethodTraits<R (Class::*)(Args...) const volatile> : MethodTraits<R(Args.
 template <typename Class, typename R, typename... Args>
 struct MethodTraits<R (Class::*)(Args...) const volatile noexcept> : MethodTraits<R(Args...)> {};
 
-#define GENTEST_DETAIL_MOCK_METHOD_TRAITS(refqual)                                                                                         \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) refqual> : MethodTraits<R(Args...)> {};                                                      \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) refqual noexcept> : MethodTraits<R(Args...)> {};                                             \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) const refqual> : MethodTraits<R(Args...)> {};                                                \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) const refqual noexcept> : MethodTraits<R(Args...)> {};                                       \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) volatile refqual> : MethodTraits<R(Args...)> {};                                             \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) volatile refqual noexcept> : MethodTraits<R(Args...)> {};                                    \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) const volatile refqual> : MethodTraits<R(Args...)> {};                                       \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) const volatile refqual noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) & noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const & noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) volatile &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) volatile & noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const volatile &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const volatile & noexcept> : MethodTraits<R(Args...)> {};
 
-GENTEST_DETAIL_MOCK_METHOD_TRAITS(&)
-GENTEST_DETAIL_MOCK_METHOD_TRAITS(&&)
-
-#undef GENTEST_DETAIL_MOCK_METHOD_TRAITS
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) && noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const && noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) volatile &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) volatile && noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const volatile &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const volatile && noexcept> : MethodTraits<R(Args...)> {};
 
 } // namespace detail::mocking
 
@@ -690,7 +701,7 @@ void make_strict(Mock &instance) {
 // Usage: EXPECT_CALL(mock, method).times(2)...
 #ifndef GENTEST_NO_EXPECT_CALL_MACROS
 #define EXPECT_CALL(instance, method)                                                                               \
-    ::gentest::expect<&std::remove_reference_t<decltype(instance)>::GentestTarget::method>((instance), #method)
+    (::gentest::expect<&std::remove_reference_t<decltype(instance)>::GentestTarget::method>((instance), #method))
 #define ASSERT_CALL(instance, method) EXPECT_CALL(instance, method)
 #endif
 

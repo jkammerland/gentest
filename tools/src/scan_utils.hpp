@@ -749,7 +749,7 @@ private:
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
-            lhs = ((*lhs != 0) || (*rhs != 0)) ? 1ll : 0ll;
+            lhs = ((*lhs != 0) || (*rhs != 0)) ? 1LL : 0LL;
         }
         return lhs;
     }
@@ -761,7 +761,7 @@ private:
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
-            lhs = ((*lhs != 0) && (*rhs != 0)) ? 1ll : 0ll;
+            lhs = ((*lhs != 0) && (*rhs != 0)) ? 1LL : 0LL;
         }
         return lhs;
     }
@@ -810,7 +810,7 @@ private:
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs == *rhs) ? 1ll : 0ll;
+                lhs = (*lhs == *rhs) ? 1LL : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::NotEqual)) {
@@ -818,7 +818,7 @@ private:
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs != *rhs) ? 1ll : 0ll;
+                lhs = (*lhs != *rhs) ? 1LL : 0LL;
                 continue;
             }
             break;
@@ -834,7 +834,7 @@ private:
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs < *rhs) ? 1ll : 0ll;
+                lhs = (*lhs < *rhs) ? 1LL : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::LessEqual)) {
@@ -842,7 +842,7 @@ private:
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs <= *rhs) ? 1ll : 0ll;
+                lhs = (*lhs <= *rhs) ? 1LL : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::Greater)) {
@@ -850,7 +850,7 @@ private:
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs > *rhs) ? 1ll : 0ll;
+                lhs = (*lhs > *rhs) ? 1LL : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::GreaterEqual)) {
@@ -858,7 +858,7 @@ private:
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs >= *rhs) ? 1ll : 0ll;
+                lhs = (*lhs >= *rhs) ? 1LL : 0LL;
                 continue;
             }
             break;
@@ -952,7 +952,7 @@ private:
             if (!value.has_value()) {
                 return std::nullopt;
             }
-            return (*value == 0) ? 1ll : 0ll;
+            return (*value == 0) ? 1LL : 0LL;
         }
         if (consume(ScanPpTokenKind::BitNot)) {
             auto value = parse_unary();
@@ -994,7 +994,7 @@ private:
             if (parenthesized && !consume(ScanPpTokenKind::RParen)) {
                 return std::nullopt;
             }
-            return object_like_macros_.contains(ident) ? 1ll : 0ll;
+            return object_like_macros_.contains(ident) ? 1LL : 0LL;
         }
 
         if (current().kind == ScanPpTokenKind::Number) {
@@ -1009,7 +1009,7 @@ private:
             if (const auto it = object_like_macros_.find(ident); it != object_like_macros_.end()) {
                 const auto macro_value = trim_ascii_view(it->second);
                 if (macro_value.empty()) {
-                    return 1ll;
+                    return 1LL;
                 }
                 if (depth_ >= 32) {
                     return std::nullopt;
@@ -1017,7 +1017,7 @@ private:
                 ScanPpExpressionParser nested{macro_value, object_like_macros_, depth_ + 1};
                 return nested.parse();
             }
-            return 0ll;
+            return 0LL;
         }
 
         return std::nullopt;

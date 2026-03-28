@@ -27,7 +27,7 @@ struct Adopt {
     Adopt(const Adopt &)            = delete;
     Adopt &operator=(const Adopt &) = delete;
 
-    explicit Adopt(const Token &t) : prev(detail::current_test()), adopted(t) {
+    explicit Adopt(Token t) : prev(detail::current_test()), adopted(std::move(t)) {
         if (adopted) {
             adopted->adopted_tokens.fetch_add(1, std::memory_order_acq_rel);
         }
@@ -97,9 +97,9 @@ inline void xfail(std::string_view reason = {}, const std::source_location &loc 
     (void)loc;
     auto ctx = detail::current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        std::fputs("gentest: fatal: xfail called without an active test context.\n"
-                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
-                   stderr);
+        (void)std::fputs("gentest: fatal: xfail called without an active test context.\n"
+                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         stderr);
         std::abort();
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);

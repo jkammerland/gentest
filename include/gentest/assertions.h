@@ -32,7 +32,7 @@ struct Approx {
     }
 
     template <typename T> bool matches(const T &value) const {
-        const long double a    = static_cast<long double>(value);
+        const auto a           = static_cast<long double>(value);
         const long double diff = a > target ? (a - target) : (target - a);
         if (abs_epsilon > 0 && diff <= abs_epsilon)
             return true;
@@ -451,11 +451,11 @@ template <class Fn> inline void ASSERT_NO_THROW(Fn &&fn, const std::source_locat
 } // namespace asserts
 
 // Unconditionally throw a gentest::failure with the provided message.
-inline void fail(std::string message) {
+inline void fail(std::string_view message) {
 #if GENTEST_EXCEPTIONS_ENABLED
-    throw failure(std::move(message));
+    throw failure(std::string(message));
 #else
-    ::gentest::detail::record_failure(std::move(message));
+    ::gentest::detail::record_failure(std::string(message));
     ::gentest::detail::terminate_no_exceptions_fatal("gentest::fail");
 #endif
 }
