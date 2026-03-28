@@ -460,6 +460,7 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
     return teardown_ok;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name,
                                          std::string &error) {
     auto                       &reg = shared_fixture_registry();

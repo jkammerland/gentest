@@ -1959,6 +1959,7 @@ function(_gentest_prepare_tu_mode)
 \n\
 // Include the original translation unit so fixture types and test bodies are\n\
 // visible for wrappers.\n\
+// NOLINTNEXTLINE(bugprone-suspicious-include)\n\
 #include \"${_rel_src}\"\n\
 \n\
 // Include generated registrations after the original TU is visible.\n\

@@ -196,6 +196,7 @@ void merge_duplicate_mocks(std::vector<gentest::codegen::MockClassInfo> &mocks) 
     return path.lexically_normal().generic_string();
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 [[nodiscard]] std::string depfile_path_for_build(const std::filesystem::path &path, const std::filesystem::path &base_dir) {
     std::error_code       ec;
     std::filesystem::path normalized = path;
@@ -1109,6 +1110,7 @@ std::string_view module_dependency_scan_mode_name(ModuleDependencyScanMode mode)
     return "AUTO";
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 std::optional<std::string> find_option_value(std::span<const std::string> args, std::string_view option,
                                              std::string_view joined_prefix) {
     for (std::size_t i = 0; i < args.size(); ++i) {
@@ -1214,6 +1216,7 @@ bool has_numeric_suffix_after(std::string_view text, std::string_view prefix) {
         std::ranges::all_of(suffix, [](unsigned char ch) { return std::isdigit(ch) != 0; });
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 std::string resolve_clang_scan_deps_executable(std::string_view explicit_path, std::string_view compiler_path) {
     auto try_candidate = [](const std::filesystem::path &candidate) -> std::string {
         std::error_code ec;
@@ -1562,6 +1565,7 @@ std::string normalize_compdb_lookup_path(std::string_view path, std::string_view
     return key;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileCommand command, std::string_view from_file,
                                                         std::string_view to_file) {
     const std::string from{from_file};
@@ -2122,6 +2126,7 @@ std::string resolve_default_compiler_path() {
     return std::string{kDefault};
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool has_option_arg(std::span<const std::string> args, std::string_view option, std::string_view joined_prefix = {}) {
     bool next_is_value = false;
     for (const auto &arg : args) {

@@ -32,6 +32,7 @@ std::string escape_tsv_cell(std::string_view value) {
     return out;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void append_tsv_metric(std::string &out, std::string_view key, std::string_view value) {
     out.append(escape_tsv_cell(key));
     out.push_back('\t');

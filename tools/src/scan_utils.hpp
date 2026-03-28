@@ -183,7 +183,7 @@ inline void append_unique_scan_path(std::vector<std::filesystem::path> &paths, c
     }
 
     const std::filesystem::path normalized = path.lexically_normal();
-    if (std::find(paths.begin(), paths.end(), normalized) == paths.end()) {
+    if (std::ranges::find(paths, normalized) == paths.end()) {
         paths.push_back(normalized);
     }
 }
@@ -363,7 +363,7 @@ inline bool consume_scan_keyword(std::string_view &cursor, std::string_view keyw
         return false;
     }
     if (cursor.size() > keyword.size()) {
-        const unsigned char next = static_cast<unsigned char>(cursor[keyword.size()]);
+        const auto next = static_cast<unsigned char>(cursor[keyword.size()]);
         if (!std::isspace(next) && next != ';' && next != '<' && next != '"' && next != ':') {
             return false;
         }
@@ -480,7 +480,7 @@ inline std::optional<long long> parse_scan_integer_literal(std::string_view text
     }
 
     std::string normalized{text};
-    normalized.erase(std::remove(normalized.begin(), normalized.end(), '\''), normalized.end());
+    normalized.erase(std::ranges::remove(normalized, '\'').begin(), normalized.end());
     text = normalized;
 
     int sign = 1;
@@ -588,7 +588,7 @@ inline std::vector<ScanPpToken> tokenize_scan_preprocessor_expression(std::strin
     std::vector<ScanPpToken> tokens;
     std::size_t              i = 0;
     while (i < text.size()) {
-        const unsigned char ch = static_cast<unsigned char>(text[i]);
+        const auto ch = static_cast<unsigned char>(text[i]);
         if (std::isspace(ch)) {
             ++i;
             continue;
@@ -599,25 +599,34 @@ inline std::vector<ScanPpToken> tokenize_scan_preprocessor_expression(std::strin
             while (i < text.size() && is_scan_identifier_continue(static_cast<unsigned char>(text[i]))) {
                 ++i;
             }
-            tokens.push_back(ScanPpToken{ScanPpTokenKind::Identifier, std::string{text.substr(begin, i - begin)}});
+            tokens.push_back(ScanPpToken{
+                .kind = ScanPpTokenKind::Identifier,
+                .text = std::string{text.substr(begin, i - begin)},
+            });
             continue;
         }
 
         if (std::isdigit(ch)) {
             const std::size_t begin = i++;
             while (i < text.size()) {
-                const unsigned char next = static_cast<unsigned char>(text[i]);
+                const auto next = static_cast<unsigned char>(text[i]);
                 if (!std::isalnum(next) && next != '_' && next != '\'') {
                     break;
                 }
                 ++i;
             }
-            tokens.push_back(ScanPpToken{ScanPpTokenKind::Number, std::string{text.substr(begin, i - begin)}});
+            tokens.push_back(ScanPpToken{
+                .kind = ScanPpTokenKind::Number,
+                .text = std::string{text.substr(begin, i - begin)},
+            });
             continue;
         }
 
         auto push = [&](ScanPpTokenKind kind, std::size_t len) {
-            tokens.push_back(ScanPpToken{kind, std::string{text.substr(i, len)}});
+            tokens.push_back(ScanPpToken{
+                .kind = kind,
+                .text = std::string{text.substr(i, len)},
+            });
             i += len;
         };
 
@@ -704,7 +713,10 @@ inline std::vector<ScanPpToken> tokenize_scan_preprocessor_expression(std::strin
             return {};
         }
     }
-    tokens.push_back(ScanPpToken{ScanPpTokenKind::End, {}});
+    tokens.push_back(ScanPpToken{
+        .kind = ScanPpTokenKind::End,
+        .text = {},
+    });
     return tokens;
 }
 
@@ -1167,6 +1179,7 @@ inline void update_preprocessor_branch_state(ScanStreamState &state) {
     state.current_branch_active = state.conditionals.empty() ? true : state.conditionals.back().active;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 inline void warn_unknown_preprocessor_condition(std::string_view keyword, std::string_view expr, std::size_t line_number,
                                                 const ScanStreamState &state) {
     if (!state.warn_on_unknown_conditions || keyword.empty()) {

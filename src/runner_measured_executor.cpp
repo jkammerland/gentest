@@ -66,10 +66,10 @@ double percentile_sorted(const std::vector<double> &v, double p) {
         return v.front();
     if (p >= 1.0)
         return v.back();
-    const double      idx  = p * static_cast<double>(v.size() - 1);
-    const std::size_t lo   = static_cast<std::size_t>(idx);
-    const std::size_t hi   = (lo + 1 < v.size()) ? (lo + 1) : lo;
-    const double      frac = idx - static_cast<double>(lo);
+    const double idx  = p * static_cast<double>(v.size() - 1);
+    const auto   lo   = static_cast<std::size_t>(idx);
+    const auto   hi   = (lo + 1 < v.size()) ? (lo + 1) : lo;
+    const double frac = idx - static_cast<double>(lo);
     return v[lo] + (v[hi] - v[lo]) * frac;
 }
 
@@ -168,6 +168,7 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
     return std::chrono::duration<double>(end - start).count();
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail) {
     iterations_done                        = 0;
     return run_call_phase_with_context(
@@ -196,6 +197,7 @@ CalibratedEpoch calibrate_epoch_iterations(const gentest::Case &c, void *ctx, co
     }
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_warmup_epochs(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t warmup_epochs, std::size_t &iterations_done,
                          bool &had_assert_fail) {
     double warmup_time_s = 0.0;
@@ -208,6 +210,7 @@ double run_warmup_epochs(const gentest::Case &c, void *ctx, std::size_t iters, s
     return warmup_time_s;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail,
                               std::vector<double> &samples_ns) {
     using clock      = std::chrono::steady_clock;
@@ -227,8 +230,9 @@ double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t ite
         had_assert_fail);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_jitter_batch_epoch_calls(const gentest::Case &c, void *ctx, std::size_t batch_iters, std::size_t batch_samples,
-                                    std::size_t &iterations_done, bool &had_assert_fail, std::vector<double> &samples_ns) {
+                                    std::size_t &iterations_done, bool &had_assert_fail, std::vector<double> &samples_ns) { // NOLINT(bugprone-easily-swappable-parameters)
     using clock             = std::chrono::steady_clock;
     iterations_done         = 0;
     std::size_t local_done  = 0;
@@ -312,9 +316,10 @@ OverheadEstimate estimate_timer_overhead_batch(std::size_t sample_count, std::si
     return est;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::BenchPhase phase, std::string &error,
-                           bool &allocation_failure, bool &runtime_skipped, std::string &skip_reason,
-                           gentest::detail::TestContextInfo::RuntimeSkipKind &runtime_skip_kind) {
+                           bool &allocation_failure, bool &runtime_skipped, std::string &skip_reason, // NOLINT(bugprone-easily-swappable-parameters)
+                           gentest::detail::TestContextInfo::RuntimeSkipKind &runtime_skip_kind) { // NOLINT(bugprone-easily-swappable-parameters)
     error.clear();
     skip_reason.clear();
     allocation_failure = false;
@@ -392,7 +397,7 @@ BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg)
     }
     if (!epoch_ns.empty()) {
         std::vector<double> sorted = epoch_ns;
-        std::sort(sorted.begin(), sorted.end());
+        std::ranges::sort(sorted);
         br.epochs          = sorted.size();
         br.iters_per_epoch = iters;
         br.best_ns         = sorted.front();
@@ -649,7 +654,7 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
                 if (failure.infra_failure) {
                     had_fixture_failure = true;
                     if (fail_fast)
-                        return TimedRunStatus{false, true};
+                        return TimedRunStatus{.ok = false, .stopped = true};
                 }
                 continue;
             }
@@ -659,12 +664,12 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
             on_failure(c, failure, message);
             had_fixture_failure = true;
             if (fail_fast)
-                return TimedRunStatus{false, true};
+                return TimedRunStatus{.ok = false, .stopped = true};
             continue;
         }
         on_success(c, std::move(result));
     }
-    return TimedRunStatus{!had_fixture_failure};
+    return TimedRunStatus{.ok = !had_fixture_failure};
 }
 
 } // namespace
@@ -690,7 +695,7 @@ TimedRunStatus run_selected_benches(std::span<const gentest::Case> kCases, std::
     if (measured_status.stopped)
         return measured_status;
     print_bench_report(rows, opt);
-    return TimedRunStatus{measured_status.ok};
+    return TimedRunStatus{.ok = measured_status.ok};
 }
 
 TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::span<const std::size_t> idxs, const CliOptions &opt,
@@ -716,7 +721,7 @@ TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::
     if (measured_status.stopped)
         return measured_status;
     print_jitter_report(rows, opt);
-    return TimedRunStatus{measured_status.ok};
+    return TimedRunStatus{.ok = measured_status.ok};
 }
 
 } // namespace gentest::runner

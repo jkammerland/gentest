@@ -61,7 +61,7 @@ std::string qualifiers_for(const MockMethodInfo &method) {
 }
 
 std::string ensure_global_qualifiers(std::string value) {
-    if (value.rfind("::", 0) == 0) {
+    if (value.starts_with("::")) {
         return value;
     }
     std::size_t pos = value.find("::");
@@ -193,7 +193,7 @@ bool supports_runtime_template_method_ptr_match(const MockMethodInfo &method, st
 
     for (const auto clause : clauses) {
         const auto trimmed = trim_ascii(clause);
-        if (!(trimmed.rfind("typename", 0) == 0 || trimmed.rfind("class", 0) == 0)) {
+        if (!(trimmed.starts_with("typename") || trimmed.starts_with("class"))) {
             return false;
         }
     }

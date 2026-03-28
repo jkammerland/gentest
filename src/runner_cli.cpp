@@ -44,27 +44,27 @@ struct ParseU64DecimalResult {
 
 static ParseU64DecimalResult parse_u64_decimal_strict(std::string_view s) {
     if (s.empty())
-        return ParseU64DecimalResult{0, ParseU64DecimalStatus::Empty};
+        return ParseU64DecimalResult{.value = 0, .status = ParseU64DecimalStatus::Empty};
 
     std::uint64_t v = 0;
     for (const char ch : s) {
         if (ch < '0' || ch > '9')
-            return ParseU64DecimalResult{0, ParseU64DecimalStatus::NonDecimal};
+            return ParseU64DecimalResult{.value = 0, .status = ParseU64DecimalStatus::NonDecimal};
 
-        const std::uint64_t digit = static_cast<std::uint64_t>(ch - '0');
-        const std::uint64_t maxv  = static_cast<std::uint64_t>(-1);
+        const auto digit = static_cast<std::uint64_t>(ch - '0');
+        const auto maxv  = static_cast<std::uint64_t>(-1);
         if (v > (maxv - digit) / 10)
-            return ParseU64DecimalResult{0, ParseU64DecimalStatus::Overflow};
+            return ParseU64DecimalResult{.value = 0, .status = ParseU64DecimalStatus::Overflow};
         v = v * 10 + digit;
     }
 
-    return ParseU64DecimalResult{v, ParseU64DecimalStatus::Ok};
+    return ParseU64DecimalResult{.value = v, .status = ParseU64DecimalStatus::Ok};
 }
 
 static std::uint64_t make_random_seed() {
     std::random_device  rd;
-    const std::uint64_t hi = static_cast<std::uint64_t>(rd()) << 32;
-    const std::uint64_t lo = static_cast<std::uint64_t>(rd());
+    const auto hi = static_cast<std::uint64_t>(rd()) << 32;
+    const auto lo = static_cast<std::uint64_t>(rd());
     return hi ^ lo;
 }
 
@@ -105,7 +105,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             ++i;
             return ValueMatch::Yes;
         }
-        if (s.rfind(opt_name, 0) == 0 && s.size() > opt_name.size() && s[opt_name.size()] == '=') {
+        if (s.size() > opt_name.size() && s.starts_with(opt_name) && s[opt_name.size()] == '=') {
             value = s.substr(opt_name.size() + 1);
             if (value.empty()) {
                 fmt::print(stderr, "error: {} requires a non-empty value\n", opt_name);
@@ -198,6 +198,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         return false;
     };
 
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     auto set_unique_string_option = [&](const char *&out_value, std::string_view opt_name, std::string_view value) -> bool {
         if (out_value) {
             fmt::print(stderr, "error: duplicate {}\n", opt_name);

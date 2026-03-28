@@ -63,7 +63,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
 }
 
 [[nodiscard]] std::string trim_leading_global_qualifier(std::string value) {
-    if (value.rfind("::", 0) == 0) {
+    if (value.starts_with("::")) {
         value.erase(0, 2);
     }
     return value;

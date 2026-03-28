@@ -523,6 +523,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
 
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &display_args, const std::string &call_args,
                         const std::vector<std::string> &free_fixture_types,
                         const std::vector<std::optional<FixtureScope>> &free_fixture_required_scopes,

@@ -246,6 +246,7 @@ bool extract_gentest_scoped_payload(std::string_view list, std::string &payload,
     return !payload.empty();
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std::string_view &namespace_name, std::string_view &args_text,
                                            std::string &owned_args_text, std::vector<std::string> &mis_scoped_gentest) {
     mis_scoped_gentest.clear();
@@ -298,7 +299,7 @@ bool parse_attribute_namespace_and_payload(std::string_view attribute_text, std:
     namespace_name = view.substr(0, ns_len);
     view.remove_prefix(ns_len);
     view = trim_view(view);
-    if (view.size() < 2 || view.substr(0, 2) != "::") {
+    if (!view.starts_with("::")) {
         if (!extract_gentest_scoped_payload(attribute_list, owned_args_text, mis_scoped_gentest)) {
             return false;
         }

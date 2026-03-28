@@ -175,6 +175,7 @@ def _gentest_quote_json(text):
 def _gentest_textual_wrapper_source(source_path, header_basename):
     return """// generated placeholder
 
+// NOLINTNEXTLINE(bugprone-suspicious-include)
 #include "{source_path}"
 
 #if !defined(GENTEST_CODEGEN) && __has_include("{header_basename}")

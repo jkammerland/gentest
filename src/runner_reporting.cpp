@@ -181,9 +181,9 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
         obj["time"]   = it.time_s;
         boost::json::array labels;
         labels.push_back({{"name", "suite"}, {"value", it.suite}});
-        if (it.skipped && it.skip_reason.rfind("xfail", 0) == 0) {
+        if (it.skipped && it.skip_reason.starts_with("xfail")) {
             std::string_view r = it.skip_reason;
-            if (r.rfind("xfail:", 0) == 0) {
+            if (r.starts_with("xfail:")) {
                 r.remove_prefix(std::string_view("xfail:").size());
                 while (!r.empty() && r.front() == ' ')
                     r.remove_prefix(1);
@@ -322,7 +322,10 @@ bool write_allure_files(RunAccumulator &acc, const std::vector<PendingAllureFile
 void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues) {
     if (issues.empty())
         issues.emplace_back("failure (no details)");
-    acc.failure_items.push_back(FailureSummary{std::string(name), std::move(issues)});
+    acc.failure_items.push_back(FailureSummary{
+        .name = std::string(name),
+        .issues = std::move(issues),
+    });
 }
 
 void record_runner_level_failure(RunAccumulator &acc, std::string_view name, std::string message) {
@@ -356,6 +359,7 @@ void record_case_result(RunAccumulator &acc, const gentest::Case &test, RunResul
     acc.report_items.push_back(std::move(item));
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void add_error_annotation(RunAccumulator &acc, std::string_view file, unsigned line, std::string_view title, std::string_view message) {
     GitHubAnnotation item;
     item.file    = std::string(file);

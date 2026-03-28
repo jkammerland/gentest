@@ -10,6 +10,7 @@ Checks: >-
   performance-*,
   -performance-enum-size,
   bugprone-*,
+  -bugprone-suspicious-include,
   cert-*,
   clang-analyzer-*,
 HeaderFilterRegex: '.*([\\/])(src|include|tests)([\\/]).*'

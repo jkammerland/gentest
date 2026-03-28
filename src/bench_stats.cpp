@@ -15,8 +15,8 @@ double percentile_sorted(const std::vector<double>& v, double p) {
     if (p >= 1.0)
         return v.back();
     const double idx = p * static_cast<double>(v.size() - 1);
-    const std::size_t lo = static_cast<std::size_t>(idx);
-    const std::size_t hi = (lo + 1 < v.size()) ? (lo + 1) : lo;
+    const auto lo = static_cast<std::size_t>(idx);
+    const auto hi = (lo + 1 < v.size()) ? (lo + 1) : lo;
     const double frac = idx - static_cast<double>(lo);
     return v[lo] + (v[hi] - v[lo]) * frac;
 }
@@ -85,7 +85,7 @@ Histogram compute_histogram(std::span<const double> samples, int bins) {
         counts[static_cast<std::size_t>(idx)]++;
     }
 
-    const double total = static_cast<double>(samples.size());
+    const auto total = static_cast<double>(samples.size());
     std::size_t cumulative = 0;
     hist.bins.reserve(static_cast<std::size_t>(hist_bins));
     for (int i = 0; i < hist_bins; ++i) {
@@ -98,12 +98,12 @@ Histogram compute_histogram(std::span<const double> samples, int bins) {
         const double pct = (total > 0.0) ? (static_cast<double>(count) / total * 100.0) : 0.0;
         const double cum_pct = (total > 0.0) ? (static_cast<double>(cumulative) / total * 100.0) : 0.0;
         hist.bins.push_back(HistogramBin{
-            lo,
-            hi,
-            count,
-            pct,
-            cum_pct,
-            (i == hist_bins - 1),
+            .lo = lo,
+            .hi = hi,
+            .count = count,
+            .percent = pct,
+            .cumulative_percent = cum_pct,
+            .inclusive_hi = (i == hist_bins - 1),
         });
     }
     return hist;
