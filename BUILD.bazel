@@ -47,14 +47,23 @@ genrule(
           "if [ -x /opt/homebrew/bin/cmake ]; then GENTEST_CMAKE_BIN=/opt/homebrew/bin/cmake; " +
           "else GENTEST_CMAKE_BIN=$$(command -v cmake); fi && " +
           "if [ -x /opt/homebrew/bin/ninja ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -G Ninja -DCMAKE_MAKE_PROGRAM=/opt/homebrew/bin/ninja\"; fi && " +
-          "if [ -n \"$${CC:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_C_COMPILER=$$CC\"; " +
-          "elif [ -x /opt/homebrew/opt/llvm/bin/clang ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_C_COMPILER=/opt/homebrew/opt/llvm/bin/clang\"; fi && " +
-          "if [ -n \"$${CXX:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_CXX_COMPILER=$$CXX\"; " +
-          "elif [ -x /opt/homebrew/opt/llvm/bin/clang++ ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm/bin/clang++\"; fi && " +
-          "if [ -n \"$${LLVM_DIR:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DLLVM_DIR=$$LLVM_DIR\"; " +
-          "elif [ -d /opt/homebrew/opt/llvm/lib/cmake/llvm ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DLLVM_DIR=/opt/homebrew/opt/llvm/lib/cmake/llvm\"; fi && " +
-          "if [ -n \"$${Clang_DIR:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DClang_DIR=$$Clang_DIR\"; " +
-          "elif [ -d /opt/homebrew/opt/llvm/lib/cmake/clang ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DClang_DIR=/opt/homebrew/opt/llvm/lib/cmake/clang\"; fi && " +
+          "if [ -z \"$${CC:-}\" ]; then " +
+          "for _cc in /opt/homebrew/opt/llvm/bin/clang /usr/local/opt/llvm/bin/clang /usr/lib64/llvm22/bin/clang /usr/lib64/llvm21/bin/clang /usr/lib64/llvm20/bin/clang /usr/lib/llvm-22/bin/clang /usr/lib/llvm-21/bin/clang /usr/lib/llvm-20/bin/clang; do " +
+          "if [ -x \"$$_cc\" ]; then CC=\"$$_cc\"; break; fi; done; fi && " +
+          "if [ -z \"$${CXX:-}\" ]; then " +
+          "for _cxx in /opt/homebrew/opt/llvm/bin/clang++ /usr/local/opt/llvm/bin/clang++ /usr/lib64/llvm22/bin/clang++ /usr/lib64/llvm21/bin/clang++ /usr/lib64/llvm20/bin/clang++ /usr/lib/llvm-22/bin/clang++ /usr/lib/llvm-21/bin/clang++ /usr/lib/llvm-20/bin/clang++; do " +
+          "if [ -x \"$$_cxx\" ]; then CXX=\"$$_cxx\"; break; fi; done; fi && " +
+          "if [ -n \"$${CC:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_C_COMPILER=$$CC\"; fi && " +
+          "if [ -n \"$${CXX:-}\" ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DCMAKE_CXX_COMPILER=$$CXX\"; LLVM_BIN=$$(dirname \"$${CXX}\"); fi && " +
+          "if [ -z \"$${LLVM_DIR:-}\" ]; then " +
+          "for _llvm in \"$${LLVM_BIN:-}/../lib/cmake/llvm\" \"$${LLVM_BIN:-}/../lib64/cmake/llvm\" /opt/homebrew/opt/llvm/lib/cmake/llvm /usr/local/opt/llvm/lib/cmake/llvm /usr/lib64/llvm22/lib64/cmake/llvm /usr/lib64/llvm21/lib64/cmake/llvm /usr/lib64/llvm20/lib64/cmake/llvm /usr/lib/llvm-22/lib/cmake/llvm /usr/lib/llvm-21/lib/cmake/llvm /usr/lib/llvm-20/lib/cmake/llvm; do " +
+          "if [ -f \"$$_llvm/LLVMConfig.cmake\" ]; then LLVM_DIR=\"$$_llvm\"; break; fi; done; fi && " +
+          "if [ -z \"$${Clang_DIR:-}\" ]; then " +
+          "for _clang_dir in \"$${LLVM_BIN:-}/../lib/cmake/clang\" \"$${LLVM_BIN:-}/../lib64/cmake/clang\" /opt/homebrew/opt/llvm/lib/cmake/clang /usr/local/opt/llvm/lib/cmake/clang /usr/lib64/llvm22/lib64/cmake/clang /usr/lib64/llvm21/lib64/cmake/clang /usr/lib64/llvm20/lib64/cmake/clang /usr/lib/llvm-22/lib/cmake/clang /usr/lib/llvm-21/lib/cmake/clang /usr/lib/llvm-20/lib/cmake/clang; do " +
+          "if [ -f \"$$_clang_dir/ClangConfig.cmake\" ]; then Clang_DIR=\"$$_clang_dir\"; break; fi; done; fi && " +
+          "if [ -z \"$${LLVM_DIR:-}\" ]; then echo 'gentest bazel: supported LLVM_DIR not found' >&2; exit 127; fi && " +
+          "if [ -z \"$${Clang_DIR:-}\" ]; then echo 'gentest bazel: supported Clang_DIR not found' >&2; exit 127; fi && " +
+          "GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DLLVM_DIR=$$LLVM_DIR -DClang_DIR=$$Clang_DIR\" && " +
           "if [ -z \"$${GENTEST_CMAKE_BIN}\" ]; then echo 'gentest bazel: cmake not found' >&2; exit 127; fi && " +
           "rm -rf $(@D)/b && mkdir -p $(@D)/b && " +
           "\"$${GENTEST_CMAKE_BIN}\" -S . -B $(@D)/b $$GENTEST_CMAKE_ARGS && " +
@@ -71,15 +80,20 @@ genrule(
     name = 'gentest_codegen_build_windows',
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen.exe'],
-    cmd_bat = "set GENTEST_CMAKE_ARGS=-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && " +
-              "if defined CC set GENTEST_CMAKE_ARGS=%GENTEST_CMAKE_ARGS% -DCMAKE_C_COMPILER=\"%CC%\" && " +
-              "if defined CXX set GENTEST_CMAKE_ARGS=%GENTEST_CMAKE_ARGS% -DCMAKE_CXX_COMPILER=\"%CXX%\" && " +
-              "if defined LLVM_DIR set GENTEST_CMAKE_ARGS=%GENTEST_CMAKE_ARGS% -DLLVM_DIR=\"%LLVM_DIR%\" && " +
-              "if defined Clang_DIR set GENTEST_CMAKE_ARGS=%GENTEST_CMAKE_ARGS% -DClang_DIR=\"%Clang_DIR%\" && " +
+    cmd_bat = "setlocal EnableDelayedExpansion && set GENTEST_CMAKE_ARGS=-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && " +
+              "if not defined CC for %%I in (C:\\Tools\\llvm-22.1.0\\bin\\clang.exe C:\\Tools\\llvm-21.1.4\\bin\\clang.exe C:\\Tools\\llvm-20.1.8\\bin\\clang.exe) do if not defined CC if exist %%I set CC=%%I && " +
+              "if not defined CXX for %%I in (C:\\Tools\\llvm-22.1.0\\bin\\clang++.exe C:\\Tools\\llvm-21.1.4\\bin\\clang++.exe C:\\Tools\\llvm-20.1.8\\bin\\clang++.exe) do if not defined CXX if exist %%I set CXX=%%I && " +
+              "if defined CC set GENTEST_CMAKE_ARGS=!GENTEST_CMAKE_ARGS! -DCMAKE_C_COMPILER=\"!CC!\" && " +
+              "if defined CXX set GENTEST_CMAKE_ARGS=!GENTEST_CMAKE_ARGS! -DCMAKE_CXX_COMPILER=\"!CXX!\" && " +
+              "if not defined LLVM_DIR for %%I in (C:\\Tools\\llvm-22.1.0\\lib\\cmake\\llvm C:\\Tools\\llvm-21.1.4\\lib\\cmake\\llvm C:\\Tools\\llvm-20.1.8\\lib\\cmake\\llvm) do if not defined LLVM_DIR if exist %%I\\LLVMConfig.cmake set LLVM_DIR=%%I && " +
+              "if not defined Clang_DIR for %%I in (C:\\Tools\\llvm-22.1.0\\lib\\cmake\\clang C:\\Tools\\llvm-21.1.4\\lib\\cmake\\clang C:\\Tools\\llvm-20.1.8\\lib\\cmake\\clang) do if not defined Clang_DIR if exist %%I\\ClangConfig.cmake set Clang_DIR=%%I && " +
+              "if not defined LLVM_DIR (echo gentest bazel: supported LLVM_DIR not found 1>&2 & exit /b 127) && " +
+              "if not defined Clang_DIR (echo gentest bazel: supported Clang_DIR not found 1>&2 & exit /b 127) && " +
+              "set GENTEST_CMAKE_ARGS=!GENTEST_CMAKE_ARGS! -DLLVM_DIR=\"!LLVM_DIR!\" -DClang_DIR=\"!Clang_DIR!\" && " +
               "if exist \"%ProgramFiles%\\CMake\\bin\\cmake.exe\" (set GENTEST_CMAKE_BIN=%ProgramFiles%\\CMake\\bin\\cmake.exe) else (set GENTEST_CMAKE_BIN=cmake) && " +
               "if exist $(@D)\\b rmdir /S /Q $(@D)\\b && mkdir $(@D)\\b && " +
-              "\"%GENTEST_CMAKE_BIN%\" -S . -B $(@D)\\b %GENTEST_CMAKE_ARGS% && " +
-              "\"%GENTEST_CMAKE_BIN%\" --build $(@D)\\b --target gentest_codegen --config Release && " +
+              "\"!GENTEST_CMAKE_BIN!\" -S . -B $(@D)\\b !GENTEST_CMAKE_ARGS! && " +
+              "\"!GENTEST_CMAKE_BIN!\" --build $(@D)\\b --target gentest_codegen --config Release && " +
               "(if exist $(@D)\\b\\tools\\Release\\gentest_codegen.exe " +
               "(copy /Y $(@D)\\b\\tools\\Release\\gentest_codegen.exe $@ >NUL) " +
               "else (copy /Y $(@D)\\b\\tools\\gentest_codegen.exe $@ >NUL))",

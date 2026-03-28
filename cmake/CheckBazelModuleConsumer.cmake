@@ -8,35 +8,95 @@ if(NOT _bazel)
   return()
 endif()
 
+function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
+  get_filename_component(_clang_bin_dir "${clang_cxx}" DIRECTORY)
+  get_filename_component(_clang_prefix "${_clang_bin_dir}/.." ABSOLUTE)
+
+  set(_llvm_candidates
+    "${_clang_prefix}/lib/cmake/llvm"
+    "${_clang_prefix}/lib64/cmake/llvm"
+    /opt/homebrew/opt/llvm/lib/cmake/llvm
+    /usr/local/opt/llvm/lib/cmake/llvm
+    /usr/lib64/llvm22/lib64/cmake/llvm
+    /usr/lib64/llvm21/lib64/cmake/llvm
+    /usr/lib64/llvm20/lib64/cmake/llvm
+    /usr/lib/llvm-22/lib/cmake/llvm
+    /usr/lib/llvm-21/lib/cmake/llvm
+    /usr/lib/llvm-20/lib/cmake/llvm)
+  set(_clang_candidates
+    "${_clang_prefix}/lib/cmake/clang"
+    "${_clang_prefix}/lib64/cmake/clang"
+    /opt/homebrew/opt/llvm/lib/cmake/clang
+    /usr/local/opt/llvm/lib/cmake/clang
+    /usr/lib64/llvm22/lib64/cmake/clang
+    /usr/lib64/llvm21/lib64/cmake/clang
+    /usr/lib64/llvm20/lib64/cmake/clang
+    /usr/lib/llvm-22/lib/cmake/clang
+    /usr/lib/llvm-21/lib/cmake/clang
+    /usr/lib/llvm-20/lib/cmake/clang)
+
+  set(_resolved_llvm "")
+  foreach(_candidate IN LISTS _llvm_candidates)
+    if(EXISTS "${_candidate}/LLVMConfig.cmake")
+      set(_resolved_llvm "${_candidate}")
+      break()
+    endif()
+  endforeach()
+
+  set(_resolved_clang "")
+  foreach(_candidate IN LISTS _clang_candidates)
+    if(EXISTS "${_candidate}/ClangConfig.cmake")
+      set(_resolved_clang "${_candidate}")
+      break()
+    endif()
+  endforeach()
+
+  set(${out_llvm_dir} "${_resolved_llvm}" PARENT_SCOPE)
+  set(${out_clang_dir} "${_resolved_clang}" PARENT_SCOPE)
+endfunction()
+
 set(_gentest_clang_search_paths
+  /opt/homebrew/opt/llvm/bin
+  /usr/local/opt/llvm/bin
+  /opt/homebrew/bin
+  /usr/local/bin
   /usr/lib64/llvm22/bin
   /usr/lib64/llvm21/bin
   /usr/lib64/llvm20/bin
   /usr/lib/llvm-22/bin
   /usr/lib/llvm-21/bin
   /usr/lib/llvm-20/bin
-  /usr/bin
-  /bin)
+  /usr/bin)
 
-find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20
+find_program(_clang_cxx NAMES clang++-22 clang++-21 clang++-20 clang++
   PATHS ${_gentest_clang_search_paths}
   NO_DEFAULT_PATH)
-if(NOT _clang_cxx)
-  find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20)
-endif()
 if(NOT _clang_cxx)
   message(STATUS "clang++ not found; skipping Bazel module consumer smoke check.")
   return()
 endif()
+if(NOT _clang_cxx MATCHES "/opt/homebrew/(opt/llvm|bin)/clang\\+\\+$"
+   AND NOT _clang_cxx MATCHES "/usr/local/opt/llvm/bin/clang\\+\\+$"
+   AND NOT _clang_cxx MATCHES "/usr/lib64/llvm(20|21|22)/bin/clang\\+\\+$"
+   AND NOT _clang_cxx MATCHES "/usr/lib/llvm-(20|21|22)/bin/clang\\+\\+$"
+   AND NOT _clang_cxx MATCHES "/usr/bin/clang\\+\\+-(20|21|22)$")
+  message(STATUS "unsupported clang++ toolchain '${_clang_cxx}'; skipping Bazel module consumer smoke check.")
+  return()
+endif()
 
-find_program(_clang_cc NAMES clang clang-22 clang-21 clang-20
+find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
   PATHS ${_gentest_clang_search_paths}
   NO_DEFAULT_PATH)
 if(NOT _clang_cc)
-  find_program(_clang_cc NAMES clang clang-22 clang-21 clang-20)
-endif()
-if(NOT _clang_cc)
   message(STATUS "clang not found; skipping Bazel module consumer smoke check.")
+  return()
+endif()
+if(NOT _clang_cc MATCHES "/opt/homebrew/(opt/llvm|bin)/clang$"
+   AND NOT _clang_cc MATCHES "/usr/local/opt/llvm/bin/clang$"
+   AND NOT _clang_cc MATCHES "/usr/lib64/llvm(20|21|22)/bin/clang$"
+   AND NOT _clang_cc MATCHES "/usr/lib/llvm-(20|21|22)/bin/clang$"
+   AND NOT _clang_cc MATCHES "/usr/bin/clang-(20|21|22)$")
+  message(STATUS "unsupported clang toolchain '${_clang_cc}'; skipping Bazel module consumer smoke check.")
   return()
 endif()
 
@@ -53,27 +113,56 @@ if(NOT _resource_rc EQUAL 0 OR _resource_out STREQUAL "")
     "stderr:\n${_resource_err}")
 endif()
 set(_resource_dir "${_resource_out}")
+get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
+_gentest_resolve_llvm_cmake_dirs("${_clang_cxx}" _llvm_dir _clang_dir)
+if(_llvm_dir STREQUAL "" OR _clang_dir STREQUAL "")
+  message(FATAL_ERROR
+    "Failed to locate supported LLVM/Clang CMake package directories for the Bazel module consumer smoke check.\n"
+    "clang++: ${_clang_cxx}\n"
+    "LLVM_DIR: ${_llvm_dir}\n"
+    "Clang_DIR: ${_clang_dir}")
+endif()
+set(_path_sep ":")
+if(WIN32)
+  set(_path_sep ";")
+endif()
+set(_tool_path "${_clang_bin_dir}${_path_sep}$ENV{PATH}")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           "CCACHE_DISABLE=1"
+          "PATH=${_tool_path}"
           "CC=${_clang_cc}"
           "CXX=${_clang_cxx}"
+          "LLVM_BIN=${_clang_bin_dir}"
+          "LLVM_DIR=${_llvm_dir}"
+          "Clang_DIR=${_clang_dir}"
           "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
           "${_bazel}" build
           --experimental_cpp_modules
           --spawn_strategy=local
           --strategy=CppCompile=local
           --action_env=CCACHE_DISABLE=1
+          --action_env=PATH=${_tool_path}
           --host_action_env=CCACHE_DISABLE=1
+          --host_action_env=PATH=${_tool_path}
           --action_env=CC=${_clang_cc}
           --action_env=CXX=${_clang_cxx}
+          --action_env=LLVM_BIN=${_clang_bin_dir}
+          --action_env=LLVM_DIR=${_llvm_dir}
+          --action_env=Clang_DIR=${_clang_dir}
           --action_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}
           --host_action_env=CC=${_clang_cc}
           --host_action_env=CXX=${_clang_cxx}
+          --host_action_env=LLVM_BIN=${_clang_bin_dir}
+          --host_action_env=LLVM_DIR=${_llvm_dir}
+          --host_action_env=Clang_DIR=${_clang_dir}
           --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}
           --repo_env=CC=${_clang_cc}
           --repo_env=CXX=${_clang_cxx}
+          --repo_env=LLVM_BIN=${_clang_bin_dir}
+          --repo_env=LLVM_DIR=${_llvm_dir}
+          --repo_env=Clang_DIR=${_clang_dir}
           --repo_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}
           //:gentest_consumer_module_bazel
   WORKING_DIRECTORY "${SOURCE_DIR}"

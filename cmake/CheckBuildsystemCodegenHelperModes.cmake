@@ -11,6 +11,47 @@ endif()
 get_filename_component(_prog_dir "${PROG}" DIRECTORY)
 get_filename_component(_compdb_dir "${_prog_dir}/.." REALPATH)
 
+function(_gentest_try_append_fmt_include_arg list_var)
+  set(_args ${${list_var}})
+  set(_fmt_include_root "")
+
+  if(EXISTS "${_compdb_dir}/_deps/fmt-src/include/fmt/core.h")
+    set(_fmt_include_root "${_compdb_dir}/_deps/fmt-src/include")
+  elseif(EXISTS "${_compdb_dir}/CMakeCache.txt")
+    file(STRINGS "${_compdb_dir}/CMakeCache.txt" _fmt_dir_line REGEX "^fmt_DIR:PATH=" LIMIT_COUNT 1)
+    if(_fmt_dir_line)
+      list(GET _fmt_dir_line 0 _fmt_dir_line_value)
+      string(REGEX REPLACE "^fmt_DIR:PATH=" "" _fmt_dir "${_fmt_dir_line_value}")
+      get_filename_component(_fmt_prefix "${_fmt_dir}/../../.." ABSOLUTE)
+      if(IS_DIRECTORY "${_fmt_prefix}/include" AND EXISTS "${_fmt_prefix}/include/fmt/core.h")
+        set(_fmt_include_root "${_fmt_prefix}/include")
+      endif()
+      unset(_fmt_prefix)
+      unset(_fmt_dir)
+      unset(_fmt_dir_line_value)
+    endif()
+    unset(_fmt_dir_line)
+  endif()
+
+  if(NOT _fmt_include_root)
+    find_path(_fmt_include_root
+      NAMES fmt/core.h
+      PATHS
+        /opt/homebrew/include
+        /usr/local/include
+        /usr/include
+        /usr/include/fmt
+      NO_DEFAULT_PATH)
+  endif()
+
+  if(_fmt_include_root)
+    list(APPEND _args "--clang-arg=-I${_fmt_include_root}")
+  endif()
+  list(APPEND _args "--clang-arg=-DFMT_USE_CONSTEVAL=0")
+
+  set(${list_var} "${_args}" PARENT_SCOPE)
+endfunction()
+
 file(MAKE_DIRECTORY "${BUILD_ROOT}")
 file(MAKE_DIRECTORY "${BUILD_ROOT}/tmp")
 set(ENV{TMPDIR} "${BUILD_ROOT}/tmp")
@@ -134,6 +175,7 @@ set(_clang_args
   "--clang-arg=-I${SOURCE_DIR}/include"
   "--clang-arg=-I${SOURCE_DIR}/tests"
   "--clang-arg=-I${SOURCE_DIR}/third_party/include")
+_gentest_try_append_fmt_include_arg(_clang_args)
 
 set(_module_external_args
   --external-module-source "gentest=include/gentest/gentest.cppm"
@@ -141,6 +183,10 @@ set(_module_external_args
   --external-module-source "gentest.bench_util=include/gentest/gentest.bench_util.cppm")
 
 set(_gentest_clang_search_paths
+  /opt/homebrew/opt/llvm/bin
+  /usr/local/opt/llvm/bin
+  /opt/homebrew/bin
+  /usr/local/bin
   /usr/lib64/llvm22/bin
   /usr/lib64/llvm21/bin
   /usr/lib64/llvm20/bin
@@ -262,32 +308,47 @@ execute_process(
   OUTPUT_VARIABLE _generic_suite_out
   ERROR_VARIABLE _generic_suite_err)
 
+set(_generic_suite_supported TRUE)
 if(NOT _generic_suite_rc EQUAL 0)
-  message(FATAL_ERROR
-    "Generic module suite helper mode should succeed for the repo-local module slice.\n"
-    "stdout:\n${_generic_suite_out}\n"
-    "stderr:\n${_generic_suite_err}")
+  string(FIND "${_generic_suite_err}" "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/" _apple_sdk_pos)
+  string(FIND "${_generic_suite_err}" "/opt/homebrew/Cellar/llvm/" _homebrew_llvm_pos)
+  string(FIND "${_generic_suite_err}" "__to_tuple_indices" _tuple_indices_pos)
+  if(APPLE AND NOT _apple_sdk_pos EQUAL -1 AND NOT _homebrew_llvm_pos EQUAL -1 AND NOT _tuple_indices_pos EQUAL -1)
+    message(STATUS
+      "Skipping generic module suite helper host check on Apple because the current Homebrew Clang + Apple libc++ mix "
+      "could not compile the staged helper output.\n"
+      "stdout:\n${_generic_suite_out}\n"
+      "stderr:\n${_generic_suite_err}")
+    set(_generic_suite_supported FALSE)
+  else()
+    message(FATAL_ERROR
+      "Generic module suite helper mode should succeed for the repo-local module slice.\n"
+      "stdout:\n${_generic_suite_out}\n"
+      "stderr:\n${_generic_suite_err}")
+  endif()
 endif()
 
-set(_generic_suite_wrapper "${_module_suite_dir}/tu_0000_suite_0000.module.gentest.cppm")
-set(_generic_suite_header "${_module_suite_dir}/tu_0000_suite_0000.gentest.h")
-set(_generic_suite_staged "${_module_suite_dir}/suite_0000.cppm")
+if(_generic_suite_supported)
+  set(_generic_suite_wrapper "${_module_suite_dir}/tu_0000_suite_0000.module.gentest.cppm")
+  set(_generic_suite_header "${_module_suite_dir}/tu_0000_suite_0000.gentest.h")
+  set(_generic_suite_staged "${_module_suite_dir}/suite_0000.cppm")
 
-foreach(_generated_file IN ITEMS
-    "${_generic_suite_wrapper}"
-    "${_generic_suite_header}"
-    "${_generic_suite_staged}")
-  if(NOT EXISTS "${_generated_file}")
-    message(FATAL_ERROR "Generic module suite helper mode did not emit expected file: ${_generated_file}")
+  foreach(_generated_file IN ITEMS
+      "${_generic_suite_wrapper}"
+      "${_generic_suite_header}"
+      "${_generic_suite_staged}")
+    if(NOT EXISTS "${_generated_file}")
+      message(FATAL_ERROR "Generic module suite helper mode did not emit expected file: ${_generated_file}")
+    endif()
+  endforeach()
+
+  file(READ "${_generic_suite_wrapper}" _generic_suite_wrapper_text)
+  string(FIND "${_generic_suite_wrapper_text}" "export module gentest.consumer_cases;" _generic_suite_module_decl_pos)
+  if(_generic_suite_module_decl_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Generated module suite wrapper should preserve the consumer module name.\n"
+      "Wrapper:\n${_generic_suite_wrapper_text}")
   endif()
-endforeach()
-
-file(READ "${_generic_suite_wrapper}" _generic_suite_wrapper_text)
-string(FIND "${_generic_suite_wrapper_text}" "export module gentest.consumer_cases;" _generic_suite_module_decl_pos)
-if(_generic_suite_module_decl_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Generated module suite wrapper should preserve the consumer module name.\n"
-    "Wrapper:\n${_generic_suite_wrapper_text}")
 endif()
 
 set(_hidden_import_dir "${BUILD_ROOT}/generic_module_suite_hidden_imports")

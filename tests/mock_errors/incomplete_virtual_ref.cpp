@@ -6,10 +6,4 @@
 
 struct ForwardOnly; // intentionally incomplete here
 
-// Force ODR-use so the specialization is instantiated in this TU
-static int _gentest_mock_incomplete_virtual_odr() {
-    gentest::mock<ForwardOnly> m;
-    (void)m;
-    return 0;
-}
-
+using ForwardOnlyMock = gentest::mock<ForwardOnly>;

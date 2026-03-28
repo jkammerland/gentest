@@ -12,9 +12,4 @@ struct IFace {
 };
 } // namespace badiface
 
-static int _gentest_mock_virtual_in_cpp_odr() {
-    gentest::mock<badiface::IFace> m;
-    (void)m;
-    return 0;
-}
-
+using IFaceMock = gentest::mock<badiface::IFace>;

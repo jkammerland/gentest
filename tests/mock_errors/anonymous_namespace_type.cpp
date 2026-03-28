@@ -11,9 +11,4 @@ struct Hidden {
 };
 } // anonymous namespace
 
-static int _gentest_mock_anon_ns_odr() {
-    gentest::mock<Hidden> m;
-    (void)m;
-    return 0;
-}
-
+using HiddenMock = gentest::mock<Hidden>;
