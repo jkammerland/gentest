@@ -1,5 +1,9 @@
+#[[
+  Contract-only check for the Linux workflow shape. Runtime proof of the native
+  non-CMake backends lives in the direct Meson/Xmake/Bazel smoke tests.
+]]
 if(NOT DEFINED SOURCE_DIR)
-  message(FATAL_ERROR "CheckBuildsystemsLinuxWorkflow.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckBuildsystemsLinuxWorkflowContract.cmake: SOURCE_DIR not set")
 endif()
 
 set(_workflow_file "${SOURCE_DIR}/.github/workflows/buildsystems_linux.yml")

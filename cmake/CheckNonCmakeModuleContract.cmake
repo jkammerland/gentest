@@ -1,5 +1,10 @@
+#[[
+  Contract-only check for the checked-in non-CMake module wiring.
+  Runtime proof of the supported backends lives in the direct Bazel/Xmake smoke
+  tests and the Meson textual smoke test.
+]]
 if(NOT DEFINED SOURCE_DIR)
-  message(FATAL_ERROR "CheckNonCmakeModuleWiring.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckNonCmakeModuleContract.cmake: SOURCE_DIR not set")
 endif()
 
 set(_meson_file "${SOURCE_DIR}/meson.build")

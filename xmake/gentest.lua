@@ -2,8 +2,8 @@ local gentest_state = {}
 local fail
 
 fail = function(message)
-    print("error: " .. message)
-    return gentest_fail_abort()
+    print("error: gentest xmake: " .. message)
+    os.exit(1)
 end
 
 -- Configure the shared Xmake helper context. External consumers can override

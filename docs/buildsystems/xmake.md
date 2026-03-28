@@ -154,9 +154,9 @@ bootstrap under `build/xmake-codegen/<host>/<arch>`.
 
 When `GENTEST_CODEGEN` points at a CMake build tree, the helper now also picks
 up the adjacent `compile_commands.json` automatically for module codegen. The
-final Xmake targets still resolve `fmt` through Xmake's own package/dependency
-surface; the adjacent CMake build is only reused for the generator binary and
-its compile-database context.
+final Xmake targets still resolve `fmt` through Xmake's own `add_packages("fmt")`
+dependency surface; the adjacent CMake build is only reused for the generator
+binary and its compile-database context.
 That is the supported repo-local path for the checked-in module consumer.
 
 One local caveat: the checked-in module CMake smoke test currently skips

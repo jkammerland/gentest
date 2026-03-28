@@ -460,7 +460,7 @@ def _gentest_module_mocks_codegen_impl(ctx):
     args.add("--mock-registry", registry_h.path)
     args.add("--mock-impl", impl_h.path)
     args.add("--discover-mocks")
-    for module_mapping in _gentest_default_module_sources + list(ctx.attr.external_module_sources):
+    for module_mapping in _gentest_default_module_sources:
         args.add("--external-module-source", module_mapping)
     for staged_output in staged_defs:
         args.add(staged_output.path)
@@ -504,7 +504,6 @@ _gentest_module_mocks_codegen = rule(
         "module_name": attr.string(mandatory = True),
         "out_dir": attr.string(mandatory = True),
         "target_id": attr.string(mandatory = True),
-        "external_module_sources": attr.string_list(),
         "defines": attr.string_list(),
         "clang_args": attr.string_list(),
         "_default_module_inputs": attr.label_list(
@@ -553,7 +552,7 @@ def _gentest_module_suite_codegen_impl(ctx):
     )
 
     dep_include_dirs = list(ctx.attr.extra_include_dirs)
-    module_mappings = list(_gentest_default_module_sources) + list(ctx.attr.external_module_sources)
+    module_mappings = list(_gentest_default_module_sources)
     codegen_inputs = [staged_source] + list(ctx.files._default_module_inputs) + list(ctx.files._public_headers)
     for dep in ctx.attr.mocks:
         info = dep[GentestGeneratedInfo]
@@ -612,7 +611,6 @@ _gentest_module_suite_codegen = rule(
         "mocks": attr.label_list(providers = [GentestGeneratedInfo]),
         "out_dir": attr.string(mandatory = True),
         "extra_include_dirs": attr.string_list(),
-        "external_module_sources": attr.string_list(),
         "defines": attr.string_list(),
         "clang_args": attr.string_list(),
         "_default_module_inputs": attr.label_list(
@@ -762,7 +760,6 @@ def gentest_add_mocks_modules(
         defs,
         defs_modules,
         module_name,
-        external_module_sources = [],
         defines = [],
         clang_args = [],
         deps = [],
@@ -783,7 +780,6 @@ def gentest_add_mocks_modules(
         module_name = module_name,
         out_dir = out_dir,
         target_id = name,
-        external_module_sources = external_module_sources,
         defines = defines,
         clang_args = clang_args,
     )
@@ -812,7 +808,6 @@ def gentest_attach_codegen_modules(
         clang_args = [],
         linkopts = [],
         source_includes = [],
-        external_module_sources = [],
         visibility = None):
     if not main:
         fail("gentest_attach_codegen_modules requires a main source")
@@ -827,7 +822,6 @@ def gentest_attach_codegen_modules(
         mocks = codegen_mock_targets,
         out_dir = out_dir,
         extra_include_dirs = source_includes,
-        external_module_sources = external_module_sources,
         defines = defines,
         clang_args = clang_args,
     )

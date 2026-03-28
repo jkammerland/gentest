@@ -2182,16 +2182,18 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
-    gentest_buildsystems_linux_workflow
+    gentest_buildsystems_linux_workflow_contract
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/cmake/CheckBuildsystemsLinuxWorkflow.cmake
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBuildsystemsLinuxWorkflowContract.cmake
     cmake)
+set_property(TEST gentest_buildsystems_linux_workflow_contract APPEND PROPERTY LABELS "contract")
 
 _gentest_add_cmake_helper_test(
-    gentest_buildsystem_codegen_helper_modes
+    gentest_native_buildsystem_contract
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/cmake/CheckBuildsystemCodegenHelperModes.cmake
+    ${PROJECT_SOURCE_DIR}/cmake/CheckNativeBuildsystemContract.cmake
     cmake)
+set_property(TEST gentest_native_buildsystem_contract APPEND PROPERTY LABELS "contract")
 
 _gentest_add_cmake_helper_test(
     gentest_meson_textual_fmt_fallback
@@ -2234,10 +2236,11 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
-    gentest_non_cmake_module_wiring
+    gentest_non_cmake_module_contract
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/cmake/CheckNonCmakeModuleWiring.cmake
+    ${PROJECT_SOURCE_DIR}/cmake/CheckNonCmakeModuleContract.cmake
     cmake)
+set_property(TEST gentest_non_cmake_module_contract APPEND PROPERTY LABELS "contract")
 
 _gentest_add_cmake_helper_test(
     gentest_qemu_workflow_presets

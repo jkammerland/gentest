@@ -9,7 +9,8 @@ if(NOT _bazel)
 endif()
 
 function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
-  get_filename_component(_clang_bin_dir "${clang_cxx}" DIRECTORY)
+  get_filename_component(_clang_real "${clang_cxx}" REALPATH)
+  get_filename_component(_clang_bin_dir "${_clang_real}" DIRECTORY)
   get_filename_component(_clang_prefix "${_clang_bin_dir}/.." ABSOLUTE)
 
   set(_llvm_candidates
@@ -72,32 +73,22 @@ find_program(_clang_cxx NAMES clang++-22 clang++-21 clang++-20 clang++
   PATHS ${_gentest_clang_search_paths}
   NO_DEFAULT_PATH)
 if(NOT _clang_cxx)
-  message(STATUS "clang++ not found; skipping Bazel textual consumer smoke check.")
-  return()
-endif()
-if(NOT _clang_cxx MATCHES "/opt/homebrew/(opt/llvm|bin)/clang\\+\\+$"
-   AND NOT _clang_cxx MATCHES "/usr/local/opt/llvm/bin/clang\\+\\+$"
-   AND NOT _clang_cxx MATCHES "/usr/lib64/llvm(20|21|22)/bin/clang\\+\\+$"
-   AND NOT _clang_cxx MATCHES "/usr/lib/llvm-(20|21|22)/bin/clang\\+\\+$"
-   AND NOT _clang_cxx MATCHES "/usr/bin/clang\\+\\+-(20|21|22)$")
-  message(STATUS "unsupported clang++ toolchain '${_clang_cxx}'; skipping Bazel textual consumer smoke check.")
-  return()
+  find_program(_clang_cxx NAMES clang++-22 clang++-21 clang++-20 clang++)
+  if(NOT _clang_cxx)
+    message(STATUS "clang++ not found; skipping Bazel textual consumer smoke check.")
+    return()
+  endif()
 endif()
 
 find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
   PATHS ${_gentest_clang_search_paths}
   NO_DEFAULT_PATH)
 if(NOT _clang_cc)
-  message(STATUS "clang not found; skipping Bazel textual consumer smoke check.")
-  return()
-endif()
-if(NOT _clang_cc MATCHES "/opt/homebrew/(opt/llvm|bin)/clang$"
-   AND NOT _clang_cc MATCHES "/usr/local/opt/llvm/bin/clang$"
-   AND NOT _clang_cc MATCHES "/usr/lib64/llvm(20|21|22)/bin/clang$"
-   AND NOT _clang_cc MATCHES "/usr/lib/llvm-(20|21|22)/bin/clang$"
-   AND NOT _clang_cc MATCHES "/usr/bin/clang-(20|21|22)$")
-  message(STATUS "unsupported clang toolchain '${_clang_cc}'; skipping Bazel textual consumer smoke check.")
-  return()
+  find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang)
+  if(NOT _clang_cc)
+    message(STATUS "clang not found; skipping Bazel textual consumer smoke check.")
+    return()
+  endif()
 endif()
 
 execute_process(
@@ -128,8 +119,10 @@ if(WIN32)
 endif()
 set(_tool_path "${_clang_bin_dir}${_path_sep}$ENV{PATH}")
 get_filename_component(_source_parent "${SOURCE_DIR}" DIRECTORY)
-set(_bazel_output_root "${_source_parent}/.bazel-smoke-output-textual")
-set(_bazel_repo_contents_cache "${_source_parent}/.bazel-repo-contents")
+string(RANDOM LENGTH 12 ALPHABET 0123456789abcdef _bazel_run_id)
+set(_bazel_smoke_root "${_source_parent}/.bazel-smoke-textual-${_bazel_run_id}")
+set(_bazel_output_root "${_bazel_smoke_root}/output")
+set(_bazel_repo_contents_cache "${_bazel_smoke_root}/repo-cache")
 file(MAKE_DIRECTORY "${_bazel_output_root}")
 file(MAKE_DIRECTORY "${_bazel_repo_contents_cache}")
 
@@ -145,8 +138,6 @@ execute_process(
           "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
           "${_bazel}" --output_user_root=${_bazel_output_root} build
           --repo_contents_cache=${_bazel_repo_contents_cache}
-          --spawn_strategy=local
-          --strategy=CppCompile=local
           --action_env=CCACHE_DISABLE=1
           --action_env=PATH=${_tool_path}
           --host_action_env=CCACHE_DISABLE=1

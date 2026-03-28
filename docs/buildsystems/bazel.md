@@ -6,9 +6,9 @@ repository, but they are not packaged as a downstream rule set yet.
 
 The checked-in repo-local targets now use the 2-step explicit model without
 spelling hashed textual staged outputs or generated module wrapper/header names
-in [`BUILD.bazel`](../../BUILD.bazel). Those details are internalized inside
-[`build_defs/gentest.bzl`](../../build_defs/gentest.bzl) for the checked-in
-consumer defs sets.
+in [`BUILD.bazel`](../../BUILD.bazel). Those generated-file details are handled
+inside [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl), not repeated
+at each call site.
 
 ## Current repo-local macro surface
 
@@ -32,13 +32,11 @@ The repo-local helpers expose the 2-step explicit model:
   - required: `name`, `src`, `main`, same-package `mock_targets`
   - optional: `defines`, `clang_args`, `deps`, `linkopts`, `source_includes`
 - `gentest_add_mocks_modules(...)`:
-  - required: `name`, `defs`, `module_name`
-  - optional: `defines`, `clang_args`, `external_module_sources`, `deps`,
-    `linkopts`
+  - required: `name`, `defs`, `defs_modules`, `module_name`
+  - optional: `defines`, `clang_args`, `deps`, `linkopts`
 - `gentest_attach_codegen_modules(...)`:
   - required: `name`, `src`, `main`, same-package `mock_targets`
-  - optional: `defines`, `clang_args`, `external_module_sources`, `deps`,
-    `linkopts`, `source_includes`
+  - optional: `defines`, `clang_args`, `deps`, `linkopts`, `source_includes`
 
 Both textual and module helpers thread `defines` / `clang_args` through the
 codegen scan context and the final compile surface.
@@ -181,8 +179,6 @@ CXX="${clang_cxx}" \
 GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
 bazelisk build \
   //:gentest_consumer_textual_bazel \
-  --spawn_strategy=local \
-  --strategy=CppCompile=local \
   --action_env=CCACHE_DISABLE=1 \
   --host_action_env=CCACHE_DISABLE=1 \
   --action_env=CC="${clang_cc}" \
@@ -246,8 +242,6 @@ GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
 bazelisk build \
   //:gentest_consumer_module_bazel \
   --experimental_cpp_modules \
-  --spawn_strategy=local \
-  --strategy=CppCompile=local \
   --action_env=CCACHE_DISABLE=1 \
   --host_action_env=CCACHE_DISABLE=1 \
   --action_env=CC="${clang_cc}" \
@@ -310,15 +304,9 @@ The generated test wrapper target also emits:
 - `gentest_attach_codegen_textual(...)` and
   `gentest_attach_codegen_modules(...)` currently require same-package
   `mock_targets`.
-- The checked-in textual defs set has its staged `deps/...` outputs
-  internalized in [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl).
-  Additional repo-local textual defs graphs that stage support headers still
-  require extending that internal map.
-- The checked-in module defs set has its generated wrapper/header/module-name
-  metadata internalized in
-  [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl). Additional
-  repo-local module defs sets still require extending that internal map.
 - The codegen bootstrap is intentionally non-hermetic today: Bazel shells out
   to CMake to build `gentest_codegen`.
+- Extra external-module mappings are not exposed as a polished public option in
+  the repo-local macros yet.
 - The module path is still repo-local/toolchain-sensitive rather than a
   polished downstream contract.

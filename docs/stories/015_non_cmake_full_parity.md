@@ -17,7 +17,7 @@ the unfinished deliverable.
 
 Implemented already:
 
-- Meson, Xmake, and Bazel use shared per-TU wrapper generation for the classic
+- Meson, Xmake, and Bazel use native per-TU wrapper generation for the classic
   repository suites.
 - Legacy `gentest_codegen --output ...` manifest mode has been removed from the
   active non-CMake suite integrations.
@@ -36,8 +36,8 @@ Still missing for real parity:
 - packaged/downstream Meson helper APIs
 - install/export-quality non-CMake surfaces
 - hermetic/polished Bazel codegen bootstrap
-- API polish for extra module mappings / advanced codegen options outside the
-  checked-in repo-local use cases
+- API polish for advanced codegen options outside the checked-in repo-local use
+  cases
 
 ## Product direction
 
@@ -154,7 +154,7 @@ Current repo state:
 
 - there is still no reusable Meson helper API
 - the checked-in repo supports textual consumers only
-- the helper intentionally rejects `--backend meson --kind modules`
+- Meson named-module targets are intentionally unsupported
 - the textual path still snapshots support headers/fragments at configure time,
   so new included support files require `meson setup --reconfigure`
 - the checked-in textual path now reuses adjacent CMake-fetched `fmt` headers
@@ -177,8 +177,8 @@ Current repo state:
   helper surface
 - the documented `GENTEST_CODEGEN=...` flow reuses an explicit adjacent
   `compile_commands.json` only on the checked-in direct path
-- the same repo-local path now reuses adjacent CMake-fetched `fmt` headers when
-  the Xmake compiler environment does not already provide them
+- final Xmake compilation still resolves `fmt` through Xmake's own dependency
+  surface rather than any adjacent CMake build
 - mock dependency metadata now flows through native Xmake target metadata for
   the checked-in direct consumer path
 - public `defines` / `clang_args` now flow into both final Xmake compilation
@@ -199,8 +199,8 @@ Current repo state:
 
 - repo-local textual and module macros both exist
 - the checked-in repo wires module mock and module consumer targets
-- the macros now synthesize repo-local metadata and `compile_commands.json`
-  inputs so `gentest_codegen` can scan the module path
+- the macros now synthesize provider-backed metadata and a repo-local
+  `compile_commands.json` so `gentest_codegen` can scan the module path
 - the checked-in Linux workflow validates the module consumer under an explicit
   Clang + `--experimental_cpp_modules` contract, including
   test/mock/bench/jitter execution
@@ -208,8 +208,6 @@ Current repo state:
 Open work:
 
 - turn the repo-local macros into a cleaner downstream rule surface
-- generalize the current internalized repo-local naming maps into a real
-  downstream rule surface
 - make the codegen bootstrap more hermetic
 - broaden module-path workflow coverage beyond the checked-in direct consumer
   lane
@@ -235,8 +233,7 @@ Current status:
 
 Status:
 
-- Meson: no checked-in module target; the explicit modules API exists but
-  intentionally fails fast until the backend is reliable enough
+- Meson: no checked-in module target; modules remain intentionally unsupported
 - Xmake: repo-local helper path exists
 - Bazel: repo-local macro path exists
 
@@ -252,7 +249,7 @@ Remaining work:
 
 Status:
 
-- Meson: API exists but execution is intentionally unsupported for now
+- Meson: execution is intentionally unsupported for now
 - Xmake: repo-local helper path exists
 - Bazel: repo-local macro path exists
 
@@ -295,9 +292,6 @@ are intentionally documented here rather than treated as invisible debt.
 
 ### Bazel
 
-- the repo-local macros in [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl)
-  still internalize checked-in defs-set knowledge for the current module and
-  textual consumers
 - `mock_targets` are still same-package only on the repo-local path
 - the codegen bootstrap is still repo-local and not yet hermetic or packaged as
   a downstream rule set
@@ -321,8 +315,8 @@ are intentionally documented here rather than treated as invisible debt.
 
 ### General
 
-- some regression coverage is still source-shape/static-contract oriented rather
-  than purely behavioral
+- some coverage is intentionally source-shape/static-contract oriented and is
+  paired with separate runtime backend smoke tests
 - the non-CMake support is honest and working for the checked-in scope, but it
   is not yet install/export-quality across all backends
 

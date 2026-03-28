@@ -1,5 +1,10 @@
+#[[
+  Contract-only check for the native non-CMake backend surface.
+  This script intentionally validates checked-in file wiring/tokens and is
+  complemented by the runtime backend smoke tests.
+]]
 if(NOT DEFINED SOURCE_DIR)
-  message(FATAL_ERROR "CheckBuildsystemCodegenHelperModes.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckNativeBuildsystemContract.cmake: SOURCE_DIR not set")
 endif()
 
 set(_meson_file "${SOURCE_DIR}/meson.build")
