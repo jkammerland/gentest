@@ -1850,6 +1850,22 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_module_command_retargeting APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_forced_nonclang_compiler_fallback
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenForcedNonclangCompilerFallback.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog})
+set_property(TEST gentest_codegen_forced_nonclang_compiler_fallback APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_module_cache_resource_dir_isolation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenModuleCacheResourceDirIsolation.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog})
+set_property(TEST gentest_codegen_module_cache_resource_dir_isolation APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_public_mock_module_gcc
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckPublicMockModuleGccFailure.cmake

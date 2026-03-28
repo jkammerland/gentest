@@ -1669,13 +1669,16 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
             }
             return selected;
         };
-        auto select_compiler_path = [&]() {
+        auto select_clang_toolchain_compiler = [&]() {
             if (!forced_compiler_path.empty()) {
                 const std::filesystem::path forced_path{std::string(forced_compiler_path)};
                 const bool forced_is_explicit_path = forced_path.is_absolute() ||
                     forced_compiler_path.find('/') != std::string_view::npos ||
                     forced_compiler_path.find('\\') != std::string_view::npos;
-                return resolve_clang_compiler_path(forced_compiler_path, forced_is_explicit_path);
+                const std::string resolved_forced = resolve_clang_compiler_path(forced_compiler_path, forced_is_explicit_path);
+                if (is_clang_like_compiler(resolved_forced)) {
+                    return resolved_forced;
+                }
             }
 
             if (!is_clang_like_compiler(compiler_arg)) {
@@ -1684,10 +1687,10 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
 
             return resolve_clang_compiler_path(compiler_arg, compiler_arg_is_explicit_path());
         };
-        const std::string selected_compiler_path = select_compiler_path();
-        adjusted.emplace_back(selected_compiler_path.empty() ? compiler_arg : selected_compiler_path);
+        const std::string clang_toolchain_compiler = select_clang_toolchain_compiler();
+        adjusted.emplace_back(clang_toolchain_compiler.empty() ? compiler_arg : clang_toolchain_compiler);
         const std::string resource_dir = resource_dir_for_compiler(
-            selected_compiler_path.empty() ? std::string(default_compiler_path) : selected_compiler_path);
+            clang_toolchain_compiler.empty() ? std::string(default_compiler_path) : clang_toolchain_compiler);
         if (!resource_dir.empty()) {
             adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
         }
@@ -1757,7 +1760,8 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
     return adjusted;
 }
 
-std::filesystem::path resolve_codegen_module_cache_dir(const CollectorOptions &options) {
+std::filesystem::path resolve_codegen_module_cache_dir(const CollectorOptions &options, std::string_view compiler_path = {},
+                                                       std::string_view resource_dir = {}, std::string_view sysroot = {}) {
     std::filesystem::path base_dir;
     std::string           cache_key;
     if (!options.tu_output_dir.empty()) {
@@ -1773,6 +1777,18 @@ std::filesystem::path resolve_codegen_module_cache_dir(const CollectorOptions &o
     if (base_dir.empty()) {
         base_dir = std::filesystem::current_path();
         cache_key = base_dir.generic_string();
+    }
+    if (!compiler_path.empty()) {
+        cache_key += "|compiler=";
+        cache_key += compiler_path;
+    }
+    if (!resource_dir.empty()) {
+        cache_key += "|resource-dir=";
+        cache_key += resource_dir;
+    }
+    if (!sysroot.empty()) {
+        cache_key += "|sysroot=";
+        cache_key += sysroot;
     }
     return base_dir / (".gentest_codegen_modules_" + stable_hash_hex(cache_key));
 }
@@ -2638,7 +2654,10 @@ int main(int argc, const char **argv) {
         if (!need_resource_dir) {
             return {};
         }
-        const std::string key = compiler.empty() ? default_compiler_path : std::string(compiler);
+        std::string key = compiler.empty() ? default_compiler_path : std::string(compiler);
+        if (!key.empty() && !is_clang_like_compiler(key)) {
+            key = default_compiler_path;
+        }
         {
             std::lock_guard<std::mutex> lk(resource_dir_cache_mutex);
             if (const auto it = resource_dir_cache.find(key); it != resource_dir_cache.end()) {
@@ -3101,7 +3120,8 @@ int main(int argc, const char **argv) {
         imported_named_modules_by_source, [](const auto &imports) { return !imports.empty(); });
 
     if (!named_module_sources.empty() || has_any_named_module_imports) {
-        const std::filesystem::path module_cache_dir = resolve_codegen_module_cache_dir(options);
+        const std::filesystem::path module_cache_dir =
+            resolve_codegen_module_cache_dir(options, default_compiler_path, default_resource_dir, default_sysroot);
         for (auto &module_source : named_module_sources) {
             module_source.pcm_path =
                 module_cache_dir /

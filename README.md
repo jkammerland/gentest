@@ -98,7 +98,7 @@ gentest_discover_tests(my_tests)
 # add_test(NAME my_tests COMMAND my_tests)
 ```
 
-Docs: [Modules guide](docs/modules.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
+Docs: [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
 
 Run:
 
