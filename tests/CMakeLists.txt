@@ -1750,10 +1750,16 @@ gentest_add_check_death(
     ARGS --bench-table --kind=jitter)
 
 function(_gentest_add_cmake_helper_test name source_dir script_path label)
+    # Keep helper fixture roots compact so nested CMake/Ninja scratch paths stay under
+    # Windows toolchain path limits even when the outer checkout path is long.
+    string(MD5 _gentest_helper_build_hash "${name}|${source_dir}|${script_path}")
+    string(SUBSTRING "${_gentest_helper_build_hash}" 0 12 _gentest_helper_build_suffix)
+    set(_gentest_helper_build_root "${CMAKE_CURRENT_BINARY_DIR}/cmh_${_gentest_helper_build_suffix}")
+
     add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
             -DSOURCE_DIR=${source_dir}
-            -DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/${name}
+            -DBUILD_ROOT=${_gentest_helper_build_root}
             -DGENERATOR=${CMAKE_GENERATOR}
             -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
             -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
