@@ -16,12 +16,12 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
-add_executable(manifest_header_shared_fixture_tests
+add_executable(mhsf_tests
     cases.cpp)
 
-target_link_libraries(manifest_header_shared_fixture_tests PRIVATE gentest gentest_main)
-target_compile_features(manifest_header_shared_fixture_tests PRIVATE cxx_std_20)
-target_include_directories(manifest_header_shared_fixture_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(mhsf_tests PRIVATE gentest gentest_main)
+target_compile_features(mhsf_tests PRIVATE cxx_std_20)
+target_include_directories(mhsf_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-gentest_attach_codegen(manifest_header_shared_fixture_tests
-    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/manifest_header_shared_fixture_tests.cpp")
+gentest_attach_codegen(mhsf_tests
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/mhsf_tests.cpp")

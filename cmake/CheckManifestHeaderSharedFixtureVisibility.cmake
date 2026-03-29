@@ -25,7 +25,7 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-set(_work_dir "${BUILD_ROOT}/manifest_header_shared_fixture_visibility")
+set(_work_dir "${BUILD_ROOT}/mhsfv")
 set(_src_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -88,17 +88,17 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target manifest_header_shared_fixture_tests
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target mhsf_tests
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
 set(_exe_dir "${_build_dir}")
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
-  if(EXISTS "${_build_dir}/${BUILD_TYPE}/manifest_header_shared_fixture_tests${CMAKE_EXECUTABLE_SUFFIX}")
+  if(EXISTS "${_build_dir}/${BUILD_TYPE}/mhsf_tests${CMAKE_EXECUTABLE_SUFFIX}")
     set(_exe_dir "${_build_dir}/${BUILD_TYPE}")
   endif()
 endif()
-set(_exe "${_exe_dir}/manifest_header_shared_fixture_tests${CMAKE_EXECUTABLE_SUFFIX}")
+set(_exe "${_exe_dir}/mhsf_tests${CMAKE_EXECUTABLE_SUFFIX}")
 
 gentest_check_run_or_fail(
   COMMAND "${_exe}" --no-color --run=manifest/header_shared_fixture --kind=test
