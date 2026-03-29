@@ -63,11 +63,39 @@ jobs:
 
       - name: Configure environment variables
         run: |
-          echo "LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm" >> $GITHUB_ENV
-          echo "Clang_DIR=/usr/lib/llvm-20/lib/cmake/clang" >> $GITHUB_ENV
-          echo "HOST_CLANG=/usr/lib/llvm-20/bin/clang-20" >> $GITHUB_ENV
-          echo "HOST_CLANGXX=/usr/lib/llvm-20/bin/clang++-20" >> $GITHUB_ENV
-          echo "GENTEST_CODEGEN_HOST_CLANG=/usr/lib/llvm-20/bin/clang++-20" >> $GITHUB_ENV
+          set -euxo pipefail
+          llvm_root="/usr/lib/llvm-20"
+          host_clang=""
+          host_clangxx=""
+          for candidate in \
+            "$(command -v clang-20 2>/dev/null || true)" \
+            "${llvm_root}/bin/clang" \
+            "$(command -v clang 2>/dev/null || true)"
+          do
+            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+              host_clang="${candidate}"
+              break
+            fi
+          done
+          for candidate in \
+            "$(command -v clang++-20 2>/dev/null || true)" \
+            "${llvm_root}/bin/clang++" \
+            "$(command -v clang++ 2>/dev/null || true)"
+          do
+            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+              host_clangxx="${candidate}"
+              break
+            fi
+          done
+          if [ -z "${host_clang}" ] || [ -z "${host_clangxx}" ]; then
+            echo "Failed to resolve host Clang toolchain from llvm-20 packages." >&2
+            exit 1
+          fi
+          echo "LLVM_DIR=${llvm_root}/lib/cmake/llvm" >> $GITHUB_ENV
+          echo "Clang_DIR=${llvm_root}/lib/cmake/clang" >> $GITHUB_ENV
+          echo "HOST_CLANG=${host_clang}" >> $GITHUB_ENV
+          echo "HOST_CLANGXX=${host_clangxx}" >> $GITHUB_ENV
+          echo "GENTEST_CODEGEN_HOST_CLANG=${host_clangxx}" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
 
       - name: Show tool versions
