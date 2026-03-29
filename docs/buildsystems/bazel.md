@@ -4,6 +4,9 @@ This Bazel support is still repo-local. The macros in
 [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl) are usable in this
 repository, but they are not packaged as a downstream rule set yet.
 
+For host Clang, sysroot, and cross-build configuration guidance, see
+[host_toolchain_sysroots.md](host_toolchain_sysroots.md).
+
 The checked-in repo-local targets now use the 2-step explicit model without
 spelling hashed textual staged outputs or generated module wrapper/header names
 in [`BUILD.bazel`](../../BUILD.bazel). Those generated-file details are handled

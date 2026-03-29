@@ -93,6 +93,9 @@ gentest_discover_tests(my_tests)
 # More gentest_attach_codegen options:
 #  OUTPUT / OUTPUT_DIR / SOURCES / DEPENDS / ENTRY / NO_INCLUDE_SOURCES / STRICT_FIXTURE / QUIET_CLANG
 # Cross-builds: set GENTEST_CODEGEN_EXECUTABLE or GENTEST_CODEGEN_TARGET before gentest_attach_codegen().
+#
+# Host-toolchain / sysroot guidance:
+#   docs/buildsystems/host_toolchain_sysroots.md
 
 # Alternative: run everything in a single process.
 # add_test(NAME my_tests COMMAND my_tests)

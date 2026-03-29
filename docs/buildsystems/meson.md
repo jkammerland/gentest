@@ -4,6 +4,9 @@ This Meson support is still repo-local. The checked-in [`meson.build`](../../mes
 wires concrete targets for this repository; there is no installed Meson module
 or reusable `gentest_add_mocks()` / `gentest_attach_codegen()` API yet.
 
+For host Clang, sysroot, and cross-build configuration guidance, see
+[host_toolchain_sysroots.md](host_toolchain_sysroots.md).
+
 The intended Meson-facing contract is still the same 2-step model as the main
 non-CMake story:
 

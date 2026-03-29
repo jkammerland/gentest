@@ -22,6 +22,9 @@ Supported module-authored test flows:
 - LLVM/Clang available for `gentest_codegen`
 - `CMAKE_EXPORT_COMPILE_COMMANDS=ON`
 
+For host-toolchain vs target-sysroot setup details, including cross-build
+examples, see [buildsystems/host_toolchain_sysroots.md](buildsystems/host_toolchain_sysroots.md).
+
 Per-TU wrapper mode for module sources requires a single-config generator/build directory. For multi-config generators, use manifest mode with `gentest_attach_codegen(... OUTPUT ...)`.
 
 ## CMake quick start

@@ -4,6 +4,9 @@ This Xmake support is repo-local today. The helper layer in
 [`xmake/gentest.lua`](../../xmake/gentest.lua) is usable inside this repository,
 but it is not packaged or versioned as a downstream Xmake package yet.
 
+For host Clang, sysroot, and cross-build configuration guidance, see
+[host_toolchain_sysroots.md](host_toolchain_sysroots.md).
+
 ## Current repo-local helper API
 
 After `includes("xmake/gentest.lua")`, the repo-local surface is:
