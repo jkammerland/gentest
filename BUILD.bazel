@@ -188,7 +188,10 @@ cc_library(
     }),
     includes = ['include', 'third_party/include'],
     linkopts = _gentest_linkopts,
-    deps = [':gentest_runtime'],
+    deps = [
+        ':gentest_runtime',
+        '@fmt//:fmt',
+    ],
     features = _gentest_module_features,
     visibility = ['//visibility:public'],
 )
@@ -210,6 +213,7 @@ cc_library(
     deps = [
         ':gentest',
         ':gentest_runtime',
+        '@fmt//:fmt',
     ],
     features = _gentest_module_features,
     visibility = ['//visibility:public'],
@@ -232,6 +236,7 @@ cc_library(
     deps = [
         ':gentest',
         ':gentest_runtime',
+        '@fmt//:fmt',
     ],
     features = _gentest_module_features,
     visibility = ['//visibility:public'],

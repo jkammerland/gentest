@@ -401,7 +401,8 @@ private:
     std::vector<std::string> &dependencies_;
 };
 
-bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang::SourceManager &sm, bool allow_includes) {
+bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang::SourceManager &sm, bool allow_includes,
+                                           bool allow_mock_includes) {
     clang::SourceLocation loc = decl.getBeginLoc();
     if (loc.isInvalid()) {
         loc = decl.getLocation();
@@ -425,17 +426,20 @@ bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang:
         if (llvm::isa<clang::NamespaceDecl>(decl) || llvm::isa<clang::CXXRecordDecl>(decl)) {
             return true;
         }
+        if (allow_mock_includes && llvm::isa<clang::TypedefNameDecl>(decl)) {
+            return true;
+        }
         return false;
     }
     return true;
 }
 
-std::vector<clang::Decl *> build_codegen_traversal_scope(clang::ASTContext &context, bool allow_includes) {
+std::vector<clang::Decl *> build_codegen_traversal_scope(clang::ASTContext &context, bool allow_includes, bool allow_mock_includes) {
     std::vector<clang::Decl *> scope;
     auto                      *tu = context.getTranslationUnitDecl();
     auto                      &sm = context.getSourceManager();
     for (clang::Decl *decl : tu->decls()) {
-        if (decl != nullptr && should_traverse_decl_in_codegen_scope(*decl, sm, allow_includes)) {
+        if (decl != nullptr && should_traverse_decl_in_codegen_scope(*decl, sm, allow_includes, allow_mock_includes)) {
             scope.push_back(decl);
         }
     }
@@ -444,16 +448,16 @@ std::vector<clang::Decl *> build_codegen_traversal_scope(clang::ASTContext &cont
 
 class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
 public:
-    ScopedTraversalASTConsumer(std::unique_ptr<clang::ASTConsumer> inner, bool allow_includes)
-        : inner_(std::move(inner)), allow_includes_(allow_includes) {}
+    ScopedTraversalASTConsumer(std::unique_ptr<clang::ASTConsumer> inner, bool allow_includes, bool allow_mock_includes)
+        : inner_(std::move(inner)), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
 
     void Initialize(clang::ASTContext &context) override { inner_->Initialize(context); }
 
     bool HandleTopLevelDecl(clang::DeclGroupRef decl_group) override { return inner_->HandleTopLevelDecl(decl_group); }
 
     void HandleTranslationUnit(clang::ASTContext &context) override {
-        if (!allow_includes_) {
-            const auto scope = build_codegen_traversal_scope(context, false);
+        if (!allow_includes_ && !allow_mock_includes_) {
+            const auto scope = build_codegen_traversal_scope(context, false, allow_mock_includes_);
             if (!scope.empty()) {
                 context.setTraversalScope(scope);
             }
@@ -464,12 +468,14 @@ public:
 private:
     std::unique_ptr<clang::ASTConsumer> inner_;
     bool                                allow_includes_ = false;
+    bool                                allow_mock_includes_ = false;
 };
 
 class MatchFinderAction final : public clang::ASTFrontendAction {
 public:
-    MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes)
-        : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes) {}
+    MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
+                      bool allow_mock_includes)
+        : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(compiler.getSourceManager(), dependencies_));
@@ -477,28 +483,31 @@ public:
         if (!normalized.empty()) {
             dependencies_.push_back(normalized);
         }
-        return std::make_unique<ScopedTraversalASTConsumer>(finder_.newASTConsumer(), allow_includes_);
+        return std::make_unique<ScopedTraversalASTConsumer>(finder_.newASTConsumer(), allow_includes_, allow_mock_includes_);
     }
 
 private:
     clang::ast_matchers::MatchFinder &finder_;
     std::vector<std::string>         &dependencies_;
     bool                              allow_includes_ = false;
+    bool                              allow_mock_includes_ = false;
 };
 
 class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
 public:
-    MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes)
-        : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes) {}
+    MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
+                             bool allow_mock_includes)
+        : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_);
+        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_);
     }
 
 private:
     clang::ast_matchers::MatchFinder &finder_;
     std::vector<std::string>         &dependencies_;
     bool                              allow_includes_ = false;
+    bool                              allow_mock_includes_ = false;
 };
 
 bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_args = false) {
@@ -3790,7 +3799,7 @@ int main(int argc, const char **argv) {
             if (mock_collector.has_value()) {
                 register_mock_matchers(finder, *mock_collector);
             }
-            MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes};
+            MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes, options.discover_mocks};
 
             ParseResult result;
             result.status = tool.run(&action_factory);
@@ -3889,7 +3898,7 @@ int main(int argc, const char **argv) {
         if (mock_collector.has_value()) {
             register_mock_matchers(finder, *mock_collector);
         }
-        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes};
+        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes, options.discover_mocks};
 
         const int status = tool.run(&action_factory);
         if (status != 0) {

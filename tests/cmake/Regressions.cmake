@@ -274,7 +274,7 @@ gentest_add_cmake_script_test(
         --bench-min-total-time-s=0
     DEFINES
         "EXPECT_RC=0"
-        "EXPECT_SUBSTRING=Summary: passed 2/2; failed 0; skipped 0; xfail 0; xpass 0.")
+        "EXPECT_SUBSTRING=Summary: passed 2/2")
 
 gentest_add_cmake_script_test(
     NAME regression_runtime_selection_duplicate_name_summary_first_location

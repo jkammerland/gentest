@@ -26,9 +26,13 @@ if(NOT WIN32)
     set(_nonclang_out_dir "${CMAKE_CURRENT_BINARY_DIR}/tmp_xmake_module_consumer_nonclang")
     file(REMOVE_RECURSE "${_nonclang_out_dir}")
     file(MAKE_DIRECTORY "${_nonclang_out_dir}/tmp")
+    set(_nonclang_config_args
+      f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_nonclang_out_dir}" -m debug -c -y
+      "--cc=${_gnu_cc}"
+      "--cxx=${_gnu_cxx}")
     execute_process(
       COMMAND "${CMAKE_COMMAND}" -E env "GENTEST_CODEGEN=${_codegen}" "CC=${_gnu_cc}" "CXX=${_gnu_cxx}" "TMPDIR=${_nonclang_out_dir}/tmp"
-              "${_xmake}" f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_nonclang_out_dir}" -m debug -c -y
+              "${_xmake}" ${_nonclang_config_args}
       WORKING_DIRECTORY "${SOURCE_DIR}"
       RESULT_VARIABLE _nonclang_cfg_rc
       OUTPUT_VARIABLE _nonclang_cfg_out
@@ -102,9 +106,22 @@ set(_out_dir "${CMAKE_CURRENT_BINARY_DIR}/tmp_xmake_module_consumer")
 file(REMOVE_RECURSE "${_out_dir}")
 file(MAKE_DIRECTORY "${_out_dir}/tmp")
 
+get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
+get_filename_component(_clang_prefix "${_clang_bin_dir}" DIRECTORY)
+
+set(_clang_config_args
+  f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
+  "--cc=${_clang_cc}"
+  "--cxx=${_clang_cxx}")
+if(APPLE)
+  list(APPEND _clang_config_args
+    "--toolchain=llvm"
+    "--sdk=${_clang_prefix}")
+endif()
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env "GENTEST_CODEGEN=${_codegen}" "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_out_dir}/tmp"
-          "${_xmake}" f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
+          "${_xmake}" ${_clang_config_args}
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _cfg_rc
   OUTPUT_VARIABLE _cfg_out

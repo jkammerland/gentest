@@ -10,7 +10,8 @@ endif()
 
 set(_bazel_command "${_bazel}")
 if(WIN32 AND _bazel MATCHES "\\.(cmd|bat)$")
-  set(_bazel_command cmd /c "${_bazel}")
+  file(TO_NATIVE_PATH "${_bazel}" _bazel_native)
+  set(_bazel_command cmd /d /c call "${_bazel_native}")
 endif()
 execute_process(
   COMMAND ${_bazel_command} --version
@@ -54,16 +55,29 @@ function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
     /usr/lib/llvm-20/lib/cmake/clang)
 
   set(_resolved_llvm "")
+  if(NOT "$ENV{LLVM_DIR}" STREQUAL "" AND EXISTS "$ENV{LLVM_DIR}/LLVMConfig.cmake")
+    set(_resolved_llvm "$ENV{LLVM_DIR}")
+  endif()
   foreach(_candidate IN LISTS _llvm_candidates)
-    if(EXISTS "${_candidate}/LLVMConfig.cmake")
+    if(_resolved_llvm STREQUAL "" AND EXISTS "${_candidate}/LLVMConfig.cmake")
       set(_resolved_llvm "${_candidate}")
       break()
     endif()
   endforeach()
 
   set(_resolved_clang "")
+  if(NOT "$ENV{Clang_DIR}" STREQUAL "" AND EXISTS "$ENV{Clang_DIR}/ClangConfig.cmake")
+    set(_resolved_clang "$ENV{Clang_DIR}")
+  endif()
+  if(_resolved_clang STREQUAL "" AND NOT _resolved_llvm STREQUAL "")
+    get_filename_component(_llvm_cmake_parent "${_resolved_llvm}" DIRECTORY)
+    set(_clang_from_llvm "${_llvm_cmake_parent}/clang")
+    if(EXISTS "${_clang_from_llvm}/ClangConfig.cmake")
+      set(_resolved_clang "${_clang_from_llvm}")
+    endif()
+  endif()
   foreach(_candidate IN LISTS _clang_candidates)
-    if(EXISTS "${_candidate}/ClangConfig.cmake")
+    if(_resolved_clang STREQUAL "" AND EXISTS "${_candidate}/ClangConfig.cmake")
       set(_resolved_clang "${_candidate}")
       break()
     endif()
@@ -74,6 +88,11 @@ function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
 endfunction()
 
 set(_gentest_clang_search_paths
+  $ENV{LLVM_BIN}
+  /opt/homebrew/opt/llvm@21/bin
+  /opt/homebrew/opt/llvm@20/bin
+  /usr/local/opt/llvm@21/bin
+  /usr/local/opt/llvm@20/bin
   /opt/homebrew/opt/llvm/bin
   /usr/local/opt/llvm/bin
   /opt/homebrew/bin
@@ -86,9 +105,17 @@ set(_gentest_clang_search_paths
   /usr/lib/llvm-20/bin
   /usr/bin)
 
-find_program(_clang_cxx NAMES clang++-22 clang++-21 clang++-20 clang++
-  PATHS ${_gentest_clang_search_paths}
-  NO_DEFAULT_PATH)
+set(_clang_cxx "$ENV{CXX}")
+if(_clang_cxx STREQUAL "" OR NOT EXISTS "${_clang_cxx}")
+  if(NOT "$ENV{LLVM_BIN}" STREQUAL "" AND EXISTS "$ENV{LLVM_BIN}/clang++")
+    set(_clang_cxx "$ENV{LLVM_BIN}/clang++")
+  endif()
+endif()
+if(_clang_cxx STREQUAL "" OR NOT EXISTS "${_clang_cxx}")
+  find_program(_clang_cxx NAMES clang++-22 clang++-21 clang++-20 clang++
+    PATHS ${_gentest_clang_search_paths}
+    NO_DEFAULT_PATH)
+endif()
 if(NOT _clang_cxx)
   find_program(_clang_cxx NAMES clang++-22 clang++-21 clang++-20 clang++)
   if(NOT _clang_cxx)
@@ -97,9 +124,17 @@ if(NOT _clang_cxx)
   endif()
 endif()
 
-find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
-  PATHS ${_gentest_clang_search_paths}
-  NO_DEFAULT_PATH)
+set(_clang_cc "$ENV{CC}")
+if(_clang_cc STREQUAL "" OR NOT EXISTS "${_clang_cc}")
+  if(NOT "$ENV{LLVM_BIN}" STREQUAL "" AND EXISTS "$ENV{LLVM_BIN}/clang")
+    set(_clang_cc "$ENV{LLVM_BIN}/clang")
+  endif()
+endif()
+if(_clang_cc STREQUAL "" OR NOT EXISTS "${_clang_cc}")
+  find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
+    PATHS ${_gentest_clang_search_paths}
+    NO_DEFAULT_PATH)
+endif()
 if(NOT _clang_cc)
   find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang)
   if(NOT _clang_cc)
@@ -164,6 +199,7 @@ set(_gentest_bazel_build_args
   --host_action_env=LLVM_DIR
   --host_action_env=Clang_DIR
   --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --host_action_env=HOME
   --repo_env=PATH
   --repo_env=CC
   --repo_env=CXX
@@ -171,6 +207,8 @@ set(_gentest_bazel_build_args
   --repo_env=LLVM_DIR
   --repo_env=Clang_DIR
   --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --repo_env=HOME
+  --action_env=HOME
   --verbose_failures
   --sandbox_debug
   //:gentest_consumer_module_bazel)
@@ -185,6 +223,7 @@ execute_process(
           "LLVM_DIR=${_llvm_dir}"
           "Clang_DIR=${_clang_dir}"
           "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
+          "HOME=$ENV{HOME}"
           ${_bazel_command}
           ${_gentest_bazel_build_args}
   WORKING_DIRECTORY "${SOURCE_DIR}"

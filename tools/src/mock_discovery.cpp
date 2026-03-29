@@ -781,10 +781,12 @@ void MockUsageCollector::run(const MatchFinder::MatchResult &result) {
 bool MockUsageCollector::has_errors() const { return had_error_; }
 
 void register_mock_matchers(MatchFinder &finder, MockUsageCollector &collector) {
-    finder.addMatcher(
-        traverse(TK_IgnoreUnlessSpelledInSource, classTemplateSpecializationDecl(hasName("gentest::mock"))).bind("gentest.mock"),
-        &collector);
-    finder.addMatcher(traverse(TK_IgnoreUnlessSpelledInSource, typedefNameDecl()).bind("gentest.mock.alias"), &collector);
+    finder.addMatcher(classTemplateSpecializationDecl(hasName("gentest::mock"), unless(isImplicit()),
+                                                      unless(isExpansionInSystemHeader()))
+                          .bind("gentest.mock"),
+                      &collector);
+    finder.addMatcher(typedefNameDecl(unless(isImplicit()), unless(isExpansionInSystemHeader())).bind("gentest.mock.alias"),
+                      &collector);
 }
 
 } // namespace gentest::codegen

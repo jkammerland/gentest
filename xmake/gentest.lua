@@ -608,8 +608,6 @@ end
 local function run_command(batchcmds, program, args)
     if batchcmds then
         batchcmds:vrunv(program, args)
-    else
-        os.vrunv(program, args)
     end
 end
 
@@ -900,19 +898,41 @@ function gentest_add_mocks(opts)
             MOCK_IMPL_FILENAME = path.filename(mock_impl_h),
         })
     else
-        for index, defs_file in ipairs(defs) do
-            local zero_index = index - 1
-            local wrapper_rel = module_wrapper_output_rel(output_dir, defs_file, zero_index)
-            local header_rel = module_header_output_rel(output_dir, defs_file, zero_index)
-            add_generated_copy(defs_file, wrapper_rel)
-            add_generated_template("header.hpp.in", header_rel, {})
-        end
         add_generated_template("module_public.cppm.in", public_module, {
             MODULE_NAME = config.module_name,
             EXPORTED_IMPORTS = export_import_lines(config.defs_modules),
         })
     end
     on_load(function (target)
+        if kind == "modules" then
+            for index, defs_file in ipairs(defs) do
+                local source_abs = project_path(defs_file)
+                local source_body = io.readfile(source_abs)
+                if not source_body then
+                    fail("gentest_add_mocks(kind='modules') could not read `" .. tostring(defs_file) .. "`")
+                end
+
+                if not source_body:find("import%s+gentest%.mock%s*;") then
+                    local _, decl_end = source_body:find("export%s+module%s+[^;]+;")
+                    if not decl_end then
+                        _, decl_end = source_body:find("module%s+[^;]+;")
+                    end
+                    if not decl_end then
+                        fail("gentest_add_mocks(kind='modules') requires a named module declaration in `" .. tostring(defs_file) .. "`")
+                    end
+                    source_body = source_body:sub(1, decl_end) .. "\n\nimport gentest.mock;" .. source_body:sub(decl_end + 1)
+                end
+
+                local wrapper_output = config.module_wrapper_outputs[index]
+                local header_output = config.module_header_outputs[index]
+                local wrapper_dir = path.directory(wrapper_output)
+                if wrapper_dir and wrapper_dir ~= "" then
+                    os.mkdir(wrapper_dir)
+                end
+                io.writefile(wrapper_output, source_body)
+                io.writefile(header_output, "")
+            end
+        end
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(dep_include_dirs) do
             target:add("includedirs", include_dir)
