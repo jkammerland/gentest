@@ -101,13 +101,14 @@ endif()
 set(_exe "${_exe_dir}/manifest_header_shared_fixture_tests${CMAKE_EXECUTABLE_SUFFIX}")
 
 gentest_check_run_or_fail(
-  COMMAND "${_exe}" --run=manifest/header_shared_fixture --kind=test
+  COMMAND "${_exe}" --no-color --run=manifest/header_shared_fixture --kind=test
   WORKING_DIRECTORY "${_work_dir}"
   OUTPUT_VARIABLE _run_output
   STRIP_TRAILING_WHITESPACE)
 
-string(FIND "${_run_output}" "[ PASS ] manifest_fixture/manifest/header_shared_fixture" _pass_pos)
-if(_pass_pos EQUAL -1)
+string(FIND "${_run_output}" "[ PASS ]" _pass_marker_pos)
+string(FIND "${_run_output}" "manifest_fixture/manifest/header_shared_fixture" _case_pos)
+if(_pass_marker_pos EQUAL -1 OR _case_pos EQUAL -1)
   message(FATAL_ERROR
     "Expected manifest header shared fixture case to pass.\n"
     "Output:\n${_run_output}")
