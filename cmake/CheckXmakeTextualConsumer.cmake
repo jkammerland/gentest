@@ -13,6 +13,29 @@ if(NOT EXISTS "${_codegen}")
   message(FATAL_ERROR "CheckXmakeTextualConsumer.cmake: resolved codegen path does not exist: ${_codegen}")
 endif()
 
+function(_gentest_resolve_xmake_test_tool out_var raw_value label)
+  if("${raw_value}" STREQUAL "")
+    set(${out_var} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  if(IS_ABSOLUTE "${raw_value}")
+    if(NOT EXISTS "${raw_value}")
+      message(FATAL_ERROR
+        "CheckXmakeTextualConsumer.cmake: ${label} does not exist: ${raw_value}")
+    endif()
+    set(${out_var} "${raw_value}" PARENT_SCOPE)
+    return()
+  endif()
+
+  find_program(_resolved_tool NAMES "${raw_value}")
+  if(NOT _resolved_tool)
+    message(FATAL_ERROR
+      "CheckXmakeTextualConsumer.cmake: failed to resolve ${label} from '${raw_value}'.")
+  endif()
+  set(${out_var} "${_resolved_tool}" PARENT_SCOPE)
+endfunction()
+
 find_program(_xmake NAMES xmake)
 if(NOT _xmake)
   message(STATUS "xmake not found; skipping Xmake textual consumer smoke check.")
@@ -86,19 +109,29 @@ endif()
 
 set(_target_cxx "${_clang_cxx}")
 set(_target_cc "${_clang_cc}")
-if(NOT WIN32 AND NOT APPLE)
-  find_program(_gnu_cxx NAMES g++ g++-22 g++-21 g++-20 g++-19 g++-18 g++-17 g++-16 g++-15)
-  find_program(_gnu_cc NAMES gcc gcc-22 gcc-21 gcc-20 gcc-19 gcc-18 gcc-17 gcc-16 gcc-15)
-  if(_gnu_cxx AND _gnu_cc)
-    execute_process(COMMAND "${_gnu_cxx}" --version OUTPUT_VARIABLE _gnu_cxx_out ERROR_VARIABLE _gnu_cxx_err)
-    execute_process(COMMAND "${_gnu_cc}" --version OUTPUT_VARIABLE _gnu_cc_out ERROR_VARIABLE _gnu_cc_err)
-    string(TOLOWER "${_gnu_cxx_out}\n${_gnu_cxx_err}" _gnu_cxx_log)
-    string(TOLOWER "${_gnu_cc_out}\n${_gnu_cc_err}" _gnu_cc_log)
-    if(NOT _gnu_cxx_log MATCHES "clang" AND NOT _gnu_cc_log MATCHES "clang")
-      set(_target_cxx "${_gnu_cxx}")
-      set(_target_cc "${_gnu_cc}")
-    endif()
-  endif()
+set(_configured_target_cc "$ENV{GENTEST_XMAKE_TEST_TARGET_CC}")
+set(_configured_target_cxx "$ENV{GENTEST_XMAKE_TEST_TARGET_CXX}")
+set(_has_configured_target_cc FALSE)
+set(_has_configured_target_cxx FALSE)
+if(NOT "${_configured_target_cc}" STREQUAL "")
+  set(_has_configured_target_cc TRUE)
+endif()
+if(NOT "${_configured_target_cxx}" STREQUAL "")
+  set(_has_configured_target_cxx TRUE)
+endif()
+if(_has_configured_target_cc AND NOT _has_configured_target_cxx)
+  message(FATAL_ERROR
+    "CheckXmakeTextualConsumer.cmake: GENTEST_XMAKE_TEST_TARGET_CC and "
+    "GENTEST_XMAKE_TEST_TARGET_CXX must be set together.")
+endif()
+if(_has_configured_target_cxx AND NOT _has_configured_target_cc)
+  message(FATAL_ERROR
+    "CheckXmakeTextualConsumer.cmake: GENTEST_XMAKE_TEST_TARGET_CC and "
+    "GENTEST_XMAKE_TEST_TARGET_CXX must be set together.")
+endif()
+if(NOT "${_configured_target_cc}" STREQUAL "")
+  _gentest_resolve_xmake_test_tool(_target_cc "${_configured_target_cc}" "GENTEST_XMAKE_TEST_TARGET_CC")
+  _gentest_resolve_xmake_test_tool(_target_cxx "${_configured_target_cxx}" "GENTEST_XMAKE_TEST_TARGET_CXX")
 endif()
 
 set(_out_dir "${_gentest_xmake_root}/tmp_xmake_textual_consumer")
@@ -175,8 +208,8 @@ endforeach()
 
 file(GLOB_RECURSE _consumer_bins
   LIST_DIRECTORIES FALSE
-  "${_out_dir}/*gentest_consumer_textual_xmake"
-  "${_out_dir}/*gentest_consumer_textual_xmake.exe")
+  "${_out_dir}/gentest_consumer_textual_xmake"
+  "${_out_dir}/gentest_consumer_textual_xmake.exe")
 list(LENGTH _consumer_bins _consumer_bin_count)
 if(NOT _consumer_bin_count EQUAL 1)
   message(FATAL_ERROR

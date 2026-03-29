@@ -311,6 +311,8 @@ That includes at least:
   - [`cmake/CheckXmakeTextualConsumer.cmake`](../../cmake/CheckXmakeTextualConsumer.cmake)
   - [`cmake/CheckXmakeTextualConsumerRegistration.cmake`](../../cmake/CheckXmakeTextualConsumerRegistration.cmake)
   - [`cmake/CheckXmakeModuleConsumer.cmake`](../../cmake/CheckXmakeModuleConsumer.cmake)
+  - Use explicit test-only target-toolchain knobs for GCC-target coverage:
+    `GENTEST_XMAKE_TEST_TARGET_CC` and `GENTEST_XMAKE_TEST_TARGET_CXX`
 - repo-local buildsystem workflows:
   - [`.github/workflows/buildsystems_linux.yml`](../../.github/workflows/buildsystems_linux.yml)
   - [`.github/workflows/cmake.yml`](../../.github/workflows/cmake.yml)
@@ -356,4 +358,3 @@ Required proof for this story:
   MSVC-style consumer flows.
 - The macOS Homebrew LLVM CI smoke lanes remain green.
 - Linux aarch64 QEMU cross flow remains green.
-

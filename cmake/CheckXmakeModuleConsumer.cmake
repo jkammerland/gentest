@@ -13,6 +13,29 @@ if(NOT EXISTS "${_codegen}")
   message(FATAL_ERROR "CheckXmakeModuleConsumer.cmake: resolved codegen path does not exist: ${_codegen}")
 endif()
 
+function(_gentest_resolve_xmake_test_tool out_var raw_value label)
+  if("${raw_value}" STREQUAL "")
+    set(${out_var} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  if(IS_ABSOLUTE "${raw_value}")
+    if(NOT EXISTS "${raw_value}")
+      message(FATAL_ERROR
+        "CheckXmakeModuleConsumer.cmake: ${label} does not exist: ${raw_value}")
+    endif()
+    set(${out_var} "${raw_value}" PARENT_SCOPE)
+    return()
+  endif()
+
+  find_program(_resolved_tool NAMES "${raw_value}")
+  if(NOT _resolved_tool)
+    message(FATAL_ERROR
+      "CheckXmakeModuleConsumer.cmake: failed to resolve ${label} from '${raw_value}'.")
+  endif()
+  set(${out_var} "${_resolved_tool}" PARENT_SCOPE)
+endfunction()
+
 find_program(_xmake NAMES xmake)
 if(NOT _xmake)
   message(STATUS "xmake not found; skipping Xmake module consumer smoke check.")
@@ -24,50 +47,85 @@ if(DEFINED BUILD_ROOT AND NOT "${BUILD_ROOT}" STREQUAL "")
   set(_gentest_xmake_root "${BUILD_ROOT}")
 endif()
 
-if(NOT WIN32)
-  find_program(_gnu_cxx NAMES g++ c++)
-  find_program(_gnu_cc NAMES gcc cc)
-  if(_gnu_cxx AND _gnu_cc)
-    set(_nonclang_out_dir "${_gentest_xmake_root}/tmp_xmake_module_consumer_nonclang")
-    set(_nonclang_xmake_global_dir "${_gentest_xmake_root}/xg_nonclang")
-    file(REMOVE_RECURSE "${_nonclang_out_dir}")
-    file(REMOVE_RECURSE "${_nonclang_xmake_global_dir}")
-    file(MAKE_DIRECTORY "${_nonclang_out_dir}/tmp")
-    # Keep user-global Xmake cache/toolchain state out of the negative contract check.
-    set(_nonclang_xmake_env
-      "GENTEST_CODEGEN=${_codegen}"
-      "CC=${_gnu_cc}"
-      "CXX=${_gnu_cxx}"
-      "TMPDIR=${_nonclang_out_dir}/tmp"
-      "XMAKE_GLOBALDIR=${_nonclang_xmake_global_dir}")
-    set(_nonclang_config_args
-      f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_nonclang_out_dir}" -m debug -c -y
-      "--cc=${_gnu_cc}"
-      "--cxx=${_gnu_cxx}")
-    execute_process(
-      COMMAND "${CMAKE_COMMAND}" -E env ${_nonclang_xmake_env}
-              "${_xmake}" ${_nonclang_config_args}
-      WORKING_DIRECTORY "${SOURCE_DIR}"
-      RESULT_VARIABLE _nonclang_cfg_rc
-      OUTPUT_VARIABLE _nonclang_cfg_out
-      ERROR_VARIABLE _nonclang_cfg_err)
-    if(_nonclang_cfg_rc EQUAL 0)
-      message(FATAL_ERROR
-        "Expected Xmake module configure with a non-Clang toolchain to fail, but it succeeded.\n"
-        "stdout:\n${_nonclang_cfg_out}\n"
-        "stderr:\n${_nonclang_cfg_err}")
-    endif()
+set(_configured_target_cc "$ENV{GENTEST_XMAKE_TEST_TARGET_CC}")
+set(_configured_target_cxx "$ENV{GENTEST_XMAKE_TEST_TARGET_CXX}")
+set(_has_configured_target_cc FALSE)
+set(_has_configured_target_cxx FALSE)
+if(NOT "${_configured_target_cc}" STREQUAL "")
+  set(_has_configured_target_cc TRUE)
+endif()
+if(NOT "${_configured_target_cxx}" STREQUAL "")
+  set(_has_configured_target_cxx TRUE)
+endif()
+if(_has_configured_target_cc AND NOT _has_configured_target_cxx)
+  message(FATAL_ERROR
+    "CheckXmakeModuleConsumer.cmake: GENTEST_XMAKE_TEST_TARGET_CC and "
+    "GENTEST_XMAKE_TEST_TARGET_CXX must be set together.")
+endif()
+if(_has_configured_target_cxx AND NOT _has_configured_target_cc)
+  message(FATAL_ERROR
+    "CheckXmakeModuleConsumer.cmake: GENTEST_XMAKE_TEST_TARGET_CC and "
+    "GENTEST_XMAKE_TEST_TARGET_CXX must be set together.")
+endif()
+set(_nonclang_target_cc "")
+set(_nonclang_target_cxx "")
+if(NOT "${_configured_target_cc}" STREQUAL "")
+  _gentest_resolve_xmake_test_tool(_nonclang_target_cc "${_configured_target_cc}" "GENTEST_XMAKE_TEST_TARGET_CC")
+  _gentest_resolve_xmake_test_tool(_nonclang_target_cxx "${_configured_target_cxx}" "GENTEST_XMAKE_TEST_TARGET_CXX")
+endif()
 
-    set(_nonclang_cfg_log "${_nonclang_cfg_out}\n${_nonclang_cfg_err}")
-    string(FIND "${_nonclang_cfg_log}" "requires a Clang C++ target toolchain in Xmake" _nonclang_contract_pos)
-    if(_nonclang_contract_pos EQUAL -1)
-      message(FATAL_ERROR
-        "Xmake module configure with a non-Clang toolchain failed without surfacing the documented helper contract.\n"
-        "stdout:\n${_nonclang_cfg_out}\n"
-        "stderr:\n${_nonclang_cfg_err}")
+if(NOT WIN32)
+  if(NOT "${_nonclang_target_cxx}" STREQUAL "" AND NOT "${_nonclang_target_cc}" STREQUAL "")
+    execute_process(COMMAND "${_nonclang_target_cxx}" --version OUTPUT_VARIABLE _nonclang_cxx_out ERROR_VARIABLE _nonclang_cxx_err)
+    execute_process(COMMAND "${_nonclang_target_cc}" --version OUTPUT_VARIABLE _nonclang_cc_out ERROR_VARIABLE _nonclang_cc_err)
+    string(TOLOWER "${_nonclang_cxx_out}\n${_nonclang_cxx_err}" _nonclang_cxx_log)
+    string(TOLOWER "${_nonclang_cc_out}\n${_nonclang_cc_err}" _nonclang_cc_log)
+    if(NOT _nonclang_cxx_log MATCHES "clang" AND NOT _nonclang_cc_log MATCHES "clang")
+      set(_nonclang_out_dir "${_gentest_xmake_root}/tmp_xmake_module_consumer_nonclang")
+      set(_nonclang_xmake_global_dir "${_gentest_xmake_root}/xg_nonclang")
+      file(REMOVE_RECURSE "${_nonclang_out_dir}")
+      file(REMOVE_RECURSE "${_nonclang_xmake_global_dir}")
+      file(MAKE_DIRECTORY "${_nonclang_out_dir}/tmp")
+      # Keep user-global Xmake cache/toolchain state out of the negative contract check.
+      set(_nonclang_xmake_env
+        "GENTEST_CODEGEN=${_codegen}"
+        "CC=${_nonclang_target_cc}"
+        "CXX=${_nonclang_target_cxx}"
+        "TMPDIR=${_nonclang_out_dir}/tmp"
+        "XMAKE_GLOBALDIR=${_nonclang_xmake_global_dir}")
+      set(_nonclang_config_args
+        f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_nonclang_out_dir}" -m debug -c -y
+        "--cc=${_nonclang_target_cc}"
+        "--cxx=${_nonclang_target_cxx}")
+      execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env ${_nonclang_xmake_env}
+                "${_xmake}" ${_nonclang_config_args}
+        WORKING_DIRECTORY "${SOURCE_DIR}"
+        RESULT_VARIABLE _nonclang_cfg_rc
+        OUTPUT_VARIABLE _nonclang_cfg_out
+        ERROR_VARIABLE _nonclang_cfg_err)
+      if(_nonclang_cfg_rc EQUAL 0)
+        message(FATAL_ERROR
+          "Expected Xmake module configure with a non-Clang toolchain to fail, but it succeeded.\n"
+          "stdout:\n${_nonclang_cfg_out}\n"
+          "stderr:\n${_nonclang_cfg_err}")
+      endif()
+
+      set(_nonclang_cfg_log "${_nonclang_cfg_out}\n${_nonclang_cfg_err}")
+      string(FIND "${_nonclang_cfg_log}" "requires a Clang C++ target toolchain in Xmake" _nonclang_contract_pos)
+      if(_nonclang_contract_pos EQUAL -1)
+        message(FATAL_ERROR
+          "Xmake module configure with a non-Clang toolchain failed without surfacing the documented helper contract.\n"
+          "stdout:\n${_nonclang_cfg_out}\n"
+          "stderr:\n${_nonclang_cfg_err}")
+      endif()
+    else()
+      message(STATUS
+        "GENTEST_XMAKE_TEST_TARGET_CC/CXX resolve to a clang-like toolchain; skipping non-Clang Xmake module contract check.")
     endif()
   else()
-    message(STATUS "gcc/g++ not found; skipping non-Clang Xmake module contract check.")
+    message(STATUS
+      "GENTEST_XMAKE_TEST_TARGET_CC/CXX not set; skipping non-Clang Xmake module contract check.")
   endif()
 endif()
 
@@ -268,8 +326,8 @@ endif()
 
 file(GLOB_RECURSE _consumer_bins
   LIST_DIRECTORIES FALSE
-  "${_out_dir}/*gentest_consumer_module_xmake"
-  "${_out_dir}/*gentest_consumer_module_xmake.exe")
+  "${_out_dir}/gentest_consumer_module_xmake"
+  "${_out_dir}/gentest_consumer_module_xmake.exe")
 list(LENGTH _consumer_bins _consumer_bin_count)
 if(NOT _consumer_bin_count EQUAL 1)
   message(FATAL_ERROR

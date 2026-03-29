@@ -785,6 +785,8 @@ jobs:
           echo "Clang_DIR=${{ matrix.clang_dir }}" >> $GITHUB_ENV
           echo "CC=${{ matrix.cc }}" >> $GITHUB_ENV
           echo "CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
+          echo "GENTEST_XMAKE_TEST_TARGET_CC=${{ matrix.cc }}" >> $GITHUB_ENV
+          echo "GENTEST_XMAKE_TEST_TARGET_CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
           host_clang_root="$(dirname "$(dirname "$(dirname "${{ matrix.clang_dir }}")")")"
           host_clang=""
           for candidate in \
