@@ -8,7 +8,39 @@ if(NOT _xmake)
   return()
 endif()
 
-set(_gentest_clang_search_paths
+set(_gentest_xmake_root "${CMAKE_CURRENT_BINARY_DIR}")
+if(DEFINED BUILD_ROOT AND NOT "${BUILD_ROOT}" STREQUAL "")
+  set(_gentest_xmake_root "${BUILD_ROOT}")
+endif()
+
+set(_gentest_clang_search_paths "")
+foreach(_compiler_path IN ITEMS "${CXX_COMPILER}" "${C_COMPILER}")
+  if(_compiler_path)
+    get_filename_component(_compiler_realpath "${_compiler_path}" REALPATH)
+    if(_compiler_realpath)
+      get_filename_component(_compiler_dir "${_compiler_realpath}" DIRECTORY)
+    else()
+      get_filename_component(_compiler_dir "${_compiler_path}" DIRECTORY)
+    endif()
+    list(APPEND _gentest_clang_search_paths "${_compiler_dir}")
+  endif()
+endforeach()
+foreach(_cmake_dir IN ITEMS "${Clang_DIR}" "${LLVM_DIR}")
+  if(_cmake_dir)
+    get_filename_component(_llvm_prefix "${_cmake_dir}" DIRECTORY)
+    get_filename_component(_llvm_prefix "${_llvm_prefix}" DIRECTORY)
+    get_filename_component(_llvm_prefix "${_llvm_prefix}" DIRECTORY)
+    list(APPEND _gentest_clang_search_paths "${_llvm_prefix}/bin")
+  endif()
+endforeach()
+if(APPLE)
+  list(APPEND _gentest_clang_search_paths
+    /opt/homebrew/opt/llvm@22/bin
+    /opt/homebrew/opt/llvm@21/bin
+    /opt/homebrew/opt/llvm@20/bin
+    /usr/local/opt/llvm/bin)
+endif()
+list(APPEND _gentest_clang_search_paths
   /usr/bin
   /bin
   /usr/lib64/llvm22/bin
@@ -17,6 +49,7 @@ set(_gentest_clang_search_paths
   /usr/lib/llvm-22/bin
   /usr/lib/llvm-21/bin
   /usr/lib/llvm-20/bin)
+list(REMOVE_DUPLICATES _gentest_clang_search_paths)
 
 find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20
   PATHS ${_gentest_clang_search_paths}
@@ -45,8 +78,10 @@ if(NOT EXISTS "${_xmake_file}")
   message(FATAL_ERROR "Missing xmake.lua: ${_xmake_file}")
 endif()
 
-set(_tmp_dir "${CMAKE_CURRENT_BINARY_DIR}/tmp_xmake_target_registration")
+set(_tmp_dir "${_gentest_xmake_root}/tmp_xmake_target_registration")
+set(_xmake_global_dir "${_gentest_xmake_root}/xg")
 file(REMOVE_RECURSE "${_tmp_dir}")
+file(REMOVE_RECURSE "${_xmake_global_dir}")
 file(MAKE_DIRECTORY "${_tmp_dir}")
 file(MAKE_DIRECTORY "${_tmp_dir}/tmp")
 file(COPY_FILE "${_xmake_file}" "${_tmp_dir}/xmake.lua")
@@ -60,8 +95,14 @@ file(COPY "${SOURCE_DIR}/tests/consumer" DESTINATION "${_tmp_dir}/tests")
 file(COPY "${SOURCE_DIR}/include/gentest" DESTINATION "${_tmp_dir}/include")
 file(COPY_FILE "${SOURCE_DIR}/src/gentest_main.cpp" "${_tmp_dir}/src/gentest_main.cpp")
 
+set(_xmake_env
+  "CC=${_clang_cc}"
+  "CXX=${_clang_cxx}"
+  "TMPDIR=${_tmp_dir}/tmp"
+  "XMAKE_GLOBALDIR=${_xmake_global_dir}")
+
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -l targets
   RESULT_VARIABLE _list_rc
   OUTPUT_VARIABLE _list_out
@@ -88,7 +129,7 @@ foreach(_target
 endforeach()
 
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_textual_xmake
   RESULT_VARIABLE _target_rc
   OUTPUT_VARIABLE _target_out
@@ -108,7 +149,7 @@ if(_dep_pos EQUAL -1)
 endif()
 
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_textual_mocks_xmake
   RESULT_VARIABLE _textual_mocks_rc
   OUTPUT_VARIABLE _textual_mocks_out
@@ -140,7 +181,7 @@ if(_source_pos EQUAL -1)
 endif()
 
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_mocks_xmake
   RESULT_VARIABLE _module_mocks_rc
   OUTPUT_VARIABLE _module_mocks_out
@@ -166,7 +207,7 @@ foreach(_expected IN ITEMS
 endforeach()
 
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" -E env "CC=${_clang_cc}" "CXX=${_clang_cxx}" "TMPDIR=${_tmp_dir}/tmp"
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_xmake
   RESULT_VARIABLE _module_target_rc
   OUTPUT_VARIABLE _module_target_out

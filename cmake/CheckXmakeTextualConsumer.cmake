@@ -19,7 +19,39 @@ if(NOT _xmake)
   return()
 endif()
 
-set(_gentest_clang_search_paths
+set(_gentest_xmake_root "${CMAKE_CURRENT_BINARY_DIR}")
+if(DEFINED BUILD_ROOT AND NOT "${BUILD_ROOT}" STREQUAL "")
+  set(_gentest_xmake_root "${BUILD_ROOT}")
+endif()
+
+set(_gentest_clang_search_paths "")
+foreach(_compiler_path IN ITEMS "${CXX_COMPILER}" "${C_COMPILER}")
+  if(_compiler_path)
+    get_filename_component(_compiler_realpath "${_compiler_path}" REALPATH)
+    if(_compiler_realpath)
+      get_filename_component(_compiler_dir "${_compiler_realpath}" DIRECTORY)
+    else()
+      get_filename_component(_compiler_dir "${_compiler_path}" DIRECTORY)
+    endif()
+    list(APPEND _gentest_clang_search_paths "${_compiler_dir}")
+  endif()
+endforeach()
+foreach(_cmake_dir IN ITEMS "${Clang_DIR}" "${LLVM_DIR}")
+  if(_cmake_dir)
+    get_filename_component(_llvm_prefix "${_cmake_dir}" DIRECTORY)
+    get_filename_component(_llvm_prefix "${_llvm_prefix}" DIRECTORY)
+    get_filename_component(_llvm_prefix "${_llvm_prefix}" DIRECTORY)
+    list(APPEND _gentest_clang_search_paths "${_llvm_prefix}/bin")
+  endif()
+endforeach()
+if(APPLE)
+  list(APPEND _gentest_clang_search_paths
+    /opt/homebrew/opt/llvm@22/bin
+    /opt/homebrew/opt/llvm@21/bin
+    /opt/homebrew/opt/llvm@20/bin
+    /usr/local/opt/llvm/bin)
+endif()
+list(APPEND _gentest_clang_search_paths
   /usr/bin
   /bin
   /usr/lib64/llvm22/bin
@@ -27,8 +59,8 @@ set(_gentest_clang_search_paths
   /usr/lib64/llvm20/bin
   /usr/lib/llvm-22/bin
   /usr/lib/llvm-21/bin
-  /usr/lib/llvm-20/bin
-)
+  /usr/lib/llvm-20/bin)
+list(REMOVE_DUPLICATES _gentest_clang_search_paths)
 
 find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20
   PATHS ${_gentest_clang_search_paths}
@@ -52,17 +84,23 @@ if(NOT _clang_cc)
   return()
 endif()
 
-set(_out_dir "${CMAKE_CURRENT_BINARY_DIR}/tmp_xmake_textual_consumer")
+set(_out_dir "${_gentest_xmake_root}/tmp_xmake_textual_consumer")
+set(_xmake_global_dir "${_gentest_xmake_root}/xg")
 file(REMOVE_RECURSE "${_out_dir}")
+file(REMOVE_RECURSE "${_xmake_global_dir}")
 file(MAKE_DIRECTORY "${_out_dir}/tmp")
+
+set(_xmake_env
+  "GENTEST_CODEGEN=${_codegen}"
+  "GENTEST_XMAKE_SKIP_MODULE_TARGETS=1"
+  "CC=${_clang_cc}"
+  "CXX=${_clang_cxx}"
+  "TMPDIR=${_out_dir}/tmp"
+  "XMAKE_GLOBALDIR=${_xmake_global_dir}")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
-          "GENTEST_CODEGEN=${_codegen}"
-          "GENTEST_XMAKE_SKIP_MODULE_TARGETS=1"
-          "CC=${_clang_cc}"
-          "CXX=${_clang_cxx}"
-          "TMPDIR=${_out_dir}/tmp"
+          ${_xmake_env}
           "${_xmake}" f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _cfg_rc
@@ -77,11 +115,7 @@ endif()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
-          "GENTEST_CODEGEN=${_codegen}"
-          "GENTEST_XMAKE_SKIP_MODULE_TARGETS=1"
-          "CC=${_clang_cc}"
-          "CXX=${_clang_cxx}"
-          "TMPDIR=${_out_dir}/tmp"
+          ${_xmake_env}
           "${_xmake}" build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD
           gentest_consumer_textual_xmake
   WORKING_DIRECTORY "${SOURCE_DIR}"
