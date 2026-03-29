@@ -1,4 +1,5 @@
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 
 GentestGeneratedInfo = provider(
     doc = "Native Bazel metadata for generated gentest mock/codegen artifacts.",
@@ -13,11 +14,6 @@ _gentest_warning_copts = select({
     "@bazel_tools//src/conditions:windows": ["/wd5030"],
     "//conditions:default": ["-Wno-attributes"],
 })
-
-_gentest_fmt_include_dirs = [
-    "external/+http_archive+fmt/include",
-    "external/fmt/include",
-]
 
 _gentest_common_copts = [
     "-std=c++20",
@@ -62,11 +58,36 @@ def _gentest_driver_args(defines = [], clang_args = [], extra_include_dirs = [])
         "-Iinclude",
         "-Itests",
         "-Ithird_party/include",
-    ] + ["-I{}".format(include_dir) for include_dir in _gentest_fmt_include_dirs]
+    ]
     args.extend(["-D{}".format(define) for define in defines])
     args.extend(["-I{}".format(include_dir) for include_dir in extra_include_dirs])
     args.extend(clang_args)
     return _gentest_unique(args)
+
+def _gentest_maybe_add_host_clang(args, codegen_host_clang):
+    if codegen_host_clang:
+        args.add("--host-clang")
+        args.add(codegen_host_clang)
+
+def _gentest_codegen_driver(codegen_host_clang):
+    if codegen_host_clang:
+        return codegen_host_clang
+    return "clang++"
+
+def _gentest_codegen_support_info(targets):
+    include_dirs = []
+    headers = []
+    for target in targets:
+        cc_info = target[CcInfo]
+        compilation_context = cc_info.compilation_context
+        include_dirs.extend(compilation_context.includes.to_list())
+        include_dirs.extend(compilation_context.quote_includes.to_list())
+        include_dirs.extend(compilation_context.system_includes.to_list())
+        headers.extend(compilation_context.headers.to_list())
+    return struct(
+        include_dirs = _gentest_unique(include_dirs),
+        headers = headers,
+    )
 
 def _gentest_parent_dir(path):
     index = path.rfind("/")
@@ -236,9 +257,9 @@ def _gentest_module_public_source(module_name, defs_modules):
     lines.append("")
     return "\n".join(lines)
 
-def _gentest_compile_db_entry(file_path, include_dirs, defines, clang_args):
+def _gentest_compile_db_entry(file_path, include_dirs, defines, clang_args, compiler_path):
     arguments = [
-        "clang++",
+        compiler_path,
         "-std=c++20",
         "-DFMT_HEADER_ONLY",
         "-Wno-unknown-attributes",
@@ -258,6 +279,7 @@ def _gentest_compile_db_entry(file_path, include_dirs, defines, clang_args):
 def _gentest_textual_codegen_impl(ctx):
     out_dir = ctx.attr.out_dir
     target_id = ctx.attr.target_id
+    codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps)
     wrapper_cpp = ctx.actions.declare_file("{}/{}_defs.cpp".format(out_dir, target_id))
     anchor_cpp = ctx.actions.declare_file("{}/{}_anchor.cpp".format(out_dir, target_id))
     header_h = ctx.actions.declare_file("{}/tu_0000_{}_defs.gentest.h".format(out_dir, target_id))
@@ -308,13 +330,14 @@ def _gentest_textual_codegen_impl(ctx):
     args.add("--mock-impl", impl_h.path)
     args.add("--discover-mocks")
     args.add(wrapper_cpp.path)
+    _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
     args.add("--")
-    args.add_all(_gentest_driver_args(ctx.attr.defines, ctx.attr.clang_args, [wrapper_cpp.dirname]))
+    args.add_all(_gentest_driver_args(ctx.attr.defines, ctx.attr.clang_args, codegen_support.include_dirs + [wrapper_cpp.dirname]))
 
     codegen_outputs = [header_h, registry_h, impl_h, domain_registry_h, domain_impl_h]
     ctx.actions.run(
         executable = ctx.file._codegen,
-        inputs = depset([wrapper_cpp, staged_defs] + staged_support_hdrs + ctx.files._public_headers),
+        inputs = depset([wrapper_cpp, staged_defs] + staged_support_hdrs + ctx.files._public_headers + codegen_support.headers),
         outputs = codegen_outputs,
         arguments = [args],
         mnemonic = "GentestTextualMocksCodegen",
@@ -332,7 +355,7 @@ def _gentest_textual_codegen_impl(ctx):
             include_dirs = [wrapper_cpp.dirname],
             module_mappings = [],
             codegen_inputs = depset(
-                [public_header] + codegen_outputs + [staged_defs] + staged_support_hdrs + ctx.files._public_headers,
+                [public_header] + codegen_outputs + [staged_defs] + staged_support_hdrs + ctx.files._public_headers + codegen_support.headers,
             ),
         ),
     ]
@@ -347,6 +370,10 @@ _gentest_textual_codegen = rule(
         "target_id": attr.string(mandatory = True),
         "defines": attr.string_list(),
         "clang_args": attr.string_list(),
+        "codegen_host_clang": attr.string(),
+        "_codegen_support_deps": attr.label_list(
+            default = [Label("@fmt//:fmt")],
+        ),
         "_public_headers": attr.label_list(
             allow_files = True,
             default = [Label("//:gentest_public_headers")],
@@ -357,6 +384,7 @@ _gentest_textual_codegen = rule(
 
 def _gentest_textual_suite_codegen_impl(ctx):
     out_dir = ctx.attr.out_dir
+    codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps)
     source_stem = _gentest_sanitize_identifier(_gentest_basename_stem(ctx.file.src.basename))
     wrapper_cpp = ctx.actions.declare_file("{}/tu_0000_{}.gentest.cpp".format(out_dir, source_stem))
     wrapper_h = ctx.actions.declare_file("{}/tu_0000_{}.gentest.h".format(out_dir, source_stem))
@@ -365,11 +393,11 @@ def _gentest_textual_suite_codegen_impl(ctx):
         content = _gentest_textual_wrapper_source(ctx.file.src.basename, wrapper_h.basename),
     )
 
-    dep_include_dirs = list(ctx.attr.extra_include_dirs)
+    dep_include_dirs = list(ctx.attr.extra_include_dirs) + codegen_support.include_dirs
     source_parent = _gentest_parent_dir(ctx.file.src.short_path)
     if source_parent:
         dep_include_dirs.append(source_parent)
-    codegen_inputs = [wrapper_cpp, ctx.file.src] + list(ctx.files._public_headers)
+    codegen_inputs = [wrapper_cpp, ctx.file.src] + list(ctx.files._public_headers) + codegen_support.headers
     for dep in ctx.attr.mocks:
         info = dep[GentestGeneratedInfo]
         dep_include_dirs.extend(info.include_dirs)
@@ -380,6 +408,7 @@ def _gentest_textual_suite_codegen_impl(ctx):
     args.add("--tu-out-dir", wrapper_cpp.dirname)
     args.add("--tu-header-output", wrapper_h.path)
     args.add(wrapper_cpp.path)
+    _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
     args.add("--")
     args.add_all(_gentest_driver_args(ctx.attr.defines, ctx.attr.clang_args, dep_include_dirs))
 
@@ -409,6 +438,10 @@ _gentest_textual_suite_codegen = rule(
         "extra_include_dirs": attr.string_list(),
         "defines": attr.string_list(),
         "clang_args": attr.string_list(),
+        "codegen_host_clang": attr.string(),
+        "_codegen_support_deps": attr.label_list(
+            default = [Label("@fmt//:fmt")],
+        ),
         "_public_headers": attr.label_list(
             allow_files = True,
             default = [Label("//:gentest_public_headers")],
@@ -420,10 +453,11 @@ _gentest_textual_suite_codegen = rule(
 def _gentest_module_mocks_codegen_impl(ctx):
     out_dir = ctx.attr.out_dir
     target_id = ctx.attr.target_id
+    codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps)
     staged_defs = []
     wrapper_outputs = []
     header_outputs = []
-    codegen_inputs = list(ctx.files._default_module_inputs) + list(ctx.files._public_headers)
+    codegen_inputs = list(ctx.files._default_module_inputs) + list(ctx.files._public_headers) + codegen_support.headers
     for index, defs_file in enumerate(ctx.files.defs):
         staged_name = "m_{}_{}".format(_gentest_index4(index), defs_file.basename)
         staged_output = ctx.actions.declare_file("{}/defs/{}".format(out_dir, staged_name))
@@ -465,8 +499,9 @@ def _gentest_module_mocks_codegen_impl(ctx):
         args.add("--external-module-source", module_mapping)
     for staged_output in staged_defs:
         args.add(staged_output.path)
+    _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
     args.add("--")
-    args.add_all(_gentest_driver_args(ctx.attr.defines, ctx.attr.clang_args))
+    args.add_all(_gentest_driver_args(ctx.attr.defines, ctx.attr.clang_args, codegen_support.include_dirs))
 
     codegen_outputs = wrapper_outputs + header_outputs + [registry_h, impl_h] + domain_outputs
     ctx.actions.run(
@@ -493,7 +528,7 @@ def _gentest_module_mocks_codegen_impl(ctx):
         GentestGeneratedInfo(
             include_dirs = [public_module.dirname, anchor_cpp.dirname],
             module_mappings = module_mappings,
-            codegen_inputs = depset(wrapper_outputs + [public_module] + ctx.files._public_headers),
+            codegen_inputs = depset(wrapper_outputs + [public_module] + ctx.files._public_headers + codegen_support.headers),
         ),
     ]
 
@@ -507,6 +542,10 @@ _gentest_module_mocks_codegen = rule(
         "target_id": attr.string(mandatory = True),
         "defines": attr.string_list(),
         "clang_args": attr.string_list(),
+        "codegen_host_clang": attr.string(),
+        "_codegen_support_deps": attr.label_list(
+            default = [Label("@fmt//:fmt")],
+        ),
         "_default_module_inputs": attr.label_list(
             allow_files = True,
             default = [
@@ -523,9 +562,10 @@ _gentest_module_mocks_codegen = rule(
     },
 )
 
-def _gentest_module_compile_db(public_module, staged_source, module_mappings, include_dirs, defines, clang_args):
+def _gentest_module_compile_db(public_module, staged_source, module_mappings, include_dirs, defines, clang_args, codegen_host_clang):
+    compiler_path = _gentest_codegen_driver(codegen_host_clang)
     entries = []
-    entries.append(_gentest_compile_db_entry(staged_source.path, include_dirs, defines, clang_args))
+    entries.append(_gentest_compile_db_entry(staged_source.path, include_dirs, defines, clang_args, compiler_path))
     for module_mapping in module_mappings:
         if "=" not in module_mapping:
             continue
@@ -534,11 +574,12 @@ def _gentest_module_compile_db(public_module, staged_source, module_mappings, in
         module_include_dirs = include_dirs + [path_dir]
         if public_module and module_path == public_module.path:
             module_include_dirs.append(public_module.dirname)
-        entries.append(_gentest_compile_db_entry(module_path, module_include_dirs, defines, clang_args))
+        entries.append(_gentest_compile_db_entry(module_path, module_include_dirs, defines, clang_args, compiler_path))
     return "[\n  {}\n]\n".format(",\n  ".join(entries))
 
 def _gentest_module_suite_codegen_impl(ctx):
     out_dir = ctx.attr.out_dir
+    codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps)
     source_ext = _gentest_file_ext(ctx.file.src.basename)
     if source_ext == "":
         source_ext = ".cppm"
@@ -552,9 +593,9 @@ def _gentest_module_suite_codegen_impl(ctx):
         substitutions = {},
     )
 
-    dep_include_dirs = list(ctx.attr.extra_include_dirs)
+    dep_include_dirs = list(ctx.attr.extra_include_dirs) + codegen_support.include_dirs
     module_mappings = list(_gentest_default_module_sources)
-    codegen_inputs = [staged_source] + list(ctx.files._default_module_inputs) + list(ctx.files._public_headers)
+    codegen_inputs = [staged_source] + list(ctx.files._default_module_inputs) + list(ctx.files._public_headers) + codegen_support.headers
     for dep in ctx.attr.mocks:
         info = dep[GentestGeneratedInfo]
         dep_include_dirs.extend(info.include_dirs)
@@ -574,7 +615,15 @@ def _gentest_module_suite_codegen_impl(ctx):
             break
     ctx.actions.write(
         output = compdb_json,
-        content = _gentest_module_compile_db(public_module, staged_source, module_mappings, dep_include_dirs, ctx.attr.defines, ctx.attr.clang_args),
+        content = _gentest_module_compile_db(
+            public_module,
+            staged_source,
+            module_mappings,
+            dep_include_dirs,
+            ctx.attr.defines,
+            ctx.attr.clang_args,
+            ctx.attr.codegen_host_clang,
+        ),
     )
 
     args = ctx.actions.args()
@@ -585,6 +634,7 @@ def _gentest_module_suite_codegen_impl(ctx):
     for module_mapping in module_mappings:
         args.add("--external-module-source", module_mapping)
     args.add(staged_source.path)
+    _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
     args.add("--")
     args.add_all(_gentest_driver_args(ctx.attr.defines, ctx.attr.clang_args, dep_include_dirs))
 
@@ -614,6 +664,10 @@ _gentest_module_suite_codegen = rule(
         "extra_include_dirs": attr.string_list(),
         "defines": attr.string_list(),
         "clang_args": attr.string_list(),
+        "codegen_host_clang": attr.string(),
+        "_codegen_support_deps": attr.label_list(
+            default = [Label("@fmt//:fmt")],
+        ),
         "_default_module_inputs": attr.label_list(
             allow_files = True,
             default = [
@@ -644,7 +698,7 @@ def _gentest_define_output_groups(name, target):
     native.filegroup(name = "{}__public_headers".format(name), srcs = [target], output_group = "public_headers")
     native.filegroup(name = "{}__module_interfaces".format(name), srcs = [target], output_group = "module_interfaces")
 
-def gentest_suite(name):
+def gentest_suite(name, codegen_host_clang = None):
     src = "tests/{}/cases.cpp".format(name)
     gen_name = "{}__codegen".format(name)
     out_dir = "gen/{}".format(name)
@@ -652,6 +706,7 @@ def gentest_suite(name):
         name = gen_name,
         src = src,
         out_dir = out_dir,
+        codegen_host_clang = codegen_host_clang,
     )
     _gentest_define_output_groups(gen_name, ":" + gen_name)
 
@@ -676,6 +731,7 @@ def gentest_add_mocks_textual(
         public_header,
         defines = [],
         clang_args = [],
+        codegen_host_clang = None,
         deps = [],
         linkopts = [],
         visibility = None):
@@ -695,6 +751,7 @@ def gentest_add_mocks_textual(
         target_id = name,
         defines = defines,
         clang_args = clang_args,
+        codegen_host_clang = codegen_host_clang,
     )
     _gentest_define_output_groups(gen_name, ":" + gen_name)
 
@@ -717,6 +774,7 @@ def gentest_attach_codegen_textual(
         deps = [],
         defines = [],
         clang_args = [],
+        codegen_host_clang = None,
         linkopts = [],
         source_includes = [],
         visibility = None):
@@ -733,6 +791,7 @@ def gentest_attach_codegen_textual(
         extra_include_dirs = source_includes,
         defines = defines,
         clang_args = clang_args,
+        codegen_host_clang = codegen_host_clang,
     )
     _gentest_define_output_groups(gen_name, ":" + gen_name)
 
@@ -763,6 +822,7 @@ def gentest_add_mocks_modules(
         module_name,
         defines = [],
         clang_args = [],
+        codegen_host_clang = None,
         deps = [],
         linkopts = [],
         visibility = None):
@@ -783,6 +843,7 @@ def gentest_add_mocks_modules(
         target_id = name,
         defines = defines,
         clang_args = clang_args,
+        codegen_host_clang = codegen_host_clang,
     )
     _gentest_define_output_groups(gen_name, ":" + gen_name)
 
@@ -807,6 +868,7 @@ def gentest_attach_codegen_modules(
         deps = [],
         defines = [],
         clang_args = [],
+        codegen_host_clang = None,
         linkopts = [],
         source_includes = [],
         visibility = None):
@@ -825,6 +887,7 @@ def gentest_attach_codegen_modules(
         extra_include_dirs = source_includes,
         defines = defines,
         clang_args = clang_args,
+        codegen_host_clang = codegen_host_clang,
     )
     _gentest_define_output_groups(gen_name, ":" + gen_name)
 

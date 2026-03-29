@@ -21,6 +21,26 @@ elif not fs.is_absolute(codegen_opt)
 endif
 codegen = codegen_opt
 
+codegen_host_clang_opt = get_option('codegen_host_clang')
+if codegen_host_clang_opt != '' and not fs.is_absolute(codegen_host_clang_opt)
+  codegen_host_clang_opt = join_paths(meson.project_source_root(), codegen_host_clang_opt)
+endif
+codegen_host_clang = codegen_host_clang_opt
+
+codegen_clang_scan_deps_opt = get_option('codegen_clang_scan_deps')
+if codegen_clang_scan_deps_opt != '' and not fs.is_absolute(codegen_clang_scan_deps_opt)
+  codegen_clang_scan_deps_opt = join_paths(meson.project_source_root(), codegen_clang_scan_deps_opt)
+endif
+codegen_clang_scan_deps = codegen_clang_scan_deps_opt
+
+codegen_tool_args = []
+if codegen_host_clang != ''
+  codegen_tool_args += ['--host-clang', codegen_host_clang]
+endif
+if codegen_clang_scan_deps != ''
+  codegen_tool_args += ['--clang-scan-deps', codegen_clang_scan_deps]
+endif
+
 fmt_dep = dependency('fmt', required: false, method: 'pkg-config')
 pkg_config = find_program('pkg-config', 'pkgconf', required: false)
 fmt_pkgconfig_include_dirs = []
@@ -103,8 +123,12 @@ libgentest_main = static_library(
 
 # Helper to attach code generation via an external generator binary.
 # Configure the generator path via the Meson option `-Dcodegen_path=...`.
+# When the target compiler is not Clang, pass a separate repo-local host Clang
+# via `-Dcodegen_host_clang=...`. Meson remains textual-only here today.
 # Example:
-#   meson setup build/meson -Dcodegen_path=build/host-codegen/tools/gentest_codegen
+#   meson setup build/meson -Dcodegen_path=build/host-codegen/tools/gentest_codegen \
+#     -Dcodegen_host_clang=/opt/llvm/bin/clang++ \
+#     -Dcodegen_clang_scan_deps=/opt/llvm/bin/clang-scan-deps
 #   meson compile -C build/meson
 
 clang_args = [
@@ -174,6 +198,7 @@ foreach s : tests_suites
       '--source-root', meson.project_source_root(),
       '--tu-out-dir', out_dir,
       '--tu-header-output', join_paths(out_dir, wrapper_h),
+      codegen_tool_args,
       '@INPUT0@',
       '--',
       clang_args,
@@ -247,6 +272,7 @@ consumer_mocks = custom_target(
     '--mock-registry', join_paths(consumer_mock_out_dir, consumer_mock_registry_h),
     '--mock-impl', join_paths(consumer_mock_out_dir, consumer_mock_impl_h),
     '--discover-mocks',
+    codegen_tool_args,
     '@INPUT0@',
     '--',
     clang_args,
@@ -282,6 +308,7 @@ consumer_codegen = custom_target(
     '--source-root', meson.project_source_root(),
     '--tu-out-dir', meson.current_build_dir(),
     '--tu-header-output', join_paths(meson.current_build_dir(), consumer_wrapper_h),
+    codegen_tool_args,
     '@INPUT0@',
     '--',
     '-I@0@'.format(meson.current_build_dir()),

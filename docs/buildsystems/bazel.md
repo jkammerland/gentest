@@ -30,19 +30,28 @@ The repo-local helpers expose the 2-step explicit model:
 
 - `gentest_add_mocks_textual(...)`:
   - required: `name`, `defs`, `public_header`
-  - optional: `defines`, `clang_args`, `deps`, `linkopts`
+  - optional: `defines`, `clang_args`, `codegen_host_clang`, `deps`, `linkopts`
 - `gentest_attach_codegen_textual(...)`:
   - required: `name`, `src`, `main`, same-package `mock_targets`
-  - optional: `defines`, `clang_args`, `deps`, `linkopts`, `source_includes`
+  - optional: `defines`, `clang_args`, `codegen_host_clang`, `deps`, `linkopts`, `source_includes`
 - `gentest_add_mocks_modules(...)`:
   - required: `name`, `defs`, `defs_modules`, `module_name`
-  - optional: `defines`, `clang_args`, `deps`, `linkopts`
+  - optional: `defines`, `clang_args`, `codegen_host_clang`, `deps`, `linkopts`
 - `gentest_attach_codegen_modules(...)`:
   - required: `name`, `src`, `main`, same-package `mock_targets`
-  - optional: `defines`, `clang_args`, `deps`, `linkopts`, `source_includes`
+  - optional: `defines`, `clang_args`, `codegen_host_clang`, `deps`, `linkopts`, `source_includes`
 
 Both textual and module helpers thread `defines` / `clang_args` through the
 codegen scan context and the final compile surface.
+
+For repo-local Bazel codegen host selection, the supported contract is:
+
+- per-target: `codegen_host_clang = "/path/to/clang++"`
+- env fallback: `GENTEST_CODEGEN_HOST_CLANG=/path/to/clang++`
+
+`CC` / `CXX` remain target-toolchain inputs. In the checked-in repo-local
+smoke flow they are still mirrored from the resolved host Clang only to keep
+the `//:gentest_codegen_build` CMake bootstrap on the same LLVM install.
 
 Those `clang_args` values are treated as literal compiler flags. They are not a
 shell fragment surface, and Bazel make-variable expansion inside user-supplied
@@ -94,6 +103,7 @@ gentest_attach_codegen_textual(
     src = "tests/consumer/cases.cpp",
     main = "tests/consumer/main.cpp",
     mock_targets = [":gentest_consumer_textual_mocks"],
+    codegen_host_clang = "/opt/llvm/bin/clang++",
     source_includes = ["tests", "tests/consumer"],
 )
 ```
@@ -119,6 +129,7 @@ gentest_attach_codegen_modules(
         ":gentest",
         ":gentest_bench_util",
     ],
+    codegen_host_clang = "/opt/llvm/bin/clang++",
     defines = ["GENTEST_CONSUMER_USE_MODULES=1"],
     source_includes = ["tests", "tests/consumer"],
 )
@@ -139,7 +150,7 @@ bazelisk test \
 Textual consumer:
 
 ```bash
-clang_cxx_candidates=(
+host_clang_candidates=(
   /usr/lib64/llvm22/bin/clang++
   /usr/lib64/llvm21/bin/clang++
   /usr/lib64/llvm20/bin/clang++
@@ -147,48 +158,45 @@ clang_cxx_candidates=(
   /usr/lib/llvm-21/bin/clang++
   /usr/lib/llvm-20/bin/clang++
 )
-for clang_cxx in "${clang_cxx_candidates[@]}"; do
-  if [ -x "${clang_cxx}" ]; then
+for host_clang in "${host_clang_candidates[@]}"; do
+  if [ -x "${host_clang}" ]; then
     break
   fi
 done
-if [ ! -x "${clang_cxx}" ]; then
-  clang_cxx="$(command -v clang++)"
+if [ ! -x "${host_clang}" ]; then
+  host_clang="$(command -v clang++)"
 fi
-clang_cc_candidates=(
-  /usr/lib64/llvm22/bin/clang
-  /usr/lib64/llvm21/bin/clang
-  /usr/lib64/llvm20/bin/clang
-  /usr/lib/llvm-22/bin/clang
-  /usr/lib/llvm-21/bin/clang
-  /usr/lib/llvm-20/bin/clang
-)
-for clang_cc in "${clang_cc_candidates[@]}"; do
-  if [ -x "${clang_cc}" ]; then
-    break
-  fi
-done
-if [ ! -x "${clang_cc}" ]; then
-  clang_cc="$(command -v clang)"
-fi
-if [ ! -x "${clang_cxx}" ] || [ ! -x "${clang_cc}" ]; then
-  echo "clang/clang++ not found" >&2
+if [ ! -x "${host_clang}" ]; then
+  echo "clang++ not found" >&2
   exit 1
 fi
-clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
+host_clang_dir="$(cd "$(dirname "${host_clang}")" && pwd)"
+host_clang_c="${host_clang_dir}/clang"
+if [ ! -x "${host_clang_c}" ]; then
+  host_clang_c="$(command -v clang)"
+fi
+if [ ! -x "${host_clang_c}" ]; then
+  echo "clang not found next to ${host_clang}" >&2
+  exit 1
+fi
+clang_resource_dir="$("${host_clang}" -print-resource-dir)"
 
-CC="${clang_cc}" \
-CXX="${clang_cxx}" \
+GENTEST_CODEGEN_HOST_CLANG="${host_clang}" \
 GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+CC="${host_clang_c}" \
+CXX="${host_clang}" \
 bazelisk build \
   //:gentest_consumer_textual_bazel \
   --action_env=CCACHE_DISABLE=1 \
   --host_action_env=CCACHE_DISABLE=1 \
-  --action_env=CC="${clang_cc}" \
-  --action_env=CXX="${clang_cxx}" \
+  --action_env=CC="${host_clang_c}" \
+  --action_env=CXX="${host_clang}" \
+  --action_env=GENTEST_CODEGEN_HOST_CLANG \
   --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-  --host_action_env=CC="${clang_cc}" \
-  --host_action_env=CXX="${clang_cxx}" \
+  --host_action_env=CC="${host_clang_c}" \
+  --host_action_env=CXX="${host_clang}" \
+  --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
+  --repo_env=GENTEST_CODEGEN_HOST_CLANG \
   --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
 
 ./bazel-bin/gentest_consumer_textual_bazel --list
@@ -201,7 +209,7 @@ bazelisk build \
 Module consumer:
 
 ```bash
-clang_cxx_candidates=(
+host_clang_candidates=(
   /usr/lib64/llvm22/bin/clang++
   /usr/lib64/llvm21/bin/clang++
   /usr/lib64/llvm20/bin/clang++
@@ -209,52 +217,49 @@ clang_cxx_candidates=(
   /usr/lib/llvm-21/bin/clang++
   /usr/lib/llvm-20/bin/clang++
 )
-for clang_cxx in "${clang_cxx_candidates[@]}"; do
-  if [ -x "${clang_cxx}" ]; then
+for host_clang in "${host_clang_candidates[@]}"; do
+  if [ -x "${host_clang}" ]; then
     break
   fi
 done
-if [ ! -x "${clang_cxx}" ]; then
-  clang_cxx="$(command -v clang++)"
+if [ ! -x "${host_clang}" ]; then
+  host_clang="$(command -v clang++)"
 fi
-clang_cc_candidates=(
-  /usr/lib64/llvm22/bin/clang
-  /usr/lib64/llvm21/bin/clang
-  /usr/lib64/llvm20/bin/clang
-  /usr/lib/llvm-22/bin/clang
-  /usr/lib/llvm-21/bin/clang
-  /usr/lib/llvm-20/bin/clang
-)
-for clang_cc in "${clang_cc_candidates[@]}"; do
-  if [ -x "${clang_cc}" ]; then
-    break
-  fi
-done
-if [ ! -x "${clang_cc}" ]; then
-  clang_cc="$(command -v clang)"
-fi
-if [ ! -x "${clang_cxx}" ] || [ ! -x "${clang_cc}" ]; then
-  echo "clang/clang++ not found" >&2
+if [ ! -x "${host_clang}" ]; then
+  echo "clang++ not found" >&2
   exit 1
 fi
-clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
+host_clang_dir="$(cd "$(dirname "${host_clang}")" && pwd)"
+host_clang_c="${host_clang_dir}/clang"
+if [ ! -x "${host_clang_c}" ]; then
+  host_clang_c="$(command -v clang)"
+fi
+if [ ! -x "${host_clang_c}" ]; then
+  echo "clang not found next to ${host_clang}" >&2
+  exit 1
+fi
+clang_resource_dir="$("${host_clang}" -print-resource-dir)"
 
-CC="${clang_cc}" \
-CXX="${clang_cxx}" \
+GENTEST_CODEGEN_HOST_CLANG="${host_clang}" \
 GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+CC="${host_clang_c}" \
+CXX="${host_clang}" \
 bazelisk build \
   //:gentest_consumer_module_bazel \
   --experimental_cpp_modules \
   --action_env=CCACHE_DISABLE=1 \
   --host_action_env=CCACHE_DISABLE=1 \
-  --action_env=CC="${clang_cc}" \
-  --action_env=CXX="${clang_cxx}" \
+  --action_env=CC="${host_clang_c}" \
+  --action_env=CXX="${host_clang}" \
+  --action_env=GENTEST_CODEGEN_HOST_CLANG \
   --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-  --host_action_env=CC="${clang_cc}" \
-  --host_action_env=CXX="${clang_cxx}" \
+  --host_action_env=CC="${host_clang_c}" \
+  --host_action_env=CXX="${host_clang}" \
+  --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
   --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-  --repo_env=CC="${clang_cc}" \
-  --repo_env=CXX="${clang_cxx}" \
+  --repo_env=CC="${host_clang_c}" \
+  --repo_env=CXX="${host_clang}" \
+  --repo_env=GENTEST_CODEGEN_HOST_CLANG \
   --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
 
 ./bazel-bin/gentest_consumer_module_bazel --list
@@ -265,8 +270,8 @@ bazelisk build \
 ```
 
 In practice, the repo-local Bazel module path is still toolchain-sensitive.
-Use the Clang-oriented contract above rather than relying on Bazel's default
-host toolchain discovery.
+Use `codegen_host_clang` or `GENTEST_CODEGEN_HOST_CLANG` for codegen-host
+selection rather than relying on Bazel's default host toolchain discovery.
 
 The checked-in Linux workflow validates:
 
@@ -277,9 +282,11 @@ The checked-in Linux workflow validates:
 
 For local module runs, keep the same constraints:
 
-- set `CC` / `CXX` to the Clang toolchain Bazel should use
+- set `GENTEST_CODEGEN_HOST_CLANG` to the Clang executable used for codegen
 - set `GENTEST_CODEGEN_RESOURCE_DIR="$(clang++ -print-resource-dir)"`
 - pass `--experimental_cpp_modules`
+- if you build the checked-in repo-local `//:gentest_codegen_build`, mirror the
+  same LLVM install into `CC` / `CXX` as bootstrap compatibility only
 - disable ccache inside Bazel actions when needed
 
 ## Generated outputs

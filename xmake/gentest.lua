@@ -7,8 +7,8 @@ fail = function(message)
 end
 
 -- Configure the shared Xmake helper context. External consumers can override
--- codegen_project_root to point at a gentest checkout, or set GENTEST_CODEGEN
--- to use a prebuilt generator directly.
+-- codegen_project_root to point at a gentest checkout, or provide
+-- codegen = { exe = ..., clang = ..., scan_deps = ... }.
 function gentest_configure(opts)
     gentest_state = opts or {}
 end
@@ -362,6 +362,73 @@ local function append_unique(result, seen, value)
     end
 end
 
+local function configured_codegen_settings()
+    local codegen = gentest_state["codegen"]
+    if codegen == nil then
+        return {}
+    end
+    if type(codegen) ~= "table" then
+        fail("gentest_configure `codegen` must be a table when provided")
+    end
+    return codegen
+end
+
+local function resolve_program_candidate(candidate)
+    local candidate_text = tostring(candidate or "")
+    if candidate_text == "" then
+        return nil
+    end
+    if os.isfile(candidate_text) then
+        return candidate_text
+    end
+    if not path.is_absolute(candidate_text) then
+        for _, base_dir in ipairs({project_root(), codegen_project_root()}) do
+            local joined = path.join(base_dir, candidate_text)
+            if os.isfile(joined) then
+                return joined
+            end
+        end
+    end
+    if not candidate_text:find("[/\\]") then
+        local tool = find_tool(candidate_text, {force = true})
+        if tool and tool.program and os.isfile(tool.program) then
+            return tool.program
+        end
+    end
+    return nil
+end
+
+local function resolve_explicit_program(candidate, source_label, description)
+    if candidate == nil or candidate == "" then
+        return nil
+    end
+    local resolved = resolve_program_candidate(candidate)
+    if resolved then
+        return resolved
+    end
+    fail("failed to resolve " .. description .. " from " .. source_label .. ": `" .. tostring(candidate) .. "`")
+end
+
+local function find_nearby_compile_commands(program_path)
+    if not program_path or program_path == "" then
+        return nil
+    end
+    local candidate = path.directory(program_path)
+    local remaining = 8
+    while candidate and remaining > 0 do
+        if os.isfile(path.join(candidate, "compile_commands.json")) then
+            return candidate
+        end
+        local parent = path.directory(candidate)
+        if not parent or parent == candidate then
+            break
+        end
+        candidate = parent
+        remaining = remaining - 1
+    end
+    return nil
+end
+
 local function relative_include(from_relpath, to_relpath)
     return path.translate(path.relative(project_path(to_relpath), path.directory(project_path(from_relpath))))
 end
@@ -583,8 +650,77 @@ local function is_clang_tool(toolpath)
                toolname:match("^clang%-%d+$")
 end
 
+local function scan_deps_candidate_names(host_clang)
+    local candidates = {}
+    local toolname = path.filename(host_clang or ""):lower():gsub("%.exe$", "")
+    local version_suffix = toolname:match("^clang%+%+%-(%d+)$") or toolname:match("^clang%-(%d+)$")
+    if version_suffix and version_suffix ~= "" then
+        if is_host("windows") then
+            table.insert(candidates, "clang-scan-deps-" .. version_suffix .. ".exe")
+        else
+            table.insert(candidates, "clang-scan-deps-" .. version_suffix)
+        end
+    end
+    if is_host("windows") then
+        table.insert(candidates, "clang-scan-deps.exe")
+    else
+        table.insert(candidates, "clang-scan-deps")
+    end
+    return candidates
+end
+
 local function configured_cxx_tool_hint()
     return get_config("cxx") or os.getenv("CXX") or ""
+end
+
+local function resolve_codegen_host_clang(target)
+    local configured_codegen = configured_codegen_settings()
+    local configured_host_clang = resolve_explicit_program(
+        configured_codegen["clang"],
+        "`gentest_configure().codegen.clang`",
+        "host Clang executable"
+    )
+    if configured_host_clang then
+        return configured_host_clang
+    end
+    local env_host_clang = os.getenv("GENTEST_CODEGEN_HOST_CLANG")
+    if env_host_clang and env_host_clang ~= "" then
+        return resolve_explicit_program(env_host_clang, "`GENTEST_CODEGEN_HOST_CLANG`", "host Clang executable")
+    end
+    local cxx_tool = target and target.tool and target:tool("cxx") or ""
+    if cxx_tool == "" then
+        cxx_tool = configured_cxx_tool_hint()
+    end
+    if cxx_tool ~= "" and is_clang_tool(cxx_tool) then
+        return resolve_program_candidate(cxx_tool) or cxx_tool
+    end
+    return nil
+end
+
+local function resolve_codegen_scan_deps(host_clang)
+    local configured_codegen = configured_codegen_settings()
+    local configured_scan_deps = resolve_explicit_program(
+        configured_codegen["scan_deps"],
+        "`gentest_configure().codegen.scan_deps`",
+        "clang-scan-deps executable"
+    )
+    if configured_scan_deps then
+        return configured_scan_deps
+    end
+    local env_scan_deps = os.getenv("GENTEST_CODEGEN_CLANG_SCAN_DEPS")
+    if env_scan_deps and env_scan_deps ~= "" then
+        return resolve_explicit_program(env_scan_deps, "`GENTEST_CODEGEN_CLANG_SCAN_DEPS`", "clang-scan-deps executable")
+    end
+    if host_clang and host_clang ~= "" then
+        local bin_dir = path.directory(host_clang)
+        for _, candidate_name in ipairs(scan_deps_candidate_names(host_clang)) do
+            local candidate = path.join(bin_dir, candidate_name)
+            if os.isfile(candidate) then
+                return candidate
+            end
+        end
+    end
+    return nil
 end
 
 local function require_clang_module_toolchain(target, operation)
@@ -599,8 +735,10 @@ local function require_clang_module_toolchain(target, operation)
         return
     end
     fail(
-        operation .. "(kind='modules') requires a Clang C++ toolchain in Xmake. "
-            .. "Configure Xmake with CC=clang and CXX=clang++ (or clang-cl on Windows). "
+        operation .. "(kind='modules') requires a Clang C++ target toolchain in Xmake. "
+            .. "Configure the target toolchain/compiler with Clang for module compilation, and configure codegen host tools "
+            .. "separately with gentest_configure({ codegen = { clang = ..., scan_deps = ... }}) or "
+            .. "GENTEST_CODEGEN_HOST_CLANG / GENTEST_CODEGEN_CLANG_SCAN_DEPS. "
             .. "Resolved cxx tool: `" .. tostring(cxx_tool) .. "`"
     )
 end
@@ -612,35 +750,21 @@ local function run_command(batchcmds, program, args)
 end
 
 local function resolve_codegen()
+    local configured_codegen = configured_codegen_settings()
+    local explicit_codegen = resolve_explicit_program(
+        configured_codegen["exe"],
+        "`gentest_configure().codegen.exe`",
+        "gentest_codegen executable"
+    )
+    if explicit_codegen then
+        return explicit_codegen, find_nearby_compile_commands(explicit_codegen), nil
+    end
+
     local env_path = os.getenv("GENTEST_CODEGEN")
     if env_path then
-        local resolved_env_path = env_path
-        if not os.isfile(resolved_env_path) then
-            local rel_to_project = path.relative(resolved_env_path, project_root())
-            if rel_to_project and rel_to_project ~= resolved_env_path and not rel_to_project:find("^%.%.") then
-                local remapped = path.join(codegen_project_root(), rel_to_project)
-                if os.isfile(remapped) then
-                    resolved_env_path = remapped
-                end
-            end
-        end
-        if os.isfile(resolved_env_path) then
-            local env_compdb_dir = nil
-            local candidate = path.directory(resolved_env_path)
-            local remaining = 8
-            while candidate and remaining > 0 do
-                if os.isfile(path.join(candidate, "compile_commands.json")) then
-                    env_compdb_dir = candidate
-                    break
-                end
-                local parent = path.directory(candidate)
-                if not parent or parent == candidate then
-                    break
-                end
-                candidate = parent
-                remaining = remaining - 1
-            end
-            return resolved_env_path, env_compdb_dir, nil
+        local resolved_env_path = resolve_program_candidate(env_path)
+        if resolved_env_path and os.isfile(resolved_env_path) then
+            return resolved_env_path, find_nearby_compile_commands(resolved_env_path), nil
         end
     end
 
@@ -662,10 +786,11 @@ local function existing_project_compdb_dir()
     return nil
 end
 
-local function ensure_codegen(batchcmds)
+local function ensure_codegen(batchcmds, target)
     local cached = gentest_state["_resolved_codegen"]
     if cached and cached.path and os.isfile(cached.path) then
-        return cached.path, cached.compdb_dir
+        local host_clang = resolve_codegen_host_clang(target)
+        return cached.path, cached.compdb_dir, host_clang, resolve_codegen_scan_deps(host_clang)
     end
 
     local codegen, compdb_dir, cmake_build_dir = resolve_codegen()
@@ -691,10 +816,11 @@ local function ensure_codegen(batchcmds)
     end
 
     gentest_state["_resolved_codegen"] = {path = codegen, compdb_dir = compdb_dir}
-    return codegen, compdb_dir
+    local host_clang = resolve_codegen_host_clang(target)
+    return codegen, compdb_dir, host_clang, resolve_codegen_scan_deps(host_clang)
 end
 
-local function run_mock_codegen(batchcmds, codegen, compdb_dir, config)
+local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     local args = {
         "--source-root", project_root(),
         "--tu-out-dir", config.out_dir_abs,
@@ -727,6 +853,14 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, config)
             table.insert(args, defs_file)
         end
     end
+    if host_clang and host_clang ~= "" then
+        table.insert(args, "--host-clang")
+        table.insert(args, host_clang)
+    end
+    if scan_deps and scan_deps ~= "" then
+        table.insert(args, "--clang-scan-deps")
+        table.insert(args, scan_deps)
+    end
     if config.kind == "textual" and compdb_dir then
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
@@ -735,7 +869,7 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, config)
     run_command(batchcmds, codegen, args)
 end
 
-local function run_suite_codegen(batchcmds, codegen, compdb_dir, config)
+local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     local args = {
         "--source-root", project_root(),
         "--tu-out-dir", config.out_dir_abs,
@@ -765,6 +899,14 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, config)
             table.insert(args, compdb_dir)
         end
         table.insert(args, config.source_file)
+    end
+    if host_clang and host_clang ~= "" then
+        table.insert(args, "--host-clang")
+        table.insert(args, host_clang)
+    end
+    if scan_deps and scan_deps ~= "" then
+        table.insert(args, "--clang-scan-deps")
+        table.insert(args, scan_deps)
     end
     append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args)
     run_command(batchcmds, codegen, args)
@@ -943,7 +1085,7 @@ function gentest_add_mocks(opts)
         if kind == "modules" then
             require_clang_module_toolchain(target, "gentest_add_mocks")
         end
-        local codegen, compdb_dir = ensure_codegen(batchcmds)
+        local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
         config.extra_includes = collect_target_package_include_dirs(target)
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.deps)
@@ -964,7 +1106,7 @@ function gentest_add_mocks(opts)
             end
         end
         config.dep_module_sources = dep_module_sources
-        run_mock_codegen(batchcmds, codegen, compdb_dir, config)
+        run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     end)
 
     registered_target_metadata()[target_name] = {
@@ -1062,7 +1204,7 @@ function gentest_attach_codegen(opts)
         if kind == "modules" then
             require_clang_module_toolchain(target, "gentest_attach_codegen")
         end
-        local codegen, compdb_dir = ensure_codegen(batchcmds)
+        local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.deps)
         for _, include_dir in ipairs(dep_include_dirs) do
@@ -1076,6 +1218,6 @@ function gentest_attach_codegen(opts)
             append_unique(config.extra_includes, seen_extra_includes, include_dir)
         end
         config.dep_module_sources = dep_module_sources
-        run_suite_codegen(batchcmds, codegen, compdb_dir, config)
+        run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     end)
 end

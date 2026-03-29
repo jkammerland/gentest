@@ -96,6 +96,7 @@ file(COPY "${SOURCE_DIR}/include/gentest" DESTINATION "${_tmp_dir}/include")
 file(COPY_FILE "${SOURCE_DIR}/src/gentest_main.cpp" "${_tmp_dir}/src/gentest_main.cpp")
 
 set(_xmake_env
+  "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
   "CC=${_clang_cc}"
   "CXX=${_clang_cxx}"
   "TMPDIR=${_tmp_dir}/tmp"

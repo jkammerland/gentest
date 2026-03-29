@@ -4,3 +4,17 @@ option(
   value: '',
   description: 'Path to gentest_codegen (absolute path, or relative to the project root)',
 )
+
+option(
+  'codegen_host_clang',
+  type: 'string',
+  value: '',
+  description: 'Path to the host Clang executable for gentest_codegen (absolute path, or relative to the project root)',
+)
+
+option(
+  'codegen_clang_scan_deps',
+  type: 'string',
+  value: '',
+  description: 'Path to clang-scan-deps for gentest_codegen (absolute path, or relative to the project root)',
+)

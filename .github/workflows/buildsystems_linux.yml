@@ -135,13 +135,13 @@ jobs:
           BAZELISK_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euxo pipefail
-          clang_cc="/usr/lib/llvm-${{ matrix.clang_version }}/bin/clang-${{ matrix.clang_version }}"
-          clang_cxx="/usr/lib/llvm-${{ matrix.clang_version }}/bin/clang++-${{ matrix.clang_version }}"
-          if [ ! -x "${clang_cc}" ] || [ ! -x "${clang_cxx}" ]; then
-            clang_cc="$(command -v clang)"
-            clang_cxx="$(command -v clang++)"
-          fi
-          clang_resource_dir="$("${clang_cxx}" -print-resource-dir)"
+          host_clang_c="$(command -v clang)"
+          host_clang="$(command -v clang++)"
+          clang_resource_dir="$("${host_clang}" -print-resource-dir)"
+          export CC="${host_clang_c}"
+          export CXX="${host_clang}"
+          export GENTEST_CODEGEN_HOST_CLANG="${host_clang}"
+          export GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
           bazel test \
             //:gentest_unit_bazel \
             //:gentest_integration_bazel \
@@ -150,46 +150,49 @@ jobs:
             //:codegen_check_invalid \
             --action_env=CCACHE_DISABLE=1 \
             --host_action_env=CCACHE_DISABLE=1 \
-            --action_env=CC="${clang_cc}" \
-            --action_env=CXX="${clang_cxx}" \
-            --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-            --host_action_env=CC="${clang_cc}" \
-            --host_action_env=CXX="${clang_cxx}" \
-            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
+            --action_env=CC \
+            --action_env=CXX \
+            --action_env=GENTEST_CODEGEN_HOST_CLANG \
+            --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
+            --host_action_env=CC \
+            --host_action_env=CXX \
+            --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
+            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR \
             --test_output=errors
           bazel build \
             //:gentest_consumer_textual_bazel \
             --action_env=CCACHE_DISABLE=1 \
             --host_action_env=CCACHE_DISABLE=1 \
-            --action_env=CC="${clang_cc}" \
-            --action_env=CXX="${clang_cxx}" \
-            --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-            --host_action_env=CC="${clang_cc}" \
-            --host_action_env=CXX="${clang_cxx}" \
-            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
+            --action_env=CC \
+            --action_env=CXX \
+            --action_env=GENTEST_CODEGEN_HOST_CLANG \
+            --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
+            --host_action_env=CC \
+            --host_action_env=CXX \
+            --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
+            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
           ./bazel-bin/gentest_consumer_textual_bazel --list
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter
-          env \
-            CC="${clang_cc}" \
-            CXX="${clang_cxx}" \
-            GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-            bazel build \
+          bazel build \
             //:gentest_consumer_module_bazel \
             --experimental_cpp_modules \
             --action_env=CCACHE_DISABLE=1 \
             --host_action_env=CCACHE_DISABLE=1 \
-            --action_env=CC="${clang_cc}" \
-            --action_env=CXX="${clang_cxx}" \
-            --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-            --host_action_env=CC="${clang_cc}" \
-            --host_action_env=CXX="${clang_cxx}" \
-            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-            --repo_env=CC="${clang_cc}" \
-            --repo_env=CXX="${clang_cxx}" \
-            --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
+            --action_env=CC \
+            --action_env=CXX \
+            --action_env=GENTEST_CODEGEN_HOST_CLANG \
+            --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
+            --host_action_env=CC \
+            --host_action_env=CXX \
+            --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
+            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR \
+            --repo_env=CC \
+            --repo_env=CXX \
+            --repo_env=GENTEST_CODEGEN_HOST_CLANG \
+            --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
           ./bazel-bin/gentest_consumer_module_bazel --list
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_test --kind=test
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test
@@ -242,8 +245,10 @@ jobs:
       - name: Configure/Build/Test
         run: |
           set -euxo pipefail
+          host_clang="$(command -v "${{ matrix.cxx }}")"
           meson setup build/meson \
-            -Dcodegen_path=build/host-codegen/tools/gentest_codegen
+            -Dcodegen_path=build/host-codegen/tools/gentest_codegen \
+            -Dcodegen_host_clang="${host_clang}"
           meson compile -C build/meson
           meson test -C build/meson --print-errorlogs
 
@@ -304,31 +309,31 @@ jobs:
         run: |
           set -euxo pipefail
           codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
-          clang_cxx="$(command -v clang++ || command -v clang++-22 || command -v clang++-21 || command -v clang++-20)"
-          clang_cc="$(command -v clang || command -v clang-22 || command -v clang-21 || command -v clang-20)"
+          host_clang="$(command -v "${{ matrix.cxx }}")"
+          host_clang_c="$(command -v "${{ matrix.cc }}")"
           if [ "${{ matrix.pkg_manager }}" = "dnf" ]; then
             xmake_bin="$(command -v xmake)"
           else
             xmake_bin="/home/ci/.local/bin/xmake"
           fi
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" f -c -y -m release"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" build -y"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${host_clang_c}\" CXX=\"${host_clang}\" GENTEST_CODEGEN=\"${codegen_bin}\" GENTEST_CODEGEN_HOST_CLANG=\"${host_clang}\" \"${xmake_bin}\" f -c -y -m release"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${host_clang_c}\" CXX=\"${host_clang}\" GENTEST_CODEGEN=\"${codegen_bin}\" GENTEST_CODEGEN_HOST_CLANG=\"${host_clang}\" \"${xmake_bin}\" build -y"
 
       - name: Test
         run: |
           set -euxo pipefail
           codegen_bin="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen"
-          clang_cxx="$(command -v clang++ || command -v clang++-22 || command -v clang++-21 || command -v clang++-20)"
-          clang_cc="$(command -v clang || command -v clang-22 || command -v clang-21 || command -v clang-20)"
+          host_clang="$(command -v "${{ matrix.cxx }}")"
+          host_clang_c="$(command -v "${{ matrix.cc }}")"
           if [ "${{ matrix.pkg_manager }}" = "dnf" ]; then
             xmake_bin="$(command -v xmake)"
           else
             xmake_bin="/home/ci/.local/bin/xmake"
           fi
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_unit_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_integration_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_fixtures_xmake"
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${clang_cc}\" CXX=\"${clang_cxx}\" GENTEST_CODEGEN=\"${codegen_bin}\" \"${xmake_bin}\" r -y gentest_skiponly_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${host_clang_c}\" CXX=\"${host_clang}\" GENTEST_CODEGEN=\"${codegen_bin}\" GENTEST_CODEGEN_HOST_CLANG=\"${host_clang}\" \"${xmake_bin}\" r -y gentest_unit_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${host_clang_c}\" CXX=\"${host_clang}\" GENTEST_CODEGEN=\"${codegen_bin}\" GENTEST_CODEGEN_HOST_CLANG=\"${host_clang}\" \"${xmake_bin}\" r -y gentest_integration_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${host_clang_c}\" CXX=\"${host_clang}\" GENTEST_CODEGEN=\"${codegen_bin}\" GENTEST_CODEGEN_HOST_CLANG=\"${host_clang}\" \"${xmake_bin}\" r -y gentest_fixtures_xmake"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && CC=\"${host_clang_c}\" CXX=\"${host_clang}\" GENTEST_CODEGEN=\"${codegen_bin}\" GENTEST_CODEGEN_HOST_CLANG=\"${host_clang}\" \"${xmake_bin}\" r -y gentest_skiponly_xmake"
           consumer_textual_bin="$(find "${GITHUB_WORKSPACE}" -type f \( -name 'gentest_consumer_textual_xmake' -o -name 'gentest_consumer_textual_xmake.exe' \) | head -n 1)"
           test -n "${consumer_textual_bin}"
           su - ci -c "\"${consumer_textual_bin}\" --list"

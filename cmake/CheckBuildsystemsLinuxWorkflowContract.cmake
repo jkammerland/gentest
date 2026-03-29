@@ -83,6 +83,20 @@ if(_bazel_resource_dir_pos EQUAL -1)
   message(FATAL_ERROR "buildsystems_linux workflow must wire the explicit Clang resource dir into the Bazel module consumer lane.")
 endif()
 
+foreach(_explicit_host_clang_literal IN ITEMS
+    [[export GENTEST_CODEGEN_HOST_CLANG="${host_clang}"]]
+    [[--action_env=GENTEST_CODEGEN_HOST_CLANG \]]
+    [[--host_action_env=GENTEST_CODEGEN_HOST_CLANG \]]
+    [[--repo_env=GENTEST_CODEGEN_HOST_CLANG \]]
+    [[-Dcodegen_host_clang="${host_clang}"]]
+    [[GENTEST_CODEGEN_HOST_CLANG="${host_clang}"]])
+  string(FIND "${_content}" "${_explicit_host_clang_literal}" _explicit_host_clang_literal_pos)
+  if(_explicit_host_clang_literal_pos EQUAL -1)
+    message(FATAL_ERROR
+      "buildsystems_linux workflow must contain '${_explicit_host_clang_literal}' to exercise the explicit host-clang contract.")
+  endif()
+endforeach()
+
 string(FIND "${_content}" "gentest_consumer_textual_xmake" _xmake_consumer_textual_pos)
 if(_xmake_consumer_textual_pos EQUAL -1)
   message(FATAL_ERROR "buildsystems_linux workflow must validate the Xmake textual explicit-mock consumer slice.")
@@ -111,26 +125,6 @@ foreach(_literal IN ITEMS
   string(FIND "${_content}" "${_literal}" _literal_pos)
   if(_literal_pos EQUAL -1)
     message(FATAL_ERROR "buildsystems_linux workflow must contain '${_literal}' for the Xmake consumer execution path.")
-  endif()
-endforeach()
-
-foreach(_host_env_literal IN ITEMS
-    [[--host_action_env=CC="${clang_cc}" \]]
-    [[--host_action_env=CXX="${clang_cxx}" \]]
-    [[--host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \]])
-  string(FIND "${_content}" "${_host_env_literal}" _host_env_literal_pos)
-  if(_host_env_literal_pos EQUAL -1)
-    message(FATAL_ERROR "buildsystems_linux workflow must contain '${_host_env_literal}' for the Bazel module consumer lane.")
-  endif()
-endforeach()
-
-foreach(_repo_env_literal IN ITEMS
-    [[--repo_env=CC="${clang_cc}" \]]
-    [[--repo_env=CXX="${clang_cxx}" \]]
-    [[--repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"]])
-  string(FIND "${_content}" "${_repo_env_literal}" _repo_env_literal_pos)
-  if(_repo_env_literal_pos EQUAL -1)
-    message(FATAL_ERROR "buildsystems_linux workflow must contain '${_repo_env_literal}' for the Bazel module consumer lane.")
   endif()
 endforeach()
 

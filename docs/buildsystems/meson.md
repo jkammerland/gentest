@@ -16,6 +16,15 @@ non-CMake story:
 `kind` is explicit in both operations. Meson currently supports only the
 textual half of that contract.
 
+The repo-local Meson contract for codegen host tools is:
+
+- `-Dcodegen_path=...`
+- `-Dcodegen_host_clang=...`
+- optional `-Dcodegen_clang_scan_deps=...`
+
+These options select the host-side tools used by `gentest_codegen`. They are
+separate from Meson's target `c` / `cpp` compiler selection.
+
 When `-Dcodegen_path=...` points at a repo-local CMake build of
 `gentest_codegen`, the checked-in Meson wiring reuses the adjacent
 `_deps/fmt-src/include` headers only as a fallback when Meson does not resolve a
@@ -64,10 +73,17 @@ cmake --build --preset=host-codegen --parallel
 Classic suites plus the textual consumer:
 
 ```bash
-meson setup build/meson -Dcodegen_path=build/host-codegen/tools/gentest_codegen
+CC=gcc CXX=g++ \
+meson setup build/meson \
+  -Dcodegen_path=build/host-codegen/tools/gentest_codegen \
+  -Dcodegen_host_clang=/opt/llvm/bin/clang++ \
+  -Dcodegen_clang_scan_deps=/opt/llvm/bin/clang-scan-deps
 meson compile -C build/meson
 meson test -C build/meson --print-errorlogs
 ```
+
+Using GCC above is intentional: the final Meson toolchain can stay non-Clang
+while `gentest_codegen` uses the explicit host Clang path.
 
 ## Generated outputs
 
@@ -90,6 +106,8 @@ The textual consumer also writes:
 - Repo-local only. There is no packaged Meson integration yet.
 - There is no reusable Meson helper API for external/downstream projects yet.
 - Meson named-module support is intentionally unsupported for now.
+- `-Dcodegen_clang_scan_deps=...` is accepted for contract parity, but the
+  checked-in Meson path remains textual-only.
 - The current repo-local Meson path still snapshots support headers/fragments at
   configure time. If you add new included support files, rerun
   `meson setup --reconfigure ...` before compiling again.

@@ -59,7 +59,7 @@ if(NOT WIN32)
     endif()
 
     set(_nonclang_cfg_log "${_nonclang_cfg_out}\n${_nonclang_cfg_err}")
-    string(FIND "${_nonclang_cfg_log}" "requires a Clang C++ toolchain in Xmake" _nonclang_contract_pos)
+    string(FIND "${_nonclang_cfg_log}" "requires a Clang C++ target toolchain in Xmake" _nonclang_contract_pos)
     if(_nonclang_contract_pos EQUAL -1)
       message(FATAL_ERROR
         "Xmake module configure with a non-Clang toolchain failed without surfacing the documented helper contract.\n"
@@ -143,6 +143,13 @@ if(NOT _clang_cc)
   return()
 endif()
 
+find_program(_clang_scan_deps NAMES clang-scan-deps clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20
+  PATHS ${_gentest_clang_search_paths}
+  NO_DEFAULT_PATH)
+if(NOT _clang_scan_deps)
+  find_program(_clang_scan_deps NAMES clang-scan-deps clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20)
+endif()
+
 set(_out_dir "${_gentest_xmake_root}/tmp_xmake_module_consumer")
 set(_xmake_global_dir "${_gentest_xmake_root}/xg")
 file(REMOVE_RECURSE "${_out_dir}")
@@ -154,10 +161,14 @@ get_filename_component(_clang_prefix "${_clang_bin_dir}" DIRECTORY)
 
 set(_xmake_env
   "GENTEST_CODEGEN=${_codegen}"
+  "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
   "CC=${_clang_cc}"
   "CXX=${_clang_cxx}"
   "TMPDIR=${_out_dir}/tmp"
   "XMAKE_GLOBALDIR=${_xmake_global_dir}")
+if(_clang_scan_deps)
+  list(APPEND _xmake_env "GENTEST_CODEGEN_CLANG_SCAN_DEPS=${_clang_scan_deps}")
+endif()
 
 set(_clang_config_args
   f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
@@ -199,6 +210,26 @@ if(NOT _build_rc EQUAL 0)
 endif()
 
 set(_build_log "${_build_out}\n${_build_err}")
+string(FIND "${_build_log}" "--host-clang" _host_clang_flag_pos)
+string(FIND "${_build_log}" "${_clang_cxx}" _host_clang_path_pos)
+if(_host_clang_flag_pos EQUAL -1 OR _host_clang_path_pos EQUAL -1)
+  message(FATAL_ERROR
+    "xmake module consumer build did not forward the explicit host clang path to gentest_codegen.\n"
+    "Expected host clang: ${_clang_cxx}\n"
+    "stdout:\n${_build_out}\n"
+    "stderr:\n${_build_err}")
+endif()
+if(_clang_scan_deps)
+  string(FIND "${_build_log}" "--clang-scan-deps" _scan_deps_flag_pos)
+  string(FIND "${_build_log}" "${_clang_scan_deps}" _scan_deps_path_pos)
+  if(_scan_deps_flag_pos EQUAL -1 OR _scan_deps_path_pos EQUAL -1)
+    message(FATAL_ERROR
+      "xmake module consumer build did not forward the explicit clang-scan-deps path to gentest_codegen.\n"
+      "Expected clang-scan-deps: ${_clang_scan_deps}\n"
+      "stdout:\n${_build_out}\n"
+      "stderr:\n${_build_err}")
+  endif()
+endif()
 foreach(_expected IN ITEMS
     "-DGENTEST_CONSUMER_USE_MODULES=1"
     "-DGENTEST_XMAKE_MODULE_MOCKS_DEFINE=1"

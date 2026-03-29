@@ -105,42 +105,44 @@ set(_gentest_clang_search_paths
   /usr/lib/llvm-20/bin
   /usr/bin)
 
-set(_clang_cxx "$ENV{CXX}")
-if(_clang_cxx STREQUAL "" OR NOT EXISTS "${_clang_cxx}")
+set(_codegen_host_clang "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
+if(NOT _codegen_host_clang STREQUAL "" AND NOT EXISTS "${_codegen_host_clang}")
+  message(FATAL_ERROR
+    "GENTEST_CODEGEN_HOST_CLANG points to a missing clang++ executable for the Bazel module consumer smoke check.\n"
+    "GENTEST_CODEGEN_HOST_CLANG: ${_codegen_host_clang}")
+endif()
+if(_codegen_host_clang STREQUAL "")
   if(NOT "$ENV{LLVM_BIN}" STREQUAL "" AND EXISTS "$ENV{LLVM_BIN}/clang++")
-    set(_clang_cxx "$ENV{LLVM_BIN}/clang++")
+    set(_codegen_host_clang "$ENV{LLVM_BIN}/clang++")
   endif()
 endif()
-if(_clang_cxx STREQUAL "" OR NOT EXISTS "${_clang_cxx}")
-  find_program(_clang_cxx NAMES clang++-22 clang++-21 clang++-20 clang++
+if(_codegen_host_clang STREQUAL "" OR NOT EXISTS "${_codegen_host_clang}")
+  find_program(_codegen_host_clang NAMES clang++-22 clang++-21 clang++-20 clang++
     PATHS ${_gentest_clang_search_paths}
     NO_DEFAULT_PATH)
 endif()
-if(NOT _clang_cxx)
-  find_program(_clang_cxx NAMES clang++-22 clang++-21 clang++-20 clang++)
-  if(NOT _clang_cxx)
+if(NOT _codegen_host_clang)
+  find_program(_codegen_host_clang NAMES clang++-22 clang++-21 clang++-20 clang++)
+  if(NOT _codegen_host_clang)
     message(STATUS "clang++ not found; skipping Bazel module consumer smoke check.")
     return()
   endif()
 endif()
+set(_clang_cxx "${_codegen_host_clang}")
+get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
 
-set(_clang_cc "$ENV{CC}")
-if(_clang_cc STREQUAL "" OR NOT EXISTS "${_clang_cc}")
-  if(NOT "$ENV{LLVM_BIN}" STREQUAL "" AND EXISTS "$ENV{LLVM_BIN}/clang")
-    set(_clang_cc "$ENV{LLVM_BIN}/clang")
-  endif()
-endif()
-if(_clang_cc STREQUAL "" OR NOT EXISTS "${_clang_cc}")
+find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
+  PATHS "${_clang_bin_dir}" ${_gentest_clang_search_paths}
+  NO_DEFAULT_PATH)
+if(NOT _clang_cc)
   find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
-    PATHS ${_gentest_clang_search_paths}
-    NO_DEFAULT_PATH)
+    PATHS ${_gentest_clang_search_paths})
 endif()
 if(NOT _clang_cc)
-  find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang)
-  if(NOT _clang_cc)
-    message(STATUS "clang not found; skipping Bazel module consumer smoke check.")
-    return()
-  endif()
+  message(FATAL_ERROR
+    "Failed to locate a clang executable adjacent to the resolved host clang for the Bazel module consumer smoke check.\n"
+    "GENTEST_CODEGEN_HOST_CLANG: ${_clang_cxx}\n"
+    "clang bin dir: ${_clang_bin_dir}")
 endif()
 
 execute_process(
@@ -156,12 +158,11 @@ if(NOT _resource_rc EQUAL 0 OR _resource_out STREQUAL "")
     "stderr:\n${_resource_err}")
 endif()
 set(_resource_dir "${_resource_out}")
-get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
 _gentest_resolve_llvm_cmake_dirs("${_clang_cxx}" _llvm_dir _clang_dir)
 if(_llvm_dir STREQUAL "" OR _clang_dir STREQUAL "")
   message(FATAL_ERROR
     "Failed to locate supported LLVM/Clang CMake package directories for the Bazel module consumer smoke check.\n"
-    "clang++: ${_clang_cxx}\n"
+    "host clang: ${_clang_cxx}\n"
     "LLVM_DIR: ${_llvm_dir}\n"
     "Clang_DIR: ${_clang_dir}")
 endif()
@@ -192,12 +193,14 @@ set(_gentest_bazel_build_args
   --action_env=LLVM_BIN
   --action_env=LLVM_DIR
   --action_env=Clang_DIR
+  --action_env=GENTEST_CODEGEN_HOST_CLANG
   --action_env=GENTEST_CODEGEN_RESOURCE_DIR
   --host_action_env=CC
   --host_action_env=CXX
   --host_action_env=LLVM_BIN
   --host_action_env=LLVM_DIR
   --host_action_env=Clang_DIR
+  --host_action_env=GENTEST_CODEGEN_HOST_CLANG
   --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
   --host_action_env=HOME
   --repo_env=PATH
@@ -206,6 +209,7 @@ set(_gentest_bazel_build_args
   --repo_env=LLVM_BIN
   --repo_env=LLVM_DIR
   --repo_env=Clang_DIR
+  --repo_env=GENTEST_CODEGEN_HOST_CLANG
   --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
   --repo_env=HOME
   --action_env=HOME
@@ -222,6 +226,7 @@ execute_process(
           "LLVM_BIN=${_clang_bin_dir}"
           "LLVM_DIR=${_llvm_dir}"
           "Clang_DIR=${_clang_dir}"
+          "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
           "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
           "HOME=$ENV{HOME}"
           ${_bazel_command}
@@ -235,8 +240,8 @@ if(NOT _build_rc EQUAL 0)
     "Bazel build failed for gentest_consumer_module_bazel.\n"
     "bazel: ${_bazel}\n"
     "bazel version: ${_bazel_version_text}\n"
-    "clang: ${_clang_cc}\n"
-    "clang++: ${_clang_cxx}\n"
+    "bootstrap clang: ${_clang_cc}\n"
+    "host clang: ${_clang_cxx}\n"
     "LLVM_DIR: ${_llvm_dir}\n"
     "Clang_DIR: ${_clang_dir}\n"
     "resource dir: ${_resource_dir}\n"

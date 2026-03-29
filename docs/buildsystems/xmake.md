@@ -57,9 +57,37 @@ Current `gentest_attach_codegen({...})` options:
   - `includes`
 
 `defines` and `clang_args` are forwarded to both the final Xmake compile and
-the `gentest_codegen` invocation. For module targets, the helper also requires
-Clang. The checked-in configure/build path fails fast with a clear error if the
-configured compiler is non-Clang.
+the `gentest_codegen` invocation.
+
+`gentest_configure({...})` also accepts a codegen tool block:
+
+```lua
+gentest_configure({
+    project_root = os.projectdir(),
+    incdirs = {"include", "tests", "third_party/include"},
+    gentest_common_defines = {"FMT_HEADER_ONLY"},
+    gentest_common_cxxflags = {"-Wno-attributes"},
+    codegen = {
+        exe = "/opt/gentest/bin/gentest_codegen",
+        clang = "/opt/llvm/bin/clang++",
+        scan_deps = "/opt/llvm/bin/clang-scan-deps",
+    },
+})
+```
+
+`codegen.clang` and `codegen.scan_deps` select the host-side Clang tools used
+by `gentest_codegen`. They are separate from Xmake's target `cc` / `cxx`
+selection. For module targets, the final Xmake target toolchain still needs
+Clang for compilation, but that is no longer the primary codegen-host contract.
+
+If the `codegen` table is omitted, the helper still honors these env fallbacks:
+
+- `GENTEST_CODEGEN`
+- `GENTEST_CODEGEN_HOST_CLANG`
+- `GENTEST_CODEGEN_CLANG_SCAN_DEPS`
+
+If no explicit host-Clang knob is provided, the helper keeps the old
+clang-like-target fallback where possible for compatibility.
 
 ## Current repo-local targets
 
@@ -117,50 +145,47 @@ target("gentest_consumer_module_xmake")
 
 ## Build and run
 
-Build `gentest_codegen` with CMake first and point Xmake at it explicitly:
+Build `gentest_codegen` with CMake first and point Xmake at the host tools
+explicitly:
 
 ```bash
 cmake --preset=host-codegen
 cmake --build --preset=host-codegen --parallel
 
 export GENTEST_CODEGEN="$PWD/build/host-codegen/tools/gentest_codegen"
-clang_candidates=(
-  /usr/bin/clang++
-  /bin/clang++
-  /usr/lib64/llvm22/bin/clang++
-  /usr/lib64/llvm21/bin/clang++
-  /usr/lib64/llvm20/bin/clang++
-  /usr/lib/llvm-22/bin/clang++
-  /usr/lib/llvm-21/bin/clang++
-  /usr/lib/llvm-20/bin/clang++
-)
-for clang_cxx in "${clang_candidates[@]}"; do
-  if [ -x "${clang_cxx}" ]; then
-    break
-  fi
-done
-if [ ! -x "${clang_cxx}" ]; then
-  clang_cxx="$(command -v clang++)"
-fi
-clang_cc="${clang_cxx%++}"
-
-CC="${clang_cc}" CXX="${clang_cxx}" \
-xmake f -c -y -m release -o build/xmake
-xmake b -a -y
+export GENTEST_CODEGEN_HOST_CLANG=/opt/llvm/bin/clang++
+export GENTEST_CODEGEN_CLANG_SCAN_DEPS=/opt/llvm/bin/clang-scan-deps
 ```
 
-On Fedora-style hosts, prefer the real `/usr/bin/clang{,++}` binaries over
-`ccache` wrapper paths for the module lane. That matches the checked smoke path.
+Textual consumers can keep the final Xmake toolchain non-Clang:
+
+```bash
+xmake f -c -y -m release -o build/xmake-textual --cc=gcc --cxx=g++
+xmake b gentest_consumer_textual_xmake
+```
+
+Module consumers still need a Clang target toolchain in Xmake, but the host
+Clang used by `gentest_codegen` is now configured separately:
+
+```bash
+xmake f -c -y -m release -o build/xmake-modules \
+  --toolchain=llvm \
+  --cc=/opt/llvm/bin/clang \
+  --cxx=/opt/llvm/bin/clang++
+xmake b gentest_consumer_module_xmake
+```
+
+On Fedora-style hosts, prefer the real host `clang{,++}` binaries for
+`GENTEST_CODEGEN_HOST_CLANG` rather than wrapper paths.
 
 If `GENTEST_CODEGEN` is not set, the helper falls back to a repo-local CMake
 bootstrap under `build/xmake-codegen/<host>/<arch>`.
 
-When `GENTEST_CODEGEN` points at a CMake build tree, the helper now also picks
-up the adjacent `compile_commands.json` automatically for module codegen. The
-final Xmake targets still resolve `fmt` through Xmake's own `add_packages("fmt")`
-dependency surface; the adjacent CMake build is only reused for the generator
-binary and its compile-database context.
-That is the supported repo-local path for the checked-in module consumer.
+When `GENTEST_CODEGEN` points at a CMake build tree, the helper also picks up
+the adjacent `compile_commands.json` automatically for module codegen. The
+final Xmake targets still resolve `fmt` through Xmake's own
+`add_packages("fmt")` surface; the adjacent CMake build is only reused for the
+generator binary and its compile-database context.
 
 One local caveat: the checked-in module CMake smoke test currently skips
 installed Xmake versions older than `3.0.6`. The helper API is still the same,
@@ -210,5 +235,7 @@ Notable generated module files are:
 - The helper API currently hard-wires the external module mappings for
   `gentest`, `gentest.mock`, and `gentest.bench_util`.
 - There is still no public option for extra external module mappings.
+- Module targets still require a Clang target toolchain in Xmake even though
+  the codegen host Clang is now configured separately.
 - The checked-in targets are the validated surface today; treat broader
   downstream use as follow-up work, not a finished product feature.

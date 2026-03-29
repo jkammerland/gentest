@@ -84,6 +84,23 @@ if(NOT _clang_cc)
   return()
 endif()
 
+set(_target_cxx "${_clang_cxx}")
+set(_target_cc "${_clang_cc}")
+if(NOT WIN32 AND NOT APPLE)
+  find_program(_gnu_cxx NAMES g++ g++-22 g++-21 g++-20 g++-19 g++-18 g++-17 g++-16 g++-15)
+  find_program(_gnu_cc NAMES gcc gcc-22 gcc-21 gcc-20 gcc-19 gcc-18 gcc-17 gcc-16 gcc-15)
+  if(_gnu_cxx AND _gnu_cc)
+    execute_process(COMMAND "${_gnu_cxx}" --version OUTPUT_VARIABLE _gnu_cxx_out ERROR_VARIABLE _gnu_cxx_err)
+    execute_process(COMMAND "${_gnu_cc}" --version OUTPUT_VARIABLE _gnu_cc_out ERROR_VARIABLE _gnu_cc_err)
+    string(TOLOWER "${_gnu_cxx_out}\n${_gnu_cxx_err}" _gnu_cxx_log)
+    string(TOLOWER "${_gnu_cc_out}\n${_gnu_cc_err}" _gnu_cc_log)
+    if(NOT _gnu_cxx_log MATCHES "clang" AND NOT _gnu_cc_log MATCHES "clang")
+      set(_target_cxx "${_gnu_cxx}")
+      set(_target_cc "${_gnu_cc}")
+    endif()
+  endif()
+endif()
+
 set(_out_dir "${_gentest_xmake_root}/tmp_xmake_textual_consumer")
 set(_xmake_global_dir "${_gentest_xmake_root}/xg")
 file(REMOVE_RECURSE "${_out_dir}")
@@ -92,9 +109,10 @@ file(MAKE_DIRECTORY "${_out_dir}/tmp")
 
 set(_xmake_env
   "GENTEST_CODEGEN=${_codegen}"
+  "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
   "GENTEST_XMAKE_SKIP_MODULE_TARGETS=1"
-  "CC=${_clang_cc}"
-  "CXX=${_clang_cxx}"
+  "CC=${_target_cc}"
+  "CXX=${_target_cxx}"
   "TMPDIR=${_out_dir}/tmp"
   "XMAKE_GLOBALDIR=${_xmake_global_dir}")
 
@@ -102,6 +120,8 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           ${_xmake_env}
           "${_xmake}" f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
+          "--cc=${_target_cc}"
+          "--cxx=${_target_cxx}"
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _cfg_rc
   OUTPUT_VARIABLE _cfg_out
@@ -130,6 +150,15 @@ if(NOT _build_rc EQUAL 0)
 endif()
 
 set(_build_log "${_build_out}\n${_build_err}")
+string(FIND "${_build_log}" "--host-clang" _host_clang_flag_pos)
+string(FIND "${_build_log}" "${_clang_cxx}" _host_clang_path_pos)
+if(_host_clang_flag_pos EQUAL -1 OR _host_clang_path_pos EQUAL -1)
+  message(FATAL_ERROR
+    "xmake textual consumer build did not forward the explicit host clang path to gentest_codegen.\n"
+    "Expected host clang: ${_clang_cxx}\n"
+    "stdout:\n${_build_out}\n"
+    "stderr:\n${_build_err}")
+endif()
 foreach(_expected IN ITEMS
     "-DGENTEST_XMAKE_TEXTUAL_MOCKS_DEFINE=1"
     "-DGENTEST_XMAKE_TEXTUAL_MOCKS_CODEGEN=1"

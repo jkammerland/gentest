@@ -34,17 +34,18 @@ For background on why the exact host Clang path matters, see
 
 | Build system | Current downstream status | Module path | What users should configure |
 | --- | --- | --- | --- |
-| CMake | primary / packaged | supported | configure Clang normally; when cross-compiling also set `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` |
-| Bazel | repo-local helper today | supported but toolchain-sensitive | pass explicit host Clang/tooling into Bazel actions; do not rely on ambient `PATH` |
-| Xmake | repo-local helper today | supported but toolchain-sensitive | configure Xmake with explicit Clang and, ideally, explicit `GENTEST_CODEGEN` |
-| Meson | repo-local helper today | intentionally unsupported | pass `-Dcodegen_path=...`; textual-only today |
+| CMake | primary / packaged | supported | set `GENTEST_CODEGEN_HOST_CLANG`; in cross builds also set `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` |
+| Bazel | repo-local helper today | supported but toolchain-sensitive | set per-target `codegen_host_clang` or export/pass through `GENTEST_CODEGEN_HOST_CLANG`; keep target flags in Bazel/C++ toolchain config |
+| Xmake | repo-local helper today | supported but toolchain-sensitive | set `codegen = { exe, clang, scan_deps }` or the matching env fallbacks; keep Xmake `cc` / `cxx` for the final target toolchain |
+| Meson | repo-local helper today | intentionally unsupported | pass `-Dcodegen_path=...` and `-Dcodegen_host_clang=...`; textual-only today |
 
 ## CMake
 
-CMake is the cleanest path because `gentest_attach_codegen()` already reuses the
-active compile database and the configured C/C++ compiler surface.
+CMake is still the cleanest path, but the stable codegen-host contract is now
+explicit: use `GENTEST_CODEGEN_HOST_CLANG` for the host parser/compiler and use
+the normal CMake compiler/toolchain surface for the final target build.
 
-Native or sysrooted build:
+Project `CMakeLists.txt`:
 
 ```cmake
 find_package(gentest CONFIG REQUIRED)
@@ -84,11 +85,15 @@ Configure:
 cmake -S . -B build \
   -DCMAKE_TOOLCHAIN_FILE=toolchains/aarch64-clang.cmake \
   -DGENTEST_CODEGEN_EXECUTABLE=/opt/sdk/host-tools/bin/gentest_codegen \
+  -DGENTEST_CODEGEN_HOST_CLANG=/opt/sdk/host-llvm/bin/clang++ \
   -DGENTEST_CODEGEN_CLANG_SCAN_DEPS=/opt/sdk/host-llvm/bin/clang-scan-deps
 ```
 
 Notes:
 
+- Even when the final target compiler is GCC or another non-Clang toolchain,
+  keep `GENTEST_CODEGEN_HOST_CLANG` pointed at the host `clang++` that should
+  drive `gentest_codegen`.
 - In native packaged CMake use, `gentest_attach_codegen()` can resolve an
   installed `gentest_codegen` automatically from the same prefix.
 - In cross builds, the host code generator is not inferred; set
@@ -127,6 +132,7 @@ gentest_attach_codegen_modules(
         "--sysroot=/opt/sdk/targets/aarch64-sysroot",
         "--target=aarch64-linux-gnu",
     ],
+    codegen_host_clang = "/opt/sdk/host-llvm/bin/clang++",
 )
 ```
 
@@ -134,29 +140,34 @@ Build:
 
 ```bash
 HOST_LLVM=/opt/sdk/host-llvm
-CC_BIN="$HOST_LLVM/bin/clang"
-CXX_BIN="$HOST_LLVM/bin/clang++"
-RES_DIR="$($CXX_BIN -print-resource-dir)"
+HOST_CLANG="$HOST_LLVM/bin/clang++"
+HOST_CC="$HOST_LLVM/bin/clang"
+RES_DIR="$($HOST_CLANG -print-resource-dir)"
+export GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG"
+export GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR"
 
 bazelisk build //:my_tests \
   --experimental_cpp_modules \
-  --action_env=CC="$CC_BIN" \
-  --action_env=CXX="$CXX_BIN" \
-  --action_env=LLVM_DIR="$HOST_LLVM/lib/cmake/llvm" \
-  --action_env=Clang_DIR="$HOST_LLVM/lib/cmake/clang" \
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
-  --host_action_env=CC="$CC_BIN" \
-  --host_action_env=CXX="$CXX_BIN" \
-  --host_action_env=LLVM_DIR="$HOST_LLVM/lib/cmake/llvm" \
-  --host_action_env=Clang_DIR="$HOST_LLVM/lib/cmake/clang" \
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
-  --repo_env=CC="$CC_BIN" \
-  --repo_env=CXX="$CXX_BIN"
+  --action_env=CC="$HOST_CC" \
+  --action_env=CXX="$HOST_CLANG" \
+  --action_env=GENTEST_CODEGEN_HOST_CLANG \
+  --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
+  --host_action_env=CC="$HOST_CC" \
+  --host_action_env=CXX="$HOST_CLANG" \
+  --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
+  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR \
+  --repo_env=CC="$HOST_CC" \
+  --repo_env=CXX="$HOST_CLANG" \
+  --repo_env=GENTEST_CODEGEN_HOST_CLANG \
+  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
 ```
 
 Notes:
 
-- Do not rely on plain `PATH` discovery for the module lane.
+- Do not rely on plain `PATH` discovery for the codegen-host lane.
+- If the target already sets `codegen_host_clang` in `BUILD.bazel`, the
+  `GENTEST_CODEGEN_HOST_CLANG` env pass-through becomes a repo-wide default or
+  CI override instead of the only source of truth.
 - Prefer putting target sysroot and target-triple flags in the C++ toolchain.
   When that is not available, pass them through `clang_args`.
 - If this is promoted to official Bzlmod support later, the right direction is a
@@ -165,9 +176,10 @@ Notes:
 
 ## Xmake
 
-The current Xmake support is repo-local and module builds require Clang. The
-helper resolves the configured Xmake `cxx` tool or the `CXX` environment
-variable, and for reliable module builds you should set them explicitly.
+The current Xmake support is repo-local and module builds still require a Clang
+target toolchain. The stable codegen-host contract, however, is the explicit
+`codegen = { ... }` block or the matching env fallbacks, not the target
+`CC` / `CXX` pair.
 
 Example `xmake.lua`:
 
@@ -182,7 +194,11 @@ gentest_configure({
         "--sysroot=/opt/sdk/targets/aarch64-sysroot",
         "--target=aarch64-linux-gnu",
     },
-    codegen_project_root = "/path/to/gentest",
+    codegen = {
+        exe = "/opt/sdk/host-tools/bin/gentest_codegen",
+        clang = "/opt/sdk/host-llvm/bin/clang++",
+        scan_deps = "/opt/sdk/host-llvm/bin/clang-scan-deps",
+    },
 })
 
 target("my_module_mocks")
@@ -214,14 +230,10 @@ target("my_tests")
 Configure:
 
 ```bash
-export GENTEST_CODEGEN=/opt/sdk/host-tools/bin/gentest_codegen
-export CC=/opt/sdk/host-llvm/bin/clang
-export CXX=/opt/sdk/host-llvm/bin/clang++
-
 xmake f -c -y \
   --toolchain=llvm \
-  --cc="$CC" \
-  --cxx="$CXX"
+  --cc=/opt/sdk/host-llvm/bin/clang \
+  --cxx=/opt/sdk/host-llvm/bin/clang++
 xmake b my_tests
 ```
 
@@ -231,8 +243,12 @@ Apple compiler/toolchain path.
 
 Notes:
 
-- `GENTEST_CODEGEN` is the cleanest explicit route. If it points into a CMake
-  build tree, the helper can also reuse the adjacent `compile_commands.json`.
+- Prefer the Lua-side `codegen = { exe, clang, scan_deps }` block when the
+  project owns its `xmake.lua`; use `GENTEST_CODEGEN`,
+  `GENTEST_CODEGEN_HOST_CLANG`, and `GENTEST_CODEGEN_CLANG_SCAN_DEPS` only when
+  shell-level overrides are more convenient.
+- If `codegen.exe` points into a CMake build tree, the helper can also reuse
+  the adjacent `compile_commands.json`.
 - Module consumers should treat explicit Clang selection as required, not
   best-effort.
 - For a future official xrepo package, the package should expose the runtime,
@@ -262,14 +278,19 @@ Setup:
 ```bash
 meson setup build/meson \
   --native-file clang.ini \
-  -Dcodegen_path=/opt/sdk/host-tools/bin/gentest_codegen
+  -Dcodegen_path=/opt/sdk/host-tools/bin/gentest_codegen \
+  -Dcodegen_host_clang=/opt/sdk/host-llvm/bin/clang++ \
+  -Dcodegen_clang_scan_deps=/opt/sdk/host-llvm/bin/clang-scan-deps
 meson compile -C build/meson
 meson test -C build/meson --print-errorlogs
 ```
 
 Notes:
 
-- `-Dcodegen_path=...` is the explicit host-tool hook.
+- `-Dcodegen_path=...` and `-Dcodegen_host_clang=...` are the explicit Meson
+  host-tool hooks.
+- Keep target `c` / `cpp` compiler selection in the Meson native file or
+  cross file. Do not use it as a substitute for the codegen-host contract.
 - Meson named-module support should not be documented as supported until the
   backend grows a real reusable helper API and a proven module lane.
 

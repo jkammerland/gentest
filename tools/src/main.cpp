@@ -26,6 +26,7 @@
 #include <clang/Tooling/JSONCompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -54,6 +55,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -1636,6 +1638,7 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
     std::span<const std::string>                             extra_args,
     std::string_view                                         compdb_dir,
     std::span<const std::string>                             extra_module_args = {},
+    std::string_view                                         explicit_host_clang_path = {},
     std::string_view                                         forced_compiler_path = {},
     bool                                                     preserve_module_mapping_args = false) {
     clang::tooling::CommandLineArguments sanitized_command_line = command_line;
@@ -1672,16 +1675,40 @@ clang::tooling::CommandLineArguments build_adjusted_command_line(
                 compiler_arg.find('\\') != std::string::npos;
         };
         auto resolve_clang_compiler_path = [&](std::string_view candidate, bool explicit_path) {
-            std::string selected = resolve_program_invocation_path(candidate);
-            if (!explicit_path && selected == candidate && !default_compiler_path.empty()) {
+            auto bare_clang_driver_name = [](std::string_view value) {
+                const std::string name = std::filesystem::path{std::string(value)}.filename().replace_extension().string();
+                return name == "clang" || name == "clang++" || name == "clang-cl";
+            };
+            auto resolved_default_clang_compiler = [&]() -> std::string {
+                if (default_compiler_path.empty()) {
+                    return {};
+                }
                 const std::string resolved_default = resolve_program_invocation_path(default_compiler_path);
                 if (!resolved_default.empty() && is_clang_like_compiler(resolved_default)) {
+                    return resolved_default;
+                }
+                return {};
+            };
+
+            if (!explicit_path && bare_clang_driver_name(candidate)) {
+                if (const std::string resolved_default = resolved_default_clang_compiler(); !resolved_default.empty()) {
+                    return resolved_default;
+                }
+            }
+
+            std::string selected = resolve_program_invocation_path(candidate);
+            if (!explicit_path && selected == candidate && !default_compiler_path.empty()) {
+                if (const std::string resolved_default = resolved_default_clang_compiler(); !resolved_default.empty()) {
                     selected = resolved_default;
                 }
             }
             return selected;
         };
         auto select_clang_toolchain_compiler = [&]() {
+            if (!explicit_host_clang_path.empty()) {
+                return resolve_program_invocation_path(explicit_host_clang_path);
+            }
+
             if (!forced_compiler_path.empty()) {
                 const std::filesystem::path forced_path{std::string(forced_compiler_path)};
                 const bool forced_is_explicit_path = forced_path.is_absolute() ||
@@ -2067,11 +2094,20 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
 
         return false;
     };
-    if (rc == 0) {
-        if (std::filesystem::exists(pcm_path)) {
-            return true;
+    auto wait_for_pcm_output = [&]() -> bool {
+        for (int attempt = 0; attempt != 10; ++attempt) {
+            if (std::filesystem::exists(pcm_path)) {
+                return true;
+            }
+            if (adopt_alternate_pcm_output()) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
         }
-        if (launch_basename == "clang-cl" && adopt_alternate_pcm_output()) {
+        return std::filesystem::exists(pcm_path);
+    };
+    if (rc == 0) {
+        if (wait_for_pcm_output()) {
             return true;
         }
         gentest::codegen::log_err("gentest_codegen: compiler reported success while precompiling named module '{}' from '{}', "
@@ -2114,7 +2150,11 @@ std::optional<std::size_t> parse_jobs_string(std::string_view raw_value) {
     return out;
 }
 
-std::string resolve_default_compiler_path() {
+std::string resolve_default_compiler_path(std::string_view explicit_host_clang_path = {}) {
+    if (!explicit_host_clang_path.empty()) {
+        return resolve_program_invocation_path(explicit_host_clang_path);
+    }
+
     static constexpr std::string_view kDefault = "clang++";
     static constexpr std::array<std::string_view, 2> kEnvVars = {"CXX", "CC"};
 
@@ -2152,6 +2192,19 @@ std::string resolve_default_compiler_path() {
         }
     }
     return std::string{kDefault};
+}
+
+std::optional<std::string> resolve_explicit_host_clang_path(std::string_view raw_value, std::string_view setting_name) {
+    if (raw_value.empty()) {
+        return std::nullopt;
+    }
+
+    const std::string resolved = resolve_program_invocation_path(raw_value);
+    if (!is_clang_like_compiler(resolved)) {
+        gentest::codegen::log_err("gentest_codegen: warning: ignoring {}='{}' because it is not clang-like\n", setting_name, raw_value);
+        return std::nullopt;
+    }
+    return resolved;
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -2391,7 +2444,12 @@ std::string resolve_default_sysroot() {
 #endif
 }
 
-CollectorOptions parse_arguments(int argc, const char **argv) {
+struct ParsedArguments {
+    CollectorOptions           options;
+    std::optional<std::string> explicit_host_clang_path;
+};
+
+ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory    category{"gentest codegen"};
     static llvm::cl::opt<std::string>  output_option{"output", llvm::cl::desc("Path to the output source file"), llvm::cl::init(""),
                                                     llvm::cl::cat(category)};
@@ -2437,6 +2495,11 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string>  scan_deps_executable_option{
         "clang-scan-deps",
         llvm::cl::desc("Path to the clang-scan-deps executable used for named-module dependency discovery"),
+        llvm::cl::init(""),
+        llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  host_clang_option{
+        "host-clang",
+        llvm::cl::desc("Path to the host Clang executable used for Clang-only codegen operations"),
         llvm::cl::init(""),
         llvm::cl::cat(category)};
     static llvm::cl::list<std::string> external_module_source_option{
@@ -2567,6 +2630,13 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
             opts.clang_scan_deps_executable = std::filesystem::path{*scan_deps_env};
         }
     }
+    std::optional<std::string> explicit_host_clang_path;
+    if (host_clang_option.getNumOccurrences() != 0 && !host_clang_option.getValue().empty()) {
+        explicit_host_clang_path = resolve_explicit_host_clang_path(host_clang_option.getValue(), "--host-clang");
+    } else if (const auto host_clang_env = get_env_value("GENTEST_CODEGEN_HOST_CLANG");
+               host_clang_env && !host_clang_env->empty()) {
+        explicit_host_clang_path = resolve_explicit_host_clang_path(*host_clang_env, "GENTEST_CODEGEN_HOST_CLANG");
+    }
     if (!mock_registry_option.getValue().empty()) {
         opts.mock_registry_path = std::filesystem::path{mock_registry_option.getValue()};
     }
@@ -2601,13 +2671,17 @@ CollectorOptions parse_arguments(int argc, const char **argv) {
     if (!opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
     }
-    return opts;
+    return ParsedArguments{
+        .options = std::move(opts),
+        .explicit_host_clang_path = std::move(explicit_host_clang_path),
+    };
 }
 
 } // namespace
 
 int main(int argc, const char **argv) {
-    const auto options = parse_arguments(argc, argv);
+    const auto parsed_arguments = parse_arguments(argc, argv);
+    const auto &options = parsed_arguments.options;
     if (!options.tu_output_headers.empty() && options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --tu-header-output requires --tu-out-dir\n");
         return 1;
@@ -2617,7 +2691,8 @@ int main(int argc, const char **argv) {
                                   options.sources.size(), options.sources.size(), options.tu_output_headers.size());
         return 1;
     }
-    const auto default_compiler_path = resolve_default_compiler_path();
+    const std::string explicit_host_clang_path = parsed_arguments.explicit_host_clang_path.value_or(std::string{});
+    const auto        default_compiler_path = resolve_default_compiler_path(explicit_host_clang_path);
 
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
     std::string                                          db_error;
@@ -2782,7 +2857,8 @@ int main(int argc, const char **argv) {
         }
 
         return build_adjusted_command_line(command_line, scan_source, resource_dir_for_compiler, default_compiler_path,
-                                           default_sysroot, extra_args, compdb_dir, {}, forced_compiler_path, true);
+                                           default_sysroot, extra_args, compdb_dir, {}, explicit_host_clang_path,
+                                           forced_compiler_path, true);
     };
 
     auto get_compile_commands_for_source =
@@ -2876,12 +2952,6 @@ int main(int argc, const char **argv) {
             }
 
             const auto &source_commands = compile_commands[idx];
-            const std::string compiler_path = compiler_for_resource_dir_probe(source_commands.front().CommandLine, default_compiler_path);
-            if (!is_clang_like_compiler(compiler_path)) {
-                scan_deps_error = fmt::format("compiler '{}' for '{}' is not clang-like", compiler_path, options.sources[idx]);
-                can_run_scan_deps = false;
-                break;
-            }
 
             std::string forced_compiler_path;
             if (!direct_compile_commands[idx].empty()) {
@@ -2895,7 +2965,13 @@ int main(int argc, const char **argv) {
                 expand_compile_command_response_files(source_commands.front().CommandLine, source_commands.front().Directory, false);
             auto adjusted_command = build_adjusted_command_line(
                 scan_deps_command_line, options.sources[idx], resource_dir_for_compiler, default_compiler_path,
-                default_sysroot, extra_args, compdb_dir, {}, forced_compiler_path, true);
+                default_sysroot, extra_args, compdb_dir, {}, explicit_host_clang_path, forced_compiler_path, true);
+            if (adjusted_command.empty() || !is_clang_like_compiler(adjusted_command.front())) {
+                const std::string compiler_path = adjusted_command.empty() ? std::string{} : adjusted_command.front();
+                scan_deps_error = fmt::format("compiler '{}' for '{}' is not clang-like", compiler_path, options.sources[idx]);
+                can_run_scan_deps = false;
+                break;
+            }
 
             prepared_scan_deps_commands.push_back(ScanDepsPreparedCommand{
                 .source_file = options.sources[idx],
@@ -3277,7 +3353,7 @@ int main(int argc, const char **argv) {
                     if (!candidate_source_commands.empty()) {
                         auto adjusted_scan_deps_command = build_adjusted_command_line(
                             candidate_source_commands.front().CommandLine, candidate.string(), resource_dir_for_compiler,
-                            default_compiler_path, default_sysroot, extra_args, compdb_dir, {},
+                            default_compiler_path, default_sysroot, extra_args, compdb_dir, {}, explicit_host_clang_path,
                             external_forced_compiler_path, true);
                         std::string external_scan_deps_error;
                         if (const auto scan_deps_results = run_clang_scan_deps(
@@ -3488,7 +3564,7 @@ int main(int argc, const char **argv) {
             const auto adjusted_command = build_adjusted_command_line(
                 source_commands.empty() ? clang::tooling::CommandLineArguments{} : source_commands.front().CommandLine,
                 module_source.source_path.string(), resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
-                compdb_dir, module_file_args, forced_compiler_path);
+                compdb_dir, module_file_args, explicit_host_clang_path, forced_compiler_path);
             const auto precompile_command =
                 build_module_precompile_command(adjusted_command, module_source.source_path.string(),
                                                 source_commands.empty() ? compdb_dir : source_commands.front().Directory,
@@ -3547,7 +3623,7 @@ int main(int argc, const char **argv) {
             const auto adjusted_command = build_adjusted_command_line(
                 external_command_line,
                 module_source->source_path.string(), resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
-                compdb_dir, module_file_args, module_source->resolution_context.forced_compiler_path);
+                compdb_dir, module_file_args, explicit_host_clang_path, module_source->resolution_context.forced_compiler_path);
             const auto precompile_command =
                 build_module_precompile_command(adjusted_command, module_source->source_path.string(),
                                                 external_working_directory,
@@ -3665,6 +3741,7 @@ int main(int argc, const char **argv) {
         const std::string compdb_dir =
             options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
         return [resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args, compdb_dir,
+                explicit_host_clang_path,
                 extra_module_args_by_source](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
             const auto extra_module_it = extra_module_args_by_source.find(normalize_compdb_lookup_path(file.str()));
             const std::span<const std::string> extra_module_args =
@@ -3672,7 +3749,8 @@ int main(int argc, const char **argv) {
                 ? std::span<const std::string>(extra_module_it->second.data(), extra_module_it->second.size())
                 : std::span<const std::string>{};
             auto adjusted = build_adjusted_command_line(command_line, file, resource_dir_for_compiler, default_compiler_path,
-                                                        default_sysroot, extra_args, compdb_dir, extra_module_args);
+                                                        default_sysroot, extra_args, compdb_dir, extra_module_args,
+                                                        explicit_host_clang_path);
             if (const auto log_parse = get_env_value("GENTEST_CODEGEN_LOG_PARSE_COMMANDS"); log_parse && *log_parse != "0") {
                 gentest::codegen::log_err("gentest_codegen: parse command for '{}':\n", file.str());
                 for (const auto &arg : adjusted) {

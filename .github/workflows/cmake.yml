@@ -785,6 +785,30 @@ jobs:
           echo "Clang_DIR=${{ matrix.clang_dir }}" >> $GITHUB_ENV
           echo "CC=${{ matrix.cc }}" >> $GITHUB_ENV
           echo "CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
+          host_clang_root="$(dirname "$(dirname "$(dirname "${{ matrix.clang_dir }}")")")"
+          host_clang=""
+          for candidate in \
+            "${host_clang_root}/bin/clang++" \
+            "${host_clang_root}/bin/clang++-${{ matrix.clang_version }}" \
+            "${host_clang_root}/bin/clang++-${{ matrix.llvm_version }}" \
+            "clang++-${{ matrix.clang_version }}" \
+            "clang++-${{ matrix.llvm_version }}" \
+            "clang++"
+          do
+            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+              host_clang="${candidate}"
+              break
+            fi
+            if [ -n "${candidate}" ] && command -v "${candidate}" >/dev/null 2>&1; then
+              host_clang="$(command -v "${candidate}")"
+              break
+            fi
+          done
+          if [ -z "${host_clang}" ]; then
+            echo "Failed to resolve host clang++ for gentest_codegen." >&2
+            exit 1
+          fi
+          echo "GENTEST_CODEGEN_HOST_CLANG=${host_clang}" >> $GITHUB_ENV
           echo "GENTEST_CODEGEN_JOBS=${{ matrix.codegen_jobs }}" >> $GITHUB_ENV
           echo "GENTEST_CMAKE_PRESET=${{ matrix.preset || (matrix.build_type == 'debug' && 'debug-system' || 'release-system') }}" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
@@ -811,6 +835,7 @@ jobs:
             "-DCMAKE_MAKE_PROGRAM=$(command -v ninja)"
             "-DLLVM_DIR=${LLVM_DIR}"
             "-DClang_DIR=${Clang_DIR}"
+            "-DGENTEST_CODEGEN_HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}"
           )
           if [ "${{ matrix.compiler }}" = "clang" ]; then
             scan_deps=""

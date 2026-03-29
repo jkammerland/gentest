@@ -65,8 +65,9 @@ jobs:
         run: |
           echo "LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm" >> $GITHUB_ENV
           echo "Clang_DIR=/usr/lib/llvm-20/lib/cmake/clang" >> $GITHUB_ENV
-          echo "CC=clang-20" >> $GITHUB_ENV
-          echo "CXX=clang++-20" >> $GITHUB_ENV
+          echo "HOST_CLANG=/usr/lib/llvm-20/bin/clang-20" >> $GITHUB_ENV
+          echo "HOST_CLANGXX=/usr/lib/llvm-20/bin/clang++-20" >> $GITHUB_ENV
+          echo "GENTEST_CODEGEN_HOST_CLANG=/usr/lib/llvm-20/bin/clang++-20" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
 
       - name: Show tool versions
@@ -74,7 +75,7 @@ jobs:
           set -euxo pipefail
           cmake --version
           ninja --version
-          ${CC} --version
+          ${HOST_CLANG} --version
           aarch64-linux-gnu-gcc --version | head -n 1
           qemu-aarch64 --version | head -n 1
           if command -v llvm-config >/dev/null 2>&1; then llvm-config --version; fi
@@ -83,8 +84,8 @@ jobs:
         run: |
           set -euxo pipefail
           cmake --preset=host-codegen \
-            -DCMAKE_C_COMPILER=${CC} \
-            -DCMAKE_CXX_COMPILER=${CXX} \
+            -DCMAKE_C_COMPILER=${HOST_CLANG} \
+            -DCMAKE_CXX_COMPILER=${HOST_CLANGXX} \
             -DLLVM_DIR=${LLVM_DIR} \
             -DClang_DIR=${Clang_DIR} \
             -DGENTEST_USE_SYSTEM_TERMINFO=ON
@@ -105,7 +106,8 @@ jobs:
           test -e "${loader}"
           test -e "${libc}"
 
-          cmake --preset=aarch64-qemu
+          cmake --preset=aarch64-qemu \
+            -DGENTEST_CODEGEN_HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}
 
       - name: Build cross target (Linux/aarch64)
         run: |
