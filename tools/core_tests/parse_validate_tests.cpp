@@ -465,6 +465,41 @@ int main() {
         }
     }
 
+    // Regression: the outer attribute scanner must not treat ')' inside char literals as the end of the attribute.
+    {
+        auto attrs = parse_attribute_list(R"(template(T, std::integral_constant<char, ')'>), test("templated-char"))");
+        t.expect(attrs.size() == 2, "char literal regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].name == "template", "char literal regression: first attribute name");
+            t.expect(attrs[0].arguments.size() == 2, "char literal regression: template argument count");
+            if (attrs[0].arguments.size() == 2) {
+                auto normalize_ws = [](std::string value) {
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
+                                    return std::isspace(c) != 0;
+                                }),
+                                value.end());
+                    return value;
+                };
+                t.expect(normalize_ws(attrs[0].arguments[1]) == "std::integral_constant<char,')'>",
+                    "char literal regression: template type preserved");
+            }
+        }
+    }
+
+    // Regression: raw strings with ')' inside the payload must not terminate the containing attribute early.
+    {
+        auto attrs = parse_attribute_list(R"gent(test(R"tag(suite)raw)tag"), owner("ops"))gent");
+        t.expect(attrs.size() == 2, "raw string regression: expected two attributes");
+        if (!attrs.empty()) {
+            t.expect(attrs[0].name == "test", "raw string regression: first attribute name");
+            t.expect(attrs[0].arguments.size() == 1, "raw string regression: test argument count");
+            if (attrs[0].arguments.size() == 1) {
+                t.expect(attrs[0].arguments[0] == R"outer(R"tag(suite)raw)tag")outer",
+                    "raw string regression: raw string literal preserved");
+            }
+        }
+    }
+
     if (t.failures) {
         std::cerr << "Total failures: " << t.failures << "\n";
         return 1;

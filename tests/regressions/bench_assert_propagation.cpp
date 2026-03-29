@@ -1,5 +1,6 @@
 #include "gentest/runner.h"
 
+#include <cstdio>
 #include <stdexcept>
 
 using namespace gentest::asserts;
@@ -45,6 +46,16 @@ void bench_setup_skip_should_not_fail(void*) {
     gentest::skip("intentional benchmark setup skip");
 }
 
+int bench_calibration_assert_invocations = 0;
+constexpr unsigned kBenchCalibrationAssertShouldStopAfterCalibrationLine = __LINE__ + 1;
+void bench_calibration_assert_should_stop_after_calibration(void*) {
+    if (!in_bench_call_phase())
+        return;
+    if (++bench_calibration_assert_invocations == 1)
+        EXPECT_TRUE(false, "calibration benchmark assertion failure");
+    std::fputs("regression marker: benchmark continued after calibration failure\n", stderr);
+}
+
 constexpr unsigned kJitterAssertShouldFailLine = __LINE__ + 1;
 void jitter_assert_should_fail(void*) {
     if (!in_bench_call_phase())
@@ -78,6 +89,16 @@ void jitter_setup_skip_should_not_fail(void*) {
     if (gentest::detail::bench_phase() != gentest::detail::BenchPhase::Setup)
         return;
     gentest::skip("intentional jitter setup skip");
+}
+
+int jitter_calibration_assert_invocations = 0;
+constexpr unsigned kJitterCalibrationAssertShouldStopAfterCalibrationLine = __LINE__ + 1;
+void jitter_calibration_assert_should_stop_after_calibration(void*) {
+    if (!in_bench_call_phase())
+        return;
+    if (++jitter_calibration_assert_invocations == 1)
+        EXPECT_TRUE(false, "calibration jitter assertion failure");
+    std::fputs("regression marker: jitter continued after calibration failure\n", stderr);
 }
 
 gentest::Case kCases[] = {
@@ -162,6 +183,22 @@ gentest::Case kCases[] = {
         .suite = "regressions",
     },
     {
+        .name = "regressions/bench_calibration_assert_should_stop_after_calibration",
+        .fn = &bench_calibration_assert_should_stop_after_calibration,
+        .file = __FILE__,
+        .line = kBenchCalibrationAssertShouldStopAfterCalibrationLine,
+        .is_benchmark = true,
+        .is_jitter = false,
+        .is_baseline = false,
+        .tags = {},
+        .requirements = {},
+        .skip_reason = {},
+        .should_skip = false,
+        .fixture = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite = "regressions",
+    },
+    {
         .name = "regressions/jitter_assert_should_fail",
         .fn = &jitter_assert_should_fail,
         .file = __FILE__,
@@ -230,6 +267,22 @@ gentest::Case kCases[] = {
         .fn = &jitter_setup_skip_should_not_fail,
         .file = __FILE__,
         .line = kJitterSetupSkipShouldNotFailLine,
+        .is_benchmark = false,
+        .is_jitter = true,
+        .is_baseline = false,
+        .tags = {},
+        .requirements = {},
+        .skip_reason = {},
+        .should_skip = false,
+        .fixture = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite = "regressions",
+    },
+    {
+        .name = "regressions/jitter_calibration_assert_should_stop_after_calibration",
+        .fn = &jitter_calibration_assert_should_stop_after_calibration,
+        .file = __FILE__,
+        .line = kJitterCalibrationAssertShouldStopAfterCalibrationLine,
         .is_benchmark = false,
         .is_jitter = true,
         .is_baseline = false,

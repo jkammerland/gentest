@@ -422,6 +422,9 @@ bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang:
         return true;
     }
     if (!allow_includes) {
+        if (llvm::isa<clang::NamespaceDecl>(decl) || llvm::isa<clang::CXXRecordDecl>(decl)) {
+            return true;
+        }
         return false;
     }
     return true;
@@ -925,8 +928,8 @@ bool source_contains_codegen_markers(const std::filesystem::path &path) {
     bool        in_block_comment = false;
     while (std::getline(in, line)) {
         const auto stripped = strip_comments_for_line_scan(line, in_block_comment);
-        if (stripped.find("[[using gentest:") != std::string::npos || stripped.find("GENTEST_MOCK") != std::string::npos ||
-            stripped.find("gentest::mock") != std::string::npos) {
+        if (stripped.find("[[using gentest:") != std::string::npos || stripped.find("[[gentest::") != std::string::npos ||
+            stripped.find("GENTEST_MOCK") != std::string::npos || stripped.find("gentest::mock") != std::string::npos) {
             return true;
         }
     }

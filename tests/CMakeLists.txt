@@ -192,6 +192,24 @@ if(CMAKE_CROSSCOMPILING)
     endif()
 endif()
 
+function(_gentest_add_proof_test name source)
+    add_executable(${name} ${source})
+    target_link_libraries(${name} PRIVATE gentest_runtime)
+    target_compile_features(${name} PRIVATE cxx_std_20)
+    add_test(NAME ${name} COMMAND $<TARGET_FILE:${name}>)
+    set_property(TEST ${name} APPEND PROPERTY LABELS "proof")
+endfunction()
+
+_gentest_add_proof_test(
+    gentest_proof_api_context_adopt_copy_contract
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/adopt_copy_contract_red.cpp)
+_gentest_add_proof_test(
+    gentest_proof_api_context_event_chronology
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/event_chronology_red.cpp)
+_gentest_add_proof_test(
+    gentest_proof_api_context_expect_throw_std_exception
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/expect_throw_std_exception_red.cpp)
+
 # Lint-only checks for generator
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_valid
@@ -1561,8 +1579,15 @@ gentest_add_check_contains(
 gentest_add_check_contains(
     NAME benches_table_smoke
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING benchmarks/string/concat_small
-    ARGS --list)
+    EXPECT_SUBSTRING benchmarks/fixture/free_suite_global
+    ARGS
+        --kind=bench
+        --bench-table
+        --run=benchmarks/fixture/free_suite_global
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0)
 
 gentest_add_check_contains(
     NAME benches_filter_space
@@ -1575,6 +1600,12 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     EXPECT_SUBSTRING "benchmark filter matched 0 benchmarks"
     ARGS --filter=benchmarks/spacing/nope* --kind=bench)
+
+gentest_add_check_death(
+    NAME jitter_filter_no_match
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    EXPECT_SUBSTRING "jitter filter matched 0 jitter benchmarks"
+    ARGS --filter=benchmarks/spacing/nope* --kind=jitter)
 
 gentest_add_check_death(
     NAME benches_filter_missing_arg
@@ -1993,6 +2024,22 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_manual_include_whitespace APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_partial_manual_codegen_includes
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_partial_manual_codegen_includes
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModulePartialManualCodegenIncludes.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_partial_manual_codegen_includes APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_manual_partial_includes
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_manual_partial_includes
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleManualPartialIncludes.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_manual_partial_includes APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_name_literal_false_match
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckModuleNameLiteralFalseMatch.cmake
@@ -2079,6 +2126,22 @@ _gentest_add_cmake_helper_test(
     modules
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_codegen_compile_command_macro_scan APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_wrapped_main_discovery
+    ${PROJECT_SOURCE_DIR}/tests/cmake/wrapped_main_discovery
+    ${PROJECT_SOURCE_DIR}/cmake/CheckWrappedMainDiscovery.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_wrapped_main_discovery APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_manifest_header_shared_fixture_visibility
+    ${PROJECT_SOURCE_DIR}/tests/cmake/manifest_header_shared_fixture_visibility
+    ${PROJECT_SOURCE_DIR}/cmake/CheckManifestHeaderSharedFixtureVisibility.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_manifest_header_shared_fixture_visibility APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_external_include_module_resolution

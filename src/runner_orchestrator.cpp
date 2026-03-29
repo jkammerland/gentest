@@ -5,6 +5,7 @@
 #include "runner_measured_report.h"
 #include "runner_reporting.h"
 #include "runner_selector.h"
+#include "runner_tag_utils.h"
 #include "runner_test_executor.h"
 
 #include <algorithm>
@@ -50,30 +51,6 @@ struct OrchestratorState {
     bool                            record_results = false;
     gentest::runner::RunAccumulator acc;
 };
-
-bool iequals(std::string_view lhs, std::string_view rhs) {
-    if (lhs.size() != rhs.size())
-        return false;
-    for (std::size_t i = 0; i < lhs.size(); ++i) {
-        const char a = lhs[i];
-        const char b = rhs[i];
-        if (a == b)
-            continue;
-        const char al = (a >= 'A' && a <= 'Z') ? static_cast<char>(a - 'A' + 'a') : a;
-        const char bl = (b >= 'A' && b <= 'Z') ? static_cast<char>(b - 'A' + 'a') : b;
-        if (al != bl)
-            return false;
-    }
-    return true;
-}
-
-bool has_tag_ci(const gentest::Case &test, std::string_view tag) {
-    for (auto t : test.tags) {
-        if (iequals(t, tag))
-            return true;
-    }
-    return false;
-}
 
 std::string join_span(std::span<const std::string_view> items, char sep) {
     std::string out;
@@ -128,9 +105,6 @@ RunResult make_measured_success_result(double wall_time_s, std::vector<ReportAtt
 }
 
 void record_measured_result(OrchestratorState &state, const gentest::Case &c, RunResult result) {
-    if (!result.summary_issues.empty()) {
-        ++state.acc.measured_failures;
-    }
     if (!state.record_results && result.summary_issues.empty()) {
         return;
     }
@@ -240,25 +214,30 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
     }
 
     if (!test_idxs.empty() || !state.acc.failure_items.empty()) {
-        const std::size_t failed_count = counters.failed + state.acc.measured_failures + state.acc.infra_errors.size();
+        const std::size_t passed_count  = counters.passed + bench_status.passed + jitter_status.passed;
+        const std::size_t total_count   = counters.total + bench_status.total + jitter_status.total;
+        const std::size_t failed_count  = counters.failed + bench_status.failed + jitter_status.failed + state.acc.infra_errors.size();
+        const std::size_t skipped_count = counters.skipped + bench_status.skipped + jitter_status.skipped;
         std::string       summary;
         summary.reserve(128 + state.acc.failure_items.size() * 64);
-        fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n", counters.passed,
-                       counters.total, failed_count, counters.skipped, counters.xfail, counters.xpass);
+        fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n", passed_count,
+                       total_count, failed_count, skipped_count, counters.xfail, counters.xpass);
         if (!state.acc.failure_items.empty()) {
-            std::map<std::string, std::vector<std::string>> grouped;
+            summary.append("Failed tests:\n");
             for (const auto &item : state.acc.failure_items) {
-                auto &issues = grouped[item.name];
+                if (!item.file.empty() && item.line != 0) {
+                    fmt::format_to(std::back_inserter(summary), "  {} ({}:{}):\n", item.name, item.file, item.line);
+                } else {
+                    fmt::format_to(std::back_inserter(summary), "  {}:\n", item.name);
+                }
+                std::vector<std::string> unique_issues;
+                unique_issues.reserve(item.issues.size());
                 for (const auto &issue : item.issues) {
-                    if (std::find(issues.begin(), issues.end(), issue) == issues.end()) {
-                        issues.push_back(issue);
+                    if (std::find(unique_issues.begin(), unique_issues.end(), issue) == unique_issues.end()) {
+                        unique_issues.push_back(issue);
                     }
                 }
-            }
-            summary.append("Failed tests:\n");
-            for (const auto &[name, issues] : grouped) {
-                fmt::format_to(std::back_inserter(summary), "  {}:\n", name);
-                for (const auto &issue : issues) {
+                for (const auto &issue : unique_issues) {
                     fmt::format_to(std::back_inserter(summary), "    {}\n", issue);
                 }
             }
@@ -386,7 +365,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print(stderr, "hint: use --list-benches to see available names\n");
         return 1;
     case SelectionStatus::FilterNoJitterMatch:
-        fmt::print(stderr, "jitter filter matched 0 benchmarks: {}\n", opt.filter_pat);
+        fmt::print(stderr, "jitter filter matched 0 jitter benchmarks: {}\n", opt.filter_pat);
         fmt::print(stderr, "hint: use --list-benches to see available names\n");
         return 1;
     case SelectionStatus::ZeroSelected:

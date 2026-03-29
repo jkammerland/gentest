@@ -27,11 +27,6 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
     [[nodiscard]] bool has_errors() const;
 
   private:
-    // Convert a FunctionDecl into a TestCaseInfo if it has gentest attributes and a function body.
-    std::optional<TestCaseInfo> classify(const clang::FunctionDecl &func, const clang::SourceManager &sm,
-                                         const clang::LangOptions &lang) const;
-    void                        report(const clang::FunctionDecl &func, const clang::SourceManager &sm, std::string_view message) const;
-
     std::vector<TestCaseInfo> &out_;
     bool                       strict_fixture_ = false;
     bool                       allow_includes_ = false;

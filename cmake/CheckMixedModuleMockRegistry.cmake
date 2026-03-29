@@ -139,6 +139,28 @@ foreach(_generated_file IN ITEMS
   endif()
 endforeach()
 
+file(GLOB _module_provider_wrappers "${_module_generated_dir}/*.module.gentest.*")
+if(_module_provider_wrappers STREQUAL "")
+  message(FATAL_ERROR
+    "Expected explicit module mock provider wrappers under '${_module_generated_dir}', found none")
+endif()
+
+foreach(_wrapper IN LISTS _module_provider_wrappers)
+  file(READ "${_wrapper}" _wrapper_text)
+  string(FIND "${_wrapper_text}" "import gentest.mock;" _mock_import_pos)
+  if(_mock_import_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected generated module mock provider wrapper '${_wrapper}' to import gentest.mock.\n"
+      "${_wrapper_text}")
+  endif()
+  string(FIND "${_wrapper_text}" "#include \"gentest/mock.h\"" _mock_header_include_pos)
+  if(NOT _mock_header_include_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected generated module mock provider wrapper '${_wrapper}' to avoid textually including gentest/mock.h.\n"
+      "${_wrapper_text}")
+  endif()
+endforeach()
+
 _gentest_find_mock_domain_artifact(_header_registry "${_header_generated_dir}" "mixed_header_mocks_mock_registry" "hpp" "legacy::Service")
 _gentest_find_mock_domain_artifact(_module_registry "${_module_generated_dir}" "mixed_module_mocks_mock_registry" "hpp" "mixmod::Service")
 _gentest_find_mock_domain_artifact(_extra_registry "${_module_generated_dir}" "mixed_module_mocks_mock_registry" "hpp" "extramod::Worker")

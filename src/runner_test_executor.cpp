@@ -47,7 +47,6 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         return rr;
     }
     ++c.total;
-    ++c.executed;
     auto       inv             = gentest::runner::invoke_case_once(test, ctx, gentest::detail::BenchPhase::None,
                                                                    gentest::runner::UnhandledExceptionPolicy::RecordAsFailure);
     auto       ctxinfo         = inv.ctxinfo;

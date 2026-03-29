@@ -364,7 +364,6 @@ bool setup_shared_fixtures() {
                 entry.initialized                 = false;
                 entry.failed                      = true;
                 entry.error                       = fixture_error;
-                entry.instance.reset();
             }
             fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
             continue;
@@ -421,7 +420,7 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
         work.reserve(reg.entries.size());
         for (std::size_t i = reg.entries.size(); i-- > 0;) {
             auto &entry = reg.entries[i];
-            if (!entry.initialized || entry.failed) {
+            if (!entry.instance || (!entry.initialized && !entry.failed)) {
                 entry.instance.reset();
                 entry.initialized = false;
                 continue;

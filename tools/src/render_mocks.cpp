@@ -524,9 +524,14 @@ std::string build_class_declaration(const MockClassInfo &cls) {
     return header.str();
 }
 
-std::string build_mock_access(const MockClassInfo &cls) {
+std::string build_mock_access(const MockClassInfo &cls, bool module_mode = false) {
     RenderBuffer body;
-    const std::string fq_type = fmt::format("::{}", cls.qualified_name);
+    const std::string fq_type          = fmt::format("::{}", cls.qualified_name);
+    const char       *false_type_name  = module_mode ? "::gentest::detail::mocking::FalseType" : "std::false_type";
+    const char       *true_type_name   = module_mode ? "::gentest::detail::mocking::TrueType" : "std::true_type";
+    const char       *string_view_name = module_mode ? "::gentest::detail::mocking::StringView" : "std::string_view";
+    const char       *string_name      = module_mode ? "::gentest::detail::mocking::String" : "std::string";
+    const char       *size_type_name   = module_mode ? "::gentest::detail::mocking::SizeType" : "std::size_t";
     body.append("template <>\nstruct MockAccess<mock<{}>> {{\n", fq_type);
     std::vector<std::pair<std::string, std::string>> template_pointer_matchers;
     for (std::size_t i = 0; i < cls.methods.size(); ++i) {
@@ -536,20 +541,20 @@ std::string build_mock_access(const MockClassInfo &cls) {
             continue;
         }
         const std::string matcher_name = fmt::format("method_ptr_matches_template_{}", i);
-        body.append("    template <class MethodPtr> struct {} : std::false_type {{}};\n", matcher_name);
+        body.append("    template <class MethodPtr> struct {} : {} {{}};\n", matcher_name, false_type_name);
         body.append("    {}\n", method.template_prefix);
-        body.append("    struct {}<{}> : std::true_type {{}};\n\n", matcher_name, pointer_type);
+        body.append("    struct {}<{}> : {} {{}};\n\n", matcher_name, pointer_type, true_type_name);
         template_pointer_matchers.emplace_back(matcher_name, pointer_type);
     }
     body.append_raw("    template <auto Method>\n");
-    body.append("    static auto expect_constant(mock<{0}> &instance, std::string_view method_name) {{\n", fq_type);
+    body.append("    static auto expect_constant(mock<{0}> &instance, {1} method_name) {{\n", fq_type, string_view_name);
     body.append_raw("        using ::gentest::detail::mocking::ExpectationHandle;\n");
     body.append_raw("        using ::gentest::detail::mocking::MethodTraits;\n");
     body.append_raw("        using Signature = typename MethodTraits<decltype(Method)>::Signature;\n");
     body.append_raw("        auto token = ::gentest::detail::mocking::method_constant_identity<Method>();\n");
-    body.append_raw(
-        "        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, token, std::string(method_name));\n");
-    body.append_raw("        return ExpectationHandle<Signature>{expectation, std::string(method_name)};\n");
+    body.append("        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, token, {0}(method_name));\n",
+                string_name);
+    body.append("        return ExpectationHandle<Signature>{{expectation, {0}(method_name)}};\n", string_name);
     body.append_raw("    }\n");
     body.append_raw("\n");
     body.append_raw("    template <class MethodPtr>\n");
@@ -588,7 +593,7 @@ std::string build_mock_access(const MockClassInfo &cls) {
             compatibility_expr += compatibility_checks[i];
         }
         body.append_raw("#if defined(_MSC_VER)\n");
-        body.append("        constexpr std::size_t compatible_method_count = {};\n", compatibility_expr);
+        body.append("        constexpr {} compatible_method_count = {};\n", size_type_name, compatibility_expr);
         body.append_raw("        if constexpr (compatible_method_count > 1) {\n");
         body.append(
             "            ::gentest::detail::record_failure(\"ambiguous mock method pointer for {0}; use EXPECT_CALL(...) or gentest::expect<&T::method>(mock, \\\"name\\\") to select the exact method\");\n",
@@ -993,7 +998,7 @@ std::string render_module_mock_attachment(const MockClassInfo &mock) {
     out.append_raw("namespace gentest {\n\n");
     out.append_raw(build_class_declaration(mock));
     out.append_raw("namespace detail {\n\n");
-    out.append_raw(build_mock_access(mock));
+    out.append_raw(build_mock_access(mock, true));
     out.append_raw("} // namespace detail\n\n");
     append_mock_implementation(out, mock);
     out.append_raw("} // namespace gentest\n");

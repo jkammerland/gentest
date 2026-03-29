@@ -15,13 +15,20 @@ using ::gentest::mock;
 
 namespace detail {
 using ::gentest::detail::MockAccess;
+using ::gentest::detail::record_failure;
 
 namespace mocking {
 using ::gentest::detail::mocking::ExpectationHandle;
 using ::gentest::detail::mocking::ExpectationPusher;
 using ::gentest::detail::mocking::InstanceState;
 using ::gentest::detail::mocking::MethodTraits;
+using ::gentest::detail::mocking::method_constant_identity;
 using ::gentest::detail::mocking::same_v;
+using FalseType = ::std::false_type;
+using SizeType = ::std::size_t;
+using String = ::std::string;
+using StringView = ::std::string_view;
+using TrueType = ::std::true_type;
 }
 } // namespace detail
 

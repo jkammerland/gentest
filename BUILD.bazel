@@ -153,6 +153,7 @@ cc_library(
         'src/runner_result_model.h',
         'src/runner_selector.cpp',
         'src/runner_selector.h',
+        'src/runner_tag_utils.h',
         'src/runner_test_executor.cpp',
         'src/runner_test_executor.h',
         'src/runner_test_plan.cpp',

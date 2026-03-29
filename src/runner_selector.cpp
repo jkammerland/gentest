@@ -1,4 +1,5 @@
 #include "runner_selector.h"
+#include "runner_tag_utils.h"
 
 #include <algorithm>
 
@@ -41,30 +42,6 @@ bool wildcard_match(std::string_view text, std::string_view pattern) {
     while (pi < pattern.size() && pattern[pi] == '*')
         ++pi;
     return pi == pattern.size();
-}
-
-bool iequals(std::string_view lhs, std::string_view rhs) {
-    if (lhs.size() != rhs.size())
-        return false;
-    for (std::size_t i = 0; i < lhs.size(); ++i) {
-        const char a = lhs[i];
-        const char b = rhs[i];
-        if (a == b)
-            continue;
-        const char al = (a >= 'A' && a <= 'Z') ? static_cast<char>(a - 'A' + 'a') : a;
-        const char bl = (b >= 'A' && b <= 'Z') ? static_cast<char>(b - 'A' + 'a') : b;
-        if (al != bl)
-            return false;
-    }
-    return true;
-}
-
-bool has_tag_ci(const gentest::Case &test, std::string_view tag) {
-    for (auto t : test.tags) {
-        if (iequals(t, tag))
-            return true;
-    }
-    return false;
 }
 
 void split_selected_cases(std::span<const gentest::Case> cases, const std::vector<std::size_t> &idxs, SelectionResult &out) {

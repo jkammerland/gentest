@@ -319,11 +319,13 @@ bool write_allure_files(RunAccumulator &acc, const std::vector<PendingAllureFile
 #endif
 } // namespace
 
-void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues) {
+void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues, std::string_view file, unsigned line) {
     if (issues.empty())
         issues.emplace_back("failure (no details)");
     acc.failure_items.push_back(FailureSummary{
         .name = std::string(name),
+        .file = std::string(file),
+        .line = line,
         .issues = std::move(issues),
     });
 }
@@ -335,7 +337,7 @@ void record_runner_level_failure(RunAccumulator &acc, std::string_view name, std
 
 void record_case_result(RunAccumulator &acc, const gentest::Case &test, RunResult result, bool include_report_item) {
     if (!result.summary_issues.empty()) {
-        record_failure_summary(acc, test.name, std::move(result.summary_issues));
+        record_failure_summary(acc, test.name, std::move(result.summary_issues), test.file, test.line);
     }
     if (!include_report_item) {
         return;

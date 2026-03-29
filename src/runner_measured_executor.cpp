@@ -200,6 +200,9 @@ CalibratedEpoch calibrate_epoch_iterations(const gentest::Case &c, void *ctx, co
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_warmup_epochs(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t warmup_epochs, std::size_t &iterations_done,
                          bool &had_assert_fail) {
+    if (had_assert_fail) {
+        return 0.0;
+    }
     double warmup_time_s = 0.0;
     for (std::size_t i = 0; i < warmup_epochs; ++i) {
         warmup_time_s += run_epoch_calls(c, ctx, iters, iterations_done, had_assert_fail);
@@ -372,28 +375,32 @@ BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg)
     const auto  calib_s     = calibration.elapsed_s;
     br.calibration_time_s   = calib_s;
     br.calibration_iters    = iters;
-    br.warmup_time_s        = run_warmup_epochs(c, ctx, iters, cfg.warmup_epochs, done, had_assert);
+    if (!had_assert) {
+        br.warmup_time_s = run_warmup_epochs(c, ctx, iters, cfg.warmup_epochs, done, had_assert);
+    }
 
     std::vector<double> epoch_ns;
-    auto                start_all  = std::chrono::steady_clock::now();
-    std::size_t         epochs_run = 0;
-    for (;;) {
-        if (epochs_run >= cfg.measure_epochs && br.total_time_s >= cfg.min_total_time_s)
-            break;
-        double s = run_epoch_calls(c, ctx, iters, done, had_assert);
-        if (had_assert) {
+    if (!had_assert) {
+        auto        start_all  = std::chrono::steady_clock::now();
+        std::size_t epochs_run = 0;
+        for (;;) {
+            if (epochs_run >= cfg.measure_epochs && br.total_time_s >= cfg.min_total_time_s)
+                break;
+            double s = run_epoch_calls(c, ctx, iters, done, had_assert);
+            if (had_assert) {
+                br.total_time_s += s;
+                br.total_iters += done;
+                break;
+            }
+            const std::size_t iter_count = done ? done : 1;
+            epoch_ns.push_back(ns_from_s(s) / static_cast<double>(iter_count));
             br.total_time_s += s;
             br.total_iters += done;
-            break;
+            ++epochs_run;
+            auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_all).count();
+            if (cfg.max_total_time_s > 0.0 && elapsed > cfg.max_total_time_s && br.total_time_s >= cfg.min_total_time_s)
+                break;
         }
-        const std::size_t iter_count = done ? done : 1;
-        epoch_ns.push_back(ns_from_s(s) / static_cast<double>(iter_count));
-        br.total_time_s += s;
-        br.total_iters += done;
-        ++epochs_run;
-        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_all).count();
-        if (cfg.max_total_time_s > 0.0 && elapsed > cfg.max_total_time_s && br.total_time_s >= cfg.min_total_time_s)
-            break;
     }
     if (!epoch_ns.empty()) {
         std::vector<double> sorted = epoch_ns;
@@ -444,28 +451,32 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
     jr.overhead_mean_ns = overhead.mean_ns;
     jr.overhead_sd_ns   = overhead.stddev_ns;
 
-    jr.warmup_time_s = run_warmup_epochs(c, ctx, iters, cfg.warmup_epochs, done, had_assert);
-    auto start_all = std::chrono::steady_clock::now();
-    for (;;) {
-        if (epoch_count >= cfg.measure_epochs && jr.total_time_s >= cfg.min_total_time_s)
-            break;
-        double s = 0.0;
-        if (use_batch) {
-            s = run_jitter_batch_epoch_calls(c, ctx, batch_iters, batch_samples, done, had_assert, jr.samples_ns);
-        } else {
-            s = run_jitter_epoch_calls(c, ctx, iters, done, had_assert, jr.samples_ns);
-        }
-        if (had_assert) {
+    if (!had_assert) {
+        jr.warmup_time_s = run_warmup_epochs(c, ctx, iters, cfg.warmup_epochs, done, had_assert);
+    }
+    if (!had_assert) {
+        auto start_all = std::chrono::steady_clock::now();
+        for (;;) {
+            if (epoch_count >= cfg.measure_epochs && jr.total_time_s >= cfg.min_total_time_s)
+                break;
+            double s = 0.0;
+            if (use_batch) {
+                s = run_jitter_batch_epoch_calls(c, ctx, batch_iters, batch_samples, done, had_assert, jr.samples_ns);
+            } else {
+                s = run_jitter_epoch_calls(c, ctx, iters, done, had_assert, jr.samples_ns);
+            }
+            if (had_assert) {
+                jr.total_time_s += s;
+                jr.total_iters += done;
+                break;
+            }
+            ++epoch_count;
             jr.total_time_s += s;
             jr.total_iters += done;
-            break;
+            auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_all).count();
+            if (cfg.max_total_time_s > 0.0 && elapsed > cfg.max_total_time_s && jr.total_time_s >= cfg.min_total_time_s)
+                break;
         }
-        ++epoch_count;
-        jr.total_time_s += s;
-        jr.total_iters += done;
-        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_all).count();
-        if (cfg.max_total_time_s > 0.0 && elapsed > cfg.max_total_time_s && jr.total_time_s >= cfg.min_total_time_s)
-            break;
     }
     jr.epochs          = epoch_count;
     jr.iters_per_epoch = use_batch ? (batch_iters * batch_samples) : iters;
@@ -642,34 +653,33 @@ void report_measured_case_skip(const gentest::Case &c, std::string_view reason) 
 template <typename Result, typename CallFn, typename SuccessFn>
 TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::span<const std::size_t> idxs, std::string_view kind_label,
                                   bool fail_fast, CallFn run_call, const SuccessFn &on_success, const MeasurementFailureFn &on_failure) {
-    bool had_fixture_failure = false;
+    TimedRunStatus status{};
     for (auto i : idxs) {
         const auto            &c = kCases[i];
         Result                 result{};
         MeasurementCaseFailure failure{};
+        ++status.total;
         if (!run_measured_case(c, run_call, result, failure)) {
-            if (failure.skipped) {
+            if (failure.skipped && !failure.infra_failure) {
                 report_measured_case_skip(c, failure.reason);
                 on_failure(c, failure, {});
-                if (failure.infra_failure) {
-                    had_fixture_failure = true;
-                    if (fail_fast)
-                        return TimedRunStatus{.ok = false, .stopped = true};
-                }
+                ++status.skipped;
                 continue;
             }
             const std::string message =
                 format_measured_fixture_failure_message(kind_label, c, failure.reason, failure.allocation_failure, failure.phase);
             fmt::print(stderr, "{}\n", message);
             on_failure(c, failure, message);
-            had_fixture_failure = true;
+            status.ok = false;
+            ++status.failed;
             if (fail_fast)
-                return TimedRunStatus{.ok = false, .stopped = true};
+                return TimedRunStatus{.ok = false, .stopped = true, .total = status.total, .passed = status.passed, .skipped = status.skipped, .failed = status.failed};
             continue;
         }
         on_success(c, std::move(result));
+        ++status.passed;
     }
-    return TimedRunStatus{.ok = !had_fixture_failure};
+    return status;
 }
 
 } // namespace
@@ -695,7 +705,7 @@ TimedRunStatus run_selected_benches(std::span<const gentest::Case> kCases, std::
     if (measured_status.stopped)
         return measured_status;
     print_bench_report(rows, opt);
-    return TimedRunStatus{.ok = measured_status.ok};
+    return measured_status;
 }
 
 TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::span<const std::size_t> idxs, const CliOptions &opt,
@@ -721,7 +731,7 @@ TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::
     if (measured_status.stopped)
         return measured_status;
     print_jitter_report(rows, opt);
-    return TimedRunStatus{.ok = measured_status.ok};
+    return measured_status;
 }
 
 } // namespace gentest::runner

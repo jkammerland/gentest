@@ -2,10 +2,27 @@ if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelModuleConsumer.cmake: SOURCE_DIR not set")
 endif()
 
-find_program(_bazel NAMES bazelisk bazel)
+find_program(_bazel NAMES bazelisk bazel bazelisk.exe bazel.exe bazelisk.cmd bazel.cmd bazelisk.bat bazel.bat)
 if(NOT _bazel)
   message(STATUS "bazel/bazelisk not found; skipping Bazel module consumer smoke check.")
   return()
+endif()
+
+set(_bazel_command "${_bazel}")
+if(WIN32 AND _bazel MATCHES "\\.(cmd|bat)$")
+  set(_bazel_command cmd /c "${_bazel}")
+endif()
+execute_process(
+  COMMAND ${_bazel_command} --version
+  RESULT_VARIABLE _bazel_version_rc
+  OUTPUT_VARIABLE _bazel_version_out
+  ERROR_VARIABLE _bazel_version_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(_bazel_version_rc EQUAL 0)
+  set(_bazel_version_text "${_bazel_version_out}")
+else()
+  set(_bazel_version_text "version probe failed: ${_bazel_version_err}")
 endif()
 
 function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
@@ -126,6 +143,38 @@ set(_bazel_repo_contents_cache "${_bazel_smoke_root}/repo-cache")
 file(MAKE_DIRECTORY "${_bazel_output_root}")
 file(MAKE_DIRECTORY "${_bazel_repo_contents_cache}")
 
+set(_gentest_bazel_build_args
+  --output_user_root=${_bazel_output_root}
+  build
+  --experimental_cpp_modules
+  --repo_contents_cache=${_bazel_repo_contents_cache}
+  --action_env=CCACHE_DISABLE
+  --action_env=PATH
+  --host_action_env=CCACHE_DISABLE
+  --host_action_env=PATH
+  --action_env=CC
+  --action_env=CXX
+  --action_env=LLVM_BIN
+  --action_env=LLVM_DIR
+  --action_env=Clang_DIR
+  --action_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --host_action_env=CC
+  --host_action_env=CXX
+  --host_action_env=LLVM_BIN
+  --host_action_env=LLVM_DIR
+  --host_action_env=Clang_DIR
+  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --repo_env=PATH
+  --repo_env=CC
+  --repo_env=CXX
+  --repo_env=LLVM_BIN
+  --repo_env=LLVM_DIR
+  --repo_env=Clang_DIR
+  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --verbose_failures
+  --sandbox_debug
+  //:gentest_consumer_module_bazel)
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           "CCACHE_DISABLE=1"
@@ -136,32 +185,8 @@ execute_process(
           "LLVM_DIR=${_llvm_dir}"
           "Clang_DIR=${_clang_dir}"
           "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
-          "${_bazel}" --output_user_root=${_bazel_output_root} build
-          --experimental_cpp_modules
-          --repo_contents_cache=${_bazel_repo_contents_cache}
-          --action_env=CCACHE_DISABLE=1
-          --action_env=PATH=${_tool_path}
-          --host_action_env=CCACHE_DISABLE=1
-          --host_action_env=PATH=${_tool_path}
-          --action_env=CC=${_clang_cc}
-          --action_env=CXX=${_clang_cxx}
-          --action_env=LLVM_BIN=${_clang_bin_dir}
-          --action_env=LLVM_DIR=${_llvm_dir}
-          --action_env=Clang_DIR=${_clang_dir}
-          --action_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}
-          --host_action_env=CC=${_clang_cc}
-          --host_action_env=CXX=${_clang_cxx}
-          --host_action_env=LLVM_BIN=${_clang_bin_dir}
-          --host_action_env=LLVM_DIR=${_llvm_dir}
-          --host_action_env=Clang_DIR=${_clang_dir}
-          --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}
-          --repo_env=CC=${_clang_cc}
-          --repo_env=CXX=${_clang_cxx}
-          --repo_env=LLVM_BIN=${_clang_bin_dir}
-          --repo_env=LLVM_DIR=${_llvm_dir}
-          --repo_env=Clang_DIR=${_clang_dir}
-          --repo_env=GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}
-          //:gentest_consumer_module_bazel
+          ${_bazel_command}
+          ${_gentest_bazel_build_args}
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _build_rc
   OUTPUT_VARIABLE _build_out
@@ -169,6 +194,15 @@ execute_process(
 if(NOT _build_rc EQUAL 0)
   message(FATAL_ERROR
     "Bazel build failed for gentest_consumer_module_bazel.\n"
+    "bazel: ${_bazel}\n"
+    "bazel version: ${_bazel_version_text}\n"
+    "clang: ${_clang_cc}\n"
+    "clang++: ${_clang_cxx}\n"
+    "LLVM_DIR: ${_llvm_dir}\n"
+    "Clang_DIR: ${_clang_dir}\n"
+    "resource dir: ${_resource_dir}\n"
+    "output root: ${_bazel_output_root}\n"
+    "repo cache: ${_bazel_repo_contents_cache}\n"
     "stdout:\n${_build_out}\n"
     "stderr:\n${_build_err}")
 endif()

@@ -2,8 +2,8 @@
 #  -DSOURCE_DIR=<fixture source dir>
 #  -DBUILD_ROOT=<path to parent build dir>
 #  -DGENTEST_SOURCE_DIR=<path to gentest source tree>
-# Optional:
 #  -DGENERATOR=<cmake generator name>
+# Optional:
 #  -DGENERATOR_PLATFORM=<platform>
 #  -DGENERATOR_TOOLSET=<toolset>
 #  -DTOOLCHAIN_FILE=<toolchain.cmake>
@@ -13,23 +13,22 @@
 #  -DBUILD_TYPE=<Debug|Release|...>
 
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleMockMultiImportedSibling.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckModulePartialManualCodegenIncludes.cmake: SOURCE_DIR not set")
 endif()
 if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleMockMultiImportedSibling.cmake: BUILD_ROOT not set")
+  message(FATAL_ERROR "CheckModulePartialManualCodegenIncludes.cmake: BUILD_ROOT not set")
 endif()
 if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleMockMultiImportedSibling.cmake: GENTEST_SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckModulePartialManualCodegenIncludes.cmake: GENTEST_SOURCE_DIR not set")
+endif()
+if(NOT DEFINED GENERATOR OR "${GENERATOR}" STREQUAL "")
+  message(FATAL_ERROR "CheckModulePartialManualCodegenIncludes.cmake: GENERATOR not set")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-if(CMAKE_HOST_WIN32)
-  set(_work_dir "${BUILD_ROOT}/mmmis")
-else()
-  set(_work_dir "${BUILD_ROOT}/module_mock_multi_imported_sibling")
-endif()
+set(_work_dir "${BUILD_ROOT}/module_partial_manual_codegen_includes")
 set(_src_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -38,7 +37,7 @@ file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
-  gentest_skip_test("multi imported sibling module mock regression: no usable clang/clang++ pair was provided")
+  gentest_skip_test("partial manual module codegen include regression: clang/clang++ not found")
   return()
 endif()
 
@@ -57,7 +56,7 @@ set(_cmake_cache_args
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
   gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
   if(NOT _supported_ninja)
-    gentest_skip_test("multi imported sibling module mock regression: ${_supported_ninja_reason}")
+    gentest_skip_test("partial manual module codegen include regression: ${_supported_ninja_reason}")
     return()
   endif()
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
@@ -85,7 +84,6 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
 endif()
 gentest_append_host_apple_sysroot(_cmake_cache_args)
 
-message(STATUS "Configure multi imported sibling module mock fixture...")
 gentest_check_run_or_fail(
   COMMAND
     "${CMAKE_COMMAND}"
@@ -96,54 +94,67 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-message(STATUS "Build multi imported sibling module mock fixture...")
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target multi_imported_sibling_tests
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target partial_manual_codegen_tests
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-file(GLOB _mock_provider_wrappers "${_build_dir}/generated/mocks/*.module.gentest.*")
-set(_alpha_wrapper_found FALSE)
-set(_beta_wrapper_found FALSE)
-foreach(_candidate IN LISTS _mock_provider_wrappers)
+file(GLOB _wrapper_candidates "${_build_dir}/generated/*.module.gentest.cppm")
+list(LENGTH _wrapper_candidates _wrapper_count)
+if(NOT _wrapper_count EQUAL 2)
+  message(FATAL_ERROR "Expected exactly two generated module wrappers, found ${_wrapper_count}: ${_wrapper_candidates}")
+endif()
+
+set(_registry_wrapper "")
+set(_impl_wrapper "")
+foreach(_candidate IN LISTS _wrapper_candidates)
   file(READ "${_candidate}" _candidate_text)
-  string(FIND "${_candidate_text}" "module gentest.multi_imported_sibling_provider_alpha;" _alpha_module_pos)
-  if(NOT _alpha_module_pos EQUAL -1)
-    set(_alpha_wrapper_found TRUE)
+  string(FIND "${_candidate_text}" "export module gentest.partial_manual_registry;" _registry_pos)
+  if(NOT _registry_pos EQUAL -1)
+    set(_registry_wrapper "${_candidate}")
+    set(_registry_text "${_candidate_text}")
   endif()
-  string(FIND "${_candidate_text}" "module gentest.multi_imported_sibling_provider_beta;" _beta_module_pos)
-  if(NOT _beta_module_pos EQUAL -1)
-    set(_beta_wrapper_found TRUE)
-  endif()
-  string(FIND "${_candidate_text}" "import gentest.mock;" _mock_import_pos)
-  if(_mock_import_pos EQUAL -1)
-    message(FATAL_ERROR
-      "Expected generated provider wrapper '${_candidate}' to import gentest.mock.\n"
-      "${_candidate_text}")
-  endif()
-  string(FIND "${_candidate_text}" "#include \"gentest/mock.h\"" _mock_header_include_pos)
-  if(NOT _mock_header_include_pos EQUAL -1)
-    message(FATAL_ERROR
-      "Expected generated provider wrapper '${_candidate}' to avoid textually including gentest/mock.h.\n"
-      "${_candidate_text}")
+  string(FIND "${_candidate_text}" "export module gentest.partial_manual_impl;" _impl_pos)
+  if(NOT _impl_pos EQUAL -1)
+    set(_impl_wrapper "${_candidate}")
+    set(_impl_text "${_candidate_text}")
   endif()
 endforeach()
-if(NOT _alpha_wrapper_found OR NOT _beta_wrapper_found)
+
+if("${_registry_wrapper}" STREQUAL "" OR "${_impl_wrapper}" STREQUAL "")
+  message(FATAL_ERROR "Expected registry-only and impl-only wrappers, found:\n${_wrapper_candidates}")
+endif()
+
+string(FIND "${_registry_text}" "gentest/mock_registry_codegen.h" _registry_include_pos)
+string(FIND "${_registry_text}" "gentest/mock_codegen.h" _registry_combined_pos)
+if(_registry_include_pos EQUAL -1 OR NOT _registry_combined_pos EQUAL -1)
   message(FATAL_ERROR
-    "Expected explicit multi-imported-sibling mocks target to generate provider wrappers under '${_build_dir}/generated/mocks'.\n"
-    "Alpha found: ${_alpha_wrapper_found}\n"
-    "Beta found: ${_beta_wrapper_found}\n"
-    "Candidates: ${_mock_provider_wrappers}")
+    "Expected registry-only wrapper to preserve gentest/mock_registry_codegen.h without injecting gentest/mock_codegen.h.\n"
+    "Wrapper: ${_registry_wrapper}\n${_registry_text}")
 endif()
 
-set(_aggregate_module "${_build_dir}/generated/mocks/gentest/multi_imported_sibling_mocks.cppm")
-if(NOT EXISTS "${_aggregate_module}")
-  message(FATAL_ERROR "Expected explicit multi-imported-sibling aggregate module was not written: ${_aggregate_module}")
+string(FIND "${_impl_text}" "gentest/mock_impl_codegen.h" _impl_include_pos)
+string(FIND "${_impl_text}" "gentest/mock_codegen.h" _impl_combined_pos)
+if(_impl_include_pos EQUAL -1 OR NOT _impl_combined_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected impl-only wrapper to preserve gentest/mock_impl_codegen.h without injecting gentest/mock_codegen.h.\n"
+    "Wrapper: ${_impl_wrapper}\n${_impl_text}")
 endif()
 
-set(_prog "${_build_dir}/multi_imported_sibling_tests${CMAKE_EXECUTABLE_SUFFIX}")
-message(STATUS "Run module importer acceptance case with two imported module mocks...")
+set(_exe "${_build_dir}/partial_manual_codegen_tests${CMAKE_EXECUTABLE_SUFFIX}")
 gentest_check_run_or_fail(
-  COMMAND "${_prog}" --run=multi_imported_sibling/module_two_module_mocks
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
+  COMMAND "${_exe}" --list-tests
+  WORKING_DIRECTORY "${_build_dir}"
+  STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE _list_out)
+
+foreach(_expected IN ITEMS
+    "partial_manual/registry_only"
+    "partial_manual/impl_only")
+  string(FIND "${_list_out}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "Expected partial manual include test was missing from --list-tests output: '${_expected}'.\n${_list_out}")
+  endif()
+endforeach()
+
+message(STATUS "Module partial manual codegen include regression passed")
