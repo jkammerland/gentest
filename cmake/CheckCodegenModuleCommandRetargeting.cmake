@@ -39,7 +39,9 @@ function(_gentest_run_codegen_expect_success)
   list(APPEND _cmd "${RUN_SOURCE_FILE}")
 
   execute_process(
-    COMMAND ${_cmd}
+    COMMAND "${CMAKE_COMMAND}" -E env
+      "--unset=GENTEST_CODEGEN_HOST_CLANG"
+      ${_cmd}
     RESULT_VARIABLE _rc
     OUTPUT_VARIABLE _out
     ERROR_VARIABLE _err
@@ -121,6 +123,7 @@ gentest_fixture_write_compdb("${_env_fallback_dir}/compile_commands.json" "${_en
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
+    "--unset=GENTEST_CODEGEN_HOST_CLANG"
     "PATH=${_env_fallback_empty_path}"
     "CXX=${_clangxx_norm}"
     "${PROG}" --check --compdb "${_env_fallback_dir}" --tu-out-dir "${_env_fallback_generated_dir}" "${_env_fallback_source_abs}"
@@ -355,6 +358,7 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
 
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
+      "--unset=GENTEST_CODEGEN_HOST_CLANG"
       "CXX=${_fake_clangxx}"
       "GENTEST_CODEGEN_LOG_PRECOMPILE=1"
       "${PROG}" --check --compdb "${_clang_cl_dir}" --tu-out-dir "${_clang_cl_dir}/generated"

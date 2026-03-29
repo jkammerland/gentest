@@ -116,6 +116,7 @@ gentest_fixture_write_compdb("${_module_dir}/compile_commands.json" "${_suite_en
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
+    "--unset=GENTEST_CODEGEN_HOST_CLANG"
     "PATH=${_empty_path_dir}"
     "CC=${_bin_dir}/g++"
     "CXX=${_bin_dir}/g++"
@@ -140,6 +141,7 @@ endif()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
+    "--unset=GENTEST_CODEGEN_HOST_CLANG"
     "PATH=${_empty_path_dir}"
     "CC=${_bin_dir}/g++"
     "CXX=${_bin_dir}/g++"
