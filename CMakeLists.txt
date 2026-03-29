@@ -90,8 +90,8 @@ if(${PROJECT_NAME}_INSTALL)
     FetchContent_Declare(
         target_install_package
         GIT_REPOSITORY https://github.com/jkammerland/target_install_package.cmake.git
-        GIT_TAG v6.1.6
-        FIND_PACKAGE_ARGS CONFIG QUIET
+        GIT_TAG v6.1.7
+        FIND_PACKAGE_ARGS 6.1.7 CONFIG QUIET
     )
     FetchContent_MakeAvailable(target_install_package)
 
@@ -105,7 +105,6 @@ if(${PROJECT_NAME}_INSTALL)
     target_install_package(${PROJECT_NAME}
         EXPORT_NAME ${PROJECT_NAME}
         INCLUDE_ON_FIND_PACKAGE
-            "${PROJECT_SOURCE_DIR}/cmake/GentestConfigImportedConfigMap.cmake"
             "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
         PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
 

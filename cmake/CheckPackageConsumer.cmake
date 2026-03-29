@@ -235,6 +235,7 @@ endif()
 
 set(_producer_source_surface_key "")
 foreach(_producer_surface_file IN ITEMS
+    "${SOURCE_DIR}/CMakeLists.txt"
     "${SOURCE_DIR}/include/gentest/mock.h"
     "${SOURCE_DIR}/include/gentest/gentest.cppm"
     "${SOURCE_DIR}/include/gentest/gentest.mock.cppm"

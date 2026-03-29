@@ -294,20 +294,35 @@ systems, the clean direction is:
 
 ## About `target_install_package`
 
-For Xmake/xrepo, `target_install_package()` is not the right place to solve the
-host-tool problem.
+`target_install_package` is a good fit for packaging the `gentest` developer
+surface itself.
 
-Why:
+That includes FHS-style installs such as:
 
-- `gentest_codegen` is a **host executable**, not a target runtime dependency
-- Clang / `clang-scan-deps` are **toolchain dependencies**, not normal linked
-  libraries
-- cross-builds often need different host and target packages
+- runtime and interface targets
+- public modules and CMake helper files
+- `gentest_codegen`
+- supporting scripts, package metadata, and installers
 
-So the better shape is:
+That is different from trying to use package-install rules to solve the user's
+compiler toolchain selection.
 
-- install or package `gentest_codegen` explicitly as part of the `gentest`
-  developer tool surface
-- let the build-system helper point at that host tool explicitly
-- leave compiler/toolchain installation to the user's toolchain setup, not the
-  test target's package-install surface
+The boundary should be:
+
+- `target_install_package` installs the `gentest` developer package, including
+  host tools like `gentest_codegen`
+- the consuming build system points at that installed host tool
+- Clang / `clang-scan-deps` remain part of the user's configured host toolchain
+
+Why that split still matters:
+
+- `gentest_codegen` is a **host executable**
+- Clang / `clang-scan-deps` are **host toolchain dependencies**
+- cross-builds often need different host and target environments
+
+So the clean packaging model is:
+
+- package `gentest_codegen`, helper scripts, exports, and install metadata as
+  part of the `gentest` install surface
+- do not try to hide host compiler/toolchain setup inside target runtime
+  package installation

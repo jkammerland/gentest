@@ -2523,6 +2523,34 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         ${_gentest_package_test_module_compiler_args})
     set_property(TEST gentest_package_consumer_double APPEND PROPERTY LABELS "modules")
 
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_relwithdebinfo_exact_config
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        -DBUILD_TYPE=RelWithDebInfo
+        -DBUILD_CONFIG=RelWithDebInfo
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer_relwithdebinfo_exact_config APPEND PROPERTY LABELS "modules" "package")
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_minsizerel_exact_config
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumer.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        -DBUILD_TYPE=MinSizeRel
+        -DBUILD_CONFIG=MinSizeRel
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer_minsizerel_exact_config APPEND PROPERTY LABELS "modules" "package")
+
     if(UNIX AND NOT APPLE)
         find_program(_gentest_package_test_gcc NAMES gcc)
         find_program(_gentest_package_test_gxx NAMES g++)
