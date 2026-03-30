@@ -92,31 +92,28 @@ GENTEST_RUNTIME_API auto bench_phase_storage() -> BenchPhase &;
 GENTEST_RUNTIME_API auto bench_error_storage() -> std::string &;
 inline BenchPhase bench_phase();
 
+template <class T>
+inline void append_moved(std::vector<T> &dst, std::vector<T> &src) {
+    if (src.empty()) {
+        return;
+    }
+    dst.reserve(dst.size() + src.size());
+    for (auto &value : src) {
+        dst.push_back(std::move(value));
+    }
+}
+
 inline void flush_current_buffer_for(TestContextInfo *ctx) {
     auto &buffer = current_buffer_storage();
     if (!ctx || buffer.owner != ctx || buffer.empty())
         return;
 
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    if (!buffer.failures.empty()) {
-        ctx->failures.insert(ctx->failures.end(), std::make_move_iterator(buffer.failures.begin()),
-                             std::make_move_iterator(buffer.failures.end()));
-    }
-    if (!buffer.failure_locations.empty()) {
-        ctx->failure_locations.insert(ctx->failure_locations.end(), std::make_move_iterator(buffer.failure_locations.begin()),
-                                      std::make_move_iterator(buffer.failure_locations.end()));
-    }
-    if (!buffer.logs.empty()) {
-        ctx->logs.insert(ctx->logs.end(), std::make_move_iterator(buffer.logs.begin()), std::make_move_iterator(buffer.logs.end()));
-    }
-    if (!buffer.event_lines.empty()) {
-        ctx->event_lines.insert(ctx->event_lines.end(), std::make_move_iterator(buffer.event_lines.begin()),
-                                std::make_move_iterator(buffer.event_lines.end()));
-    }
-    if (!buffer.event_kinds.empty()) {
-        ctx->event_kinds.insert(ctx->event_kinds.end(), std::make_move_iterator(buffer.event_kinds.begin()),
-                                std::make_move_iterator(buffer.event_kinds.end()));
-    }
+    append_moved(ctx->failures, buffer.failures);
+    append_moved(ctx->failure_locations, buffer.failure_locations);
+    append_moved(ctx->logs, buffer.logs);
+    append_moved(ctx->event_lines, buffer.event_lines);
+    append_moved(ctx->event_kinds, buffer.event_kinds);
     buffer.clear();
 }
 

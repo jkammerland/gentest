@@ -359,11 +359,11 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommo
 
 class InstanceState {
   public:
-    InstanceState()                                 = default;
+    InstanceState();
     InstanceState(const InstanceState &)            = delete;
     InstanceState &operator=(const InstanceState &) = delete;
 
-    ~InstanceState() = default;
+    ~InstanceState();
 
     void set_nice(bool v) {
         std::lock_guard<std::mutex> lk(mtx_);
@@ -409,9 +409,10 @@ class InstanceState {
 
     template <typename R, typename... Args>
     R dispatch_with_fallback(const MethodIdentity &id, const MethodIdentity &fallback_id, std::string_view method_name, Args &&...args) {
-        std::shared_ptr<ExpectationBase> base_expectation;
-        bool                             nice_mode = false;
-        bool                             unexpected = false;
+        using ExpectationT = Expectation<R(Args...)>;
+        bool          nice_mode   = false;
+        bool          unexpected  = false;
+        ExpectationT *expectation = nullptr;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             runtime_started_->store(true, std::memory_order_release);
@@ -421,8 +422,11 @@ class InstanceState {
                 if (it == methods_.end() || it->second.next_expectation >= it->second.expectations.size()) {
                     return false;
                 }
-                base_expectation = it->second.expectations[it->second.next_expectation];
-                auto expectation = std::static_pointer_cast<Expectation<R(Args...)>>(base_expectation);
+                // Reuse the stored expectation object directly. Once a mock is
+                // frozen, the owning deque keeps entries alive for the rest of
+                // the mock lifetime, so a raw pointer avoids fragile shared_ptr
+                // copy/assignment emission in downstream module consumers.
+                expectation = static_cast<ExpectationT *>(it->second.expectations[it->second.next_expectation].get());
                 unexpected       = !expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls;
                 ++expectation->observed_calls;
                 if (!expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls) {
@@ -438,7 +442,7 @@ class InstanceState {
             }
         }
 
-        if (!base_expectation) {
+        if (!expectation) {
             if (!nice_mode) {
                 ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
             }
@@ -452,8 +456,6 @@ class InstanceState {
                 return;
             }
         }
-        using ExpectationT = Expectation<R(Args...)>;
-        auto expectation = std::static_pointer_cast<ExpectationT>(std::move(base_expectation));
         if (unexpected) {
             ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
         }
@@ -478,6 +480,12 @@ class InstanceState {
     bool                                                               nice_mode_       = false;
     bool                                                               frozen_          = false;
 };
+
+// Keep these out-of-class so GCC module consumers emit concrete special-member
+// definitions for imported mocks instead of referencing a missing defaulted
+// constructor symbol from downstream package builds.
+inline InstanceState::InstanceState() = default;
+inline InstanceState::~InstanceState() = default;
 
 template <typename Signature> class ExpectationHandle;
 
