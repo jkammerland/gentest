@@ -169,29 +169,51 @@ ArgPredicate<T> to_arg_predicate(P &&p) {
     }
 }
 
+template <std::size_t I = 0, typename ExpectedTuple, typename ActualTuple>
+bool tuple_args_match(const ExpectedTuple &expected, const ActualTuple &actual) {
+    if constexpr (I == std::tuple_size_v<std::remove_reference_t<ExpectedTuple>>) {
+        return true;
+    } else {
+        return (std::get<I>(expected) == std::get<I>(actual)) && tuple_args_match<I + 1>(expected, actual);
+    }
+}
+
+template <std::size_t I = 0, typename ExpectedTuple, typename ActualTuple>
+void report_first_tuple_arg_mismatch(const ExpectedTuple &expected, std::string_view method_name, const ActualTuple &actual) {
+    if constexpr (I < std::tuple_size_v<std::remove_reference_t<ExpectedTuple>>) {
+        if (!(std::get<I>(expected) == std::get<I>(actual))) {
+            ::gentest::detail::record_failure(fmt::format("argument[{}] mismatch for {}: expected {}, got {}", I, method_name,
+                to_string_fallback(std::get<I>(expected)), to_string_fallback(std::get<I>(actual))));
+            return;
+        }
+        report_first_tuple_arg_mismatch<I + 1>(expected, method_name, actual);
+    }
+}
+
+template <std::size_t I = 0, typename PredicateTuple, typename ActualTuple>
+bool tuple_args_match_predicates(const PredicateTuple &preds, std::string_view method_name, const ActualTuple &actual) {
+    if constexpr (I == std::tuple_size_v<std::remove_reference_t<PredicateTuple>>) {
+        return true;
+    } else {
+        const auto &ap = std::get<I>(preds);
+        const auto &a  = std::get<I>(actual);
+        if (!ap.test(a)) {
+            const std::string msg = ap.describe ? ap.describe(a) : std::string("predicate mismatch");
+            ::gentest::detail::record_failure(fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg));
+            return false;
+        }
+        return tuple_args_match_predicates<I + 1>(preds, method_name, actual);
+    }
+}
+
 template <typename Tuple, typename... A>
 bool check_args_equal(const std::optional<Tuple> &expected, std::string_view method_name, const A &...actual) {
     if (!expected)
         return true;
     const auto actual_tuple = std::forward_as_tuple(actual...);
-    const bool matched      = [&]<std::size_t... I>(std::index_sequence<I...>) {
-        return ((std::get<I>(*expected) == std::get<I>(actual_tuple)) && ...);
-    }(std::make_index_sequence<sizeof...(A)>{});
+    const bool matched      = tuple_args_match(*expected, actual_tuple);
     if (!matched) {
-        // Report first mismatch with indices for clarity
-        bool reported = false;
-        [&]<std::size_t... I>(std::index_sequence<I...>) {
-            (([&] {
-                 if (reported) return;
-                 if (!(std::get<I>(*expected) == std::get<I>(actual_tuple))) {
-                     ::gentest::detail::record_failure(fmt::format(
-                         "argument[{}] mismatch for {}: expected {}, got {}", I, method_name, to_string_fallback(std::get<I>(*expected)),
-                        to_string_fallback(std::get<I>(actual_tuple))));
-                     reported = true;
-                 }
-             }()),
-             ...);
-        }(std::make_index_sequence<sizeof...(A)>{});
+        report_first_tuple_arg_mismatch(*expected, method_name, actual_tuple);
     }
     return matched;
 }
@@ -201,21 +223,7 @@ bool check_args_by_predicates(const std::optional<TuplePred> &preds, std::string
     if (!preds)
         return true;
     const auto actual_tuple = std::forward_as_tuple(actual...);
-    bool       ok           = true;
-    [&]<std::size_t... I>(std::index_sequence<I...>) {
-        ((ok = ok && ([&] {
-              const auto &ap = std::get<I>(*preds);
-              const auto &a  = std::get<I>(actual_tuple);
-              if (!ap.test(a)) {
-                  const std::string msg = ap.describe ? ap.describe(a) : std::string("predicate mismatch");
-                  ::gentest::detail::record_failure(fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg));
-                  return false;
-              }
-              return true;
-          }())),
-         ...);
-    }(std::make_index_sequence<sizeof...(A)>{});
-    return ok;
+    return tuple_args_match_predicates(*preds, method_name, actual_tuple);
 }
 
 inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std::string_view method_name, bool &already_verified) {
