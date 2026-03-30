@@ -41,7 +41,7 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
 // AST matcher callback that collects suite/global fixture declarations.
 class FixtureDeclCollector : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
-    explicit FixtureDeclCollector(std::vector<FixtureDeclInfo> &out);
+    explicit FixtureDeclCollector(std::vector<FixtureDeclInfo> &out, bool allow_includes);
 
     void run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
     std::optional<clang::TraversalKind> getCheckTraversalKind() const override {
@@ -54,6 +54,7 @@ class FixtureDeclCollector : public clang::ast_matchers::MatchFinder::MatchCallb
     void report(const clang::CXXRecordDecl &decl, const clang::SourceManager &sm, std::string_view message) const;
 
     std::vector<FixtureDeclInfo> &out_;
+    bool                          allow_includes_ = false;
     mutable bool                  had_error_ = false;
     mutable std::unordered_map<const clang::NamespaceDecl *, SuiteAttributeSummary> suite_cache_;
 };
