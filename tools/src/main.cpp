@@ -1987,12 +1987,6 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
         }
     }
 
-    const std::filesystem::path temp_pcm_path = std::filesystem::path{pcm_path.string() + ".tmp"};
-    std::error_code             remove_ec;
-    std::filesystem::remove(pcm_path, remove_ec);
-    remove_ec.clear();
-    std::filesystem::remove(temp_pcm_path, remove_ec);
-
     std::string err_msg;
     std::error_code cwd_ec;
     const auto saved_cwd = std::filesystem::current_path(cwd_ec);
@@ -2002,6 +1996,12 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
                                   err_msg);
         return false;
     }
+
+    const std::filesystem::path temp_pcm_path = std::filesystem::path{pcm_path.string() + ".tmp"};
+    std::error_code             remove_ec;
+    std::filesystem::remove(pcm_path, remove_ec);
+    remove_ec.clear();
+    std::filesystem::remove(temp_pcm_path, remove_ec);
 
     for (std::size_t idx = 0; idx + 1 < launch_args.size(); ++idx) {
         if (launch_args[idx] == "-o" && launch_args[idx + 1] == pcm_path.string()) {
@@ -2017,6 +2017,39 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
 
     const std::filesystem::path launch_cwd =
         working_directory.empty() ? saved_cwd : std::filesystem::path{std::string(working_directory)};
+
+    struct AlternatePcmCandidateState {
+        std::filesystem::path           path;
+        bool                            existed = false;
+        std::uintmax_t                  size = 0;
+        std::filesystem::file_time_type write_time{};
+    };
+    auto capture_candidate_state = [](const std::filesystem::path &candidate_path) {
+        AlternatePcmCandidateState state;
+        state.path = candidate_path;
+        std::error_code status_ec;
+        state.existed = std::filesystem::exists(candidate_path, status_ec);
+        if (!status_ec && state.existed) {
+            std::error_code size_ec;
+            std::error_code time_ec;
+            state.size = std::filesystem::file_size(candidate_path, size_ec);
+            state.write_time = std::filesystem::last_write_time(candidate_path, time_ec);
+            if (size_ec) {
+                state.size = 0;
+            }
+            if (time_ec) {
+                state.write_time = {};
+            }
+        }
+        return state;
+    };
+    std::vector<AlternatePcmCandidateState> alternate_pcm_candidates;
+    const std::string source_stem = std::filesystem::path{std::string(source_file)}.stem().string();
+    if (!source_stem.empty()) {
+        alternate_pcm_candidates.reserve(2);
+        alternate_pcm_candidates.push_back(capture_candidate_state(launch_cwd / (source_stem + ".pcm")));
+        alternate_pcm_candidates.push_back(capture_candidate_state(launch_cwd / (source_stem + ".ifc")));
+    }
 
     std::error_code set_cwd_ec;
     std::filesystem::current_path(launch_cwd, set_cwd_ec);
@@ -2034,7 +2067,48 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
         gentest::codegen::log_err("gentest_codegen: warning: failed to restore working directory after precompiling '{}': {}\n",
                                   module_name, restore_cwd_ec.message());
     }
-    auto wait_for_pcm_output = [&]() -> bool {
+    auto publish_pcm_output = [&](const std::filesystem::path &produced_path) -> bool {
+        if (produced_path == pcm_path) {
+            return std::filesystem::exists(pcm_path);
+        }
+
+        std::error_code move_ec;
+        std::filesystem::rename(produced_path, pcm_path, move_ec);
+        if (!move_ec && std::filesystem::exists(pcm_path)) {
+            return true;
+        }
+
+        move_ec.clear();
+        std::filesystem::copy_file(produced_path, pcm_path, std::filesystem::copy_options::overwrite_existing, move_ec);
+        if (!move_ec && std::filesystem::exists(pcm_path)) {
+            std::error_code cleanup_ec;
+            std::filesystem::remove(produced_path, cleanup_ec);
+            return true;
+        }
+
+        return false;
+    };
+    auto wait_for_pcm_output = [&]() -> std::optional<std::filesystem::path> {
+        auto candidate_is_fresh = [&](const AlternatePcmCandidateState &before) {
+            std::error_code exists_ec;
+            const bool      now_exists = std::filesystem::exists(before.path, exists_ec);
+            if (exists_ec || !now_exists) {
+                return false;
+            }
+
+            std::error_code size_ec;
+            std::error_code time_ec;
+            const auto      now_size = std::filesystem::file_size(before.path, size_ec);
+            const auto      now_time = std::filesystem::last_write_time(before.path, time_ec);
+            if (size_ec || time_ec || now_size == 0) {
+                return false;
+            }
+            if (!before.existed) {
+                return true;
+            }
+
+            return now_size != before.size || now_time != before.write_time;
+        };
         for (int attempt = 0; attempt != 40; ++attempt) {
             std::error_code exists_ec;
             const bool      exists = std::filesystem::exists(temp_pcm_path, exists_ec);
@@ -2042,37 +2116,34 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
                 std::error_code size_ec;
                 const auto      size = std::filesystem::file_size(temp_pcm_path, size_ec);
                 if (!size_ec && size > 0) {
-                    return true;
+                    return temp_pcm_path;
+                }
+            }
+            for (const auto &candidate : alternate_pcm_candidates) {
+                if (candidate.path == temp_pcm_path || candidate.path == pcm_path) {
+                    continue;
+                }
+                if (candidate_is_fresh(candidate)) {
+                    return candidate.path;
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
         }
-        return false;
+        return std::nullopt;
     };
     if (rc == 0) {
-        if (wait_for_pcm_output()) {
-            std::error_code move_ec;
-            std::filesystem::rename(temp_pcm_path, pcm_path, move_ec);
-            if (!move_ec && std::filesystem::exists(pcm_path)) {
+        if (const auto produced_path = wait_for_pcm_output(); produced_path.has_value()) {
+            if (publish_pcm_output(*produced_path)) {
                 return true;
             }
-
-            move_ec.clear();
-            std::filesystem::copy_file(temp_pcm_path, pcm_path, std::filesystem::copy_options::overwrite_existing, move_ec);
-            if (!move_ec && std::filesystem::exists(pcm_path)) {
-                std::error_code cleanup_ec;
-                std::filesystem::remove(temp_pcm_path, cleanup_ec);
-                return true;
-            }
-
-            gentest::codegen::log_err("gentest_codegen: precompiled module '{}' from '{}' into temporary PCM '{}', "
+            gentest::codegen::log_err("gentest_codegen: precompiled module '{}' from '{}' into '{}', "
                                       "but failed to publish it to '{}'\n",
-                                      module_name, source_file, temp_pcm_path.string(), pcm_path.string());
+                                      module_name, source_file, produced_path->string(), pcm_path.string());
             return false;
         }
         gentest::codegen::log_err("gentest_codegen: compiler reported success while precompiling named module '{}' from '{}', "
-                                  "but no temporary PCM was produced at '{}'\n",
-                                  module_name, source_file, temp_pcm_path.string());
+                                  "but no PCM output was produced at '{}' or fallback outputs in '{}'\n",
+                                  module_name, source_file, temp_pcm_path.string(), launch_cwd.string());
         return false;
     }
 
