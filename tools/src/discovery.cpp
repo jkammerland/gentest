@@ -986,8 +986,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
 bool TestCaseCollector::has_errors() const { return had_error_; }
 
-FixtureDeclCollector::FixtureDeclCollector(std::vector<FixtureDeclInfo> &out, bool allow_includes)
-    : out_(out), allow_includes_(allow_includes) {}
+FixtureDeclCollector::FixtureDeclCollector(std::vector<FixtureDeclInfo> &out)
+    : out_(out) {}
 
 void FixtureDeclCollector::report(const clang::CXXRecordDecl &decl, const clang::SourceManager &sm, std::string_view message) const {
     const SourceLocation  loc     = sm.getSpellingLoc(decl.getBeginLoc());
@@ -1014,10 +1014,6 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
     }
     if (loc.isMacroID()) {
         loc = sm->getExpansionLoc(loc);
-    }
-    const bool in_main_file = sm->isWrittenInMainFile(loc);
-    if (!in_main_file && !allow_includes_) {
-        return;
     }
     if (sm->isInSystemHeader(loc) || sm->isWrittenInBuiltinFile(loc)) {
         return;

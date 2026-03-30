@@ -134,13 +134,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        llvm-version: ["22.1.0", "21.1.4", "20.1.8"]
+        llvm-version: ["22.1.0", "21.1.4"]
         preset: ["debug-system", "release-system"]
         variant: ["default"]
-        include:
-          - llvm-version: "20.1.8"
-            preset: "debug-system-cxx23"
-            variant: "cxx23"
     steps:
       - name: Checkout
         uses: actions/checkout@v6

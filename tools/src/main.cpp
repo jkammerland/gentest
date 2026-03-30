@@ -364,14 +364,44 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     return true;
 }
 
-void collect_source_manager_dependencies(const clang::SourceManager &source_manager, std::vector<std::string> &dependencies) {
-    for (auto it = source_manager.fileinfo_begin(); it != source_manager.fileinfo_end(); ++it) {
-        const std::string normalized = normalize_dependency_path(it->first.getName().str());
+class DependencyRecorder final : public clang::PPCallbacks {
+public:
+    DependencyRecorder(clang::SourceManager &source_manager, std::vector<std::string> &dependencies)
+        : source_manager_(source_manager), dependencies_(dependencies) {}
+
+    void FileChanged(clang::SourceLocation loc, clang::PPCallbacks::FileChangeReason reason, clang::SrcMgr::CharacteristicKind,
+                     clang::FileID) override {
+        if (reason != clang::PPCallbacks::FileChangeReason::EnterFile) {
+            return;
+        }
+        record(loc);
+    }
+
+private:
+    void record(clang::SourceLocation loc) {
+        const clang::SourceLocation file_loc = source_manager_.getFileLoc(loc);
+        if (file_loc.isInvalid()) {
+            return;
+        }
+
+        std::string          resolved;
+        const clang::FileID  file_id = source_manager_.getFileID(file_loc);
+        if (const auto entry_ref = source_manager_.getFileEntryRefForID(file_id)) {
+            resolved = entry_ref->getName().str();
+        }
+        if (resolved.empty()) {
+            resolved = source_manager_.getFilename(file_loc).str();
+        }
+
+        const std::string normalized = normalize_dependency_path(resolved);
         if (!normalized.empty()) {
-            dependencies.push_back(normalized);
+            dependencies_.push_back(normalized);
         }
     }
-}
+
+    clang::SourceManager   &source_manager_;
+    std::vector<std::string> &dependencies_;
+};
 
 bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang::SourceManager &sm, bool allow_includes,
                                            bool allow_mock_includes) {
@@ -404,54 +434,6 @@ bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang:
         return false;
     }
     return true;
-}
-
-clang::SourceLocation get_codegen_decl_location(const clang::Decl &decl, const clang::SourceManager &sm) {
-    clang::SourceLocation loc = decl.getBeginLoc();
-    if (loc.isInvalid()) {
-        loc = decl.getLocation();
-    }
-    if (loc.isInvalid()) {
-        return {};
-    }
-    if (loc.isMacroID()) {
-        loc = sm.getExpansionLoc(loc);
-    }
-    return loc;
-}
-
-bool should_visit_decl_for_codegen_match(const clang::Decl &decl, const clang::SourceManager &sm, bool allow_includes) {
-    const clang::SourceLocation loc = get_codegen_decl_location(decl, sm);
-    if (loc.isInvalid()) {
-        return false;
-    }
-    if (sm.isInSystemHeader(loc) || sm.isWrittenInBuiltinFile(loc)) {
-        return false;
-    }
-    if (allow_includes) {
-        return true;
-    }
-    return sm.isWrittenInMainFile(loc);
-}
-
-void match_decl_subtree_for_codegen(clang::Decl &decl, clang::ast_matchers::MatchFinder &finder, clang::ASTContext &context,
-                                    bool allow_includes) {
-    auto &source_manager = context.getSourceManager();
-    if (!should_visit_decl_for_codegen_match(decl, source_manager, allow_includes)) {
-        return;
-    }
-
-    finder.match(decl, context);
-
-    const auto *decl_context = llvm::dyn_cast<clang::DeclContext>(&decl);
-    if (decl_context == nullptr) {
-        return;
-    }
-    for (clang::Decl *child : decl_context->decls()) {
-        if (child != nullptr) {
-            match_decl_subtree_for_codegen(*child, finder, context, allow_includes);
-        }
-    }
 }
 
 std::vector<clang::Decl *> build_codegen_traversal_scope(clang::ASTContext &context, bool allow_includes, bool allow_mock_includes) {
@@ -491,29 +473,6 @@ private:
     bool                                allow_mock_includes_ = false;
 };
 
-class MatchFinderASTConsumer final : public clang::ASTConsumer {
-public:
-    MatchFinderASTConsumer(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                           bool allow_mock_includes)
-        : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
-
-    void HandleTranslationUnit(clang::ASTContext &context) override {
-        auto *translation_unit = context.getTranslationUnitDecl();
-        for (clang::Decl *decl : translation_unit->decls()) {
-            if (decl != nullptr) {
-                match_decl_subtree_for_codegen(*decl, finder_, context, allow_includes_);
-            }
-        }
-        collect_source_manager_dependencies(context.getSourceManager(), dependencies_);
-    }
-
-private:
-    clang::ast_matchers::MatchFinder &finder_;
-    std::vector<std::string>         &dependencies_;
-    bool                              allow_includes_ = false;
-    bool                              allow_mock_includes_ = false;
-};
-
 class MatchFinderAction final : public clang::ASTFrontendAction {
 public:
     MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
@@ -521,14 +480,12 @@ public:
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
+        compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(compiler.getSourceManager(), dependencies_));
         const std::string normalized = normalize_dependency_path(input_file.str());
         if (!normalized.empty()) {
             dependencies_.push_back(normalized);
         }
-        if (allow_mock_includes_) {
-            return std::make_unique<ScopedTraversalASTConsumer>(finder_.newASTConsumer(), allow_includes_, allow_mock_includes_);
-        }
-        return std::make_unique<MatchFinderASTConsumer>(finder_, dependencies_, allow_includes_, allow_mock_includes_);
+        return std::make_unique<ScopedTraversalASTConsumer>(finder_.newASTConsumer(), allow_includes_, allow_mock_includes_);
     }
 
 private:
@@ -2030,6 +1987,12 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
         }
     }
 
+    const std::filesystem::path temp_pcm_path = std::filesystem::path{pcm_path.string() + ".tmp"};
+    std::error_code             remove_ec;
+    std::filesystem::remove(pcm_path, remove_ec);
+    remove_ec.clear();
+    std::filesystem::remove(temp_pcm_path, remove_ec);
+
     std::string err_msg;
     std::error_code cwd_ec;
     const auto saved_cwd = std::filesystem::current_path(cwd_ec);
@@ -2040,42 +2003,20 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
         return false;
     }
 
+    for (std::size_t idx = 0; idx + 1 < launch_args.size(); ++idx) {
+        if (launch_args[idx] == "-o" && launch_args[idx + 1] == pcm_path.string()) {
+            launch_args[idx + 1] = temp_pcm_path.string();
+            break;
+        }
+    }
+    llvm_args.clear();
+    llvm_args.reserve(launch_args.size());
+    for (const auto &arg : launch_args) {
+        llvm_args.emplace_back(arg);
+    }
+
     const std::filesystem::path launch_cwd =
         working_directory.empty() ? saved_cwd : std::filesystem::path{std::string(working_directory)};
-    struct AlternatePcmCandidateState {
-        std::filesystem::path           path;
-        bool                            existed = false;
-        std::uintmax_t                  size = 0;
-        std::filesystem::file_time_type write_time{};
-    };
-
-    auto capture_candidate_state = [](const std::filesystem::path &candidate_path) {
-        AlternatePcmCandidateState state;
-        state.path = candidate_path;
-        std::error_code status_ec;
-        state.existed = std::filesystem::exists(candidate_path, status_ec);
-        if (!status_ec && state.existed) {
-            std::error_code size_ec;
-            std::error_code time_ec;
-            state.size = std::filesystem::file_size(candidate_path, size_ec);
-            state.write_time = std::filesystem::last_write_time(candidate_path, time_ec);
-            if (size_ec) {
-                state.size = 0;
-            }
-            if (time_ec) {
-                state.write_time = {};
-            }
-        }
-        return state;
-    };
-
-    std::vector<AlternatePcmCandidateState> alternate_pcm_candidates;
-    const std::string source_stem = std::filesystem::path{std::string(source_file)}.stem().string();
-    if (!source_stem.empty()) {
-        alternate_pcm_candidates.reserve(2);
-        alternate_pcm_candidates.push_back(capture_candidate_state(launch_cwd / (source_stem + ".pcm")));
-        alternate_pcm_candidates.push_back(capture_candidate_state(launch_cwd / (source_stem + ".ifc")));
-    }
 
     std::error_code set_cwd_ec;
     std::filesystem::current_path(launch_cwd, set_cwd_ec);
@@ -2093,99 +2034,45 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
         gentest::codegen::log_err("gentest_codegen: warning: failed to restore working directory after precompiling '{}': {}\n",
                                   module_name, restore_cwd_ec.message());
     }
-    auto adopt_alternate_pcm_output = [&]() -> bool {
-        auto candidate_is_fresh = [](const AlternatePcmCandidateState &before) {
+    auto wait_for_pcm_output = [&]() -> bool {
+        for (int attempt = 0; attempt != 40; ++attempt) {
             std::error_code exists_ec;
-            const bool now_exists = std::filesystem::exists(before.path, exists_ec);
-            if (exists_ec || !now_exists) {
-                return false;
+            const bool      exists = std::filesystem::exists(temp_pcm_path, exists_ec);
+            if (!exists_ec && exists) {
+                std::error_code size_ec;
+                const auto      size = std::filesystem::file_size(temp_pcm_path, size_ec);
+                if (!size_ec && size > 0) {
+                    return true;
+                }
             }
-            if (!before.existed) {
-                return true;
-            }
-
-            std::error_code size_ec;
-            std::error_code time_ec;
-            const auto now_size = std::filesystem::file_size(before.path, size_ec);
-            const auto now_time = std::filesystem::last_write_time(before.path, time_ec);
-            if (size_ec || time_ec) {
-                return false;
-            }
-
-            return now_size != before.size || now_time != before.write_time;
-        };
-
-        for (const auto &candidate : alternate_pcm_candidates) {
-            if (candidate.path == pcm_path || !candidate_is_fresh(candidate)) {
-                continue;
-            }
-
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+        return false;
+    };
+    if (rc == 0) {
+        if (wait_for_pcm_output()) {
             std::error_code move_ec;
-            std::filesystem::rename(candidate.path, pcm_path, move_ec);
+            std::filesystem::rename(temp_pcm_path, pcm_path, move_ec);
             if (!move_ec && std::filesystem::exists(pcm_path)) {
                 return true;
             }
 
             move_ec.clear();
-            std::filesystem::copy_file(candidate.path, pcm_path, std::filesystem::copy_options::overwrite_existing, move_ec);
+            std::filesystem::copy_file(temp_pcm_path, pcm_path, std::filesystem::copy_options::overwrite_existing, move_ec);
             if (!move_ec && std::filesystem::exists(pcm_path)) {
                 std::error_code cleanup_ec;
-                std::filesystem::remove(candidate.path, cleanup_ec);
+                std::filesystem::remove(temp_pcm_path, cleanup_ec);
                 return true;
             }
-        }
 
-        return false;
-    };
-    auto wait_for_pcm_output = [&]() -> bool {
-        std::optional<AlternatePcmCandidateState> previous_output_state;
-        int                                       stable_ready_polls = 0;
-#if defined(_WIN32)
-        constexpr int required_stable_ready_polls = 8;
-#else
-        constexpr int required_stable_ready_polls = 2;
-#endif
-        for (int attempt = 0; attempt != 40; ++attempt) {
-            if (!std::filesystem::exists(pcm_path) && adopt_alternate_pcm_output()) {
-                previous_output_state.reset();
-                stable_ready_polls = 0;
-            }
-
-            const auto current_output_state = capture_candidate_state(pcm_path);
-            const bool current_output_ready = current_output_state.existed && current_output_state.size > 0;
-            if (current_output_ready) {
-                if (previous_output_state.has_value() && previous_output_state->size == current_output_state.size &&
-                    previous_output_state->write_time == current_output_state.write_time) {
-                    ++stable_ready_polls;
-                    if (stable_ready_polls >= required_stable_ready_polls) {
-                        return true;
-                    }
-                } else {
-                    stable_ready_polls = 1;
-                }
-                previous_output_state = current_output_state;
-            } else {
-                previous_output_state.reset();
-                stable_ready_polls = 0;
-            }
-
-            if (!current_output_ready && adopt_alternate_pcm_output()) {
-                previous_output_state.reset();
-                stable_ready_polls = 0;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(25));
-        }
-
-        const auto final_output_state = capture_candidate_state(pcm_path);
-        return final_output_state.existed && final_output_state.size > 0;
-    };
-    if (rc == 0) {
-        if (wait_for_pcm_output()) {
-            return true;
+            gentest::codegen::log_err("gentest_codegen: precompiled module '{}' from '{}' into temporary PCM '{}', "
+                                      "but failed to publish it to '{}'\n",
+                                      module_name, source_file, temp_pcm_path.string(), pcm_path.string());
+            return false;
         }
         gentest::codegen::log_err("gentest_codegen: compiler reported success while precompiling named module '{}' from '{}', "
-                                  "but no PCM was produced at '{}'\n",
-                                  module_name, source_file, pcm_path.string());
+                                  "but no temporary PCM was produced at '{}'\n",
+                                  module_name, source_file, temp_pcm_path.string());
         return false;
     }
 
@@ -3303,7 +3190,6 @@ int main(int argc, const char **argv) {
             std::vector<std::string> imported_modules;
             std::vector<std::string> scan_deps_module_args;
             ModuleResolutionContext  resolution_context;
-            std::string              build_key;
             std::filesystem::path    pcm_path;
         };
         using ExternalModuleCacheKey = std::pair<std::string, std::string>;
@@ -3316,8 +3202,8 @@ int main(int argc, const char **argv) {
             Failed,
         };
         std::vector<ModuleBuildState> module_build_states(named_module_sources.size(), ModuleBuildState::NotStarted);
-        std::map<std::string, ModuleBuildState> external_module_build_states;
-        bool                                    external_scan_deps_hard_failure = false;
+        std::map<ExternalModuleCacheKey, ModuleBuildState> external_module_build_states;
+        bool                                               external_scan_deps_hard_failure = false;
 
         auto note_external_scan_deps_failure = [&](std::string_view module_name, const std::filesystem::path &candidate,
                                                    std::string_view detail) {
@@ -3367,28 +3253,6 @@ int main(int argc, const char **argv) {
             }
             return context;
         };
-
-        auto make_external_module_build_key =
-            [&](const std::filesystem::path &candidate, const clang::tooling::CommandLineArguments &command_line,
-                std::string_view working_directory, std::string_view forced_compiler_path,
-                std::span<const std::filesystem::path> include_search_paths) {
-                std::string serialized_key;
-                auto append_field = [&](std::string_view value) {
-                    serialized_key.append(value);
-                    serialized_key.push_back('\0');
-                };
-
-                append_field(normalize_compdb_lookup_path(candidate.string(), working_directory));
-                append_field(working_directory);
-                append_field(forced_compiler_path);
-                for (const auto &arg : command_line) {
-                    append_field(arg);
-                }
-                for (const auto &path : include_search_paths) {
-                    append_field(path.generic_string());
-                }
-                return stable_hash_hex(serialized_key);
-            };
 
         std::function<const ExternalNamedModuleSourceInfo *(std::string_view, const ModuleResolutionContext &)>
             resolve_external_named_module_source =
@@ -3447,25 +3311,10 @@ int main(int argc, const char **argv) {
                 }
                 if (used_scan_deps) {
                     if (!candidate_source_commands.empty()) {
-                        if (should_log_scan_deps_decisions()) {
-                            gentest::codegen::log_err(
-                                "gentest_codegen: debug: external scan-deps candidate='{}' module='{}'\n",
-                                candidate.string(), module_name);
-                        }
-                        const auto expanded_scan_deps_command_line = expand_compile_command_response_files(
-                            candidate_source_commands.front().CommandLine,
-                            candidate_source_commands.front().Directory.empty() ? compdb_dir : candidate_source_commands.front().Directory,
-                            false);
                         auto adjusted_scan_deps_command = build_adjusted_command_line(
-                            expanded_scan_deps_command_line, candidate.string(), resource_dir_for_compiler,
+                            candidate_source_commands.front().CommandLine, candidate.string(), resource_dir_for_compiler,
                             default_compiler_path, default_sysroot, extra_args, compdb_dir, {}, explicit_host_clang_path,
                             external_forced_compiler_path, true);
-                        if (should_log_scan_deps_decisions()) {
-                            gentest::codegen::log_err(
-                                "gentest_codegen: debug: external adjusted scan-deps command size={} first='{}'\n",
-                                adjusted_scan_deps_command.size(),
-                                adjusted_scan_deps_command.empty() ? std::string{} : adjusted_scan_deps_command.front());
-                        }
                         std::string external_scan_deps_error;
                         if (const auto scan_deps_results = run_clang_scan_deps(
                                 std::array<ScanDepsPreparedCommand, 1>{ScanDepsPreparedCommand{
@@ -3479,11 +3328,6 @@ int main(int argc, const char **argv) {
                                 options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{},
                                 external_scan_deps_error);
                             scan_deps_results.has_value()) {
-                            if (should_log_scan_deps_decisions()) {
-                                gentest::codegen::log_err(
-                                    "gentest_codegen: debug: external scan-deps returned {} result(s) for '{}'\n",
-                                    scan_deps_results->size(), candidate.string());
-                            }
                             if (const auto scan_deps_it = scan_deps_results->find(normalize_compdb_lookup_path(candidate.string()));
                                 scan_deps_it != scan_deps_results->end()) {
                                 external_scan_deps_succeeded = true;
@@ -3516,11 +3360,6 @@ int main(int argc, const char **argv) {
                     candidate, {}, std::string_view(*discovered_name), candidate_include_search_paths,
                     build_augmented_scan_command_line(candidate_source_commands, candidate_driver_commands, candidate.string(),
                                                       candidate.string()));
-                if (should_log_scan_deps_decisions()) {
-                    gentest::codegen::log_err(
-                        "gentest_codegen: debug: source-scanned {} import(s) for external module '{}'\n",
-                        source_scanned_imports.size(), candidate.string());
-                }
                 if (const auto wrapped_source = resolve_wrapped_source_from_codegen_shim(candidate.string()); wrapped_source.has_value()) {
                     auto wrapped_imports = parse_imported_named_modules_from_source(
                         *wrapped_source, {}, std::string_view(*discovered_name), candidate_include_search_paths,
@@ -3538,8 +3377,6 @@ int main(int argc, const char **argv) {
                 imported_modules.erase(std::unique(imported_modules.begin(), imported_modules.end()), imported_modules.end());
                 external_scan_deps_module_args = normalize_module_file_args(std::move(external_scan_deps_module_args));
 
-                const auto build_key = make_external_module_build_key(candidate, external_command_line, external_working_directory,
-                                                                      external_forced_compiler_path, candidate_include_search_paths);
                 auto [it, _] = external_named_module_sources.emplace(
                     cache_key,
                     ExternalNamedModuleSourceInfo{
@@ -3554,8 +3391,8 @@ int main(int argc, const char **argv) {
                                 .working_directory = std::move(external_working_directory),
                                 .forced_compiler_path = std::move(external_forced_compiler_path),
                             },
-                        .build_key = build_key,
-                        .pcm_path = module_cache_dir / fmt::format("ext_{}.pcm", build_key),
+                        .pcm_path = module_cache_dir / fmt::format("ext_{}_{}.pcm", stable_hash_hex(context.owner_key),
+                                                                   stable_hash_hex(candidate.generic_string())),
                     });
                 return &it->second;
             };
@@ -3704,16 +3541,8 @@ int main(int argc, const char **argv) {
         };
 
         build_external_named_module_pcm = [&](std::string_view module_name, const ModuleResolutionContext &context) -> bool {
-            const ExternalNamedModuleSourceInfo *module_source = nullptr;
-            module_source = resolve_external_named_module_source(module_name, context);
-            if (module_source == nullptr) {
-                if (external_scan_deps_hard_failure) {
-                    return false;
-                }
-                return true;
-            }
-
-            auto &state = external_module_build_states[module_source->build_key];
+            const ExternalModuleCacheKey cache_key{std::string(module_name), context.owner_key};
+            auto &state = external_module_build_states[cache_key];
             if (state == ModuleBuildState::Built) {
                 return true;
             }
@@ -3726,28 +3555,27 @@ int main(int argc, const char **argv) {
                 return false;
             }
 
-            state = ModuleBuildState::Building;
-            if (should_log_scan_deps_decisions()) {
-                gentest::codegen::log_err("gentest_codegen: debug: build external pcm '{}' from '{}'\n", module_name,
-                                          module_source->source_path.string());
+            const ExternalNamedModuleSourceInfo *module_source = nullptr;
+            module_source = resolve_external_named_module_source(module_name, context);
+            if (module_source == nullptr) {
+                if (external_scan_deps_hard_failure) {
+                    state = ModuleBuildState::Failed;
+                    return false;
+                }
+                external_module_build_states.erase(cache_key);
+                return true;
             }
+
+            state = ModuleBuildState::Building;
             std::vector<std::string> module_file_args;
             module_file_args.reserve(module_source->imported_modules.size());
             for (const auto &import_name : module_source->imported_modules) {
-                if (should_log_scan_deps_decisions()) {
-                    gentest::codegen::log_err("gentest_codegen: debug: external pcm '{}' needs import '{}'\n", module_name,
-                                              import_name);
-                }
                 if (!append_module_arg_for_import(import_name, module_source->resolution_context, module_file_args)) {
                     state = ModuleBuildState::Failed;
                     return false;
                 }
             }
             module_file_args = normalize_module_file_args(std::move(module_file_args));
-            if (should_log_scan_deps_decisions()) {
-                gentest::codegen::log_err("gentest_codegen: debug: external pcm '{}' normalized {} module args\n", module_name,
-                                          module_file_args.size());
-            }
 
             clang::tooling::CommandLineArguments external_command_line = module_source->resolution_context.command_line;
             std::string external_working_directory =
@@ -3756,18 +3584,10 @@ int main(int argc, const char **argv) {
                 external_command_line,
                 module_source->source_path.string(), resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
                 compdb_dir, module_file_args, explicit_host_clang_path, module_source->resolution_context.forced_compiler_path);
-            if (should_log_scan_deps_decisions()) {
-                gentest::codegen::log_err("gentest_codegen: debug: external pcm '{}' adjusted command size={}\n", module_name,
-                                          adjusted_command.size());
-            }
             const auto precompile_command =
                 build_module_precompile_command(adjusted_command, module_source->source_path.string(),
                                                 external_working_directory,
                                                 module_source->pcm_path, true);
-            if (should_log_scan_deps_decisions()) {
-                gentest::codegen::log_err("gentest_codegen: debug: external pcm '{}' precompile command size={}\n", module_name,
-                                          precompile_command.size());
-            }
             if (!execute_module_precompile(precompile_command, module_name, module_source->source_path.string(), module_source->pcm_path,
                                            external_working_directory)) {
                 state = ModuleBuildState::Failed;
@@ -3780,10 +3600,6 @@ int main(int argc, const char **argv) {
 
         append_module_arg_for_import = [&](std::string_view import_name, const ModuleResolutionContext &context,
                                            std::vector<std::string> &module_file_args) -> bool {
-            if (should_log_scan_deps_decisions()) {
-                gentest::codegen::log_err("gentest_codegen: debug: append module arg for '{}' (owner='{}')\n", import_name,
-                                          context.owner_key);
-            }
             const auto dep_it = named_module_index_by_name.find(std::string(import_name));
             if (dep_it != named_module_index_by_name.end()) {
                 if (!build_named_module_pcm(dep_it->second)) {
@@ -4003,7 +3819,7 @@ int main(int argc, const char **argv) {
             std::vector<TestCaseInfo> local_cases;
             TestCaseCollector         collector{local_cases, options.strict_fixture, allow_includes};
             std::vector<FixtureDeclInfo> local_fixtures;
-            FixtureDeclCollector         fixture_collector{local_fixtures, allow_includes};
+            FixtureDeclCollector         fixture_collector{local_fixtures};
             std::vector<gentest::codegen::MockClassInfo> local_mocks;
             std::optional<MockUsageCollector>            mock_collector;
             if (options.discover_mocks) {
@@ -4021,8 +3837,9 @@ int main(int argc, const char **argv) {
             if (mock_collector.has_value()) {
                 register_mock_matchers(finder, *mock_collector);
             }
-            ParseResult result;
             MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes, options.discover_mocks};
+
+            ParseResult result;
             result.status = tool.run(&action_factory);
             result.had_test_errors = collector.has_errors();
             result.had_fixture_errors = fixture_collector.has_errors();
@@ -4102,7 +3919,7 @@ int main(int argc, const char **argv) {
         tool.appendArgumentsAdjuster(syntax_only_adjuster);
 
         TestCaseCollector  collector{cases, options.strict_fixture, allow_includes};
-        FixtureDeclCollector fixture_collector{fixtures, allow_includes};
+        FixtureDeclCollector fixture_collector{fixtures};
         std::optional<MockUsageCollector> mock_collector;
         if (options.discover_mocks) {
             mock_collector.emplace(mocks);
@@ -4120,6 +3937,7 @@ int main(int argc, const char **argv) {
             register_mock_matchers(finder, *mock_collector);
         }
         MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes, options.discover_mocks};
+
         const int status = tool.run(&action_factory);
         if (status != 0) {
             return status;
