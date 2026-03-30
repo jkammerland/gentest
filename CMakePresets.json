@@ -601,14 +601,15 @@
       "inherits": "build-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Build (Linux/aarch64, QEMU)",
-      "description": "Cross-build gentest_unit_tests for Linux/aarch64 after running the host-codegen workflow",
+      "description": "Cross-build gentest_unit_tests and gentest_mocking_tests for Linux/aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
       },
       "targets": [
-        "gentest_unit_tests"
+        "gentest_unit_tests",
+        "gentest_mocking_tests"
       ],
       "jobs": 0
     },
@@ -896,7 +897,7 @@
       "inherits": "test-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Tests (Linux/aarch64, QEMU, smoke)",
-      "description": "Run a small subset of tests under qemu-aarch64 after running the host-codegen workflow",
+      "description": "Run a small subset of unit and mock-heavy tests under qemu-aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -904,7 +905,7 @@
       },
       "filter": {
         "include": {
-          "name": "^(gentest_codegen_check_valid|unit|unit_inventory)$"
+          "name": "^(gentest_codegen_check_valid|unit|unit_inventory|mocking)$"
         }
       }
     },

@@ -120,7 +120,7 @@ cmake -S "${root}" -B "${target_build_dir}" -G Ninja \
 if [[ "${full}" -eq 1 ]]; then
   cmake --build "${target_build_dir}"
 else
-  cmake --build "${target_build_dir}" --target gentest_unit_tests
+  cmake --build "${target_build_dir}" --target gentest_unit_tests gentest_mocking_tests
 fi
 
 if [[ "${run_tests}" -ne 1 ]]; then
@@ -135,6 +135,6 @@ fi
 
 # Quick sanity subset:
 # - host tool check (runs natively)
-# - unit suite + script-based checks (run via qemu-aarch64)
+# - unit suite + mock-heavy suite + script-based checks (run via qemu-aarch64)
 ctest --test-dir "${target_build_dir}" --output-on-failure \
-  -R '^(gentest_codegen_check_valid|unit|unit_inventory)$'
+  -R '^(gentest_codegen_check_valid|unit|unit_inventory|mocking)$'
