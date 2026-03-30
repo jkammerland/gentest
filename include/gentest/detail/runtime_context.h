@@ -376,40 +376,83 @@ template <class Expected, class Fn> inline void expect_throw(Fn &&fn, std::strin
     text.append(": exceptions are disabled; cannot verify thrown exception");
     ::gentest::detail::record_failure(std::move(text), loc);
 #else
-    try {
-        fn();
-    } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
-        // Preserve framework control flow: internal gentest failures are never
-        // consumed by EXPECT_THROW when Expected is broader (for example std::exception).
-        if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::failure>) {
+    using ExpectedT = std::remove_cvref_t<Expected>;
+
+    if constexpr (std::is_base_of_v<std::exception, ExpectedT>) {
+        try {
+            fn();
+        } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
+            // Preserve framework control flow: internal gentest failures are never
+            // consumed by EXPECT_THROW when Expected is broader (for example std::exception).
+            if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
+                return;
+            }
+            throw;
+        } catch (const gentest::assertion &) {
+            // Preserve framework control flow for fatal assertions as well.
+            if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
+                return;
+            }
+            throw;
+        } catch (const std::exception &err) {
+            if (dynamic_cast<const ExpectedT *>(&err) != nullptr) {
+                return;
+            }
+            std::string text;
+            ::gentest::detail::append_label(text, "EXPECT_THROW");
+            text.append(::gentest::detail::loc_to_string(loc));
+            text.append(": expected ");
+            text.append(expected_name);
+            text.append(" but caught std::exception: ");
+            text.append(err.what());
+            ::gentest::detail::record_failure(std::move(text), loc);
+            return;
+        } catch (...) {
+            std::string text;
+            ::gentest::detail::append_label(text, "EXPECT_THROW");
+            text.append(::gentest::detail::loc_to_string(loc));
+            text.append(": expected ");
+            text.append(expected_name);
+            text.append(" but caught unknown exception");
+            ::gentest::detail::record_failure(std::move(text), loc);
             return;
         }
-        throw;
-    } catch (const gentest::assertion &) {
-        // Preserve framework control flow for fatal assertions as well.
-        if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::assertion>) {
+    } else {
+        try {
+            fn();
+        } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
+            // Preserve framework control flow: internal gentest failures are never
+            // consumed by EXPECT_THROW when Expected is broader (for example std::exception).
+            if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
+                return;
+            }
+            throw;
+        } catch (const gentest::assertion &) {
+            // Preserve framework control flow for fatal assertions as well.
+            if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
+                return;
+            }
+            throw;
+        } catch (const ExpectedT &) { return; } catch (const std::exception &err) {
+            std::string text;
+            ::gentest::detail::append_label(text, "EXPECT_THROW");
+            text.append(::gentest::detail::loc_to_string(loc));
+            text.append(": expected ");
+            text.append(expected_name);
+            text.append(" but caught std::exception: ");
+            text.append(err.what());
+            ::gentest::detail::record_failure(std::move(text), loc);
+            return;
+        } catch (...) {
+            std::string text;
+            ::gentest::detail::append_label(text, "EXPECT_THROW");
+            text.append(::gentest::detail::loc_to_string(loc));
+            text.append(": expected ");
+            text.append(expected_name);
+            text.append(" but caught unknown exception");
+            ::gentest::detail::record_failure(std::move(text), loc);
             return;
         }
-        throw;
-    } catch (const Expected &) { return; } catch (const std::exception &err) {
-        std::string text;
-        ::gentest::detail::append_label(text, "EXPECT_THROW");
-        text.append(::gentest::detail::loc_to_string(loc));
-        text.append(": expected ");
-        text.append(expected_name);
-        text.append(" but caught std::exception: ");
-        text.append(err.what());
-        ::gentest::detail::record_failure(std::move(text), loc);
-        return;
-    } catch (...) {
-        std::string text;
-        ::gentest::detail::append_label(text, "EXPECT_THROW");
-        text.append(::gentest::detail::loc_to_string(loc));
-        text.append(": expected ");
-        text.append(expected_name);
-        text.append(" but caught unknown exception");
-        ::gentest::detail::record_failure(std::move(text), loc);
-        return;
     }
 
     std::string text;
@@ -458,40 +501,83 @@ template <class Expected, class Fn> inline void require_throw(Fn &&fn, std::stri
     ::gentest::detail::record_failure(std::move(text), loc);
     ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_throw");
 #else
-    try {
-        fn();
-    } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
-        // Preserve framework control flow: internal gentest failures are never
-        // consumed by ASSERT_THROW when Expected is broader (for example std::exception).
-        if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::failure>) {
-            return;
+    using ExpectedT = std::remove_cvref_t<Expected>;
+
+    if constexpr (std::is_base_of_v<std::exception, ExpectedT>) {
+        try {
+            fn();
+        } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
+            // Preserve framework control flow: internal gentest failures are never
+            // consumed by ASSERT_THROW when Expected is broader (for example std::exception).
+            if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
+                return;
+            }
+            throw;
+        } catch (const gentest::assertion &) {
+            // Preserve framework control flow for fatal assertions as well.
+            if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
+                return;
+            }
+            throw;
+        } catch (const std::exception &err) {
+            if (dynamic_cast<const ExpectedT *>(&err) != nullptr) {
+                return;
+            }
+            std::string text;
+            ::gentest::detail::append_label(text, "ASSERT_THROW");
+            text.append(::gentest::detail::loc_to_string(loc));
+            text.append(": expected ");
+            text.append(expected_name);
+            text.append(" but caught std::exception: ");
+            text.append(err.what());
+            ::gentest::detail::record_failure(std::move(text), loc);
+            throw gentest::assertion("ASSERT_THROW");
+        } catch (...) {
+            std::string text;
+            ::gentest::detail::append_label(text, "ASSERT_THROW");
+            text.append(::gentest::detail::loc_to_string(loc));
+            text.append(": expected ");
+            text.append(expected_name);
+            text.append(" but caught unknown exception");
+            ::gentest::detail::record_failure(std::move(text), loc);
+            throw gentest::assertion("ASSERT_THROW");
         }
-        throw;
-    } catch (const gentest::assertion &) {
-        // Preserve framework control flow for fatal assertions as well.
-        if constexpr (std::is_same_v<std::remove_cvref_t<Expected>, gentest::assertion>) {
-            return;
+    } else {
+        try {
+            fn();
+        } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
+            // Preserve framework control flow: internal gentest failures are never
+            // consumed by ASSERT_THROW when Expected is broader (for example std::exception).
+            if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
+                return;
+            }
+            throw;
+        } catch (const gentest::assertion &) {
+            // Preserve framework control flow for fatal assertions as well.
+            if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
+                return;
+            }
+            throw;
+        } catch (const ExpectedT &) { return; } catch (const std::exception &err) {
+            std::string text;
+            ::gentest::detail::append_label(text, "ASSERT_THROW");
+            text.append(::gentest::detail::loc_to_string(loc));
+            text.append(": expected ");
+            text.append(expected_name);
+            text.append(" but caught std::exception: ");
+            text.append(err.what());
+            ::gentest::detail::record_failure(std::move(text), loc);
+            throw gentest::assertion("ASSERT_THROW");
+        } catch (...) {
+            std::string text;
+            ::gentest::detail::append_label(text, "ASSERT_THROW");
+            text.append(::gentest::detail::loc_to_string(loc));
+            text.append(": expected ");
+            text.append(expected_name);
+            text.append(" but caught unknown exception");
+            ::gentest::detail::record_failure(std::move(text), loc);
+            throw gentest::assertion("ASSERT_THROW");
         }
-        throw;
-    } catch (const Expected &) { return; } catch (const std::exception &err) {
-        std::string text;
-        ::gentest::detail::append_label(text, "ASSERT_THROW");
-        text.append(::gentest::detail::loc_to_string(loc));
-        text.append(": expected ");
-        text.append(expected_name);
-        text.append(" but caught std::exception: ");
-        text.append(err.what());
-        ::gentest::detail::record_failure(std::move(text), loc);
-        throw gentest::assertion("ASSERT_THROW");
-    } catch (...) {
-        std::string text;
-        ::gentest::detail::append_label(text, "ASSERT_THROW");
-        text.append(::gentest::detail::loc_to_string(loc));
-        text.append(": expected ");
-        text.append(expected_name);
-        text.append(" but caught unknown exception");
-        ::gentest::detail::record_failure(std::move(text), loc);
-        throw gentest::assertion("ASSERT_THROW");
     }
 
     std::string text;

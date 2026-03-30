@@ -249,8 +249,11 @@ jobs:
             -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON `
             -DLLVM_DIR="$env:LLVM_DIR" `
             -DClang_DIR="$env:Clang_DIR"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build $msvcBuildDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ctest --test-dir $msvcBuildDir --output-on-failure --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   linux:
     name: ${{ matrix.name }} • ${{ matrix.preset == 'debug-system-cxx23' && 'C++23 tests' || matrix.build_type }}
