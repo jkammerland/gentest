@@ -2,8 +2,10 @@
 
 #include <chrono>
 #include <cstddef>
+#include <list>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 namespace templates {
 
@@ -50,6 +52,20 @@ void bar(std::string s) {
         gentest::expect(false, "T must be integral");
     } else {
         gentest::expect(s == "x" || s == "y", "string axis values");
+    }
+}
+
+template <typename T>
+[[using gentest: test, template(T, int, long), parameters(use_list, false, true)]]
+void emplace_matrix(bool use_list) {
+    if (use_list) {
+        std::list<T> values;
+        values.emplace_back(T{1});
+        gentest::expect_eq(values.size(), std::size_t{1}, "list emplace");
+    } else {
+        std::vector<T> values;
+        values.emplace_back(T{1});
+        gentest::expect_eq(values.size(), std::size_t{1}, "vector emplace");
     }
 }
 

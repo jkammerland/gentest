@@ -886,7 +886,7 @@ set(_gentest_suite_inventory_checks
     "skiponly|gentest_skiponly_tests|2|0|0|2|${CMAKE_CURRENT_SOURCE_DIR}/expected/skiponly.list"
     "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
     "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
-    "templates|gentest_templates_tests|93|93|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
+    "templates|gentest_templates_tests|97|97|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
     "mocking|gentest_mocking_tests|33|33|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)

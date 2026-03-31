@@ -24,6 +24,10 @@ templates/chars('a')
 templates/chars('z')
 templates/cstr_params("baz")
 templates/cstr_params("qux")
+templates/emplace_matrix<int>(false)
+templates/emplace_matrix<int>(true)
+templates/emplace_matrix<long>(false)
+templates/emplace_matrix<long>(true)
 templates/enum_value_scoped<templates::ns_outer::ns_inner::Shade::Dark>
 templates/enum_value_scoped<templates::ns_outer::ns_inner::Shade::Light>
 templates/hello<int,double>

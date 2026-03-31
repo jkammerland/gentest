@@ -2,11 +2,37 @@
 
 `gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
 
-Write tests with standard C++ attributes (`[[gentest::...]]` or `[[using gentest: ...]]`). During the build, `gentest_codegen` scans your sources and generates registrations/wrappers from those attributes. This avoids macro-heavy registration and keeps test declarations in normal C++ syntax. The tradeoff is higher tooling complexity, but it enables orthogonal code generation and additional features.
+Write tests with standard C++ attributes 
 
-Features include:
+```cpp
+#include "gentest/attributes.h"
+#include "gentest/runner.h"
+#include <list>
+#include <vector>
+using namespace gentest::asserts;
+
+[[gentest::test]]
+void basic() { 
+    EXPECT_TRUE(1 + 1 == 2); 
+}
+
+// namespaced attribute list for brevity
+template <typename T>
+[[using gentest: test, template(T, int, long)]] 
+void emplace_matrix() {
+    std::vector<T> values;
+    values.emplace_back(T{1});
+    EXPECT_EQ(values.size(), std::size_t{1});
+}
+```
+
+During the build, a codegen tool can scan your sources and generates registrations/wrappers from those attributes. This tooling step can be registered with your favorite buildsystem.
+
+This avoids macro-heavy registration and instead provide a more native C++ syntax. It also enables orthogonal code generation which can be made to support any feature, which was the main driver for experimenting with this approach.
+
+Features currently include:
 - Arbitrary mocking with no extra declarations
-- Easy syntax for multi-dimensional parameterized and templated cases
+- Easy syntax for multi-dimensional parameterized and templated cases (including test matrices)
 - Support for multiple fixtures per test case
 - Sharing fixtures between test cases
 - Native syntax for tags, requirements, and custom labels
@@ -34,68 +60,19 @@ ctest --preset=debug-system --output-on-failure
 
 ## Use in your project (CMake)
 
-`cases.cpp`:
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-using namespace gentest::asserts;
-
-namespace demo {
-
-[[gentest::test]]
-void basic() { 
-    EXPECT_TRUE(1 + 1 == 2); 
-}
-
-} // namespace demo
-```
-
-`CMakeLists.txt`:
-
 ```cmake
-include(CTest)
-enable_testing()
-
-# Provides `gentest::gentest` / `gentest::gentest_main` and includes GentestCodegen.cmake.
+# Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below
 find_package(gentest CONFIG REQUIRED)
-#
-# Alternative (as a subproject):
-# add_subdirectory(path/to/gentest)
 
+# The test
 add_executable(my_tests cases.cpp)
-# Include-based consumers can keep linking the stock main target directly.
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
-# If your tests use `import gentest;` / `import gentest.mock;`, link the public
-# module carrier target plus either gentest_main (stock main) or gentest_runtime
-# (custom main).
-# target_link_libraries(my_tests PRIVATE gentest::gentest gentest::gentest_main)
-# target_link_libraries(my_tests PRIVATE gentest::gentest gentest::gentest_runtime)
-#
-# NOTE: This mode requires a single-config generator/build dir.
+# Setup codegen dependency for your target
 gentest_attach_codegen(my_tests)
-# Optional: pass extra clang args to the generator (e.g. `-resource-dir ...`) via
-# `gentest_attach_codegen(... CLANG_ARGS ...)` or override
-# `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`.
-#
-# Multi-config generators (Ninja Multi-Config / VS / Xcode):
-# gentest_attach_codegen(my_tests OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/my_tests_gentest.cpp")
 
 # Register each discovered case as its own CTest test (like gtest/catch/doctest).
 gentest_discover_tests(my_tests)
-# Death tests (tagged `death`) are auto-registered as CTest tests with a `death/` prefix.
-# Optional: EXPECT_SUBSTRING enforces a substring in the death harness output
-# (for normal tests, use PASS_REGULAR_EXPRESSION via PROPERTIES).
-# See linked docs below for death-test details and discover options.
-# gentest_discover_tests(my_tests EXPECT_SUBSTRING "fatal path")
-#
-# More gentest_attach_codegen options:
-#  OUTPUT / OUTPUT_DIR / SOURCES / DEPENDS / ENTRY / NO_INCLUDE_SOURCES / STRICT_FIXTURE / QUIET_CLANG
-# Cross-builds: set GENTEST_CODEGEN_EXECUTABLE or GENTEST_CODEGEN_TARGET before gentest_attach_codegen().
-#
-# Host-toolchain / sysroot guidance:
-#   docs/buildsystems/host_toolchain_sysroots.md
 
 # Alternative: run everything in a single process.
 # add_test(NAME my_tests COMMAND my_tests)
@@ -332,18 +309,28 @@ void rows(int a, int b) {
 The generator also supports convenience axes like `range(...)`, `linspace(...)`, `geom(...)`, and `logspace(...)` (see
 `include/gentest/attributes.h`).
 
-### Templates (type + non-type matrices)
+### Templates (mixed axes)
 
-Generate statically-typed matrices for function templates:
+Generate a compact 2D matrix by combining a type axis with a parameter axis:
 
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
+#include <list>
+#include <vector>
 
-template <typename T, int N>
-[[using gentest: test("templates/matrix"), template(T, int, long), template(N, 1, 2)]]
-void matrix() {
-    gentest::expect(true, "instantiated");
+template <typename T>
+[[using gentest: test, template(T, int, long), parameters(use_list, false, true)]]
+void emplace_matrix(bool use_list) {
+    if (use_list) {
+        std::list<T> values;
+        values.emplace_back(T{1});
+        gentest::expect_eq(values.size(), std::size_t{1}, "list emplace");
+    } else {
+        std::vector<T> values;
+        values.emplace_back(T{1});
+        gentest::expect_eq(values.size(), std::size_t{1}, "vector emplace");
+    }
 }
 ```
 
