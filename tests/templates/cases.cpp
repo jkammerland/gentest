@@ -1,9 +1,11 @@
 #include "gentest/runner.h"
 
 #include <chrono>
+#include <array>
 #include <cstddef>
 #include <list>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <vector>
 
@@ -67,6 +69,44 @@ void emplace_matrix(bool use_list) {
         values.emplace_back(T{1});
         gentest::expect_eq(values.size(), std::size_t{1}, "vector emplace");
     }
+}
+
+template <template <class...> class C>
+[[using gentest: test("tt/basic"), template(C, std::vector, std::list)]]
+void tt_basic() {
+    C<int> values;
+    values.emplace_back(1);
+    gentest::expect_eq(values.size(), std::size_t{1}, "template-template basic");
+}
+
+template <template <class...> class C, typename T>
+[[using gentest: test("tt/mixed"), template(C, std::vector, std::list), template(T, int, long)]]
+void tt_mixed() {
+    C<T> values;
+    values.emplace_back(T{2});
+    gentest::expect_eq(values.size(), std::size_t{1}, "template-template mixed axis");
+}
+
+template <int N, template <class...> class C>
+[[using gentest: test("tt/interleaved"), template(C, std::vector, std::list), template(N, 1, 3)]]
+void tt_interleaved() {
+    C<int> values;
+    values.resize(static_cast<std::size_t>(N));
+    gentest::expect_eq(values.size(), static_cast<std::size_t>(N), "template-template interleaved axis");
+}
+
+template <template <class, std::size_t> class C>
+[[using gentest: test("tt/fixed"), template(C, std::array)]]
+void tt_fixed() {
+    C<int, 2> values{1, 2};
+    gentest::expect_eq(values.size(), std::size_t{2}, "template-template fixed signature");
+}
+
+template <template <class...> class... Cs>
+[[using gentest: test("tt/pack"), template(Cs, (), (std::vector), (std::vector, std::list))]]
+void tt_pack() {
+    using tuple_t = std::tuple<Cs<int>...>;
+    gentest::expect_eq(std::tuple_size_v<tuple_t>, sizeof...(Cs), "template-template pack arity");
 }
 
 // parameters_pack: bundle multiple args per row

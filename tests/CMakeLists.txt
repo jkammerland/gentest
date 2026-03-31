@@ -503,6 +503,34 @@ gentest_add_check_death(
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
 gentest_add_check_death(
+    NAME gentest_codegen_check_invalid_template_pack_bare
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "template parameter pack 'Cs' requires parenthesized rows in 'template(Cs, ...)' (template_pack_bare)"
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_check_invalid_template_nonpack_row
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "non-pack template parameter 'C' does not accept parenthesized rows in 'template(C, ...)' (template_nonpack_row)"
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
     NAME gentest_codegen_baseline_requires_bench
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
@@ -855,6 +883,8 @@ set_tests_properties(
     gentest_codegen_namespace_suite_attr_with_trailing_comment
     gentest_codegen_check_invalid_unknown_attr
     gentest_codegen_check_invalid_duplicate_template_attr
+    gentest_codegen_check_invalid_template_pack_bare
+    gentest_codegen_check_invalid_template_nonpack_row
     gentest_codegen_baseline_requires_bench
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
@@ -886,8 +916,8 @@ set(_gentest_suite_inventory_checks
     "skiponly|gentest_skiponly_tests|2|0|0|2|${CMAKE_CURRENT_SOURCE_DIR}/expected/skiponly.list"
     "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
     "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
-    "templates|gentest_templates_tests|97|97|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
-    "mocking|gentest_mocking_tests|33|33|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
+    "templates|gentest_templates_tests|111|111|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
+    "mocking|gentest_mocking_tests|36|36|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")

@@ -340,6 +340,10 @@ void emplace_matrix(bool use_list) {
 }
 ```
 
+`template(NAME, ...)` applies to type, value, and template-template parameters.
+Template parameter packs use parenthesized rows inside the same attribute, for example
+`template(Cs, (), (std::vector), (std::vector, std::list))`.
+
 ### Fixtures
 
 Fixture arguments are inferred from the free-function signature. If a fixture implements

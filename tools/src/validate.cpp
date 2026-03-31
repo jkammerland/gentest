@@ -311,7 +311,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
         } else if (lowered == "template") {
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;
-                report("'template' requires a parameter name and at least one type");
+                report("'template' requires a parameter name and at least one binding");
                 continue;
             }
             saw_case = true;
@@ -324,20 +324,23 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             bool dup = false;
             for (auto &p : summary.template_sets)
-                if (p.first == param)
+                if (p.param_name == param)
                     dup = true;
             if (dup) {
                 summary.had_error = true;
                 report("duplicate 'template' attribute for the same parameter");
                 continue;
             }
-            std::vector<std::string> types(attr.arguments.begin() + 1, attr.arguments.end());
-            if (types.empty()) {
+            std::vector<std::string> bindings(attr.arguments.begin() + 1, attr.arguments.end());
+            if (bindings.empty()) {
                 summary.had_error = true;
-                report("'template' requires at least one type");
+                report("'template' requires at least one binding");
                 continue;
             }
-            summary.template_sets.emplace_back(param, std::move(types));
+            summary.template_sets.push_back(TemplateBindingSet{
+                .param_name = param,
+                .candidates = std::move(bindings),
+            });
         } else if (lowered == "parameters") {
             if (attr.arguments.size() < 2) {
                 summary.had_error = true;

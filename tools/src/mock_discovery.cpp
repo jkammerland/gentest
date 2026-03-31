@@ -11,6 +11,7 @@
 #include <clang/AST/Attr.h>
 #include <clang/AST/Decl.h>
 #include <clang/AST/DeclCXX.h>
+#include <clang/AST/DeclTemplate.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/AST/Type.h>
 #include <clang/Basic/FileEntry.h>
@@ -60,6 +61,39 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     qt.print(os, policy);
     os.flush();
     return result;
+}
+
+[[nodiscard]] std::string print_template_parameter_list(const TemplateParameterList &params, const ASTContext &ctx) {
+    auto policy = PrintingPolicy(ctx.getLangOpts());
+    policy.adjustForCPlusPlus();
+    policy.SuppressScope          = false;
+    policy.FullyQualifiedName     = true;
+    policy.SuppressUnwrittenScope = false;
+    std::string              result;
+    llvm::raw_string_ostream os(result);
+    params.print(os, ctx, policy, false);
+    os.flush();
+    return result;
+}
+
+[[nodiscard]] TemplateParamInfo build_template_param_info(const NamedDecl &param) {
+    TemplateParamInfo info{};
+    info.name = param.getNameAsString();
+    if (const auto *ttp = llvm::dyn_cast<TemplateTypeParmDecl>(&param)) {
+        info.kind    = TemplateParamKind::Type;
+        info.is_pack = ttp->isParameterPack();
+    } else if (const auto *nttp = llvm::dyn_cast<NonTypeTemplateParmDecl>(&param)) {
+        info.kind    = TemplateParamKind::Value;
+        info.is_pack = nttp->isParameterPack();
+    } else {
+        info.kind    = TemplateParamKind::Template;
+        info.is_pack = llvm::cast<TemplateTemplateParmDecl>(&param)->isParameterPack();
+    }
+    info.usage_spelling = info.name;
+    if (info.is_pack) {
+        info.usage_spelling += "...";
+    }
+    return info;
 }
 
 [[nodiscard]] std::string trim_leading_global_qualifier(std::string value) {
@@ -524,37 +558,10 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         ctor_info.is_noexcept = is_noexcept(*ctor);
 
         if (const auto *ft = ctor->getDescribedFunctionTemplate()) {
-            std::string tpl;
-            tpl += "template <";
-            bool first = true;
+            ctor_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), ctx);
             for (const auto *param : *ft->getTemplateParameters()) {
-                if (!first)
-                    tpl += ", ";
-                first = false;
-                if (const auto *ttp = llvm::dyn_cast<TemplateTypeParmDecl>(param)) {
-                    tpl += (ttp->isParameterPack() ? "typename... " : "typename ");
-                    const std::string name = ttp->getNameAsString();
-                    tpl += name;
-                    ctor_info.template_param_names.push_back(name);
-                } else if (const auto *nttp = llvm::dyn_cast<NonTypeTemplateParmDecl>(param)) {
-                    tpl += print_type(nttp->getType(), ctx);
-                    if (nttp->isParameterPack())
-                        tpl += "...";
-                    tpl += ' ';
-                    const std::string name = nttp->getNameAsString();
-                    tpl += name;
-                    ctor_info.template_param_names.push_back(name);
-                } else if (const auto *tttp = llvm::dyn_cast<TemplateTemplateParmDecl>(param)) {
-                    tpl += "template <class...> class ";
-                    const std::string name = tttp->getNameAsString();
-                    tpl += name;
-                    ctor_info.template_param_names.push_back(name);
-                } else {
-                    tpl += "typename __unk"; // fallback
-                }
+                ctor_info.template_params.push_back(build_template_param_info(*param));
             }
-            tpl += ">";
-            ctor_info.template_prefix = std::move(tpl);
         }
 
         const bool is_template = ctor->getDescribedFunctionTemplate() != nullptr;
@@ -614,37 +621,10 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         method_info.ref_qualifier   = ref_qualifier_string(method->getRefQualifier());
 
         if (const auto *ft = method->getDescribedFunctionTemplate()) {
-            std::string tpl;
-            tpl += "template <";
-            bool first = true;
+            method_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), ctx);
             for (const auto *param : *ft->getTemplateParameters()) {
-                if (!first)
-                    tpl += ", ";
-                first = false;
-                if (const auto *ttp = llvm::dyn_cast<TemplateTypeParmDecl>(param)) {
-                    tpl += (ttp->isParameterPack() ? "typename... " : "typename ");
-                    const std::string name = ttp->getNameAsString();
-                    tpl += name;
-                    method_info.template_param_names.push_back(name);
-                } else if (const auto *nttp = llvm::dyn_cast<NonTypeTemplateParmDecl>(param)) {
-                    tpl += print_type(nttp->getType(), ctx);
-                    if (nttp->isParameterPack())
-                        tpl += "...";
-                    tpl += ' ';
-                    const std::string name = nttp->getNameAsString();
-                    tpl += name;
-                    method_info.template_param_names.push_back(name);
-                } else if (const auto *tttp = llvm::dyn_cast<TemplateTemplateParmDecl>(param)) {
-                    tpl += "template <class...> class ";
-                    const std::string name = tttp->getNameAsString();
-                    tpl += name;
-                    method_info.template_param_names.push_back(name);
-                } else {
-                    tpl += "typename __unk"; // fallback
-                }
+                method_info.template_params.push_back(build_template_param_info(*param));
             }
-            tpl += ">";
-            method_info.template_prefix = std::move(tpl);
         }
 
         unsigned arg_index = 0;

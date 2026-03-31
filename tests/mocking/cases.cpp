@@ -5,8 +5,10 @@
 
 #include <array>
 #include <condition_variable>
+#include <list>
 #include <mutex>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 #include <vector>
 
@@ -25,6 +27,8 @@ static_assert(std::is_constructible_v<gentest::mock<NeedsInit>, int, long>);
 static_assert(!std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, int, long>);
 static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, short>);
 static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, short, int>);
+
+static_assert(std::is_nothrow_constructible_v<gentest::mock<TemplateTemplateCtorTarget>, std::array<int, 2>>);
 
 [[using gentest: test("mocking/interface/returns")]]
 void interface_returns() {
@@ -244,6 +248,46 @@ void direct_unique_template_member_expect() {
 
     EXPECT_EQ(calls, 1);
     EXPECT_FALSE(value.moved);
+}
+
+[[using gentest: test("mocking/template/template_template_member_expect")]]
+void template_template_member_expect() {
+    gentest::mock<TemplateTemplateFixed> mock_fixed;
+    int                                  calls = 0;
+
+    gentest::expect(mock_fixed, &TemplateTemplateFixed::template take<std::array>)
+        .times(1)
+        .invokes([&](std::array<int, 2> value) { calls += value[0]; });
+
+    mock_fixed.template take<std::array>(std::array<int, 2>{1, 2});
+
+    EXPECT_EQ(calls, 1);
+}
+
+[[using gentest: test("mocking/template/template_template_ctor")]]
+void template_template_ctor() {
+    gentest::mock<TemplateTemplateCtorTarget> mock_target{std::array<int, 2>{1, 2}};
+    EXPECT_CALL(mock_target, ping).times(1);
+
+    mock_target.ping();
+}
+
+[[using gentest: test("mocking/template/template_template_pack_direct_expect")]]
+void template_template_pack_direct_expect() {
+    gentest::mock<TemplateTemplatePacker> mock_packer;
+    int                                   calls = 0;
+
+    gentest::expect<&TemplateTemplatePacker::template join<std::vector, std::list>>(
+        mock_packer, "::mocking::TemplateTemplatePacker::join<std::vector, std::list>")
+        .times(1)
+        .invokes([&](const std::tuple<std::vector<int>, std::list<int>> &value) {
+            calls += static_cast<int>(std::get<0>(value).size() + std::get<1>(value).size());
+        });
+
+    const auto value = std::tuple{std::vector<int>{1, 2}, std::list<int>{3}};
+    mock_packer.template join<std::vector, std::list>(value);
+
+    EXPECT_EQ(calls, 3);
 }
 
 [[using gentest: test("mocking/crtp/bridge")]]

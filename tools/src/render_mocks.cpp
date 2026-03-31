@@ -198,8 +198,8 @@ bool supports_runtime_template_method_ptr_match(const MockMethodInfo &method, st
         }
     }
 
-    for (const auto &name : method.template_param_names) {
-        if (!contains_identifier_token(pointer_type, name)) {
+    for (const auto &param : method.template_params) {
+        if (!contains_identifier_token(pointer_type, param.name)) {
             return false;
         }
     }
@@ -211,12 +211,27 @@ bool pointer_type_depends_on_template_params(const MockMethodInfo &method, std::
         return false;
     }
 
-    for (const auto &name : method.template_param_names) {
-        if (contains_identifier_token(pointer_type, name)) {
+    for (const auto &param : method.template_params) {
+        if (contains_identifier_token(pointer_type, param.name)) {
             return true;
         }
     }
     return false;
+}
+
+std::string template_usage_suffix(const MockMethodInfo &method) {
+    if (method.template_params.empty()) {
+        return {};
+    }
+    std::string out = "<";
+    for (std::size_t i = 0; i < method.template_params.size(); ++i) {
+        if (i != 0) {
+            out += ", ";
+        }
+        out += method.template_params[i].usage_spelling;
+    }
+    out += ">";
+    return out;
 }
 
 std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, const MockMethodInfo &method,
@@ -433,16 +448,7 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
     if (!method.template_prefix.empty()) {
         // Inline definition for template methods (must be visible to callers)
         const std::string fq_type = fmt::format("::{}", cls.qualified_name);
-        const std::string tpl_use = [&]() {
-            if (method.template_param_names.empty()) return std::string{};
-            std::string out = "<";
-            for (std::size_t i = 0; i < method.template_param_names.size(); ++i) {
-                if (i != 0) out += ", ";
-                out += method.template_param_names[i];
-            }
-            out += ">";
-            return out;
-        }();
+        const std::string tpl_use = template_usage_suffix(method);
         decl.append_raw(" {\n");
         decl.append_raw(dispatch_block("        ", cls, method, fq_type, tpl_use));
         decl.append_raw("    }");
@@ -654,16 +660,7 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
     }
     def.append("{} gentest::mock<{}>::{}({}){} {{\n", ensure_global_qualifiers(method.return_type), fq_type,
                method.method_name, join_parameter_list(method.parameters), qualifiers_for(method));
-    const std::string tpl_usage = [&]() -> std::string {
-        if (method.template_param_names.empty()) return std::string{};
-        std::string out = "<";
-        for (std::size_t i = 0; i < method.template_param_names.size(); ++i) {
-            if (i != 0) out += ", ";
-            out += method.template_param_names[i];
-        }
-        out += ">";
-        return out;
-    }();
+    const std::string tpl_usage = template_usage_suffix(method);
     def.append_raw(dispatch_block("    ", cls, method, fq_type, tpl_usage));
     def.append_raw("}\n");
     return def.str();

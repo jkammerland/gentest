@@ -27,8 +27,8 @@ struct AttributeSummary {
     bool                       is_benchmark = false;
     bool                       is_jitter = false;
     bool                       is_baseline = false;
-    // Template matrix: list of (param, types...)
-    std::vector<std::pair<std::string, std::vector<std::string>>> template_sets;
+    // Template matrix: one candidate list per declared template parameter.
+    std::vector<TemplateBindingSet> template_sets;
     // Parameterized tests: named parameters with literal values.
     struct ParamSet {
         std::string              param_name; // function parameter name
