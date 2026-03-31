@@ -214,6 +214,7 @@ set(_gentest_bazel_build_args
   --action_env=HOME
   --verbose_failures
   --sandbox_debug
+  //:gentest_consumer_textual_mocks
   //:gentest_consumer_textual_bazel)
 
 execute_process(
@@ -249,6 +250,21 @@ if(NOT _build_rc EQUAL 0)
     "stdout:\n${_build_out}\n"
     "stderr:\n${_build_err}")
 endif()
+
+foreach(_expected_file IN ITEMS
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_textual_mocks/gentest_consumer_mocks.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_textual_mocks/tu_0000_gentest_consumer_textual_mocks_defs.gentest.h"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_registry.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_registry__domain_0000_header.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl__domain_0000_header.hpp")
+  if(NOT EXISTS "${_expected_file}")
+    message(FATAL_ERROR
+      "Bazel textual mock target build did not produce expected mockgen artifact '${_expected_file}'.\n"
+      "stdout:\n${_build_out}\n"
+      "stderr:\n${_build_err}")
+  endif()
+endforeach()
 
 execute_process(
   COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_textual_bazel" --list

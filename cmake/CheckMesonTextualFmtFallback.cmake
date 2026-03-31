@@ -155,7 +155,9 @@ execute_process(
           "TMPDIR=${_scratch_root}/tmp"
           "CC=${_real_cc}"
           "CXX=${_real_cxx}"
-          "${_meson}" compile -C "${_out_dir}" -v gentest_consumer_textual_meson
+          "${_meson}" compile -C "${_out_dir}" -v
+          gentest_consumer_textual_mocks_meson
+          gentest_consumer_textual_meson
   RESULT_VARIABLE _build_rc
   OUTPUT_VARIABLE _build_out
   ERROR_VARIABLE _build_err)
@@ -179,6 +181,24 @@ set(_consumer_bin "${_out_dir}/gentest_consumer_textual_meson")
 if(NOT EXISTS "${_consumer_bin}")
   message(FATAL_ERROR "Expected built Meson consumer binary was not found: ${_consumer_bin}")
 endif()
+
+foreach(_expected_file IN ITEMS
+    "${_out_dir}/consumer_textual_mocks_defs.cpp"
+    "${_out_dir}/consumer_textual_mocks_anchor.cpp"
+    "${_out_dir}/tu_0000_consumer_textual_mocks_defs.gentest.h"
+    "${_out_dir}/consumer_textual_mocks_mock_registry.hpp"
+    "${_out_dir}/consumer_textual_mocks_mock_impl.hpp"
+    "${_out_dir}/consumer_textual_mocks_mock_registry__domain_0000_header.hpp"
+    "${_out_dir}/consumer_textual_mocks_mock_impl__domain_0000_header.hpp"
+    "${_out_dir}/gentest_consumer_mocks.hpp"
+    "${_out_dir}/tu_0000_consumer_textual_cases.gentest.h")
+  if(NOT EXISTS "${_expected_file}")
+    message(FATAL_ERROR
+      "Meson textual consumer build did not produce expected mock/codegen artifact '${_expected_file}'.\n"
+      "stdout:\n${_build_out}\n"
+      "stderr:\n${_build_err}")
+  endif()
+endforeach()
 
 execute_process(
   COMMAND "${_consumer_bin}" --list
@@ -204,6 +224,54 @@ foreach(_expected IN ITEMS
       "stdout:\n${_list_out}")
   endif()
 endforeach()
+
+execute_process(
+  COMMAND "${_consumer_bin}" --run=consumer/consumer/module_test --kind=test
+  RESULT_VARIABLE _plain_test_rc
+  OUTPUT_VARIABLE _plain_test_out
+  ERROR_VARIABLE _plain_test_err)
+if(NOT _plain_test_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Meson textual consumer test case failed in the fmt fallback check.\n"
+    "stdout:\n${_plain_test_out}\n"
+    "stderr:\n${_plain_test_err}")
+endif()
+
+execute_process(
+  COMMAND "${_consumer_bin}" --run=consumer/consumer/module_mock --kind=test
+  RESULT_VARIABLE _mock_test_rc
+  OUTPUT_VARIABLE _mock_test_out
+  ERROR_VARIABLE _mock_test_err)
+if(NOT _mock_test_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Meson textual consumer mock case failed in the fmt fallback check.\n"
+    "stdout:\n${_mock_test_out}\n"
+    "stderr:\n${_mock_test_err}")
+endif()
+
+execute_process(
+  COMMAND "${_consumer_bin}" --run=consumer/consumer/module_bench --kind=bench
+  RESULT_VARIABLE _bench_rc
+  OUTPUT_VARIABLE _bench_out
+  ERROR_VARIABLE _bench_err)
+if(NOT _bench_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Meson textual consumer bench failed in the fmt fallback check.\n"
+    "stdout:\n${_bench_out}\n"
+    "stderr:\n${_bench_err}")
+endif()
+
+execute_process(
+  COMMAND "${_consumer_bin}" --run=consumer/consumer/module_jitter --kind=jitter
+  RESULT_VARIABLE _jitter_rc
+  OUTPUT_VARIABLE _jitter_out
+  ERROR_VARIABLE _jitter_err)
+if(NOT _jitter_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Meson textual consumer jitter failed in the fmt fallback check.\n"
+    "stdout:\n${_jitter_out}\n"
+    "stderr:\n${_jitter_err}")
+endif()
 
 if(_pkg_config)
   set(_synthetic_pkgconfig_root "${_scratch_root}/synthetic-pkgconfig")

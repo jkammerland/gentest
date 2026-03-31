@@ -170,6 +170,22 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           ${_xmake_env}
           "${_xmake}" build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD
+          gentest_consumer_textual_mocks_xmake
+  WORKING_DIRECTORY "${SOURCE_DIR}"
+  RESULT_VARIABLE _mock_build_rc
+  OUTPUT_VARIABLE _mock_build_out
+  ERROR_VARIABLE _mock_build_err)
+if(NOT _mock_build_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake build failed for gentest_consumer_textual_mocks_xmake.\n"
+    "stdout:\n${_mock_build_out}\n"
+    "stderr:\n${_mock_build_err}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          ${_xmake_env}
+          "${_xmake}" build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD
           gentest_consumer_textual_xmake
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _build_rc
@@ -182,7 +198,7 @@ if(NOT _build_rc EQUAL 0)
     "stderr:\n${_build_err}")
 endif()
 
-set(_build_log "${_build_out}\n${_build_err}")
+set(_build_log "${_mock_build_out}\n${_mock_build_err}\n${_build_out}\n${_build_err}")
 string(FIND "${_build_log}" "--host-clang" _host_clang_flag_pos)
 string(FIND "${_build_log}" "${_clang_cxx}" _host_clang_path_pos)
 if(_host_clang_flag_pos EQUAL -1 OR _host_clang_path_pos EQUAL -1)
@@ -201,6 +217,25 @@ foreach(_expected IN ITEMS
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR
       "xmake textual consumer build did not pass through expected codegen flag '${_expected}'.\n"
+      "stdout:\n${_build_out}\n"
+      "stderr:\n${_build_err}")
+  endif()
+endforeach()
+
+foreach(_expected_glob IN ITEMS
+    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/gentest_consumer_mocks.hpp"
+    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/tu_0000_consumer_textual_mocks_defs.gentest.h"
+    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/consumer_textual_mocks_mock_registry.hpp"
+    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/consumer_textual_mocks_mock_impl.hpp"
+    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/consumer_textual_mocks_mock_registry__domain_0000_header.hpp"
+    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/consumer_textual_mocks_mock_impl__domain_0000_header.hpp"
+    "${_out_dir}/gen/*/*/*/consumer_textual/tu_0000_cases.gentest.h")
+  file(GLOB _expected_matches LIST_DIRECTORIES FALSE "${_expected_glob}")
+  list(LENGTH _expected_matches _expected_match_count)
+  if(NOT _expected_match_count EQUAL 1)
+    message(FATAL_ERROR
+      "xmake textual consumer build did not produce expected mock/codegen artifact '${_expected_glob}'.\n"
+      "Matches:\n${_expected_matches}\n"
       "stdout:\n${_build_out}\n"
       "stderr:\n${_build_err}")
   endif()

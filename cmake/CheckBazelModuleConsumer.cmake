@@ -215,6 +215,7 @@ set(_gentest_bazel_build_args
   --action_env=HOME
   --verbose_failures
   --sandbox_debug
+  //:gentest_consumer_module_mocks
   //:gentest_consumer_module_bazel)
 
 execute_process(
@@ -250,6 +251,28 @@ if(NOT _build_rc EQUAL 0)
     "stdout:\n${_build_out}\n"
     "stderr:\n${_build_err}")
 endif()
+
+foreach(_expected_file IN ITEMS
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest/consumer_mocks.cppm"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0000_header.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0000_header.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0001_gentest_consumer_service.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0001_gentest_consumer_service.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0002_gentest_consumer_mock_defs.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0002_gentest_consumer_mock_defs.hpp"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.module.gentest.cppm"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.gentest.h"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.module.gentest.cppm"
+    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h")
+  if(NOT EXISTS "${_expected_file}")
+    message(FATAL_ERROR
+      "Bazel module mock target build did not produce expected mockgen artifact '${_expected_file}'.\n"
+      "stdout:\n${_build_out}\n"
+      "stderr:\n${_build_err}")
+  endif()
+endforeach()
 
 execute_process(
   COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --list
