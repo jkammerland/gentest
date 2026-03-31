@@ -87,6 +87,11 @@ module macros:
 - `gentest_mock`
 - `gentest_bench_util`
 
+The checked-in Bazel smoke coverage builds the explicit mock target and the
+final consumer target for both textual and module paths, verifies the generated
+mock/codegen artifacts under `bazel-bin/gen/...`, and runs the consumer
+test/mock/bench/jitter surface.
+
 ## Repo-local examples
 
 The checked-in repo-local textual path looks like this:
@@ -276,9 +281,9 @@ selection rather than relying on Bazel's default host toolchain discovery.
 The checked-in Linux workflow validates:
 
 - classic suites
-- the textual Bazel consumer
+- the textual Bazel consumer, including explicit mock target generation
 - the module Bazel consumer under the explicit Clang + `--experimental_cpp_modules`
-  contract, including test/mock/bench/jitter execution
+  contract, including explicit mock target generation and test/mock/bench/jitter execution
 
 For local module runs, keep the same constraints:
 

@@ -106,10 +106,12 @@ The checked-in [`xmake.lua`](../../xmake.lua) wires:
   - `gentest_consumer_module_xmake`
 
 The module slice uses the same native helper API as the textual path, not a
-hard-coded one-off route. The validated checked-in lane is Linux-based. The
-helper also carries Windows-specific Clang handling, but the documented smoke
-path here is the Linux configure/build path. The helper enforces the Clang
-contract on that checked-in configure/build path for module targets.
+hard-coded one-off route. The checked-in smoke coverage now builds the explicit
+mock targets directly, verifies the generated mock/codegen artifacts, and runs
+the consumer test/mock/bench/jitter surface. That path is validated on Linux
+and macOS. The helper also carries Windows-specific Clang handling, but the
+Windows Xmake package/bootstrap path remains more host-sensitive than the
+Linux/macOS lane.
 
 ## Module example
 
@@ -187,13 +189,14 @@ final Xmake targets still resolve `fmt` through Xmake's own
 `add_packages("fmt")` surface; the adjacent CMake build is only reused for the
 generator binary and its compile-database context.
 
-One local caveat: the checked-in module CMake smoke test currently skips
-installed Xmake versions older than `3.0.6`. The helper API is still the same,
-but the local regression treats `3.0.6+` as the minimum supported enough for
-the module smoke lane.
+One local caveat: the checked-in module CMake smoke test skips installed Xmake
+versions older than `3.0.6`. The helper API is still the same, but the local
+regression treats `3.0.6+` as the minimum supported enough for the module
+smoke lane.
 
-For fuller consumer validation, run the built binaries directly and exercise the
-plain test, mock, bench, and jitter surface:
+The checked-in consumer smoke already exercises the plain test, mock, bench,
+and jitter surface after the mock targets are built. For manual local runs, use
+the built binaries directly:
 
 ```bash
 consumer_textual_bin="$(find build/xmake -type f -name 'gentest_consumer_textual_xmake' | head -n 1)"

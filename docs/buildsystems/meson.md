@@ -41,10 +41,16 @@ Meson currently defines these targets:
   - `gentest_fixtures_meson`
   - `gentest_skiponly_meson`
 - textual explicit-mock consumer:
+  - `gentest_consumer_textual_mocks_meson`
   - `gentest_consumer_textual_meson`
 
 There is no checked-in Meson module consumer target. Meson is textual-only for
 now.
+
+The checked-in Meson smoke coverage builds the explicit textual mock target and
+the final textual consumer, verifies the generated mock/codegen artifacts, and
+runs the consumer test/mock/bench/jitter surface. That validated path is still
+textual-only.
 
 ## Module API status
 
@@ -99,7 +105,10 @@ The textual consumer also writes:
 - `tu_0000_consumer_textual_mocks_defs.gentest.h`
 - `consumer_textual_mocks_mock_registry.hpp`
 - `consumer_textual_mocks_mock_impl.hpp`
+- `consumer_textual_mocks_mock_registry__domain_0000_header.hpp`
+- `consumer_textual_mocks_mock_impl__domain_0000_header.hpp`
 - `gentest_consumer_mocks.hpp`
+- `tu_0000_consumer_textual_cases.gentest.h`
 
 ## Limitations
 
