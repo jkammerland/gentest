@@ -159,6 +159,78 @@ std::vector<std::string_view> split_top_level_commas(std::string_view text) {
     return parts;
 }
 
+std::string strip_default_template_argument(std::string_view clause) {
+    int angles = 0;
+    int parens = 0;
+    int braces = 0;
+    int square = 0;
+    for (std::size_t i = 0; i < clause.size(); ++i) {
+        switch (clause[i]) {
+        case '<':
+            ++angles;
+            break;
+        case '>':
+            if (angles > 0) {
+                --angles;
+            }
+            break;
+        case '(':
+            ++parens;
+            break;
+        case ')':
+            if (parens > 0) {
+                --parens;
+            }
+            break;
+        case '{':
+            ++braces;
+            break;
+        case '}':
+            if (braces > 0) {
+                --braces;
+            }
+            break;
+        case '[':
+            ++square;
+            break;
+        case ']':
+            if (square > 0) {
+                --square;
+            }
+            break;
+        case '=':
+            if (angles == 0 && parens == 0 && braces == 0 && square == 0) {
+                return std::string(trim_ascii(clause.substr(0, i)));
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    return std::string(trim_ascii(clause));
+}
+
+std::string template_prefix_without_defaults(std::string_view prefix) {
+    const std::size_t open  = prefix.find('<');
+    const std::size_t close = prefix.rfind('>');
+    if (open == std::string::npos || close == std::string::npos || close <= open) {
+        return std::string(prefix);
+    }
+
+    const std::string_view clause_text(prefix.data() + open + 1, close - open - 1);
+    const auto             clauses = split_top_level_commas(clause_text);
+
+    std::string out(prefix.substr(0, open + 1));
+    for (std::size_t i = 0; i < clauses.size(); ++i) {
+        if (i != 0) {
+            out += ", ";
+        }
+        out += strip_default_template_argument(clauses[i]);
+    }
+    out += std::string(prefix.substr(close));
+    return out;
+}
+
 bool contains_identifier_token(std::string_view text, std::string_view token) {
     std::size_t pos = 0;
     while ((pos = text.find(token, pos)) != std::string_view::npos) {
@@ -548,7 +620,7 @@ std::string build_mock_access(const MockClassInfo &cls, bool module_mode = false
         }
         const std::string matcher_name = fmt::format("method_ptr_matches_template_{}", i);
         body.append("    template <class MethodPtr> struct {} : {} {{}};\n", matcher_name, false_type_name);
-        body.append("    {}\n", method.template_prefix);
+        body.append("    {}\n", template_prefix_without_defaults(method.template_prefix));
         body.append("    struct {}<{}> : {} {{}};\n\n", matcher_name, pointer_type, true_type_name);
         template_pointer_matchers.emplace_back(matcher_name, pointer_type);
     }
@@ -825,7 +897,7 @@ void append_mock_implementation(RenderBuffer &impl, const MockClassInfo &cls) {
     }
     for (const auto &ctor : cls.constructors) {
         if (!ctor.template_prefix.empty()) {
-            impl.append("{}\n", ctor.template_prefix);
+            impl.append("{}\n", template_prefix_without_defaults(ctor.template_prefix));
         }
         impl.append("inline mock<{0}>::mock(", fq_type);
         impl.append("{}", join_parameter_list(ctor.parameters));
