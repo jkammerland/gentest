@@ -1,42 +1,51 @@
 set_project("gentest")
 set_languages("cxx20")
+set_policy("build.ccache", false)
 
 add_rules("mode.debug", "mode.release")
+add_requires("fmt")
 
+local project_root = os.scriptdir()
+local codegen_project_root = project_root
+local xmake_file = path.join(project_root, "xmake.lua")
+if os.islink and os.readlink then
+    local ok, resolved_xmake = pcall(os.readlink, xmake_file)
+    if ok and resolved_xmake and resolved_xmake ~= "" then
+        codegen_project_root = path.directory(resolved_xmake)
+    end
+end
 local incdirs = {"include", "tests", "third_party/include"}
-
 local gentest_common_defines = {"FMT_HEADER_ONLY"}
-local gentest_common_cxxflags = {}
-if is_plat("windows") then
-    gentest_common_cxxflags = {"/wd5030"}
-else
-    gentest_common_cxxflags = {"-Wno-attributes"}
+-- The validated checked-in Xmake path uses Clang, including on Windows.
+-- Keep the common warning suppression in Clang/GNU form here instead of
+-- forcing MSVC-only /wd flags into clang++ builds.
+local gentest_common_cxxflags = {"-Wno-attributes"}
+
+local function current_gen_root()
+    local buildir = get_config("builddir") or get_config("buildir") or "build"
+    local plat = get_config("plat") or os.host()
+    local arch = get_config("arch") or os.arch()
+    local mode = get_config("mode") or "release"
+    return path.join(buildir, "gen", plat, arch, mode)
 end
 
--- Resolve gentest_codegen path.
--- Prefer a prebuilt binary via $GENTEST_CODEGEN; otherwise fall back to a CMake build dir.
-local function resolve_codegen()
-    local env_path = os.getenv("GENTEST_CODEGEN")
-    if env_path and os.isfile(env_path) then
-        local compdb_dir = path.directory(path.directory(env_path))
-        if os.isfile(path.join(compdb_dir, "compile_commands.json")) then
-            return env_path, compdb_dir, nil
-        end
-        return env_path, nil, nil
-    end
+local enable_module_targets = os.getenv("GENTEST_XMAKE_SKIP_MODULE_TARGETS") ~= "1"
 
-    local build_dir = path.join(os.projectdir(), "build", "xmake-codegen")
-    local bin = path.join(build_dir, "tools", "gentest_codegen")
-    local compdb_dir = nil
-    if os.isfile(path.join(build_dir, "compile_commands.json")) then
-        compdb_dir = build_dir
-    end
-    return bin, compdb_dir, build_dir
-end
+includes("xmake/gentest.lua")
+gentest_configure({
+    project_root = project_root,
+    codegen_project_root = codegen_project_root,
+    incdirs = incdirs,
+    gentest_common_defines = gentest_common_defines,
+    gentest_common_cxxflags = gentest_common_cxxflags,
+})
 
 target("gentest_runtime")
     set_kind("static")
+    gentest_apply_windows_llvm_toolchain()
+    add_packages("fmt")
     add_files("src/bench_stats.cpp")
+    add_files("src/runtime_context.cpp")
     add_files("src/runner_case_invoker.cpp")
     add_files("src/runner_cli.cpp")
     add_files("src/runner_fixture_runtime.cpp")
@@ -53,49 +62,41 @@ target("gentest_runtime")
     add_defines(gentest_common_defines)
     add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
 
+if enable_module_targets then
+    target("gentest")
+        set_kind("static")
+        gentest_apply_windows_llvm_toolchain()
+        add_packages("fmt")
+        add_includedirs(incdirs, {public = true})
+        add_defines(gentest_common_defines)
+        add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
+        add_files("include/gentest/gentest.cppm", {public = true})
+        add_files("include/gentest/gentest.mock.cppm", {public = true})
+        add_files("include/gentest/gentest.bench_util.cppm", {public = true})
+        add_deps("gentest_runtime", {public = true})
+end
+
 target("gentest_main")
     set_kind("static")
+    gentest_apply_windows_llvm_toolchain()
+    add_packages("fmt")
     add_files("src/gentest_main.cpp")
     add_includedirs(incdirs)
     add_defines(gentest_common_defines)
     add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
-    add_deps("gentest_runtime")
+    add_deps("gentest_runtime", {public = true})
 
 local function gentest_suite(name)
-    local out = path.join("build", "gen", name, "test_impl.cpp")
-
     target("gentest_" .. name .. "_xmake")
         set_kind("binary")
-        add_includedirs(incdirs)
-        add_defines(gentest_common_defines)
-        add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
-        add_files(out, {always_added = true})
-        add_deps("gentest_main")
-        before_buildcmd(function (target, batchcmds)
-            local codegen, compdb_dir, cmake_build_dir = resolve_codegen()
-            if cmake_build_dir and not os.isfile(codegen) then
-                batchcmds:vrunv("cmake", {"-S", os.projectdir(), "-B", cmake_build_dir, "-DCMAKE_BUILD_TYPE=Release",
-                                         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"})
-                batchcmds:vrunv("cmake", {"--build", cmake_build_dir, "--target", "gentest_codegen", "-j", "1"})
-                compdb_dir = cmake_build_dir
-            end
-
-            local args = {"--output", out}
-            if compdb_dir then
-                table.insert(args, "--compdb")
-                table.insert(args, compdb_dir)
-            end
-            table.insert(args, path.join("tests", name, "cases.cpp"))
-            table.insert(args, "--")
-            table.insert(args, "-std=c++20")
-            table.insert(args, "-DGENTEST_CODEGEN=1")
-            table.insert(args, "-Wno-unknown-attributes")
-            table.insert(args, "-Wno-attributes")
-            table.insert(args, "-Wno-unknown-warning-option")
-            table.insert(args, "-I" .. path.join(os.projectdir(), "include"))
-            table.insert(args, "-I" .. path.join(os.projectdir(), "tests"))
-            batchcmds:vrunv(codegen, args)
-        end)
+        gentest_apply_windows_llvm_toolchain()
+        gentest_attach_codegen({
+            name = "gentest_" .. name .. "_xmake",
+            kind = "textual",
+            source = path.join("tests", name, "cases.cpp"),
+            output_dir = path.join(current_gen_root(), name),
+            deps = {"gentest_main"},
+        })
 end
 
 gentest_suite("unit")
@@ -103,9 +104,72 @@ gentest_suite("integration")
 gentest_suite("fixtures")
 gentest_suite("skiponly")
 
+target("gentest_consumer_textual_mocks_xmake")
+    set_kind("static")
+    gentest_apply_windows_llvm_toolchain()
+    gentest_add_mocks({
+        name = "gentest_consumer_textual_mocks_xmake",
+        kind = "textual",
+        defs = {"tests/consumer/header_mock_defs.hpp"},
+        headerfiles = {"tests/consumer/header_mock_defs.hpp", "tests/consumer/service.hpp"},
+        header_name = "gentest_consumer_mocks.hpp",
+        output_dir = path.join(current_gen_root(), "consumer_textual_mocks"),
+        deps = {"gentest_runtime"},
+        target_id = "consumer_textual_mocks",
+        defines = {"GENTEST_XMAKE_TEXTUAL_MOCKS_DEFINE=1"},
+        clang_args = {"-DGENTEST_XMAKE_TEXTUAL_MOCKS_CODEGEN=1"},
+    })
+
+target("gentest_consumer_textual_xmake")
+    set_kind("binary")
+    gentest_apply_windows_llvm_toolchain()
+    gentest_attach_codegen({
+        name = "gentest_consumer_textual_xmake",
+        kind = "textual",
+        source = "tests/consumer/cases.cpp",
+        main = "tests/consumer/main.cpp",
+        output_dir = path.join(current_gen_root(), "consumer_textual"),
+        deps = {"gentest_main", "gentest_consumer_textual_mocks_xmake"},
+        defines = {"GENTEST_XMAKE_TEXTUAL_CONSUMER_DEFINE=1"},
+        clang_args = {"-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1"},
+    })
+
+if enable_module_targets then
+    target("gentest_consumer_module_mocks_xmake")
+        set_kind("static")
+        gentest_apply_windows_llvm_toolchain()
+        gentest_add_mocks({
+            name = "gentest_consumer_module_mocks_xmake",
+            kind = "modules",
+            defs = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+            defs_modules = {"gentest.consumer_service", "gentest.consumer_mock_defs"},
+            headerfiles = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"},
+            module_name = "gentest.consumer_mocks",
+            output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
+            deps = {"gentest"},
+            target_id = "consumer_module_mocks",
+            defines = {"GENTEST_XMAKE_MODULE_MOCKS_DEFINE=1"},
+            clang_args = {"-DGENTEST_XMAKE_MODULE_MOCKS_CODEGEN=1"},
+        })
+
+    target("gentest_consumer_module_xmake")
+        set_kind("binary")
+        gentest_apply_windows_llvm_toolchain()
+        gentest_attach_codegen({
+            name = "gentest_consumer_module_xmake",
+            kind = "modules",
+            source = "tests/consumer/cases.cppm",
+            main = "tests/consumer/main.cpp",
+            output_dir = path.join(current_gen_root(), "consumer_module"),
+            deps = {"gentest_main", "gentest", "gentest_consumer_module_mocks_xmake"},
+            defines = {"GENTEST_CONSUMER_USE_MODULES=1", "GENTEST_XMAKE_MODULE_CONSUMER_DEFINE=1"},
+            clang_args = {"-DGENTEST_XMAKE_MODULE_CONSUMER_CODEGEN=1"},
+        })
+end
+
 target("poc_cross_aarch64_qemu")
     set_kind("phony")
     on_run(function ()
         -- Use a plain shell call; this target is marked local/manual in other build systems too.
-        os.vrunv("bash", {path.join(os.projectdir(), "scripts", "poc_cross_aarch64_qemu.sh")})
+        os.vrunv("bash", {path.join(project_root, "scripts", "poc_cross_aarch64_qemu.sh")})
     end)

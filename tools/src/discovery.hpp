@@ -19,16 +19,14 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
 
     // Called by clang tooling; extracts a TestCaseInfo when the bound node is a function definition.
     void run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
+    std::optional<clang::TraversalKind> getCheckTraversalKind() const override {
+        return clang::TK_IgnoreUnlessSpelledInSource;
+    }
 
     // Whether any hard validation errors were observed.
     [[nodiscard]] bool has_errors() const;
 
   private:
-    // Convert a FunctionDecl into a TestCaseInfo if it has gentest attributes and a function body.
-    std::optional<TestCaseInfo> classify(const clang::FunctionDecl &func, const clang::SourceManager &sm,
-                                         const clang::LangOptions &lang) const;
-    void                        report(const clang::FunctionDecl &func, const clang::SourceManager &sm, std::string_view message) const;
-
     std::vector<TestCaseInfo> &out_;
     bool                       strict_fixture_ = false;
     bool                       allow_includes_ = false;
@@ -46,6 +44,9 @@ class FixtureDeclCollector : public clang::ast_matchers::MatchFinder::MatchCallb
     explicit FixtureDeclCollector(std::vector<FixtureDeclInfo> &out);
 
     void run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
+    std::optional<clang::TraversalKind> getCheckTraversalKind() const override {
+        return clang::TK_IgnoreUnlessSpelledInSource;
+    }
 
     [[nodiscard]] bool has_errors() const;
 

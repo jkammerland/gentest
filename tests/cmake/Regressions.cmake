@@ -88,6 +88,7 @@ set(_gentest_manual_regressions
     "gentest_regression_measured_local_fixture_setup_skip_teardown_skip|measured_local_fixture_setup_skip_teardown_skip.cpp"
     "gentest_regression_time_unit_scaling|time_unit_scaling.cpp"
     "gentest_regression_runtime_reporting|runtime_reporting_regressions.cpp"
+    "gentest_regression_runtime_selection|runtime_selection_regressions.cpp"
     "gentest_regression_reporting_attachment_collision|reporting_attachment_collision.cpp")
 
 foreach(_gentest_manual_regression IN LISTS _gentest_manual_regressions)
@@ -261,6 +262,74 @@ gentest_add_cmake_script_test(
         "EXPECT_COUNT_SUBSTRING=failed to open JUnit report:"
         "EXPECT_COUNT=1")
 
+gentest_add_cmake_script_test(
+    NAME regression_runtime_selection_mixed_summary_counts
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --filter=regressions/runtime_selection/mixed_summary_*
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=Summary: passed 2/2")
+
+gentest_add_cmake_script_test(
+    NAME regression_runtime_selection_duplicate_name_summary_first_location
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --filter=regressions/runtime_selection/duplicate_name --kind=test
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=runtime_selection_regressions.cpp:16")
+
+gentest_add_cmake_script_test(
+    NAME regression_runtime_selection_duplicate_name_summary_second_location
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --filter=regressions/runtime_selection/duplicate_name --kind=test
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=runtime_selection_regressions.cpp:19")
+
+gentest_add_check_contains(
+    NAME regression_runtime_selection_list_death
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    EXPECT_SUBSTRING regressions/runtime_selection/death_case
+    ARGS --list-death)
+
+gentest_add_check_death(
+    NAME regression_runtime_selection_exact_death_requires_opt_in
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    EXPECT_SUBSTRING "Case 'regressions/runtime_selection/death_case' is tagged as a death test; rerun with --include-death"
+    ARGS --run=regressions/runtime_selection/death_case --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_runtime_selection_exact_death_opt_in
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=regressions/runtime_selection/death_case --kind=test --include-death)
+
+gentest_add_cmake_script_test(
+    NAME regression_runtime_selection_positive_bench_table
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --run=regressions/runtime_selection/bench_table_case
+        --kind=bench
+        --bench-table
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=regressions/runtime_selection/bench_table_case")
+
 set(_gentest_measured_line_files
     "${CMAKE_CURRENT_SOURCE_DIR}/regressions/bench_assert_propagation.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_call_teardown_dualfail.cpp"
@@ -344,6 +413,38 @@ gentest_add_run_and_check_file(
     EXPECT_SUBSTRING "skipped=\"1\""
     EXPECT_RC 0
     ARGS --run=regressions/jitter_setup_skip_should_not_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_setup_skip_noninfra_junit.xml)
+
+gentest_add_cmake_script_test(
+    NAME regression_bench_calibration_assert_stops_after_calibration
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --run=regressions/bench_calibration_assert_should_stop_after_calibration
+        --kind=bench
+        --bench-warmup=1
+        --bench-epochs=1
+        --bench-min-total-time-s=0
+        --bench-min-epoch-time-s=0
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=benchmark call failed for regressions/bench_calibration_assert_should_stop_after_calibration"
+        "FORBID_SUBSTRING=regression marker: benchmark continued after calibration failure")
+
+gentest_add_cmake_script_test(
+    NAME regression_jitter_calibration_assert_stops_after_calibration
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --run=regressions/jitter_calibration_assert_should_stop_after_calibration
+        --kind=jitter
+        --bench-warmup=1
+        --bench-epochs=1
+        --bench-min-total-time-s=0
+        --bench-min-epoch-time-s=0
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=jitter call failed for regressions/jitter_calibration_assert_should_stop_after_calibration"
+        "FORBID_SUBSTRING=regression marker: jitter continued after calibration failure")
 
 _gentest_add_measured_pair_no_substring_checks(
     BENCH_NAME regression_bench_local_fixture_partial_setup_failure_teardown
@@ -835,10 +936,20 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "shared fixture unavailable for 'regressions::MissingBenchSuiteFixture': fixture not registered"
     ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench)
 
+gentest_add_cmake_script_test(
+    NAME regression_member_shared_fixture_setup_skip_measured_bench_reports_failure_not_skip
+    PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=benchmark allocation failed for regressions/member_shared_setup_skip_measured/bench_member"
+        "FORBID_SUBSTRING=[ SKIP ] regressions/member_shared_setup_skip_measured/bench_member")
+
 gentest_add_check_death(
     NAME regression_member_shared_fixture_setup_skip_measured_bench_summary_failed_count
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
-    EXPECT_SUBSTRING "Summary: passed 0/0; failed 1; skipped 0; xfail 0; xpass 0."
+    EXPECT_SUBSTRING "Summary: passed 0/1; failed 1; skipped 0; xfail 0; xpass 0."
     ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench)
 
 gentest_add_check_death(
@@ -847,10 +958,20 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "shared fixture unavailable for 'regressions::MissingJitterGlobalFixture': fixture not registered"
     ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter)
 
+gentest_add_cmake_script_test(
+    NAME regression_member_shared_fixture_setup_skip_measured_jitter_reports_failure_not_skip
+    PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=jitter allocation failed for regressions/member_shared_setup_skip_measured/jitter_member"
+        "FORBID_SUBSTRING=[ SKIP ] regressions/member_shared_setup_skip_measured/jitter_member")
+
 gentest_add_check_death(
     NAME regression_member_shared_fixture_setup_skip_measured_jitter_summary_failed_count
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
-    EXPECT_SUBSTRING "Summary: passed 0/0; failed 1; skipped 0; xfail 0; xpass 0."
+    EXPECT_SUBSTRING "Summary: passed 0/1; failed 1; skipped 0; xfail 0; xpass 0."
     ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter)
 
 gentest_add_check_death(
@@ -920,6 +1041,15 @@ unset(_gentest_shared_fixture_skip_reason_name)
 unset(_gentest_shared_fixture_skip_reason_prog)
 unset(_gentest_shared_fixture_skip_reason_run)
 unset(_gentest_shared_fixture_skip_reason_substring)
+
+gentest_add_cmake_script_test(
+    NAME regression_shared_fixture_manual_setup_throw_runs_teardown
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_throw_skip>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/shared_fixture_manual_setup_throw_skip/member_case --kind=test
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=manual-setup-teardown-ran")
 
 gentest_add_check_counts(
     NAME regression_shared_fixture_runtime_registration_during_run_rejected

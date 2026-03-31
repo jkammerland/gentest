@@ -27,7 +27,7 @@ struct Adopt {
     Adopt(const Adopt &)            = delete;
     Adopt &operator=(const Adopt &) = delete;
 
-    explicit Adopt(const Token &t) : prev(detail::current_test()), adopted(t) {
+    explicit Adopt(Token t) : prev(detail::current_test()), adopted(std::move(t)) {
         if (adopted) {
             adopted->adopted_tokens.fetch_add(1, std::memory_order_acq_rel);
         }
@@ -48,12 +48,13 @@ struct Adopt {
 
 // Lightweight per-test logging; appended to failure messages when enabled.
 inline void log(std::string_view message) {
-    auto ctx = detail::g_current_test;
+    auto  ctx    = detail::current_test_storage();
+    auto &buffer = detail::current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed))
         return;
-    if (detail::g_current_buffer.owner != ctx.get()) {
-        detail::flush_current_buffer_for(detail::g_current_buffer.owner);
-        detail::g_current_buffer.owner = ctx.get();
+    if (buffer.owner != ctx.get()) {
+        detail::flush_current_buffer_for(buffer.owner);
+        buffer.owner = ctx.get();
     }
 
     bool dump_logs_on_failure = false;
@@ -62,15 +63,15 @@ inline void log(std::string_view message) {
         dump_logs_on_failure = ctx->dump_logs_on_failure;
     }
 
-    detail::g_current_buffer.logs.emplace_back(message);
+    buffer.logs.emplace_back(message);
     if (dump_logs_on_failure) {
-        detail::g_current_buffer.event_lines.emplace_back(message);
-        detail::g_current_buffer.event_kinds.push_back('L');
+        buffer.event_lines.emplace_back(message);
+        buffer.event_kinds.push_back('L');
     }
 }
 
 inline void log_on_fail(bool enable = true) {
-    auto ctx = detail::g_current_test;
+    auto ctx = detail::current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed))
         return;
     std::lock_guard<std::mutex> lk(ctx->mtx);
@@ -94,11 +95,11 @@ inline void skip_if(bool condition, std::string_view reason = {}, const std::sou
 
 inline void xfail(std::string_view reason = {}, const std::source_location &loc = std::source_location::current()) {
     (void)loc;
-    auto ctx = detail::g_current_test;
+    auto ctx = detail::current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        std::fputs("gentest: fatal: xfail called without an active test context.\n"
-                   "        Did you forget to adopt the test context in this thread/coroutine?\n",
-                   stderr);
+        (void)std::fputs("gentest: fatal: xfail called without an active test context.\n"
+                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         stderr);
         std::abort();
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);

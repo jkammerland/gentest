@@ -4,8 +4,7 @@ using namespace gentest::asserts;
 #include <memory>
 #include <stdexcept>
 
-#include "mocking/types.h"
-#include "gentest/mock.h"
+#include "public/gentest_textual_suite_mocks.hpp"
 
 namespace failing {
 
@@ -38,9 +37,15 @@ void will_fail() {
 void predicate_mismatch() {
     using namespace gentest::match;
     gentest::mock<mocking::Ticker> mock_obj;
-    gentest::expect(mock_obj, &mocking::Ticker::tick).where_args(Eq(3)).times(1);
+    gentest::expect<&mocking::Ticker::tick>(mock_obj, "::mocking::Ticker::tick").where_args(Eq(3)).times(1);
     // Mismatch: should record a failure due to predicate not matching
     mock_obj.tick(4);
+}
+
+[[using gentest: test("mocking/ambiguous_template_member_pointer")]]
+void ambiguous_template_member_pointer() {
+    gentest::mock<mocking::Ticker> mock_obj;
+    gentest::expect(mock_obj, &mocking::Ticker::tadd<int>).times(1);
 }
 
 [[using gentest: test("logging/attachment")]]

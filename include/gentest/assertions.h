@@ -32,7 +32,7 @@ struct Approx {
     }
 
     template <typename T> bool matches(const T &value) const {
-        const long double a    = static_cast<long double>(value);
+        const auto a           = static_cast<long double>(value);
         const long double diff = a > target ? (a - target) : (target - a);
         if (abs_epsilon > 0 && diff <= abs_epsilon)
             return true;
@@ -331,6 +331,24 @@ inline void assert_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
 // These live under gentest::asserts; test files may `using namespace gentest::asserts;`.
 namespace asserts {
 
+namespace detail_internal {
+
+template <class Expected> inline std::string_view expected_exception_name() {
+#if defined(__clang__)
+#if __has_feature(cxx_rtti)
+    return typeid(Expected).name();
+#else
+    return "exception";
+#endif
+#elif defined(__GXX_RTTI) || defined(_CPPRTTI)
+    return typeid(Expected).name();
+#else
+    return "exception";
+#endif
+}
+
+} // namespace detail_internal
+
 inline void EXPECT_TRUE(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
     expect(condition, message, loc);
 }
@@ -407,14 +425,37 @@ inline void ASSERT_GE(L &&lhs, R &&rhs, std::string_view message = {}, const std
     require_ge(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
 }
 
+// Module-friendly exception assertions. Include-based consumers can keep using
+// the macro forms below; `import gentest;` consumers use these function
+// templates instead.
+template <class Expected, class Fn>
+inline void EXPECT_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::expect_throw<Expected>(
+        std::forward<Fn>(fn), detail_internal::expected_exception_name<Expected>(), loc);
+}
+
+template <class Fn> inline void EXPECT_NO_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::expect_no_throw(std::forward<Fn>(fn), loc);
+}
+
+template <class Expected, class Fn>
+inline void ASSERT_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_throw<Expected>(
+        std::forward<Fn>(fn), detail_internal::expected_exception_name<Expected>(), loc);
+}
+
+template <class Fn> inline void ASSERT_NO_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_no_throw(std::forward<Fn>(fn), loc);
+}
+
 } // namespace asserts
 
 // Unconditionally throw a gentest::failure with the provided message.
-inline void fail(std::string message) {
+inline void fail(std::string_view message) {
 #if GENTEST_EXCEPTIONS_ENABLED
-    throw failure(std::move(message));
+    throw failure(std::string(message));
 #else
-    ::gentest::detail::record_failure(std::move(message));
+    ::gentest::detail::record_failure(std::string(message));
     ::gentest::detail::terminate_no_exceptions_fatal("gentest::fail");
 #endif
 }

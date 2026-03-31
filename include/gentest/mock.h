@@ -80,12 +80,34 @@ struct MethodIdentity {
     template <class MethodPtr> static MethodIdentity from(MethodPtr ptr) {
         MethodIdentity id;
         id.bytes.resize(sizeof(MethodPtr));
-        std::memcpy(id.bytes.data(), &ptr, sizeof(MethodPtr));
+        std::memcpy(id.bytes.data(), static_cast<const void *>(std::addressof(ptr)), sizeof(MethodPtr));
+        return id;
+    }
+
+    static MethodIdentity named(std::string_view name) {
+        MethodIdentity id;
+        id.bytes.resize(name.size());
+        if (!name.empty()) {
+            std::memcpy(id.bytes.data(), name.data(), name.size());
+        }
         return id;
     }
 
     bool operator==(const MethodIdentity &other) const noexcept { return bytes == other.bytes; }
 };
+
+// Use a compile-time method token when the exact selected method is known.
+// MSVC-family Windows toolchains need this to avoid identical-code-folding
+// collisions; other toolchains keep the raw member-pointer bytes so distinct
+// template instantiations remain distinct identities.
+template <auto Method> inline MethodIdentity method_constant_identity() {
+#if defined(_MSC_VER)
+    constexpr std::string_view token = __FUNCSIG__;
+    return MethodIdentity::named(token);
+#else
+    return MethodIdentity::from(Method);
+#endif
+}
 
 struct MethodIdentityHash {
     std::size_t operator()(const MethodIdentity &id) const noexcept {
@@ -97,6 +119,9 @@ struct MethodIdentityHash {
         return value;
     }
 };
+
+template <typename Lhs, typename Rhs>
+inline constexpr bool same_v = std::is_same_v<Lhs, Rhs>;
 
 struct ExpectationBase {
     virtual ~ExpectationBase()                        = default;
@@ -112,7 +137,7 @@ concept Ostreamable = requires(std::ostream &os, const T &v) {
 };
 
 template <typename T>
-static std::string to_string_fallback(const T &v) {
+inline std::string to_string_fallback(const T &v) {
     if constexpr (Ostreamable<T>) {
         std::ostringstream oss;
         oss << v;
@@ -144,29 +169,51 @@ ArgPredicate<T> to_arg_predicate(P &&p) {
     }
 }
 
+template <std::size_t I = 0, typename ExpectedTuple, typename ActualTuple>
+bool tuple_args_match(const ExpectedTuple &expected, const ActualTuple &actual) {
+    if constexpr (I == std::tuple_size_v<std::remove_reference_t<ExpectedTuple>>) {
+        return true;
+    } else {
+        return (std::get<I>(expected) == std::get<I>(actual)) && tuple_args_match<I + 1>(expected, actual);
+    }
+}
+
+template <std::size_t I = 0, typename ExpectedTuple, typename ActualTuple>
+void report_first_tuple_arg_mismatch(const ExpectedTuple &expected, std::string_view method_name, const ActualTuple &actual) {
+    if constexpr (I < std::tuple_size_v<std::remove_reference_t<ExpectedTuple>>) {
+        if (!(std::get<I>(expected) == std::get<I>(actual))) {
+            ::gentest::detail::record_failure(fmt::format("argument[{}] mismatch for {}: expected {}, got {}", I, method_name,
+                to_string_fallback(std::get<I>(expected)), to_string_fallback(std::get<I>(actual))));
+            return;
+        }
+        report_first_tuple_arg_mismatch<I + 1>(expected, method_name, actual);
+    }
+}
+
+template <std::size_t I = 0, typename PredicateTuple, typename ActualTuple>
+bool tuple_args_match_predicates(const PredicateTuple &preds, std::string_view method_name, const ActualTuple &actual) {
+    if constexpr (I == std::tuple_size_v<std::remove_reference_t<PredicateTuple>>) {
+        return true;
+    } else {
+        const auto &ap = std::get<I>(preds);
+        const auto &a  = std::get<I>(actual);
+        if (!ap.test(a)) {
+            const std::string msg = ap.describe ? ap.describe(a) : std::string("predicate mismatch");
+            ::gentest::detail::record_failure(fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg));
+            return false;
+        }
+        return tuple_args_match_predicates<I + 1>(preds, method_name, actual);
+    }
+}
+
 template <typename Tuple, typename... A>
 bool check_args_equal(const std::optional<Tuple> &expected, std::string_view method_name, const A &...actual) {
     if (!expected)
         return true;
     const auto actual_tuple = std::forward_as_tuple(actual...);
-    const bool matched      = [&]<std::size_t... I>(std::index_sequence<I...>) {
-        return ((std::get<I>(*expected) == std::get<I>(actual_tuple)) && ...);
-    }(std::make_index_sequence<sizeof...(A)>{});
+    const bool matched      = tuple_args_match(*expected, actual_tuple);
     if (!matched) {
-        // Report first mismatch with indices for clarity
-        bool reported = false;
-        [&]<std::size_t... I>(std::index_sequence<I...>) {
-            (([&] {
-                 if (reported) return;
-                 if (!(std::get<I>(*expected) == std::get<I>(actual_tuple))) {
-                     ::gentest::detail::record_failure(fmt::format(
-                         "argument[{}] mismatch for {}: expected {}, got {}", I, method_name, to_string_fallback(std::get<I>(*expected)),
-                        to_string_fallback(std::get<I>(actual_tuple))), std::source_location::current());
-                     reported = true;
-                 }
-             }()),
-             ...);
-        }(std::make_index_sequence<sizeof...(A)>{});
+        report_first_tuple_arg_mismatch(*expected, method_name, actual_tuple);
     }
     return matched;
 }
@@ -176,22 +223,7 @@ bool check_args_by_predicates(const std::optional<TuplePred> &preds, std::string
     if (!preds)
         return true;
     const auto actual_tuple = std::forward_as_tuple(actual...);
-    bool       ok           = true;
-    [&]<std::size_t... I>(std::index_sequence<I...>) {
-        ((ok = ok && ([&] {
-              const auto &ap = std::get<I>(*preds);
-              const auto &a  = std::get<I>(actual_tuple);
-              if (!ap.test(a)) {
-                  const std::string msg = ap.describe ? ap.describe(a) : std::string("predicate mismatch");
-                  ::gentest::detail::record_failure(
-                      fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg), std::source_location::current());
-                  return false;
-              }
-              return true;
-          }())),
-         ...);
-    }(std::make_index_sequence<sizeof...(A)>{});
-    return ok;
+    return tuple_args_match_predicates(*preds, method_name, actual_tuple);
 }
 
 inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std::string_view method_name, bool &already_verified) {
@@ -199,8 +231,7 @@ inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std
         return;
     already_verified = true;
     if (observed < expected) {
-        ::gentest::detail::record_failure(
-            fmt::format("expected {} call(s) to {} but observed {}", expected, method_name, observed), std::source_location::current());
+        ::gentest::detail::record_failure(fmt::format("expected {} call(s) to {} but observed {}", expected, method_name, observed));
     }
 }
 
@@ -291,13 +322,13 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
         action = std::move(next_action);
     }
 
-    R invoke(std::string_view method_name, Args... args) {
+    R invoke(std::string_view method_name, const std::decay_t<Args> &...args) {
         std::function<R(const std::decay_t<Args>&...)> action_snapshot;
         {
             std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
             action_snapshot = action;
         }
-        (void)this->check_args(method_name, std::forward<Args>(args)...);
+        (void)this->check_args(method_name, args...);
         if (action_snapshot) {
             return action_snapshot(args...);
         }
@@ -321,13 +352,13 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommo
         action = std::move(next_action);
     }
 
-    void invoke(std::string_view method_name, Args... args) {
+    void invoke(std::string_view method_name, const std::decay_t<Args> &...args) {
         std::function<void(const std::decay_t<Args>&...)> action_snapshot;
         {
             std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
             action_snapshot = action;
         }
-        (void)this->check_args(method_name, std::forward<Args>(args)...);
+        (void)this->check_args(method_name, args...);
         if (action_snapshot) {
             action_snapshot(args...);
         }
@@ -336,11 +367,11 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommo
 
 class InstanceState {
   public:
-    InstanceState()                                 = default;
+    InstanceState();
     InstanceState(const InstanceState &)            = delete;
     InstanceState &operator=(const InstanceState &) = delete;
 
-    ~InstanceState() = default;
+    ~InstanceState();
 
     void set_nice(bool v) {
         std::lock_guard<std::mutex> lk(mtx_);
@@ -376,34 +407,50 @@ class InstanceState {
             entry.method_name = std::move(method_name);
         auto expectation = std::make_shared<Expectation<R(Args...)>>();
         expectation->runtime_started = runtime_started_;
-        entry.queue.push_back(expectation);
         entry.expectations.push_back(expectation);
         return expectation;
     }
 
     template <typename R, typename... Args> R dispatch(const MethodIdentity &id, std::string_view method_name, Args &&...args) {
-        std::shared_ptr<ExpectationBase> base_expectation;
-        bool                             nice_mode = false;
-        bool                             unexpected = false;
+        return dispatch_with_fallback<R>(id, id, method_name, std::forward<Args>(args)...);
+    }
+
+    template <typename R, typename... Args>
+    R dispatch_with_fallback(const MethodIdentity &id, const MethodIdentity &fallback_id, std::string_view method_name, Args &&...args) {
+        using ExpectationT = Expectation<R(Args...)>;
+        bool          nice_mode   = false;
+        bool          unexpected  = false;
+        ExpectationT *expectation = nullptr;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             runtime_started_->store(true, std::memory_order_release);
             frozen_ = true;
-            auto                       it = methods_.find(id);
-            if (it != methods_.end() && !it->second.queue.empty()) {
-                base_expectation = it->second.queue.front();
-                auto expectation = std::static_pointer_cast<Expectation<R(Args...)>>(base_expectation);
+            const auto try_take_expectation = [&](const MethodIdentity &candidate) -> bool {
+                auto it = methods_.find(candidate);
+                if (it == methods_.end() || it->second.next_expectation >= it->second.expectations.size()) {
+                    return false;
+                }
+                // Reuse the stored expectation object directly. Once a mock is
+                // frozen, the owning deque keeps entries alive for the rest of
+                // the mock lifetime, so a raw pointer avoids fragile shared_ptr
+                // copy/assignment emission in downstream module consumers.
+                expectation = static_cast<ExpectationT *>(it->second.expectations[it->second.next_expectation].get());
                 unexpected       = !expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls;
                 ++expectation->observed_calls;
                 if (!expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls) {
-                    it->second.queue.pop_front();
+                    ++it->second.next_expectation;
                 }
-            } else {
+                return true;
+            };
+
+            const bool matched = try_take_expectation(id) ||
+                                 (!(fallback_id == id) && try_take_expectation(fallback_id));
+            if (!matched) {
                 nice_mode = nice_mode_;
             }
         }
 
-        if (!base_expectation) {
+        if (!expectation) {
             if (!nice_mode) {
                 ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
             }
@@ -417,10 +464,8 @@ class InstanceState {
                 return;
             }
         }
-        using ExpectationT = Expectation<R(Args...)>;
-        auto expectation = std::static_pointer_cast<ExpectationT>(std::move(base_expectation));
         if (unexpected) {
-            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name), std::source_location::current());
+            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
         }
         if constexpr (std::is_void_v<R>) {
             expectation->invoke(method_name, std::forward<Args>(args)...);
@@ -432,8 +477,9 @@ class InstanceState {
   private:
     struct MethodEntry {
         std::string                                  method_name;
-        std::deque<std::shared_ptr<ExpectationBase>> queue;
-        std::vector<std::shared_ptr<ExpectationBase>> expectations;
+        // Keep a single stable container for both dispatch and verification.
+        std::deque<std::shared_ptr<ExpectationBase>> expectations;
+        std::size_t                                  next_expectation = 0;
     };
 
     mutable std::mutex                                                mtx_;
@@ -442,6 +488,12 @@ class InstanceState {
     bool                                                               nice_mode_       = false;
     bool                                                               frozen_          = false;
 };
+
+// Keep these out-of-class so GCC module consumers emit concrete special-member
+// definitions for imported mocks instead of referencing a missing defaulted
+// constructor symbol from downstream package builds.
+inline InstanceState::InstanceState() = default;
+inline InstanceState::~InstanceState() = default;
 
 template <typename Signature> class ExpectationHandle;
 
@@ -578,28 +630,39 @@ struct MethodTraits<R (Class::*)(Args...) const volatile> : MethodTraits<R(Args.
 template <typename Class, typename R, typename... Args>
 struct MethodTraits<R (Class::*)(Args...) const volatile noexcept> : MethodTraits<R(Args...)> {};
 
-#define GENTEST_DETAIL_MOCK_METHOD_TRAITS(refqual)                                                                                         \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) refqual> : MethodTraits<R(Args...)> {};                                                      \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) refqual noexcept> : MethodTraits<R(Args...)> {};                                             \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) const refqual> : MethodTraits<R(Args...)> {};                                                \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) const refqual noexcept> : MethodTraits<R(Args...)> {};                                       \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) volatile refqual> : MethodTraits<R(Args...)> {};                                             \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) volatile refqual noexcept> : MethodTraits<R(Args...)> {};                                    \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) const volatile refqual> : MethodTraits<R(Args...)> {};                                       \
-    template <typename Class, typename R, typename... Args>                                                                                \
-    struct MethodTraits<R (Class::*)(Args...) const volatile refqual noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) & noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const & noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) volatile &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) volatile & noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const volatile &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const volatile & noexcept> : MethodTraits<R(Args...)> {};
 
-GENTEST_DETAIL_MOCK_METHOD_TRAITS(&)
-GENTEST_DETAIL_MOCK_METHOD_TRAITS(&&)
-
-#undef GENTEST_DETAIL_MOCK_METHOD_TRAITS
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) && noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const && noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) volatile &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) volatile && noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const volatile &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args>
+struct MethodTraits<R (Class::*)(Args...) const volatile && noexcept> : MethodTraits<R(Args...)> {};
 
 } // namespace detail::mocking
 
@@ -623,6 +686,10 @@ template <class Mock> struct MockAccess {
         using Signature = typename mocking::MethodTraits<MethodPtr>::Signature;
         return mocking::ExpectationHandle<Signature>{};
     }
+    template <auto Method> static auto expect_constant(Mock &, std::string_view method_name) {
+        using Signature = typename mocking::MethodTraits<decltype(Method)>::Signature;
+        return mocking::ExpectationHandle<Signature>{{}, std::string(method_name)};
+    }
     static void set_nice(Mock &, bool) {}
 #endif
 };
@@ -631,6 +698,10 @@ template <class Mock> struct MockAccess {
 
 template <class Mock, class MethodPtr> auto expect(Mock &instance, MethodPtr method) {
     return detail::MockAccess<std::remove_cvref_t<Mock>>::expect(instance, method);
+}
+
+template <auto Method, class Mock> auto expect(Mock &instance, std::string_view method_name) {
+    return detail::MockAccess<std::remove_cvref_t<Mock>>::template expect_constant<Method>(instance, method_name);
 }
 
 template <class Mock>
@@ -645,8 +716,8 @@ void make_strict(Mock &instance) {
 // Convenience macros to configure expectations with a terse syntax.
 // Usage: EXPECT_CALL(mock, method).times(2)...
 #ifndef GENTEST_NO_EXPECT_CALL_MACROS
-#define EXPECT_CALL(instance, method) \
-    ::gentest::expect((instance), &std::remove_reference_t<decltype(instance)>::GentestTarget::method)
+#define EXPECT_CALL(instance, method)                                                                               \
+    (::gentest::expect<&std::remove_reference_t<decltype(instance)>::GentestTarget::method>((instance), #method))
 #define ASSERT_CALL(instance, method) EXPECT_CALL(instance, method)
 #endif
 
@@ -804,7 +875,7 @@ template <typename V, typename E> struct NearFactory {
 template <typename V, typename E> inline auto Near(V &&v, E &&eps) { return NearFactory<V, E>{std::forward<V>(v), std::forward<E>(eps)}; }
 
 template <typename T>
-static inline std::optional<std::string_view> to_string_view_safe(const T &a) {
+inline std::optional<std::string_view> to_string_view_safe(const T &a) {
     using D = std::decay_t<T>;
     if constexpr (std::is_same_v<D, const char *> || std::is_same_v<D, char *>) {
         if (a == nullptr)
@@ -946,36 +1017,6 @@ template <typename... M> inline auto AllOf(M &&...m) { return AllOfFactory<std::
 
 } // namespace gentest
 
-#if defined(GENTEST_MOCK_REGISTRY_PATH) && !defined(GENTEST_CODEGEN)
-#ifndef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
-#define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x
-#define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)
-#endif
-#define GENTEST_MOCK_REGISTRY_HEADER GENTEST_DETAIL_MOCK_STRINGIFY(GENTEST_MOCK_REGISTRY_PATH)
-#if __has_include(GENTEST_MOCK_REGISTRY_HEADER)
-#include GENTEST_MOCK_REGISTRY_HEADER
-#endif
-#undef GENTEST_MOCK_REGISTRY_HEADER
-#endif
-
-// Include generated mock inline implementations at global scope, so fully
-// qualified definitions like `inline auto gentest::mock<T>::method(...)` are
-// declared in the correct namespace context.
-#if defined(GENTEST_MOCK_IMPL_PATH) && !defined(GENTEST_CODEGEN)
-#ifndef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
-#define GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x) #x
-#define GENTEST_DETAIL_MOCK_STRINGIFY(x) GENTEST_DETAIL_MOCK_STRINGIFY_IMPL(x)
-#endif
-#define GENTEST_MOCK_IMPL_HEADER GENTEST_DETAIL_MOCK_STRINGIFY(GENTEST_MOCK_IMPL_PATH)
-#if __has_include(GENTEST_MOCK_IMPL_HEADER)
-#include GENTEST_MOCK_IMPL_HEADER
-#endif
-#undef GENTEST_MOCK_IMPL_HEADER
-#endif
-
-#if defined(GENTEST_DETAIL_MOCK_STRINGIFY)
-#undef GENTEST_DETAIL_MOCK_STRINGIFY
-#endif
-#if defined(GENTEST_DETAIL_MOCK_STRINGIFY_IMPL)
-#undef GENTEST_DETAIL_MOCK_STRINGIFY_IMPL
+#ifndef GENTEST_NO_AUTO_MOCK_INCLUDE
+#include "gentest/mock_codegen.h"
 #endif

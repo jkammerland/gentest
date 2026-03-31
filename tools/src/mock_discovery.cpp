@@ -1,10 +1,12 @@
 #include "mock_discovery.hpp"
 
 #include "log.hpp"
+#include "scan_utils.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <fstream>
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Attr.h>
 #include <clang/AST/Decl.h>
@@ -13,9 +15,11 @@
 #include <clang/AST/Type.h>
 #include <clang/Basic/FileEntry.h>
 #include <clang/Basic/SourceManager.h>
+#include <clang/Lex/Lexer.h>
 #include <filesystem>
 #include <fmt/core.h>
 #include <llvm/ADT/SmallPtrSet.h>
+#include <llvm/ADT/StringRef.h>
 #include <string>
 
 using namespace clang;
@@ -23,6 +27,7 @@ using namespace clang::ast_matchers;
 
 namespace gentest::codegen {
 namespace {
+using gentest::codegen::scan::named_module_name_from_source_file;
 
 using ParamPassStyle = MockParamInfo::PassStyle;
 
@@ -55,6 +60,13 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     qt.print(os, policy);
     os.flush();
     return result;
+}
+
+[[nodiscard]] std::string trim_leading_global_qualifier(std::string value) {
+    if (value.starts_with("::")) {
+        value.erase(0, 2);
+    }
+    return value;
 }
 
 [[nodiscard]] std::string ref_qualifier_string(RefQualifierKind kind) {
@@ -170,6 +182,19 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return false;
 }
 
+[[nodiscard]] std::optional<std::string> named_module_name_from_file(std::string_view path);
+
+[[nodiscard]] bool file_declares_named_module(std::string_view path) {
+    return named_module_name_from_file(path).has_value();
+}
+
+[[nodiscard]] std::optional<std::string> named_module_name_from_file(std::string_view path) {
+    if (path.empty()) {
+        return std::nullopt;
+    }
+    return named_module_name_from_source_file(std::filesystem::path{std::string(path)});
+}
+
 template <typename DeclT> [[nodiscard]] bool is_in_named_module_compat(const DeclT &decl) {
     if constexpr (requires { decl.isInNamedModule(); }) {
         return decl.isInNamedModule();
@@ -206,16 +231,125 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
     if (resolved.empty()) {
         return resolved;
     }
+    return std::filesystem::path{resolved}.lexically_normal().generic_string();
+}
 
-    std::error_code       ec;
-    std::filesystem::path p{resolved};
-    if (p.is_relative()) {
-        const std::filesystem::path abs = std::filesystem::absolute(p, ec);
-        if (!ec) {
-            p = abs;
+[[nodiscard]] std::optional<std::size_t> location_offset_in_file(const SourceManager &sm, SourceLocation loc) {
+    const SourceLocation file_loc = sm.getFileLoc(loc);
+    if (file_loc.isInvalid()) {
+        return std::nullopt;
+    }
+    return static_cast<std::size_t>(sm.getFileOffset(file_loc));
+}
+
+[[nodiscard]] std::optional<std::size_t> location_after_token_offset(const SourceManager &sm, const LangOptions &lang_opts, SourceLocation loc) {
+    const SourceLocation after = Lexer::getLocForEndOfToken(sm.getFileLoc(loc), 0, sm, lang_opts);
+    if (after.isInvalid()) {
+        return std::nullopt;
+    }
+    return location_offset_in_file(sm, after);
+}
+
+[[nodiscard]] std::optional<std::size_t> find_attachment_insertion_offset(const CXXRecordDecl &record, const ASTContext &ctx,
+                                                                          const SourceManager &sm) {
+    const LangOptions &lang_opts = ctx.getLangOpts();
+
+    if (const SourceLocation after_semi =
+            Lexer::findLocationAfterToken(sm.getFileLoc(record.getEndLoc()), tok::semi, sm, lang_opts, true);
+        after_semi.isValid()) {
+        return location_offset_in_file(sm, after_semi);
+    }
+
+    return location_after_token_offset(sm, lang_opts, record.getEndLoc());
+}
+
+[[nodiscard]] std::string namespace_reopen_prefix(const NamespaceDecl &ns, const ASTContext &ctx, const SourceManager &sm) {
+    const SourceLocation begin = sm.getFileLoc(ns.getBeginLoc());
+    const SourceLocation rbrace = sm.getFileLoc(ns.getRBraceLoc());
+    if (begin.isInvalid() || rbrace.isInvalid()) {
+        return {};
+    }
+
+    const auto text = Lexer::getSourceText(CharSourceRange::getCharRange(begin, rbrace), sm, ctx.getLangOpts()).str();
+    const auto brace_pos = text.find('{');
+    if (brace_pos == std::string::npos) {
+        return {};
+    }
+    return llvm::StringRef(text).substr(0, brace_pos).rtrim().str();
+}
+
+[[nodiscard]] std::vector<MockNamespaceScopeInfo> collect_attachment_namespace_chain(const CXXRecordDecl &record, const ASTContext &ctx,
+                                                                                      const SourceManager &sm) {
+    std::vector<MockNamespaceScopeInfo> chain;
+    std::vector<const NamespaceDecl *>  namespace_decls;
+
+    const DeclContext *decl_ctx = record.getDeclContext();
+    while (decl_ctx != nullptr) {
+        const auto *ns = llvm::dyn_cast<NamespaceDecl>(decl_ctx);
+        if (ns != nullptr && !ns->isAnonymousNamespace()) {
+            namespace_decls.push_back(ns);
+        }
+        decl_ctx = decl_ctx->getParent();
+    }
+
+    std::reverse(namespace_decls.begin(), namespace_decls.end());
+
+    std::size_t current_group = 0;
+    std::optional<std::size_t> current_group_end_offset;
+    for (const auto *ns : namespace_decls) {
+        const std::string reopen_prefix = namespace_reopen_prefix(*ns, ctx, sm);
+        const bool        is_shorthand_nested_namespace =
+            !chain.empty() && !reopen_prefix.empty() && reopen_prefix.find("namespace") == std::string::npos;
+        const std::optional<std::size_t> end_offset = location_offset_in_file(sm, ns->getRBraceLoc());
+        bool                             new_group = false;
+        if (!is_shorthand_nested_namespace &&
+            (!current_group_end_offset.has_value() || !end_offset.has_value() || *current_group_end_offset != *end_offset)) {
+            ++current_group;
+            current_group_end_offset = end_offset;
+            new_group = true;
+        }
+
+        chain.push_back(MockNamespaceScopeInfo{
+            .name                = ns->getNameAsString(),
+            .is_inline           = ns->isInline(),
+            .is_exported         = llvm::isa<ExportDecl>(ns->getLexicalDeclContext()),
+            .lexical_close_group = current_group,
+            .reopen_prefix       = new_group ? reopen_prefix : std::string{},
+        });
+    }
+
+    return chain;
+}
+
+[[nodiscard]] std::optional<std::string> find_non_namespace_attachment_scope(const CXXRecordDecl &record) {
+    const DeclContext *decl_ctx = record.getDeclContext();
+    while (decl_ctx != nullptr) {
+        if (const auto *parent_record = llvm::dyn_cast<CXXRecordDecl>(decl_ctx)) {
+            std::string scope_name = parent_record->getQualifiedNameAsString();
+            if (scope_name.empty()) {
+                scope_name = "<unnamed-record-scope>";
+            }
+            return scope_name;
+        }
+        decl_ctx = decl_ctx->getParent();
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] const CXXRecordDecl *resolve_mock_target_definition_record(const CXXRecordDecl &record) {
+    if (const auto *definition = record.getDefinition()) {
+        return definition;
+    }
+    if (const auto *specialization = llvm::dyn_cast<ClassTemplateSpecializationDecl>(&record)) {
+        if (const auto *specialized_template = specialization->getSpecializedTemplate()) {
+            if (const auto *templated_decl = specialized_template->getTemplatedDecl()) {
+                if (const auto *definition = templated_decl->getDefinition()) {
+                    return definition;
+                }
+            }
         }
     }
-    return p.lexically_normal().generic_string();
+    return nullptr;
 }
 
 } // namespace
@@ -237,59 +371,53 @@ void MockUsageCollector::report(const SourceManager &sm, SourceLocation loc, std
     }
 }
 
-void MockUsageCollector::handle_specialization(const ClassTemplateSpecializationDecl &decl, const MatchFinder::MatchResult &result) {
-    if (decl.getTemplateArgs().size() == 0) {
-        had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock requires at least one template argument");
-        return;
-    }
-
-    const TemplateArgument &first = decl.getTemplateArgs().get(0);
-    if (first.getKind() != TemplateArgument::Type) {
-        had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock expects a type argument");
-        return;
-    }
-
-    QualType target_type = first.getAsType();
+void MockUsageCollector::handle_mock_target_type(const QualType &target_type, SourceLocation use_loc,
+                                                 const MatchFinder::MatchResult &result) {
     if (target_type.isNull()) {
         had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock argument resolves to an invalid type");
+        report(*result.SourceManager, use_loc, "gentest::mock argument resolves to an invalid type");
         return;
     }
 
     const auto *record = target_type->getAsCXXRecordDecl();
     if (record == nullptr) {
         had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock argument is not a class or struct type");
+        report(*result.SourceManager, use_loc, "gentest::mock argument is not a class or struct type");
         return;
     }
 
-    record = record->getDefinition();
-    if (record == nullptr) {
+    const auto *definition_record = resolve_mock_target_definition_record(*record);
+    if (definition_record == nullptr) {
         had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(),
+        report(*result.SourceManager, use_loc,
                "gentest::mock<T>: target type is incomplete here; move the interface to a header and include it before the generated mock "
                "registry.");
         return;
     }
 
     const auto *canonical = record->getCanonicalDecl();
-    if (!seen_.insert(canonical).second) {
+    const ASTContext    &ctx      = *result.Context;
+    const SourceManager &sm       = *result.SourceManager;
+    const SourceLocation def_loc  = sm.getFileLoc(definition_record->getBeginLoc());
+    const std::string    use_file = resolve_definition_file(sm, use_loc);
+    if (const auto it = seen_.find(canonical); it != seen_.end()) {
+        auto &existing = out_[it->second];
+        if (!use_file.empty() &&
+            std::find(existing.use_files.begin(), existing.use_files.end(), use_file) == existing.use_files.end()) {
+            existing.use_files.push_back(use_file);
+        }
         return;
     }
 
     if (record->isUnion()) {
         had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock does not support union types");
+        report(*result.SourceManager, use_loc, "gentest::mock does not support union types");
         return;
     }
 
-    // Disallow anonymous-namespace and local (function-scope) types: these do not
-    // have stable, externally visible qualified names and cannot be safely mocked.
     {
         bool               in_anonymous_ns = false;
-        const DeclContext *ctx             = record->getDeclContext();
+        const DeclContext *ctx = record->getDeclContext();
         while (ctx != nullptr) {
             if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(ctx)) {
                 if (ns->isAnonymousNamespace()) {
@@ -301,56 +429,75 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         }
         if (in_anonymous_ns) {
             had_error_ = true;
-            report(*result.SourceManager, decl.getBeginLoc(),
+            report(*result.SourceManager, use_loc,
                    "gentest::mock<T>: cannot mock a type in an anonymous namespace; move it to a named namespace");
             return;
         }
-        if (record->isLocalClass()) {
+        if (definition_record->isLocalClass()) {
             had_error_ = true;
-            report(*result.SourceManager, decl.getBeginLoc(),
+            report(*result.SourceManager, use_loc,
                    "gentest::mock<T>: cannot mock a local class defined inside a function; move it to namespace scope");
             return;
         }
     }
 
-    if (record->hasAttr<FinalAttr>() || record->isEffectivelyFinal()) {
+    if (definition_record->hasAttr<FinalAttr>() || definition_record->isEffectivelyFinal()) {
         had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock cannot mock a final class");
+        report(*result.SourceManager, use_loc, "gentest::mock cannot mock a final class");
         return;
     }
 
-    const auto *dtor = record->getDestructor();
+    const auto *dtor = definition_record->getDestructor();
     if (dtor && dtor->getAccess() == AS_private) {
         had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock requires a non-private destructor");
+        report(*result.SourceManager, use_loc, "gentest::mock requires a non-private destructor");
         return;
     }
 
     MockClassInfo info;
-    info.qualified_name     = record->getQualifiedNameAsString();
+    info.qualified_name     = trim_leading_global_qualifier(print_type(target_type, ctx));
     info.display_name       = info.qualified_name;
-    info.derive_for_virtual = record->isPolymorphic();
-    if (const auto *dtor = record->getDestructor()) {
-        info.has_virtual_destructor = dtor->isVirtual();
+    info.derive_for_virtual = definition_record->isPolymorphic();
+    if (const auto *record_dtor = definition_record->getDestructor()) {
+        info.has_virtual_destructor = record_dtor->isVirtual();
     } else {
         info.has_virtual_destructor = false;
     }
-    info.has_accessible_default_ctor = has_accessible_default_ctor(*record);
+    info.has_accessible_default_ctor = has_accessible_default_ctor(*definition_record);
 
-    const ASTContext    &ctx                     = *result.Context;
-    const SourceManager &sm                      = *result.SourceManager;
-    const SourceLocation def_loc                 = sm.getFileLoc(record->getBeginLoc());
-    const std::string    definition_file         = resolve_definition_file(sm, def_loc);
-    const bool from_named_module_interface = is_in_named_module_compat(*record) && !is_from_header_unit_compat(*record);
-    if (definition_file.empty() || looks_like_source_or_module_interface(definition_file) || from_named_module_interface) {
+    const std::string definition_file = resolve_definition_file(sm, def_loc);
+    const auto definition_module = named_module_name_from_file(definition_file);
+    const bool from_named_module =
+        (is_in_named_module_compat(*definition_record) && !is_from_header_unit_compat(*definition_record)) || definition_module.has_value();
+    if (definition_file.empty() || (looks_like_source_or_module_interface(definition_file) && !from_named_module)) {
         had_error_                 = true;
         const std::string location = definition_file.empty() ? std::string{"<unknown-file>"} : definition_file;
-        report(sm, decl.getBeginLoc(),
+        report(sm, use_loc,
                fmt::format("gentest::mock<{}>: target definition must be in a header or header module (found in {})",
                            record->getQualifiedNameAsString(), location));
         return;
     }
     info.definition_file = definition_file;
+    if (!use_file.empty()) {
+        info.use_files.push_back(use_file);
+    }
+    info.definition_kind =
+        from_named_module ? MockClassInfo::DefinitionKind::NamedModule : MockClassInfo::DefinitionKind::HeaderLike;
+    if (from_named_module) {
+        if (const auto enclosing_scope = find_non_namespace_attachment_scope(*definition_record)) {
+            had_error_ = true;
+            report(sm, use_loc,
+                   fmt::format("gentest::mock<{}>: named-module mock targets must be declared at namespace scope; nested type "
+                               "scope '{}' is not supported",
+                               record->getQualifiedNameAsString(), *enclosing_scope));
+            return;
+        }
+    }
+    if (definition_module.has_value()) {
+        info.definition_module_name = *definition_module;
+        info.attachment_insertion_offset = find_attachment_insertion_offset(*definition_record, ctx, sm);
+        info.attachment_namespace_chain  = collect_attachment_namespace_chain(*definition_record, ctx, sm);
+    }
 
     // Capture constructors (excluding the default ctor which is tracked via
     // has_accessible_default_ctor). For polymorphic targets, this list is used
@@ -420,10 +567,10 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         info.constructors.push_back(std::move(ctor_info));
     };
 
-    for (const auto *ctor : record->ctors()) {
+    for (const auto *ctor : definition_record->ctors()) {
         capture_ctor(ctor);
     }
-    for (const auto *decl : record->decls()) {
+    for (const auto *decl : definition_record->decls()) {
         const auto *ft = llvm::dyn_cast<FunctionTemplateDecl>(decl);
         if (ft == nullptr)
             continue;
@@ -435,7 +582,7 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     // the mock type would be impossible to instantiate.
     if (info.derive_for_virtual && !info.has_accessible_default_ctor && info.constructors.empty()) {
         had_error_ = true;
-        report(*result.SourceManager, decl.getBeginLoc(),
+        report(*result.SourceManager, use_loc,
                fmt::format("gentest::mock<{}>: target has no accessible constructors", record->getQualifiedNameAsString()));
         return;
     }
@@ -509,12 +656,12 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
         info.methods.push_back(std::move(method_info));
     };
 
-    for (const auto *method : record->methods()) {
+    for (const auto *method : definition_record->methods()) {
         capture_method(method);
     }
 
     // Also capture function template declarations (non-virtual in practice).
-    for (const auto *decl : record->decls()) {
+    for (const auto *decl : definition_record->decls()) {
         if (const auto *ft = llvm::dyn_cast<FunctionTemplateDecl>(decl)) {
             if (const auto *templated = llvm::dyn_cast<CXXMethodDecl>(ft->getTemplatedDecl())) {
                 capture_method(templated);
@@ -526,19 +673,120 @@ void MockUsageCollector::handle_specialization(const ClassTemplateSpecialization
     std::ranges::sort(info.methods, {}, &MockMethodInfo::qualified_name);
 
     out_.push_back(std::move(info));
+    seen_[canonical] = out_.size() - 1;
+}
+
+void MockUsageCollector::handle_specialization(const ClassTemplateSpecializationDecl &decl, const MatchFinder::MatchResult &result) {
+    if (decl.getTemplateArgs().size() == 0) {
+        had_error_ = true;
+        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock requires at least one template argument");
+        return;
+    }
+
+    const TemplateArgument &first = decl.getTemplateArgs().get(0);
+    if (first.getKind() != TemplateArgument::Type) {
+        had_error_ = true;
+        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock expects a type argument");
+        return;
+    }
+
+    const SourceLocation use_loc = decl.getPointOfInstantiation().isValid() ? decl.getPointOfInstantiation() : decl.getBeginLoc();
+    handle_mock_target_type(first.getAsType(), use_loc, result);
+}
+
+void MockUsageCollector::handle_typedef(const TypedefNameDecl &decl, const MatchFinder::MatchResult &result) {
+    const QualType underlying = decl.getUnderlyingType();
+    if (const auto *specialization = underlying->getAs<TemplateSpecializationType>()) {
+        const TemplateDecl *template_decl = specialization->getTemplateName().getAsTemplateDecl();
+        if (template_decl != nullptr && template_decl->getQualifiedNameAsString() == "gentest::mock") {
+            const auto args = specialization->template_arguments();
+            if (args.empty()) {
+                had_error_ = true;
+                report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock requires at least one template argument");
+                return;
+            }
+
+            const TemplateArgument &first = args.front();
+            if (first.getKind() != TemplateArgument::Type) {
+                had_error_ = true;
+                report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock expects a type argument");
+                return;
+            }
+
+            handle_mock_target_type(first.getAsType(), decl.getLocation(), result);
+            return;
+        }
+    }
+
+    if (const auto *type_source = decl.getTypeSourceInfo()) {
+        for (TypeLoc type_loc = type_source->getTypeLoc(); !type_loc.isNull(); type_loc = type_loc.getNextTypeLoc()) {
+            if (const auto specialization_loc = type_loc.getAs<TemplateSpecializationTypeLoc>()) {
+                const TemplateDecl *template_decl = specialization_loc.getTypePtr()->getTemplateName().getAsTemplateDecl();
+                if (template_decl == nullptr || template_decl->getQualifiedNameAsString() != "gentest::mock") {
+                    continue;
+                }
+
+                if (specialization_loc.getNumArgs() == 0) {
+                    had_error_ = true;
+                    report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock requires at least one template argument");
+                    return;
+                }
+
+                const TemplateArgumentLoc &first_loc = specialization_loc.getArgLoc(0);
+                const TemplateArgument &first = first_loc.getArgument();
+                if (first.getKind() != TemplateArgument::Type) {
+                    had_error_ = true;
+                    report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock expects a type argument");
+                    return;
+                }
+
+                handle_mock_target_type(first.getAsType(), decl.getLocation(), result);
+                return;
+            }
+        }
+    }
+
+    const auto *record = underlying->getAsCXXRecordDecl();
+    const auto *record_specialization = llvm::dyn_cast_or_null<ClassTemplateSpecializationDecl>(record);
+    if (record_specialization == nullptr || record_specialization->getSpecializedTemplate() == nullptr ||
+        record_specialization->getSpecializedTemplate()->getQualifiedNameAsString() != "gentest::mock") {
+        return;
+    }
+
+    if (record_specialization->getTemplateArgs().size() == 0) {
+        had_error_ = true;
+        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock requires at least one template argument");
+        return;
+    }
+
+    const TemplateArgument &first = record_specialization->getTemplateArgs().get(0);
+    if (first.getKind() != TemplateArgument::Type) {
+        had_error_ = true;
+        report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock expects a type argument");
+        return;
+    }
+
+    handle_mock_target_type(first.getAsType(), decl.getLocation(), result);
 }
 
 void MockUsageCollector::run(const MatchFinder::MatchResult &result) {
     if (const auto *spec = result.Nodes.getNodeAs<ClassTemplateSpecializationDecl>("gentest.mock")) {
         handle_specialization(*spec, result);
     }
+    if (const auto *alias = result.Nodes.getNodeAs<TypedefNameDecl>("gentest.mock.alias")) {
+        handle_typedef(*alias, result);
+    }
 }
 
 bool MockUsageCollector::has_errors() const { return had_error_; }
 
 void register_mock_matchers(MatchFinder &finder, MockUsageCollector &collector) {
-    const auto matcher = classTemplateSpecializationDecl(hasName("gentest::mock")).bind("gentest.mock");
-    finder.addMatcher(matcher, &collector);
+    finder.addMatcher(classTemplateSpecializationDecl(hasName("gentest::mock"), unless(isImplicit()),
+                                                      unless(isExpansionInSystemHeader()))
+                          .bind("gentest.mock"),
+                      &collector);
+    finder.addMatcher(typedefNameDecl(unless(isImplicit()), unless(isExpansionInSystemHeader())).bind("gentest.mock.alias"),
+                      &collector);
 }
 
 } // namespace gentest::codegen

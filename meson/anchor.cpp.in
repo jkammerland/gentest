@@ -1,0 +1,4 @@
+// generated placeholder
+namespace gentest::detail {
+int @ANCHOR_SYMBOL@ = 0;
+} // namespace gentest::detail

@@ -1,0 +1,8 @@
+// generated placeholder
+
+// NOLINTNEXTLINE(bugprone-suspicious-include)
+#include "@SOURCE_FILE@"
+
+#if !defined(GENTEST_CODEGEN) && __has_include("@HEADER_FILE@")
+#include "@HEADER_FILE@"
+#endif

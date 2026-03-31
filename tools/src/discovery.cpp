@@ -51,10 +51,6 @@ bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
     return true;
 }
 
-bool has_cpp_extension(llvm::StringRef path) {
-    return ends_with_ci(path, ".cc") || ends_with_ci(path, ".cpp") || ends_with_ci(path, ".cxx");
-}
-
 std::string mis_scoped_gentest_message(std::string_view attribute) {
     return fmt::format("attribute '{}' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification", attribute);
 }
@@ -244,39 +240,6 @@ std::string infer_fixture_type_from_param(const ParmVarDecl &param, const Printi
     return print_type(canonical, policy);
 }
 
-std::optional<FixtureScope> infer_declared_fixture_scope_from_param(const ParmVarDecl &param, const SourceManager &sm) {
-    QualType type = param.getType();
-    if (type->isReferenceType()) {
-        type = type->getPointeeType();
-    }
-    type = type.getUnqualifiedType();
-    if (const auto *pointer = type->getAs<PointerType>()) {
-        type = pointer->getPointeeType().getUnqualifiedType();
-    }
-    if (const auto shared_inner = unwrap_std_shared_ptr(type.getUnqualifiedType())) {
-        type = shared_inner->getUnqualifiedType();
-    }
-    type = type.getUnqualifiedType();
-
-    const auto *record = type->getAsCXXRecordDecl();
-    if (!record) {
-        return std::nullopt;
-    }
-    if (const auto *definition = record->getDefinition()) {
-        record = definition;
-    }
-
-    const auto attrs = collect_gentest_attributes_for(*record, sm);
-    const auto summary = validate_fixture_attributes(attrs.gentest, [](const std::string &) {});
-    if (summary.lifetime == FixtureLifetime::MemberSuite) {
-        return FixtureScope::Suite;
-    }
-    if (summary.lifetime == FixtureLifetime::MemberGlobal) {
-        return FixtureScope::Global;
-    }
-    return std::nullopt;
-}
-
 struct FunctionParamInfo {
     const ParmVarDecl* decl = nullptr;
     std::string name;
@@ -313,13 +276,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     const bool in_main_file = sm->isWrittenInMainFile(loc);
     if (!in_main_file) {
         if (!allow_includes_) {
-            return;
-        }
-        // TU shim mode: the shim includes a single original translation unit
-        // (*.cc/*.cpp/*.cxx). Avoid discovering tests in headers, since the
-        // build system does not yet track header deps for codegen.
-        const llvm::StringRef inc_file = sm->getFilename(loc);
-        if (!has_cpp_extension(inc_file)) {
             return;
         }
     }
@@ -534,6 +490,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
 
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &display_args, const std::string &call_args,
                         const std::vector<std::string> &free_fixture_types,
                         const std::vector<std::optional<FixtureScope>> &free_fixture_required_scopes,
@@ -670,7 +627,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             report(fmt::format("unable to infer fixture type for parameter '{}'", fallback_name));
             return;
         }
-        param.required_scope = infer_declared_fixture_scope_from_param(*param.decl, *sm);
         inferred_fixture_types.push_back(std::move(fixture_type));
         inferred_fixture_required_scopes.push_back(param.required_scope);
     }
@@ -1026,147 +982,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             visit_packs(0, tpl_combo);
         }
     }
-}
-
-std::optional<TestCaseInfo> TestCaseCollector::classify(const FunctionDecl &func, const SourceManager &sm, const LangOptions &lang) const {
-    (void)lang;
-
-    const auto  collected = collect_gentest_attributes_for(func, sm);
-    const auto &parsed    = collected.gentest;
-
-    auto report = [&](std::string_view message) {
-        const SourceLocation  loc     = sm.getSpellingLoc(func.getBeginLoc());
-        const llvm::StringRef file    = sm.getFilename(loc);
-        const unsigned        line    = sm.getSpellingLineNumber(loc);
-        const std::string     subject = func.getQualifiedNameAsString();
-        const std::string     locpfx  = !file.empty() ? fmt::format("{}:{}: ", file.str(), line) : std::string{};
-        const std::string     subj    = !subject.empty() ? fmt::format(" ({})", subject) : std::string{};
-        log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
-    };
-
-    for (const auto &message : collected.mis_scoped_gentest) {
-        had_error_ = true;
-        report(mis_scoped_gentest_message(message));
-    }
-    for (const auto &message : collected.other_namespaces) {
-        report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
-    }
-
-    if (parsed.empty()) {
-        return std::nullopt;
-    }
-
-    auto summary = validate_attributes(parsed, [&](const std::string &m) {
-        had_error_ = true;
-        report(m);
-    });
-
-    if (!summary.is_case) {
-        return std::nullopt;
-    }
-
-    if (!func.doesThisDeclarationHaveABody()) {
-        return std::nullopt;
-    }
-
-    std::string qualified = func.getQualifiedNameAsString();
-    if (qualified.empty()) {
-        qualified = func.getNameAsString();
-    }
-    if (qualified.find("(anonymous namespace)") != std::string::npos) {
-        log_err("gentest_codegen: ignoring test in anonymous namespace: {}\n", qualified);
-        return std::nullopt;
-    }
-
-    auto file_loc = sm.getFileLoc(func.getLocation());
-    auto filename = sm.getFilename(file_loc);
-    if (filename.empty()) {
-        return std::nullopt;
-    }
-
-    unsigned line = sm.getSpellingLineNumber(file_loc);
-
-    const auto suite_override = find_suite_override(func.getDeclContext(), sm, suite_cache_, had_error_);
-
-    const std::string suite_path = suite_override.value_or(derive_namespace_path(func.getDeclContext()));
-
-    std::string base_case_name;
-    if (summary.case_name.has_value()) {
-        base_case_name = *summary.case_name;
-    } else if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {
-        const auto *fixture = method->getParent();
-        const std::string fixture_name = fixture ? fixture->getNameAsString() : std::string{};
-        const std::string method_name  = method->getNameAsString();
-        if (!fixture_name.empty()) {
-            base_case_name = fixture_name + "/" + method_name;
-        } else {
-            base_case_name = method_name;
-        }
-    } else {
-        base_case_name = func.getNameAsString();
-    }
-
-    std::string display_base = suite_path.empty() ? base_case_name : (suite_path + "/" + base_case_name);
-
-    TestCaseInfo info{};
-    info.qualified_name = std::move(qualified);
-    info.display_name   = std::move(display_base);
-    {
-        const SourceLocation tu_loc = sm.getLocForStartOfFile(sm.getMainFileID());
-        const llvm::StringRef tu_file = sm.getFilename(tu_loc);
-        info.tu_filename = tu_file.str();
-    }
-    info.filename       = filename.str();
-    info.suite_name     = suite_path;
-    info.line           = line;
-    info.tags           = std::move(summary.tags);
-    info.requirements   = std::move(summary.requirements);
-    info.should_skip    = summary.should_skip;
-    info.skip_reason    = std::move(summary.skip_reason);
-    info.is_benchmark   = summary.is_benchmark;
-    info.is_jitter      = summary.is_jitter;
-    info.is_baseline    = summary.is_baseline;
-    info.returns_value  = !func.getReturnType()->isVoidType();
-    info.namespace_parts = collect_namespace_parts(func.getDeclContext());
-
-    // If this is a method, collect fixture attributes from the parent class/struct.
-    if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {
-        if (const auto *record = method->getParent()) {
-            const auto class_attrs = collect_gentest_attributes_for(*record, sm);
-            for (const auto &message : class_attrs.mis_scoped_gentest) {
-                had_error_ = true;
-                report(mis_scoped_gentest_message(message));
-            }
-            for (const auto &message : class_attrs.other_namespaces) {
-                report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
-            }
-            auto fixture_summary        = validate_fixture_attributes(class_attrs.gentest, [&](const std::string &m) {
-                had_error_ = true;
-                report(m);
-            });
-            info.fixture_qualified_name = record->getQualifiedNameAsString();
-            if (fixture_summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
-                had_error_            = true;
-                report("'fixture(suite)' requires an enclosing named namespace to derive a suite path");
-                info.fixture_lifetime = FixtureLifetime::MemberEphemeral;
-            } else {
-                info.fixture_lifetime = fixture_summary.lifetime;
-            }
-
-            // Optional strict mode: disallow member tests on suite/global fixtures
-            if (info.fixture_lifetime == FixtureLifetime::MemberSuite || info.fixture_lifetime == FixtureLifetime::MemberGlobal) {
-                if (strict_fixture_) {
-                    had_error_ = true;
-                    if (info.fixture_lifetime == FixtureLifetime::MemberSuite) {
-                        report("suite fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
-                    } else {
-                        report("global fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
-                    }
-                }
-            }
-        }
-    }
-    return info;
 }
 
 bool TestCaseCollector::has_errors() const { return had_error_; }

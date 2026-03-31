@@ -1,0 +1,10 @@
+// generated placeholder
+#pragma once
+
+#define GENTEST_NO_AUTO_MOCK_INCLUDE 1
+#include "gentest/mock.h"
+#include "@DEFS_FILE@"
+#undef GENTEST_NO_AUTO_MOCK_INCLUDE
+
+#include "@REGISTRY_HEADER@"
+#include "@IMPL_HEADER@"

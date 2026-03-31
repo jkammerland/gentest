@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -115,6 +116,52 @@ bool should_enter_char_literal(std::string_view text, std::size_t index) {
         return false;
     }
     return true;
+}
+
+struct RawStringStart {
+    std::size_t prefix_length = 0;
+    std::string delimiter;
+};
+
+std::optional<RawStringStart> detect_raw_string_start(std::string_view text, std::size_t index) {
+    std::size_t cursor = index;
+    if (text.substr(index).starts_with("R\"")) {
+        cursor += 2;
+    } else if (text.substr(index).starts_with("uR\"") || text.substr(index).starts_with("UR\"") ||
+               text.substr(index).starts_with("LR\"")) {
+        cursor += 3;
+    } else if (text.substr(index).starts_with("u8R\"")) {
+        cursor += 4;
+    } else {
+        return std::nullopt;
+    }
+
+    const std::size_t delim_start = cursor;
+    while (cursor < text.size() && text[cursor] != '(') {
+        const char ch = text[cursor];
+        if (ch == '\\' || ch == ')' || std::isspace(static_cast<unsigned char>(ch)) != 0) {
+            return std::nullopt;
+        }
+        ++cursor;
+    }
+    if (cursor >= text.size() || text[cursor] != '(') {
+        return std::nullopt;
+    }
+    return RawStringStart{
+        .prefix_length = cursor - index + 1,
+        .delimiter = std::string(text.substr(delim_start, cursor - delim_start)),
+    };
+}
+
+bool raw_string_closes_here(std::string_view text, std::size_t index, std::string_view delimiter) {
+    if (index >= text.size() || text[index] != ')') {
+        return false;
+    }
+    const std::size_t delimiter_start = index + 1;
+    if (delimiter_start + delimiter.size() >= text.size()) {
+        return false;
+    }
+    return text.substr(delimiter_start, delimiter.size()) == delimiter && text[delimiter_start + delimiter.size()] == '"';
 }
 
 std::string next_identifier_token(std::string_view text, std::size_t index) {
@@ -426,9 +473,19 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
             const std::size_t args_start = index;
             int               depth      = 1;
             bool              in_string  = false;
+            bool              in_char    = false;
+            bool              in_raw     = false;
             bool              escape     = false;
+            std::string       raw_delimiter;
             for (; index < list.size(); ++index) {
                 const char ch = list[index];
+                if (in_raw) {
+                    if (raw_string_closes_here(list, index, raw_delimiter)) {
+                        in_raw = false;
+                        index += raw_delimiter.size() + 1;
+                    }
+                    continue;
+                }
                 if (in_string) {
                     if (escape) {
                         escape = false;
@@ -439,8 +496,28 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
                     }
                     continue;
                 }
+                if (in_char) {
+                    if (escape) {
+                        escape = false;
+                    } else if (ch == '\\') {
+                        escape = true;
+                    } else if (ch == '\'') {
+                        in_char = false;
+                    }
+                    continue;
+                }
+                if (const auto raw_start = detect_raw_string_start(list, index); raw_start.has_value()) {
+                    in_raw        = true;
+                    raw_delimiter = std::move(raw_start->delimiter);
+                    index += raw_start->prefix_length - 1;
+                    continue;
+                }
                 if (ch == '"') {
                     in_string = true;
+                    continue;
+                }
+                if (ch == '\'' && should_enter_char_literal(list, index)) {
+                    in_char = true;
                     continue;
                 }
                 if (ch == '(') {

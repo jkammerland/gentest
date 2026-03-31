@@ -1,16 +1,14 @@
 #include "gentest/attributes.h"
-#include "gentest/mock.h"
 #include "gentest/runner.h"
 
-#include "iface.hpp"
+#include "public/dep_mocks.hpp"
 
 namespace depcase {
 
 using namespace gentest::asserts;
-using IfaceMock = gentest::mock<Iface>;
 
 [[maybe_unused]] inline void instantiate_mock() {
-    IfaceMock mock;
+    mocks::IfaceMock mock;
     (void)mock;
 }
 

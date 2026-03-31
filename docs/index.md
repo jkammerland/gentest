@@ -6,6 +6,7 @@
 ## Getting started
 
 - Quick start: [`README.md`](../README.md)
+- Modules guide: [`docs/modules.md`](modules.md)
 - Previous (full) README snapshot: [`docs/archive/README_2026-01-03.md`](archive/README_2026-01-03.md)
 
 ## Install / build templates
@@ -13,6 +14,12 @@
 - Linux: [`docs/install/linux.md`](install/linux.md)
 - macOS: [`docs/install/macos.md`](install/macos.md)
 - Windows: [`docs/install/windows.md`](install/windows.md)
+
+## Repo-Local Buildsystem Guides
+
+- Meson (textual only; modules fail fast): [`docs/buildsystems/meson.md`](buildsystems/meson.md)
+- Xmake (classic suites only): [`docs/buildsystems/xmake.md`](buildsystems/xmake.md)
+- Bazel (classic suites only): [`docs/buildsystems/bazel.md`](buildsystems/bazel.md)
 
 ## Cross-compiling
 
@@ -23,6 +30,7 @@
 - Windows troubleshooting: [`docs/windows_troubleshooting.md`](windows_troubleshooting.md)
 - LLVM 21 location notes: [`docs/llvm21-location-api-fix.md`](llvm21-location-api-fix.md)
 - Fixture allocation hook: [`docs/fixtures_allocation.md`](fixtures_allocation.md)
+- Coverage hygiene gate: [`docs/coverage_hygiene.md`](coverage_hygiene.md)
 - Traceability standards map: [`docs/traceability_standards.md`](traceability_standards.md)
 
 ## Work items
@@ -31,7 +39,10 @@
 - Runtime outcomes (`skip()` / `xfail()`): [`docs/stories/002_runtime_skip_and_xfail.md`](stories/002_runtime_skip_and_xfail.md)
 - Per‑TU registration wrappers (CMake): [`docs/stories/003_per_tu_registration_wrappers.md`](stories/003_per_tu_registration_wrappers.md)
 - Deprecate manifest + port non‑CMake builds: [`docs/stories/004_deprecate_manifest_mode_and_port_non_cmake_builds.md`](stories/004_deprecate_manifest_mode_and_port_non_cmake_builds.md)
+- Non-CMake full parity for modules and explicit mocks: [`docs/stories/015_non_cmake_full_parity.md`](stories/015_non_cmake_full_parity.md)
 - Parallel `gentest_codegen` jobs (TU mode): [`docs/stories/005_codegen_parallelism_jobs.md`](stories/005_codegen_parallelism_jobs.md)
 - Runtime regressions and CMake check hardening: [`docs/stories/006_runtime_regressions_and_cmake_checks.md`](stories/006_runtime_regressions_and_cmake_checks.md)
 - Runner modularization plan synthesis: [`docs/stories/007_runner_impl_modularization_plan.md`](stories/007_runner_impl_modularization_plan.md)
 - Runner modularization execution design: [`docs/stories/008_runner_impl_modularization_design.md`](stories/008_runner_impl_modularization_design.md)
+- Module mock bootstrap options (historical context): [`docs/stories/013_module_mock_bootstrap_options.md`](stories/013_module_mock_bootstrap_options.md)
+- Explicit mock target codegen: [`docs/stories/014_explicit_mock_target_codegen.md`](stories/014_explicit_mock_target_codegen.md)

@@ -1,0 +1,9 @@
+// generated placeholder
+
+#include "gentest/mock.h"
+${DEFS_INCLUDES}
+
+#if !defined(GENTEST_CODEGEN) && __has_include("${HEADER_FILENAME}")
+#include "${HEADER_FILENAME}"
+#endif
+

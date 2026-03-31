@@ -5,6 +5,7 @@ if(NOT DEFINED SOURCE_DIR)
 endif()
 
 set(_legacy_gate "WIN32 AND CMAKE_BUILD_TYPE STREQUAL \"Debug\" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS")
+set(_workflow_file "${SOURCE_DIR}/.github/workflows/cmake.yml")
 set(_files
     "${SOURCE_DIR}/tests/CMakeLists.txt"
     "${SOURCE_DIR}/tests/cmake/Regressions.cmake")
@@ -39,4 +40,24 @@ if(_missing_config_genex)
   string(JOIN "\n  " _missing ${_missing_config_genex})
   message(FATAL_ERROR
     "Expected config-aware skip gate using $<CONFIG:Debug> in:\n  ${_missing}")
+endif()
+
+if(NOT EXISTS "${_workflow_file}")
+  message(FATAL_ERROR "Missing workflow file: ${_workflow_file}")
+endif()
+
+file(READ "${_workflow_file}" _workflow_content)
+
+set(_expected_workflow_gate [=[if ("${{ matrix.preset }}" -in @("debug-system", "debug-system-cxx23")) {]=])
+string(FIND "${_workflow_content}" "${_expected_workflow_gate}" _workflow_gate_pos)
+if(_workflow_gate_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected Windows workflow to apply GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS to both debug-system and debug-system-cxx23 presets.\n"
+    "Missing snippet: ${_expected_workflow_gate}")
+endif()
+
+string(FIND "${_workflow_content}" "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON" _workflow_flag_pos)
+if(_workflow_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected Windows workflow to pass -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON during configure.")
 endif()

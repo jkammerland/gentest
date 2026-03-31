@@ -1,0 +1,4 @@
+#include "gentest/mock.h"
+#include "@CROSS_ROOT_HEADER@"
+using SinkMock = gentest::mock<crossroot::Sink>;
+[[maybe_unused]] inline SinkMock* kSinkMockPtr = nullptr;

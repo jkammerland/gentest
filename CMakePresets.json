@@ -12,6 +12,7 @@
     "Diagnostic Sanitizer Presets:",
     "- alsan: ASan+LSan (address errors, buffer overflows, memory leaks)",
     "- alusan: ASan+LSan+UBSan (address errors, memory leaks, undefined behavior)",
+    "- tsan: TSan (threading data races and synchronization bugs)",
     "- msan: MSan (uninitialized memory reads)",
     "- cfihwasan: CFI+HWASan (control flow hijacking and hardware memory safety)",
     "- fullsan: All compatible sanitizers (address errors, leaks, undefined behavior, bounds checking)",
@@ -31,10 +32,12 @@
     "cmake --preset=alsan               # Quick memory testing",
     "cmake --preset=alusan              # Comprehensive testing",
     "cmake --preset=fullsan             # Exhaustive testing",
+    "cmake --preset=tsan                # Thread sanitizer testing",
     "cmake --workflow --preset=debug      # Full debug workflow",
     "cmake --workflow --preset=alsan      # Quick diagnostic workflow",
     "cmake --workflow --preset=alusan     # Deep diagnostic workflow (RECOMMENDED)",
     "cmake --workflow --preset=fullsan    # Full diagnostic suite",
+    "cmake --workflow --preset=tsan       # Thread sanitizer workflow",
     "cmake --workflow --preset=valgrind   # Valgrind memcheck (slow)",
     ""
   ],
@@ -263,6 +266,20 @@
       }
     },
     {
+      "name": "coverage-system",
+      "inherits": "debug-system",
+      "displayName": "Coverage (system LLVM/Clang)",
+      "description": "Debug build with code coverage instrumentation using the system LLVM/Clang toolchain",
+      "cacheVariables": {
+        "GENTEST_ENABLE_PACKAGE_TESTS": "OFF",
+        "CMAKE_CXX_FLAGS": "-g -O0 --coverage",
+        "CMAKE_C_FLAGS": "-g -O0 --coverage",
+        "CMAKE_EXE_LINKER_FLAGS": "--coverage",
+        "CMAKE_MODULE_LINKER_FLAGS": "--coverage",
+        "CMAKE_SHARED_LINKER_FLAGS": "--coverage"
+      }
+    },
+    {
       "name": "tidy",
       "inherits": "base-debug",
       "displayName": "Clang-Tidy",
@@ -375,6 +392,67 @@
         "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1:print_stats=1:check_initialization_order=1:strict_init_order=1",
         "LSAN_OPTIONS": "print_suppressions=false:report_objects=1",
         "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1:report_error_type=1"
+      }
+    },
+    {
+      "name": "alusan-system",
+      "displayName": "AddressSanitizer + LeakSanitizer + UndefinedBehaviorSanitizer (system LLVM/Clang)",
+      "description": "Address errors, memory leaks, and undefined behavior detection using the system LLVM/Clang toolchain",
+      "inherits": "debug-system",
+      "cacheVariables": {
+        "GENTEST_ENABLE_PACKAGE_TESTS": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,leak,undefined -g -O1 -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,leak,undefined",
+        "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=address,leak,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,leak,undefined"
+      },
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1:print_stats=1:check_initialization_order=1:strict_init_order=1",
+        "LSAN_OPTIONS": "print_suppressions=false:report_objects=1",
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1:report_error_type=1"
+      }
+    },
+    {
+      "name": "tsan",
+      "displayName": "ThreadSanitizer",
+      "description": "Data race and synchronization bug detection (3-6x slower, Clang/Linux only)",
+      "inherits": "base-debug",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "GENTEST_SKIP_TSAN_DEATH_TESTS": "ON",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -O1 -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
+        "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=thread",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread"
+      },
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1:abort_on_error=1:second_deadlock_stack=1"
+      }
+    },
+    {
+      "name": "tsan-system",
+      "displayName": "ThreadSanitizer (system LLVM/Clang)",
+      "description": "Data race and synchronization bug detection using the system LLVM/Clang toolchain",
+      "inherits": "debug-system",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "GENTEST_ENABLE_PACKAGE_TESTS": "OFF",
+        "GENTEST_SKIP_TSAN_DEATH_TESTS": "ON",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -O1 -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
+        "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=thread",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread"
+      },
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1:abort_on_error=1:second_deadlock_stack=1"
       }
     },
     {
@@ -523,14 +601,15 @@
       "inherits": "build-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Build (Linux/aarch64, QEMU)",
-      "description": "Cross-build gentest_unit_tests for Linux/aarch64 after running the host-codegen workflow",
+      "description": "Cross-build gentest_unit_tests and gentest_mocking_tests for Linux/aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
       },
       "targets": [
-        "gentest_unit_tests"
+        "gentest_unit_tests",
+        "gentest_mocking_tests"
       ],
       "jobs": 0
     },
@@ -612,6 +691,14 @@
       "jobs": 0
     },
     {
+      "name": "coverage-system",
+      "inherits": "build-base",
+      "configurePreset": "coverage-system",
+      "displayName": "Coverage Build (system LLVM/Clang)",
+      "description": "Build with code coverage instrumentation using the system LLVM/Clang toolchain",
+      "jobs": 0
+    },
+    {
       "name": "tidy",
       "inherits": "build-base",
       "configurePreset": "tidy",
@@ -689,6 +776,30 @@
       "configurePreset": "alusan",
       "displayName": "Build Deep Diagnostics",
       "description": "Build with AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer",
+      "jobs": 0
+    },
+    {
+      "name": "alusan-system",
+      "inherits": "build-base",
+      "configurePreset": "alusan-system",
+      "displayName": "Build Deep Diagnostics (system LLVM/Clang)",
+      "description": "Build with AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer using the system LLVM/Clang toolchain",
+      "jobs": 0
+    },
+    {
+      "name": "tsan",
+      "inherits": "build-base",
+      "configurePreset": "tsan",
+      "displayName": "Build Thread Diagnostics",
+      "description": "Build with ThreadSanitizer for data race and synchronization bug detection",
+      "jobs": 0
+    },
+    {
+      "name": "tsan-system",
+      "inherits": "build-base",
+      "configurePreset": "tsan-system",
+      "displayName": "Build Thread Diagnostics (system LLVM/Clang)",
+      "description": "Build with ThreadSanitizer using the system LLVM/Clang toolchain",
       "jobs": 0
     },
     {
@@ -786,7 +897,7 @@
       "inherits": "test-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Tests (Linux/aarch64, QEMU, smoke)",
-      "description": "Run a small subset of tests under qemu-aarch64 after running the host-codegen workflow",
+      "description": "Run a small subset of unit and mock-heavy tests under qemu-aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -794,7 +905,7 @@
       },
       "filter": {
         "include": {
-          "name": "^(gentest_codegen_check_valid|unit|unit_inventory)$"
+          "name": "^(gentest_codegen_check_valid|unit|unit_inventory|mocking)$"
         }
       }
     },
@@ -867,6 +978,13 @@
       "description": "Run all tests with coverage instrumentation"
     },
     {
+      "name": "coverage-system",
+      "inherits": "test-base",
+      "configurePreset": "coverage-system",
+      "displayName": "Coverage Tests (system LLVM/Clang)",
+      "description": "Run all tests with coverage instrumentation using the system LLVM/Clang toolchain"
+    },
+    {
       "name": "tidy",
       "inherits": "test-base",
       "configurePreset": "tidy",
@@ -929,6 +1047,38 @@
         "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1:print_stats=1:check_initialization_order=1:strict_init_order=1",
         "LSAN_OPTIONS": "print_suppressions=false:report_objects=1",
         "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1:report_error_type=1"
+      }
+    },
+    {
+      "name": "alusan-system",
+      "inherits": "test-base",
+      "configurePreset": "alusan-system",
+      "displayName": "Test with Deep Diagnostics (system LLVM/Clang)",
+      "description": "Run tests with ASan+LSan+UBSan using the system LLVM/Clang toolchain",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1:print_stats=1:check_initialization_order=1:strict_init_order=1",
+        "LSAN_OPTIONS": "print_suppressions=false:report_objects=1",
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1:report_error_type=1"
+      }
+    },
+    {
+      "name": "tsan",
+      "inherits": "test-base",
+      "configurePreset": "tsan",
+      "displayName": "Test with Thread Diagnostics",
+      "description": "Run tests with ThreadSanitizer (3-6x slower, detects data races and synchronization bugs)",
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1:abort_on_error=1:second_deadlock_stack=1"
+      }
+    },
+    {
+      "name": "tsan-system",
+      "inherits": "test-base",
+      "configurePreset": "tsan-system",
+      "displayName": "Test with Thread Diagnostics (system LLVM/Clang)",
+      "description": "Run tests with ThreadSanitizer using the system LLVM/Clang toolchain",
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1:abort_on_error=1:second_deadlock_stack=1"
       }
     },
     {
@@ -1178,6 +1328,25 @@
       ]
     },
     {
+      "name": "coverage-system",
+      "displayName": "Coverage Workflow (system LLVM/Clang)",
+      "description": "Build and test with code coverage instrumentation using the system LLVM/Clang toolchain",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "coverage-system"
+        },
+        {
+          "type": "build",
+          "name": "coverage-system"
+        },
+        {
+          "type": "test",
+          "name": "coverage-system"
+        }
+      ]
+    },
+    {
       "name": "tidy",
       "displayName": "Clang-Tidy Workflow",
       "description": "Build with clang-tidy static analysis checks",
@@ -1333,6 +1502,63 @@
         {
           "type": "test",
           "name": "alusan"
+        }
+      ]
+    },
+    {
+      "name": "alusan-system",
+      "displayName": "Deep Diagnostic Workflow (system LLVM/Clang)",
+      "description": "ASan+LSan+UBSan using the system LLVM/Clang toolchain for CI-style diagnostics",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "alusan-system"
+        },
+        {
+          "type": "build",
+          "name": "alusan-system"
+        },
+        {
+          "type": "test",
+          "name": "alusan-system"
+        }
+      ]
+    },
+    {
+      "name": "tsan",
+      "displayName": "Thread Diagnostic Workflow",
+      "description": "ThreadSanitizer testing for data races and synchronization bugs",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "tsan"
+        },
+        {
+          "type": "build",
+          "name": "tsan"
+        },
+        {
+          "type": "test",
+          "name": "tsan"
+        }
+      ]
+    },
+    {
+      "name": "tsan-system",
+      "displayName": "Thread Diagnostic Workflow (system LLVM/Clang)",
+      "description": "ThreadSanitizer using the system LLVM/Clang toolchain for CI-style diagnostics",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "tsan-system"
+        },
+        {
+          "type": "build",
+          "name": "tsan-system"
+        },
+        {
+          "type": "test",
+          "name": "tsan-system"
         }
       ]
     },

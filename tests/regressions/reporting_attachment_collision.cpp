@@ -8,6 +8,13 @@
 
 namespace {
 
+constexpr auto kCustomResultPayload = R"({"payload":"custom result payload"})";
+constexpr auto kAttachmentSource0 = R"("source":"result-0-attachment.txt")";
+constexpr auto kAttachmentSource1 = R"("source":"result-0-attachment-1.txt")";
+constexpr auto kTimelineSource0 = R"("source":"result-0-timeline.txt")";
+constexpr auto kTimelineSource1 = R"("source":"result-0-timeline-1.txt")";
+constexpr auto kResultSource1 = R"("source":"result-0-result-1.json")";
+
 bool read_text(const std::filesystem::path &path, std::string &out) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -56,7 +63,7 @@ int main(int argc, char **argv) {
         .name           = "result",
         .mime_type      = "application/json",
         .file_extension = ".json",
-        .contents       = "{\"payload\":\"custom result payload\"}",
+        .contents       = kCustomResultPayload,
     });
     acc.report_items.push_back(std::move(item));
 
@@ -87,16 +94,16 @@ int main(int argc, char **argv) {
 
     if (builtin_logs != "builtin logs payload" || builtin_timeline != "builtin timeline payload" ||
         custom_attach != "custom attachment payload" || custom_timeline != "custom timeline payload" ||
-        custom_result != "{\"payload\":\"custom result payload\"}") {
+        custom_result != kCustomResultPayload) {
         std::cerr << "attachment payload mismatch\n";
         return 1;
     }
 
-    if (!contains(result_json, "\"source\":\"result-0-attachment.txt\"") ||
-        !contains(result_json, "\"source\":\"result-0-attachment-1.txt\"") ||
-        !contains(result_json, "\"source\":\"result-0-timeline.txt\"") ||
-        !contains(result_json, "\"source\":\"result-0-timeline-1.txt\"") ||
-        !contains(result_json, "\"source\":\"result-0-result-1.json\"")) {
+    if (!contains(result_json, kAttachmentSource0) ||
+        !contains(result_json, kAttachmentSource1) ||
+        !contains(result_json, kTimelineSource0) ||
+        !contains(result_json, kTimelineSource1) ||
+        !contains(result_json, kResultSource1)) {
         std::cerr << "result JSON missing expected attachment sources\n";
         return 1;
     }

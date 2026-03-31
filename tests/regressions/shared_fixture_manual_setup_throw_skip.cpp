@@ -1,5 +1,6 @@
 #include "gentest/runner.h"
 
+#include <cstdio>
 #include <memory>
 #include <stdexcept>
 
@@ -10,6 +11,8 @@ constexpr std::string_view kFixtureName = "regressions::ThrowingSetupFixture";
 std::shared_ptr<void> create_fixture(std::string_view, std::string &) { return std::make_shared<int>(1); }
 
 void setup_throw(void *, std::string &) { throw std::runtime_error("manual-setup-throw"); }
+
+void teardown_marker(void *, std::string &) { std::fputs("manual-setup-teardown-ran\n", stderr); }
 
 void noop_case(void *) {}
 
@@ -41,7 +44,7 @@ int main(int argc, char **argv) {
         .scope        = gentest::detail::SharedFixtureScope::Global,
         .create       = &create_fixture,
         .setup        = &setup_throw,
-        .teardown     = nullptr,
+        .teardown     = &teardown_marker,
     });
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     return gentest::run_all_tests(argc, argv);

@@ -6,8 +6,6 @@
 
 static int _gentest_mock_local_class_odr() {
     struct Local { void g(){} };
-    gentest::mock<Local> m;
-    (void)m;
+    using LocalMock = gentest::mock<Local>;
     return 0;
 }
-

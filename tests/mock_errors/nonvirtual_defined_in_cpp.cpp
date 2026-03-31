@@ -10,8 +10,4 @@ struct Sink {
 };
 } // namespace badnonvirtual
 
-static int _gentest_mock_nonvirtual_in_cpp_odr() {
-    gentest::mock<badnonvirtual::Sink> m;
-    (void)m;
-    return 0;
-}
+using SinkMock = gentest::mock<badnonvirtual::Sink>;

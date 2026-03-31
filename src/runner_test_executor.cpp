@@ -6,6 +6,7 @@
 #include "runner_test_plan.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fmt/color.h>
 #include <fmt/format.h>
 #include <mutex>
@@ -19,6 +20,8 @@ namespace {
 
 using Outcome   = gentest::runner::Outcome;
 using RunResult = gentest::runner::RunResult;
+
+long long duration_ms(double seconds) { return std::llround(seconds * 1000.0); }
 
 RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c) {
     RunResult rr;
@@ -44,7 +47,6 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         return rr;
     }
     ++c.total;
-    ++c.executed;
     auto       inv             = gentest::runner::invoke_case_once(test, ctx, gentest::detail::BenchPhase::None,
                                                                    gentest::runner::UnhandledExceptionPolicy::RecordAsFailure);
     auto       ctxinfo         = inv.ctxinfo;
@@ -85,7 +87,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
             if (state.acc)
                 gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, issue);
         }
-        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        const auto dur_ms = duration_ms(rr.time_s);
         if (state.color_output) {
             fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
             if (!rr.skip_reason.empty())
@@ -109,7 +111,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
             rr.outcome             = Outcome::XFail;
             rr.skipped             = true;
             rr.skip_reason         = rr.xfail_reason.empty() ? "xfail" : std::string("xfail: ") + rr.xfail_reason;
-            const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+            const auto dur_ms = duration_ms(rr.time_s);
             if (state.color_output) {
                 fmt::print(fmt::fg(fmt::color::cyan), "[ XFAIL ]");
                 if (!rr.xfail_reason.empty())
@@ -129,7 +131,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         ++c.xpass;
         ++c.failed;
         ++c.failures;
-        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        const auto dur_ms = duration_ms(rr.time_s);
         if (state.color_output) {
             fmt::print(stderr, fmt::fg(fmt::color::red), "[ XPASS ]");
             if (!rr.xfail_reason.empty())
@@ -156,7 +158,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         rr.outcome = Outcome::Fail;
         ++c.failed;
         ++c.failures;
-        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        const auto dur_ms = duration_ms(rr.time_s);
         if (state.color_output) {
             fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
             fmt::print(stderr, " {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
@@ -192,7 +194,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
             failure_lines.push_back(ctxinfo->failures.front());
         rr.summary_issues = std::move(failure_lines);
     } else if (!threw_non_skip) {
-        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        const auto dur_ms = duration_ms(rr.time_s);
         if (state.color_output) {
             fmt::print(fmt::fg(fmt::color::green), "[ PASS ]");
             fmt::print(" {} ({} ms)\n", test.name, dur_ms);
@@ -207,7 +209,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         ++c.failures;
         std::string fallback_issue = inv.message.empty() ? "fatal assertion or exception (no message)" : inv.message;
         rr.failures.push_back(fallback_issue);
-        const long long dur_ms = static_cast<long long>(rr.time_s * 1000.0 + 0.5);
+        const auto dur_ms = duration_ms(rr.time_s);
         if (state.color_output) {
             fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
             fmt::print(stderr, " {} ({} ms)\n", test.name, dur_ms);

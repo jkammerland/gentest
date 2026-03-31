@@ -59,14 +59,43 @@ jobs:
           echo "PATH=/usr/local/bin:$PATH" >> "$GITHUB_ENV"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Configure environment variables
         run: |
-          echo "LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm" >> $GITHUB_ENV
-          echo "Clang_DIR=/usr/lib/llvm-20/lib/cmake/clang" >> $GITHUB_ENV
-          echo "CC=clang-20" >> $GITHUB_ENV
-          echo "CXX=clang++-20" >> $GITHUB_ENV
+          set -euxo pipefail
+          llvm_root="/usr/lib/llvm-20"
+          host_clang=""
+          host_clangxx=""
+          for candidate in \
+            "$(command -v clang-20 2>/dev/null || true)" \
+            "${llvm_root}/bin/clang" \
+            "$(command -v clang 2>/dev/null || true)"
+          do
+            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+              host_clang="${candidate}"
+              break
+            fi
+          done
+          for candidate in \
+            "$(command -v clang++-20 2>/dev/null || true)" \
+            "${llvm_root}/bin/clang++" \
+            "$(command -v clang++ 2>/dev/null || true)"
+          do
+            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+              host_clangxx="${candidate}"
+              break
+            fi
+          done
+          if [ -z "${host_clang}" ] || [ -z "${host_clangxx}" ]; then
+            echo "Failed to resolve host Clang toolchain from llvm-20 packages." >&2
+            exit 1
+          fi
+          echo "LLVM_DIR=${llvm_root}/lib/cmake/llvm" >> $GITHUB_ENV
+          echo "Clang_DIR=${llvm_root}/lib/cmake/clang" >> $GITHUB_ENV
+          echo "HOST_CLANG=${host_clang}" >> $GITHUB_ENV
+          echo "HOST_CLANGXX=${host_clangxx}" >> $GITHUB_ENV
+          echo "GENTEST_CODEGEN_HOST_CLANG=${host_clangxx}" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
 
       - name: Show tool versions
@@ -74,7 +103,7 @@ jobs:
           set -euxo pipefail
           cmake --version
           ninja --version
-          ${CC} --version
+          ${HOST_CLANG} --version
           aarch64-linux-gnu-gcc --version | head -n 1
           qemu-aarch64 --version | head -n 1
           if command -v llvm-config >/dev/null 2>&1; then llvm-config --version; fi
@@ -83,8 +112,8 @@ jobs:
         run: |
           set -euxo pipefail
           cmake --preset=host-codegen \
-            -DCMAKE_C_COMPILER=${CC} \
-            -DCMAKE_CXX_COMPILER=${CXX} \
+            -DCMAKE_C_COMPILER=${HOST_CLANG} \
+            -DCMAKE_CXX_COMPILER=${HOST_CLANGXX} \
             -DLLVM_DIR=${LLVM_DIR} \
             -DClang_DIR=${Clang_DIR} \
             -DGENTEST_USE_SYSTEM_TERMINFO=ON
@@ -105,7 +134,8 @@ jobs:
           test -e "${loader}"
           test -e "${libc}"
 
-          cmake --preset=aarch64-qemu
+          cmake --preset=aarch64-qemu \
+            -DGENTEST_CODEGEN_HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}
 
       - name: Build cross target (Linux/aarch64)
         run: |

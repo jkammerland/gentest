@@ -58,6 +58,10 @@ struct JitterResult {
 struct TimedRunStatus {
     bool ok      = true;
     bool stopped = false;
+    std::size_t total   = 0;
+    std::size_t passed  = 0;
+    std::size_t skipped = 0;
+    std::size_t failed  = 0;
 };
 
 struct MeasurementCaseFailure {

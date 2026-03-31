@@ -11,7 +11,6 @@ namespace gentest::runner {
 
 struct TestCounters {
     std::size_t total    = 0;
-    std::size_t executed = 0;
     std::size_t passed   = 0;
     std::size_t skipped  = 0;
     std::size_t xfail    = 0;

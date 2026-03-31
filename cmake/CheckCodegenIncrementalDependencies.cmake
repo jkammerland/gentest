@@ -26,6 +26,7 @@ if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 
 set(_work_dir "${BUILD_ROOT}/codegen_incremental_deps")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -58,6 +59,12 @@ if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
 endif()
 if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
+endif()
+if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DLLVM_DIR=${LLVM_DIR}")
+endif()
+if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
 endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
@@ -100,7 +107,8 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}")
 
 set(_generated_cpp "${_build_dir}/generated/tu_0000_cases.gentest.h")
-set(_mock_registry "${_build_dir}/generated/dep_tests_mock_registry.hpp")
+set(_mock_registry "${_build_dir}/generated/mocks/dep_mocks_mock_registry.hpp")
+set(_mock_registry_header_domain "${_build_dir}/generated/mocks/dep_mocks_mock_registry__domain_0000_header.hpp")
 set(_exe "${_build_dir}/dep_tests")
 
 _gentest_read("${_generated_cpp}" _generated_cpp_text)
@@ -116,18 +124,19 @@ _gentest_expect_contains(_initial_list_out "incremental/compile/off" "initial te
 _gentest_expect_not_contains(_initial_list_out "incremental/compile/on" "initial test list")
 
 execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1)
-file(WRITE "${_src_dir}/iface.hpp"
-  "#pragma once\n"
-  "\n"
-  "namespace depcase {\n"
-  "\n"
-  "struct Iface {\n"
-  "    virtual ~Iface() = default;\n"
-  "    virtual void ping(int value) = 0;\n"
-  "    virtual int added(int value) const = 0;\n"
-  "};\n"
-  "\n"
-  "} // namespace depcase\n")
+gentest_fixture_write_file("${_src_dir}/iface.hpp" [[
+#pragma once
+
+namespace depcase {
+
+struct Iface {
+    virtual ~Iface() = default;
+    virtual void ping(int value) = 0;
+    virtual int added(int value) const = 0;
+};
+
+} // namespace depcase
+]])
 
 message(STATUS "Rebuild after header-only mock interface change...")
 gentest_check_run_or_fail(
@@ -136,7 +145,9 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}")
 
 _gentest_read("${_mock_registry}" _mock_registry_text)
-_gentest_expect_contains(_mock_registry_text "int added(int value) const" "mock registry after header change")
+_gentest_expect_contains(_mock_registry_text "dep_mocks_mock_registry__domain_0000_header.hpp" "dispatcher registry after header change")
+_gentest_read("${_mock_registry_header_domain}" _mock_registry_header_domain_text)
+_gentest_expect_contains(_mock_registry_header_domain_text "int added(int value) const" "header-domain mock registry after header change")
 
 execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1)
 message(STATUS "Reconfigure after compile-definition change...")

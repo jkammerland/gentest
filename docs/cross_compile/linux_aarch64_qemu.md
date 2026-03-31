@@ -21,8 +21,8 @@ Run:
 This:
 
 1) builds a host `gentest_codegen`
-2) cross-compiles `gentest_unit_tests` using `cmake/toolchains/aarch64-linux-gnu.cmake`
-3) runs a small `ctest` subset (unit suite + a codegen check)
+2) cross-compiles `gentest_unit_tests` and `gentest_mocking_tests` using `cmake/toolchains/aarch64-linux-gnu.cmake`
+3) runs a small `ctest` subset (unit suite + mocking suite + a codegen check)
 
 Run the full test set (can be slow under emulation):
 
@@ -56,9 +56,9 @@ cmake -S . -B build/aarch64-qemu -G Ninja \
 ### 3) Build + run (via CTest)
 
 ```bash
-cmake --build build/aarch64-qemu --target gentest_unit_tests
+cmake --build build/aarch64-qemu --target gentest_unit_tests gentest_mocking_tests
 ctest --test-dir build/aarch64-qemu --output-on-failure \
-  -R '^(gentest_codegen_check_valid|unit|unit_inventory)$'
+  -R '^(gentest_codegen_check_valid|unit|unit_inventory|mocking)$'
 ```
 
 ## CMake presets
