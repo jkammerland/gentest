@@ -171,8 +171,13 @@ inline bool has_matching_angle_close(std::string_view text, std::size_t open_ind
     return false;
 }
 
-inline std::vector<std::string> split_top_level_items(std::string_view text) {
+struct SplitTopLevelItemsResult {
     std::vector<std::string> parts;
+    bool                     had_empty_item = false;
+};
+
+inline SplitTopLevelItemsResult split_top_level_items_result(std::string_view text) {
+    SplitTopLevelItemsResult result;
     std::string              current;
     int                      depth       = 0;
     int                      angle_depth = 0;
@@ -257,8 +262,10 @@ inline std::vector<std::string> split_top_level_items(std::string_view text) {
         case ',':
             if (depth == 0 && angle_depth == 0) {
                 const std::string token = trim_ascii_copy(current);
-                if (!token.empty()) {
-                    parts.push_back(token);
+                if (token.empty()) {
+                    result.had_empty_item = true;
+                } else {
+                    result.parts.push_back(token);
                 }
                 current.clear();
                 break;
@@ -269,18 +276,38 @@ inline std::vector<std::string> split_top_level_items(std::string_view text) {
     }
 
     const std::string token = trim_ascii_copy(current);
-    if (!token.empty()) {
-        parts.push_back(token);
+    if (token.empty()) {
+        if (!text.empty() && text.back() == ',') {
+            result.had_empty_item = true;
+        }
+    } else {
+        result.parts.push_back(token);
     }
-    return parts;
+    return result;
 }
 
-inline std::vector<std::string> parse_parenthesized_row(std::string_view text) {
+inline std::vector<std::string> split_top_level_items(std::string_view text) {
+    return split_top_level_items_result(text).parts;
+}
+
+struct ParsedParenthesizedRow {
+    std::vector<std::string> parts;
+    bool                     had_empty_item = false;
+};
+
+inline ParsedParenthesizedRow parse_parenthesized_row(std::string_view text) {
     const std::string trimmed = trim_ascii_copy(text);
     if (trimmed.size() < 2 || trimmed.front() != '(' || trimmed.back() != ')') {
-        return {trimmed};
+        return ParsedParenthesizedRow{
+            .parts = {trimmed},
+        };
     }
-    return split_top_level_items(std::string_view(trimmed).substr(1, trimmed.size() - 2));
+
+    const auto split = split_top_level_items_result(std::string_view(trimmed).substr(1, trimmed.size() - 2));
+    return ParsedParenthesizedRow{
+        .parts          = split.parts,
+        .had_empty_item = split.had_empty_item,
+    };
 }
 
 inline bool is_parenthesized_row(std::string_view text) {
@@ -333,8 +360,18 @@ inline bool validate_template_binding_shape(const TemplateBindingSet &set, const
             return false;
         }
         if (!param.is_pack && parenthesized) {
+            if (param.kind == TemplateParamKind::Value) {
+                continue;
+            }
             report("non-pack template parameter '" + param.name + "' does not accept parenthesized rows in 'template(" + param.name + ", ...)'");
             return false;
+        }
+        if (param.is_pack) {
+            const auto parsed = parse_parenthesized_row(candidate);
+            if (parsed.had_empty_item) {
+                report("template parameter pack '" + param.name + "' does not accept empty row entries in 'template(" + param.name + ", ...)'");
+                return false;
+            }
         }
     }
     return true;
@@ -345,7 +382,7 @@ inline std::vector<std::vector<std::string>> build_binding_rows(const TemplateBi
     rows.reserve(set.candidates.size());
     for (const auto &candidate : set.candidates) {
         if (pack) {
-            rows.push_back(parse_parenthesized_row(candidate));
+            rows.push_back(parse_parenthesized_row(candidate).parts);
         } else {
             rows.push_back({trim_ascii_copy(candidate)});
         }
@@ -358,7 +395,7 @@ inline std::vector<std::vector<std::string>> build_binding_rows_attr_order(const
     rows.reserve(set.candidates.size());
     for (const auto &candidate : set.candidates) {
         if (is_parenthesized_row(candidate)) {
-            rows.push_back(parse_parenthesized_row(candidate));
+            rows.push_back(parse_parenthesized_row(candidate).parts);
         } else {
             rows.push_back({trim_ascii_copy(candidate)});
         }
