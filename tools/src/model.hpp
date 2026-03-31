@@ -34,6 +34,28 @@ enum class ModuleDependencyScanMode {
     On,
 };
 
+enum class TemplateParamKind {
+    Type,
+    Value,
+    Template,
+};
+
+struct TemplateParamInfo {
+    TemplateParamKind kind = TemplateParamKind::Type;
+    std::string       name;
+    bool              is_pack = false;
+    // Spelling used when referencing the parameter inside a dependent
+    // template-id, for example "T" or "Ts...".
+    std::string       usage_spelling;
+};
+
+struct TemplateBindingSet {
+    std::string              param_name;
+    // Raw candidate bindings as written in the attribute after the parameter
+    // name. For packs, each candidate is expected to be a parenthesized row.
+    std::vector<std::string> candidates;
+};
+
 struct FreeFixtureUse {
     std::string   type_name;  // fully qualified (no leading ::)
     FixtureScope  scope = FixtureScope::Local;
@@ -187,7 +209,7 @@ struct MockParamInfo {
 struct MockCtorInfo {
     std::vector<MockParamInfo> parameters;
     std::string                template_prefix; // e.g. "template <typename T, int N>"
-    std::vector<std::string>   template_param_names; // e.g. {"T", "N"}
+    std::vector<TemplateParamInfo> template_params;
     bool                       is_explicit = false;
     bool                       is_noexcept = false;
 };
@@ -199,7 +221,7 @@ struct MockMethodInfo {
     std::string              return_type;
     std::vector<MockParamInfo> parameters;
     std::string              template_prefix; // e.g. "template <typename T, int N>"
-    std::vector<std::string> template_param_names; // e.g. {"T", "N"}
+    std::vector<TemplateParamInfo> template_params;
     bool                     is_const = false;
     bool                     is_volatile = false;
     bool                     is_static = false;

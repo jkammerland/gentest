@@ -336,7 +336,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     unsigned lnum = sm->getSpellingLineNumber(file_loc);
 
     // Validate template attribute usage and collect declaration order (optional under flag).
-    std::vector<disc::TParam> fn_params_order;
+    std::vector<TemplateParamInfo> fn_params_order;
     if (!summary.template_sets.empty()) {
         if (!disc::collect_template_params(*func, fn_params_order)) {
 #ifndef GENTEST_DISABLE_TEMPLATE_VALIDATION
@@ -375,8 +375,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (combined_tpl_combos.empty())
         combined_tpl_combos.emplace_back();
 
+    const bool is_function_template = func->getDescribedFunctionTemplate() != nullptr;
     auto make_qualified = [&](const std::vector<std::string> &tpl_ordered) {
-        if (tpl_ordered.empty())
+        if (!is_function_template)
             return qualified;
         std::string q = qualified;
         q += '<';
@@ -390,7 +391,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     };
     auto make_display = [&](const std::string &base, const std::vector<std::string> &tpl_ordered, const std::string &call_args) {
         std::string nm = base;
-        if (!tpl_ordered.empty()) {
+        if (is_function_template) {
             nm += '<';
             for (std::size_t i = 0; i < tpl_ordered.size(); ++i) {
                 if (i)
