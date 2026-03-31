@@ -68,21 +68,58 @@ endif()
 
 string(MD5 _scratch_hash "${BUILD_ROOT}")
 set(_scratch_base "")
-foreach(_candidate IN ITEMS "/dev/shm" "/tmp")
+foreach(_candidate IN ITEMS "/tmp" "/dev/shm")
   if(EXISTS "${_candidate}")
-    set(_probe_file "${_candidate}/gentest_meson_wrap_probe_${_scratch_hash}")
+    set(_probe_dir "${_candidate}/gentest_meson_wrap_probe_${_scratch_hash}")
+    set(_probe_file "${_probe_dir}/probe_true")
+    file(MAKE_DIRECTORY "${_probe_dir}")
     execute_process(
-      COMMAND "${CMAKE_COMMAND}" -E touch "${_probe_file}"
-      RESULT_VARIABLE _probe_rc
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different /bin/true "${_probe_file}"
+      RESULT_VARIABLE _probe_copy_rc
       OUTPUT_QUIET
       ERROR_QUIET)
-    if(_probe_rc EQUAL 0)
-      file(REMOVE "${_probe_file}")
-      set(_scratch_base "${_candidate}")
-      break()
+    if(_probe_copy_rc EQUAL 0)
+      execute_process(
+        COMMAND chmod +x "${_probe_file}"
+        RESULT_VARIABLE _probe_chmod_rc
+        OUTPUT_QUIET
+        ERROR_QUIET)
+      if(_probe_chmod_rc EQUAL 0)
+        execute_process(
+          COMMAND "${_probe_file}"
+          RESULT_VARIABLE _probe_run_rc
+          OUTPUT_QUIET
+          ERROR_QUIET)
+      else()
+        set(_probe_run_rc 1)
+      endif()
+      file(REMOVE_RECURSE "${_probe_dir}")
+      if(_probe_run_rc EQUAL 0)
+        set(_scratch_base "${_candidate}")
+        break()
+      endif()
+    else()
+      file(REMOVE_RECURSE "${_probe_dir}")
     endif()
   endif()
 endforeach()
+if("${_scratch_base}" STREQUAL "")
+  foreach(_candidate IN ITEMS "/tmp" "/dev/shm")
+    if(EXISTS "${_candidate}")
+      set(_probe_file "${_candidate}/gentest_meson_wrap_probe_${_scratch_hash}")
+      execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E touch "${_probe_file}"
+        RESULT_VARIABLE _probe_rc
+        OUTPUT_QUIET
+        ERROR_QUIET)
+      if(_probe_rc EQUAL 0)
+        file(REMOVE "${_probe_file}")
+        set(_scratch_base "${_candidate}")
+        break()
+      endif()
+    endif()
+  endforeach()
+endif()
 if("${_scratch_base}" STREQUAL "")
   message(STATUS "GENTEST_SKIP_TEST: no writable scratch root available for Meson wrap consumer check")
   return()

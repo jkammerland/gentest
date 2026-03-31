@@ -374,9 +374,8 @@ jobs:
           else
             xmake_path="/home/ci/.local/bin/xmake"
           fi
-          export PATH="$(dirname "${xmake_path}"):${PATH}"
-          cmake \
-            -DSOURCE_DIR="${GITHUB_WORKSPACE}" \
-            -DBUILD_ROOT="${GITHUB_WORKSPACE}/build/buildsystems-linux-xmake-downstream" \
-            -DPROG="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen" \
-            -P "${GITHUB_WORKSPACE}/cmake/CheckXmakeXrepoConsumer.cmake"
+          su - ci -c "PATH=\"$(dirname "${xmake_path}"):\${PATH}\" cmake \
+            -DSOURCE_DIR=\"${GITHUB_WORKSPACE}\" \
+            -DBUILD_ROOT=\"${GITHUB_WORKSPACE}/build/buildsystems-linux-xmake-downstream\" \
+            -DPROG=\"${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen\" \
+            -P \"${GITHUB_WORKSPACE}/cmake/CheckXmakeXrepoConsumer.cmake\""
