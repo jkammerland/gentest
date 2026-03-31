@@ -673,6 +673,29 @@ local function configured_cxx_tool_hint()
     return get_config("cxx") or os.getenv("CXX") or ""
 end
 
+local function configured_toolchain_hint()
+    local configured = get_config("toolchain")
+    if type(configured) == "string" then
+        return configured
+    end
+    return ""
+end
+
+function gentest_apply_windows_llvm_toolchain()
+    if not is_host("windows") then
+        return
+    end
+    local configured_toolchain = configured_toolchain_hint():lower()
+    if configured_toolchain == "llvm" then
+        set_toolchains("llvm")
+        return
+    end
+    local cxx_tool = configured_cxx_tool_hint()
+    if cxx_tool ~= "" and is_clang_tool(cxx_tool) then
+        set_toolchains("llvm")
+    end
+end
+
 local function resolve_codegen_host_clang(target)
     local configured_codegen = configured_codegen_settings()
     local configured_host_clang = resolve_explicit_program(
@@ -918,6 +941,8 @@ function gentest_add_mocks(opts)
         require_clang_module_toolchain(nil, "gentest_add_mocks")
     end
 
+    gentest_apply_windows_llvm_toolchain()
+
     local target_name = require_opt(opts, "name", "gentest_add_mocks")
     local output_dir = require_opt(opts, "output_dir", "gentest_add_mocks")
     local defs = require_opt(opts, "defs", "gentest_add_mocks")
@@ -1123,6 +1148,8 @@ function gentest_attach_codegen(opts)
     if kind == "modules" then
         require_clang_module_toolchain(nil, "gentest_attach_codegen")
     end
+
+    gentest_apply_windows_llvm_toolchain()
 
     local target_name = require_opt(opts, "name", "gentest_attach_codegen")
     local source = require_opt(opts, "source", "gentest_attach_codegen")

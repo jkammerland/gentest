@@ -42,6 +42,7 @@ gentest_configure({
 
 target("gentest_runtime")
     set_kind("static")
+    gentest_apply_windows_llvm_toolchain()
     add_packages("fmt")
     add_files("src/bench_stats.cpp")
     add_files("src/runtime_context.cpp")
@@ -64,6 +65,7 @@ target("gentest_runtime")
 if enable_module_targets then
     target("gentest")
         set_kind("static")
+        gentest_apply_windows_llvm_toolchain()
         add_packages("fmt")
         add_includedirs(incdirs, {public = true})
         add_defines(gentest_common_defines)
@@ -76,6 +78,7 @@ end
 
 target("gentest_main")
     set_kind("static")
+    gentest_apply_windows_llvm_toolchain()
     add_packages("fmt")
     add_files("src/gentest_main.cpp")
     add_includedirs(incdirs)
@@ -86,6 +89,7 @@ target("gentest_main")
 local function gentest_suite(name)
     target("gentest_" .. name .. "_xmake")
         set_kind("binary")
+        gentest_apply_windows_llvm_toolchain()
         gentest_attach_codegen({
             name = "gentest_" .. name .. "_xmake",
             kind = "textual",
@@ -102,6 +106,7 @@ gentest_suite("skiponly")
 
 target("gentest_consumer_textual_mocks_xmake")
     set_kind("static")
+    gentest_apply_windows_llvm_toolchain()
     gentest_add_mocks({
         name = "gentest_consumer_textual_mocks_xmake",
         kind = "textual",
@@ -117,6 +122,7 @@ target("gentest_consumer_textual_mocks_xmake")
 
 target("gentest_consumer_textual_xmake")
     set_kind("binary")
+    gentest_apply_windows_llvm_toolchain()
     gentest_attach_codegen({
         name = "gentest_consumer_textual_xmake",
         kind = "textual",
@@ -131,6 +137,7 @@ target("gentest_consumer_textual_xmake")
 if enable_module_targets then
     target("gentest_consumer_module_mocks_xmake")
         set_kind("static")
+        gentest_apply_windows_llvm_toolchain()
         gentest_add_mocks({
             name = "gentest_consumer_module_mocks_xmake",
             kind = "modules",
@@ -147,6 +154,7 @@ if enable_module_targets then
 
     target("gentest_consumer_module_xmake")
         set_kind("binary")
+        gentest_apply_windows_llvm_toolchain()
         gentest_attach_codegen({
             name = "gentest_consumer_module_xmake",
             kind = "modules",

@@ -80,6 +80,9 @@ endif()
 
 set(_tmp_dir "${_gentest_xmake_root}/tmp_xmake_target_registration")
 set(_xmake_global_dir "${_gentest_xmake_root}/xg")
+if(WIN32)
+  set(_tmp_dir "${_gentest_xmake_root}/xr")
+endif()
 file(REMOVE_RECURSE "${_tmp_dir}")
 file(REMOVE_RECURSE "${_xmake_global_dir}")
 file(MAKE_DIRECTORY "${_tmp_dir}")
@@ -102,9 +105,32 @@ set(_xmake_env
   "TMPDIR=${_tmp_dir}/tmp"
   "XMAKE_GLOBALDIR=${_xmake_global_dir}")
 
+set(_xmake_show_args
+  -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua")
+set(_xmake_config_args
+  f -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -m debug -c -y
+  "--cc=${_clang_cc}"
+  "--cxx=${_clang_cxx}")
+if(WIN32)
+  list(APPEND _xmake_config_args "--toolchain=llvm")
+endif()
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
-          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -l targets
+          "${_xmake}" ${_xmake_config_args}
+  RESULT_VARIABLE _cfg_rc
+  OUTPUT_VARIABLE _cfg_out
+  ERROR_VARIABLE _cfg_err)
+if(NOT _cfg_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake configure failed for clean textual consumer registration check.\n"
+    "stdout:\n${_cfg_out}\n"
+    "stderr:\n${_cfg_err}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" show ${_xmake_show_args} -l targets
   RESULT_VARIABLE _list_rc
   OUTPUT_VARIABLE _list_out
   ERROR_VARIABLE _list_err)
@@ -131,7 +157,7 @@ endforeach()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
-          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_textual_xmake
+          "${_xmake}" show ${_xmake_show_args} -t gentest_consumer_textual_xmake
   RESULT_VARIABLE _target_rc
   OUTPUT_VARIABLE _target_out
   ERROR_VARIABLE _target_err)
@@ -141,8 +167,9 @@ if(NOT _target_rc EQUAL 0)
     "stdout:\n${_target_out}\n"
     "stderr:\n${_target_err}")
 endif()
+string(REPLACE "\\" "/" _target_out_norm "${_target_out}")
 
-string(FIND "${_target_out}" "gentest_consumer_textual_mocks_xmake" _dep_pos)
+string(FIND "${_target_out_norm}" "gentest_consumer_textual_mocks_xmake" _dep_pos)
 if(_dep_pos EQUAL -1)
   message(FATAL_ERROR
     "gentest_consumer_textual_xmake should depend on gentest_consumer_textual_mocks_xmake.\n"
@@ -151,7 +178,7 @@ endif()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
-          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_textual_mocks_xmake
+          "${_xmake}" show ${_xmake_show_args} -t gentest_consumer_textual_mocks_xmake
   RESULT_VARIABLE _textual_mocks_rc
   OUTPUT_VARIABLE _textual_mocks_out
   ERROR_VARIABLE _textual_mocks_err)
@@ -161,12 +188,13 @@ if(NOT _textual_mocks_rc EQUAL 0)
     "stdout:\n${_textual_mocks_out}\n"
     "stderr:\n${_textual_mocks_err}")
 endif()
+string(REPLACE "\\" "/" _textual_mocks_out_norm "${_textual_mocks_out}")
 
 foreach(_expected IN ITEMS
     "gentest_consumer_mocks.hpp"
     "header_mock_defs.hpp"
     "service.hpp")
-  string(FIND "${_textual_mocks_out}" "${_expected}" _expected_pos)
+  string(FIND "${_textual_mocks_out_norm}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR
       "gentest_consumer_textual_mocks_xmake should expose '${_expected}'.\n"
@@ -174,7 +202,7 @@ foreach(_expected IN ITEMS
   endif()
 endforeach()
 
-string(FIND "${_target_out}" "tu_0000_cases.gentest.cpp" _source_pos)
+string(FIND "${_target_out_norm}" "tu_0000_cases.gentest.cpp" _source_pos)
 if(_source_pos EQUAL -1)
   message(FATAL_ERROR
     "gentest_consumer_textual_xmake should generate the shared consumer wrapper for cases.cpp.\n"
@@ -183,7 +211,7 @@ endif()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
-          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_mocks_xmake
+          "${_xmake}" show ${_xmake_show_args} -t gentest_consumer_module_mocks_xmake
   RESULT_VARIABLE _module_mocks_rc
   OUTPUT_VARIABLE _module_mocks_out
   ERROR_VARIABLE _module_mocks_err)
@@ -193,13 +221,14 @@ if(NOT _module_mocks_rc EQUAL 0)
     "stdout:\n${_module_mocks_out}\n"
     "stderr:\n${_module_mocks_err}")
 endif()
+string(REPLACE "\\" "/" _module_mocks_out_norm "${_module_mocks_out}")
 
 foreach(_expected IN ITEMS
     "gentest/consumer_mocks.cppm"
     "gentest"
     "service_module.cppm"
     "module_mock_defs.cppm")
-  string(FIND "${_module_mocks_out}" "${_expected}" _expected_pos)
+  string(FIND "${_module_mocks_out_norm}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR
       "gentest_consumer_module_mocks_xmake should expose '${_expected}'.\n"
@@ -209,7 +238,7 @@ endforeach()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
-          "${_xmake}" show -P "${_tmp_dir}" -F "${_tmp_dir}/xmake.lua" -t gentest_consumer_module_xmake
+          "${_xmake}" show ${_xmake_show_args} -t gentest_consumer_module_xmake
   RESULT_VARIABLE _module_target_rc
   OUTPUT_VARIABLE _module_target_out
   ERROR_VARIABLE _module_target_err)
@@ -219,6 +248,7 @@ if(NOT _module_target_rc EQUAL 0)
     "stdout:\n${_module_target_out}\n"
     "stderr:\n${_module_target_err}")
 endif()
+string(REPLACE "\\" "/" _module_target_out_norm "${_module_target_out}")
 
 foreach(_expected IN ITEMS
     "gentest_consumer_module_mocks_xmake"
@@ -226,7 +256,7 @@ foreach(_expected IN ITEMS
     "GENTEST_CONSUMER_USE_MODULES=1"
     "tests/consumer/main.cpp"
     "tu_0000_cases.module.gentest.cppm")
-  string(FIND "${_module_target_out}" "${_expected}" _expected_pos)
+  string(FIND "${_module_target_out_norm}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR
       "gentest_consumer_module_xmake should expose '${_expected}'.\n"

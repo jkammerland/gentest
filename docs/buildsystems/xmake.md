@@ -166,6 +166,22 @@ xmake f -c -y -m release -o build/xmake-textual --cc=gcc --cxx=g++
 xmake b gentest_consumer_textual_xmake
 ```
 
+On Windows, if the target compiler is Clang, use Xmake's LLVM toolchain
+explicitly instead of only passing `--cc` / `--cxx`. Xmake's package
+resolution path for dependencies like `fmt` expects a real LLVM toolchain
+object there:
+
+```powershell
+$env:GENTEST_CODEGEN = "$PWD/build/host-codegen/tools/gentest_codegen.exe"
+$env:GENTEST_CODEGEN_HOST_CLANG = "C:/Tools/llvm-21.1.4/bin/clang++.exe"
+
+xmake f -c -y -m debug -o build/xmake-windows `
+  --toolchain=llvm `
+  --cc=C:/Tools/llvm-21.1.4/bin/clang.exe `
+  --cxx=C:/Tools/llvm-21.1.4/bin/clang++.exe
+xmake b gentest_consumer_textual_xmake
+```
+
 Module consumers still need a Clang target toolchain in Xmake, but the host
 Clang used by `gentest_codegen` is now configured separately:
 

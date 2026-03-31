@@ -210,6 +210,9 @@ endif()
 
 set(_out_dir "${_gentest_xmake_root}/tmp_xmake_module_consumer")
 set(_xmake_global_dir "${_gentest_xmake_root}/xg")
+if(WIN32)
+  set(_out_dir "${_gentest_xmake_root}/xm")
+endif()
 file(REMOVE_RECURSE "${_out_dir}")
 file(REMOVE_RECURSE "${_xmake_global_dir}")
 file(MAKE_DIRECTORY "${_out_dir}/tmp")
@@ -232,10 +235,13 @@ set(_clang_config_args
   f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
   "--cc=${_clang_cc}"
   "--cxx=${_clang_cxx}")
+set(_clang_build_args
+  build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD)
+if(APPLE OR WIN32)
+  list(APPEND _clang_config_args "--toolchain=llvm")
+endif()
 if(APPLE)
-  list(APPEND _clang_config_args
-    "--toolchain=llvm"
-    "--sdk=${_clang_prefix}")
+  list(APPEND _clang_config_args "--sdk=${_clang_prefix}")
 endif()
 
 execute_process(
@@ -254,7 +260,7 @@ endif()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
-          "${_xmake}" build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD
+          "${_xmake}" ${_clang_build_args}
           gentest_consumer_module_mocks_xmake
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _mock_build_rc
@@ -269,7 +275,7 @@ endif()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
-          "${_xmake}" build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD
+          "${_xmake}" ${_clang_build_args}
           gentest_consumer_module_xmake
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _build_rc

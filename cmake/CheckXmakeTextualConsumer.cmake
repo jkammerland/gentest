@@ -136,6 +136,9 @@ endif()
 
 set(_out_dir "${_gentest_xmake_root}/tmp_xmake_textual_consumer")
 set(_xmake_global_dir "${_gentest_xmake_root}/xg")
+if(WIN32)
+  set(_out_dir "${_gentest_xmake_root}/xt")
+endif()
 file(REMOVE_RECURSE "${_out_dir}")
 file(REMOVE_RECURSE "${_xmake_global_dir}")
 file(MAKE_DIRECTORY "${_out_dir}/tmp")
@@ -149,12 +152,20 @@ set(_xmake_env
   "TMPDIR=${_out_dir}/tmp"
   "XMAKE_GLOBALDIR=${_xmake_global_dir}")
 
+set(_xmake_config_args
+  f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
+  "--cc=${_target_cc}"
+  "--cxx=${_target_cxx}")
+set(_xmake_build_args
+  build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD)
+if(WIN32)
+  list(APPEND _xmake_config_args "--toolchain=llvm")
+endif()
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           ${_xmake_env}
-          "${_xmake}" f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
-          "--cc=${_target_cc}"
-          "--cxx=${_target_cxx}"
+          "${_xmake}" ${_xmake_config_args}
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _cfg_rc
   OUTPUT_VARIABLE _cfg_out
@@ -169,7 +180,7 @@ endif()
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           ${_xmake_env}
-          "${_xmake}" build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD
+          "${_xmake}" ${_xmake_build_args}
           gentest_consumer_textual_mocks_xmake
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _mock_build_rc
@@ -185,7 +196,7 @@ endif()
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           ${_xmake_env}
-          "${_xmake}" build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD
+          "${_xmake}" ${_xmake_build_args}
           gentest_consumer_textual_xmake
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _build_rc
