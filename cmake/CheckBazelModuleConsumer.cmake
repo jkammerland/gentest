@@ -252,20 +252,52 @@ if(NOT _build_rc EQUAL 0)
     "stderr:\n${_build_err}")
 endif()
 
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "CCACHE_DISABLE=1"
+          "PATH=${_tool_path}"
+          "CC=${_clang_cc}"
+          "CXX=${_clang_cxx}"
+          "LLVM_BIN=${_clang_bin_dir}"
+          "LLVM_DIR=${_llvm_dir}"
+          "Clang_DIR=${_clang_dir}"
+          "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
+          "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
+          "HOME=$ENV{HOME}"
+          ${_bazel_command}
+          --output_user_root=${_bazel_output_root}
+          info
+          bazel-bin
+  WORKING_DIRECTORY "${SOURCE_DIR}"
+  RESULT_VARIABLE _bazel_bin_rc
+  OUTPUT_VARIABLE _bazel_bin_out
+  ERROR_VARIABLE _bazel_bin_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT _bazel_bin_rc EQUAL 0 OR _bazel_bin_out STREQUAL "")
+  message(FATAL_ERROR
+    "Failed to resolve bazel-bin for the Bazel module consumer smoke check.\n"
+    "bazel: ${_bazel}\n"
+    "bazel version: ${_bazel_version_text}\n"
+    "output root: ${_bazel_output_root}\n"
+    "stdout:\n${_bazel_bin_out}\n"
+    "stderr:\n${_bazel_bin_err}")
+endif()
+file(TO_CMAKE_PATH "${_bazel_bin_out}" _bazel_bin_dir)
+
 foreach(_expected_file IN ITEMS
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest/consumer_mocks.cppm"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry.hpp"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl.hpp"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0000_header.hpp"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0000_header.hpp"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0001_gentest_consumer_service.hpp"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0001_gentest_consumer_service.hpp"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0002_gentest_consumer_mock_defs.hpp"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0002_gentest_consumer_mock_defs.hpp"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.module.gentest.cppm"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.gentest.h"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.module.gentest.cppm"
-    "${SOURCE_DIR}/bazel-bin/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h")
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/gentest/consumer_mocks.cppm"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry.hpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl.hpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0000_header.hpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0000_header.hpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0001_gentest_consumer_service.hpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0001_gentest_consumer_service.hpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0002_gentest_consumer_mock_defs.hpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0002_gentest_consumer_mock_defs.hpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.module.gentest.cppm"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.gentest.h"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.module.gentest.cppm"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
       "Bazel module mock target build did not produce expected mockgen artifact '${_expected_file}'.\n"
@@ -275,7 +307,7 @@ foreach(_expected_file IN ITEMS
 endforeach()
 
 execute_process(
-  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --list
+  COMMAND "${_bazel_bin_dir}/gentest_consumer_module_bazel" --list
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _list_rc
   OUTPUT_VARIABLE _list_out
@@ -301,7 +333,7 @@ foreach(_expected IN ITEMS
 endforeach()
 
 execute_process(
-  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --run=consumer/consumer/module_test --kind=test
+  COMMAND "${_bazel_bin_dir}/gentest_consumer_module_bazel" --run=consumer/consumer/module_test --kind=test
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _plain_test_rc
   OUTPUT_VARIABLE _plain_test_out
@@ -314,7 +346,7 @@ if(NOT _plain_test_rc EQUAL 0)
 endif()
 
 execute_process(
-  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --run=consumer/consumer/module_mock --kind=test
+  COMMAND "${_bazel_bin_dir}/gentest_consumer_module_bazel" --run=consumer/consumer/module_mock --kind=test
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _test_rc
   OUTPUT_VARIABLE _test_out
@@ -327,7 +359,7 @@ if(NOT _test_rc EQUAL 0)
 endif()
 
 execute_process(
-  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --run=consumer/consumer/module_bench --kind=bench
+  COMMAND "${_bazel_bin_dir}/gentest_consumer_module_bazel" --run=consumer/consumer/module_bench --kind=bench
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _bench_rc
   OUTPUT_VARIABLE _bench_out
@@ -340,7 +372,7 @@ if(NOT _bench_rc EQUAL 0)
 endif()
 
 execute_process(
-  COMMAND "${SOURCE_DIR}/bazel-bin/gentest_consumer_module_bazel" --run=consumer/consumer/module_jitter --kind=jitter
+  COMMAND "${_bazel_bin_dir}/gentest_consumer_module_bazel" --run=consumer/consumer/module_jitter --kind=jitter
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _jitter_rc
   OUTPUT_VARIABLE _jitter_out
