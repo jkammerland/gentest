@@ -35,9 +35,9 @@ For background on why the exact host Clang path matters, see
 | Build system | Current downstream status | Module path | What users should configure |
 | --- | --- | --- | --- |
 | CMake | primary / packaged | supported | set `GENTEST_CODEGEN_HOST_CLANG`; in cross builds also set `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` |
-| Bazel | repo-local helper today | supported but toolchain-sensitive | set per-target `codegen_host_clang` or export/pass through `GENTEST_CODEGEN_HOST_CLANG`; keep target flags in Bazel/C++ toolchain config |
-| Xmake | repo-local helper today | supported but toolchain-sensitive | set `codegen = { exe, clang, scan_deps }` or the matching env fallbacks; keep Xmake `cc` / `cxx` for the final target toolchain |
-| Meson | repo-local helper today | intentionally unsupported | pass `-Dcodegen_path=...` and `-Dcodegen_host_clang=...`; textual-only today |
+| Bazel | official Bzlmod / source-package support | supported but toolchain-sensitive | set per-target `codegen_host_clang` or export/pass through `GENTEST_CODEGEN_HOST_CLANG`; keep target flags in Bazel/C++ toolchain config |
+| Xmake | official xrepo / installed-helper support | supported but toolchain-sensitive | set `codegen = { exe, clang, scan_deps }` or the matching env fallbacks; keep Xmake `cc` / `cxx` for the final target toolchain |
+| Meson | official wrap/subproject textual support | intentionally unsupported | pass `-Dcodegen_path=...` and `-Dcodegen_host_clang=...`; textual-only today |
 
 ## CMake
 
@@ -104,8 +104,9 @@ Notes:
 
 ## Bazel
 
-The current Bazel support is repo-local and toolchain-sensitive. The stable
-approach is to pass the host Clang toolchain into Bazel actions explicitly.
+The Bazel downstream surface is source-package/Bzlmod based and still
+toolchain-sensitive. The stable approach is to pass the host Clang toolchain
+into Bazel actions explicitly.
 
 Example `BUILD.bazel`:
 
@@ -170,16 +171,15 @@ Notes:
   CI override instead of the only source of truth.
 - Prefer putting target sysroot and target-triple flags in the C++ toolchain.
   When that is not available, pass them through `clang_args`.
-- If this is promoted to official Bzlmod support later, the right direction is a
-  proper Starlark module/rule set with hermetic host-tool acquisition instead of
-  asking users to thread raw env vars everywhere.
+- The checked-in downstream proof uses the public `@gentest//bazel:defs.bzl`
+  entrypoint and a real `MODULE.bazel` fixture.
 
 ## Xmake
 
-The current Xmake support is repo-local and module builds still require a Clang
-target toolchain. The stable codegen-host contract, however, is the explicit
-`codegen = { ... }` block or the matching env fallbacks, not the target
-`CC` / `CXX` pair.
+The Xmake downstream surface is install/xrepo based, and module builds still
+require a Clang target toolchain. The stable codegen-host contract, however, is
+the explicit `codegen = { ... }` block or the matching env fallbacks, not the
+target `CC` / `CXX` pair.
 
 Example `xmake.lua`:
 
@@ -251,15 +251,14 @@ Notes:
   the adjacent `compile_commands.json`.
 - Module consumers should treat explicit Clang selection as required, not
   best-effort.
-- For a future official xrepo package, the package should expose the runtime,
-  the helper layer, and a host `gentest_codegen` tool path. It should not try to
-  install a host Clang toolchain on the user's behalf.
+- The checked-in downstream proof stages an install prefix and consumes it
+  through a fixture-local xrepo repository.
 
 ## Meson
 
-The current Meson support is repo-local and textual-only. Named-module targets
-are intentionally unsupported today, so Meson is only a fit for classic or
-textual flows right now.
+The Meson downstream surface is wrap/subproject based and textual-only.
+Named-module targets are intentionally unsupported today, so Meson is only a
+fit for classic or textual flows right now.
 
 Native file:
 
@@ -291,8 +290,8 @@ Notes:
   host-tool hooks.
 - Keep target `c` / `cpp` compiler selection in the Meson native file or
   cross file. Do not use it as a substitute for the codegen-host contract.
-- Meson named-module support should not be documented as supported until the
-  backend grows a real reusable helper API and a proven module lane.
+- The checked-in downstream proof consumes `gentest` as a subproject with
+  `build_self_tests=false` and runs a textual mock + suite consumer end to end.
 
 ## Packaging guidance
 

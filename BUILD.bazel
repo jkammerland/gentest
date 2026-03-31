@@ -1,5 +1,5 @@
 load(
-    '//build_defs:gentest.bzl',
+    '//bazel:defs.bzl',
     'gentest_add_mocks_modules',
     'gentest_add_mocks_textual',
     'gentest_attach_codegen_modules',
@@ -17,6 +17,16 @@ filegroup(
         "include/gentest/detail/*.h",
         "third_party/include/tabulate/*.hpp",
     ], allow_empty = False),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "gentest_public_module_interfaces",
+    srcs = [
+        "include/gentest/gentest.cppm",
+        "include/gentest/gentest.mock.cppm",
+        "include/gentest/gentest.bench_util.cppm",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -54,6 +64,7 @@ genrule(
     outs = ['gen_tools/gentest_codegen'],
     cmd = "set -e; " +
           "GENTEST_CMAKE_ARGS='-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'; " +
+          "GENTEST_SOURCE_ROOT=$$(dirname \"$(location CMakeLists.txt)\"); " +
           "if [ -x /opt/homebrew/bin/cmake ]; then GENTEST_CMAKE_BIN=/opt/homebrew/bin/cmake; " +
           "else GENTEST_CMAKE_BIN=$$(command -v cmake); fi && " +
           "if [ -x /opt/homebrew/bin/ninja ]; then GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -G Ninja -DCMAKE_MAKE_PROGRAM=/opt/homebrew/bin/ninja\"; fi && " +
@@ -76,7 +87,7 @@ genrule(
           "GENTEST_CMAKE_ARGS=\"$$GENTEST_CMAKE_ARGS -DLLVM_DIR=$$LLVM_DIR -DClang_DIR=$$Clang_DIR\" && " +
           "if [ -z \"$${GENTEST_CMAKE_BIN}\" ]; then echo 'gentest bazel: cmake not found' >&2; exit 127; fi && " +
           "rm -rf $(@D)/b && mkdir -p $(@D)/b && " +
-          "\"$${GENTEST_CMAKE_BIN}\" -S . -B $(@D)/b $$GENTEST_CMAKE_ARGS && " +
+          "\"$${GENTEST_CMAKE_BIN}\" -S \"$$GENTEST_SOURCE_ROOT\" -B $(@D)/b $$GENTEST_CMAKE_ARGS && " +
           "\"$${GENTEST_CMAKE_BIN}\" --build $(@D)/b --target gentest_codegen -j 1 && " +
           "cp $(@D)/b/tools/gentest_codegen $@",
     tags = ['no-sandbox', 'local'],
@@ -91,6 +102,7 @@ genrule(
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen.exe'],
     cmd_bat = "setlocal EnableDelayedExpansion && set GENTEST_CMAKE_ARGS=-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && " +
+              "for %%I in (\"$(location CMakeLists.txt)\") do set GENTEST_SOURCE_ROOT=%%~dpI && " +
               "if not defined CC for %%I in (C:\\Tools\\llvm-22.1.0\\bin\\clang.exe C:\\Tools\\llvm-21.1.4\\bin\\clang.exe C:\\Tools\\llvm-20.1.8\\bin\\clang.exe) do if not defined CC if exist %%I set CC=%%I && " +
               "if not defined CXX for %%I in (C:\\Tools\\llvm-22.1.0\\bin\\clang++.exe C:\\Tools\\llvm-21.1.4\\bin\\clang++.exe C:\\Tools\\llvm-20.1.8\\bin\\clang++.exe) do if not defined CXX if exist %%I set CXX=%%I && " +
               "if defined CC set GENTEST_CMAKE_ARGS=!GENTEST_CMAKE_ARGS! -DCMAKE_C_COMPILER=\"!CC!\" && " +
@@ -102,7 +114,7 @@ genrule(
               "set GENTEST_CMAKE_ARGS=!GENTEST_CMAKE_ARGS! -DLLVM_DIR=\"!LLVM_DIR!\" -DClang_DIR=\"!Clang_DIR!\" && " +
               "if exist \"%ProgramFiles%\\CMake\\bin\\cmake.exe\" (set GENTEST_CMAKE_BIN=%ProgramFiles%\\CMake\\bin\\cmake.exe) else (set GENTEST_CMAKE_BIN=cmake) && " +
               "if exist $(@D)\\b rmdir /S /Q $(@D)\\b && mkdir $(@D)\\b && " +
-              "\"!GENTEST_CMAKE_BIN!\" -S . -B $(@D)\\b !GENTEST_CMAKE_ARGS! && " +
+              "\"!GENTEST_CMAKE_BIN!\" -S \"!GENTEST_SOURCE_ROOT!\" -B $(@D)\\b !GENTEST_CMAKE_ARGS! && " +
               "\"!GENTEST_CMAKE_BIN!\" --build $(@D)\\b --target gentest_codegen --config Release && " +
               "(if exist $(@D)\\b\\tools\\Release\\gentest_codegen.exe " +
               "(copy /Y $(@D)\\b\\tools\\Release\\gentest_codegen.exe $@ >NUL) " +

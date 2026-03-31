@@ -1,0 +1,8 @@
+module(name = "gentest_downstream_fixture")
+
+bazel_dep(name = "gentest", version = "1.0.0")
+
+local_path_override(
+    module_name = "gentest",
+    path = "@GENTEST_SOURCE_DIR@",
+)

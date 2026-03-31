@@ -108,6 +108,9 @@ if(${PROJECT_NAME}_INSTALL)
             "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
         PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
 
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/xmake/"
+        DESTINATION "share/gentest/xmake")
+
     set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
     set(CPACK_PACKAGE_VENDOR "${PROJECT_NAME}")
     set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")

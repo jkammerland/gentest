@@ -683,4 +683,4 @@ Useful overrides are read from the environment:
 
 - Docs index: [`docs/index.md`](docs/index.md)
 - Install templates: [`Linux`](docs/install/linux.md), [`macOS`](docs/install/macos.md), [`Windows`](docs/install/windows.md)
-- Repo-local buildsystem guides: [`Meson`](docs/buildsystems/meson.md), [`Xmake`](docs/buildsystems/xmake.md), [`Bazel`](docs/buildsystems/bazel.md)
+- Non-CMake downstream guides: [`Meson`](docs/buildsystems/meson.md), [`Xmake`](docs/buildsystems/xmake.md), [`Bazel`](docs/buildsystems/bazel.md)

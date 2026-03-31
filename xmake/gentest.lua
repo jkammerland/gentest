@@ -2,8 +2,7 @@ local gentest_state = {}
 local fail
 
 fail = function(message)
-    print("error: gentest xmake: " .. message)
-    os.exit(1)
+    raise("gentest xmake: " .. message)
 end
 
 -- Configure the shared Xmake helper context. External consumers can override
@@ -25,6 +24,24 @@ local function project_root()
     return state_value("project_root")
 end
 
+local codegen_project_root
+
+local function helper_script_dir()
+    local configured = gentest_state["helper_root"]
+    if configured ~= nil and tostring(configured) ~= "" then
+        local helper_dir = tostring(configured)
+        if not path.is_absolute(helper_dir) then
+            helper_dir = project_path(helper_dir)
+        end
+        return path.absolute(helper_dir)
+    end
+    local script_dir = os.scriptdir()
+    if script_dir and script_dir ~= "" then
+        return path.absolute(script_dir)
+    end
+    return path.join(project_root(), "xmake")
+end
+
 local function incdirs()
     return state_value("incdirs")
 end
@@ -36,6 +53,50 @@ local function project_path(filepath)
     return path.join(project_root(), filepath)
 end
 
+local function normalize_root_candidate(candidate)
+    local candidate_text = tostring(candidate or "")
+    if candidate_text == "" then
+        return nil
+    end
+    if not path.is_absolute(candidate_text) then
+        candidate_text = project_path(candidate_text)
+    end
+    local normalized = path.absolute(candidate_text)
+    if os.isfile(path.join(normalized, "include", "gentest", "runner.h")) then
+        return normalized
+    end
+    if os.isfile(path.join(normalized, "include", "gentest", "gentest.cppm")) then
+        return normalized
+    end
+    return nil
+end
+
+local function gentest_root()
+    local configured = gentest_state["gentest_root"]
+    if configured ~= nil and tostring(configured) ~= "" then
+        local resolved = normalize_root_candidate(configured)
+        if resolved then
+            return resolved
+        end
+        fail("gentest_configure `gentest_root` must point at a gentest source tree or installed prefix")
+    end
+
+    local script_dir = helper_script_dir()
+    local candidates = {
+        path.directory(script_dir),
+        path.directory(path.directory(path.directory(script_dir))),
+        codegen_project_root(),
+        project_root(),
+    }
+    for _, candidate in ipairs(candidates) do
+        local resolved = normalize_root_candidate(candidate)
+        if resolved then
+            return resolved
+        end
+    end
+    fail("failed to resolve gentest_root; set gentest_configure({ gentest_root = ... })")
+end
+
 local function configured_build_dir()
     local builddir = get_config("builddir") or get_config("buildir") or "build"
     return project_path(builddir)
@@ -43,17 +104,28 @@ end
 
 local function resolved_incdirs()
     local result = {}
+    local seen = {}
+    local gentest_include = path.join(gentest_root(), "include")
+    if os.isdir(gentest_include) then
+        table.insert(result, gentest_include)
+        seen[gentest_include] = true
+    end
     for _, include_dir in ipairs(incdirs()) do
+        local resolved = include_dir
         if path.is_absolute(include_dir) then
-            table.insert(result, include_dir)
+            resolved = include_dir
         else
-            table.insert(result, project_path(include_dir))
+            resolved = project_path(include_dir)
+        end
+        if not seen[resolved] then
+            seen[resolved] = true
+            table.insert(result, resolved)
         end
     end
     return result
 end
 
-local function codegen_project_root()
+codegen_project_root = function()
     local configured = gentest_state["codegen_project_root"] or project_root()
     if os.isfile(path.join(configured, "CMakeLists.txt")) then
         return configured
@@ -80,6 +152,76 @@ end
 
 local function gentest_common_cxxflags()
     return state_value("gentest_common_cxxflags")
+end
+
+local function gentest_module_files()
+    local configured = gentest_state["gentest_module_files"]
+    if configured == nil then
+        return {}
+    end
+    if type(configured) ~= "table" then
+        fail("gentest_configure `gentest_module_files` must be a table when provided")
+    end
+    local result = {}
+    for _, filepath in ipairs(configured) do
+        local filepath_text = tostring(filepath or "")
+        if filepath_text ~= "" then
+            if path.is_absolute(filepath_text) then
+                table.insert(result, filepath_text)
+            else
+                table.insert(result, path.join(gentest_root(), filepath_text))
+            end
+        end
+    end
+    return result
+end
+
+local function materialized_public_module_entries(output_dir)
+    local entries = {}
+    for _, module_source in ipairs(gentest_module_files()) do
+        local output_rel = path.join(output_dir, "__gentest_public_modules", path.filename(module_source))
+        table.insert(entries, {
+            source = module_source,
+            output_rel = output_rel,
+            output_abs = project_path(output_rel),
+        })
+    end
+    return entries
+end
+
+local function gentest_public_include_dir()
+    return path.join(gentest_root(), "include")
+end
+
+local function gentest_public_linkdirs()
+    local result = {}
+    for _, dir_name in ipairs({"lib", "lib64"}) do
+        local candidate = path.join(gentest_root(), dir_name)
+        if os.isdir(candidate) then
+            table.insert(result, candidate)
+        end
+    end
+    return result
+end
+
+local function detect_installed_library_name(candidates)
+    for _, linkdir in ipairs(gentest_public_linkdirs()) do
+        for _, candidate in ipairs(candidates) do
+            local matches = os.files(path.join(linkdir, "*" .. candidate .. "*"))
+            if matches and #matches > 0 then
+                return candidate
+            end
+        end
+    end
+    return nil
+end
+
+local function gentest_runtime_link_name()
+    return detect_installed_library_name({"gentest_runtimed", "gentest_runtime"})
+end
+
+local function gentest_module_link_name()
+    return detect_installed_library_name({"gentestd", "gentest"})
 end
 
 local function registered_target_metadata()
@@ -187,9 +329,9 @@ end
 
 local function default_external_module_sources()
     return {
-        "gentest=" .. project_path("include/gentest/gentest.cppm"),
-        "gentest.mock=" .. project_path("include/gentest/gentest.mock.cppm"),
-        "gentest.bench_util=" .. project_path("include/gentest/gentest.bench_util.cppm"),
+        "gentest=" .. path.join(gentest_root(), "include", "gentest", "gentest.cppm"),
+        "gentest.mock=" .. path.join(gentest_root(), "include", "gentest", "gentest.mock.cppm"),
+        "gentest.bench_util=" .. path.join(gentest_root(), "include", "gentest", "gentest.bench_util.cppm"),
     }
 end
 
@@ -352,7 +494,11 @@ local function module_public_output_rel(output_dir, module_name)
 end
 
 local function template_path(filename)
-    return project_path(path.join("xmake", "templates", filename))
+    return path.join(helper_script_dir(), "templates", filename)
+end
+
+local function helper_script_path(filename)
+    return path.join(helper_script_dir(), "scripts", filename)
 end
 
 local function append_unique(result, seen, value)
@@ -449,18 +595,147 @@ local function export_import_lines(module_names)
     return table.concat(lines, "\n")
 end
 
-local function add_generated_template(template_name, output_rel, variables)
-    add_configfiles(template_path(template_name), {
-        filename = output_rel,
-        variables = variables or {},
+
+local function batch_render_template(batchcmds, template_name, output_rel, variables)
+    local argv = {
+        "template",
+        template_path(template_name),
+        project_path(output_rel),
+    }
+    for key, value in pairs(variables or {}) do
+        table.insert(argv, key .. "=" .. tostring(value))
+    end
+    batchcmds:lua(helper_script_path("materialize_file.lua"), argv)
+end
+
+local function batch_copy_generated_source(batchcmds, source_relpath, output_rel)
+    batchcmds:lua(helper_script_path("materialize_file.lua"), {
+        "copy",
+        project_path(source_relpath),
+        project_path(output_rel),
     })
 end
 
-local function add_generated_copy(source_relpath, output_rel)
-    add_configfiles(project_path(source_relpath), {
-        filename = output_rel,
-        onlycopy = true,
-    })
+local function ensure_materialized_public_modules(entries, runtime_os)
+    for _, entry in ipairs(entries or {}) do
+        local output_dir = path.directory(entry.output_abs)
+        if output_dir and output_dir ~= "" then
+            runtime_os.mkdir(output_dir)
+        end
+        runtime_os.cp(entry.source, entry.output_abs)
+    end
+end
+
+local function ensure_parent_dir(filepath, runtime_os)
+    local output_dir = path.directory(filepath)
+    if output_dir and output_dir ~= "" then
+        runtime_os.mkdir(output_dir)
+    end
+end
+
+local function write_placeholder_file(filepath, content, runtime_os, runtime_io)
+    ensure_parent_dir(filepath, runtime_os)
+    runtime_io.writefile(filepath, content)
+end
+
+local function materialize_textual_mock_placeholders(config, defs, target_id, runtime_os, runtime_io)
+    write_placeholder_file(
+        config.anchor_output,
+        "// generated placeholder\n\nnamespace gentest {\nnamespace anchor {\nint " .. anchor_symbol_name(target_id) ..
+            " = 0;\n} // namespace anchor\n} // namespace gentest\n",
+        runtime_os,
+        runtime_io
+    )
+    write_placeholder_file(config.mock_registry, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
+    write_placeholder_file(config.mock_impl, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
+    write_placeholder_file(config.header_output, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
+    write_placeholder_file(
+        config.wrapper_output,
+        "// generated placeholder\n\n#include \"gentest/mock.h\"\n" .. include_lines(config.wrapper_output, defs) ..
+            "\n\n#if !defined(GENTEST_CODEGEN) && __has_include(\"" .. path.filename(config.header_output) ..
+            "\")\n#include \"" .. path.filename(config.header_output) .. "\"\n#endif\n",
+        runtime_os,
+        runtime_io
+    )
+    write_placeholder_file(
+        config.public_header,
+        "// generated placeholder\n#pragma once\n\n#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n#include \"gentest/mock.h\"\n" ..
+            include_lines(config.public_header, defs) .. "\n#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n\n#include \"" ..
+            path.filename(config.mock_registry) .. "\"\n#include \"" .. path.filename(config.mock_impl) .. "\"\n",
+        runtime_os,
+        runtime_io
+    )
+end
+
+local function inject_gentest_mock_import(source_body, defs_file)
+    if source_body:find("import%s+gentest%.mock%s*;") then
+        return source_body
+    end
+    local _, decl_end = source_body:find("export%s+module%s+[^;]+;")
+    if not decl_end then
+        _, decl_end = source_body:find("module%s+[^;]+;")
+    end
+    if not decl_end then
+        fail("gentest_add_mocks(kind='modules') requires a named module declaration in `" .. tostring(defs_file) .. "`")
+    end
+    return source_body:sub(1, decl_end) .. "\n\nimport gentest.mock;" .. source_body:sub(decl_end + 1)
+end
+
+local function materialize_module_mock_placeholders(config, defs, target_id, runtime_os, runtime_io)
+    ensure_materialized_public_modules(config.public_module_entries, runtime_os)
+    write_placeholder_file(
+        config.anchor_output,
+        "// generated placeholder\n\nnamespace gentest {\nnamespace anchor {\nint " .. anchor_symbol_name(target_id) ..
+            " = 0;\n} // namespace anchor\n} // namespace gentest\n",
+        runtime_os,
+        runtime_io
+    )
+    write_placeholder_file(config.mock_registry, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
+    write_placeholder_file(config.mock_impl, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
+    for index, defs_file in ipairs(defs) do
+        local source_abs = project_path(defs_file)
+        local source_body = runtime_io.readfile(source_abs)
+        if not source_body then
+            fail("gentest_add_mocks(kind='modules') could not read `" .. tostring(defs_file) .. "`")
+        end
+        write_placeholder_file(
+            config.module_wrapper_outputs[index],
+            inject_gentest_mock_import(source_body, defs_file),
+            runtime_os,
+            runtime_io
+        )
+        write_placeholder_file(config.module_header_outputs[index], "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
+    end
+    local public_module_body = "// generated placeholder\nmodule;\n\nexport module " .. config.module_name ..
+                                   ";\n\nexport import gentest;\nexport import gentest.mock;\n"
+    local exported_imports = export_import_lines(config.defs_modules)
+    if exported_imports ~= "" then
+        public_module_body = public_module_body .. exported_imports .. "\n"
+    end
+    write_placeholder_file(config.public_module, public_module_body, runtime_os, runtime_io)
+end
+
+local function materialize_textual_suite_placeholders(config, source, runtime_os, runtime_io)
+    write_placeholder_file(config.header_output, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
+    write_placeholder_file(
+        config.wrapper_output,
+        "// generated placeholder\n\n// NOLINTNEXTLINE(bugprone-suspicious-include)\n#include \"" ..
+            relative_include(config.wrapper_output, source) .. "\"\n\n#if !defined(GENTEST_CODEGEN) && __has_include(\"" ..
+            path.filename(config.header_output) .. "\")\n#include \"" .. path.filename(config.header_output) ..
+            "\"\n#endif\n",
+        runtime_os,
+        runtime_io
+    )
+end
+
+local function materialize_module_suite_placeholders(config, runtime_os, runtime_io)
+    ensure_materialized_public_modules(config.public_module_entries, runtime_os)
+    local source_body = runtime_io.readfile(config.source_file)
+    if source_body == nil then
+        fail("gentest_attach_codegen(kind='modules') could not read `" .. tostring(config.source_file) .. "`")
+    end
+    write_placeholder_file(config.wrapper_output, source_body, runtime_os, runtime_io)
+    write_placeholder_file(config.header_output, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
 end
 
 local function collect_dep_targets(deps)
@@ -976,6 +1251,7 @@ function gentest_add_mocks(opts)
         defines = opts.defines or {},
         clang_args = opts.clang_args or {},
         defs_modules = defs_modules or {},
+        public_modules_via_deps = opts.public_modules_via_deps == true,
     }
     local add_public_files = {}
     local add_private_files = {}
@@ -999,6 +1275,11 @@ function gentest_add_mocks(opts)
         config.module_name = module_name
         config.module_wrapper_outputs = {}
         config.module_header_outputs = {}
+        if not config.public_modules_via_deps then
+            config.public_module_entries = materialized_public_module_entries(output_dir)
+        else
+            config.public_module_entries = {}
+        end
         for index, defs_file in ipairs(defs) do
             local zero_index = index - 1
             local wrapper_rel = module_wrapper_output_rel(output_dir, defs_file, zero_index)
@@ -1020,6 +1301,21 @@ function gentest_add_mocks(opts)
     set_configdir(project_root())
     add_packages("fmt")
     add_includedirs(incdirs())
+    add_includedirs(gentest_public_include_dir(), {public = true})
+    local public_linkdirs = gentest_public_linkdirs()
+    if #public_linkdirs > 0 then
+        add_linkdirs(table.unpack(public_linkdirs), {public = true})
+    end
+    local runtime_link = gentest_runtime_link_name()
+    if runtime_link then
+        add_links(runtime_link)
+    end
+    if kind == "modules" then
+        local module_link = gentest_module_link_name()
+        if module_link then
+            add_links(module_link)
+        end
+    end
     add_includedirs(out_dir_abs, {public = true})
     add_defines(gentest_common_defines())
     if opts.defines and #opts.defines > 0 then
@@ -1028,6 +1324,11 @@ function gentest_add_mocks(opts)
     add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
     if opts.clang_args and #opts.clang_args > 0 then
         add_cxxflags(table.unpack(opts.clang_args), {force = true})
+    end
+    if kind == "modules" then
+        for _, entry in ipairs(config.public_module_entries or {}) do
+            add_files(entry.output_rel, {public = true, always_added = true})
+        end
     end
     for _, private_file in ipairs(add_private_files) do
         add_files(private_file, {always_added = true})
@@ -1049,57 +1350,14 @@ function gentest_add_mocks(opts)
     if #dep_targets > 0 then
         add_deps(table.unpack(dep_targets))
     end
-    add_generated_template("anchor.cpp.in", anchor_cpp, {
-        ANCHOR_SYMBOL = anchor_symbol_name(target_id),
-    })
-    add_generated_template("header.hpp.in", mock_registry_h, {})
-    add_generated_template("header.hpp.in", mock_impl_h, {})
-    if kind == "textual" then
-        add_generated_template("textual_mock_defs.cpp.in", defs_cpp, {
-            DEFS_INCLUDES = include_lines(defs_cpp, defs),
-            HEADER_FILENAME = path.filename(codegen_h),
-        })
-        add_generated_template("textual_mock_public.hpp.in", public_header, {
-            DEFS_INCLUDES = include_lines(public_header, defs),
-            MOCK_REGISTRY_FILENAME = path.filename(mock_registry_h),
-            MOCK_IMPL_FILENAME = path.filename(mock_impl_h),
-        })
-    else
-        add_generated_template("module_public.cppm.in", public_module, {
-            MODULE_NAME = config.module_name,
-            EXPORTED_IMPORTS = export_import_lines(config.defs_modules),
-        })
-    end
-    on_load(function (target)
-        if kind == "modules" then
-            for index, defs_file in ipairs(defs) do
-                local source_abs = project_path(defs_file)
-                local source_body = io.readfile(source_abs)
-                if not source_body then
-                    fail("gentest_add_mocks(kind='modules') could not read `" .. tostring(defs_file) .. "`")
-                end
-
-                if not source_body:find("import%s+gentest%.mock%s*;") then
-                    local _, decl_end = source_body:find("export%s+module%s+[^;]+;")
-                    if not decl_end then
-                        _, decl_end = source_body:find("module%s+[^;]+;")
-                    end
-                    if not decl_end then
-                        fail("gentest_add_mocks(kind='modules') requires a named module declaration in `" .. tostring(defs_file) .. "`")
-                    end
-                    source_body = source_body:sub(1, decl_end) .. "\n\nimport gentest.mock;" .. source_body:sub(decl_end + 1)
-                end
-
-                local wrapper_output = config.module_wrapper_outputs[index]
-                local header_output = config.module_header_outputs[index]
-                local wrapper_dir = path.directory(wrapper_output)
-                if wrapper_dir and wrapper_dir ~= "" then
-                    os.mkdir(wrapper_dir)
-                end
-                io.writefile(wrapper_output, source_body)
-                io.writefile(header_output, "")
-            end
+    on_config(function ()
+        if kind == "textual" then
+            materialize_textual_mock_placeholders(config, defs, target_id, os, io)
+        else
+            materialize_module_mock_placeholders(config, defs, target_id, os, io)
         end
+    end)
+    on_load(function (target)
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(dep_include_dirs) do
             target:add("includedirs", include_dir)
@@ -1109,6 +1367,27 @@ function gentest_add_mocks(opts)
     before_buildcmd(function (target, batchcmds)
         if kind == "modules" then
             require_clang_module_toolchain(target, "gentest_add_mocks")
+        end
+        batch_render_template(batchcmds, "anchor.cpp.in", anchor_cpp, {
+            ANCHOR_SYMBOL = anchor_symbol_name(target_id),
+        })
+        batch_render_template(batchcmds, "header.hpp.in", mock_registry_h, {})
+        batch_render_template(batchcmds, "header.hpp.in", mock_impl_h, {})
+        if kind == "textual" then
+            batch_render_template(batchcmds, "textual_mock_defs.cpp.in", defs_cpp, {
+                DEFS_INCLUDES = include_lines(defs_cpp, defs),
+                HEADER_FILENAME = path.filename(codegen_h),
+            })
+            batch_render_template(batchcmds, "textual_mock_public.hpp.in", public_header, {
+                DEFS_INCLUDES = include_lines(public_header, defs),
+                MOCK_REGISTRY_FILENAME = path.filename(mock_registry_h),
+                MOCK_IMPL_FILENAME = path.filename(mock_impl_h),
+            })
+        else
+            batch_render_template(batchcmds, "module_public.cppm.in", public_module, {
+                MODULE_NAME = config.module_name,
+                EXPORTED_IMPORTS = export_import_lines(config.defs_modules),
+            })
         end
         local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
         config.extra_includes = collect_target_package_include_dirs(target)
@@ -1185,10 +1464,30 @@ function gentest_attach_codegen(opts)
         deps = opts.deps or {},
         defines = opts.defines or {},
         clang_args = opts.clang_args or {},
+        public_modules_via_deps = opts.public_modules_via_deps == true,
+        public_module_entries = {},
     }
+    if kind == "modules" and not config.public_modules_via_deps then
+        config.public_module_entries = materialized_public_module_entries(output_dir)
+    end
     set_configdir(project_root())
     add_packages("fmt")
     add_includedirs(incdirs())
+    add_includedirs(gentest_public_include_dir(), {public = true})
+    local public_linkdirs = gentest_public_linkdirs()
+    if #public_linkdirs > 0 then
+        add_linkdirs(table.unpack(public_linkdirs), {public = true})
+    end
+    local runtime_link = gentest_runtime_link_name()
+    if runtime_link then
+        add_links(runtime_link)
+    end
+    if kind == "modules" then
+        local module_link = gentest_module_link_name()
+        if module_link then
+            add_links(module_link)
+        end
+    end
     add_defines(gentest_common_defines())
     if opts.defines and #opts.defines > 0 then
         add_defines(table.unpack(opts.defines))
@@ -1196,6 +1495,11 @@ function gentest_attach_codegen(opts)
     add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
     if opts.clang_args and #opts.clang_args > 0 then
         add_cxxflags(table.unpack(opts.clang_args), {force = true})
+    end
+    if kind == "modules" then
+        for _, entry in ipairs(config.public_module_entries or {}) do
+            add_files(entry.output_rel, {public = true, always_added = true})
+        end
     end
     if kind == "modules" then
         add_files(wrapper_cpp, {public = true, always_added = true})
@@ -1208,15 +1512,13 @@ function gentest_attach_codegen(opts)
     if #dep_targets > 0 then
         add_deps(table.unpack(dep_targets))
     end
-    if kind == "textual" then
-        add_generated_template("suite_wrapper.cpp.in", wrapper_cpp, {
-            SOURCE_INCLUDE = relative_include(wrapper_cpp, source),
-            HEADER_FILENAME = path.filename(wrapper_h),
-        })
-    else
-        add_generated_template("header.hpp.in", wrapper_h, {})
-        add_generated_copy(source, wrapper_cpp)
-    end
+    on_config(function ()
+        if kind == "textual" then
+            materialize_textual_suite_placeholders(config, source, os, io)
+        else
+            materialize_module_suite_placeholders(config, os, io)
+        end
+    end)
     on_load(function (target)
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(extra_includes) do
@@ -1230,6 +1532,15 @@ function gentest_attach_codegen(opts)
     before_buildcmd(function (target, batchcmds)
         if kind == "modules" then
             require_clang_module_toolchain(target, "gentest_attach_codegen")
+        end
+        if kind == "textual" then
+            batch_render_template(batchcmds, "suite_wrapper.cpp.in", wrapper_cpp, {
+                SOURCE_INCLUDE = relative_include(wrapper_cpp, source),
+                HEADER_FILENAME = path.filename(wrapper_h),
+            })
+        else
+            batch_render_template(batchcmds, "header.hpp.in", wrapper_h, {})
+            batch_copy_generated_source(batchcmds, source, wrapper_cpp)
         end
         local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
         local dep_include_dirs = resolve_dep_inputs(config.deps)
@@ -1246,5 +1557,38 @@ function gentest_attach_codegen(opts)
         end
         config.dep_module_sources = dep_module_sources
         run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+    end)
+end
+
+function gentest_add_public_modules(opts)
+    require_clang_module_toolchain(nil, "gentest_add_public_modules")
+    gentest_apply_windows_llvm_toolchain()
+
+    local output_dir = require_opt(opts, "output_dir", "gentest_add_public_modules")
+    local out_dir_abs = project_path(output_dir)
+    local public_module_entries = materialized_public_module_entries(output_dir)
+    if #public_module_entries == 0 then
+        fail("gentest_add_public_modules requires gentest_configure({ gentest_module_files = {...} })")
+    end
+
+    set_policy("build.fence", true)
+    set_configdir(project_root())
+    add_packages("fmt")
+    add_includedirs(incdirs())
+    add_includedirs(gentest_public_include_dir(), {public = true})
+    add_includedirs(out_dir_abs, {public = true})
+    add_defines(gentest_common_defines())
+    add_cxxflags(table.unpack(gentest_common_cxxflags()), {force = true})
+    if opts.defines and #opts.defines > 0 then
+        add_defines(table.unpack(opts.defines))
+    end
+    if opts.clang_args and #opts.clang_args > 0 then
+        add_cxxflags(table.unpack(opts.clang_args), {force = true})
+    end
+    for _, entry in ipairs(public_module_entries) do
+        add_files(entry.output_rel, {public = true, always_added = true})
+    end
+    on_config(function ()
+        ensure_materialized_public_modules(public_module_entries, os)
     end)
 end

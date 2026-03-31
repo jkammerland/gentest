@@ -18,3 +18,10 @@ option(
   value: '',
   description: 'Path to clang-scan-deps for gentest_codegen (absolute path, or relative to the project root)',
 )
+
+option(
+  'build_self_tests',
+  type: 'boolean',
+  value: true,
+  description: 'Build gentest\'s repo-local Meson self-tests and consumer fixture',
+)

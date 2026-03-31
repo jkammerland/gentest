@@ -1,0 +1,20 @@
+option(
+  'gentest_codegen_path',
+  type: 'string',
+  value: '',
+  description: 'Path to gentest_codegen for the downstream Meson consumer',
+)
+
+option(
+  'gentest_codegen_host_clang',
+  type: 'string',
+  value: '',
+  description: 'Path to the host Clang executable for the downstream Meson consumer',
+)
+
+option(
+  'gentest_codegen_clang_scan_deps',
+  type: 'string',
+  value: '',
+  description: 'Path to clang-scan-deps for the downstream Meson consumer',
+)

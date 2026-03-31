@@ -41,6 +41,9 @@ if codegen_clang_scan_deps != ''
   codegen_tool_args += ['--clang-scan-deps', codegen_clang_scan_deps]
 endif
 
+gentest_codegen = codegen
+gentest_codegen_tool_args = codegen_tool_args
+
 fmt_dep = dependency('fmt', required: false, method: 'pkg-config')
 pkg_config = find_program('pkg-config', 'pkgconf', required: false)
 fmt_pkgconfig_include_dirs = []
@@ -90,6 +93,15 @@ else
   runtime_deps = []
 endif
 
+gentest_public_include = include_directories('include')
+gentest_public_include_path = join_paths(meson.current_source_dir(), 'include')
+gentest_third_party_include = include_directories('third_party/include')
+gentest_third_party_include_path = join_paths(meson.current_source_dir(), 'third_party', 'include')
+gentest_wrapper_template = files('meson/tu_wrapper.cpp.in')
+gentest_textual_mock_template = files('meson/textual_mock_defs.cpp.in')
+gentest_anchor_template = files('meson/anchor.cpp.in')
+gentest_textual_public_header_template = files('meson/textual_mock_public.hpp.in')
+
 libgentest_runtime = static_library(
   'gentest_runtime',
   [
@@ -121,6 +133,26 @@ libgentest_main = static_library(
   dependencies: runtime_deps,
 )
 
+gentest_runtime_dep = declare_dependency(
+  include_directories: gentest_public_include,
+  compile_args: runtime_cargs,
+  dependencies: runtime_deps,
+  link_with: libgentest_runtime,
+)
+gentest_main_dep = declare_dependency(
+  include_directories: gentest_public_include,
+  compile_args: runtime_cargs,
+  dependencies: runtime_deps,
+  link_with: libgentest_main,
+)
+gentest_dep = declare_dependency(
+  include_directories: gentest_public_include,
+  compile_args: runtime_cargs,
+  dependencies: runtime_deps,
+  link_with: [libgentest_main, libgentest_runtime],
+)
+meson.override_dependency('gentest', gentest_dep)
+
 # Helper to attach code generation via an external generator binary.
 # Configure the generator path via the Meson option `-Dcodegen_path=...`.
 # When the target compiler is not Clang, pass a separate repo-local host Clang
@@ -148,7 +180,8 @@ endforeach
 if use_fmt_fallback
   clang_args += ['-I@0@'.format(fmt_fallback_include_dir)]
 endif
-tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
+if get_option('build_self_tests')
+  tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 # The repo-local Meson integration keeps the explicit 2-step model:
 # generate mocks first, then attach codegen to the consuming test surface.
 # Only textual targets are wired here today. Meson named-module support is
@@ -335,4 +368,5 @@ if bash.found()
     'poc_cross_aarch64_qemu',
     command: [bash, join_paths(meson.project_source_root(), 'scripts', 'poc_cross_aarch64_qemu.sh')]
   )
+endif
 endif
