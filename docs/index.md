@@ -47,3 +47,4 @@
 - Module mock bootstrap options (historical context): [`docs/stories/013_module_mock_bootstrap_options.md`](stories/013_module_mock_bootstrap_options.md)
 - Explicit mock target codegen: [`docs/stories/014_explicit_mock_target_codegen.md`](stories/014_explicit_mock_target_codegen.md)
 - Local CI runtime optimization: [`docs/stories/020_local_ci_runtime_optimization.md`](stories/020_local_ci_runtime_optimization.md)
+- Local CI optimization correctness hardening: [`docs/stories/021_local_ci_runtime_optimization_correctness_hardening.md`](stories/021_local_ci_runtime_optimization_correctness_hardening.md)
