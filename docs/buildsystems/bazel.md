@@ -100,6 +100,26 @@ gentest_attach_codegen_modules(
 )
 ```
 
+The checked-in downstream fixture uses this exact surface:
+
+- [`tests/downstream/bazel_bzlmod_consumer/MODULE.bazel.in`](../../tests/downstream/bazel_bzlmod_consumer/MODULE.bazel.in)
+- [`tests/downstream/bazel_bzlmod_consumer/BUILD.bazel`](../../tests/downstream/bazel_bzlmod_consumer/BUILD.bazel)
+
+Minimal downstream layout:
+
+```text
+your_project/
+  MODULE.bazel
+  BUILD.bazel
+  tests/
+    main.cpp
+    cases.cpp
+    cases.cppm
+    header_mock_defs.hpp
+    module_mock_defs.cppm
+    service.cppm
+```
+
 ## Build and run
 
 ```bash
@@ -125,6 +145,14 @@ bazelisk build //:gentest_downstream_module \
   --repo_env=CXX \
   --repo_env=GENTEST_CODEGEN_HOST_CLANG \
   --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
+
+GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
+GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
+bazelisk run //:gentest_downstream_textual -- --list
+
+GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
+GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
+bazelisk run //:gentest_downstream_module -- --run=downstream/module_mock --kind=test
 ```
 
 ## Checked-in proofs

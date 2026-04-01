@@ -65,6 +65,30 @@ The checked-in downstream fixture in
 [`tests/downstream/meson_wrap_consumer`](../../tests/downstream/meson_wrap_consumer)
 shows the full textual mock + suite flow.
 
+Minimal downstream layout:
+
+```text
+your_project/
+  meson.build
+  meson_options.txt
+  subprojects/
+    gentest/
+      meson.build
+      meson_options.txt
+      include/
+      src/
+      meson/
+      third_party/include/
+  tests/
+    main.cpp
+    cases.cpp
+    header_mock_defs.hpp
+    service.hpp
+```
+
+The checked-in proof stages `subprojects/gentest` directly from this repo. A
+real wrap package can provide the same subproject shape.
+
 ## Configure and build
 
 ```bash
@@ -75,6 +99,7 @@ meson setup build/meson-downstream tests/downstream/meson_wrap_consumer \
 
 meson compile -C build/meson-downstream
 meson test -C build/meson-downstream --print-errorlogs
+build/meson-downstream/gentest_downstream_textual --list
 ```
 
 The final Meson compiler can remain non-Clang. The explicit host Clang contract

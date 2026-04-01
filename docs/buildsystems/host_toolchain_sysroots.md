@@ -4,6 +4,10 @@ This page describes the toolchain contract for downstream builds that use
 `gentest_codegen`, especially when the target sysroot/toolchain differs from the
 host machine that runs code generation.
 
+If you are looking for copy-paste downstream consumer examples first, start at
+[downstream_consumers.md](downstream_consumers.md) and come back here for the
+host-tool and cross-build details.
+
 ## Core rule
 
 Treat these as separate things:

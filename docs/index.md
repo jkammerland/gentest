@@ -15,11 +15,12 @@
 - macOS: [`docs/install/macos.md`](install/macos.md)
 - Windows: [`docs/install/windows.md`](install/windows.md)
 
-## Repo-Local Buildsystem Guides
+## Downstream Buildsystem Guides
 
-- Meson (textual only; modules fail fast): [`docs/buildsystems/meson.md`](buildsystems/meson.md)
-- Xmake (classic suites only): [`docs/buildsystems/xmake.md`](buildsystems/xmake.md)
-- Bazel (classic suites only): [`docs/buildsystems/bazel.md`](buildsystems/bazel.md)
+- Consumer overview: [`docs/buildsystems/downstream_consumers.md`](buildsystems/downstream_consumers.md)
+- Meson (official textual-only wrap/subproject support): [`docs/buildsystems/meson.md`](buildsystems/meson.md)
+- Xmake / xrepo (official installed-helper support): [`docs/buildsystems/xmake.md`](buildsystems/xmake.md)
+- Bazel / Bzlmod (official source-package support): [`docs/buildsystems/bazel.md`](buildsystems/bazel.md)
 
 ## Cross-compiling
 

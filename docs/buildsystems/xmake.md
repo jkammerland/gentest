@@ -56,6 +56,46 @@ The env fallbacks remain:
 - `GENTEST_CODEGEN_HOST_CLANG`
 - `GENTEST_CODEGEN_CLANG_SCAN_DEPS`
 
+## Installed helper layout
+
+The downstream Xmake flow is based on an installed prefix. At minimum, the
+consumer needs:
+
+- `bin/gentest_codegen`
+- `include/gentest/...`
+- `share/gentest/xmake/gentest.lua`
+
+The checked-in downstream proof copies the helper payload into a project-local
+directory and loads it like this:
+
+```lua
+includes(".gentest_support/gentest.lua")
+
+gentest_configure({
+    project_root = os.projectdir(),
+    gentest_root = os.getenv("GENTEST_XREPO_PREFIX"),
+    helper_root = path.join(os.projectdir(), ".gentest_support"),
+    ...
+})
+```
+
+Minimal consumer layout:
+
+```text
+your_project/
+  xmake.lua
+  .gentest_support/
+    gentest.lua
+  tests/
+    main.cpp
+    cases.cpp
+    cases.cppm
+    header_mock_defs.hpp
+    module_mock_defs.cppm
+    service.hpp
+    service_module.cppm
+```
+
 ## Downstream xrepo example
 
 ```lua
@@ -117,6 +157,8 @@ xmake f -c -y -m debug -o build/xmake-downstream \
   --cc=/opt/llvm/bin/clang \
   --cxx=/opt/llvm/bin/clang++
 xmake b gentest_xrepo_module
+xmake run gentest_xrepo_textual -- --list
+xmake run gentest_xrepo_module -- --run=downstream/module_mock --kind=test
 ```
 
 On Windows, use Xmake's LLVM toolchain explicitly when the module lane is

@@ -80,6 +80,12 @@ gentest_discover_tests(my_tests)
 
 Docs: [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
 
+Non-CMake downstream consumers:
+- [Downstream consumers overview](docs/buildsystems/downstream_consumers.md)
+- [Bazel / Bzlmod](docs/buildsystems/bazel.md)
+- [Xmake / xrepo](docs/buildsystems/xmake.md)
+- [Meson wrap/subproject](docs/buildsystems/meson.md)
+
 Run:
 
 ```bash
