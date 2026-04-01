@@ -48,3 +48,4 @@
 - Explicit mock target codegen: [`docs/stories/014_explicit_mock_target_codegen.md`](stories/014_explicit_mock_target_codegen.md)
 - Local CI runtime optimization: [`docs/stories/020_local_ci_runtime_optimization.md`](stories/020_local_ci_runtime_optimization.md)
 - Local CI optimization correctness hardening: [`docs/stories/021_local_ci_runtime_optimization_correctness_hardening.md`](stories/021_local_ci_runtime_optimization_correctness_hardening.md)
+- Local CI optimization rejection rationale: [`docs/stories/022_local_ci_runtime_optimization_rejection.md`](stories/022_local_ci_runtime_optimization_rejection.md)
