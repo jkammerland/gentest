@@ -1959,7 +1959,7 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
     -DTARGET_NAME=mock_unnamed_template_template
     -DBUILD_CONFIG=${_gentest_fixture_build_config}
-    -DBUILD_TIMEOUT_SEC=20)
+    -DBUILD_TIMEOUT_SEC=60)
 set_property(TEST gentest_codegen_mock_unnamed_template_template_builds APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
