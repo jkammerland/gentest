@@ -107,8 +107,9 @@ repeated producer work and allowing safe overlap across the helper-heavy matrix.
 
 ## Status
 
-The currently implemented slice satisfies the producer-reuse acceptance goals
-and adds a validated preset-level parallelism change for local runs.
+The currently implemented slice proves a meaningful local wall-time reduction
+and now has targeted correctness hardening for the main producer-key variants.
+Multi-config exact-config proof remains follow-on work under story 021.
 
 Implemented safeguards:
 
@@ -118,12 +119,22 @@ Implemented safeguards:
   - package mode inputs
   - compiler and config selection
   - generator/toolchain/make-program environment
+  - toolchain file content fingerprints
+  - compiler identity fingerprints
   - hashes of the installed-package source surface under `include/gentest`,
-    `src`, and relevant `cmake/Gentest*.cmake` files
-- the proof test uses an isolated nested build root, so reruns stay hermetic
+    `src`, relevant `cmake/Gentest*.cmake` files, and `tools/**` for
+    native-codegen producer keys
+- proof coverage now includes:
+  - injected-codegen, non-module producer reuse
+  - native-codegen, non-module producer reuse
+  - injected-codegen, module-enabled producer reuse
+- dry-run invalidation checks prove:
+  - toolchain file contents change the producer key
+  - native-codegen `tools/**` edits change the producer key
+- the proof tests use isolated nested build roots, so reruns stay hermetic
 - the `debug-system*` presets run with bounded `execution.jobs = 4`
-- nested helper builds are constrained with
-  `GENTEST_HELPER_BUILD_PARALLEL_LEVEL=1`
+- nested helper builds and helper-driven nested `ctest` runs are forced to the
+  bounded `GENTEST_HELPER_BUILD_PARALLEL_LEVEL`
 - `xmake` helper tests use a shared `RESOURCE_LOCK` to avoid cross-test
   interference under preset parallelism
 

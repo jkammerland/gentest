@@ -105,26 +105,7 @@ elseif(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
 endif()
 
 if(DEFINED BUILD_TIMEOUT_SEC AND NOT "${BUILD_TIMEOUT_SEC}" STREQUAL "")
-  set(_helper_parallel_level "${GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
-  if("${_helper_parallel_level}" STREQUAL "" AND NOT "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}" STREQUAL "")
-    set(_helper_parallel_level "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
-  endif()
-  if("${_helper_parallel_level}" STREQUAL "")
-    set(_helper_parallel_level "2")
-  endif()
-
-  set(_env_args)
-  if("$ENV{CMAKE_BUILD_PARALLEL_LEVEL}" STREQUAL "")
-    list(APPEND _env_args "CMAKE_BUILD_PARALLEL_LEVEL=${_helper_parallel_level}")
-  endif()
-  if("$ENV{CTEST_PARALLEL_LEVEL}" STREQUAL "")
-    list(APPEND _env_args "CTEST_PARALLEL_LEVEL=${_helper_parallel_level}")
-  endif()
-
-  set(_command ${_build_cmd})
-  if(_env_args)
-    set(_command "${CMAKE_COMMAND}" -E env ${_env_args} ${_build_cmd})
-  endif()
+  _gentest_wrap_command_with_helper_parallel_env(_command ${_build_cmd})
 
   message(STATUS "Build ${TARGET_NAME} fixture with timeout ${BUILD_TIMEOUT_SEC}s...")
   execute_process(

@@ -1776,6 +1776,11 @@ gentest_add_cmake_script_test(
         "PROG_INFRA_MEASURED=$<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>"
         "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/outcome_consistency_matrix")
 
+gentest_add_cmake_script_test(
+    NAME gentest_helper_parallel_level_override
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckHelperParallelLevelOverride.cmake")
+
 gentest_add_check_death(
     NAME cli_unknown_option
     PROG $<TARGET_FILE:gentest_unit_tests>
@@ -2565,7 +2570,42 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         package
         -DPACKAGE_NAME=${PROJECT_NAME}
         -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
         ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_reuses_producer_native_codegen
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumerProducerReuse.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_reuses_producer_modules
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumerProducerReuse.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=ON
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_module_compiler_args})
+    set_property(TEST gentest_package_consumer_reuses_producer_modules APPEND PROPERTY LABELS "modules")
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_producer_invalidation
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumerProducerInvalidation.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME})
 
     _gentest_add_cmake_helper_test(
         gentest_package_consumer_include_only_native_codegen

@@ -152,6 +152,63 @@ function(_gentest_read_configured_cxx_compiler_info build_dir out_found out_id o
   set(${out_version} "${_compiler_version}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_append_file_hash_fingerprint seed label file_path out_var)
+  set(_value "${seed}")
+  if("${file_path}" STREQUAL "")
+    set(${out_var} "${_value}" PARENT_SCOPE)
+    return()
+  endif()
+
+  get_filename_component(_abs "${file_path}" ABSOLUTE)
+  if(EXISTS "${_abs}")
+    get_filename_component(_real "${_abs}" REALPATH)
+    file(SHA256 "${_real}" _hash)
+    string(APPEND _value "|${label}:${_real}:${_hash}")
+  else()
+    string(APPEND _value "|${label}:${_abs}:missing")
+  endif()
+
+  set(${out_var} "${_value}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_append_program_fingerprint seed label program_path out_var)
+  set(_value "${seed}")
+  if("${program_path}" STREQUAL "")
+    set(${out_var} "${_value}" PARENT_SCOPE)
+    return()
+  endif()
+
+  get_filename_component(_abs "${program_path}" ABSOLUTE)
+  if(EXISTS "${_abs}")
+    get_filename_component(_real "${_abs}" REALPATH)
+    file(SIZE "${_real}" _size)
+    file(TIMESTAMP "${_real}" _timestamp UTC)
+
+    execute_process(
+      COMMAND "${_real}" --version
+      RESULT_VARIABLE _rc
+      OUTPUT_VARIABLE _out
+      ERROR_VARIABLE _err
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_STRIP_TRAILING_WHITESPACE
+      TIMEOUT 10)
+
+    set(_version_text "${_out}")
+    if("${_version_text}" STREQUAL "")
+      set(_version_text "${_err}")
+    endif()
+    string(REGEX REPLACE "\r?\n.*" "" _version_text "${_version_text}")
+    string(REPLACE "|" "/" _version_text "${_version_text}")
+    string(REPLACE ";" "," _version_text "${_version_text}")
+
+    string(APPEND _value "|${label}:${_real}:${_size}:${_timestamp}:${_version_text}")
+  else()
+    string(APPEND _value "|${label}:${_abs}:missing")
+  endif()
+
+  set(${out_var} "${_value}" PARENT_SCOPE)
+endfunction()
+
 set(_exe_ext "")
 if(CMAKE_HOST_WIN32)
   set(_exe_ext ".exe")
@@ -236,18 +293,31 @@ string(JOIN "|" _cmake_generator_key ${_cmake_generator_args})
 string(JOIN "|" _cmake_cache_key ${_cmake_cache_args})
 set(_producer_environment_key
   "${_cmake_generator_key}|${MAKE_PROGRAM}|${TOOLCHAIN_FILE}|${_cmake_cache_key}")
+_gentest_append_file_hash_fingerprint("${_producer_environment_key}" "toolchain-file" "${TOOLCHAIN_FILE}" _producer_environment_key)
+_gentest_append_program_fingerprint("${_producer_environment_key}" "c-compiler" "${_effective_c_compiler}" _producer_environment_key)
+_gentest_append_program_fingerprint("${_producer_environment_key}" "cxx-compiler" "${_effective_cxx_compiler}" _producer_environment_key)
+if(DEFINED PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS
+   AND NOT "${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL "")
+  _gentest_append_program_fingerprint("${_producer_environment_key}" "clang-scan-deps" "${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}" _producer_environment_key)
+endif()
 
 set(_producer_surface_files
   "${SOURCE_DIR}/CMakeLists.txt"
   "${SOURCE_DIR}/src/CMakeLists.txt"
   "${SOURCE_DIR}/cmake/gentestConfig.cmake.in")
-file(GLOB_RECURSE _producer_tree_files
-  LIST_DIRECTORIES FALSE
+set(_producer_surface_globs
   "${SOURCE_DIR}/include/gentest/*"
   "${SOURCE_DIR}/src/*"
   "${SOURCE_DIR}/cmake/Gentest*.cmake")
+if(NOT PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
+  list(APPEND _producer_surface_globs "${SOURCE_DIR}/tools/*")
+endif()
+file(GLOB_RECURSE _producer_tree_files
+  LIST_DIRECTORIES FALSE
+  ${_producer_surface_globs})
 list(APPEND _producer_surface_files ${_producer_tree_files})
 unset(_producer_tree_files)
+unset(_producer_surface_globs)
 list(REMOVE_DUPLICATES _producer_surface_files)
 list(SORT _producer_surface_files)
 

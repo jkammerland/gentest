@@ -16,6 +16,9 @@
 #  -DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=<path>
 #  -DBUILD_TYPE=<Debug|Release|...>
 #  -DBUILD_CONFIG=<Debug|Release|...>
+#  -DPACKAGE_TEST_USE_MODULES=<ON|OFF>            default OFF
+#  -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=<ON|OFF>  default ON
+#  -DCONSUMER_LINK_MODE=<main_only|runtime_only|double>  default main_only
 
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckPackageConsumerProducerReuse.cmake: SOURCE_DIR not set")
@@ -29,8 +32,22 @@ endif()
 if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
   message(FATAL_ERROR "CheckPackageConsumerProducerReuse.cmake: PROG not set")
 endif()
+if(NOT DEFINED PACKAGE_TEST_USE_MODULES OR "${PACKAGE_TEST_USE_MODULES}" STREQUAL "")
+  set(PACKAGE_TEST_USE_MODULES OFF)
+endif()
+if(NOT DEFINED PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE OR "${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}" STREQUAL "")
+  set(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE ON)
+endif()
+if(NOT DEFINED CONSUMER_LINK_MODE OR "${CONSUMER_LINK_MODE}" STREQUAL "")
+  set(CONSUMER_LINK_MODE main_only)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
+
+function(_gentest_extract_skip_marker input out_var)
+  string(REGEX MATCH "GENTEST_SKIP_TEST:[^\r\n]*" _skip_marker "${input}")
+  set(${out_var} "${_skip_marker}" PARENT_SCOPE)
+endfunction()
 
 if((NOT DEFINED PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS
     OR "${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL "")
@@ -61,15 +78,20 @@ set(_base_args
   "-DClang_DIR=${Clang_DIR}"
   "-DBUILD_TYPE=${BUILD_TYPE}"
   "-DBUILD_CONFIG=${BUILD_CONFIG}"
-  "-DPACKAGE_TEST_USE_MODULES=OFF"
-  "-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON"
-  "-DCONSUMER_LINK_MODE=main_only")
+  "-DPACKAGE_TEST_USE_MODULES=${PACKAGE_TEST_USE_MODULES}"
+  "-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}"
+  "-DCONSUMER_LINK_MODE=${CONSUMER_LINK_MODE}")
 
 message(STATUS "Run first package-consumer pass...")
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" ${_base_args} -P "${_script}"
   STRIP_TRAILING_WHITESPACE
   OUTPUT_VARIABLE _first_out)
+_gentest_extract_skip_marker("${_first_out}" _first_skip_marker)
+if(NOT "${_first_skip_marker}" STREQUAL "")
+  message(STATUS "${_first_skip_marker}")
+  return()
+endif()
 
 string(FIND "${_first_out}" "Reuse cached producer build/install" _first_reuse_pos)
 if(NOT _first_reuse_pos EQUAL -1)
@@ -82,6 +104,11 @@ gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" ${_base_args} -P "${_script}"
   STRIP_TRAILING_WHITESPACE
   OUTPUT_VARIABLE _second_out)
+_gentest_extract_skip_marker("${_second_out}" _second_skip_marker)
+if(NOT "${_second_skip_marker}" STREQUAL "")
+  message(FATAL_ERROR
+    "Second package-consumer pass unexpectedly skipped after a successful first pass.\nOutput:\n${_second_out}")
+endif()
 
 string(FIND "${_second_out}" "Reuse cached producer build/install" _second_reuse_pos)
 if(_second_reuse_pos EQUAL -1)
