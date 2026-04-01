@@ -2437,6 +2437,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeTextualConsumerRegistration.cmake
     cmake)
 set_property(TEST gentest_xmake_textual_consumer_registration APPEND PROPERTY LABELS "xmake")
+set_property(TEST gentest_xmake_textual_consumer_registration PROPERTY RESOURCE_LOCK "xmake")
 
 _gentest_add_cmake_helper_test(
     gentest_xmake_textual_consumer
@@ -2444,6 +2445,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeTextualConsumer.cmake
     cmake)
 set_property(TEST gentest_xmake_textual_consumer APPEND PROPERTY LABELS "xmake")
+set_property(TEST gentest_xmake_textual_consumer PROPERTY RESOURCE_LOCK "xmake")
 
 _gentest_add_cmake_helper_test(
     gentest_xmake_module_consumer
@@ -2451,6 +2453,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeModuleConsumer.cmake
     cmake)
 set_property(TEST gentest_xmake_module_consumer APPEND PROPERTY LABELS "xmake" "modules")
+set_property(TEST gentest_xmake_module_consumer PROPERTY RESOURCE_LOCK "xmake")
 
 _gentest_add_cmake_helper_test(
     gentest_bazel_textual_consumer
@@ -2553,6 +2556,15 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         -DCONSUMER_LINK_MODE=main_only
         -DPACKAGE_TEST_USE_MODULES=OFF
         -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_reuses_producer
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumerProducerReuse.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
         ${_gentest_package_test_compiler_args})
 
     _gentest_add_cmake_helper_test(

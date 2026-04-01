@@ -232,27 +232,40 @@ if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE AND NOT "${PROG}" STREQUAL "")
 elseif(NOT PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
   list(APPEND _cmake_cache_args "-DGENTEST_BUILD_CODEGEN=ON")
 endif()
+string(JOIN "|" _cmake_generator_key ${_cmake_generator_args})
+string(JOIN "|" _cmake_cache_key ${_cmake_cache_args})
+set(_producer_environment_key
+  "${_cmake_generator_key}|${MAKE_PROGRAM}|${TOOLCHAIN_FILE}|${_cmake_cache_key}")
+
+set(_producer_surface_files
+  "${SOURCE_DIR}/CMakeLists.txt"
+  "${SOURCE_DIR}/src/CMakeLists.txt"
+  "${SOURCE_DIR}/cmake/gentestConfig.cmake.in")
+file(GLOB_RECURSE _producer_tree_files
+  LIST_DIRECTORIES FALSE
+  "${SOURCE_DIR}/include/gentest/*"
+  "${SOURCE_DIR}/src/*"
+  "${SOURCE_DIR}/cmake/Gentest*.cmake")
+list(APPEND _producer_surface_files ${_producer_tree_files})
+unset(_producer_tree_files)
+list(REMOVE_DUPLICATES _producer_surface_files)
+list(SORT _producer_surface_files)
 
 set(_producer_source_surface_key "")
-foreach(_producer_surface_file IN ITEMS
-    "${SOURCE_DIR}/CMakeLists.txt"
-    "${SOURCE_DIR}/include/gentest/mock.h"
-    "${SOURCE_DIR}/include/gentest/gentest.cppm"
-    "${SOURCE_DIR}/include/gentest/gentest.mock.cppm"
-    "${SOURCE_DIR}/cmake/GentestCodegen.cmake"
-    "${SOURCE_DIR}/cmake/gentestConfig.cmake.in")
+foreach(_producer_surface_file IN LISTS _producer_surface_files)
   if(EXISTS "${_producer_surface_file}")
     file(SHA256 "${_producer_surface_file}" _producer_surface_hash)
     string(APPEND _producer_source_surface_key "|${_producer_surface_file}:${_producer_surface_hash}")
   endif()
 endforeach()
+unset(_producer_surface_files)
 
 set(_work_dir_semantic_key
-  "${PACKAGE_NAME}|${CONSUMER_LINK_MODE}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}|${_producer_source_surface_key}")
+  "${PACKAGE_NAME}|${CONSUMER_LINK_MODE}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}|${_producer_environment_key}|${_producer_source_surface_key}")
 string(MD5 _work_dir_hash "${_work_dir_semantic_key}")
 string(SUBSTRING "${_work_dir_hash}" 0 12 _work_dir_hash_short)
 set(_producer_semantic_key
-  "${PACKAGE_NAME}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}|${_producer_source_surface_key}")
+  "${PACKAGE_NAME}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}|${_producer_environment_key}|${_producer_source_surface_key}")
 string(MD5 _producer_hash "${_producer_semantic_key}")
 string(SUBSTRING "${_producer_hash}" 0 12 _producer_hash_short)
 string(REGEX REPLACE "[^A-Za-z0-9]+" "_" _package_tag "${PACKAGE_NAME}")
@@ -268,6 +281,7 @@ set(_consumer_build_dir "${_work_dir}/c")
 set(_consumer_source_dir "${_work_dir}/src")
 set(_fetchcontent_base_dir "${_producer_root}/fc")
 set(_producer_lock "${_producer_root}/producer.lock")
+set(_producer_ready_stamp "${_producer_root}/producer-ready.stamp")
 
 if(PACKAGE_TEST_DRY_RUN_WORK_DIR)
   message(STATUS "CheckPackageConsumer work dir: ${_work_dir}")
@@ -292,23 +306,39 @@ file(COPY "${SOURCE_DIR}/tests/consumer/" DESTINATION "${_consumer_source_dir}")
 file(MAKE_DIRECTORY "${_producer_root}")
 file(LOCK "${_producer_lock}" GUARD PROCESS TIMEOUT 1800)
 
-message(STATUS "Configure producer build (${PACKAGE_NAME})...")
-run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}"
-    ${_cmake_generator_args}
-    -S "${SOURCE_DIR}"
-    -B "${_producer_build_dir}"
-    ${_cmake_cache_args}
-    "-D${PACKAGE_NAME}_INSTALL=ON"
-    "-D${PACKAGE_NAME}_BUILD_TESTING=OFF"
-    "-DFETCHCONTENT_BASE_DIR=${_fetchcontent_base_dir}"
-    "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
-gentest_assert_windows_native_llvm_cache_args(
-  "${_producer_build_dir}" "${_effective_cxx_compiler}" "package consumer producer")
+file(GLOB_RECURSE _producer_config_candidates
+  LIST_DIRECTORIES FALSE
+  "${_install_prefix}/*/${PACKAGE_NAME}Config.cmake"
+  "${_install_prefix}/*/*/${PACKAGE_NAME}Config.cmake")
+set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
+set(_producer_ready FALSE)
+if(EXISTS "${_producer_ready_stamp}" AND EXISTS "${_producer_cache_file}" AND _producer_config_candidates)
+  set(_producer_ready TRUE)
+endif()
+unset(_producer_config_candidates)
+
+if(NOT _producer_ready)
+  file(REMOVE_RECURSE "${_producer_build_dir}" "${_install_prefix}" "${_fetchcontent_base_dir}")
+
+  message(STATUS "Configure producer build (${PACKAGE_NAME})...")
+  run_or_fail(
+    COMMAND
+      "${CMAKE_COMMAND}"
+      ${_cmake_generator_args}
+      -S "${SOURCE_DIR}"
+      -B "${_producer_build_dir}"
+      ${_cmake_cache_args}
+      "-D${PACKAGE_NAME}_INSTALL=ON"
+      "-D${PACKAGE_NAME}_BUILD_TESTING=OFF"
+      "-DFETCHCONTENT_BASE_DIR=${_fetchcontent_base_dir}"
+      "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
+  gentest_assert_windows_native_llvm_cache_args(
+    "${_producer_build_dir}" "${_effective_cxx_compiler}" "package consumer producer")
+else()
+  message(STATUS "Reuse cached producer build/install from '${_producer_root}'")
+endif()
 
 if(PACKAGE_TEST_USE_MODULES)
-  set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
   _gentest_read_configured_cxx_compiler_info("${_producer_build_dir}" _compiler_info_found _compiler_id_value _compiler_version_value)
   if(_compiler_info_found AND _compiler_id_value STREQUAL "GNU")
     string(REGEX MATCH "^[0-9]+" _compiler_major "${_compiler_version_value}")
@@ -330,26 +360,28 @@ if(PACKAGE_TEST_USE_MODULES)
   endif()
 endif()
 
-message(STATUS "Build and install producer into '${_install_prefix}'...")
-if(_is_multi_config_generator)
-  # Multi-config generators (Visual Studio, Xcode, Ninja Multi-Config) often
-  # generate for several configurations at once. Install both Debug and Release
-  # so imported targets have locations for common configs (and for the config
-  # mapping logic in the generated *Config.cmake files).
-  set(_install_configs Debug Release)
-  if(NOT "${_effective_build_config}" STREQUAL "")
-    list(APPEND _install_configs "${_effective_build_config}")
+if(NOT _producer_ready)
+  message(STATUS "Build and install producer into '${_install_prefix}'...")
+  if(_is_multi_config_generator)
+    # Multi-config generators (Visual Studio, Xcode, Ninja Multi-Config) often
+    # generate for several configurations at once. Install both Debug and Release
+    # so imported targets have locations for common configs (and for the config
+    # mapping logic in the generated *Config.cmake files).
+    set(_install_configs Debug Release)
+    if(NOT "${_effective_build_config}" STREQUAL "")
+      list(APPEND _install_configs "${_effective_build_config}")
+    endif()
+    list(REMOVE_DUPLICATES _install_configs)
+    foreach(_cfg IN LISTS _install_configs)
+      run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install --config "${_cfg}")
+    endforeach()
+  else()
+    run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install)
   endif()
-  list(REMOVE_DUPLICATES _install_configs)
-  foreach(_cfg IN LISTS _install_configs)
-    run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install --config "${_cfg}")
-  endforeach()
-else()
-  run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install)
+  file(WRITE "${_producer_ready_stamp}" "${_producer_hash_short}\n")
 endif()
 
 set(_producer_fmt_dir "")
-set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
 if(EXISTS "${_producer_cache_file}")
   file(STRINGS "${_producer_cache_file}" _producer_fmt_dir_line REGEX "^fmt_DIR:PATH=" LIMIT_COUNT 1)
   if(_producer_fmt_dir_line)
