@@ -102,6 +102,34 @@ review and to prove the important producer-key variants directly.
 - Story 020 is updated so its status/measured-result section does not overclaim
   correctness beyond what the proof tests establish.
 
+## Outcome
+
+This hardening work is now implemented for the concrete risks identified during
+review.
+
+Delivered changes:
+
+- producer reuse invalidates on in-place toolchain file edits
+- producer reuse invalidates on in-place compiler binary replacement at the
+  same path
+- native-codegen producer keys include `tools/**`
+- proof coverage now directly exercises:
+  - injected-codegen, non-module reuse
+  - native-codegen, non-module reuse
+  - injected-codegen, module-enabled reuse
+  - injected-codegen, non-module multi-config exact-config reuse
+- helper wrappers force the bounded nested build/test parallel level even when
+  the ambient environment exports larger values
+
+Validated locally with:
+
+- targeted proof checks for helper parallel override, producer invalidation,
+  and all reuse-key variants
+- `ctest --preset=debug-system --output-on-failure -L package`
+
+That leaves story 021 complete for the known stale-reuse and proof-surface gaps
+it was created to close.
+
 ## Non-goals
 
 - Perfect invalidation for every possible environment-dependent toolchain
@@ -110,14 +138,14 @@ review and to prove the important producer-key variants directly.
 - General CI runtime optimization outside the package/helper path touched by
   story 020.
 
-## Suggested implementation steps
+## Implementation summary
 
 1. Extend the producer semantic key in `CheckPackageConsumer.cmake` with:
    - toolchain file content hashes when present
-   - compiler identity/version or a stronger compiler fingerprint
+   - stronger compiler fingerprints, including in-place binary replacement
    - `tools/**` for native-codegen producer keys
 2. Expand proof coverage with dedicated helper tests for the missing producer
    key classes.
 3. Make helper parallel caps authoritative in the shared helper wrappers.
-4. Update story 020 to narrow its status language to what the proof actually
-   demonstrates until this hardening story is complete.
+4. Update story 020 so its status language matches the proof surface now in
+   place.

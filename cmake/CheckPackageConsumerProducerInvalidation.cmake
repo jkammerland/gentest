@@ -12,7 +12,8 @@ endif()
 function(_gentest_capture_producer_dir source_root out_var)
   set(options "")
   set(oneValueArgs TOOLCHAIN_FILE USE_MODULES INJECT_CODEGEN LINK_MODE)
-  cmake_parse_arguments(CAP "${options}" "${oneValueArgs}" "" ${ARGN})
+  set(multiValueArgs EXTRA_CACHE_ARGS)
+  cmake_parse_arguments(CAP "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
   if(NOT DEFINED CAP_USE_MODULES OR "${CAP_USE_MODULES}" STREQUAL "")
     set(CAP_USE_MODULES OFF)
@@ -40,6 +41,7 @@ function(_gentest_capture_producer_dir source_root out_var)
       "-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=${CAP_INJECT_CODEGEN}"
       "-DPACKAGE_TEST_DRY_RUN_PRODUCER_DIR=ON"
       ${_toolchain_args}
+      ${CAP_EXTRA_CACHE_ARGS}
       -P "${CMAKE_CURRENT_LIST_DIR}/CheckPackageConsumer.cmake"
     RESULT_VARIABLE _rc
     OUTPUT_VARIABLE _out
@@ -113,6 +115,43 @@ _gentest_capture_producer_dir("${_probe_source}" _native_dir_after
 if(_native_dir_before STREQUAL _native_dir_after)
   message(FATAL_ERROR
     "Expected native-codegen producer dir to change after editing tools/**, but both runs resolved to '${_native_dir_before}'")
+endif()
+
+set(_fake_compiler "${_probe_root}/fake-compiler${CMAKE_EXECUTABLE_SUFFIX}")
+file(COPY_FILE "${CMAKE_COMMAND}" "${_fake_compiler}")
+if(NOT CMAKE_HOST_WIN32)
+  file(CHMOD "${_fake_compiler}"
+    PERMISSIONS
+      OWNER_READ OWNER_WRITE OWNER_EXECUTE
+      GROUP_READ GROUP_EXECUTE
+      WORLD_READ WORLD_EXECUTE)
+endif()
+_gentest_capture_producer_dir("${_probe_source}" _compiler_dir_before
+  USE_MODULES OFF
+  INJECT_CODEGEN ON
+  LINK_MODE main_only
+  EXTRA_CACHE_ARGS
+    "-DPACKAGE_TEST_C_COMPILER=${_fake_compiler}"
+    "-DPACKAGE_TEST_CXX_COMPILER=${_fake_compiler}")
+file(COPY_FILE "${CMAKE_CTEST_COMMAND}" "${_fake_compiler}" ONLY_IF_DIFFERENT)
+if(NOT CMAKE_HOST_WIN32)
+  file(CHMOD "${_fake_compiler}"
+    PERMISSIONS
+      OWNER_READ OWNER_WRITE OWNER_EXECUTE
+      GROUP_READ GROUP_EXECUTE
+      WORLD_READ WORLD_EXECUTE)
+endif()
+_gentest_capture_producer_dir("${_probe_source}" _compiler_dir_after
+  USE_MODULES OFF
+  INJECT_CODEGEN ON
+  LINK_MODE main_only
+  EXTRA_CACHE_ARGS
+    "-DPACKAGE_TEST_C_COMPILER=${_fake_compiler}"
+    "-DPACKAGE_TEST_CXX_COMPILER=${_fake_compiler}")
+
+if(_compiler_dir_before STREQUAL _compiler_dir_after)
+  message(FATAL_ERROR
+    "Expected producer dir to change after replacing the compiler binary in place, but both runs resolved to '${_compiler_dir_before}'")
 endif()
 
 message(STATUS "Package consumer producer invalidation regression passed")

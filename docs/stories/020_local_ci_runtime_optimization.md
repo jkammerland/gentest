@@ -108,8 +108,7 @@ repeated producer work and allowing safe overlap across the helper-heavy matrix.
 ## Status
 
 The currently implemented slice proves a meaningful local wall-time reduction
-and now has targeted correctness hardening for the main producer-key variants.
-Multi-config exact-config proof remains follow-on work under story 021.
+and now has direct correctness hardening for the main producer-key variants.
 
 Implemented safeguards:
 
@@ -128,9 +127,12 @@ Implemented safeguards:
   - injected-codegen, non-module producer reuse
   - native-codegen, non-module producer reuse
   - injected-codegen, module-enabled producer reuse
+  - injected-codegen, non-module multi-config exact-config producer reuse
 - dry-run invalidation checks prove:
   - toolchain file contents change the producer key
   - native-codegen `tools/**` edits change the producer key
+  - replacing a compiler binary in place at the same path changes the producer
+    key
 - the proof tests use isolated nested build roots, so reruns stay hermetic
 - the `debug-system*` presets run with bounded `execution.jobs = 4`
 - nested helper builds and helper-driven nested `ctest` runs are forced to the

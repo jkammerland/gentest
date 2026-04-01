@@ -2601,6 +2601,19 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
     set_property(TEST gentest_package_consumer_reuses_producer_modules APPEND PROPERTY LABELS "modules")
 
     _gentest_add_cmake_helper_test(
+        gentest_package_consumer_reuses_producer_multiconfig_relwithdebinfo
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumerProducerReuse.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DGENERATOR=Ninja Multi-Config
+        -DBUILD_CONFIG=RelWithDebInfo
+        -DCONSUMER_LINK_MODE=main_only
+        -DPACKAGE_TEST_USE_MODULES=OFF
+        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
         gentest_package_consumer_producer_invalidation
         ${PROJECT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/cmake/CheckPackageConsumerProducerInvalidation.cmake
