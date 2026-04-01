@@ -25,6 +25,7 @@ local function project_root()
 end
 
 local codegen_project_root
+local project_path
 
 local function helper_script_dir()
     local configured = gentest_state["helper_root"]
@@ -46,7 +47,7 @@ local function incdirs()
     return state_value("incdirs")
 end
 
-local function project_path(filepath)
+project_path = function(filepath)
     if path.is_absolute(filepath) then
         return filepath
     end

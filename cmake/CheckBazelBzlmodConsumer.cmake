@@ -1,6 +1,9 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelBzlmodConsumer.cmake: SOURCE_DIR not set")
 endif()
+if(NOT DEFINED BUILD_ROOT)
+  message(FATAL_ERROR "CheckBazelBzlmodConsumer.cmake: BUILD_ROOT not set")
+endif()
 
 find_program(_bazel NAMES bazelisk bazel bazelisk.exe bazel.exe bazelisk.cmd bazel.cmd bazelisk.bat bazel.bat)
 if(NOT _bazel)
