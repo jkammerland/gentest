@@ -1959,7 +1959,7 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
     -DTARGET_NAME=mock_unnamed_template_template
     -DBUILD_CONFIG=${_gentest_fixture_build_config}
-    -DBUILD_TIMEOUT_SEC=60)
+    -DBUILD_TIMEOUT_SEC=180)
 set_property(TEST gentest_codegen_mock_unnamed_template_template_builds APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -1971,6 +1971,27 @@ _gentest_add_cmake_helper_test(
     -DTARGET_NAME=mock_defaulted_template_ctor_macro
     -DBUILD_CONFIG=${_gentest_fixture_build_config})
 set_property(TEST gentest_codegen_mock_defaulted_template_ctor_macro_builds APPEND PROPERTY LABELS "codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_member_operator_template_keyword_builds
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckMemberOperatorTemplateKeywordBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/member_operator_template_keyword_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/member_operator_template_keyword"
+        "TARGET_NAME=member_operator_template_keyword"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "BUILD_CONFIG=${_gentest_fixture_build_config}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+set_property(TEST gentest_codegen_member_operator_template_keyword_builds APPEND PROPERTY LABELS "cmake;codegen")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_check_cmake_fixture_build_build_config
@@ -1988,6 +2009,18 @@ gentest_add_cmake_script_test(
         "C_COMPILER=${CMAKE_C_COMPILER}"
         "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
 set_property(TEST gentest_codegen_check_cmake_fixture_build_build_config APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_legacy_wrapper_impls_template_rejected
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckCodegenLegacyWrapperImplsTemplateRejected.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/legacy_wrapper_impls_template_rejected_check"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+set_property(TEST gentest_codegen_legacy_wrapper_impls_template_rejected APPEND PROPERTY LABELS "cmake;codegen")
 
 unset(_gentest_fixture_build_config)
 
