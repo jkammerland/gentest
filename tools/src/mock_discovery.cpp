@@ -22,6 +22,7 @@
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/StringRef.h>
 #include <string>
+#include <string_view>
 
 using namespace clang;
 using namespace clang::ast_matchers;
@@ -63,22 +64,132 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return result;
 }
 
-[[nodiscard]] std::string print_template_parameter_list(const TemplateParameterList &params, const ASTContext &ctx) {
+[[nodiscard]] std::size_t find_top_level_default_argument(std::string_view text) {
+    int angles = 0;
+    int parens = 0;
+    int braces = 0;
+    int square = 0;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        switch (text[i]) {
+        case '<':
+            ++angles;
+            break;
+        case '>':
+            if (angles > 0) {
+                --angles;
+            }
+            break;
+        case '(':
+            ++parens;
+            break;
+        case ')':
+            if (parens > 0) {
+                --parens;
+            }
+            break;
+        case '{':
+            ++braces;
+            break;
+        case '}':
+            if (braces > 0) {
+                --braces;
+            }
+            break;
+        case '[':
+            ++square;
+            break;
+        case ']':
+            if (square > 0) {
+                --square;
+            }
+            break;
+        case '=':
+            if (angles == 0 && parens == 0 && braces == 0 && square == 0) {
+                return i;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    return std::string_view::npos;
+}
+
+[[nodiscard]] std::string insert_template_parameter_name(std::string text, std::string_view fallback_name) {
+    if (fallback_name.empty()) {
+        return text;
+    }
+    if (text.empty()) {
+        return std::string(fallback_name);
+    }
+    const auto eq_pos = find_top_level_default_argument(text);
+    if (eq_pos == std::string_view::npos) {
+        text.push_back(' ');
+        text += fallback_name;
+        return text;
+    }
+    std::string out;
+    out.reserve(text.size() + fallback_name.size() + 1);
+    out.append(llvm::StringRef(text).substr(0, eq_pos).rtrim().str());
+    out.push_back(' ');
+    out.append(fallback_name);
+    out.push_back(' ');
+    out.append(llvm::StringRef(text).substr(eq_pos).ltrim().str());
+    return out;
+}
+
+[[nodiscard]] std::string print_template_parameter_decl(const NamedDecl &param, std::string_view fallback_name, const ASTContext &ctx) {
     auto policy = PrintingPolicy(ctx.getLangOpts());
     policy.adjustForCPlusPlus();
     policy.SuppressScope          = false;
     policy.FullyQualifiedName     = true;
     policy.SuppressUnwrittenScope = false;
-    std::string              result;
-    llvm::raw_string_ostream os(result);
-    params.print(os, ctx, policy, false);
-    os.flush();
+
+    std::string text;
+    if (llvm::isa<TemplateTemplateParmDecl>(param)) {
+        llvm::raw_string_ostream os(text);
+        param.print(os, policy);
+        os.flush();
+    } else {
+        const auto range = param.getSourceRange();
+        if (range.isValid()) {
+            text = Lexer::getSourceText(CharSourceRange::getTokenRange(range), ctx.getSourceManager(), ctx.getLangOpts()).str();
+        }
+        if (text.empty()) {
+            llvm::raw_string_ostream os(text);
+            param.print(os, policy);
+            os.flush();
+        }
+    }
+
+    text = llvm::StringRef(text).trim().str();
+    if (!param.getNameAsString().empty() || fallback_name.empty()) {
+        return text;
+    }
+    return insert_template_parameter_name(std::move(text), fallback_name);
+}
+
+[[nodiscard]] std::string print_template_parameter_list(const TemplateParameterList &params, const std::vector<TemplateParamInfo> &infos,
+                                                        const ASTContext &ctx) {
+    std::string result = "template <";
+    for (unsigned i = 0; i < params.size(); ++i) {
+        if (i != 0) {
+            result += ", ";
+        }
+        const auto *param = params.getParam(i);
+        const auto  fallback_name = i < infos.size() ? infos[i].name : std::string{};
+        result += print_template_parameter_decl(*param, fallback_name, ctx);
+    }
+    result += '>';
     return result;
 }
 
-[[nodiscard]] TemplateParamInfo build_template_param_info(const NamedDecl &param) {
+[[nodiscard]] TemplateParamInfo build_template_param_info(const NamedDecl &param, std::string fallback_name = {}) {
     TemplateParamInfo info{};
     info.name = param.getNameAsString();
+    if (info.name.empty()) {
+        info.name = std::move(fallback_name);
+    }
     if (const auto *ttp = llvm::dyn_cast<TemplateTypeParmDecl>(&param)) {
         info.kind    = TemplateParamKind::Type;
         info.is_pack = ttp->isParameterPack();
@@ -558,10 +669,12 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         ctor_info.is_noexcept = is_noexcept(*ctor);
 
         if (const auto *ft = ctor->getDescribedFunctionTemplate()) {
-            ctor_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), ctx);
+            std::size_t template_index = 0;
             for (const auto *param : *ft->getTemplateParameters()) {
-                ctor_info.template_params.push_back(build_template_param_info(*param));
+                ctor_info.template_params.push_back(
+                    build_template_param_info(*param, fmt::format("__gentest_tparam_{}", template_index++)));
             }
+            ctor_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), ctor_info.template_params, ctx);
         }
 
         const bool is_template = ctor->getDescribedFunctionTemplate() != nullptr;
@@ -621,10 +734,12 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         method_info.ref_qualifier   = ref_qualifier_string(method->getRefQualifier());
 
         if (const auto *ft = method->getDescribedFunctionTemplate()) {
-            method_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), ctx);
+            std::size_t template_index = 0;
             for (const auto *param : *ft->getTemplateParameters()) {
-                method_info.template_params.push_back(build_template_param_info(*param));
+                method_info.template_params.push_back(
+                    build_template_param_info(*param, fmt::format("__gentest_tparam_{}", template_index++)));
             }
+            method_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), method_info.template_params, ctx);
         }
 
         unsigned arg_index = 0;

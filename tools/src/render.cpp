@@ -110,6 +110,7 @@ struct WrapperSpec {
     std::string                 wrapper_name; // kCaseInvoke_N
     std::string                 callee;       // free function (qualified) or fixture type (qualified)
     std::string                 method;       // member method name (unqualified)
+    std::vector<std::string>    lookup_namespaces;
     std::vector<FreeFixtureUse> fixtures;     // for FreeWithFixtures
     std::vector<FreeCallArg>    free_args;    // for FreeWithFixtures
     std::string                 value_args;   // comma-separated value args (may be empty)
@@ -301,18 +302,53 @@ std::string format_call_args(const std::string &value_args) {
     return out;
 }
 
+std::string qualify_lookup_namespace(const std::string &ns) {
+    if (ns.empty()) {
+        return {};
+    }
+    if (ns.starts_with("::")) {
+        return ns;
+    }
+    return "::" + ns;
+}
+
+std::vector<std::string> collect_lookup_namespaces(const std::vector<std::string> &parts) {
+    std::vector<std::string> namespaces;
+    std::string              joined;
+    namespaces.reserve(parts.size());
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        if (i != 0) {
+            joined += "::";
+        }
+        joined += parts[i];
+        namespaces.push_back(qualify_lookup_namespace(joined));
+    }
+    return namespaces;
+}
+
+std::string wrap_with_lookup_namespace(const WrapperSpec &spec, const std::string &statement) {
+    if (spec.lookup_namespaces.empty()) {
+        return statement;
+    }
+    std::string using_directives;
+    for (const auto &ns : spec.lookup_namespaces) {
+        append_format_runtime(using_directives, "using namespace {}; ", ns);
+    }
+    return fmt::format("[&]() {{ {}{} }}();", using_directives, statement);
+}
+
 static std::string make_invoke_for_free(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
     if (spec.returns_value) {
-        return fmt::format("[[maybe_unused]] const auto _ = {}{};", fn, args);
+        return wrap_with_lookup_namespace(spec, fmt::format("[[maybe_unused]] const auto _ = {}{};", fn, args));
     }
-    return fmt::format("static_cast<void>({}{});", fn, args);
+    return wrap_with_lookup_namespace(spec, fmt::format("static_cast<void>({}{});", fn, args));
 }
 
 static std::string make_invoke_for_member(const WrapperSpec &spec, const std::string &call_expr) {
     if (spec.returns_value) {
-        return fmt::format("[[maybe_unused]] const auto _ = {};", call_expr);
+        return wrap_with_lookup_namespace(spec, fmt::format("[[maybe_unused]] const auto _ = {};", call_expr));
     }
-    return fmt::format("static_cast<void>({});", call_expr);
+    return wrap_with_lookup_namespace(spec, fmt::format("static_cast<void>({});", call_expr));
 }
 
 static void append_wrapper(std::string &out, const WrapperSpec &spec, const WrapperTemplates &templates) {
@@ -520,6 +556,7 @@ WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
     WrapperSpec spec{};
     spec.wrapper_name = std::string("kCaseInvoke_") + std::to_string(idx);
     spec.value_args   = test.call_arguments; // may be empty
+    spec.lookup_namespaces = collect_lookup_namespaces(test.namespace_parts);
     if (test.fixture_qualified_name.empty()) {
         if (!test.free_fixtures.empty()) {
             spec.kind      = WrapperKind::FreeWithFixtures;
