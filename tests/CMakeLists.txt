@@ -1936,13 +1936,19 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_codegen_incremental_dependencies APPEND PROPERTY LABELS "codegen")
 
+set(_gentest_fixture_build_config "")
+if(CMAKE_CONFIGURATION_TYPES)
+    set(_gentest_fixture_build_config "Debug")
+endif()
+
 _gentest_add_cmake_helper_test(
     gentest_codegen_template_template_scope_bindings_builds
     ${PROJECT_SOURCE_DIR}/tests/cmake/template_template_scope_bindings
     ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-    -DTARGET_NAME=template_template_scope_bindings)
+    -DTARGET_NAME=template_template_scope_bindings
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
 set_property(TEST gentest_codegen_template_template_scope_bindings_builds APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -1952,8 +1958,38 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
     -DTARGET_NAME=mock_unnamed_template_template
+    -DBUILD_CONFIG=${_gentest_fixture_build_config}
     -DBUILD_TIMEOUT_SEC=20)
 set_property(TEST gentest_codegen_mock_unnamed_template_template_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_defaulted_template_ctor_macro_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_defaulted_template_ctor_macro
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=mock_defaulted_template_ctor_macro
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_mock_defaulted_template_ctor_macro_builds APPEND PROPERTY LABELS "codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_check_cmake_fixture_build_build_config
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/cmake_fixture_build_config_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_fixture_build_config"
+        "TARGET_NAME=cmake_fixture_build_config"
+        "GENERATOR=Ninja Multi-Config"
+        "BUILD_CONFIG=Release"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+set_property(TEST gentest_codegen_check_cmake_fixture_build_build_config APPEND PROPERTY LABELS "cmake;codegen")
+
+unset(_gentest_fixture_build_config)
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_manifest_depfile_aggregation
