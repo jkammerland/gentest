@@ -199,6 +199,14 @@ jobs:
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter
 
+      - name: Test downstream Bzlmod consumer
+        run: |
+          set -euxo pipefail
+          cmake \
+            -DSOURCE_DIR="${GITHUB_WORKSPACE}" \
+            -DBUILD_ROOT="${GITHUB_WORKSPACE}/build/buildsystems-linux-bazel-downstream" \
+            -P "${GITHUB_WORKSPACE}/cmake/CheckBazelBzlmodConsumer.cmake"
+
   meson:
     name: Meson • ${{ matrix.name }}
     runs-on: ubuntu-24.04
@@ -251,6 +259,15 @@ jobs:
             -Dcodegen_host_clang="${host_clang}"
           meson compile -C build/meson
           meson test -C build/meson --print-errorlogs
+
+      - name: Test downstream Meson wrap consumer
+        run: |
+          set -euxo pipefail
+          cmake \
+            -DSOURCE_DIR="${GITHUB_WORKSPACE}" \
+            -DBUILD_ROOT="${GITHUB_WORKSPACE}/build/buildsystems-linux-meson-downstream" \
+            -DPROG="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen" \
+            -P "${GITHUB_WORKSPACE}/cmake/CheckMesonWrapConsumer.cmake"
 
   xmake:
     name: Xmake • ${{ matrix.name }}
@@ -348,3 +365,17 @@ jobs:
           su - ci -c "\"${consumer_module_bin}\" --run=consumer/consumer/module_mock --kind=test"
           su - ci -c "\"${consumer_module_bin}\" --run=consumer/consumer/module_bench --kind=bench"
           su - ci -c "\"${consumer_module_bin}\" --run=consumer/consumer/module_jitter --kind=jitter"
+
+      - name: Test downstream Xmake xrepo consumer
+        run: |
+          set -euxo pipefail
+          if [ "${{ matrix.pkg_manager }}" = "dnf" ]; then
+            xmake_path="$(command -v xmake)"
+          else
+            xmake_path="/home/ci/.local/bin/xmake"
+          fi
+          su - ci -c "PATH=\"$(dirname "${xmake_path}"):\${PATH}\" cmake \
+            -DSOURCE_DIR=\"${GITHUB_WORKSPACE}\" \
+            -DBUILD_ROOT=\"${GITHUB_WORKSPACE}/build/buildsystems-linux-xmake-downstream\" \
+            -DPROG=\"${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen\" \
+            -P \"${GITHUB_WORKSPACE}/cmake/CheckXmakeXrepoConsumer.cmake\""

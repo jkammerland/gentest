@@ -1,0 +1,47 @@
+load(
+    "@gentest//bazel:defs.bzl",
+    "gentest_add_mocks_modules",
+    "gentest_add_mocks_textual",
+    "gentest_attach_codegen_modules",
+    "gentest_attach_codegen_textual",
+)
+
+gentest_add_mocks_textual(
+    name = "gentest_downstream_textual_mocks",
+    defs = ["tests/header_mock_defs.hpp"],
+    public_header = "gentest_downstream_mocks.hpp",
+)
+
+gentest_attach_codegen_textual(
+    name = "gentest_downstream_textual",
+    src = "tests/cases.cpp",
+    main = "tests/main.cpp",
+    mock_targets = [":gentest_downstream_textual_mocks"],
+    source_includes = ["tests"],
+)
+
+gentest_add_mocks_modules(
+    name = "gentest_downstream_module_mocks",
+    defs = [
+        "tests/service.cppm",
+        "tests/module_mock_defs.cppm",
+    ],
+    defs_modules = [
+        "downstream.bazel.service",
+        "downstream.bazel.mock_defs",
+    ],
+    module_name = "downstream.bazel.consumer_mocks",
+)
+
+gentest_attach_codegen_modules(
+    name = "gentest_downstream_module",
+    src = "tests/cases.cppm",
+    main = "tests/main.cpp",
+    mock_targets = [":gentest_downstream_module_mocks"],
+    deps = [
+        "@gentest//:gentest",
+        "@gentest//:gentest_bench_util",
+    ],
+    defines = ["GENTEST_DOWNSTREAM_USE_MODULES=1"],
+    source_includes = ["tests"],
+)

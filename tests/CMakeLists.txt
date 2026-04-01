@@ -2296,6 +2296,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_meson_textual_fmt_fallback APPEND PROPERTY LABELS "meson")
 
 _gentest_add_cmake_helper_test(
+    gentest_meson_wrap_consumer
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckMesonWrapConsumer.cmake
+    cmake)
+set_property(TEST gentest_meson_wrap_consumer APPEND PROPERTY LABELS "meson")
+
+_gentest_add_cmake_helper_test(
     gentest_xmake_textual_consumer_registration
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeTextualConsumerRegistration.cmake
@@ -2317,6 +2324,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_xmake_module_consumer APPEND PROPERTY LABELS "xmake" "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_xmake_xrepo_consumer
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckXmakeXrepoConsumer.cmake
+    cmake)
+set_property(TEST gentest_xmake_xrepo_consumer APPEND PROPERTY LABELS "xmake")
+
+_gentest_add_cmake_helper_test(
     gentest_bazel_textual_consumer
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckBazelTextualConsumer.cmake
@@ -2326,6 +2340,12 @@ _gentest_add_cmake_helper_test(
     gentest_bazel_module_consumer
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckBazelModuleConsumer.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_bazel_bzlmod_consumer
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(

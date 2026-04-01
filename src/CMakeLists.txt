@@ -117,6 +117,11 @@ if(GENTEST_PUBLIC_MODULES_ENABLED)
     )
 endif()
 
+if(${PROJECT_NAME}_INSTALL AND GENTEST_PUBLIC_MODULES_ENABLED)
+    install(FILES ${_gentest_module_interfaces}
+        DESTINATION include/${PROJECT_NAME})
+endif()
+
 target_compile_options(${PROJECT_NAME}
     PUBLIC
         $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-Wno-unknown-attributes;-Wno-attributes>

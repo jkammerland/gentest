@@ -1,327 +1,182 @@
 # Bazel
 
-This Bazel support is still repo-local. The macros in
-[`build_defs/gentest.bzl`](../../build_defs/gentest.bzl) are usable in this
-repository, but they are not packaged as a downstream rule set yet.
+gentest now has an official downstream Bazel source-package surface. Downstream
+users should load the public entrypoint from
+[`bazel/defs.bzl`](../../bazel/defs.bzl), not the repo-private implementation in
+[`build_defs/gentest.bzl`](../../build_defs/gentest.bzl).
 
-For host Clang, sysroot, and cross-build configuration guidance, see
+For host Clang, sysroot, and cross-build guidance, see
 [host_toolchain_sysroots.md](host_toolchain_sysroots.md).
 
-The checked-in repo-local targets now use the 2-step explicit model without
-spelling hashed textual staged outputs or generated module wrapper/header names
-in [`BUILD.bazel`](../../BUILD.bazel). Those generated-file details are handled
-inside [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl), not repeated
-at each call site.
+## Public API
 
-## Current repo-local macro surface
-
-Textual/classic support:
+The public Bazel surface is:
 
 - `gentest_suite(name)`
 - `gentest_add_mocks_textual(...)`
 - `gentest_attach_codegen_textual(...)`
-
-Named-module support:
-
 - `gentest_add_mocks_modules(...)`
 - `gentest_attach_codegen_modules(...)`
+- `GentestGeneratedInfo`
 
-The repo-local helpers expose the 2-step explicit model:
+The contract is explicit 2-step codegen:
 
-- `gentest_add_mocks_textual(...)`:
-  - required: `name`, `defs`, `public_header`
-  - optional: `defines`, `clang_args`, `codegen_host_clang`, `deps`, `linkopts`
-- `gentest_attach_codegen_textual(...)`:
-  - required: `name`, `src`, `main`, same-package `mock_targets`
-  - optional: `defines`, `clang_args`, `codegen_host_clang`, `deps`, `linkopts`, `source_includes`
-- `gentest_add_mocks_modules(...)`:
-  - required: `name`, `defs`, `defs_modules`, `module_name`
-  - optional: `defines`, `clang_args`, `codegen_host_clang`, `deps`, `linkopts`
-- `gentest_attach_codegen_modules(...)`:
-  - required: `name`, `src`, `main`, same-package `mock_targets`
-  - optional: `defines`, `clang_args`, `codegen_host_clang`, `deps`, `linkopts`, `source_includes`
+1. add mocks
+2. attach suite codegen
 
-Both textual and module helpers thread `defines` / `clang_args` through the
-codegen scan context and the final compile surface.
+Host-tool selection is explicit:
 
-For repo-local Bazel codegen host selection, the supported contract is:
-
-- per-target: `codegen_host_clang = "/path/to/clang++"`
+- per target: `codegen_host_clang = "/path/to/clang++"`
 - env fallback: `GENTEST_CODEGEN_HOST_CLANG=/path/to/clang++`
 
-`CC` / `CXX` remain target-toolchain inputs. In the checked-in repo-local
-smoke flow they are still mirrored from the resolved host Clang only to keep
-the `//:gentest_codegen_build` CMake bootstrap on the same LLVM install.
+`CC` / `CXX` remain target-toolchain inputs. In CI they are still mirrored from
+the chosen LLVM install only to keep the repo-local `gentest_codegen` bootstrap
+on the same toolchain.
 
-Those `clang_args` values are treated as literal compiler flags. They are not a
-shell fragment surface, and Bazel make-variable expansion inside user-supplied
-`clang_args` is intentionally not supported.
+## Downstream Bzlmod example
 
-Current repo-local note:
-
-- the textual path does not rely on an adjacent `compile_commands.json`
-  alongside `gentest_codegen`
-- the module path still synthesizes its own explicit module compdb inputs inside
-  the repo-local macros
-
-## Current repo-local targets
-
-The checked-in [`BUILD.bazel`](../../BUILD.bazel) wires:
-
-- classic suites:
-  - `gentest_unit_bazel`
-  - `gentest_integration_bazel`
-  - `gentest_fixtures_bazel`
-  - `gentest_skiponly_bazel`
-- textual explicit mocks:
-  - `gentest_consumer_textual_mocks`
-  - `gentest_consumer_textual_bazel`
-- named-module explicit mocks:
-  - `gentest_consumer_module_mocks`
-  - `gentest_consumer_module_bazel`
-
-The repo root also publishes the public module carrier libraries used by the
-module macros:
-
-- `gentest`
-- `gentest_mock`
-- `gentest_bench_util`
-
-The checked-in Bazel smoke coverage builds the explicit mock target and the
-final consumer target for both textual and module paths, verifies the generated
-mock/codegen artifacts under `bazel-bin/gen/...`, and runs the consumer
-test/mock/bench/jitter surface.
-
-## Repo-local examples
-
-The checked-in repo-local textual path looks like this:
+`MODULE.bazel`:
 
 ```python
-gentest_add_mocks_textual(
-    name = "gentest_consumer_textual_mocks",
-    defs = ["tests/consumer/header_mock_defs.hpp"],
-    public_header = "gentest_consumer_mocks.hpp",
-)
+module(name = "gentest_downstream_fixture")
 
-gentest_attach_codegen_textual(
-    name = "gentest_consumer_textual_bazel",
-    src = "tests/consumer/cases.cpp",
-    main = "tests/consumer/main.cpp",
-    mock_targets = [":gentest_consumer_textual_mocks"],
-    codegen_host_clang = "/opt/llvm/bin/clang++",
-    source_includes = ["tests", "tests/consumer"],
+bazel_dep(name = "gentest", version = "0.0.0")
+
+local_path_override(
+    module_name = "gentest",
+    path = "/abs/path/to/gentest",
 )
 ```
 
-The checked-in repo-local module path looks like this:
+`BUILD.bazel`:
 
 ```python
+load(
+    "@gentest//bazel:defs.bzl",
+    "gentest_add_mocks_modules",
+    "gentest_add_mocks_textual",
+    "gentest_attach_codegen_modules",
+    "gentest_attach_codegen_textual",
+)
+
+gentest_add_mocks_textual(
+    name = "gentest_downstream_textual_mocks",
+    defs = ["tests/header_mock_defs.hpp"],
+    public_header = "gentest_downstream_mocks.hpp",
+)
+
+gentest_attach_codegen_textual(
+    name = "gentest_downstream_textual",
+    src = "tests/cases.cpp",
+    main = "tests/main.cpp",
+    mock_targets = [":gentest_downstream_textual_mocks"],
+    source_includes = ["tests"],
+)
+
 gentest_add_mocks_modules(
-    name = "gentest_consumer_module_mocks",
+    name = "gentest_downstream_module_mocks",
     defs = [
-        "tests/consumer/service_module.cppm",
-        "tests/consumer/module_mock_defs.cppm",
+        "tests/service.cppm",
+        "tests/module_mock_defs.cppm",
     ],
-    module_name = "gentest.consumer_mocks",
+    defs_modules = [
+        "downstream.bazel.service",
+        "downstream.bazel.mock_defs",
+    ],
+    module_name = "downstream.bazel.consumer_mocks",
 )
 
 gentest_attach_codegen_modules(
-    name = "gentest_consumer_module_bazel",
-    src = "tests/consumer/cases.cppm",
-    main = "tests/consumer/main.cpp",
-    mock_targets = [":gentest_consumer_module_mocks"],
+    name = "gentest_downstream_module",
+    src = "tests/cases.cppm",
+    main = "tests/main.cpp",
+    mock_targets = [":gentest_downstream_module_mocks"],
     deps = [
-        ":gentest",
-        ":gentest_bench_util",
+        "@gentest//:gentest",
+        "@gentest//:gentest_bench_util",
     ],
-    codegen_host_clang = "/opt/llvm/bin/clang++",
-    defines = ["GENTEST_CONSUMER_USE_MODULES=1"],
-    source_includes = ["tests", "tests/consumer"],
+    defines = ["GENTEST_DOWNSTREAM_USE_MODULES=1"],
+    source_includes = ["tests"],
 )
+```
+
+The checked-in downstream fixture uses this exact surface:
+
+- [`tests/downstream/bazel_bzlmod_consumer/MODULE.bazel.in`](../../tests/downstream/bazel_bzlmod_consumer/MODULE.bazel.in)
+- [`tests/downstream/bazel_bzlmod_consumer/BUILD.bazel`](../../tests/downstream/bazel_bzlmod_consumer/BUILD.bazel)
+
+Minimal downstream layout:
+
+```text
+your_project/
+  MODULE.bazel
+  BUILD.bazel
+  tests/
+    main.cpp
+    cases.cpp
+    cases.cppm
+    header_mock_defs.hpp
+    module_mock_defs.cppm
+    service.cppm
 ```
 
 ## Build and run
 
-Classic suites:
-
 ```bash
-bazelisk test \
-  //:gentest_unit_bazel \
-  //:gentest_integration_bazel \
-  //:gentest_fixtures_bazel \
-  //:gentest_skiponly_bazel
-```
+HOST_CLANG=/opt/llvm/bin/clang++
+HOST_CC=/opt/llvm/bin/clang
+RES_DIR="$($HOST_CLANG -print-resource-dir)"
 
-Textual consumer:
-
-```bash
-host_clang_candidates=(
-  /usr/lib64/llvm22/bin/clang++
-  /usr/lib64/llvm21/bin/clang++
-  /usr/lib64/llvm20/bin/clang++
-  /usr/lib/llvm-22/bin/clang++
-  /usr/lib/llvm-21/bin/clang++
-  /usr/lib/llvm-20/bin/clang++
-)
-for host_clang in "${host_clang_candidates[@]}"; do
-  if [ -x "${host_clang}" ]; then
-    break
-  fi
-done
-if [ ! -x "${host_clang}" ]; then
-  host_clang="$(command -v clang++)"
-fi
-if [ ! -x "${host_clang}" ]; then
-  echo "clang++ not found" >&2
-  exit 1
-fi
-host_clang_dir="$(cd "$(dirname "${host_clang}")" && pwd)"
-host_clang_c="${host_clang_dir}/clang"
-if [ ! -x "${host_clang_c}" ]; then
-  host_clang_c="$(command -v clang)"
-fi
-if [ ! -x "${host_clang_c}" ]; then
-  echo "clang not found next to ${host_clang}" >&2
-  exit 1
-fi
-clang_resource_dir="$("${host_clang}" -print-resource-dir)"
-
-GENTEST_CODEGEN_HOST_CLANG="${host_clang}" \
-GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-CC="${host_clang_c}" \
-CXX="${host_clang}" \
-bazelisk build \
-  //:gentest_consumer_textual_bazel \
-  --action_env=CCACHE_DISABLE=1 \
-  --host_action_env=CCACHE_DISABLE=1 \
-  --action_env=CC="${host_clang_c}" \
-  --action_env=CXX="${host_clang}" \
-  --action_env=GENTEST_CODEGEN_HOST_CLANG \
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-  --host_action_env=CC="${host_clang_c}" \
-  --host_action_env=CXX="${host_clang}" \
-  --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
-  --repo_env=GENTEST_CODEGEN_HOST_CLANG \
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
-
-./bazel-bin/gentest_consumer_textual_bazel --list
-./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test
-./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test
-./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench
-./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter
-```
-
-Module consumer:
-
-```bash
-host_clang_candidates=(
-  /usr/lib64/llvm22/bin/clang++
-  /usr/lib64/llvm21/bin/clang++
-  /usr/lib64/llvm20/bin/clang++
-  /usr/lib/llvm-22/bin/clang++
-  /usr/lib/llvm-21/bin/clang++
-  /usr/lib/llvm-20/bin/clang++
-)
-for host_clang in "${host_clang_candidates[@]}"; do
-  if [ -x "${host_clang}" ]; then
-    break
-  fi
-done
-if [ ! -x "${host_clang}" ]; then
-  host_clang="$(command -v clang++)"
-fi
-if [ ! -x "${host_clang}" ]; then
-  echo "clang++ not found" >&2
-  exit 1
-fi
-host_clang_dir="$(cd "$(dirname "${host_clang}")" && pwd)"
-host_clang_c="${host_clang_dir}/clang"
-if [ ! -x "${host_clang_c}" ]; then
-  host_clang_c="$(command -v clang)"
-fi
-if [ ! -x "${host_clang_c}" ]; then
-  echo "clang not found next to ${host_clang}" >&2
-  exit 1
-fi
-clang_resource_dir="$("${host_clang}" -print-resource-dir)"
-
-GENTEST_CODEGEN_HOST_CLANG="${host_clang}" \
-GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-CC="${host_clang_c}" \
-CXX="${host_clang}" \
-bazelisk build \
-  //:gentest_consumer_module_bazel \
+GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
+GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
+CC="$HOST_CC" \
+CXX="$HOST_CLANG" \
+bazelisk build //:gentest_downstream_module \
   --experimental_cpp_modules \
-  --action_env=CCACHE_DISABLE=1 \
-  --host_action_env=CCACHE_DISABLE=1 \
-  --action_env=CC="${host_clang_c}" \
-  --action_env=CXX="${host_clang}" \
+  --action_env=CC \
+  --action_env=CXX \
   --action_env=GENTEST_CODEGEN_HOST_CLANG \
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-  --host_action_env=CC="${host_clang_c}" \
-  --host_action_env=CXX="${host_clang}" \
+  --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
+  --host_action_env=CC \
+  --host_action_env=CXX \
   --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}" \
-  --repo_env=CC="${host_clang_c}" \
-  --repo_env=CXX="${host_clang}" \
+  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR \
+  --repo_env=CC \
+  --repo_env=CXX \
   --repo_env=GENTEST_CODEGEN_HOST_CLANG \
-  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
+  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
 
-./bazel-bin/gentest_consumer_module_bazel --list
-./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_test --kind=test
-./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test
-./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench
-./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter
+GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
+GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
+bazelisk run //:gentest_downstream_textual -- --list
+
+GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
+GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
+bazelisk run //:gentest_downstream_module -- --run=downstream/module_mock --kind=test
 ```
 
-In practice, the repo-local Bazel module path is still toolchain-sensitive.
-Use `codegen_host_clang` or `GENTEST_CODEGEN_HOST_CLANG` for codegen-host
-selection rather than relying on Bazel's default host toolchain discovery.
+## Checked-in proofs
 
-The checked-in Linux workflow validates:
+The repository now validates two Bazel shapes:
 
-- classic suites
-- the textual Bazel consumer, including explicit mock target generation
-- the module Bazel consumer under the explicit Clang + `--experimental_cpp_modules`
-  contract, including explicit mock target generation and test/mock/bench/jitter execution
+- repo-root examples in [`BUILD.bazel`](../../BUILD.bazel)
+- downstream Bzlmod consumer in
+  [`tests/downstream/bazel_bzlmod_consumer`](../../tests/downstream/bazel_bzlmod_consumer)
 
-For local module runs, keep the same constraints:
+The downstream proof in
+[`cmake/CheckBazelBzlmodConsumer.cmake`](../../cmake/CheckBazelBzlmodConsumer.cmake):
 
-- set `GENTEST_CODEGEN_HOST_CLANG` to the Clang executable used for codegen
-- set `GENTEST_CODEGEN_RESOURCE_DIR="$(clang++ -print-resource-dir)"`
-- pass `--experimental_cpp_modules`
-- if you build the checked-in repo-local `//:gentest_codegen_build`, mirror the
-  same LLVM install into `CC` / `CXX` as bootstrap compatibility only
-- disable ccache inside Bazel actions when needed
-
-## Generated outputs
-
-The module macros generate repo-local artifacts under `gen/<name>/`, including:
-
-- staged defs/support files
-- generated mock module wrappers
-- generated module wrapper headers
-- a generated aggregate public module
-- native `GentestGeneratedInfo` provider metadata
-- a repo-local `compile_commands.json` used to give `gentest_codegen` a module
-  scan context inside the Bazel action
-
-The generated test wrapper target also emits:
-
-- `gen/<name>/suite_0000.cppm`
-- `gen/<name>/tu_0000_suite_0000.module.gentest.cppm`
-- `gen/<name>/tu_0000_suite_0000.gentest.h`
+- builds textual mock target + textual consumer
+- builds module mock target + module consumer
+- resolves `bazel-bin` with `bazel info bazel-bin`
+- verifies generated mock/codegen artifacts
+- runs the consumer test/mock/bench/jitter surface
 
 ## Limitations
 
-- Repo-local only. There is no packaged downstream Bazel rule set yet.
+- This is source-package / Bzlmod support, not a prebuilt binary package.
 - `gentest_add_mocks_textual(...)` currently accepts exactly one defs file.
-- `gentest_attach_codegen_textual(...)` and
-  `gentest_attach_codegen_modules(...)` currently require same-package
-  `mock_targets`.
-- The codegen bootstrap is intentionally non-hermetic today: Bazel shells out
-  to CMake to build `gentest_codegen`.
-- Extra external-module mappings are not exposed as a polished public option in
-  the repo-local macros yet.
-- The module path is still repo-local/toolchain-sensitive rather than a
-  polished downstream contract.
+- `gentest_attach_codegen_*` currently require same-package `mock_targets`.
+- The repo still bootstraps `gentest_codegen` via CMake inside Bazel.
+- The module path remains toolchain-sensitive and expects explicit host-tool
+  configuration.
