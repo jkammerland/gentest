@@ -511,9 +511,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.is_benchmark   = summary.is_benchmark;
         info.is_jitter      = summary.is_jitter;
         info.is_baseline    = summary.is_baseline;
-        info.template_args  = tpl_ordered;
-        info.call_arguments = call_args;
-        info.returns_value = !func->getReturnType()->isVoidType();
+        info.template_args       = tpl_ordered;
+        info.call_arguments      = call_args;
+        info.is_function_template = is_function_template;
+        info.returns_value       = !func->getReturnType()->isVoidType();
         info.namespace_parts = namespace_parts;
         info.free_fixture_types           = free_fixture_types;
         info.free_fixture_required_scopes = free_fixture_required_scopes;

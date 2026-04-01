@@ -114,6 +114,7 @@ struct WrapperSpec {
     std::vector<FreeFixtureUse> fixtures;     // for FreeWithFixtures
     std::vector<FreeCallArg>    free_args;    // for FreeWithFixtures
     std::string                 value_args;   // comma-separated value args (may be empty)
+    bool                        method_is_template = false;
     bool                        returns_value = false; // whether to capture result
 };
 
@@ -389,7 +390,6 @@ std::string prepend_call_arg(std::string_view first_arg, const std::string &rest
 std::string build_helper_definition(const WrapperSpec &spec, std::string_view helper_name) {
     const bool include_self = spec.kind == WrapperKind::MemberEphemeral || spec.kind == WrapperKind::MemberShared
                               || spec.kind == WrapperKind::MemberEphemeralWithFixtures || spec.kind == WrapperKind::MemberSharedWithFixtures;
-    const bool method_template = spec.method.find('<') != std::string::npos;
     const std::string params = build_helper_param_decls(spec.fixtures, include_self);
 
     std::string call_expr;
@@ -402,12 +402,12 @@ std::string build_helper_definition(const WrapperSpec &spec, std::string_view he
         break;
     case WrapperKind::MemberEphemeral:
     case WrapperKind::MemberShared:
-        call_expr = fmt::format("{}.{}{}{}", forward_param_expr("self"), method_template ? "template " : "", spec.method,
+        call_expr = fmt::format("{}.{}{}{}", forward_param_expr("self"), spec.method_is_template ? "template " : "", spec.method,
                                 format_call_args(spec.value_args));
         break;
     case WrapperKind::MemberEphemeralWithFixtures:
     case WrapperKind::MemberSharedWithFixtures:
-        call_expr = fmt::format("{}.{}{}{}", forward_param_expr("self"), method_template ? "template " : "", spec.method,
+        call_expr = fmt::format("{}.{}{}{}", forward_param_expr("self"), spec.method_is_template ? "template " : "", spec.method,
                                 format_call_args(build_helper_bound_arg_list(spec.free_args)));
         break;
     }
@@ -642,10 +642,11 @@ WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
             spec.kind = has_extra_fixtures ? WrapperKind::MemberEphemeralWithFixtures : WrapperKind::MemberEphemeral;
             break;
         }
-        spec.callee = test.fixture_qualified_name;
-        spec.method = extract_method_name(test.qualified_name);
-        spec.fixtures = test.free_fixtures;
-        spec.free_args = test.free_call_args;
+        spec.callee             = test.fixture_qualified_name;
+        spec.method             = extract_method_name(test.qualified_name);
+        spec.method_is_template = test.is_function_template;
+        spec.fixtures           = test.free_fixtures;
+        spec.free_args          = test.free_call_args;
     }
     spec.returns_value = test.returns_value;
     return spec;

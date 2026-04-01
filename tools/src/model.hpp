@@ -161,6 +161,8 @@ struct TestCaseInfo {
     bool        is_benchmark = false;
     bool        is_jitter = false;
     bool        is_baseline = false;
+    // True when the discovered callable is declared as a function template.
+    bool        is_function_template = false;
     // True when the test function/method returns a non-void value.
     bool        returns_value = false;
     // Tags and metadata

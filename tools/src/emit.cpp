@@ -858,6 +858,14 @@ void replace_all(std::string &inout, std::string_view needle, std::string_view r
     }
 }
 
+bool requires_global_wrapper_impls_placeholder(const std::string &template_content) {
+    if (template_content.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
+        return false;
+    }
+    return template_content.find("{{WRAPPER_IMPLS}}") != std::string::npos
+           || template_content.find("{{REGISTRATION_COMMON}}") != std::string::npos;
+}
+
 auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases,
                   const std::vector<FixtureDeclInfo> &fixtures) -> std::optional<std::string> {
     std::string template_content;
@@ -869,6 +877,12 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     }
     if (template_content.empty())
         template_content = std::string(tpl::test_impl);
+
+    if (requires_global_wrapper_impls_placeholder(template_content)) {
+        log_err("gentest_codegen: template file '{}' must use {{GLOBAL_WRAPPER_IMPLS}}; legacy {{WRAPPER_IMPLS}} placement is unsupported\n",
+                options.template_path.string());
+        return std::nullopt;
+    }
 
     // Load partials
     const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
