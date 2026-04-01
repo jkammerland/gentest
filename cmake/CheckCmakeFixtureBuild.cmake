@@ -14,6 +14,7 @@
 #  -DCXX_COMPILER=<C++ compiler>
 #  -DCXX_COMPILER_CLANG_SCAN_DEPS=<clang-scan-deps binary>
 #  -DBUILD_TYPE=<Debug/Release/...>
+#  -DBUILD_CONFIG=<Debug/Release/...>  # for multi-config generators
 #  -DBUILD_TIMEOUT_SEC=<seconds>
 #  -DLLVM_DIR=<llvm cmake dir>
 #  -DClang_DIR=<clang cmake dir>
@@ -97,7 +98,9 @@ set(_build_cmd
   "${CMAKE_COMMAND}"
   --build "${_build_dir}"
   --target "${TARGET_NAME}")
-if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
+if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
+  list(APPEND _build_cmd --config "${BUILD_CONFIG}")
+elseif(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _build_cmd --config "${BUILD_TYPE}")
 endif()
 

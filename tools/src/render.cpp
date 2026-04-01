@@ -110,7 +110,7 @@ struct WrapperSpec {
     std::string                 wrapper_name; // kCaseInvoke_N
     std::string                 callee;       // free function (qualified) or fixture type (qualified)
     std::string                 method;       // member method name (unqualified)
-    std::vector<std::string>    lookup_namespaces;
+    std::vector<std::string>    namespace_parts;
     std::vector<FreeFixtureUse> fixtures;     // for FreeWithFixtures
     std::vector<FreeCallArg>    free_args;    // for FreeWithFixtures
     std::string                 value_args;   // comma-separated value args (may be empty)
@@ -302,60 +302,138 @@ std::string format_call_args(const std::string &value_args) {
     return out;
 }
 
-std::string qualify_lookup_namespace(const std::string &ns) {
-    if (ns.empty()) {
-        return {};
+std::string qualify_global_name(const std::vector<std::string> &parts, std::string_view name) {
+    std::string qualified = "::";
+    for (const auto &part : parts) {
+        qualified += part;
+        qualified += "::";
     }
-    if (ns.starts_with("::")) {
-        return ns;
-    }
-    return "::" + ns;
+    qualified += name;
+    return qualified;
 }
 
-std::vector<std::string> collect_lookup_namespaces(const std::vector<std::string> &parts) {
-    std::vector<std::string> namespaces;
-    std::string              joined;
-    namespaces.reserve(parts.size());
-    for (std::size_t i = 0; i < parts.size(); ++i) {
-        if (i != 0) {
-            joined += "::";
+std::string wrap_in_namespaces(const std::vector<std::string> &parts, const std::string &body) {
+    if (parts.empty()) {
+        return body;
+    }
+    std::string wrapped;
+    for (const auto &part : parts) {
+        append_format_runtime(wrapped, "namespace {} {{\n", part);
+    }
+    wrapped += body;
+    for (std::size_t i = parts.size(); i-- > 0;) {
+        append_format_runtime(wrapped, "}} // namespace {}\n", parts[i]);
+    }
+    return wrapped;
+}
+
+std::string forward_param_expr(std::string_view name) {
+    return fmt::format("static_cast<decltype({0})&&>({0})", name);
+}
+
+std::string helper_name_for(const WrapperSpec &spec) {
+    return "__gentest_lookup_helper_" + spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
+}
+
+std::string build_helper_param_decls(const std::vector<FreeFixtureUse> &fixtures, bool include_self) {
+    std::string params;
+    bool        first = true;
+    if (include_self) {
+        params += "auto&& self";
+        first = false;
+    }
+    for (std::size_t i = 0; i < fixtures.size(); ++i) {
+        if (!first) {
+            params += ", ";
         }
-        joined += parts[i];
-        namespaces.push_back(qualify_lookup_namespace(joined));
+        append_format_runtime(params, "auto&& fx{}", i);
+        first = false;
     }
-    return namespaces;
+    return params;
 }
 
-std::string wrap_with_lookup_namespace(const WrapperSpec &spec, const std::string &statement) {
-    if (spec.lookup_namespaces.empty()) {
-        return statement;
+std::string build_helper_bound_arg_list(const std::vector<FreeCallArg> &bound_args) {
+    std::string out;
+    for (std::size_t i = 0; i < bound_args.size(); ++i) {
+        if (i) {
+            out += ", ";
+        }
+        const auto &arg = bound_args[i];
+        if (arg.kind == FreeCallArgKind::Fixture) {
+            out += forward_param_expr(fmt::format("fx{}", arg.fixture_index));
+        } else {
+            out += arg.value_expression;
+        }
     }
-    std::string using_directives;
-    for (const auto &ns : spec.lookup_namespaces) {
-        append_format_runtime(using_directives, "using namespace {}; ", ns);
+    return out;
+}
+
+std::string build_helper_fixture_call_list(const std::vector<FreeFixtureUse> &fixtures, std::string_view prefix = {}) {
+    std::string out;
+    for (std::size_t i = 0; i < fixtures.size(); ++i) {
+        if (i) {
+            out += ", ";
+        }
+        append_format_runtime(out, "{}fx{}_", prefix, i);
     }
-    return fmt::format("[&]() {{ {}{} }}();", using_directives, statement);
+    return out;
+}
+
+std::string prepend_call_arg(std::string_view first_arg, const std::string &rest) {
+    if (rest.empty()) {
+        return std::string(first_arg);
+    }
+    return std::string(first_arg) + ", " + rest;
+}
+
+std::string build_helper_definition(const WrapperSpec &spec, std::string_view helper_name) {
+    const bool include_self = spec.kind == WrapperKind::MemberEphemeral || spec.kind == WrapperKind::MemberShared
+                              || spec.kind == WrapperKind::MemberEphemeralWithFixtures || spec.kind == WrapperKind::MemberSharedWithFixtures;
+    const bool method_template = spec.method.find('<') != std::string::npos;
+    const std::string params = build_helper_param_decls(spec.fixtures, include_self);
+
+    std::string call_expr;
+    switch (spec.kind) {
+    case WrapperKind::Free:
+        call_expr = spec.callee + format_call_args(spec.value_args);
+        break;
+    case WrapperKind::FreeWithFixtures:
+        call_expr = spec.callee + format_call_args(build_helper_bound_arg_list(spec.free_args));
+        break;
+    case WrapperKind::MemberEphemeral:
+    case WrapperKind::MemberShared:
+        call_expr = fmt::format("{}.{}{}{}", forward_param_expr("self"), method_template ? "template " : "", spec.method,
+                                format_call_args(spec.value_args));
+        break;
+    case WrapperKind::MemberEphemeralWithFixtures:
+    case WrapperKind::MemberSharedWithFixtures:
+        call_expr = fmt::format("{}.{}{}{}", forward_param_expr("self"), method_template ? "template " : "", spec.method,
+                                format_call_args(build_helper_bound_arg_list(spec.free_args)));
+        break;
+    }
+
+    std::string helper;
+    append_format_runtime(helper, "static decltype(auto) {}({}) {{\n", helper_name, params);
+    append_format_runtime(helper, "    return {};\n", call_expr);
+    helper += "}\n\n";
+    return wrap_in_namespaces(spec.namespace_parts, helper);
 }
 
 static std::string make_invoke_for_free(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
     if (spec.returns_value) {
-        return wrap_with_lookup_namespace(spec, fmt::format("[[maybe_unused]] const auto _ = {}{};", fn, args));
+        return fmt::format("[[maybe_unused]] const auto _ = {}{};", fn, args);
     }
-    return wrap_with_lookup_namespace(spec, fmt::format("static_cast<void>({}{});", fn, args));
-}
-
-static std::string make_invoke_for_member(const WrapperSpec &spec, const std::string &call_expr) {
-    if (spec.returns_value) {
-        return wrap_with_lookup_namespace(spec, fmt::format("[[maybe_unused]] const auto _ = {};", call_expr));
-    }
-    return wrap_with_lookup_namespace(spec, fmt::format("static_cast<void>({});", call_expr));
+    return fmt::format("static_cast<void>({}{});", fn, args);
 }
 
 static void append_wrapper(std::string &out, const WrapperSpec &spec, const WrapperTemplates &templates) {
+    const auto helper_name      = helper_name_for(spec);
+    const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
+    out += build_helper_definition(spec, helper_name);
+
     switch (spec.kind) {
     case WrapperKind::Free: {
-        const auto call = format_call_args(spec.value_args);
-        const auto invoke = make_invoke_for_free(spec, spec.callee, call);
+        const auto invoke = make_invoke_for_free(spec, qualified_helper, "()");
         append_format_runtime(out, templates.free, fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
         return;
     }
@@ -365,41 +443,31 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
-        const std::string combined = build_bound_arg_list(spec.free_args);
-        const std::string call = fmt::format("({})", combined);
-        const auto invoke = make_invoke_for_free(spec, spec.callee, call);
-        const std::string bench_decls    = build_fixture_state_decls(spec.fixtures);
+        const auto invoke = make_invoke_for_free(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
+        const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
-        const std::string bench_inits    = build_fixture_bench_inits(spec.fixtures);
-        const std::string bench_setup =
-            build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_teardown =
-            build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_args = build_bound_arg_list(spec.free_args, "bench_state.");
-        const std::string bench_call  = fmt::format("({})", bench_args);
-        const auto        bench_invoke = make_invoke_for_free(spec, spec.callee, bench_call);
+        const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
+        const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
+        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
+        const auto        bench_invoke =
+            make_invoke_for_free(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures, "bench_state.")));
         append_format_runtime(out, templates.free_fixtures, fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
                               fmt::arg("inits", inits), fmt::arg("setup_flags", setup_flags), fmt::arg("setup", setup_tracked),
                               fmt::arg("teardown", teardown_guarded), fmt::arg("invoke", invoke), fmt::arg("bench_decls", bench_decls),
-                              fmt::arg("bench_setup_flags", bench_setup_flags),
-                              fmt::arg("bench_inits", bench_inits), fmt::arg("bench_setup", bench_setup),
-                              fmt::arg("bench_teardown", bench_teardown), fmt::arg("bench_invoke", bench_invoke));
+                              fmt::arg("bench_setup_flags", bench_setup_flags), fmt::arg("bench_inits", bench_inits),
+                              fmt::arg("bench_setup", bench_setup), fmt::arg("bench_teardown", bench_teardown),
+                              fmt::arg("bench_invoke", bench_invoke));
         return;
     }
     case WrapperKind::MemberEphemeral: {
-        const auto call = format_call_args(spec.value_args);
-        const auto call_expr = fmt::format("fx_.ref().{}{}", spec.method, call);
-        const auto invoke    = make_invoke_for_member(spec, call_expr);
-        const auto bench_call_expr = fmt::format("bench_state.fx_.ref().{}{}", spec.method, call);
-        const auto bench_invoke    = make_invoke_for_member(spec, bench_call_expr);
+        const auto invoke       = make_invoke_for_free(spec, qualified_helper, "(fx_.ref())");
+        const auto bench_invoke = make_invoke_for_free(spec, qualified_helper, "(bench_state.fx_.ref())");
         append_format_runtime(out, templates.ephemeral, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
                               fmt::arg("invoke", invoke), fmt::arg("bench_invoke", bench_invoke));
         return;
     }
     case WrapperKind::MemberShared: {
-        const auto call = format_call_args(spec.value_args);
-        const auto call_expr = fmt::format("fx_->{}{}", spec.method, call);
-        const auto invoke    = make_invoke_for_member(spec, call_expr);
+        const auto invoke = make_invoke_for_free(spec, qualified_helper, "(*fx_)");
         append_format_runtime(out, templates.stateful, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
                               fmt::arg("invoke", invoke));
         return;
@@ -410,20 +478,17 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
-        const std::string combined = build_bound_arg_list(spec.free_args);
-        const std::string call_expr = fmt::format("fx_.ref().{}({})", spec.method, combined);
-        const auto invoke = make_invoke_for_member(spec, call_expr);
+        const auto invoke = make_invoke_for_free(
+            spec, qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
 
         const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
-        const std::string bench_inits    = build_fixture_bench_inits(spec.fixtures);
-        const std::string bench_setup =
-            build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_teardown =
-            build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_args     = build_bound_arg_list(spec.free_args, "bench_state.");
-        const std::string bench_call_expr = fmt::format("bench_state.fx_.ref().{}({})", spec.method, bench_args);
-        const auto        bench_invoke    = make_invoke_for_member(spec, bench_call_expr);
+        const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
+        const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
+        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
+        const auto        bench_invoke      = make_invoke_for_free(
+            spec, qualified_helper,
+            format_call_args(prepend_call_arg("bench_state.fx_.ref()", build_helper_fixture_call_list(spec.fixtures, "bench_state."))));
 
         out += "static void " + spec.wrapper_name + "(void* ctx_) {\n";
         out += "    (void)ctx_;\n";
@@ -487,20 +552,17 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
-        const std::string combined = build_bound_arg_list(spec.free_args);
-        const std::string call_expr = fmt::format("fx_->{}({})", spec.method, combined);
-        const auto invoke = make_invoke_for_member(spec, call_expr);
+        const auto invoke =
+            make_invoke_for_free(spec, qualified_helper, format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
 
         const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
-        const std::string bench_inits    = build_fixture_bench_inits(spec.fixtures);
-        const std::string bench_setup =
-            build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_teardown =
-            build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_args     = build_bound_arg_list(spec.free_args, "bench_state.");
-        const std::string bench_call_expr = fmt::format("fx_->{}({})", spec.method, bench_args);
-        const auto        bench_invoke    = make_invoke_for_member(spec, bench_call_expr);
+        const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
+        const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
+        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
+        const auto        bench_invoke      = make_invoke_for_free(
+            spec, qualified_helper,
+            format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures, "bench_state."))));
 
         out += "static void " + spec.wrapper_name + "(void* ctx_) {\n";
         out += "    auto* fx_ = static_cast<" + spec.callee + "*>(ctx_);\n";
@@ -554,9 +616,9 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
 
 WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
     WrapperSpec spec{};
-    spec.wrapper_name = std::string("kCaseInvoke_") + std::to_string(idx);
-    spec.value_args   = test.call_arguments; // may be empty
-    spec.lookup_namespaces = collect_lookup_namespaces(test.namespace_parts);
+    spec.wrapper_name    = std::string("kCaseInvoke_") + std::to_string(idx);
+    spec.value_args      = test.call_arguments; // may be empty
+    spec.namespace_parts = test.namespace_parts;
     if (test.fixture_qualified_name.empty()) {
         if (!test.free_fixtures.empty()) {
             spec.kind      = WrapperKind::FreeWithFixtures;
@@ -609,7 +671,7 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
         const auto &test             = cases[idx];
         append_format_runtime(
             out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)),
-            fmt::arg("wrapper", std::string("kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
+            fmt::arg("wrapper", std::string("::kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
             fmt::arg("line", test.line), fmt::arg("is_bench", test.is_benchmark ? "true" : "false"),
             fmt::arg("is_jitter", test.is_jitter ? "true" : "false"), fmt::arg("is_baseline", test.is_baseline ? "true" : "false"),
             fmt::arg("tags", tag_names[idx]), fmt::arg("reqs", req_names[idx]),

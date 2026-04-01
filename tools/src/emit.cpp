@@ -906,11 +906,17 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     std::string fixture_registrations = render::render_fixture_registrations(fixtures);
 
     std::string output = template_content;
+    replace_all(output, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
     replace_all(output, "{{REGISTRATION_COMMON}}", tpl::registration_common);
     replace_all(output, "{{FORWARD_DECLS}}", forward_decl_block);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(cases.size()));
     replace_all(output, "{{TRAIT_DECLS}}", trait_declarations);
-    replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
+    if (output.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
+        replace_all(output, "{{GLOBAL_WRAPPER_IMPLS}}", wrapper_impls);
+        replace_all(output, "{{WRAPPER_IMPLS}}", "");
+    } else {
+        replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
+    }
     replace_all(output, "{{CASE_INITS}}", case_entries);
     replace_all(output, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
     replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
@@ -1095,11 +1101,17 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
                 }
                 std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
 
+                replace_all(header_content, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
                 replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
                 replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
                 replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
                 replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
-                replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
+                if (header_content.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
+                    replace_all(header_content, "{{GLOBAL_WRAPPER_IMPLS}}", wrapper_impls);
+                    replace_all(header_content, "{{WRAPPER_IMPLS}}", "");
+                } else {
+                    replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
+                }
                 replace_all(header_content, "{{CASE_INITS}}", case_entries);
                 replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
                 replace_all(header_content, "{{REGISTER_FN}}", register_fn);

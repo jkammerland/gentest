@@ -138,36 +138,26 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return out;
 }
 
-[[nodiscard]] std::string print_template_parameter_decl(const NamedDecl &param, std::string_view fallback_name, const ASTContext &ctx) {
-    auto policy = PrintingPolicy(ctx.getLangOpts());
-    policy.adjustForCPlusPlus();
-    policy.SuppressScope          = false;
-    policy.FullyQualifiedName     = true;
-    policy.SuppressUnwrittenScope = false;
-
-    std::string text;
-    if (llvm::isa<TemplateTemplateParmDecl>(param)) {
-        llvm::raw_string_ostream os(text);
-        param.print(os, policy);
-        os.flush();
-    } else {
-        const auto range = param.getSourceRange();
-        if (range.isValid()) {
-            text = Lexer::getSourceText(CharSourceRange::getTokenRange(range), ctx.getSourceManager(), ctx.getLangOpts()).str();
-        }
-        if (text.empty()) {
-            llvm::raw_string_ostream os(text);
-            param.print(os, policy);
-            os.flush();
-        }
+[[nodiscard]] std::string print_template_argument_semantic(const TemplateArgumentLoc &arg_loc, const PrintingPolicy &policy) {
+    if (arg_loc.getArgument().isNull()) {
+        return {};
     }
+    std::string              text;
+    llvm::raw_string_ostream os(text);
+    arg_loc.getArgument().print(policy, os, true);
+    os.flush();
+    return llvm::StringRef(text).trim().str();
+}
 
-    text = llvm::StringRef(text).trim().str();
-    if (!param.getNameAsString().empty() || fallback_name.empty()) {
+[[nodiscard]] std::string strip_template_parameter_default(std::string text) {
+    const auto eq_pos = find_top_level_default_argument(text);
+    if (eq_pos == std::string_view::npos) {
         return text;
     }
-    return insert_template_parameter_name(std::move(text), fallback_name);
+    return llvm::StringRef(text).substr(0, eq_pos).rtrim().str();
 }
+
+[[nodiscard]] std::string print_template_parameter_decl(const NamedDecl &param, std::string_view fallback_name, const ASTContext &ctx);
 
 [[nodiscard]] std::string print_template_parameter_list(const TemplateParameterList &params, const std::vector<TemplateParamInfo> &infos,
                                                         const ASTContext &ctx) {
@@ -182,6 +172,75 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     }
     result += '>';
     return result;
+}
+
+[[nodiscard]] std::string print_template_template_parameter_decl(const TemplateTemplateParmDecl &param, std::string_view fallback_name,
+                                                                const ASTContext &ctx) {
+    auto policy = PrintingPolicy(ctx.getLangOpts());
+    policy.adjustForCPlusPlus();
+    policy.SuppressScope          = false;
+    policy.FullyQualifiedName     = true;
+    policy.SuppressUnwrittenScope = false;
+
+    std::string text = print_template_parameter_list(*param.getTemplateParameters(), {}, ctx);
+    text += ' ';
+    text += param.wasDeclaredWithTypename() ? "typename" : "class";
+    if (param.isParameterPack()) {
+        text += "...";
+    }
+
+    const std::string name = !param.getNameAsString().empty() ? param.getNameAsString() : std::string(fallback_name);
+    if (!name.empty()) {
+        text.push_back(' ');
+        text += name;
+    }
+
+    if (param.hasDefaultArgument()) {
+        const std::string default_text = print_template_argument_semantic(param.getDefaultArgument(), policy);
+        if (!default_text.empty()) {
+            text += " = ";
+            text += default_text;
+        }
+    }
+    return text;
+}
+
+[[nodiscard]] std::string print_template_parameter_decl(const NamedDecl &param, std::string_view fallback_name, const ASTContext &ctx) {
+    auto policy = PrintingPolicy(ctx.getLangOpts());
+    policy.adjustForCPlusPlus();
+    policy.SuppressScope          = false;
+    policy.FullyQualifiedName     = true;
+    policy.SuppressUnwrittenScope = false;
+
+    if (const auto *ttp = llvm::dyn_cast<TemplateTemplateParmDecl>(&param)) {
+        return print_template_template_parameter_decl(*ttp, fallback_name, ctx);
+    }
+
+    std::string text;
+    llvm::raw_string_ostream os(text);
+    param.print(os, policy);
+    os.flush();
+
+    text = strip_template_parameter_default(llvm::StringRef(text).trim().str());
+    if (param.getNameAsString().empty() && !fallback_name.empty()) {
+        text = insert_template_parameter_name(std::move(text), fallback_name);
+    }
+
+    std::string default_text;
+    if (const auto *ttp = llvm::dyn_cast<TemplateTypeParmDecl>(&param)) {
+        if (ttp->hasDefaultArgument()) {
+            default_text = print_template_argument_semantic(ttp->getDefaultArgument(), policy);
+        }
+    } else if (const auto *nttp = llvm::dyn_cast<NonTypeTemplateParmDecl>(&param)) {
+        if (nttp->hasDefaultArgument()) {
+            default_text = print_template_argument_semantic(nttp->getDefaultArgument(), policy);
+        }
+    }
+    if (!default_text.empty()) {
+        text += " = ";
+        text += default_text;
+    }
+    return text;
 }
 
 [[nodiscard]] TemplateParamInfo build_template_param_info(const NamedDecl &param, std::string fallback_name = {}) {
