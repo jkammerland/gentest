@@ -232,6 +232,9 @@ std::string template_prefix_without_defaults(std::string_view prefix) {
 }
 
 bool contains_identifier_token(std::string_view text, std::string_view token) {
+    if (token.empty()) {
+        return false;
+    }
     std::size_t pos = 0;
     while ((pos = text.find(token, pos)) != std::string_view::npos) {
         const bool left_ok =

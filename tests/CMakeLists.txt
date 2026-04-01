@@ -1937,6 +1937,25 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_incremental_dependencies APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_template_template_scope_bindings_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/template_template_scope_bindings
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=template_template_scope_bindings)
+set_property(TEST gentest_codegen_template_template_scope_bindings_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_unnamed_template_template_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_unnamed_template_template
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=mock_unnamed_template_template
+    -DBUILD_TIMEOUT_SEC=20)
+set_property(TEST gentest_codegen_mock_unnamed_template_template_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_manifest_depfile_aggregation
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenManifestDepfileAggregation.cmake
