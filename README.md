@@ -16,7 +16,7 @@ void basic() {
     EXPECT_TRUE(1 + 1 == 2); 
 }
 
-// namespaced attribute list for brevity, 
+// namespaced attribute list for brevity
 // generates a 2x2 test matrix
 template <typename T, template <class...> class C>
 [[using gentest: template(T, int, long), template(C, std::vector, std::list)]]
@@ -29,7 +29,7 @@ void emplace_matrix() {
 
 During the build, a codegen tool can scan your sources and generates registrations/wrappers from those attributes. This tooling step can be registered with your favorite buildsystem.
 
-This avoids macro-heavy registration and instead provide a more native C++ syntax. Also, let's call it orthogonal code generation, has the advantage of being able to support any feature, which was the main driver for experimenting with this approach.
+This avoids macro-heavy registration and instead keeps test declarations closer to ordinary C++ by using standard attribute syntax. Unlike the code generation used in many test frameworks, gentest’s generator is not just a hidden registration step. It acts as a more general layer over attribute-annotated code, which makes it easier to add features without inventing a separate macro-style API for each one.
 
 Features currently include:
 - Arbitrary mocking with no extra declarations
