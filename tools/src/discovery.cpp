@@ -319,7 +319,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     });
     if (!summary.is_case)
         return;
-    if (!func->doesThisDeclarationHaveABody())
+    if (func->isDeleted())
         return;
 
     std::string qualified = func->getQualifiedNameAsString();

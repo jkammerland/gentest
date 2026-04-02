@@ -2795,6 +2795,16 @@ int main(int argc, const char **argv) {
     std::vector<std::string>                     depfile_dependencies;
 
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
+    const auto skip_function_bodies_adjuster = [&](const clang::tooling::CommandLineArguments &args, llvm::StringRef file) {
+        clang::tooling::CommandLineArguments adjusted(args.begin(), args.end());
+        if (options.discover_mocks ||
+            named_module_name_from_source_file(std::filesystem::path{std::string(file)}).has_value()) {
+            return adjusted;
+        }
+        adjusted.push_back("-Xclang");
+        adjusted.push_back("-skip-function-bodies");
+        return adjusted;
+    };
 
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
         std::filesystem::path out = options.tu_output_dir;
@@ -3886,6 +3896,7 @@ int main(int argc, const char **argv) {
             tool.setDiagnosticConsumer(tu_diag_consumer.get());
             tool.appendArgumentsAdjuster(args_adjuster);
             tool.appendArgumentsAdjuster(syntax_only_adjuster);
+            tool.appendArgumentsAdjuster(skip_function_bodies_adjuster);
 
             std::vector<TestCaseInfo> local_cases;
             TestCaseCollector         collector{local_cases, options.strict_fixture, allow_includes};
@@ -3988,6 +3999,7 @@ int main(int argc, const char **argv) {
         tool.setDiagnosticConsumer(diag_consumer.get());
         tool.appendArgumentsAdjuster(args_adjuster);
         tool.appendArgumentsAdjuster(syntax_only_adjuster);
+        tool.appendArgumentsAdjuster(skip_function_bodies_adjuster);
 
         TestCaseCollector  collector{cases, options.strict_fixture, allow_includes};
         FixtureDeclCollector fixture_collector{fixtures};

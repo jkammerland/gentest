@@ -31,4 +31,6 @@ mocking/mocking/move_only/with_eq
 mocking/mocking/nice/unexpected_ok
 mocking/mocking/template/forwarding_alias
 mocking/mocking/template/direct_unique_template_member_expect
+mocking/mocking/template/template_template_ctor
 mocking/mocking/template/template_template_member_expect
+mocking/mocking/template/template_template_pack_direct_expect
