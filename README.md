@@ -17,10 +17,10 @@ void basic() {
 }
 
 // namespaced attribute list for brevity
-template <typename T>
-[[using gentest: test, template(T, int, long)]] 
+template <typename T, template <class...> class C>
+[[using gentest: template(T, int, long), template(C, std::vector, std::list)]]
 void emplace_matrix() {
-    std::vector<T> values;
+    C<T> values;
     values.emplace_back(T{1});
     EXPECT_EQ(values.size(), std::size_t{1});
 }
@@ -317,7 +317,7 @@ The generator also supports convenience axes like `range(...)`, `linspace(...)`,
 
 ### Templates (mixed axes)
 
-Generate a compact 2D matrix by combining a type axis with a parameter axis:
+Generate a compact 2D matrix by combining a type axis with a template-template axis:
 
 ```cpp
 #include "gentest/attributes.h"
@@ -325,19 +325,22 @@ Generate a compact 2D matrix by combining a type axis with a parameter axis:
 #include <list>
 #include <vector>
 
-template <typename T>
-[[using gentest: test, template(T, int, long), parameters(use_list, false, true)]]
-void emplace_matrix(bool use_list) {
-    if (use_list) {
-        std::list<T> values;
-        values.emplace_back(T{1});
-        gentest::expect_eq(values.size(), std::size_t{1}, "list emplace");
-    } else {
-        std::vector<T> values;
-        values.emplace_back(T{1});
-        gentest::expect_eq(values.size(), std::size_t{1}, "vector emplace");
-    }
+template <typename T, template <class...> class C>
+[[using gentest: template(T, int, long), template(C, std::vector, std::list)]]
+void emplace_matrix() {
+    C<T> values;
+    values.emplace_back(T{1});
+    gentest::expect_eq(values.size(), std::size_t{1}, "container emplace");
 }
+```
+
+This expands to four concrete cases:
+
+```text
+[ PASS ] templates/tt/mixed<std::list,int>
+[ PASS ] templates/tt/mixed<std::list,long>
+[ PASS ] templates/tt/mixed<std::vector,int>
+[ PASS ] templates/tt/mixed<std::vector,long>
 ```
 
 `template(NAME, ...)` applies to type, value, and template-template parameters.
