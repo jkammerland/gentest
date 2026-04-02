@@ -186,6 +186,14 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+message(STATUS "Run explicit_late_link_module_consumer...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${_build_dir}/explicit_late_link_module_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    "--run=explicit_mock_target/late_link_module_consumer"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
 message(STATUS "Mutate local support header and rebuild explicit header consumer...")
 file(READ "${_src_dir}/service.hpp" _service_header_content)
 string(REPLACE "kServiceSentinel = 9" "kServiceSentinel = 11" _service_header_content "${_service_header_content}")

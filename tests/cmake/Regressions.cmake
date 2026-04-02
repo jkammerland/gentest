@@ -77,6 +77,7 @@ set(_gentest_manual_regressions
     "gentest_regression_shared_fixture_runtime_reentry_rejected|shared_fixture_runtime_reentry_rejected.cpp"
     "gentest_regression_shared_fixture_suite_scope_descendant|shared_fixture_suite_scope_descendant.cpp"
     "gentest_regression_shared_fixture_suite_scope_most_specific|shared_fixture_suite_scope_most_specific.cpp"
+    "gentest_regression_shared_fixture_global_scope_most_specific|shared_fixture_global_scope_most_specific.cpp"
     "gentest_regression_shared_fixture_suite_scope_prefix_collision|shared_fixture_suite_scope_prefix_collision.cpp"
     "gentest_regression_shared_fixture_manual_teardown_throw_exit|shared_fixture_manual_teardown_throw_exit.cpp"
     "gentest_regression_cli_suffix_ambiguity|cli_suffix_ambiguity.cpp"
@@ -1095,6 +1096,14 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --run=regressions/shared_fixture_suite_scope_most_specific/member_case --kind=test)
+
+gentest_add_check_counts(
+    NAME regression_shared_fixture_global_scope_most_specific_lookup
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_global_scope_most_specific>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=regressions/shared_fixture_global_scope_most_specific/member_case --kind=test)
 
 gentest_add_check_death(
     NAME regression_shared_fixture_suite_scope_prefix_collision_rejected

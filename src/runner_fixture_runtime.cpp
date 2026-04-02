@@ -478,16 +478,12 @@ std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_v
             continue;
         if (entry.fixture_name != fixture_name)
             continue;
-        if (scope == SharedFixtureScope::Suite) {
-            if (!suite_scope_matches(entry.suite, suite))
-                continue;
-            if (!selected || entry.suite.size() > selected->suite.size()) {
-                selected = &entry;
-            }
+        if (!suite_scope_matches(entry.suite, suite)) {
             continue;
         }
-        selected = &entry;
-        break;
+        if (!selected || entry.suite.size() > selected->suite.size()) {
+            selected = &entry;
+        }
     }
     if (!selected) {
         if (reg.teardown_in_progress) {
