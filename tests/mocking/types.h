@@ -1,5 +1,12 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
+#include <list>
+#include <string>
+#include <tuple>
+#include <vector>
+
 namespace mocking {
 
 struct Calculator {
@@ -83,6 +90,24 @@ struct TrackedMove {
 struct ForwardingAlias {
     template <typename T>
     void take(::mocking::Alias<T>&& value) { (void)value; }
+};
+
+struct TemplateTemplateFixed {
+    template <template <class, std::size_t> class C>
+    void take(C<int, 2> value) { (void)value; }
+};
+
+struct TemplateTemplateCtorTarget {
+    template <template <class, std::size_t> class C>
+    explicit TemplateTemplateCtorTarget(C<int, 2> value) noexcept : size(static_cast<int>(value.size())) {}
+
+    int size = 0;
+    void ping() {}
+};
+
+struct TemplateTemplatePacker {
+    template <template <class...> class... Cs>
+    void join(const std::tuple<Cs<int>...> &value) { (void)value; }
 };
 
 template <typename T>

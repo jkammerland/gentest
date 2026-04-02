@@ -503,6 +503,62 @@ gentest_add_check_death(
            -I${CMAKE_CURRENT_SOURCE_DIR})
 
 gentest_add_check_death(
+    NAME gentest_codegen_check_invalid_template_pack_bare
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "template parameter pack 'Cs' requires parenthesized rows in 'template(Cs, ...)' (template_pack_bare)"
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_check_invalid_template_nonpack_row
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "non-pack template parameter 'C' does not accept parenthesized rows in 'template(C, ...)' (template_nonpack_row)"
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_template_parenthesized_nttp_ok
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/template_parenthesized_nttp_ok.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_invalid_template_pack_empty_cells
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 1
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_template_pack_empty_cells.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+           ${_gentest_codegen_std_flag}
+           -I${PROJECT_SOURCE_DIR}/include
+           -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
     NAME gentest_codegen_baseline_requires_bench
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
@@ -743,6 +799,44 @@ gentest_add_cmake_script_test(
         "CODEGEN_STD=${_gentest_codegen_std_flag}"
         "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
 
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_mock_defaulted_template_ctor_builds
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckMockDefaultedTemplateCtor.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/mock_defaulted_template_ctor"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_mock_template_template_pack_direct_expect_runs
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckMockTemplateTemplatePackDirectExpect.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/mock_template_template_pack_direct_expect"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+
 gentest_add_check_death(
     NAME gentest_codegen_mock_anonymous_namespace_msg
     NO_EMULATOR
@@ -855,6 +949,10 @@ set_tests_properties(
     gentest_codegen_namespace_suite_attr_with_trailing_comment
     gentest_codegen_check_invalid_unknown_attr
     gentest_codegen_check_invalid_duplicate_template_attr
+    gentest_codegen_check_invalid_template_pack_bare
+    gentest_codegen_check_invalid_template_nonpack_row
+    gentest_codegen_check_template_parenthesized_nttp_ok
+    gentest_codegen_check_invalid_template_pack_empty_cells
     gentest_codegen_baseline_requires_bench
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
@@ -867,6 +965,8 @@ set_tests_properties(
     gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
     gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
     gentest_codegen_mock_emit_header_main_tu_ok
+    gentest_codegen_mock_defaulted_template_ctor_builds
+    gentest_codegen_mock_template_template_pack_direct_expect_runs
     gentest_codegen_mock_anonymous_namespace_msg
     gentest_codegen_mock_local_class_msg
     gentest_codegen_fixture_suite_member_illegal
@@ -878,6 +978,7 @@ set_tests_properties(
 if(WIN32)
     set_property(TEST gentest_codegen_mock_cross_root_include_windows APPEND PROPERTY LABELS "codegen")
 endif()
+set_property(TEST gentest_codegen_mock_symlink_include APPEND PROPERTY LABELS "codegen")
 
 # End-to-end behavioral checks with structured suite inventory
 set(_gentest_suite_inventory_checks
@@ -886,8 +987,8 @@ set(_gentest_suite_inventory_checks
     "skiponly|gentest_skiponly_tests|2|0|0|2|${CMAKE_CURRENT_SOURCE_DIR}/expected/skiponly.list"
     "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
     "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
-    "templates|gentest_templates_tests|97|97|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
-    "mocking|gentest_mocking_tests|33|33|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
+    "templates|gentest_templates_tests|111|111|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
+    "mocking|gentest_mocking_tests|36|36|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
@@ -1854,6 +1955,114 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_codegen_incremental_dependencies APPEND PROPERTY LABELS "codegen")
+
+set(_gentest_fixture_build_config "")
+if(CMAKE_CONFIGURATION_TYPES)
+    set(_gentest_fixture_build_config "Debug")
+endif()
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_template_template_scope_bindings_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/template_template_scope_bindings
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=template_template_scope_bindings
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_template_template_scope_bindings_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_unnamed_template_template_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_unnamed_template_template
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=mock_unnamed_template_template
+    -DBUILD_CONFIG=${_gentest_fixture_build_config}
+    -DBUILD_TIMEOUT_SEC=180)
+set_property(TEST gentest_codegen_mock_unnamed_template_template_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_defaulted_template_ctor_macro_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_defaulted_template_ctor_macro
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=mock_defaulted_template_ctor_macro
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_mock_defaulted_template_ctor_macro_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_template_template_ctor_traits_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_template_template_ctor_traits
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=mock_template_template_ctor_traits
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_mock_template_template_ctor_traits_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_deleted_annotated_case_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/deleted_annotated_case
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=deleted_annotated_case
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_deleted_annotated_case_builds APPEND PROPERTY LABELS "codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_member_operator_template_keyword_builds
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckMemberOperatorTemplateKeywordBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/member_operator_template_keyword_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/member_operator_template_keyword"
+        "TARGET_NAME=member_operator_template_keyword"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "BUILD_CONFIG=${_gentest_fixture_build_config}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+set_property(TEST gentest_codegen_member_operator_template_keyword_builds APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_check_cmake_fixture_build_build_config
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/cmake_fixture_build_config_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_fixture_build_config"
+        "TARGET_NAME=cmake_fixture_build_config"
+        "GENERATOR=Ninja Multi-Config"
+        "BUILD_CONFIG=Release"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+set_property(TEST gentest_codegen_check_cmake_fixture_build_build_config APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_legacy_wrapper_impls_template_rejected
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckCodegenLegacyWrapperImplsTemplateRejected.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/legacy_wrapper_impls_template_rejected_check"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+set_property(TEST gentest_codegen_legacy_wrapper_impls_template_rejected APPEND PROPERTY LABELS "cmake;codegen")
+
+unset(_gentest_fixture_build_config)
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_manifest_depfile_aggregation

@@ -476,10 +476,17 @@ private:
 class MatchFinderAction final : public clang::ASTFrontendAction {
 public:
     MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                      bool allow_mock_includes)
-        : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
+                      bool allow_mock_includes, bool skip_function_bodies)
+        : finder_(finder),
+          dependencies_(dependencies),
+          allow_includes_(allow_includes),
+          allow_mock_includes_(allow_mock_includes),
+          skip_function_bodies_(skip_function_bodies) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
+        if (skip_function_bodies_ && !named_module_name_from_source_file(std::filesystem::path{input_file.str()}).has_value()) {
+            compiler.getFrontendOpts().SkipFunctionBodies = true;
+        }
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(compiler.getSourceManager(), dependencies_));
         const std::string normalized = normalize_dependency_path(input_file.str());
         if (!normalized.empty()) {
@@ -493,16 +500,22 @@ private:
     std::vector<std::string>         &dependencies_;
     bool                              allow_includes_ = false;
     bool                              allow_mock_includes_ = false;
+    bool                              skip_function_bodies_ = false;
 };
 
 class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
 public:
     MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                             bool allow_mock_includes)
-        : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
+                             bool allow_mock_includes, bool skip_function_bodies)
+        : finder_(finder),
+          dependencies_(dependencies),
+          allow_includes_(allow_includes),
+          allow_mock_includes_(allow_mock_includes),
+          skip_function_bodies_(skip_function_bodies) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_);
+        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_,
+                                                   skip_function_bodies_);
     }
 
 private:
@@ -510,6 +523,7 @@ private:
     std::vector<std::string>         &dependencies_;
     bool                              allow_includes_ = false;
     bool                              allow_mock_includes_ = false;
+    bool                              skip_function_bodies_ = false;
 };
 
 bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_args = false) {
@@ -2795,6 +2809,7 @@ int main(int argc, const char **argv) {
     std::vector<std::string>                     depfile_dependencies;
 
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
+    const bool skip_function_bodies = !options.discover_mocks;
 
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
         std::filesystem::path out = options.tu_output_dir;
@@ -3908,7 +3923,8 @@ int main(int argc, const char **argv) {
             if (mock_collector.has_value()) {
                 register_mock_matchers(finder, *mock_collector);
             }
-            MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes, options.discover_mocks};
+            MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes, options.discover_mocks,
+                                                    skip_function_bodies};
 
             ParseResult result;
             result.status = tool.run(&action_factory);
@@ -4007,7 +4023,8 @@ int main(int argc, const char **argv) {
         if (mock_collector.has_value()) {
             register_mock_matchers(finder, *mock_collector);
         }
-        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes, options.discover_mocks};
+        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes, options.discover_mocks,
+                                                skip_function_bodies};
 
         const int status = tool.run(&action_factory);
         if (status != 0) {
