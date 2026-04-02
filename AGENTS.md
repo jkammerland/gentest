@@ -2,6 +2,7 @@
 
 ## Project Structure & Module Organization
 - Public headers live in `include/gentest/` (`runner.h`, `attributes.h`) and are exposed via an interface library.
+- Public named-module interfaces also live in `include/gentest/` (notably `gentest.cppm`, `gentest.mock.cppm`, and `gentest.bench_util.cppm`) when module support is enabled.
 - Runtime execution lives in `src/` (notably `src/runner_impl.cpp`). Fixture allocation and ownership live in `include/gentest/fixture.h`.
 - Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources. Codegen templates live in `tools/src/templates.hpp` and `tools/src/templates_mocks.hpp`.
 - Helper macro wiring is in `cmake/GentestCodegen.cmake`.
@@ -9,6 +10,7 @@
   - Manifest mode (`gentest_attach_codegen(... OUTPUT ...)`): emits a single generated TU (legacy).
   - Per-TU registration mode (default): emits per-TU registration headers (`tu_*.gentest.h`), and CMake generates shim TUs (`tu_*.gentest.cpp`) that include the original source and the generated header.
 - In per-TU registration mode, `gentest_attach_codegen()` replaces the original test TUs in the target with the generated shim TUs to avoid ODR issues.
+- Public named modules are controlled by `GENTEST_ENABLE_PUBLIC_MODULES=AUTO|ON|OFF` (default `AUTO`); unsupported toolchains fall back to headers/classic APIs automatically.
 - Each suite under `tests/<suite>/` provides handwritten `cases.cpp`; shared test entry lives in `tests/support/test_entry.cpp`. Generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).
 
 ## Architecture & Execution Model
@@ -37,6 +39,11 @@
   - `cmake --preset=debug-system`
   - `cmake --build --preset=debug-system`
   - `ctest --preset=debug-system --output-on-failure`
+- Static analysis presets:
+  - `cmake --preset=tidy`
+  - `cmake --build --preset=tidy`
+  - `ctest --preset=tidy --output-on-failure`
+  - Auto-fix variant: `cmake --preset=tidy-fix && cmake --build --preset=tidy-fix`
 - Windows (dev machine):
   - Connect: `ssh ai-dev1@windows-11`
   - Repo path: `B:\repos\gentest`
@@ -65,8 +72,10 @@
 
 ## Coding Style & Naming Conventions
 - Follow `.clang-format` (LLVM-derived): 4-space indent, 140-column limit.
+- Format edited C/C++ files explicitly with `clang-format -i <paths...>`; there is no dedicated format preset in this repo today.
 - Run the CI-aligned clang-tidy gate with `scripts/check_clang_tidy.sh build/debug-system` after configuring the preset and building `gentest gentest_textual_suite_mocks` once so module response files and shared generated mock surfaces exist. The script derives direct tidy inputs from `build/debug-system/compile_commands.json`, remaps generated test shims back to tracked handwritten test sources where possible, excludes build-tree generated sources/headers from direct tidy coverage, and warns when module units are skipped because the compile database entry is not clang/clang-cl based.
 - A small set of tests that intentionally include the generated `gentest_textual_suite_mocks` public surface are still excluded from direct clang-tidy coverage because clang-tidy reports generated mock implementation diagnostics through the owning handwritten source file.
+- For local static-analysis workflows, you can also use `ninja clang-tidy` in the build tree or the `tidy` / `tidy-fix` presets when you want configure/build/test wired together.
 - Filenames: lowercase `snake_case`; types: `PascalCase`; functions: `camelCase`.
 - Keep public symbols in the `gentest` namespace.
 
@@ -92,6 +101,12 @@
 ## Tooling & Configuration Tips
 - Keep `CMAKE_EXPORT_COMPILE_COMMANDS=ON` so `gentest_codegen` reuses the active compilation database.
 - Let CMake manage dependencies via `vcpkg.json`; pin any new packages there.
+- Modules:
+  - See `docs/modules.md` for the supported named-module flows (`import gentest;`, `import gentest.mock;`, `import gentest.bench_util;`).
+  - `import gentest;` consumers should link `gentest::gentest`; test executables typically link both `gentest::gentest` and `gentest::gentest_main` (or `gentest::gentest_runtime` if they provide their own `main()`).
+  - Public named-module export/import support is gated by `GENTEST_ENABLE_PUBLIC_MODULES`; leave it at `AUTO` unless you are explicitly testing enable/disable behavior.
+  - Per-TU wrapper mode for module sources requires a single-config generator/build dir (for example Ninja). Use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) for multi-config generators.
+  - Link explicit mock targets before `gentest_attach_codegen()` so codegen sees the generated mock surface during discovery.
 - Per-TU registration mode (default `gentest_attach_codegen()` with no `OUTPUT`) requires a single-config generator/build dir (e.g. Ninja). Multi-config generators (Ninja Multi-Config, VS, Xcode) should use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) or separate build dirs per config.
 - In per-TU registration mode, `OUTPUT_DIR` must be a concrete path (no generator expressions).
 - Cross-compiling (target = arm/riscv/etc, host runs codegen):
