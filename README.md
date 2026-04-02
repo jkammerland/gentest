@@ -59,6 +59,29 @@ cmake --build --preset=debug-system
 ctest --preset=debug-system --output-on-failure
 ```
 
+## Lint & static analysis
+
+Format edited C/C++ files explicitly:
+
+```bash
+clang-format -i path/to/file.cpp path/to/file.hpp
+```
+
+Run the clang-tidy preset:
+
+```bash
+cmake --preset=tidy
+cmake --build --preset=tidy
+ctest --preset=tidy --output-on-failure
+```
+
+Auto-fix variant:
+
+```bash
+cmake --preset=tidy-fix
+cmake --build --preset=tidy-fix
+```
+
 ## Use in your project (CMake)
 
 ```cmake
@@ -370,7 +393,7 @@ form.
 >[!NOTE]
 >This example's teardown assertions assume the three cases below run together:
 >`fx/local/one`, `fx/shared/first`, and `fx/shared/second`. If you run only a
->subset, this will obviously fail the count checks.
+>subset, the shared-fixture touch-count checks will fail by design.
 
 ```cpp
 #include "gentest/attributes.h"
