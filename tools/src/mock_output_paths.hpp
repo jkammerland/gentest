@@ -23,15 +23,13 @@ namespace gentest::codegen {
     return value;
 }
 
-[[nodiscard]] inline std::string zero_pad_mock_domain_index(std::size_t idx) {
-    return fmt::format("{:04d}", static_cast<unsigned>(idx));
-}
+[[nodiscard]] inline std::string zero_pad_mock_domain_index(std::size_t idx) { return fmt::format("{:04d}", static_cast<unsigned>(idx)); }
 
 [[nodiscard]] inline std::string sha256_hex_prefix(std::string_view value, std::size_t hex_chars) {
     llvm::SHA256 sha256;
     sha256.update(llvm::StringRef(value.data(), value.size()));
 
-    const auto digest = sha256.final();
+    const auto  digest = sha256.final();
     std::string hex;
     hex.reserve(digest.size() * 2);
     for (const auto byte : digest) {
@@ -58,8 +56,8 @@ namespace gentest::codegen {
     std::filesystem::path out  = base;
     const std::string     stem = base.stem().string();
     const std::string     ext  = base.extension().string();
-    out.replace_filename(fmt::format("{}__domain_{}_{}{}", stem, zero_pad_mock_domain_index(idx),
-                                     abbreviate_mock_domain_label(std::string(label)), ext));
+    out.replace_filename(
+        fmt::format("{}__domain_{}_{}{}", stem, zero_pad_mock_domain_index(idx), abbreviate_mock_domain_label(std::string(label)), ext));
     return out;
 }
 

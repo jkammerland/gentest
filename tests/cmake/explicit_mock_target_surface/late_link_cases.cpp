@@ -1,7 +1,6 @@
-#include "public/fixture_header_mocks.hpp"
-
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
+#include "public/fixture_header_mocks.hpp"
 
 using namespace gentest::asserts;
 

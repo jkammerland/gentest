@@ -1,7 +1,7 @@
 module;
 #include "gentest/attributes.h"
 
-#define HDR "present_dir_header.hpp"
+#define HDR       "present_dir_header.hpp"
 #define OFF_MACRO 0
 #if defined(OFF_MACRO) && OFF_MACRO >= 2
 export module wrong_conditional;
@@ -16,4 +16,4 @@ export module real_conditional;
 export namespace conditional_false_match {
 [[using gentest: test("conditional/selected_module")]]
 void conditional_selected_module() {}
-}
+} // namespace conditional_false_match

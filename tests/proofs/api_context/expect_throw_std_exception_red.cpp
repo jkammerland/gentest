@@ -11,34 +11,24 @@ int main() {
     bool require_throw_assertion_rethrew = false;
 
     try {
-        gentest::detail::expect_throw<std::exception>(
-            [] { throw gentest::failure("framework failure passthrough"); }, "std::exception",
-            std::source_location::current());
-    } catch (const gentest::failure&) {
-        expect_throw_failure_rethrew = true;
-    }
+        gentest::detail::expect_throw<std::exception>([] { throw gentest::failure("framework failure passthrough"); }, "std::exception",
+                                                      std::source_location::current());
+    } catch (const gentest::failure &) { expect_throw_failure_rethrew = true; }
 
     try {
-        gentest::detail::require_throw<std::exception>(
-            [] { throw gentest::failure("framework failure passthrough"); }, "std::exception",
-            std::source_location::current());
-    } catch (const gentest::failure&) {
-        require_throw_failure_rethrew = true;
-    }
+        gentest::detail::require_throw<std::exception>([] { throw gentest::failure("framework failure passthrough"); }, "std::exception",
+                                                       std::source_location::current());
+    } catch (const gentest::failure &) { require_throw_failure_rethrew = true; }
 
     try {
-        gentest::detail::expect_throw<std::exception>([] { throw gentest::assertion("framework assertion passthrough"); },
-                                                      "std::exception", std::source_location::current());
-    } catch (const gentest::assertion&) {
-        expect_throw_assertion_rethrew = true;
-    }
+        gentest::detail::expect_throw<std::exception>([] { throw gentest::assertion("framework assertion passthrough"); }, "std::exception",
+                                                      std::source_location::current());
+    } catch (const gentest::assertion &) { expect_throw_assertion_rethrew = true; }
 
     try {
         gentest::detail::require_throw<std::exception>([] { throw gentest::assertion("framework assertion passthrough"); },
                                                        "std::exception", std::source_location::current());
-    } catch (const gentest::assertion&) {
-        require_throw_assertion_rethrew = true;
-    }
+    } catch (const gentest::assertion &) { require_throw_assertion_rethrew = true; }
 
     if (expect_throw_failure_rethrew && require_throw_failure_rethrew && expect_throw_assertion_rethrew &&
         require_throw_assertion_rethrew) {

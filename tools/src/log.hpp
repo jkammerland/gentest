@@ -3,7 +3,6 @@
 
 #include <fmt/format.h>
 #include <llvm/Support/raw_ostream.h>
-
 #include <mutex>
 #include <string_view>
 #include <utility>
@@ -15,10 +14,9 @@ inline std::mutex &errs_mutex() {
     return mu;
 }
 
-template <typename... Args>
-void log_err(fmt::format_string<Args...> format_string, Args &&...args) {
+template <typename... Args> void log_err(fmt::format_string<Args...> format_string, Args &&...args) {
     std::lock_guard<std::mutex> lock(errs_mutex());
-    fmt::memory_buffer buffer;
+    fmt::memory_buffer          buffer;
     buffer.reserve(256);
     fmt::format_to(std::back_inserter(buffer), format_string, std::forward<Args>(args)...);
     llvm::errs().write(buffer.data(), buffer.size());

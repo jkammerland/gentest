@@ -1,6 +1,7 @@
 module;
 
-export module gentest.same_line_consumer; import gentest.same_line_provider;
+export module gentest.same_line_consumer;
+import gentest.same_line_provider;
 
 import gentest;
 

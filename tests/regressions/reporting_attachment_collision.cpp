@@ -9,11 +9,11 @@
 namespace {
 
 constexpr auto kCustomResultPayload = R"({"payload":"custom result payload"})";
-constexpr auto kAttachmentSource0 = R"("source":"result-0-attachment.txt")";
-constexpr auto kAttachmentSource1 = R"("source":"result-0-attachment-1.txt")";
-constexpr auto kTimelineSource0 = R"("source":"result-0-timeline.txt")";
-constexpr auto kTimelineSource1 = R"("source":"result-0-timeline-1.txt")";
-constexpr auto kResultSource1 = R"("source":"result-0-result-1.json")";
+constexpr auto kAttachmentSource0   = R"("source":"result-0-attachment.txt")";
+constexpr auto kAttachmentSource1   = R"("source":"result-0-attachment-1.txt")";
+constexpr auto kTimelineSource0     = R"("source":"result-0-timeline.txt")";
+constexpr auto kTimelineSource1     = R"("source":"result-0-timeline-1.txt")";
+constexpr auto kResultSource1       = R"("source":"result-0-result-1.json")";
 
 bool read_text(const std::filesystem::path &path, std::string &out) {
     std::ifstream in(path, std::ios::binary);
@@ -24,9 +24,7 @@ bool read_text(const std::filesystem::path &path, std::string &out) {
     return true;
 }
 
-bool contains(std::string_view haystack, std::string_view needle) {
-    return haystack.find(needle) != std::string_view::npos;
-}
+bool contains(std::string_view haystack, std::string_view needle) { return haystack.find(needle) != std::string_view::npos; }
 
 } // namespace
 
@@ -72,12 +70,12 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    const auto result_path            = allure_dir / "result-0-result.json";
-    const auto builtin_logs_path      = allure_dir / "result-0-attachment.txt";
-    const auto builtin_timeline_path  = allure_dir / "result-0-timeline.txt";
-    const auto custom_attach_path     = allure_dir / "result-0-attachment-1.txt";
-    const auto custom_timeline_path   = allure_dir / "result-0-timeline-1.txt";
-    const auto custom_result_path     = allure_dir / "result-0-result-1.json";
+    const auto result_path           = allure_dir / "result-0-result.json";
+    const auto builtin_logs_path     = allure_dir / "result-0-attachment.txt";
+    const auto builtin_timeline_path = allure_dir / "result-0-timeline.txt";
+    const auto custom_attach_path    = allure_dir / "result-0-attachment-1.txt";
+    const auto custom_timeline_path  = allure_dir / "result-0-timeline-1.txt";
+    const auto custom_result_path    = allure_dir / "result-0-result-1.json";
 
     std::string result_json;
     std::string builtin_logs;
@@ -99,11 +97,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (!contains(result_json, kAttachmentSource0) ||
-        !contains(result_json, kAttachmentSource1) ||
-        !contains(result_json, kTimelineSource0) ||
-        !contains(result_json, kTimelineSource1) ||
-        !contains(result_json, kResultSource1)) {
+    if (!contains(result_json, kAttachmentSource0) || !contains(result_json, kAttachmentSource1) ||
+        !contains(result_json, kTimelineSource0) || !contains(result_json, kTimelineSource1) || !contains(result_json, kResultSource1)) {
         std::cerr << "result JSON missing expected attachment sources\n";
         return 1;
     }

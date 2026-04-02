@@ -6,16 +6,14 @@
 
 namespace template_scope {
 
-template <typename T>
-using VecAlias = std::vector<T>;
+template <typename T> using VecAlias = std::vector<T>;
 
 enum class Flag {
     A,
     B,
 };
 
-template <typename T>
-using ShadowVec = std::vector<T>;
+template <typename T> using ShadowVec = std::vector<T>;
 
 enum class ShadowFlag {
     OuterA,
@@ -38,8 +36,7 @@ void nested_unqualified_parenthesized_enum() {
     static_assert(F == Flag::A);
 }
 
-template <typename T>
-using ShadowVec = std::list<T>;
+template <typename T> using ShadowVec = std::list<T>;
 
 enum class ShadowFlag {
     A,

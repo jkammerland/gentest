@@ -28,13 +28,13 @@ struct JitterDualFailFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
 };
 
 constexpr unsigned kBenchCallAndTeardownFailLine = __LINE__ + 1;
-void bench_call_and_teardown_fail(void *) {
+void               bench_call_and_teardown_fail(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {
             gentest::detail::FixtureHandle<BenchDualFailFixture> fx{gentest::detail::FixtureHandle<BenchDualFailFixture>::empty()};
-            bool                                                  teardown_armed = false;
-            bool                                                  ready          = false;
+            bool                                                 teardown_armed = false;
+            bool                                                 ready          = false;
         };
         static thread_local BenchState bench_state{};
         if (phase == gentest::detail::BenchPhase::Setup) {
@@ -63,13 +63,13 @@ void bench_call_and_teardown_fail(void *) {
 }
 
 constexpr unsigned kJitterCallAndTeardownFailLine = __LINE__ + 1;
-void jitter_call_and_teardown_fail(void *) {
+void               jitter_call_and_teardown_fail(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {
             gentest::detail::FixtureHandle<JitterDualFailFixture> fx{gentest::detail::FixtureHandle<JitterDualFailFixture>::empty()};
-            bool                                                   teardown_armed = false;
-            bool                                                   ready          = false;
+            bool                                                  teardown_armed = false;
+            bool                                                  ready          = false;
         };
         static thread_local BenchState bench_state{};
         if (phase == gentest::detail::BenchPhase::Setup) {
@@ -97,7 +97,7 @@ void jitter_call_and_teardown_fail(void *) {
     }
 }
 
-constexpr std::string_view kBenchCaseName = "regressions/measured_local_fixture_call_teardown_dualfail/bench";
+constexpr std::string_view kBenchCaseName  = "regressions/measured_local_fixture_call_teardown_dualfail/bench";
 constexpr std::string_view kJitterCaseName = "regressions/measured_local_fixture_call_teardown_dualfail/jitter";
 
 gentest::Case kCases[] = {

@@ -1,1 +1,5 @@
-namespace crossroot { struct Sink { void write(int) {} }; }
+namespace crossroot {
+struct Sink {
+    void write(int) {}
+};
+} // namespace crossroot

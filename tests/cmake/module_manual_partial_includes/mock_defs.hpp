@@ -3,7 +3,7 @@
 namespace partial {
 
 struct Service {
-    virtual ~Service()               = default;
+    virtual ~Service()             = default;
     virtual int compute(int value) = 0;
 };
 

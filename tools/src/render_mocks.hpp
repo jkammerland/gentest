@@ -15,8 +15,8 @@ struct MockGeneratedFile {
 };
 
 struct MockOutputs {
-    std::string registry_header;
-    std::string implementation_unit;
+    std::string                    registry_header;
+    std::string                    implementation_unit;
     std::vector<MockGeneratedFile> additional_files;
 };
 

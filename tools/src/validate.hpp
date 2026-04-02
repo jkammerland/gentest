@@ -23,10 +23,10 @@ struct AttributeSummary {
     std::vector<std::string>   requirements;
     bool                       should_skip = false;
     std::string                skip_reason;
-    bool                       had_error = false;
+    bool                       had_error    = false;
     bool                       is_benchmark = false;
-    bool                       is_jitter = false;
-    bool                       is_baseline = false;
+    bool                       is_jitter    = false;
+    bool                       is_baseline  = false;
     // Template matrix: one candidate list per declared template parameter.
     std::vector<TemplateBindingSet> template_sets;
     // Parameterized tests: named parameters with literal values.
@@ -36,14 +36,35 @@ struct AttributeSummary {
     };
     std::vector<ParamSet> parameter_sets;
     // Parameter generators
-    struct RangeSpec { std::string name; std::string start; std::string step; std::string end; };
-    struct LinspaceSpec { std::string name; std::string start; std::string end; std::string count; };
-    struct GeomSpec { std::string name; std::string start; std::string factor; std::string count; };
-    struct LogspaceSpec { std::string name; std::string start_exp; std::string end_exp; std::string count; std::string base; };
-    std::vector<RangeSpec>     parameter_ranges;
-    std::vector<LinspaceSpec>  parameter_linspaces;
-    std::vector<GeomSpec>      parameter_geoms;
-    std::vector<LogspaceSpec>  parameter_logspaces;
+    struct RangeSpec {
+        std::string name;
+        std::string start;
+        std::string step;
+        std::string end;
+    };
+    struct LinspaceSpec {
+        std::string name;
+        std::string start;
+        std::string end;
+        std::string count;
+    };
+    struct GeomSpec {
+        std::string name;
+        std::string start;
+        std::string factor;
+        std::string count;
+    };
+    struct LogspaceSpec {
+        std::string name;
+        std::string start_exp;
+        std::string end_exp;
+        std::string count;
+        std::string base;
+    };
+    std::vector<RangeSpec>    parameter_ranges;
+    std::vector<LinspaceSpec> parameter_linspaces;
+    std::vector<GeomSpec>     parameter_geoms;
+    std::vector<LogspaceSpec> parameter_logspaces;
     // Parameter packs: bundle multiple arguments per test row to avoid Cartesian products.
     struct ParamPack {
         std::vector<std::string>              names; // function parameter names, in order

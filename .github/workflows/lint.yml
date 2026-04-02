@@ -1,0 +1,95 @@
+name: lint
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Clang Format
+    runs-on: ubuntu-24.04
+    container: fedora:43
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          dnf -y upgrade --refresh
+          dnf -y install \
+            git \
+            which \
+            clang-tools-extra
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check C++ formatting
+        run: scripts/check_clang_format.sh
+
+  tidy:
+    name: Clang Tidy
+    runs-on: ubuntu-24.04
+    container: fedora:43
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          dnf -y upgrade --refresh
+          dnf -y install \
+            git \
+            which \
+            tar \
+            xz \
+            ninja-build \
+            python3 \
+            python3-pip \
+            pkg-config \
+            clang \
+            clang-libs \
+            clang-devel \
+            clang-tools-extra \
+            llvm-devel \
+            fmt-devel \
+            zlib-ng-compat-devel \
+            libunwind-devel \
+            libcurl-devel \
+            libffi-devel \
+            libxml2-devel \
+            gcc \
+            gcc-c++ \
+            make \
+            ca-certificates \
+            ncurses-compat-libs
+          python3 -m pip install --upgrade pip cmake
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure
+        run: |
+          cmake \
+            --preset=debug-system \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_MAKE_PROGRAM="$(command -v ninja)" \
+            -DLLVM_DIR=/usr/lib64/cmake/llvm \
+            -DClang_DIR=/usr/lib64/cmake/clang \
+            -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
+
+      - name: Check clang-tidy
+        run: |
+          CLANG_TIDY_JOBS=4 scripts/check_clang_tidy.sh build/debug-system

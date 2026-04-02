@@ -108,9 +108,9 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         if (has_failures || threw_non_skip) {
             ++c.xfail;
             ++c.skipped;
-            rr.outcome             = Outcome::XFail;
-            rr.skipped             = true;
-            rr.skip_reason         = rr.xfail_reason.empty() ? "xfail" : std::string("xfail: ") + rr.xfail_reason;
+            rr.outcome        = Outcome::XFail;
+            rr.skipped        = true;
+            rr.skip_reason    = rr.xfail_reason.empty() ? "xfail" : std::string("xfail: ") + rr.xfail_reason;
             const auto dur_ms = duration_ms(rr.time_s);
             if (state.color_output) {
                 fmt::print(fmt::fg(fmt::color::cyan), "[ XFAIL ]");

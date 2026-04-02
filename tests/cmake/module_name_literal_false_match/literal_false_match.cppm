@@ -1,5 +1,4 @@
-#define BANNER \
-  export module wrong.macro;
+#define BANNER    export module wrong.macro;
 #define OFF_MACRO 0
 #if 0
 export module wrong.inactive;
@@ -10,5 +9,5 @@ export module wrong.conditional;
 #if __has_include("definitely_missing_header.hpp")
 export module wrong.has_include;
 #endif
-const char *banner = "export module wrong.literal;";
+const char   *banner = "export module wrong.literal;";
 export module real.module;

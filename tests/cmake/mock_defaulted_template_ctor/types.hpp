@@ -9,7 +9,7 @@ struct DefaultedTemplateCtorTarget {
     template <template <class, std::size_t> class C, class Marker = void>
     explicit DefaultedTemplateCtorTarget(C<int, 2> value) noexcept : size(static_cast<int>(value.size())) {}
 
-    int size = 0;
+    int  size = 0;
     void ping() {}
 };
 

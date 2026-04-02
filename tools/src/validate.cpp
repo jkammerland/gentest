@@ -61,9 +61,7 @@ bool is_likely_template_right(char ch) {
     return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == ':' || ch == '(' || ch == '+' || ch == '-' || ch == '\'';
 }
 
-bool is_word_char(char ch) {
-    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
-}
+bool is_word_char(char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_'; }
 
 bool is_char_literal_prefix(std::string_view text, std::size_t index) {
     if (index >= 1 && (text[index - 1] == 'L' || text[index - 1] == 'u' || text[index - 1] == 'U')) {
@@ -182,7 +180,7 @@ bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
                     return true;
                 }
                 switch (follower) {
-                case '_': return true;
+                case '_':
                 case ',':
                 case ')':
                 case ']':
@@ -222,9 +220,9 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     -> AttributeSummary {
     AttributeSummary summary;
 
-    bool                       saw_case = false;
-    bool                       saw_test = false;
-    bool                       saw_bench = false;
+    bool                       saw_case   = false;
+    bool                       saw_test   = false;
+    bool                       saw_bench  = false;
     bool                       saw_jitter = false;
     std::set<std::string>      seen_flags;
     std::optional<std::string> seen_owner;
@@ -285,8 +283,8 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'jitter' requires exactly one non-empty string argument");
                 continue;
             }
-            summary.case_name  = attr.arguments.front();
-            summary.is_jitter  = true;
+            summary.case_name = attr.arguments.front();
+            summary.is_jitter = true;
         } else if (lowered == "req" || lowered == "requires") {
             if (attr.arguments.empty()) {
                 summary.had_error = true;
@@ -298,7 +296,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 add_unique(summary.requirements, req);
             }
         } else if (lowered == "skip") {
-            saw_case = true;
+            saw_case            = true;
             summary.should_skip = true;
             if (!attr.arguments.empty()) {
                 std::string reason = attr.arguments.front();
@@ -314,7 +312,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'template' requires a parameter name and at least one binding");
                 continue;
             }
-            saw_case = true;
+            saw_case                     = true;
             const std::string &raw_param = attr.arguments.front();
             std::string        param     = trim_copy(raw_param);
             if (param.empty()) {
@@ -365,8 +363,8 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             spec.name = attr.arguments.front();
             if (attr.arguments.size() == 2) {
                 const std::string &expr = attr.arguments[1];
-                auto a = expr.find(':');
-                auto b = expr.rfind(':');
+                auto               a    = expr.find(':');
+                auto               b    = expr.rfind(':');
                 if (a == std::string::npos || b == std::string::npos || a == b) {
                     summary.had_error = true;
                     report("'parameters_range' second argument must be of the form start:step:end");
@@ -393,9 +391,9 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             saw_case = true;
             AttributeSummary::LinspaceSpec spec{
-                .name = attr.arguments[0],
+                .name  = attr.arguments[0],
                 .start = attr.arguments[1],
-                .end = attr.arguments[2],
+                .end   = attr.arguments[2],
                 .count = attr.arguments[3],
             };
             summary.parameter_linspaces.push_back(std::move(spec));
@@ -407,10 +405,10 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             saw_case = true;
             AttributeSummary::GeomSpec spec{
-                .name = attr.arguments[0],
-                .start = attr.arguments[1],
+                .name   = attr.arguments[0],
+                .start  = attr.arguments[1],
                 .factor = attr.arguments[2],
-                .count = attr.arguments[3],
+                .count  = attr.arguments[3],
             };
             summary.parameter_geoms.push_back(std::move(spec));
         } else if (lowered == "logspace") {
@@ -425,11 +423,12 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             // Instead, add a dedicated struct in summary to avoid overloading.
             // Defer to dedicated LogspaceSpec (see validate.hpp)
             AttributeSummary::LogspaceSpec spec;
-            spec.name = attr.arguments[0];
+            spec.name      = attr.arguments[0];
             spec.start_exp = attr.arguments[1];
-            spec.end_exp = attr.arguments[2];
-            spec.count = attr.arguments[3];
-            if (attr.arguments.size() == 5) spec.base = attr.arguments[4];
+            spec.end_exp   = attr.arguments[2];
+            spec.count     = attr.arguments[3];
+            if (attr.arguments.size() == 5)
+                spec.base = attr.arguments[4];
             summary.parameter_logspaces.push_back(std::move(spec));
         } else if (lowered == "parameters_pack") {
             if (attr.arguments.size() < 2) {
@@ -437,7 +436,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'parameters_pack' requires a parameter name tuple and at least one value tuple");
                 continue;
             }
-            saw_case = true;
+            saw_case         = true;
             auto parse_tuple = [&](const std::string &text, std::vector<std::string> &out) {
                 std::string s = text;
                 // Strip outer parens if present
@@ -448,12 +447,12 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 // Here we implement a small local splitter: no quotes unescaping required.
                 std::vector<std::string> parts;
                 std::string              cur;
-                int                      depth  = 0;
-                int                      angle_depth = 0;
-                bool                     in_str = false;
-                bool                     in_char = false;
-                bool                     esc    = false;
-                auto should_open_angle = [&](std::size_t idx) {
+                int                      depth             = 0;
+                int                      angle_depth       = 0;
+                bool                     in_str            = false;
+                bool                     in_char           = false;
+                bool                     esc               = false;
+                auto                     should_open_angle = [&](std::size_t idx) {
                     const char prev = previous_non_space(cur);
                     if (prev == '\0' || !is_likely_template_left(prev)) {
                         return false;
@@ -657,8 +656,7 @@ auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed, con
             }
             std::string arg        = attr.arguments.front();
             std::string normalized = arg;
-            std::ranges::transform(normalized, normalized.begin(),
-                                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
             if (normalized == "suite") {
                 summary.lifetime = FixtureLifetime::MemberSuite;
             } else if (normalized == "global") {

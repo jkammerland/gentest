@@ -3,33 +3,27 @@
 // symbol versions by forwarding the expected symbols to whichever terminfo
 // library is available on the host. This keeps clang-cpp happy on CI images
 // (Fedora 42, Ubuntu runners) without needing extra system packages.
-#include <dlfcn.h>
-
 #include <array>
+#include <dlfcn.h>
 #include <mutex>
 
 struct TERMINAL;
 
 namespace {
 class TerminfoSymbolResolver {
-public:
+  public:
     TerminfoSymbolResolver() {
-        static constexpr std::array<const char *, 5> kCandidates = {
-            "libtinfo.so.5",
-            "libtinfo.so.6",
-            "libncursesw.so.6",
-            "libncurses.so.6",
-            "libncurses.so.5"};
+        static constexpr std::array<const char *, 5> kCandidates = {"libtinfo.so.5", "libtinfo.so.6", "libncursesw.so.6", "libncurses.so.6",
+                                                                    "libncurses.so.5"};
         handles_.fill(nullptr);
         std::size_t index = 0;
         for (const char *name : kCandidates) {
-            void *handle = dlopen(name, RTLD_LAZY | RTLD_LOCAL);
+            void *handle      = dlopen(name, RTLD_LAZY | RTLD_LOCAL);
             handles_[index++] = handle;
         }
     }
 
-    template <typename Fn>
-    Fn lookup(const char *symbol) {
+    template <typename Fn> Fn lookup(const char *symbol) {
         for (void *handle : handles_) {
             if (!handle) {
                 continue;
@@ -41,7 +35,7 @@ public:
         return nullptr;
     }
 
-private:
+  private:
     std::array<void *, 5> handles_{};
 };
 
@@ -50,16 +44,15 @@ TerminfoSymbolResolver &resolver() {
     return instance;
 }
 
-template <typename Fn>
-Fn resolve(const char *symbol) {
+template <typename Fn> Fn resolve(const char *symbol) {
     static std::once_flag once;
-    static Fn cached = nullptr;
+    static Fn             cached = nullptr;
     std::call_once(once, [&] { cached = resolver().lookup<Fn>(symbol); });
     return cached;
 }
 
 constexpr int kErrValue = -1;
-}
+} // namespace
 
 extern "C" int setupterm(const char *term, int fileDescriptor, int *errret) {
     using Fn = int (*)(const char *, int, int *);
@@ -100,4 +93,4 @@ extern "C" int tigetnum(const char *capname) {
 }
 __asm__(".symver tigetnum,tigetnum@NCURSES_TINFO_5.0.19991023");
 
-#endif  // defined(__linux__)
+#endif // defined(__linux__)

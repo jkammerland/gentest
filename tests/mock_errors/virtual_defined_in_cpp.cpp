@@ -8,7 +8,7 @@
 namespace badiface {
 struct IFace {
     virtual ~IFace() = default;
-    virtual int  f() = 0;
+    virtual int f()  = 0;
 };
 } // namespace badiface
 

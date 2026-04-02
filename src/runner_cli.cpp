@@ -2,12 +2,11 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <fmt/format.h>
 #include <limits>
 #include <random>
 #include <string>
 #include <string_view>
-
-#include <fmt/format.h>
 
 namespace gentest::runner {
 namespace {
@@ -62,9 +61,9 @@ static ParseU64DecimalResult parse_u64_decimal_strict(std::string_view s) {
 }
 
 static std::uint64_t make_random_seed() {
-    std::random_device  rd;
-    const auto hi = static_cast<std::uint64_t>(rd()) << 32;
-    const auto lo = static_cast<std::uint64_t>(rd());
+    std::random_device rd;
+    const auto         hi = static_cast<std::uint64_t>(rd()) << 32;
+    const auto         lo = static_cast<std::uint64_t>(rd());
     return hi ^ lo;
 }
 
@@ -438,21 +437,20 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             }
         }
         if (!seen_bench_warmup) {
-            if (const OptionParseResult warmup_result = parse_value_option(i, s, "--bench-warmup",
-                                                                           [&](std::string_view value) {
-                                                                               std::uint64_t warmup = 0;
-                                                                               if (!parse_u64_option("--bench-warmup", value, warmup))
-                                                                                   return false;
-                                                                               if (warmup >
-                                                                                   static_cast<std::uint64_t>(
-                                                                                       std::numeric_limits<std::size_t>::max())) {
-                                                                                   fmt::print(stderr, "error: --bench-warmup is out of range\n");
-                                                                                   return false;
-                                                                               }
-                                                                               opt.bench_cfg.warmup_epochs = static_cast<std::size_t>(warmup);
-                                                                               seen_bench_warmup           = true;
-                                                                               return true;
-                                                                           });
+            if (const OptionParseResult warmup_result =
+                    parse_value_option(i, s, "--bench-warmup",
+                                       [&](std::string_view value) {
+                                           std::uint64_t warmup = 0;
+                                           if (!parse_u64_option("--bench-warmup", value, warmup))
+                                               return false;
+                                           if (warmup > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                                               fmt::print(stderr, "error: --bench-warmup is out of range\n");
+                                               return false;
+                                           }
+                                           opt.bench_cfg.warmup_epochs = static_cast<std::size_t>(warmup);
+                                           seen_bench_warmup           = true;
+                                           return true;
+                                       });
                 warmup_result != OptionParseResult::NoMatch) {
                 if (warmup_result == OptionParseResult::Error)
                     return false;
@@ -460,21 +458,20 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             }
         }
         if (!seen_bench_epochs) {
-            if (const OptionParseResult epochs_result = parse_value_option(i, s, "--bench-epochs",
-                                                                           [&](std::string_view value) {
-                                                                               std::uint64_t epochs = 0;
-                                                                               if (!parse_u64_option("--bench-epochs", value, epochs))
-                                                                                   return false;
-                                                                               if (epochs >
-                                                                                   static_cast<std::uint64_t>(
-                                                                                       std::numeric_limits<std::size_t>::max())) {
-                                                                                   fmt::print(stderr, "error: --bench-epochs is out of range\n");
-                                                                                   return false;
-                                                                               }
-                                                                               opt.bench_cfg.measure_epochs = static_cast<std::size_t>(epochs);
-                                                                               seen_bench_epochs            = true;
-                                                                               return true;
-                                                                           });
+            if (const OptionParseResult epochs_result =
+                    parse_value_option(i, s, "--bench-epochs",
+                                       [&](std::string_view value) {
+                                           std::uint64_t epochs = 0;
+                                           if (!parse_u64_option("--bench-epochs", value, epochs))
+                                               return false;
+                                           if (epochs > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                                               fmt::print(stderr, "error: --bench-epochs is out of range\n");
+                                               return false;
+                                           }
+                                           opt.bench_cfg.measure_epochs = static_cast<std::size_t>(epochs);
+                                           seen_bench_epochs            = true;
+                                           return true;
+                                       });
                 epochs_result != OptionParseResult::NoMatch) {
                 if (epochs_result == OptionParseResult::Error)
                     return false;
@@ -501,23 +498,21 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             return false;
         }
         if (!seen_jitter_bins) {
-            if (const OptionParseResult jitter_bins_result = parse_value_option(i, s, "--jitter-bins",
-                                                                                [&](std::string_view value) {
-                                                                                    std::uint64_t bins = 0;
-                                                                                    if (!parse_u64_option("--jitter-bins", value, bins))
-                                                                                        return false;
-                                                                                    if (bins == 0 ||
-                                                                                        bins > static_cast<std::uint64_t>(
-                                                                                            std::numeric_limits<int>::max())) {
-                                                                                        fmt::print(stderr,
-                                                                                                   "error: --jitter-bins must be a "
-                                                                                                   "positive integer\n");
-                                                                                        return false;
-                                                                                    }
-                                                                                    opt.jitter_bins  = static_cast<int>(bins);
-                                                                                    seen_jitter_bins = true;
-                                                                                    return true;
-                                                                                });
+            if (const OptionParseResult jitter_bins_result =
+                    parse_value_option(i, s, "--jitter-bins",
+                                       [&](std::string_view value) {
+                                           std::uint64_t bins = 0;
+                                           if (!parse_u64_option("--jitter-bins", value, bins))
+                                               return false;
+                                           if (bins == 0 || bins > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
+                                               fmt::print(stderr, "error: --jitter-bins must be a "
+                                                                  "positive integer\n");
+                                               return false;
+                                           }
+                                           opt.jitter_bins  = static_cast<int>(bins);
+                                           seen_jitter_bins = true;
+                                           return true;
+                                       });
                 jitter_bins_result != OptionParseResult::NoMatch) {
                 if (jitter_bins_result == OptionParseResult::Error)
                     return false;

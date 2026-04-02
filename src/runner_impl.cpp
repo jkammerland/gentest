@@ -23,7 +23,7 @@ auto snapshot_cases() -> std::vector<gentest::Case> {
     auto                       &reg = case_registry();
     std::lock_guard<std::mutex> lk(reg.mtx);
     if (!reg.sorted) {
-        std::sort(reg.cases.begin(), reg.cases.end(), [](const gentest::Case &lhs, const gentest::Case &rhs) {
+        std::ranges::sort(reg.cases, [](const gentest::Case &lhs, const gentest::Case &rhs) {
             if (lhs.name != rhs.name)
                 return lhs.name < rhs.name;
             if (lhs.file != rhs.file)

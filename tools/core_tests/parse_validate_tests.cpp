@@ -134,15 +134,12 @@ int main() {
             t.expect(attrs[0].arguments.size() == 2, "template regression: template argument count");
             if (attrs[0].arguments.size() >= 2) {
                 auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
-                                    return std::isspace(c) != 0;
-                                }),
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
                                 value.end());
                     return value;
                 };
                 t.expect(attrs[0].arguments[0] == "T", "template regression: parameter name preserved");
-                t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>",
-                    "template regression: template type preserved");
+                t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>", "template regression: template type preserved");
             }
         }
     }
@@ -155,14 +152,12 @@ int main() {
             t.expect(attrs[0].arguments.size() == 2, "template spacing regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
                 auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
-                                    return std::isspace(c) != 0;
-                                }),
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
                                 value.end());
                     return value;
                 };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>",
-                    "template spacing regression: template type preserved");
+                         "template spacing regression: template type preserved");
             }
         }
     }
@@ -175,14 +170,12 @@ int main() {
             t.expect(attrs[0].arguments.size() == 2, "template qualifier regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
                 auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
-                                    return std::isspace(c) != 0;
-                                }),
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
                                 value.end());
                     return value;
                 };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>const&",
-                    "template qualifier regression: type preserved");
+                         "template qualifier regression: type preserved");
             }
         }
     }
@@ -195,14 +188,12 @@ int main() {
             t.expect(attrs[0].arguments.size() == 2, "template nested regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
                 auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
-                                    return std::isspace(c) != 0;
-                                }),
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
                                 value.end());
                     return value;
                 };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::vector<std::array<int,2>>const",
-                    "template nested regression: type preserved");
+                         "template nested regression: type preserved");
             }
         }
     }
@@ -273,43 +264,37 @@ int main() {
             t.expect(attrs[0].arguments.size() == 2, "template non-type regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
                 auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
-                                    return std::isspace(c) != 0;
-                                }),
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
                                 value.end());
                     return value;
                 };
-                t.expect(normalize_ws(attrs[0].arguments[1]) == "Mat<3,4>",
-                    "template non-type regression: value preserved");
+                t.expect(normalize_ws(attrs[0].arguments[1]) == "Mat<3,4>", "template non-type regression: value preserved");
             }
         }
     }
 
     // Regression: char literals containing '>' must not terminate template parsing.
     {
-        auto attrs = parse_attribute_list(
-            R"(template(T, std::integral_constant<char, '>'>), test("templated-char-literal"))");
+        auto attrs = parse_attribute_list(R"(template(T, std::integral_constant<char, '>'>), test("templated-char-literal"))");
         t.expect(attrs.size() == 2, "template char literal regression: expected two attributes");
         if (!attrs.empty()) {
             t.expect(attrs[0].arguments.size() == 2, "template char literal regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
                 auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
-                                    return std::isspace(c) != 0;
-                                }),
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
                                 value.end());
                     return value;
                 };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::integral_constant<char,'>'>",
-                    "template char literal regression: type preserved");
+                         "template char literal regression: type preserved");
             }
         }
     }
 
     // Regression: parameters_pack tuple splitting must also keep '<...>' intact.
     {
-        auto attrs = parse_attribute_list(
-            R"(test("x"), parameters_pack((value), (std::pair<int, int>{1, 2}), (std::pair<int, int>{3, 4})))");
+        auto attrs =
+            parse_attribute_list(R"(test("x"), parameters_pack((value), (std::pair<int, int>{1, 2}), (std::pair<int, int>{3, 4})))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack regression: template commas must not trigger arity mismatch");
@@ -326,7 +311,7 @@ int main() {
 
     // Regression: parameters_pack must split comparison rows by commas (not treat '<' as template open).
     {
-        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((a,b), (1<2, 3)))");
+        auto                     attrs = parse_attribute_list(R"(test("x"), parameters_pack((a,b), (1<2, 3)))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack comparison regression: no arity mismatch");
@@ -341,7 +326,7 @@ int main() {
 
     // Regression: parameters_pack identifier comparisons should split into two cells.
     {
-        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((a,b), (x < y, z > w)))");
+        auto                     attrs = parse_attribute_list(R"(test("x"), parameters_pack((a,b), (x < y, z > w)))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack identifier comparison regression: no arity mismatch");
@@ -349,15 +334,14 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack identifier comparison regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 2,
-                    "parameters_pack identifier comparison regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].size() == 2, "parameters_pack identifier comparison regression: row arity");
             }
         }
     }
 
     // Regression: parameters_pack must split tuples containing digit separators.
     {
-        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((a,b), (1'000, 2)))");
+        auto                     attrs = parse_attribute_list(R"(test("x"), parameters_pack((a,b), (1'000, 2)))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack digit separator regression: no validation error");
@@ -365,15 +349,14 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack digit separator regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 2,
-                    "parameters_pack digit separator regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].size() == 2, "parameters_pack digit separator regression: row arity");
             }
         }
     }
 
     // Regression: parameters_pack should accept spaced template syntax in tuple rows.
     {
-        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair <int, int>{1,2})))");
+        auto                     attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair <int, int>{1,2})))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack spacing regression: no validation error");
@@ -388,7 +371,7 @@ int main() {
 
     // Regression: parameters_pack should accept qualified template expressions in rows.
     {
-        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair<int, int> const{1,2})))");
+        auto                     attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair<int, int> const{1,2})))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack qualifier regression: no validation error");
@@ -403,8 +386,7 @@ int main() {
 
     // Regression: parameters_pack should accept nested templates with qualifier after closing '>>'.
     {
-        auto attrs = parse_attribute_list(
-            R"(test("x"), parameters_pack((v), (std::vector<std::array<int,2>> const{1,2})))");
+        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::vector<std::array<int,2>> const{1,2})))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack nested qualifier regression: no validation error");
@@ -412,15 +394,14 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack nested qualifier regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 1,
-                    "parameters_pack nested qualifier regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack nested qualifier regression: row arity");
             }
         }
     }
 
     // Regression: parameters_pack should keep scoped template + declarator rows as a single cell.
     {
-        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair<int, int> value{1,2})))");
+        auto                     attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair<int, int> value{1,2})))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack declarator regression: no validation error");
@@ -435,7 +416,7 @@ int main() {
 
     // Regression: parameters_pack should also keep spaced template declarator rows intact.
     {
-        auto attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair <int, int> value{1,2})))");
+        auto                     attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::pair <int, int> value{1,2})))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack spaced declarator regression: no validation error");
@@ -443,16 +424,14 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack spaced declarator regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 1,
-                    "parameters_pack spaced declarator regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack spaced declarator regression: row arity");
             }
         }
     }
 
     // Regression: parameters_pack should handle char literals containing '>' in template args.
     {
-        auto attrs = parse_attribute_list(
-            R"(test("x"), parameters_pack((v), (std::integral_constant<char, '>'>{})))");
+        auto                     attrs = parse_attribute_list(R"(test("x"), parameters_pack((v), (std::integral_constant<char, '>'>{})))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error, "parameters_pack char literal regression: no validation error");
@@ -474,14 +453,12 @@ int main() {
             t.expect(attrs[0].arguments.size() == 2, "char literal regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
                 auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) {
-                                    return std::isspace(c) != 0;
-                                }),
+                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
                                 value.end());
                     return value;
                 };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::integral_constant<char,')'>",
-                    "char literal regression: template type preserved");
+                         "char literal regression: template type preserved");
             }
         }
     }
@@ -495,7 +472,7 @@ int main() {
             t.expect(attrs[0].arguments.size() == 1, "raw string regression: test argument count");
             if (attrs[0].arguments.size() == 1) {
                 t.expect(attrs[0].arguments[0] == R"outer(R"tag(suite)raw)tag")outer",
-                    "raw string regression: raw string literal preserved");
+                         "raw string regression: raw string literal preserved");
             }
         }
     }

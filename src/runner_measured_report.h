@@ -19,8 +19,8 @@ struct JitterReportRow {
     JitterResult         result{};
 };
 
-void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &opt);
-void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions &opt);
+void                          print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &opt);
+void                          print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions &opt);
 std::vector<ReportAttachment> make_bench_allure_attachments(const gentest::Case &c, const BenchResult &result);
 std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case &c, const JitterResult &result, int bins);
 

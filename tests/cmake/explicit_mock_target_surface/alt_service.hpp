@@ -3,7 +3,7 @@
 namespace fixture {
 
 struct AltService {
-    virtual ~AltService() = default;
+    virtual ~AltService()        = default;
     virtual int scale(int value) = 0;
 };
 

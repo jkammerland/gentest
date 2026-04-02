@@ -6,12 +6,12 @@
 
 int main() {
     gentest::mock<fixture::TemplateTemplatePacker> mock_packer;
-    int calls = 0;
+    int                                            calls = 0;
 
     gentest::expect<&fixture::TemplateTemplatePacker::template join<std::vector, std::list>>(
         mock_packer, "::fixture::TemplateTemplatePacker::join<std::vector, std::list>")
         .times(1)
-        .invokes([&](const std::tuple<std::vector<int>, std::list<int>>& value) {
+        .invokes([&](const std::tuple<std::vector<int>, std::list<int>> &value) {
             calls += static_cast<int>(std::get<0>(value).size() + std::get<1>(value).size());
         });
 

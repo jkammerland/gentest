@@ -7,7 +7,7 @@
 namespace {
 struct Hidden {
     virtual ~Hidden() = default;
-    virtual void f() = 0;
+    virtual void f()  = 0;
 };
 } // anonymous namespace
 
