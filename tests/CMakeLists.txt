@@ -988,7 +988,7 @@ set(_gentest_suite_inventory_checks
     "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
     "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
     "templates|gentest_templates_tests|111|111|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
-    "mocking|gentest_mocking_tests|34|34|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
+    "mocking|gentest_mocking_tests|36|36|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
@@ -2001,6 +2001,16 @@ _gentest_add_cmake_helper_test(
     -DTARGET_NAME=mock_template_template_ctor_traits
     -DBUILD_CONFIG=${_gentest_fixture_build_config})
 set_property(TEST gentest_codegen_mock_template_template_ctor_traits_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_deleted_annotated_case_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/deleted_annotated_case
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=deleted_annotated_case
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_deleted_annotated_case_builds APPEND PROPERTY LABELS "codegen")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_member_operator_template_keyword_builds
