@@ -51,7 +51,7 @@ void               bench_calibration_assert_should_stop_after_calibration(void *
         return;
     if (++bench_calibration_assert_invocations == 1)
         EXPECT_TRUE(false, "calibration benchmark assertion failure");
-    std::fputs("regression marker: benchmark continued after calibration failure\n", stderr);
+    (void)std::fputs("regression marker: benchmark continued after calibration failure\n", stderr);
 }
 
 constexpr unsigned kJitterAssertShouldFailLine = __LINE__ + 1;
@@ -96,7 +96,7 @@ void               jitter_calibration_assert_should_stop_after_calibration(void 
         return;
     if (++jitter_calibration_assert_invocations == 1)
         EXPECT_TRUE(false, "calibration jitter assertion failure");
-    std::fputs("regression marker: jitter continued after calibration failure\n", stderr);
+    (void)std::fputs("regression marker: jitter continued after calibration failure\n", stderr);
 }
 
 gentest::Case kCases[] = {

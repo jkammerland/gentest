@@ -36,7 +36,7 @@ gentest::Case kCases[] = {
 };
 
 struct FixtureRegistrar {
-    FixtureRegistrar() {
+    FixtureRegistrar() noexcept {
         gentest::detail::register_shared_fixture<PrefixCollisionFixture>(
             gentest::detail::SharedFixtureScope::Suite, "regressions/parent",
             "regressions::shared_fixture_suite_scope_prefix_collision::PrefixCollisionFixture");

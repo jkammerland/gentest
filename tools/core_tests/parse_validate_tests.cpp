@@ -22,6 +22,12 @@ struct Run {
     }
 };
 
+auto normalize_ws(std::string value) -> std::string {
+    const auto removed = std::ranges::remove_if(value, [](unsigned char c) { return std::isspace(c) != 0; });
+    value.erase(removed.begin(), removed.end());
+    return value;
+}
+
 int main() {
     Run t;
 
@@ -133,11 +139,6 @@ int main() {
             t.expect(attrs[0].name == "template", "template regression: first attribute name");
             t.expect(attrs[0].arguments.size() == 2, "template regression: template argument count");
             if (attrs[0].arguments.size() >= 2) {
-                auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
-                                value.end());
-                    return value;
-                };
                 t.expect(attrs[0].arguments[0] == "T", "template regression: parameter name preserved");
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>", "template regression: template type preserved");
             }
@@ -151,11 +152,6 @@ int main() {
         if (!attrs.empty()) {
             t.expect(attrs[0].arguments.size() == 2, "template spacing regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
-                auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
-                                value.end());
-                    return value;
-                };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>",
                          "template spacing regression: template type preserved");
             }
@@ -169,11 +165,6 @@ int main() {
         if (!attrs.empty()) {
             t.expect(attrs[0].arguments.size() == 2, "template qualifier regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
-                auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
-                                value.end());
-                    return value;
-                };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::pair<int,int>const&",
                          "template qualifier regression: type preserved");
             }
@@ -187,11 +178,6 @@ int main() {
         if (!attrs.empty()) {
             t.expect(attrs[0].arguments.size() == 2, "template nested regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
-                auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
-                                value.end());
-                    return value;
-                };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::vector<std::array<int,2>>const",
                          "template nested regression: type preserved");
             }
@@ -263,11 +249,6 @@ int main() {
         if (!attrs.empty()) {
             t.expect(attrs[0].arguments.size() == 2, "template non-type regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
-                auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
-                                value.end());
-                    return value;
-                };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "Mat<3,4>", "template non-type regression: value preserved");
             }
         }
@@ -280,11 +261,6 @@ int main() {
         if (!attrs.empty()) {
             t.expect(attrs[0].arguments.size() == 2, "template char literal regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
-                auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
-                                value.end());
-                    return value;
-                };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::integral_constant<char,'>'>",
                          "template char literal regression: type preserved");
             }
@@ -452,11 +428,6 @@ int main() {
             t.expect(attrs[0].name == "template", "char literal regression: first attribute name");
             t.expect(attrs[0].arguments.size() == 2, "char literal regression: template argument count");
             if (attrs[0].arguments.size() == 2) {
-                auto normalize_ws = [](std::string value) {
-                    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
-                                value.end());
-                    return value;
-                };
                 t.expect(normalize_ws(attrs[0].arguments[1]) == "std::integral_constant<char,')'>",
                          "char literal regression: template type preserved");
             }

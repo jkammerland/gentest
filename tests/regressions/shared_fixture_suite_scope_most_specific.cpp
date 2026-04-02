@@ -44,7 +44,7 @@ gentest::Case kCases[] = {
 };
 
 struct FixtureRegistrar {
-    FixtureRegistrar() {
+    FixtureRegistrar() noexcept {
         constexpr std::string_view kFixtureName = "regressions::shared_fixture_suite_scope_most_specific::SpecificFixture";
         gentest::detail::register_shared_fixture<SpecificFixture>(gentest::detail::SharedFixtureScope::Suite, "regressions/parent",
                                                                   kFixtureName);

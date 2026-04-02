@@ -65,7 +65,7 @@
 
 ## Coding Style & Naming Conventions
 - Follow `.clang-format` (LLVM-derived): 4-space indent, 140-column limit.
-- Run `.clang-tidy` on `src`, `include`, `tests` via `ninja clang-tidy` in the build tree.
+- Run the CI-aligned clang-tidy gate with `scripts/check_clang_tidy.sh build/debug-system` after configuring the preset and building `gentest` once so module response files exist. The script derives direct tidy inputs from `build/debug-system/compile_commands.json`, covering tracked compiled repo files under `src`, `include` module units, `tests`, and `tools` while excluding generated build-tree sources.
 - Filenames: lowercase `snake_case`; types: `PascalCase`; functions: `camelCase`.
 - Keep public symbols in the `gentest` namespace.
 

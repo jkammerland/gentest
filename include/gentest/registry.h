@@ -28,6 +28,9 @@ enum class FixtureLifetime {
     MemberGlobal,
 };
 
+// Keep the public aggregate field order stable for generated/manual designated
+// initializers; the padding check is not worth the churn across that surface.
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
 struct Case {
     std::string_view name;
     void (*fn)(void *);
