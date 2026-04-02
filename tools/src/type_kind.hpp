@@ -19,4 +19,3 @@ TypeKind classify_type(std::string_view type_name);
 std::string quote_for_type(TypeKind kind, std::string_view token, std::string_view type_name);
 
 } // namespace gentest::codegen
-

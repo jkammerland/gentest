@@ -43,9 +43,7 @@ void teardown_a(void *, std::string &error) {
     g_stage = 4;
 }
 
-void uses_b(void *) {
-    gentest::expect_eq(g_stage, 2, "both setups must complete before test body");
-}
+void uses_b(void *) { gentest::expect_eq(g_stage, 2, "both setups must complete before test body"); }
 
 gentest::Case kCases[] = {
     {

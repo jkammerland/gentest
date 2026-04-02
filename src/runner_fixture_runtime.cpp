@@ -256,7 +256,7 @@ void register_shared_fixture(const SharedFixtureRegistration &registration) {
     entry.create       = registration.create;
     entry.setup        = registration.setup;
     entry.teardown     = registration.teardown;
-    auto it            = std::lower_bound(reg.entries.begin(), reg.entries.end(), entry, shared_fixture_order_less);
+    auto it            = std::ranges::lower_bound(reg.entries, entry, shared_fixture_order_less);
     reg.entries.insert(it, std::move(entry));
 }
 
@@ -388,7 +388,7 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
         if (!gate.active || gate.owner != std::this_thread::get_id()) {
             fmt::print(stderr, "gentest: shared fixture teardown requires an active runtime session\n");
             if (errors) {
-                errors->push_back("shared fixture teardown requires an active runtime session");
+                errors->emplace_back("shared fixture teardown requires an active runtime session");
             }
             return false;
         }
@@ -573,7 +573,7 @@ bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtur
     errors.reserve(reg.registration_errors.size() + reg.entries.size());
 
     for (const auto &msg : reg.registration_errors) {
-        if (std::find(errors.begin(), errors.end(), msg) == errors.end()) {
+        if (std::ranges::find(errors, msg) == errors.end()) {
             errors.push_back(msg);
         }
     }
@@ -581,7 +581,7 @@ bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtur
         if (!entry.failed || entry.error.empty())
             continue;
         const std::string msg = fmt::format("fixture '{}' {}", entry.fixture_name, entry.error);
-        if (std::find(errors.begin(), errors.end(), msg) == errors.end()) {
+        if (std::ranges::find(errors, msg) == errors.end()) {
             errors.push_back(msg);
         }
     }

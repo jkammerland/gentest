@@ -1,4 +1,6 @@
 #include "gentest/attributes.h"
+#include "gentest/bench_util.h"
+#include "gentest/runner.h"
 
 #include <atomic>
 #include <cmath>
@@ -8,8 +10,6 @@
 #include <mutex>
 #include <string>
 #include <vector>
-#include "gentest/bench_util.h"
-#include "gentest/runner.h"
 
 namespace benchmarks {
 
@@ -23,9 +23,9 @@ inline void record_bench_issue(std::string_view label, std::string_view issue) {
     gentest::detail::record_bench_error(std::move(msg));
 }
 
-inline bool env_var_is_set(const char* name) {
+inline bool env_var_is_set(const char *name) {
 #if defined(_WIN32)
-    char*       value  = nullptr;
+    char       *value  = nullptr;
     std::size_t length = 0;
     if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
         free(value);
@@ -35,16 +35,15 @@ inline bool env_var_is_set(const char* name) {
     free(value);
     return is_set;
 #else
-    const char* value = std::getenv(name);
+    const char *value = std::getenv(name);
     return value != nullptr && value[0] != '\0';
 #endif
 }
 
-template <typename T>
-struct BenchFixtureState {
-    static inline std::atomic<int> setups{0};
-    static inline std::atomic<int> teardowns{0};
-    static inline std::atomic<const T*> first{nullptr};
+template <typename T> struct BenchFixtureState {
+    static inline std::atomic<int>       setups{0};
+    static inline std::atomic<int>       teardowns{0};
+    static inline std::atomic<const T *> first{nullptr};
 
     static void on_setup(std::string_view label) {
         if (setups.fetch_add(1, std::memory_order_relaxed) != 0) {
@@ -58,8 +57,8 @@ struct BenchFixtureState {
         }
     }
 
-    static void on_call(std::string_view label, const T* self) {
-        const T* seen = first.load(std::memory_order_relaxed);
+    static void on_call(std::string_view label, const T *self) {
+        const T *seen = first.load(std::memory_order_relaxed);
         if (!seen) {
             first.store(self, std::memory_order_relaxed);
             seen = self;
@@ -83,8 +82,7 @@ struct DummyMutex {
     void unlock() noexcept {}
 };
 
-template <typename Mutex>
-void lock_guard_small() {
+template <typename Mutex> void lock_guard_small() {
     Mutex         m{};
     std::uint64_t sink = 0;
     for (int i = 0; i < 64; ++i) {
@@ -101,7 +99,7 @@ void bench_concat_small() {
     std::string a = "hello";
     std::string b = " ";
     std::string c = "world";
-    auto s = a + b + c;
+    auto        s = a + b + c;
     gentest::doNotOptimizeAway(s);
 }
 
@@ -127,7 +125,7 @@ void jitter_sin_approx() {
     double x = 0.5;
     gentest::doNotOptimizeAway(x);
     const double x2 = x * x;
-    double y = x - (x2 * x) / 6.0;
+    double       y  = x - (x2 * x) / 6.0;
     gentest::doNotOptimizeAway(x2);
     gentest::doNotOptimizeAway(y);
 }
@@ -180,18 +178,20 @@ void jitter_template_params(int v) {
 
 // Struct and complex parameterization smoke for benches
 namespace demo {
-struct Blob { int a; int b; };
-inline int work(const Blob& b) { return (b.a * 3) + (b.b * 5); }
-}
+struct Blob {
+    int a;
+    int b;
+};
+inline int work(const Blob &b) { return (b.a * 3) + (b.b * 5); }
+} // namespace demo
 
-[[using gentest: bench("struct/process"), baseline, parameters(p, benchmarks::demo::Blob{1,2}, benchmarks::demo::Blob{3,4})]]
-void bench_struct_params(demo::Blob p) {
+[[using gentest: bench("struct/process"), baseline,
+  parameters(p, benchmarks::demo::Blob{1, 2}, benchmarks::demo::Blob{3, 4})]] void bench_struct_params(demo::Blob p) {
     auto v = demo::work(p);
     gentest::doNotOptimizeAway(v);
 }
 
-[[using gentest: bench("complex/mag"), baseline,
-  parameters(z, std::complex<double>(1.0, 2.0), std::complex<double>(3.0, 4.0))]]
+[[using gentest: bench("complex/mag"), baseline, parameters(z, std::complex<double>(1.0, 2.0), std::complex<double>(3.0, 4.0))]]
 void bench_complex(std::complex<double> z) {
     auto m = std::norm(z);
     gentest::doNotOptimizeAway(m);
@@ -199,23 +199,25 @@ void bench_complex(std::complex<double> z) {
 
 struct [[using gentest: fixture(suite)]] NullBenchFixture {
     static std::unique_ptr<NullBenchFixture> gentest_allocate() {
-        if (env_var_is_set("GENTEST_BENCH_NULL_FIXTURE")) return {};
+        if (env_var_is_set("GENTEST_BENCH_NULL_FIXTURE"))
+            return {};
         return std::make_unique<NullBenchFixture>();
     }
 };
 
 struct [[using gentest: fixture(suite)]] NullJitterFixture {
     static std::unique_ptr<NullJitterFixture> gentest_allocate() {
-        if (env_var_is_set("GENTEST_JITTER_NULL_FIXTURE")) return {};
+        if (env_var_is_set("GENTEST_JITTER_NULL_FIXTURE"))
+            return {};
         return std::make_unique<NullJitterFixture>();
     }
 };
 
 [[using gentest: bench("fixture/null"), baseline]]
-void bench_null(NullBenchFixture&) {}
+void bench_null(NullBenchFixture &) {}
 
 [[using gentest: jitter("fixture/jitter_null")]]
-void jitter_null(NullJitterFixture&) {}
+void jitter_null(NullJitterFixture &) {}
 
 struct LocalBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() { BenchFixtureState<LocalBenchFixture>::on_setup("benchmarks/fixture/local"); }
@@ -228,12 +230,12 @@ struct LocalJitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
 };
 
 [[using gentest: bench("fixture/local")]]
-void bench_local(LocalBenchFixture& fx) {
+void bench_local(LocalBenchFixture &fx) {
     BenchFixtureState<LocalBenchFixture>::on_call("benchmarks/fixture/local", &fx);
 }
 
 [[using gentest: jitter("fixture/local_jitter")]]
-void jitter_local(LocalJitterFixture& fx) {
+void jitter_local(LocalJitterFixture &fx) {
     BenchFixtureState<LocalJitterFixture>::on_call("benchmarks/fixture/local_jitter", &fx);
 }
 
@@ -258,13 +260,13 @@ struct [[using gentest: fixture(global)]] GlobalJitterFixture : gentest::Fixture
 };
 
 [[using gentest: bench("fixture/free_suite_global")]]
-void bench_free_suite_global(SuiteBenchFixture& suite_fx, GlobalBenchFixture& global_fx) {
+void bench_free_suite_global(SuiteBenchFixture &suite_fx, GlobalBenchFixture &global_fx) {
     BenchFixtureState<SuiteBenchFixture>::on_call("benchmarks/fixture/free_suite_global/suite", &suite_fx);
     BenchFixtureState<GlobalBenchFixture>::on_call("benchmarks/fixture/free_suite_global/global", &global_fx);
 }
 
 [[using gentest: jitter("fixture/free_suite_global_jitter")]]
-void jitter_free_suite_global(SuiteJitterFixture& suite_fx, GlobalJitterFixture& global_fx) {
+void jitter_free_suite_global(SuiteJitterFixture &suite_fx, GlobalJitterFixture &global_fx) {
     BenchFixtureState<SuiteJitterFixture>::on_call("benchmarks/fixture/free_suite_global_jitter/suite", &suite_fx);
     BenchFixtureState<GlobalJitterFixture>::on_call("benchmarks/fixture/free_suite_global_jitter/global", &global_fx);
 }

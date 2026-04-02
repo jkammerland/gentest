@@ -49,7 +49,7 @@ std::vector<SuiteExecutionPlan> build_suite_execution_plan(std::span<const gente
     suite_indices.reserve(idxs.size());
 
     for (auto i : idxs) {
-        const auto           &t = cases[i];
+        const auto &t             = cases[i];
         const auto [it, inserted] = suite_indices.try_emplace(t.suite, builders.size());
         if (inserted) {
             builders.push_back(SuitePlanBuilder{});
@@ -57,8 +57,7 @@ std::vector<SuiteExecutionPlan> build_suite_execution_plan(std::span<const gente
         }
 
         auto &builder = builders[it->second];
-        if (t.fixture_lifetime == gentest::FixtureLifetime::None ||
-            t.fixture_lifetime == gentest::FixtureLifetime::MemberEphemeral) {
+        if (t.fixture_lifetime == gentest::FixtureLifetime::None || t.fixture_lifetime == gentest::FixtureLifetime::MemberEphemeral) {
             builder.plan.free_like.push_back(i);
             continue;
         }

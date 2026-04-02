@@ -3,7 +3,7 @@
 namespace fixture::validation {
 
 struct ServiceA {
-    virtual ~ServiceA() = default;
+    virtual ~ServiceA()            = default;
     virtual int compute(int value) = 0;
 };
 

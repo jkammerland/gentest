@@ -21,15 +21,15 @@ namespace mocking {
 using ::gentest::detail::mocking::ExpectationHandle;
 using ::gentest::detail::mocking::ExpectationPusher;
 using ::gentest::detail::mocking::InstanceState;
-using ::gentest::detail::mocking::MethodTraits;
 using ::gentest::detail::mocking::method_constant_identity;
+using ::gentest::detail::mocking::MethodTraits;
 using ::gentest::detail::mocking::same_v;
-using FalseType = ::std::false_type;
-using SizeType = ::std::size_t;
-using String = ::std::string;
+using FalseType  = ::std::false_type;
+using SizeType   = ::std::size_t;
+using String     = ::std::string;
 using StringView = ::std::string_view;
-using TrueType = ::std::true_type;
-}
+using TrueType   = ::std::true_type;
+} // namespace mocking
 } // namespace detail
 
 namespace match {
@@ -47,6 +47,6 @@ using ::gentest::match::Near;
 using ::gentest::match::Not;
 using ::gentest::match::StartsWith;
 using ::gentest::match::StrContains;
-}
+} // namespace match
 
 } // namespace gentest

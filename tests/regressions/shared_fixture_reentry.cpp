@@ -32,8 +32,8 @@ void teardown_primary_fixture(void *, std::string &error) {
     }
 
     std::string secondary_error;
-    auto secondary = gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{},
-                                                         kSecondaryFixtureName, secondary_error);
+    auto        secondary = gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{},
+                                                                kSecondaryFixtureName, secondary_error);
     if (secondary) {
         error = "secondary fixture should not be lazily recreated during teardown";
     }

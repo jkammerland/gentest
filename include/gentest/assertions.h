@@ -32,7 +32,7 @@ struct Approx {
     }
 
     template <typename T> bool matches(const T &value) const {
-        const auto a           = static_cast<long double>(value);
+        const auto        a    = static_cast<long double>(value);
         const long double diff = a > target ? (a - target) : (target - a);
         if (abs_epsilon > 0 && diff <= abs_epsilon)
             return true;
@@ -428,20 +428,16 @@ inline void ASSERT_GE(L &&lhs, R &&rhs, std::string_view message = {}, const std
 // Module-friendly exception assertions. Include-based consumers can keep using
 // the macro forms below; `import gentest;` consumers use these function
 // templates instead.
-template <class Expected, class Fn>
-inline void EXPECT_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
-    ::gentest::detail::expect_throw<Expected>(
-        std::forward<Fn>(fn), detail_internal::expected_exception_name<Expected>(), loc);
+template <class Expected, class Fn> inline void EXPECT_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::expect_throw<Expected>(std::forward<Fn>(fn), detail_internal::expected_exception_name<Expected>(), loc);
 }
 
 template <class Fn> inline void EXPECT_NO_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::expect_no_throw(std::forward<Fn>(fn), loc);
 }
 
-template <class Expected, class Fn>
-inline void ASSERT_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
-    ::gentest::detail::require_throw<Expected>(
-        std::forward<Fn>(fn), detail_internal::expected_exception_name<Expected>(), loc);
+template <class Expected, class Fn> inline void ASSERT_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_throw<Expected>(std::forward<Fn>(fn), detail_internal::expected_exception_name<Expected>(), loc);
 }
 
 template <class Fn> inline void ASSERT_NO_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {

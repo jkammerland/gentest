@@ -10,29 +10,27 @@
 namespace mocking {
 
 struct Calculator {
-    virtual ~Calculator() = default;
-    virtual int compute(int lhs, int rhs) = 0;
-    virtual void reset() = 0;
+    virtual ~Calculator()                  = default;
+    virtual int  compute(int lhs, int rhs) = 0;
+    virtual void reset()                   = 0;
 };
 
 struct RefProvider {
     virtual ~RefProvider() = default;
-    virtual int& value() = 0;
+    virtual int &value()   = 0;
 };
 
 struct Ticker {
-    static int add(int lhs, int rhs) noexcept { return lhs + rhs; }
-    void tick(int value) { (void)value; }
-    template <typename T>
-    void tadd(T value) { (void)value; }
+    static int                 add(int lhs, int rhs) noexcept { return lhs + rhs; }
+    void                       tick(int value) { (void)value; }
+    template <typename T> void tadd(T value) { (void)value; }
 };
 
 struct NoDefault {
     explicit NoDefault(int seed) noexcept : seed(seed) {}
     NoDefault(int seed, long extra) : seed(seed + static_cast<int>(extra)) {}
 
-    template <typename T>
-    explicit NoDefault(T seed_like, int extra) noexcept : seed(static_cast<int>(seed_like) + extra) {}
+    template <typename T> explicit NoDefault(T seed_like, int extra) noexcept : seed(static_cast<int>(seed_like) + extra) {}
 
     int  seed = 0;
     void work(int) {}
@@ -42,14 +40,12 @@ struct NeedsInit {
     explicit NeedsInit(int seed) noexcept : seed(seed) {}
     NeedsInit(int seed, long extra) : seed(seed + static_cast<int>(extra)) {}
 
-    template <typename T>
-    explicit NeedsInit(T seed_like) noexcept : seed(static_cast<int>(seed_like)) {}
+    template <typename T> explicit NeedsInit(T seed_like) noexcept : seed(static_cast<int>(seed_like)) {}
 
-    template <typename T>
-    NeedsInit(T seed_like, int extra) noexcept : seed(static_cast<int>(seed_like) + extra) {}
+    template <typename T> NeedsInit(T seed_like, int extra) noexcept : seed(static_cast<int>(seed_like) + extra) {}
 
     virtual ~NeedsInit() = default;
-    virtual int now() = 0;
+    virtual int now()    = 0;
 
     int seed = 0;
 };
@@ -57,71 +53,66 @@ struct NeedsInit {
 struct MoveOnly {
     int value{0};
     explicit MoveOnly(int v) : value(v) {}
-    MoveOnly(MoveOnly&&)            = default;
-    MoveOnly& operator=(MoveOnly&&) = default;
-    MoveOnly(const MoveOnly&)       = delete;
-    MoveOnly& operator=(const MoveOnly&) = delete;
-    friend bool operator==(const MoveOnly& a, const MoveOnly& b) { return a.value == b.value; }
+    MoveOnly(MoveOnly &&)                   = default;
+    MoveOnly &operator=(MoveOnly &&)        = default;
+    MoveOnly(const MoveOnly &)              = delete;
+    MoveOnly   &operator=(const MoveOnly &) = delete;
+    friend bool operator==(const MoveOnly &a, const MoveOnly &b) { return a.value == b.value; }
 };
 
 struct MOConsumer {
     void accept(MoveOnly) {}
 };
 
-template <typename T>
-using Alias = T;
+template <typename T> using Alias = T;
 
 struct TrackedMove {
-    bool moved = false;
-    TrackedMove() = default;
-    TrackedMove(const TrackedMove&) = default;
-    TrackedMove& operator=(const TrackedMove&) = default;
-    TrackedMove(TrackedMove&& other) noexcept : moved(other.moved) { other.moved = true; }
-    TrackedMove& operator=(TrackedMove&& other) noexcept {
+    bool moved                                  = false;
+    TrackedMove()                               = default;
+    TrackedMove(const TrackedMove &)            = default;
+    TrackedMove &operator=(const TrackedMove &) = default;
+    TrackedMove(TrackedMove &&other) noexcept : moved(other.moved) { other.moved = true; }
+    TrackedMove &operator=(TrackedMove &&other) noexcept {
         if (this != &other) {
-            moved = other.moved;
+            moved       = other.moved;
             other.moved = true;
         }
         return *this;
     }
-    friend bool operator==(const TrackedMove& lhs, const TrackedMove& rhs) { return lhs.moved == rhs.moved; }
+    friend bool operator==(const TrackedMove &lhs, const TrackedMove &rhs) { return lhs.moved == rhs.moved; }
 };
 
 struct ForwardingAlias {
-    template <typename T>
-    void take(::mocking::Alias<T>&& value) { (void)value; }
+    template <typename T> void take(::mocking::Alias<T> &&value) { (void)value; }
 };
 
 struct TemplateTemplateFixed {
-    template <template <class, std::size_t> class C>
-    void take(C<int, 2> value) { (void)value; }
+    template <template <class, std::size_t> class C> void take(C<int, 2> value) { (void)value; }
 };
 
 struct TemplateTemplateCtorTarget {
     template <template <class, std::size_t> class C>
     explicit TemplateTemplateCtorTarget(C<int, 2> value) noexcept : size(static_cast<int>(value.size())) {}
 
-    int size = 0;
+    int  size = 0;
     void ping() {}
 };
 
 struct TemplateTemplatePacker {
-    template <template <class...> class... Cs>
-    void join(const std::tuple<Cs<int>...> &value) { (void)value; }
+    template <template <class...> class... Cs> void join(const std::tuple<Cs<int>...> &value) { (void)value; }
 };
 
-template <typename T>
-struct RefWrap {
-    RefWrap() = default;
-    RefWrap(RefWrap&&) = default;
-    RefWrap& operator=(RefWrap&&) = default;
-    RefWrap(const RefWrap&) = delete;
-    RefWrap& operator=(const RefWrap&) = delete;
-    friend bool operator==(const RefWrap&, const RefWrap&) { return true; }
+template <typename T> struct RefWrap {
+    RefWrap()                              = default;
+    RefWrap(RefWrap &&)                    = default;
+    RefWrap &operator=(RefWrap &&)         = default;
+    RefWrap(const RefWrap &)               = delete;
+    RefWrap    &operator=(const RefWrap &) = delete;
+    friend bool operator==(const RefWrap &, const RefWrap &) { return true; }
 };
 
 struct RefWrapConsumer {
-    void take(RefWrap<int&>) {}
+    void take(RefWrap<int &>) {}
 };
 
 struct Stringer {
@@ -132,8 +123,7 @@ struct Floater {
     void feed(double v) { (void)v; }
 };
 
-template <typename Derived>
-struct Runner {
+template <typename Derived> struct Runner {
     void run(int value) { static_cast<Derived *>(this)->handle(value); }
     void handle(int) {}
 };

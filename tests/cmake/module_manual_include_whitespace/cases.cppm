@@ -1,6 +1,6 @@
 module;
 
-# include "public/manual_include_whitespace_mocks.hpp"
+#include "public/manual_include_whitespace_mocks.hpp"
 
 export module gentest.manual_include_whitespace;
 

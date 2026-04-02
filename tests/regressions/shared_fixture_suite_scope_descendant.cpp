@@ -5,7 +5,7 @@ using namespace gentest::asserts;
 namespace regressions::shared_fixture_suite_scope_descendant {
 
 struct ScopeParentFixture : gentest::FixtureSetup {
-    int value = 0;
+    int  value = 0;
     void setUp() override { value = 42; }
 };
 
@@ -38,8 +38,9 @@ gentest::Case kCases[] = {
 
 struct FixtureRegistrar {
     FixtureRegistrar() {
-        gentest::detail::register_shared_fixture<ScopeParentFixture>(gentest::detail::SharedFixtureScope::Suite, "regressions/parent",
-                                                                     "regressions::shared_fixture_suite_scope_descendant::ScopeParentFixture");
+        gentest::detail::register_shared_fixture<ScopeParentFixture>(
+            gentest::detail::SharedFixtureScope::Suite, "regressions/parent",
+            "regressions::shared_fixture_suite_scope_descendant::ScopeParentFixture");
     }
 } kFixtureRegistrar;
 

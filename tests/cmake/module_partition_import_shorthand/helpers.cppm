@@ -1,4 +1,4 @@
-export /* helper */ module gentest.partition_import_cases : helpers;
+export /* helper */ module gentest.partition_import_cases:helpers;
 
 export namespace partition_import {
 

@@ -46,20 +46,20 @@ struct TemplateParamInfo {
     bool              is_pack = false;
     // Spelling used when referencing the parameter inside a dependent
     // template-id, for example "T" or "Ts...".
-    std::string       usage_spelling;
+    std::string usage_spelling;
 };
 
 struct TemplateBindingSet {
-    std::string              param_name;
+    std::string param_name;
     // Raw candidate bindings as written in the attribute after the parameter
     // name. For packs, each candidate is expected to be a parenthesized row.
     std::vector<std::string> candidates;
 };
 
 struct FreeFixtureUse {
-    std::string   type_name;  // fully qualified (no leading ::)
-    FixtureScope  scope = FixtureScope::Local;
-    std::string   suite_name; // only for suite fixtures
+    std::string  type_name; // fully qualified (no leading ::)
+    FixtureScope scope = FixtureScope::Local;
+    std::string  suite_name; // only for suite fixtures
 };
 
 enum class FreeCallArgKind {
@@ -70,9 +70,9 @@ enum class FreeCallArgKind {
 struct FreeCallArg {
     FreeCallArgKind kind = FreeCallArgKind::Fixture;
     // Index into TestCaseInfo::free_fixtures when kind == Fixture.
-    std::size_t     fixture_index = 0;
+    std::size_t fixture_index = 0;
     // C++ expression string when kind == Value.
-    std::string     value_expression;
+    std::string value_expression;
 };
 
 struct FixtureDeclInfo {
@@ -110,34 +110,34 @@ struct AttributeCollection {
 // - compilation_database: directory containing compile_commands.json
 // - check_only: validate without emitting any output
 struct CollectorOptions {
-    std::string                          entry = "gentest::run_all_tests";
-    std::filesystem::path                output_path;
-    std::filesystem::path                tu_output_dir;
+    std::string           entry = "gentest::run_all_tests";
+    std::filesystem::path output_path;
+    std::filesystem::path tu_output_dir;
     // Optional explicit per-source TU registration headers. When provided in
     // TU mode, this must stay aligned with `sources` and overrides the legacy
     // `<tu_output_dir>/<source>.h` derivation.
-    std::vector<std::filesystem::path>   tu_output_headers;
-    std::filesystem::path                mock_registry_path;
-    std::filesystem::path                mock_impl_path;
-    std::optional<std::filesystem::path> depfile_path;
-    std::filesystem::path                template_path;
-    std::vector<std::string>             sources;
-    std::unordered_map<std::string, std::string> module_interface_names_by_source;
-    std::unordered_set<std::string>      module_interface_sources;
+    std::vector<std::filesystem::path>                                  tu_output_headers;
+    std::filesystem::path                                               mock_registry_path;
+    std::filesystem::path                                               mock_impl_path;
+    std::optional<std::filesystem::path>                                depfile_path;
+    std::filesystem::path                                               template_path;
+    std::vector<std::string>                                            sources;
+    std::unordered_map<std::string, std::string>                        module_interface_names_by_source;
+    std::unordered_set<std::string>                                     module_interface_sources;
     std::unordered_map<std::string, std::vector<std::filesystem::path>> explicit_module_sources_by_name;
-    std::vector<std::string>             clang_args;
-    std::optional<std::filesystem::path> compilation_database;
-    std::optional<std::filesystem::path> source_root;
-    ModuleDependencyScanMode             module_dependency_scan_mode = ModuleDependencyScanMode::Auto;
-    std::optional<std::filesystem::path> clang_scan_deps_executable;
+    std::vector<std::string>                                            clang_args;
+    std::optional<std::filesystem::path>                                compilation_database;
+    std::optional<std::filesystem::path>                                source_root;
+    ModuleDependencyScanMode                                            module_dependency_scan_mode = ModuleDependencyScanMode::Auto;
+    std::optional<std::filesystem::path>                                clang_scan_deps_executable;
     // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
     // 0 selects std::thread::hardware_concurrency().
-    std::size_t                          jobs = 0;
-    bool                                 discover_mocks = false;
-    bool                                 include_sources = true;
-    bool                                 strict_fixture  = false;
-    bool                                 quiet_clang     = false;
-    bool                                 check_only = false;
+    std::size_t jobs            = 0;
+    bool        discover_mocks  = false;
+    bool        include_sources = true;
+    bool        strict_fixture  = false;
+    bool        quiet_clang     = false;
+    bool        check_only      = false;
 };
 
 // Description of a discovered test function or member function.
@@ -158,13 +158,13 @@ struct TestCaseInfo {
     std::string suite_name;
     unsigned    line = 0;
     // Benchmarks: true if discovered via bench("...") attribute
-    bool        is_benchmark = false;
-    bool        is_jitter = false;
-    bool        is_baseline = false;
+    bool is_benchmark = false;
+    bool is_jitter    = false;
+    bool is_baseline  = false;
     // True when the discovered callable is declared as a function template.
-    bool        is_function_template = false;
+    bool is_function_template = false;
     // True when the test function/method returns a non-void value.
-    bool        returns_value = false;
+    bool returns_value = false;
     // Tags and metadata
     std::vector<std::string> tags;
     std::vector<std::string> requirements;
@@ -194,49 +194,49 @@ struct TestCaseInfo {
 
 // Parameter metadata for mocked member functions.
 struct MockParamInfo {
-    std::string type;     // canonical spelling used in generated signature
-    std::string name;     // argument name (auto-assigned when empty)
+    std::string type; // canonical spelling used in generated signature
+    std::string name; // argument name (auto-assigned when empty)
     enum class PassStyle {
         Value,
         LValueRef,
         RValueRef,
         ForwardingRef,
     };
-    PassStyle pass_style = PassStyle::Value;
-    bool      is_const = false;
+    PassStyle pass_style  = PassStyle::Value;
+    bool      is_const    = false;
     bool      is_volatile = false;
 };
 
 // Parameter metadata for mocked constructors.
 struct MockCtorInfo {
-    std::vector<MockParamInfo> parameters;
-    std::string                template_prefix; // e.g. "template <typename T, int N>"
+    std::vector<MockParamInfo>     parameters;
+    std::string                    template_prefix; // e.g. "template <typename T, int N>"
     std::vector<TemplateParamInfo> template_params;
-    bool                       is_explicit = false;
-    bool                       is_noexcept = false;
+    bool                           is_explicit = false;
+    bool                           is_noexcept = false;
 };
 
 // Discovered member function suitable for mocking.
 struct MockMethodInfo {
-    std::string              qualified_name; // e.g. Namespace::Type::method
-    std::string              method_name;    // unqualified method identifier
-    std::string              return_type;
-    std::vector<MockParamInfo> parameters;
-    std::string              template_prefix; // e.g. "template <typename T, int N>"
+    std::string                    qualified_name; // e.g. Namespace::Type::method
+    std::string                    method_name;    // unqualified method identifier
+    std::string                    return_type;
+    std::vector<MockParamInfo>     parameters;
+    std::string                    template_prefix; // e.g. "template <typename T, int N>"
     std::vector<TemplateParamInfo> template_params;
-    bool                     is_const = false;
-    bool                     is_volatile = false;
-    bool                     is_static = false;
-    bool                     is_virtual = false;
-    bool                     is_pure_virtual = false;
-    bool                     is_noexcept = false;
-    std::string              ref_qualifier; // "", "&", or "&&"
+    bool                           is_const        = false;
+    bool                           is_volatile     = false;
+    bool                           is_static       = false;
+    bool                           is_virtual      = false;
+    bool                           is_pure_virtual = false;
+    bool                           is_noexcept     = false;
+    std::string                    ref_qualifier; // "", "&", or "&&"
 };
 
 struct MockNamespaceScopeInfo {
     std::string name;
-    bool        is_inline = false;
-    bool        is_exported = false;
+    bool        is_inline           = false;
+    bool        is_exported         = false;
     std::size_t lexical_close_group = 0;
     std::string reopen_prefix;
 };
@@ -248,16 +248,16 @@ struct MockClassInfo {
         NamedModule,
     };
 
-    std::string               qualified_name;
-    std::string               display_name; // pretty name for diagnostics/codegen
+    std::string qualified_name;
+    std::string display_name; // pretty name for diagnostics/codegen
     // Absolute (or normalized) path to the file that contains the target type
     // definition used for registry include generation.
-    std::string               definition_file;
-    DefinitionKind            definition_kind = DefinitionKind::HeaderLike;
+    std::string    definition_file;
+    DefinitionKind definition_kind = DefinitionKind::HeaderLike;
     // Source files that instantiate gentest::mock<T> for this target.
-    std::vector<std::string>  use_files;
+    std::vector<std::string> use_files;
     // Owning named module for module-defined mocks. Empty for header-like definitions.
-    std::string               definition_module_name;
+    std::string definition_module_name;
     // Global-scope insertion point within `definition_file` where module-owned
     // mock attachments can be injected safely.
     std::optional<std::size_t> attachment_insertion_offset;
@@ -265,11 +265,11 @@ struct MockClassInfo {
     // non-empty, emitters close these scopes, inject the specialization at
     // global scope, then reopen them before resuming the source text.
     std::vector<MockNamespaceScopeInfo> attachment_namespace_chain;
-    bool                      derive_for_virtual = false;
-    bool                      has_accessible_default_ctor = false;
-    bool                      has_virtual_destructor = false;
-    std::vector<MockCtorInfo> constructors;
-    std::vector<MockMethodInfo> methods;
+    bool                                derive_for_virtual          = false;
+    bool                                has_accessible_default_ctor = false;
+    bool                                has_virtual_destructor      = false;
+    std::vector<MockCtorInfo>           constructors;
+    std::vector<MockMethodInfo>         methods;
 };
 
 } // namespace gentest::codegen

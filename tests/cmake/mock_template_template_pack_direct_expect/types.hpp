@@ -7,8 +7,7 @@
 namespace fixture {
 
 struct TemplateTemplatePacker {
-    template <template <class...> class... Cs>
-    void join(const std::tuple<Cs<int>...>& value) { (void)value; }
+    template <template <class...> class... Cs> void join(const std::tuple<Cs<int>...> &value) { (void)value; }
 };
 
 } // namespace fixture

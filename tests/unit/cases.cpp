@@ -193,7 +193,7 @@ void bench_stats_hist_skewed() {
 
 [[using gentest: test("bench_util/clobber_memory_smoke")]]
 void bench_util_clobber_memory_smoke() {
-    int value = 7;
+    int        value     = 7;
     const int &value_ref = value;
     gentest::doNotOptimizeAway(value_ref);
     gentest::clobberMemory();

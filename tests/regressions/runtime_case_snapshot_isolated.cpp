@@ -55,8 +55,7 @@ void register_late_cases(void *) {
 }
 
 void tail_case(void *) {
-    gentest::expect_eq(g_registered_late_cases, true,
-                       "tail case must still run after late registration mutates the backing registry");
+    gentest::expect_eq(g_registered_late_cases, true, "tail case must still run after late registration mutates the backing registry");
     gentest::expect_eq(g_late_case_runs, std::size_t{0}, "late-registered cases must not enter the active run before the tail case");
     const auto registry_after_tail = gentest::registered_cases();
     gentest::expect_eq(registry_after_tail.size(), kInitialCaseCount + kLateCaseCount,

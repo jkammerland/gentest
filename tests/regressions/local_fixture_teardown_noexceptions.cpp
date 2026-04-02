@@ -1,6 +1,6 @@
-#include <cstdio>
-
 #include "gentest/runner.h"
+
+#include <cstdio>
 
 using namespace gentest::asserts;
 

@@ -5,7 +5,9 @@
 #include "gentest/mock.h"
 
 static int _gentest_mock_local_class_odr() {
-    struct Local { void g(){} };
+    struct Local {
+        void g() {}
+    };
     using LocalMock = gentest::mock<Local>;
     return 0;
 }

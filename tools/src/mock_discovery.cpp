@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <fstream>
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Attr.h>
 #include <clang/AST/Decl.h>
@@ -19,6 +18,7 @@
 #include <clang/Lex/Lexer.h>
 #include <filesystem>
 #include <fmt/core.h>
+#include <fstream>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/StringRef.h>
 #include <string>
@@ -71,33 +71,25 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     int square = 0;
     for (std::size_t i = 0; i < text.size(); ++i) {
         switch (text[i]) {
-        case '<':
-            ++angles;
-            break;
+        case '<': ++angles; break;
         case '>':
             if (angles > 0) {
                 --angles;
             }
             break;
-        case '(':
-            ++parens;
-            break;
+        case '(': ++parens; break;
         case ')':
             if (parens > 0) {
                 --parens;
             }
             break;
-        case '{':
-            ++braces;
-            break;
+        case '{': ++braces; break;
         case '}':
             if (braces > 0) {
                 --braces;
             }
             break;
-        case '[':
-            ++square;
-            break;
+        case '[': ++square; break;
         case ']':
             if (square > 0) {
                 --square;
@@ -108,8 +100,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
                 return i;
             }
             break;
-        default:
-            break;
+        default: break;
         }
     }
     return std::string_view::npos;
@@ -166,7 +157,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
         if (i != 0) {
             result += ", ";
         }
-        const auto *param = params.getParam(i);
+        const auto *param         = params.getParam(i);
         const auto  fallback_name = i < infos.size() ? infos[i].name : std::string{};
         result += print_template_parameter_decl(*param, fallback_name, ctx);
     }
@@ -175,7 +166,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
 }
 
 [[nodiscard]] std::string print_template_template_parameter_decl(const TemplateTemplateParmDecl &param, std::string_view fallback_name,
-                                                                const ASTContext &ctx) {
+                                                                 const ASTContext &ctx) {
     auto policy = PrintingPolicy(ctx.getLangOpts());
     policy.adjustForCPlusPlus();
     policy.SuppressScope          = false;
@@ -216,7 +207,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
         return print_template_template_parameter_decl(*ttp, fallback_name, ctx);
     }
 
-    std::string text;
+    std::string              text;
     llvm::raw_string_ostream os(text);
     param.print(os, policy);
     os.flush();
@@ -375,8 +366,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     // Reject known source/module-interface extensions. Anything else is treated
     // as header-like so nonstandard header names are still supported.
     static constexpr std::array<std::string_view, 15> kRejectedExtensions = {
-        ".c", ".cc", ".cp", ".cpp", ".cxx", ".c++", ".m", ".mm", ".cu", ".cppm", ".ccm",
-        ".cxxm", ".c++m", ".ixx", ".mxx",
+        ".c", ".cc", ".cp", ".cpp", ".cxx", ".c++", ".m", ".mm", ".cu", ".cppm", ".ccm", ".cxxm", ".c++m", ".ixx", ".mxx",
     };
     for (const auto suffix : kRejectedExtensions) {
         if (has_case_insensitive_suffix(path, suffix)) {
@@ -388,9 +378,7 @@ using ParamPassStyle = MockParamInfo::PassStyle;
 
 [[nodiscard]] std::optional<std::string> named_module_name_from_file(std::string_view path);
 
-[[nodiscard]] bool file_declares_named_module(std::string_view path) {
-    return named_module_name_from_file(path).has_value();
-}
+[[nodiscard]] bool file_declares_named_module(std::string_view path) { return named_module_name_from_file(path).has_value(); }
 
 [[nodiscard]] std::optional<std::string> named_module_name_from_file(std::string_view path) {
     if (path.empty()) {
@@ -446,7 +434,8 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
     return static_cast<std::size_t>(sm.getFileOffset(file_loc));
 }
 
-[[nodiscard]] std::optional<std::size_t> location_after_token_offset(const SourceManager &sm, const LangOptions &lang_opts, SourceLocation loc) {
+[[nodiscard]] std::optional<std::size_t> location_after_token_offset(const SourceManager &sm, const LangOptions &lang_opts,
+                                                                     SourceLocation loc) {
     const SourceLocation after = Lexer::getLocForEndOfToken(sm.getFileLoc(loc), 0, sm, lang_opts);
     if (after.isInvalid()) {
         return std::nullopt;
@@ -458,8 +447,7 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
                                                                           const SourceManager &sm) {
     const LangOptions &lang_opts = ctx.getLangOpts();
 
-    if (const SourceLocation after_semi =
-            Lexer::findLocationAfterToken(sm.getFileLoc(record.getEndLoc()), tok::semi, sm, lang_opts, true);
+    if (const SourceLocation after_semi = Lexer::findLocationAfterToken(sm.getFileLoc(record.getEndLoc()), tok::semi, sm, lang_opts, true);
         after_semi.isValid()) {
         return location_offset_in_file(sm, after_semi);
     }
@@ -468,13 +456,13 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
 }
 
 [[nodiscard]] std::string namespace_reopen_prefix(const NamespaceDecl &ns, const ASTContext &ctx, const SourceManager &sm) {
-    const SourceLocation begin = sm.getFileLoc(ns.getBeginLoc());
+    const SourceLocation begin  = sm.getFileLoc(ns.getBeginLoc());
     const SourceLocation rbrace = sm.getFileLoc(ns.getRBraceLoc());
     if (begin.isInvalid() || rbrace.isInvalid()) {
         return {};
     }
 
-    const auto text = Lexer::getSourceText(CharSourceRange::getCharRange(begin, rbrace), sm, ctx.getLangOpts()).str();
+    const auto text      = Lexer::getSourceText(CharSourceRange::getCharRange(begin, rbrace), sm, ctx.getLangOpts()).str();
     const auto brace_pos = text.find('{');
     if (brace_pos == std::string::npos) {
         return {};
@@ -483,7 +471,7 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
 }
 
 [[nodiscard]] std::vector<MockNamespaceScopeInfo> collect_attachment_namespace_chain(const CXXRecordDecl &record, const ASTContext &ctx,
-                                                                                      const SourceManager &sm) {
+                                                                                     const SourceManager &sm) {
     std::vector<MockNamespaceScopeInfo> chain;
     std::vector<const NamespaceDecl *>  namespace_decls;
 
@@ -496,21 +484,21 @@ template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const De
         decl_ctx = decl_ctx->getParent();
     }
 
-    std::reverse(namespace_decls.begin(), namespace_decls.end());
+    std::ranges::reverse(namespace_decls);
 
-    std::size_t current_group = 0;
+    std::size_t                current_group = 0;
     std::optional<std::size_t> current_group_end_offset;
     for (const auto *ns : namespace_decls) {
         const std::string reopen_prefix = namespace_reopen_prefix(*ns, ctx, sm);
         const bool        is_shorthand_nested_namespace =
             !chain.empty() && !reopen_prefix.empty() && reopen_prefix.find("namespace") == std::string::npos;
         const std::optional<std::size_t> end_offset = location_offset_in_file(sm, ns->getRBraceLoc());
-        bool                             new_group = false;
+        bool                             new_group  = false;
         if (!is_shorthand_nested_namespace &&
             (!current_group_end_offset.has_value() || !end_offset.has_value() || *current_group_end_offset != *end_offset)) {
             ++current_group;
             current_group_end_offset = end_offset;
-            new_group = true;
+            new_group                = true;
         }
 
         chain.push_back(MockNamespaceScopeInfo{
@@ -599,15 +587,14 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         return;
     }
 
-    const auto *canonical = record->getCanonicalDecl();
-    const ASTContext    &ctx      = *result.Context;
-    const SourceManager &sm       = *result.SourceManager;
-    const SourceLocation def_loc  = sm.getFileLoc(definition_record->getBeginLoc());
-    const std::string    use_file = resolve_definition_file(sm, use_loc);
+    const auto          *canonical = record->getCanonicalDecl();
+    const ASTContext    &ctx       = *result.Context;
+    const SourceManager &sm        = *result.SourceManager;
+    const SourceLocation def_loc   = sm.getFileLoc(definition_record->getBeginLoc());
+    const std::string    use_file  = resolve_definition_file(sm, use_loc);
     if (const auto it = seen_.find(canonical); it != seen_.end()) {
         auto &existing = out_[it->second];
-        if (!use_file.empty() &&
-            std::find(existing.use_files.begin(), existing.use_files.end(), use_file) == existing.use_files.end()) {
+        if (!use_file.empty() && std::ranges::find(existing.use_files, use_file) == existing.use_files.end()) {
             existing.use_files.push_back(use_file);
         }
         return;
@@ -621,7 +608,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
 
     {
         bool               in_anonymous_ns = false;
-        const DeclContext *ctx = record->getDeclContext();
+        const DeclContext *ctx             = record->getDeclContext();
         while (ctx != nullptr) {
             if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(ctx)) {
                 if (ns->isAnonymousNamespace()) {
@@ -669,9 +656,9 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     }
     info.has_accessible_default_ctor = has_accessible_default_ctor(*definition_record);
 
-    const std::string definition_file = resolve_definition_file(sm, def_loc);
-    const auto definition_module = named_module_name_from_file(definition_file);
-    const bool from_named_module =
+    const std::string definition_file   = resolve_definition_file(sm, def_loc);
+    const auto        definition_module = named_module_name_from_file(definition_file);
+    const bool        from_named_module =
         (is_in_named_module_compat(*definition_record) && !is_from_header_unit_compat(*definition_record)) || definition_module.has_value();
     if (definition_file.empty() || (looks_like_source_or_module_interface(definition_file) && !from_named_module)) {
         had_error_                 = true;
@@ -685,8 +672,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     if (!use_file.empty()) {
         info.use_files.push_back(use_file);
     }
-    info.definition_kind =
-        from_named_module ? MockClassInfo::DefinitionKind::NamedModule : MockClassInfo::DefinitionKind::HeaderLike;
+    info.definition_kind = from_named_module ? MockClassInfo::DefinitionKind::NamedModule : MockClassInfo::DefinitionKind::HeaderLike;
     if (from_named_module) {
         if (const auto enclosing_scope = find_non_namespace_attachment_scope(*definition_record)) {
             had_error_ = true;
@@ -698,7 +684,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         }
     }
     if (definition_module.has_value()) {
-        info.definition_module_name = *definition_module;
+        info.definition_module_name      = *definition_module;
         info.attachment_insertion_offset = find_attachment_insertion_offset(*definition_record, ctx, sm);
         info.attachment_namespace_chain  = collect_attachment_namespace_chain(*definition_record, ctx, sm);
     }
@@ -887,7 +873,7 @@ void MockUsageCollector::handle_typedef(const TypedefNameDecl &decl, const Match
                 }
 
                 const TemplateArgumentLoc &first_loc = specialization_loc.getArgLoc(0);
-                const TemplateArgument &first = first_loc.getArgument();
+                const TemplateArgument    &first     = first_loc.getArgument();
                 if (first.getKind() != TemplateArgument::Type) {
                     had_error_ = true;
                     report(*result.SourceManager, decl.getBeginLoc(), "gentest::mock expects a type argument");
@@ -900,7 +886,7 @@ void MockUsageCollector::handle_typedef(const TypedefNameDecl &decl, const Match
         }
     }
 
-    const auto *record = underlying->getAsCXXRecordDecl();
+    const auto *record                = underlying->getAsCXXRecordDecl();
     const auto *record_specialization = llvm::dyn_cast_or_null<ClassTemplateSpecializationDecl>(record);
     if (record_specialization == nullptr || record_specialization->getSpecializedTemplate() == nullptr ||
         record_specialization->getSpecializedTemplate()->getQualifiedNameAsString() != "gentest::mock") {
@@ -935,12 +921,10 @@ void MockUsageCollector::run(const MatchFinder::MatchResult &result) {
 bool MockUsageCollector::has_errors() const { return had_error_; }
 
 void register_mock_matchers(MatchFinder &finder, MockUsageCollector &collector) {
-    finder.addMatcher(classTemplateSpecializationDecl(hasName("gentest::mock"), unless(isImplicit()),
-                                                      unless(isExpansionInSystemHeader()))
+    finder.addMatcher(classTemplateSpecializationDecl(hasName("gentest::mock"), unless(isImplicit()), unless(isExpansionInSystemHeader()))
                           .bind("gentest.mock"),
                       &collector);
-    finder.addMatcher(typedefNameDecl(unless(isImplicit()), unless(isExpansionInSystemHeader())).bind("gentest.mock.alias"),
-                      &collector);
+    finder.addMatcher(typedefNameDecl(unless(isImplicit()), unless(isExpansionInSystemHeader())).bind("gentest.mock.alias"), &collector);
 }
 
 } // namespace gentest::codegen

@@ -6,7 +6,7 @@
 #include <string>
 
 int main() {
-    auto ctx         = std::make_shared<gentest::detail::TestContextInfo>();
+    auto ctx          = std::make_shared<gentest::detail::TestContextInfo>();
     ctx->display_name = "proof/event_chronology_red";
     ctx->active       = true;
     gentest::detail::set_current_test(ctx);
@@ -19,8 +19,8 @@ int main() {
     ctx->active = false;
     gentest::detail::set_current_test(nullptr);
 
-    std::size_t fail_index = ctx->event_lines.size();
-    std::size_t log_index  = ctx->event_lines.size();
+    std::size_t fail_index  = ctx->event_lines.size();
+    std::size_t log_index   = ctx->event_lines.size();
     const auto  event_count = std::min(ctx->event_lines.size(), ctx->event_kinds.size());
     for (std::size_t idx = 0; idx < event_count; ++idx) {
         if (fail_index == ctx->event_lines.size() && ctx->event_kinds[idx] == 'F' &&

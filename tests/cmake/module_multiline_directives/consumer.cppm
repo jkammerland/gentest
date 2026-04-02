@@ -2,11 +2,9 @@ module;
 
 export module gentest.multiline_consumer;
 
-import
-gentest.multiline_provider;
+import gentest.multiline_provider;
 import gentest;
-import
-gentest.multiline_mocks;
+import gentest.multiline_mocks;
 
 using namespace gentest::asserts;
 
