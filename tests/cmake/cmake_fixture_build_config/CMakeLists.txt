@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.31)
+project(gentest_cmake_fixture_build_config LANGUAGES CXX)
+
+add_executable(cmake_fixture_build_config main.cpp)
+target_compile_features(cmake_fixture_build_config PRIVATE cxx_std_20)

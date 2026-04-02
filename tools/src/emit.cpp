@@ -858,6 +858,14 @@ void replace_all(std::string &inout, std::string_view needle, std::string_view r
     }
 }
 
+bool requires_global_wrapper_impls_placeholder(const std::string &template_content) {
+    if (template_content.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
+        return false;
+    }
+    return template_content.find("{{WRAPPER_IMPLS}}") != std::string::npos
+           || template_content.find("{{REGISTRATION_COMMON}}") != std::string::npos;
+}
+
 auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases,
                   const std::vector<FixtureDeclInfo> &fixtures) -> std::optional<std::string> {
     std::string template_content;
@@ -869,6 +877,12 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     }
     if (template_content.empty())
         template_content = std::string(tpl::test_impl);
+
+    if (requires_global_wrapper_impls_placeholder(template_content)) {
+        log_err("gentest_codegen: template file '{}' must use {{GLOBAL_WRAPPER_IMPLS}}; legacy {{WRAPPER_IMPLS}} placement is unsupported\n",
+                options.template_path.string());
+        return std::nullopt;
+    }
 
     // Load partials
     const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
@@ -906,11 +920,17 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
     std::string fixture_registrations = render::render_fixture_registrations(fixtures);
 
     std::string output = template_content;
+    replace_all(output, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
     replace_all(output, "{{REGISTRATION_COMMON}}", tpl::registration_common);
     replace_all(output, "{{FORWARD_DECLS}}", forward_decl_block);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(cases.size()));
     replace_all(output, "{{TRAIT_DECLS}}", trait_declarations);
-    replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
+    if (output.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
+        replace_all(output, "{{GLOBAL_WRAPPER_IMPLS}}", wrapper_impls);
+        replace_all(output, "{{WRAPPER_IMPLS}}", "");
+    } else {
+        replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
+    }
     replace_all(output, "{{CASE_INITS}}", case_entries);
     replace_all(output, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
     replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
@@ -1095,11 +1115,17 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases,
                 }
                 std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
 
+                replace_all(header_content, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
                 replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
                 replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
                 replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
                 replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
-                replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
+                if (header_content.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
+                    replace_all(header_content, "{{GLOBAL_WRAPPER_IMPLS}}", wrapper_impls);
+                    replace_all(header_content, "{{WRAPPER_IMPLS}}", "");
+                } else {
+                    replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
+                }
                 replace_all(header_content, "{{CASE_INITS}}", case_entries);
                 replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
                 replace_all(header_content, "{{REGISTER_FN}}", register_fn);

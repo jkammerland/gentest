@@ -32,3 +32,13 @@ void extra_unknown() {}
 template <typename T>
 [[using gentest: test("smoke/invalid/duplicate"), template(T, int), template(T, long)]]
 void duplicate_template_attr() {}
+
+// 7) Template parameter packs require parenthesized rows
+template <template <class...> class... Cs>
+[[using gentest: test("smoke/invalid/template-pack-bare"), template(Cs, std::vector, std::list)]]
+void template_pack_bare() {}
+
+// 8) Non-pack template parameters do not accept row tuples
+template <template <class...> class C>
+[[using gentest: test("smoke/invalid/template-nonpack-row"), template(C, (std::vector), (std::list))]]
+void template_nonpack_row() {}

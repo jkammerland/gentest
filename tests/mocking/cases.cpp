@@ -5,8 +5,10 @@
 
 #include <array>
 #include <condition_variable>
+#include <list>
 #include <mutex>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 #include <vector>
 
@@ -244,6 +246,20 @@ void direct_unique_template_member_expect() {
 
     EXPECT_EQ(calls, 1);
     EXPECT_FALSE(value.moved);
+}
+
+[[using gentest: test("mocking/template/template_template_member_expect")]]
+void template_template_member_expect() {
+    gentest::mock<TemplateTemplateFixed> mock_fixed;
+    int                                  calls = 0;
+
+    gentest::expect(mock_fixed, &TemplateTemplateFixed::template take<std::array>)
+        .times(1)
+        .invokes([&](std::array<int, 2> value) { calls += value[0]; });
+
+    mock_fixed.template take<std::array>(std::array<int, 2>{1, 2});
+
+    EXPECT_EQ(calls, 1);
 }
 
 [[using gentest: test("mocking/crtp/bridge")]]
