@@ -16,7 +16,8 @@ void basic() {
     EXPECT_TRUE(1 + 1 == 2); 
 }
 
-// namespaced attribute list for brevity
+// namespaced attribute list for brevity, 
+// generates a 2x2 test matrix
 template <typename T, template <class...> class C>
 [[using gentest: template(T, int, long), template(C, std::vector, std::list)]]
 void emplace_matrix() {
@@ -28,7 +29,7 @@ void emplace_matrix() {
 
 During the build, a codegen tool can scan your sources and generates registrations/wrappers from those attributes. This tooling step can be registered with your favorite buildsystem.
 
-This avoids macro-heavy registration and instead provide a more native C++ syntax. It also enables orthogonal code generation which can be made to support any feature, which was the main driver for experimenting with this approach.
+This avoids macro-heavy registration and instead provide a more native C++ syntax. Also, let's call it orthogonal code generation, has the advantage of being able to support any feature, which was the main driver for experimenting with this approach.
 
 Features currently include:
 - Arbitrary mocking with no extra declarations
@@ -351,7 +352,6 @@ Template parameter packs use parenthesized rows inside the same attribute, for e
 
 Fixture arguments are inferred from the free-function signature. If a fixture implements
 `gentest::FixtureSetup`/`gentest::FixtureTearDown`, hooks run automatically.
-Prefer free-function tests/benches/jitters; member tests are legacy.
 
 Supported fixture argument forms:
 - `T&` (reference to the managed fixture instance)
@@ -370,7 +370,7 @@ form.
 >[!NOTE]
 >This example's teardown assertions assume the three cases below run together:
 >`fx/local/one`, `fx/shared/first`, and `fx/shared/second`. If you run only a
->subset, the shared-fixture touch-count checks will fail by design.
+>subset, this will obviously fail the count checks.
 
 ```cpp
 #include "gentest/attributes.h"
