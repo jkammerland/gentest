@@ -818,6 +818,25 @@ gentest_add_cmake_script_test(
         "LLVM_DIR=${LLVM_DIR}"
         "Clang_DIR=${Clang_DIR}")
 
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_mock_template_template_pack_direct_expect_runs
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckMockTemplateTemplatePackDirectExpect.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/mock_template_template_pack_direct_expect"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+
 gentest_add_check_death(
     NAME gentest_codegen_mock_anonymous_namespace_msg
     NO_EMULATOR
@@ -947,6 +966,7 @@ set_tests_properties(
     gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
     gentest_codegen_mock_emit_header_main_tu_ok
     gentest_codegen_mock_defaulted_template_ctor_builds
+    gentest_codegen_mock_template_template_pack_direct_expect_runs
     gentest_codegen_mock_anonymous_namespace_msg
     gentest_codegen_mock_local_class_msg
     gentest_codegen_fixture_suite_member_illegal
@@ -968,7 +988,7 @@ set(_gentest_suite_inventory_checks
     "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
     "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
     "templates|gentest_templates_tests|111|111|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
-    "mocking|gentest_mocking_tests|36|36|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
+    "mocking|gentest_mocking_tests|34|34|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
@@ -1971,6 +1991,16 @@ _gentest_add_cmake_helper_test(
     -DTARGET_NAME=mock_defaulted_template_ctor_macro
     -DBUILD_CONFIG=${_gentest_fixture_build_config})
 set_property(TEST gentest_codegen_mock_defaulted_template_ctor_macro_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_template_template_ctor_traits_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_template_template_ctor_traits
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=mock_template_template_ctor_traits
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_mock_template_template_ctor_traits_builds APPEND PROPERTY LABELS "codegen")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_member_operator_template_keyword_builds
