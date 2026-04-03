@@ -19,7 +19,7 @@ void basic() {
 // namespaced attribute list for brevity
 // generates a 2x2 test matrix
 template <typename T, template <class...> class C>
-[[using gentest: test("tt/mixed"), template(T, int, long), template(C, std::vector, std::list)]]
+[[using gentest: template(T, int, long), template(C, std::vector, std::list)]]
 void emplace_matrix() {
     C<T> values;
     values.emplace_back(T{1});
@@ -405,7 +405,7 @@ form.
 >[!NOTE]
 >This example's teardown assertions assume the three cases below run together:
 >`fx/local/one`, `fx/shared/first`, and `fx/shared/second`. If you run only a
->subset, the shared-fixture touch-count checks will fail by design.
+>subset, this will obviously fail the count checks.
 
 ```cpp
 #include "gentest/attributes.h"
