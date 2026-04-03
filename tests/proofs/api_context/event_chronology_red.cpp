@@ -50,6 +50,7 @@ int main() {
             const char kind = i < ctx->event_kinds.size() ? ctx->event_kinds[i] : '?';
             std::cerr << "  [" << i << "] kind=" << kind << " line=" << ctx->event_lines[i] << '\n';
         }
+        return 1;
     } catch (const std::exception &e) {
         std::cerr << "RED: unexpected std::exception: " << e.what() << '\n';
         return 1;
