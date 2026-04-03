@@ -172,11 +172,42 @@ import subprocess
 import sys
 
 repo_root = pathlib.Path(sys.argv[1]).resolve()
-tracked = subprocess.check_output(
-    ["git", "-C", str(repo_root), "ls-files", "--", "include", "src", "tests", "tools"],
-    text = True,
-).splitlines()
 suffixes = (".c", ".cc", ".cpp", ".cxx", ".cu", ".c++", ".h", ".hh", ".hpp", ".hxx", ".h++", ".ipp", ".inl", ".cppm", ".ixx", ".mpp")
+roots = ("include", "src", "tests", "tools")
+
+def filesystem_repo_files():
+    files = []
+    for root_name in roots:
+        root = repo_root / root_name
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(repo_root).as_posix()
+            if rel.startswith("tests/generated/"):
+                continue
+            if rel.endswith(suffixes):
+                files.append(rel)
+    return sorted(files)
+
+try:
+    tracked = subprocess.check_output(
+        [
+            "git",
+            "-c",
+            f"safe.directory={repo_root}",
+            "-C",
+            str(repo_root),
+            "ls-files",
+            "--",
+            *roots,
+        ],
+        text = True,
+    ).splitlines()
+except (FileNotFoundError, subprocess.CalledProcessError):
+    tracked = filesystem_repo_files()
+
 entries = []
 for rel in tracked:
     if not rel.endswith(suffixes):

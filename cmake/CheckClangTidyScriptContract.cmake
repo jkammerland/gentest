@@ -32,6 +32,12 @@ if(_line_filter_json_pos EQUAL -1)
   message(FATAL_ERROR
     "scripts/check_clang_tidy.sh must keep the repo-wide line filter that includes tracked repo C/C++ files.")
 endif()
+string(FIND "${_script_content}" "safe.directory=" _safe_directory_pos)
+if(_safe_directory_pos EQUAL -1)
+  message(FATAL_ERROR
+    "scripts/check_clang_tidy.sh must tolerate Git safe.directory checks in CI by passing a repo-local safe.directory override "
+    "or equivalent fallback through the tracked-file discovery path.")
+endif()
 string(REGEX MATCHALL "--line-filter=\"\\$\\{LINE_FILTER_JSON\\}\"" _line_filter_usages "${_script_content}")
 list(LENGTH _line_filter_usages _line_filter_usage_count)
 if(_line_filter_usage_count LESS 3)
