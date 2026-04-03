@@ -122,6 +122,12 @@ file(WRITE "${_fake_llvm_dir}/LLVMConfig.cmake" "# fake llvm config\n")
 file(WRITE "${_fake_clang_dir}/ClangConfig.cmake" "# fake clang config\n")
 file(WRITE "${_wrong_llvm_dir}/LLVMConfig.cmake" "# wrong llvm config\n")
 file(WRITE "${_wrong_clang_dir}/ClangConfig.cmake" "# wrong clang config\n")
+if(NOT EXISTS "${_fake_llvm_dir}/LLVMConfig.cmake" OR NOT EXISTS "${_fake_clang_dir}/ClangConfig.cmake")
+  message(FATAL_ERROR "Configured-toolchain regression failed to materialize the configured fake LLVM/Clang package dirs")
+endif()
+if(NOT EXISTS "${_wrong_llvm_dir}/LLVMConfig.cmake" OR NOT EXISTS "${_wrong_clang_dir}/ClangConfig.cmake")
+  message(FATAL_ERROR "Configured-toolchain regression failed to materialize the alternate env LLVM/Clang package dirs")
+endif()
 
 set(_path_sep ":")
 if(WIN32)
@@ -539,6 +545,8 @@ function(_run_bazel_helper_regression name script_path)
       "EXPECT_FLAGS=${_expected_flags_joined}"
       "MARKER_DIR=${_marker_dir}"
       "GENTEST_CODEGEN_HOST_CLANG=${_wrong_cxx}"
+      # Deliberately pass valid alternate package dirs through the environment. The helper scripts
+      # must still prefer the explicitly configured CMake package paths below.
       "LLVM_BIN="
       "LLVM_DIR=${_wrong_llvm_dir}"
       "Clang_DIR=${_wrong_clang_dir}"
@@ -579,7 +587,11 @@ if(NOT WIN32)
   _run_bazel_helper_regression(module_path_only "${SOURCE_DIR}/cmake/CheckBazelModuleConsumer.cmake" PATH_ONLY_REAL_CLANG)
 endif()
 
-_run_bazel_helper_regression(bzlmod "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
+if(WIN32)
+  _run_bazel_helper_regression(bzlmod_windows "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
+else()
+  _run_bazel_helper_regression(bzlmod "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
+endif()
 if(NOT EXISTS "${_marker_dir}/bzlmod.ok")
   message(FATAL_ERROR "Bzlmod Bazel helper did not invoke the configured-toolchain fake bazel harness")
 endif()
