@@ -197,6 +197,7 @@ with open(os.path.join(build_dir, "compile_commands.json"), encoding="utf-8") as
 selected = []
 seen = set()
 selected_entries = []
+skipped_non_clang_modules = []
 for entry in compile_commands:
     abs_path = os.path.realpath(entry["file"])
     if path_is_within(abs_path, build_dir):
@@ -218,6 +219,7 @@ for entry in compile_commands:
             continue
 
     if rel_path.endswith((".cppm", ".ixx")) and not compiler_is_clang_like(entry):
+        skipped_non_clang_modules.append(rel_path)
         continue
     if rel_path in seen:
         continue
@@ -247,10 +249,20 @@ if missing_module_prereqs:
             file=sys.stderr,
         )
     print(
-        f"Build the owning targets first. For the default repo gate run: cmake --build {build_dir} --target gentest",
+        f"Build the owning targets first. For the default repo gate run: cmake --build {build_dir} --target gentest gentest_textual_suite_mocks",
         file=sys.stderr,
     )
     sys.exit(2)
+
+if skipped_non_clang_modules:
+    unique_skipped = sorted(set(skipped_non_clang_modules))
+    print(
+        "clang-tidy: skipped module units with non-clang compile commands "
+        f"({len(unique_skipped)} file(s)); use a clang/clang-cl build to lint them:",
+        file=sys.stderr,
+    )
+    for rel_path in unique_skipped:
+        print(f"  {rel_path}", file=sys.stderr)
 
 with open(os.path.join(tidy_compdb_dir, "compile_commands.json"), "w", encoding="utf-8") as f:
     json.dump(selected_entries, f, indent=2)
