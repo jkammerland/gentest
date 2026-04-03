@@ -92,7 +92,7 @@ jobs:
 
       - name: Build module prerequisites
         run: |
-          cmake --build build/debug-system --target gentest -j 1
+          cmake --build build/debug-system --target gentest gentest_textual_suite_mocks -j 1
 
       - name: Check clang-tidy
         run: |

@@ -43,12 +43,12 @@ struct TeardownGuard final {
     ~TeardownGuard() {
         if (g_bench_setup_entered.load(std::memory_order_relaxed) && g_bench_teardown_count.load(std::memory_order_relaxed) != 1) {
             (void)std::fputs("regression marker: generated bench teardown not armed before setup\n", stderr);
-            std::fflush(stderr);
+            (void)std::fflush(stderr);
             std::abort();
         }
         if (g_jitter_setup_entered.load(std::memory_order_relaxed) && g_jitter_teardown_count.load(std::memory_order_relaxed) != 1) {
             (void)std::fputs("regression marker: generated jitter teardown not armed before setup\n", stderr);
-            std::fflush(stderr);
+            (void)std::fflush(stderr);
             std::abort();
         }
     }

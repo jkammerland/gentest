@@ -9,7 +9,7 @@ clang_format_bin="${CLANG_FORMAT_BIN:-clang-format}"
 should_skip_lint_path() {
     local rel_path="$1"
     case "${rel_path}" in
-    tests/cmake/module_same_line_directives/* | tests/cmake/module_multiline_directives/* | tests/cmake/module_manual_include_whitespace/* | tests/cmake/module_name_literal_false_match/* | tests/smoke/namespace_suite_comment.cpp)
+    tests/smoke/namespace_suite_comment.cpp | tests/cmake/module_manual_include_whitespace/cases.cppm | tests/cmake/module_manual_partial_includes/*.cppm | tests/cmake/module_partial_manual_codegen_includes/*.cppm | tests/cmake/module_header_unit_import_preamble/cases.cppm | tests/cmake/module_partition_import_shorthand/*.cppm | tests/cmake/module_mock_imported_sibling/consumer.cppm | tests/cmake/module_mock_imported_sibling/provider.ixx | tests/cmake/module_name_literal_false_match/*.cppm | tests/cmake/module_name_literal_false_match/*.ixx)
         return 0
         ;;
     esac

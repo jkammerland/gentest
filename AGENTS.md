@@ -65,7 +65,7 @@
 
 ## Coding Style & Naming Conventions
 - Follow `.clang-format` (LLVM-derived): 4-space indent, 140-column limit.
-- Run the CI-aligned clang-tidy gate with `scripts/check_clang_tidy.sh build/debug-system` after configuring the preset and building `gentest` once so module response files exist. The script derives direct tidy inputs from `build/debug-system/compile_commands.json`, covering tracked compiled repo files under `src`, `include` module units, `tests`, and `tools` while excluding generated build-tree sources.
+- Run the CI-aligned clang-tidy gate with `scripts/check_clang_tidy.sh build/debug-system` after configuring the preset and building `gentest gentest_textual_suite_mocks` once so module response files and shared generated mock surfaces exist. The script derives direct tidy inputs from `build/debug-system/compile_commands.json`, remaps generated test shims back to tracked handwritten test sources where possible, and excludes build-tree generated sources/headers from direct tidy coverage.
 - Filenames: lowercase `snake_case`; types: `PascalCase`; functions: `camelCase`.
 - Keep public symbols in the `gentest` namespace.
 

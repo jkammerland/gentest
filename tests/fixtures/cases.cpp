@@ -65,6 +65,7 @@ struct [[using gentest: fixture(suite)]] Counter /* optionally implement setup/t
     }
 
     [[using gentest: test("stateful/d_default_shared_ptr_alias_passthrough")]]
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
     void default_shared_ptr_alias_passthrough(StackFixtureSharedAlias helper = nullptr) {
         gentest::expect(!helper, "defaulted shared_ptr fixture-like alias parameter is passed through (not fixture-inferred)");
     }
@@ -281,6 +282,7 @@ void free_default_ptr_passthrough(PtrFixture *fx = nullptr) {
 }
 
 [[using gentest: test("free/default_shared_ptr_alias_passthrough")]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void free_default_shared_ptr_alias_passthrough(PtrFixtureSharedAlias fx = nullptr) {
     gentest::expect(!fx, "defaulted shared_ptr fixture-like alias parameter is passed through (not fixture-inferred)");
 }
@@ -322,6 +324,7 @@ void free_raw_pointer_polymorphic_b_after_first(RawPolymorphicFixture *fx) {
 }
 
 [[using gentest: test("free/shared_ptr")]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void free_shared_ptr(SharedFixtureHandle fx) {
     gentest::expect(static_cast<bool>(fx), "shared fixture pointer is valid");
     gentest::expect_eq(fx->value, 4, "fixture state available");
@@ -407,6 +410,7 @@ void hit(SharedGlobalFx &fx) {
 
 namespace inner_b {
 [[using gentest: test("global_shared/inner_b/check")]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void check(SharedGlobalAlias fx) {
     SharedGlobalFx::saw_test = true;
     gentest::expect(static_cast<bool>(fx), "shared pointer provided");
@@ -484,6 +488,7 @@ void mixed_one(LocalMix &local, SuiteMix &suite, GlobalMix &global) {
 }
 
 [[using gentest: test("mixed/two"), parameters(marker, 9, 11, 13)]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void mixed_two(LocalMix &local, int marker, SuiteMixAlias &suite, GlobalMixHandle global) {
     gentest::expect(marker == 9 || marker == 11 || marker == 13, "parameter values bound between fixture args");
     gentest::expect_eq(SuiteMix::setups, 1, "suite fixture setUp runs once");

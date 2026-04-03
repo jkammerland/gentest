@@ -11,7 +11,7 @@ struct LocalFx : gentest::FixtureSetup, gentest::FixtureTearDown {
 
     void tearDown() override {
         (void)std::fputs("local-fixture-teardown-noexc-marker\n", stderr);
-        std::fflush(stderr);
+        (void)std::fflush(stderr);
     }
 };
 
