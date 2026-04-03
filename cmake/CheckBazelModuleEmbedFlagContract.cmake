@@ -68,12 +68,15 @@ function(_extract_function_body content function_name out_block)
 endfunction()
 
 file(READ "${_build_file}" _build_content)
-string(FIND "${_build_content}" "_gentest_public_module_copts = _gentest_public_copts + ['-fmodules-embed-all-files']" _public_module_copts_pos)
-if(_public_module_copts_pos EQUAL -1)
+string(REGEX MATCH "_gentest_public_module_copts[ \t]*=[^\n]*" _public_module_copts_assignment "${_build_content}")
+if(_public_module_copts_assignment STREQUAL "")
   message(FATAL_ERROR
-    "BUILD.bazel must keep `_gentest_public_module_copts` wiring `-fmodules-embed-all-files` into the\n"
-    "actual public gentest module targets.")
+    "BUILD.bazel must keep an assignment for `_gentest_public_module_copts`.")
 endif()
+_assert_contains("${_public_module_copts_assignment}" "_gentest_public_copts"
+  "The `_gentest_public_module_copts` assignment")
+_assert_contains("${_public_module_copts_assignment}" "-fmodules-embed-all-files"
+  "The `_gentest_public_module_copts` assignment")
 _extract_named_cc_library("${_build_content}" "gentest" _gentest_public_module_block)
 _assert_contains("${_gentest_public_module_block}" "copts = _gentest_public_module_copts" "The public gentest module target")
 _extract_named_cc_library("${_build_content}" "gentest_mock" _gentest_mock_module_block)

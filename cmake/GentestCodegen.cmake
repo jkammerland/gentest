@@ -154,12 +154,10 @@ function(_gentest_stage_explicit_mock_file stage_dir source_file staged_rel out_
         file(RELATIVE_PATH _gentest_dep_include_rel
             "${stage_dir}/${_gentest_stage_file_dir}"
             "${stage_dir}/${_gentest_dep_rel}")
-        set(_gentest_include_replacement "${_gentest_include_match}")
-        set(_gentest_include_path_regex "${_gentest_include_path}")
-        string(REGEX REPLACE "([][+.*()^$?{}|\\\\])" "\\\\\\1"
-            _gentest_include_path_regex "${_gentest_include_path_regex}")
-        string(REGEX REPLACE "([<\"])${_gentest_include_path_regex}([>\"])" "\"${_gentest_dep_include_rel}\""
-            _gentest_include_replacement "${_gentest_include_replacement}")
+        if(NOT _gentest_include_match MATCHES "^(#[ \t]*include[ \t]*)[<\"][^>\"]+[>\"]$")
+            message(FATAL_ERROR "Failed to rewrite staged explicit mock include: ${_gentest_include_match}")
+        endif()
+        set(_gentest_include_replacement "${CMAKE_MATCH_1}\"${_gentest_dep_include_rel}\"")
         string(REPLACE "${_gentest_include_match}" "${_gentest_include_replacement}"
             _gentest_rewritten_content "${_gentest_rewritten_content}")
     endforeach()

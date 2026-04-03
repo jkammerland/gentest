@@ -2,6 +2,8 @@
 
 #include "service.hpp"
 
+#include <fixture/a+b.hpp>
+
 namespace fixture::mocks {
 
 using ServiceMock            = gentest::mock<fixture::Service>;

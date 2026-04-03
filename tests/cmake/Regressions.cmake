@@ -1514,6 +1514,12 @@ gentest_add_run_and_check_file(
     FORBID_SUBSTRINGS "skipped=\"1\"|<skipped"
     ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skip.xml)
 
+gentest_add_check_death(
+    NAME regression_shared_fixture_manual_create_assert_reports_location
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
+    EXPECT_SUBSTRING "failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:8"
+    ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test)
+
 gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_create_assert_junit_reports_location
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>

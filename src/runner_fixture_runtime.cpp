@@ -358,7 +358,8 @@ bool setup_shared_fixtures() {
                 instance = create_fn(suite_name, error);
             } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
                 caught_assertion = true;
-                error            = e.message();
+                // Fallback only. resolve_fixture_context_issue() prefers the recorded source-backed failure text.
+                error = e.message();
             } catch (const std::exception &e) { error = std::string("std::exception: ") + e.what(); } catch (...) {
                 error = "unknown exception";
             }

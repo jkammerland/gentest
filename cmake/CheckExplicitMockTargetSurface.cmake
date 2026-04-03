@@ -118,6 +118,28 @@ foreach(_generated_header IN ITEMS
   endif()
 endforeach()
 
+file(GLOB _staged_regex_meta_headers "${_build_dir}/generated/header/defs/deps/*a+b.hpp")
+if(NOT _staged_regex_meta_headers)
+  message(FATAL_ERROR
+    "Expected staged explicit mock support header for regex-metachar include 'fixture/a+b.hpp', but none was written under "
+    "'${_build_dir}/generated/header/defs/deps'")
+endif()
+set(_saw_staged_regex_meta_header FALSE)
+foreach(_staged_regex_meta_header IN LISTS _staged_regex_meta_headers)
+  if(IS_DIRECTORY "${_staged_regex_meta_header}")
+    continue()
+  endif()
+  file(READ "${_staged_regex_meta_header}" _staged_regex_meta_header_content)
+  if(_staged_regex_meta_header_content MATCHES "kRegexMetaHeaderSentinel = 17")
+    set(_saw_staged_regex_meta_header TRUE)
+    break()
+  endif()
+endforeach()
+if(NOT _saw_staged_regex_meta_header)
+  message(FATAL_ERROR
+    "Expected staged explicit mock support header for regex-metachar include 'fixture/a+b.hpp' to preserve its contents.")
+endif()
+
 set(_generated_module_header "${_build_dir}/generated/module/public/fixture_module_mocks.hpp")
 if(EXISTS "${_generated_module_header}")
   message(FATAL_ERROR
@@ -198,6 +220,13 @@ message(STATUS "Mutate local support header and rebuild explicit header consumer
 file(READ "${_src_dir}/service.hpp" _service_header_content)
 string(REPLACE "kServiceSentinel = 9" "kServiceSentinel = 11" _service_header_content "${_service_header_content}")
 file(WRITE "${_src_dir}/service.hpp" "${_service_header_content}")
+file(READ "${_src_dir}/fixture/a+b.hpp" _regex_meta_header_content)
+string(REPLACE
+  "kRegexMetaHeaderSentinel = 17"
+  "kRegexMetaHeaderSentinel = 23"
+  _regex_meta_header_content
+  "${_regex_meta_header_content}")
+file(WRITE "${_src_dir}/fixture/a+b.hpp" "${_regex_meta_header_content}")
 
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}"
@@ -219,6 +248,23 @@ endforeach()
 if(NOT _saw_updated_staged_service_header)
   message(FATAL_ERROR
     "Rebuild after editing service.hpp did not refresh any staged explicit mock support header under "
+    "'${_build_dir}/generated/header/defs/deps'")
+endif()
+
+set(_saw_updated_staged_regex_meta_header FALSE)
+foreach(_staged_regex_meta_header IN LISTS _staged_regex_meta_headers)
+  if(IS_DIRECTORY "${_staged_regex_meta_header}")
+    continue()
+  endif()
+  file(READ "${_staged_regex_meta_header}" _staged_regex_meta_header_content)
+  if(_staged_regex_meta_header_content MATCHES "kRegexMetaHeaderSentinel = 23")
+    set(_saw_updated_staged_regex_meta_header TRUE)
+    break()
+  endif()
+endforeach()
+if(NOT _saw_updated_staged_regex_meta_header)
+  message(FATAL_ERROR
+    "Rebuild after editing fixture/a+b.hpp did not refresh the staged explicit mock support header under "
     "'${_build_dir}/generated/header/defs/deps'")
 endif()
 
