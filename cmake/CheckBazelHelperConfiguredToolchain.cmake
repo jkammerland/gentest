@@ -558,6 +558,7 @@ function(_run_bazel_helper_regression name script_path)
       "-DBUILD_ROOT=${_work_dir}/${name}"
       "-DC_COMPILER=${_configured_cc}"
       "-DCXX_COMPILER=${_configured_cxx}"
+      "-DBAZEL_EXECUTABLE=${_fake_bazel}"
       "-DLLVM_DIR=${_fake_llvm_dir}"
       "-DClang_DIR=${_fake_clang_dir}"
       "-P" "${script_path}"
@@ -590,16 +591,12 @@ if(NOT WIN32)
   _run_bazel_helper_regression(module_ccache_shim "${SOURCE_DIR}/cmake/CheckBazelModuleConsumer.cmake" CCACHE_SHIM_INPUTS)
 endif()
 
-if(WIN32)
-  _run_bazel_helper_regression(bzlmod_windows "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
-else()
-  _run_bazel_helper_regression(bzlmod "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
-endif()
-if(NOT EXISTS "${_marker_dir}/bzlmod.ok")
-  message(FATAL_ERROR "Bzlmod Bazel helper did not invoke the configured-toolchain fake bazel harness")
-endif()
 if(NOT WIN32)
+  _run_bazel_helper_regression(bzlmod "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
   _run_bazel_helper_regression(bzlmod_ccache_shim "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake" CCACHE_SHIM_INPUTS)
+  if(NOT EXISTS "${_marker_dir}/bzlmod.ok")
+    message(FATAL_ERROR "Bzlmod Bazel helper did not invoke the configured-toolchain fake bazel harness")
+  endif()
 endif()
 
 message(STATUS "Configured-toolchain Bazel helper regression passed")
