@@ -1,5 +1,5 @@
 module;
-#include "fixture/module_support.hpp"
+#include <fixture/module_support.hpp>
 
 export module fixture.service_module;
 

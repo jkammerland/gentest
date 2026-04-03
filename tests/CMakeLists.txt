@@ -2558,6 +2558,26 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_bazel_helpers_use_configured_toolchain
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBazelHelperConfiguredToolchain.cmake
+    contract)
+
+_gentest_add_cmake_helper_test(
+    gentest_module_doc_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleDocContract.cmake
+    contract)
+set_property(TEST gentest_module_doc_contract APPEND PROPERTY LABELS "modules" "docs")
+
+_gentest_add_cmake_helper_test(
+    gentest_syntax_sensitive_regression_fixtures
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckSyntaxSensitiveRegressionFixtures.cmake
+    contract)
+set_property(TEST gentest_syntax_sensitive_regression_fixtures APPEND PROPERTY LABELS "modules" "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_non_cmake_module_contract
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckNonCmakeModuleContract.cmake

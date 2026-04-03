@@ -46,6 +46,9 @@ function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
     /usr/lib/llvm-20/lib/cmake/clang)
 
   set(_resolved_llvm "")
+  if(DEFINED LLVM_DIR AND NOT LLVM_DIR STREQUAL "" AND EXISTS "${LLVM_DIR}/LLVMConfig.cmake")
+    set(_resolved_llvm "${LLVM_DIR}")
+  endif()
   if(NOT "$ENV{LLVM_DIR}" STREQUAL "" AND EXISTS "$ENV{LLVM_DIR}/LLVMConfig.cmake")
     set(_resolved_llvm "$ENV{LLVM_DIR}")
   endif()
@@ -57,6 +60,9 @@ function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
   endforeach()
 
   set(_resolved_clang "")
+  if(DEFINED Clang_DIR AND NOT Clang_DIR STREQUAL "" AND EXISTS "${Clang_DIR}/ClangConfig.cmake")
+    set(_resolved_clang "${Clang_DIR}")
+  endif()
   if(NOT "$ENV{Clang_DIR}" STREQUAL "" AND EXISTS "$ENV{Clang_DIR}/ClangConfig.cmake")
     set(_resolved_clang "$ENV{Clang_DIR}")
   endif()
@@ -96,9 +102,32 @@ set(_gentest_clang_search_paths
   /usr/lib/llvm-20/bin
   /usr/bin)
 
+set(_resource_dir "")
+set(_use_explicit_c_compiler FALSE)
 set(_codegen_host_clang "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
 if(NOT _codegen_host_clang STREQUAL "" AND NOT EXISTS "${_codegen_host_clang}")
   message(FATAL_ERROR "GENTEST_CODEGEN_HOST_CLANG points to a missing clang++ executable: ${_codegen_host_clang}")
+endif()
+if(_codegen_host_clang STREQUAL "" AND DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
+  if(NOT EXISTS "${CXX_COMPILER}")
+    message(FATAL_ERROR "CXX_COMPILER points to a missing clang++ executable: ${CXX_COMPILER}")
+  endif()
+  execute_process(
+    COMMAND "${CXX_COMPILER}" -print-resource-dir
+    RESULT_VARIABLE _configured_resource_rc
+    OUTPUT_VARIABLE _configured_resource_out
+    ERROR_VARIABLE _configured_resource_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(_configured_resource_rc EQUAL 0 AND NOT _configured_resource_out STREQUAL "")
+    set(_codegen_host_clang "${CXX_COMPILER}")
+    set(_resource_dir "${_configured_resource_out}")
+    set(_use_explicit_c_compiler TRUE)
+  endif()
+endif()
+if(_codegen_host_clang STREQUAL "")
+  if(NOT "$ENV{LLVM_BIN}" STREQUAL "" AND EXISTS "$ENV{LLVM_BIN}/clang++")
+    set(_codegen_host_clang "$ENV{LLVM_BIN}/clang++")
+  endif()
 endif()
 if(_codegen_host_clang STREQUAL "")
   find_program(_codegen_host_clang NAMES clang++-22 clang++-21 clang++-20 clang++
@@ -114,27 +143,36 @@ if(NOT _codegen_host_clang)
 endif()
 
 get_filename_component(_clang_bin_dir "${_codegen_host_clang}" DIRECTORY)
-find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
-  PATHS "${_clang_bin_dir}" ${_gentest_clang_search_paths}
-  NO_DEFAULT_PATH)
-if(NOT _clang_cc)
+if(_use_explicit_c_compiler AND DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
+  if(NOT EXISTS "${C_COMPILER}")
+    message(FATAL_ERROR "C_COMPILER points to a missing clang executable: ${C_COMPILER}")
+  endif()
+  set(_clang_cc "${C_COMPILER}")
+else()
   find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
-    PATHS ${_gentest_clang_search_paths})
+    PATHS "${_clang_bin_dir}" ${_gentest_clang_search_paths}
+    NO_DEFAULT_PATH)
+  if(NOT _clang_cc)
+    find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
+      PATHS ${_gentest_clang_search_paths})
+  endif()
 endif()
 if(NOT _clang_cc)
   message(FATAL_ERROR "Failed to locate clang adjacent to ${_codegen_host_clang}")
 endif()
 
-execute_process(
-  COMMAND "${_codegen_host_clang}" -print-resource-dir
-  RESULT_VARIABLE _resource_rc
-  OUTPUT_VARIABLE _resource_out
-  ERROR_VARIABLE _resource_err
-  OUTPUT_STRIP_TRAILING_WHITESPACE)
-if(NOT _resource_rc EQUAL 0 OR _resource_out STREQUAL "")
-  message(FATAL_ERROR "Failed to query clang resource dir.\nstdout:\n${_resource_out}\nstderr:\n${_resource_err}")
+if(_resource_dir STREQUAL "")
+  execute_process(
+    COMMAND "${_codegen_host_clang}" -print-resource-dir
+    RESULT_VARIABLE _resource_rc
+    OUTPUT_VARIABLE _resource_out
+    ERROR_VARIABLE _resource_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT _resource_rc EQUAL 0 OR _resource_out STREQUAL "")
+    message(FATAL_ERROR "Failed to query clang resource dir.\nstdout:\n${_resource_out}\nstderr:\n${_resource_err}")
+  endif()
+  set(_resource_dir "${_resource_out}")
 endif()
-set(_resource_dir "${_resource_out}")
 
 _gentest_resolve_llvm_cmake_dirs("${_codegen_host_clang}" _llvm_dir _clang_dir)
 if(_llvm_dir STREQUAL "" OR _clang_dir STREQUAL "")

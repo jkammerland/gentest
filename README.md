@@ -533,7 +533,7 @@ gentest_add_mocks(service_mocks
 add_executable(module_tests
   main.cpp
   cases.cppm)
-target_link_libraries(module_tests PRIVATE gentest::gentest_runtime service_mocks)
+target_link_libraries(module_tests PRIVATE gentest::gentest gentest::gentest_runtime service_mocks)
 gentest_attach_codegen(module_tests)
 gentest_discover_tests(module_tests)
 ```

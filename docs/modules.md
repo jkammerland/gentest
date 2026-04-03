@@ -147,6 +147,7 @@ add_executable(my_tests
   cases.cppm)
 
 target_link_libraries(my_tests PRIVATE
+  gentest::gentest
   gentest::gentest_runtime
   my_service_mocks)
 
