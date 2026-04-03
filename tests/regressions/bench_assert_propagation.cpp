@@ -16,6 +16,13 @@ void               bench_assert_should_fail(void *) {
     EXPECT_TRUE(false, "intentional benchmark assertion failure");
 }
 
+constexpr unsigned kBenchFatalAssertShouldFailLine = __LINE__ + 1;
+void               bench_fatal_assert_should_fail(void *) {
+    if (!in_bench_call_phase())
+        return;
+    ASSERT_TRUE(false, "intentional fatal benchmark assertion failure");
+}
+
 constexpr unsigned kBenchStdExceptionShouldFailLine = __LINE__ + 1;
 void               bench_std_exception_should_fail(void *) {
     if (!in_bench_call_phase())
@@ -59,6 +66,13 @@ void               jitter_assert_should_fail(void *) {
     if (!in_bench_call_phase())
         return;
     EXPECT_TRUE(false, "intentional jitter assertion failure");
+}
+
+constexpr unsigned kJitterFatalAssertShouldFailLine = __LINE__ + 1;
+void               jitter_fatal_assert_should_fail(void *) {
+    if (!in_bench_call_phase())
+        return;
+    ASSERT_TRUE(false, "intentional fatal jitter assertion failure");
 }
 
 constexpr unsigned kJitterStdExceptionShouldFailLine = __LINE__ + 1;
@@ -121,6 +135,22 @@ gentest::Case kCases[] = {
         .fn               = &bench_std_exception_should_fail,
         .file             = __FILE__,
         .line             = kBenchStdExceptionShouldFailLine,
+        .is_benchmark     = true,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
+    {
+        .name             = "regressions/bench_fatal_assert_should_fail",
+        .fn               = &bench_fatal_assert_should_fail,
+        .file             = __FILE__,
+        .line             = kBenchFatalAssertShouldFailLine,
         .is_benchmark     = true,
         .is_jitter        = false,
         .is_baseline      = false,
@@ -217,6 +247,22 @@ gentest::Case kCases[] = {
         .fn               = &jitter_std_exception_should_fail,
         .file             = __FILE__,
         .line             = kJitterStdExceptionShouldFailLine,
+        .is_benchmark     = false,
+        .is_jitter        = true,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
+    {
+        .name             = "regressions/jitter_fatal_assert_should_fail",
+        .fn               = &jitter_fatal_assert_should_fail,
+        .file             = __FILE__,
+        .line             = kJitterFatalAssertShouldFailLine,
         .is_benchmark     = false,
         .is_jitter        = true,
         .is_baseline      = false,

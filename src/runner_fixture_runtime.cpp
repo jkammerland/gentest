@@ -14,6 +14,8 @@
 #include <vector>
 
 namespace {
+
+bool is_assertion_summary_label(std::string_view value) { return value.starts_with("ASSERT_"); }
 struct SharedFixtureEntry {
     std::string                         fixture_name;
     std::string                         suite;
@@ -174,13 +176,21 @@ bool run_fixture_phase(std::string_view label, const std::function<void(std::str
     error_out.clear();
     gentest::detail::clear_bench_error();
     FixtureContextGuard guard(label);
+    bool                caught_assertion = false;
     try {
         fn(error_out);
-    } catch (const gentest::assertion &e) { error_out = e.message(); } catch (const std::exception &e) {
-        error_out = std::string("std::exception: ") + e.what();
-    } catch (...) { error_out = "unknown exception"; }
+    } catch (const gentest::assertion &e) {
+        error_out        = e.message();
+        caught_assertion = true;
+    } catch (const std::exception &e) { error_out = std::string("std::exception: ") + e.what(); } catch (...) {
+        error_out = "unknown exception";
+    }
     gentest::detail::wait_for_adopted_tokens(guard.ctx);
     gentest::detail::flush_current_buffer_for(guard.ctx.get());
+    const std::string first_failure = gentest::detail::first_recorded_failure(guard.ctx);
+    if (!first_failure.empty() && (caught_assertion || is_assertion_summary_label(error_out))) {
+        error_out = first_failure;
+    }
     if (!error_out.empty()) {
         return false;
     }
@@ -188,12 +198,9 @@ bool run_fixture_phase(std::string_view label, const std::function<void(std::str
         error_out = gentest::detail::take_bench_error();
         return false;
     }
-    {
-        std::lock_guard<std::mutex> lk(guard.ctx->mtx);
-        if (!guard.ctx->failures.empty()) {
-            error_out = guard.ctx->failures.front();
-            return false;
-        }
+    if (!first_failure.empty()) {
+        error_out = first_failure;
+        return false;
     }
     return true;
 }

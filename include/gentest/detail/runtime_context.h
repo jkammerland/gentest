@@ -138,6 +138,17 @@ inline void wait_for_adopted_tokens(const std::shared_ptr<TestContextInfo> &ctx)
     ctx->adopted_cv.wait(lk, [&] { return ctx->adopted_tokens.load(std::memory_order_acquire) == 0; });
 }
 
+inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo> &ctx) {
+    if (!ctx)
+        return {};
+
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    if (ctx->failures.empty()) {
+        return {};
+    }
+    return ctx->failures.front();
+}
+
 inline void request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
     auto ctx = current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {

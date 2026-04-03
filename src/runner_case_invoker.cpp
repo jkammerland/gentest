@@ -47,6 +47,11 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
 
     gentest::detail::wait_for_adopted_tokens(out.ctxinfo);
     gentest::detail::flush_current_buffer_for(out.ctxinfo.get());
+    if (out.exception == InvokeException::Assertion) {
+        if (auto recorded_failure = gentest::detail::first_recorded_failure(out.ctxinfo); !recorded_failure.empty()) {
+            out.message = std::move(recorded_failure);
+        }
+    }
     out.ctxinfo->active = false;
     gentest::detail::set_current_test(nullptr);
     const auto end_tp = std::chrono::steady_clock::now();

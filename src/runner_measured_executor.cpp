@@ -94,22 +94,15 @@ void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestC
 }
 
 void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string_view default_skip_reason,
-                                 bool &had_assert_fail) {
+                                 std::string_view assertion_fallback, bool &had_assert_fail) {
     wait_and_flush_test_context(ctxinfo);
-    if (had_assert_fail)
-        return;
-
     bool        runtime_skip_requested = false;
     std::string runtime_skip_reason;
-    std::string first_failure;
     {
         std::scoped_lock lk(ctxinfo->mtx);
         runtime_skip_requested = ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
         if (runtime_skip_requested) {
             runtime_skip_reason = ctxinfo->runtime_skip_reason;
-        }
-        if (!ctxinfo->failures.empty()) {
-            first_failure = ctxinfo->failures.front();
         }
     }
     if (runtime_skip_requested) {
@@ -121,8 +114,14 @@ void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestCont
         had_assert_fail = true;
         return;
     }
+    std::string first_failure = gentest::detail::first_recorded_failure(ctxinfo);
     if (!first_failure.empty()) {
         gentest::detail::record_bench_error(std::move(first_failure));
+        had_assert_fail = true;
+        return;
+    }
+    if (!assertion_fallback.empty()) {
+        gentest::detail::record_bench_error(std::string(assertion_fallback));
         had_assert_fail = true;
     }
 }
@@ -138,6 +137,7 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
     gentest::detail::BenchPhaseScope bench_scope(gentest::detail::BenchPhase::Call);
     auto                             start = clock::now();
     had_assert_fail                        = false;
+    std::string assertion_fallback;
     try {
         body();
     } catch (const gentest::detail::skip_exception &) {
@@ -146,8 +146,8 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
         had_assert_fail = true;
     } catch (const gentest::assertion &e) {
         on_interrupted();
-        gentest::detail::record_bench_error(e.message());
-        had_assert_fail = true;
+        assertion_fallback = e.message();
+        had_assert_fail    = true;
     } catch (const gentest::failure &e) {
         on_interrupted();
         gentest::detail::record_bench_error(e.what());
@@ -161,7 +161,7 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
         gentest::detail::record_bench_error("unknown exception");
         had_assert_fail = true;
     }
-    finalize_call_phase_failure(ctxinfo, default_skip_reason, had_assert_fail);
+    finalize_call_phase_failure(ctxinfo, default_skip_reason, assertion_fallback, had_assert_fail);
     auto end        = clock::now();
     ctxinfo->active = false;
     gentest::detail::set_current_test(nullptr);
@@ -338,6 +338,7 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
     case gentest::runner::InvokeException::StdException:
     case gentest::runner::InvokeException::Unknown: error = inv.message; break;
     }
+    const std::string first_failure = gentest::detail::first_recorded_failure(ctxinfo);
     {
         std::lock_guard<std::mutex> lk(ctxinfo->mtx);
         const bool                  skip_requested = ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
@@ -349,8 +350,10 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
             runtime_skipped = false;
             error           = "skip requested without active runtime skip state";
         }
-        if (!runtime_skipped && error.empty() && !ctxinfo->failures.empty()) {
-            error = ctxinfo->failures.front();
+        if (!runtime_skipped && inv.exception == gentest::runner::InvokeException::Assertion && !first_failure.empty()) {
+            error = first_failure;
+        } else if (!runtime_skipped && error.empty() && !first_failure.empty()) {
+            error = first_failure;
         }
     }
     if (runtime_skipped)

@@ -69,6 +69,7 @@ set(_gentest_manual_regressions
     "gentest_regression_shared_fixture_ordering|shared_fixture_ordering.cpp"
     "gentest_regression_fixture_group_shuffle_invariants|fixture_group_shuffle_invariants.cpp"
     "gentest_regression_shared_fixture_manual_create_throw_skip|shared_fixture_manual_create_throw_skip.cpp"
+    "gentest_regression_shared_fixture_manual_setup_assert_skip|shared_fixture_manual_setup_assert_skip.cpp"
     "gentest_regression_shared_fixture_manual_setup_throw_skip|shared_fixture_manual_setup_throw_skip.cpp"
     "gentest_regression_shared_fixture_missing_factory_skip|shared_fixture_missing_factory_skip.cpp"
     "gentest_regression_shared_fixture_runtime_registration_during_run|shared_fixture_runtime_registration_during_run.cpp"
@@ -83,6 +84,7 @@ set(_gentest_manual_regressions
     "gentest_regression_cli_suffix_ambiguity|cli_suffix_ambiguity.cpp"
     "gentest_regression_orchestrator_fail_fast_blocks_measured|orchestrator_fail_fast_blocks_measured.cpp"
     "gentest_regression_measured_local_fixture_partial_setup_teardown|measured_local_fixture_partial_setup_teardown.cpp"
+    "gentest_regression_measured_local_fixture_setup_assert_teardown_armed|measured_local_fixture_setup_assert_teardown_armed.cpp"
     "gentest_regression_measured_local_fixture_setup_throw_teardown_armed|measured_local_fixture_setup_throw_teardown_armed.cpp"
     "gentest_regression_measured_local_fixture_call_teardown_dualfail|measured_local_fixture_call_teardown_dualfail.cpp"
     "gentest_regression_measured_local_fixture_setup_skip_teardown_fail|measured_local_fixture_setup_skip_teardown_fail.cpp"
@@ -184,10 +186,34 @@ gentest_add_check_death(
     ARGS --run=regressions/bench_assert_should_fail --kind=bench)
 
 gentest_add_check_death(
+    NAME regression_bench_assert_failure_reports_reason
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional benchmark assertion failure"
+    ARGS --run=regressions/bench_assert_should_fail --kind=bench)
+
+gentest_add_check_death(
     NAME regression_jitter_assert_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
     EXPECT_SUBSTRING "jitter call failed for regressions/jitter_assert_should_fail"
     ARGS --run=regressions/jitter_assert_should_fail --kind=jitter)
+
+gentest_add_check_death(
+    NAME regression_jitter_assert_failure_reports_reason
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional jitter assertion failure"
+    ARGS --run=regressions/jitter_assert_should_fail --kind=jitter)
+
+gentest_add_check_death(
+    NAME regression_bench_fatal_assert_failure_reports_detail
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional fatal benchmark assertion failure"
+    ARGS --run=regressions/bench_fatal_assert_should_fail --kind=bench)
+
+gentest_add_check_death(
+    NAME regression_bench_fatal_assert_failure_reports_location
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "failed at tests/regressions/bench_assert_propagation.cpp:"
+    ARGS --run=regressions/bench_fatal_assert_should_fail --kind=bench)
 
 gentest_add_check_death(
     NAME regression_bench_std_exception_failure_propagates
@@ -218,6 +244,18 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
     EXPECT_SUBSTRING "jitter call failed for regressions/jitter_fail_should_fail"
     ARGS --run=regressions/jitter_fail_should_fail --kind=jitter)
+
+gentest_add_check_death(
+    NAME regression_jitter_fatal_assert_failure_reports_detail
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "intentional fatal jitter assertion failure"
+    ARGS --run=regressions/jitter_fatal_assert_should_fail --kind=jitter)
+
+gentest_add_check_death(
+    NAME regression_jitter_fatal_assert_failure_reports_location
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "failed at tests/regressions/bench_assert_propagation.cpp:"
+    ARGS --run=regressions/jitter_fatal_assert_should_fail --kind=jitter)
 
 gentest_add_check_death(
     NAME regression_jitter_skip_failure_propagates
@@ -466,6 +504,15 @@ _gentest_add_measured_pair_no_substring_checks(
     JITTER_SUBSTRING generated-jitter-second-setup-failed
     BENCH_EXTRA_FORBID "regression marker: generated bench local teardown missing after setup failure"
     JITTER_EXTRA_FORBID "regression marker: generated jitter local teardown missing after setup failure")
+
+_gentest_add_measured_pair_no_substring_checks(
+    BENCH_NAME regression_bench_local_fixture_setup_assert_teardown_armed
+    JITTER_NAME regression_jitter_local_fixture_setup_assert_teardown_armed
+    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_assert_teardown_armed>
+    RUN_PREFIX regressions/measured_local_fixture_setup_assert_teardown_armed
+    EXPECT_RC 1
+    BENCH_SUBSTRING bench-setup-fatal-assert-marker
+    JITTER_SUBSTRING jitter-setup-fatal-assert-marker)
 
 _gentest_add_measured_pair_no_substring_checks(
     BENCH_NAME regression_bench_local_fixture_setup_throw_teardown_armed
@@ -1019,6 +1066,7 @@ gentest_add_check_counts(
 
 set(_gentest_shared_fixture_skip_reason_regressions
     "regression_shared_fixture_manual_create_throw|gentest_regression_shared_fixture_manual_create_throw_skip|regressions/shared_fixture_manual_create_throw_skip/member_case|manual-create-throw"
+    "regression_shared_fixture_manual_setup_assert|gentest_regression_shared_fixture_manual_setup_assert_skip|regressions/shared_fixture_manual_setup_assert_skip/member_case|manual-setup-assert"
     "regression_shared_fixture_manual_setup_throw|gentest_regression_shared_fixture_manual_setup_throw_skip|regressions/shared_fixture_manual_setup_throw_skip/member_case|manual-setup-throw"
     "regression_shared_fixture_missing_factory|gentest_regression_shared_fixture_missing_factory_skip|regressions/shared_fixture_missing_factory_skip/member_case|missing factory")
 
@@ -1042,6 +1090,15 @@ unset(_gentest_shared_fixture_skip_reason_name)
 unset(_gentest_shared_fixture_skip_reason_prog)
 unset(_gentest_shared_fixture_skip_reason_run)
 unset(_gentest_shared_fixture_skip_reason_substring)
+
+gentest_add_cmake_script_test(
+    NAME regression_shared_fixture_manual_setup_assert_runs_teardown
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=manual-setup-assert-teardown-ran")
 
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_manual_setup_throw_runs_teardown
