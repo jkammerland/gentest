@@ -234,18 +234,18 @@ gentest_add_check_death(
 gentest_add_run_and_check_file(
     NAME regression_bench_fatal_assert_failure_junit_reports_detail
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure_detail.xml
     EXPECT_SUBSTRING "intentional fatal benchmark assertion failure"
     EXPECT_RC 1
-    ARGS --run=regressions/bench_fatal_assert_should_fail --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure.xml)
+    ARGS --run=regressions/bench_fatal_assert_should_fail --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure_detail.xml)
 
 gentest_add_run_and_check_file(
     NAME regression_bench_fatal_assert_failure_junit_reports_location
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure_location.xml
     EXPECT_SUBSTRING "tests/regressions/bench_assert_propagation.cpp:"
     EXPECT_RC 1
-    ARGS --run=regressions/bench_fatal_assert_should_fail --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure.xml)
+    ARGS --run=regressions/bench_fatal_assert_should_fail --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure_location.xml)
 
 gentest_add_check_death(
     NAME regression_bench_std_exception_failure_propagates
@@ -292,18 +292,18 @@ gentest_add_check_death(
 gentest_add_run_and_check_file(
     NAME regression_jitter_fatal_assert_failure_junit_reports_detail
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure_detail.xml
     EXPECT_SUBSTRING "intentional fatal jitter assertion failure"
     EXPECT_RC 1
-    ARGS --run=regressions/jitter_fatal_assert_should_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure.xml)
+    ARGS --run=regressions/jitter_fatal_assert_should_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure_detail.xml)
 
 gentest_add_run_and_check_file(
     NAME regression_jitter_fatal_assert_failure_junit_reports_location
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure_location.xml
     EXPECT_SUBSTRING "tests/regressions/bench_assert_propagation.cpp:"
     EXPECT_RC 1
-    ARGS --run=regressions/jitter_fatal_assert_should_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure.xml)
+    ARGS --run=regressions/jitter_fatal_assert_should_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure_location.xml)
 
 gentest_add_check_death(
     NAME regression_jitter_skip_failure_propagates
@@ -571,34 +571,34 @@ _gentest_add_measured_pair_no_substring_checks(
 gentest_add_run_and_check_file(
     NAME regression_bench_local_fixture_setup_assert_teardown_armed_junit_reports_detail
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_assert_teardown_armed>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed_detail.xml
     EXPECT_SUBSTRING "bench-setup-fatal-assert-marker"
     EXPECT_RC 1
-    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed.xml)
+    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed_detail.xml)
 
 gentest_add_run_and_check_file(
     NAME regression_bench_local_fixture_setup_assert_teardown_armed_junit_reports_location
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_assert_teardown_armed>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed_location.xml
     EXPECT_SUBSTRING "tests/regressions/measured_local_fixture_setup_assert_teardown_armed.cpp:"
     EXPECT_RC 1
-    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed.xml)
+    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed_location.xml)
 
 gentest_add_run_and_check_file(
     NAME regression_jitter_local_fixture_setup_assert_teardown_armed_junit_reports_detail
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_assert_teardown_armed>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed_detail.xml
     EXPECT_SUBSTRING "jitter-setup-fatal-assert-marker"
     EXPECT_RC 1
-    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed.xml)
+    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed_detail.xml)
 
 gentest_add_run_and_check_file(
     NAME regression_jitter_local_fixture_setup_assert_teardown_armed_junit_reports_location
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_assert_teardown_armed>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed_location.xml
     EXPECT_SUBSTRING "tests/regressions/measured_local_fixture_setup_assert_teardown_armed.cpp:"
     EXPECT_RC 1
-    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed.xml)
+    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed_location.xml)
 
 _gentest_add_measured_pair_no_substring_checks(
     BENCH_NAME regression_bench_local_fixture_setup_throw_teardown_armed
@@ -648,9 +648,9 @@ gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_call_teardown_dualfail_junit_preserves_time
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
-    ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_call_teardown_dualfail_failure.xml
+    ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_call_teardown_dualfail_time.xml
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_call_teardown_dualfail_failure.xml"
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_call_teardown_dualfail_time.xml"
         "FORMAT=JUNIT"
         "ITEM_NAME=regressions/measured_local_fixture_call_teardown_dualfail/bench"
         "EXPECT_SUBSTRING=failures=\"1\""
@@ -662,6 +662,7 @@ gentest_add_run_and_check_file(
     FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_call_teardown_dualfail_not_skipped.xml
     EXPECT_SUBSTRING "skipped=\"0\""
     EXPECT_RC 1
+    FORBID_SUBSTRINGS "<skipped" "skipped=\"1\""
     ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_call_teardown_dualfail_not_skipped.xml)
 
 gentest_add_cmake_script_test(
@@ -703,9 +704,9 @@ gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_call_teardown_dualfail_junit_preserves_time
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
-    ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_call_teardown_dualfail_failure.xml
+    ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_call_teardown_dualfail_time.xml
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_call_teardown_dualfail_failure.xml"
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_call_teardown_dualfail_time.xml"
         "FORMAT=JUNIT"
         "ITEM_NAME=regressions/measured_local_fixture_call_teardown_dualfail/jitter"
         "EXPECT_SUBSTRING=failures=\"1\""
@@ -717,6 +718,7 @@ gentest_add_run_and_check_file(
     FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_call_teardown_dualfail_not_skipped.xml
     EXPECT_SUBSTRING "skipped=\"0\""
     EXPECT_RC 1
+    FORBID_SUBSTRINGS "<skipped" "skipped=\"1\""
     ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_call_teardown_dualfail_not_skipped.xml)
 
 gentest_add_cmake_script_test(
@@ -763,6 +765,7 @@ gentest_add_run_and_check_file(
     FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_skip_teardown_fail_not_skipped.xml
     EXPECT_SUBSTRING "skipped=\"0\""
     EXPECT_RC 1
+    FORBID_SUBSTRING "<skipped"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_skip_teardown_fail_not_skipped.xml)
 
 gentest_add_cmake_script_test(
@@ -809,6 +812,7 @@ gentest_add_run_and_check_file(
     FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_skip_teardown_fail_not_skipped.xml
     EXPECT_SUBSTRING "skipped=\"0\""
     EXPECT_RC 1
+    FORBID_SUBSTRING "<skipped"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_skip_teardown_fail_not_skipped.xml)
 
 gentest_add_cmake_script_test(
@@ -887,6 +891,7 @@ gentest_add_run_and_check_file(
     FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_failure_then_skip_not_skipped.xml
     EXPECT_SUBSTRING "skipped=\"0\""
     EXPECT_RC 1
+    FORBID_SUBSTRING "<skipped"
     ARGS --run=regressions/measured_local_fixture_setup_failure_then_skip/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_failure_then_skip_not_skipped.xml)
 
 gentest_add_run_and_check_file(
@@ -903,6 +908,7 @@ gentest_add_run_and_check_file(
     FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_failure_then_skip_not_skipped.xml
     EXPECT_SUBSTRING "skipped=\"0\""
     EXPECT_RC 1
+    FORBID_SUBSTRING "<skipped"
     ARGS --run=regressions/measured_local_fixture_setup_failure_then_skip/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_failure_then_skip_not_skipped.xml)
 
 _gentest_add_measured_pair_no_substring_checks(
@@ -953,18 +959,18 @@ gentest_add_cmake_script_test(
 gentest_add_run_and_check_file(
     NAME regression_bench_local_fixture_teardown_skip_junit_reports_skip
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_teardown_skip>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_teardown_skip.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_teardown_skip_reports_skip.xml
     EXPECT_SUBSTRING "skipped=\"1\""
     EXPECT_RC 0
-    ARGS --run=regressions/measured_local_fixture_teardown_skip/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_teardown_skip.xml)
+    ARGS --run=regressions/measured_local_fixture_teardown_skip/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_teardown_skip_reports_skip.xml)
 
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_teardown_skip_junit_preserves_time
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_teardown_skip>
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
-    ARGS --run=regressions/measured_local_fixture_teardown_skip/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_teardown_skip.xml
+    ARGS --run=regressions/measured_local_fixture_teardown_skip/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_teardown_skip_time.xml
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_teardown_skip.xml"
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_teardown_skip_time.xml"
         "FORMAT=JUNIT"
         "ITEM_NAME=regressions/measured_local_fixture_teardown_skip/bench"
         "EXPECT_SUBSTRING=skipped=\"1\""
@@ -973,18 +979,18 @@ gentest_add_cmake_script_test(
 gentest_add_run_and_check_file(
     NAME regression_jitter_local_fixture_teardown_skip_junit_reports_skip
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_teardown_skip>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_teardown_skip.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_teardown_skip_reports_skip.xml
     EXPECT_SUBSTRING "skipped=\"1\""
     EXPECT_RC 0
-    ARGS --run=regressions/measured_local_fixture_teardown_skip/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_teardown_skip.xml)
+    ARGS --run=regressions/measured_local_fixture_teardown_skip/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_teardown_skip_reports_skip.xml)
 
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_teardown_skip_junit_preserves_time
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_teardown_skip>
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
-    ARGS --run=regressions/measured_local_fixture_teardown_skip/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_teardown_skip.xml
+    ARGS --run=regressions/measured_local_fixture_teardown_skip/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_teardown_skip_time.xml
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_teardown_skip.xml"
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_teardown_skip_time.xml"
         "FORMAT=JUNIT"
         "ITEM_NAME=regressions/measured_local_fixture_teardown_skip/jitter"
         "EXPECT_SUBSTRING=skipped=\"1\""
@@ -1187,12 +1193,30 @@ gentest_add_check_counts(
     EXPECT_RC 1)
 
 gentest_add_run_and_check_file(
-    NAME regression_shared_fixture_setup_skip_member_junit_reports_failures
+    NAME regression_shared_fixture_setup_skip_member_junit_reports_mixed_outcome
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip.xml
-    EXPECT_SUBSTRING "failures=\"2\""
+    EXPECT_SUBSTRING "tests=\"2\" failures=\"2\" skipped=\"2\" errors=\"2\""
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_setup_skip_member_junit_reports_suite_case_skipped_element
+    PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
+    FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_suite_skipped_tag.xml
+    EXPECT_SUBSTRING "name=\"regressions/member_shared_setup_skip/suite_member\" time=\"0\">
+    <skipped message=\"fixture allocation failed\"/>"
+    EXPECT_RC 1
+    ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_suite_skipped_tag.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_setup_skip_member_junit_reports_global_case_skipped_element
+    PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
+    FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_global_skipped_tag.xml
+    EXPECT_SUBSTRING "name=\"regressions/member_shared_setup_skip/global_member\" time=\"0\">
+    <skipped message=\"fixture allocation failed\"/>"
+    EXPECT_RC 1
+    ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_global_skipped_tag.xml)
 
 gentest_add_check_counts(
     NAME regression_shared_fixture_setup_skip_fail_fast
@@ -1204,12 +1228,28 @@ gentest_add_check_counts(
     ARGS --fail-fast)
 
 gentest_add_run_and_check_file(
-    NAME regression_shared_fixture_setup_skip_junit_reports_failures
+    NAME regression_shared_fixture_setup_skip_junit_reports_mixed_outcome
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip.xml
-    EXPECT_SUBSTRING "failures=\"2\""
+    EXPECT_SUBSTRING "tests=\"2\" failures=\"2\" skipped=\"2\" errors=\"2\""
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_setup_skip_junit_reports_global_case_skipped_element
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_global_skipped_tag.xml
+    EXPECT_SUBSTRING "<skipped message=\"shared fixture unavailable for 'regressions::shared_setup_skip::NullGlobalFx': fixture allocation returned null\"/>"
+    EXPECT_RC 1
+    ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_global_skipped_tag.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_setup_skip_junit_reports_suite_case_skipped_element
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_suite_skipped_tag.xml
+    EXPECT_SUBSTRING "<skipped message=\"shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null\"/>"
+    EXPECT_RC 1
+    ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_suite_skipped_tag.xml)
 
 gentest_add_check_death(
     NAME regression_shared_fixture_setup_skip_bench
@@ -1500,19 +1540,26 @@ gentest_add_cmake_script_test(
 gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_create_assert_junit_reports_reason
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skip.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_reason.xml
     EXPECT_SUBSTRING "manual-create-assert"
     EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skip.xml)
+    ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_reason.xml)
 
 gentest_add_run_and_check_file(
-    NAME regression_shared_fixture_manual_create_assert_junit_is_not_skipped
+    NAME regression_shared_fixture_manual_create_assert_junit_reports_mixed_outcome
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skip.xml
-    EXPECT_SUBSTRING "failures=\"1\""
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_mixed_outcome.xml
+    EXPECT_SUBSTRING "failures=\"1\" skipped=\"1\" errors=\"1\""
     EXPECT_RC 1
-    FORBID_SUBSTRINGS "skipped=\"1\"|<skipped"
-    ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skip.xml)
+    ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_mixed_outcome.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_manual_create_assert_junit_reports_skipped_element
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skipped_tag.xml
+    EXPECT_SUBSTRING "<skipped message=\"fixture allocation failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:8: manual-create-assert\"/>"
+    EXPECT_RC 1
+    ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skipped_tag.xml)
 
 gentest_add_check_death(
     NAME regression_shared_fixture_manual_create_assert_reports_location
@@ -1523,35 +1570,42 @@ gentest_add_check_death(
 gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_create_assert_junit_reports_location
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skip.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_location.xml
     EXPECT_SUBSTRING "tests/regressions/shared_fixture_manual_create_assert_skip.cpp:8"
     EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skip.xml)
+    ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_location.xml)
 
 gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_setup_assert_junit_reports_reason
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skip.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_reason.xml
     EXPECT_SUBSTRING "manual-setup-assert"
     EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skip.xml)
+    ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_reason.xml)
 
 gentest_add_run_and_check_file(
-    NAME regression_shared_fixture_manual_setup_assert_junit_is_not_skipped
+    NAME regression_shared_fixture_manual_setup_assert_junit_reports_mixed_outcome
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skip.xml
-    EXPECT_SUBSTRING "failures=\"1\""
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_mixed_outcome.xml
+    EXPECT_SUBSTRING "failures=\"1\" skipped=\"1\" errors=\"1\""
     EXPECT_RC 1
-    FORBID_SUBSTRINGS "skipped=\"1\"|<skipped"
-    ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skip.xml)
+    ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_mixed_outcome.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_manual_setup_assert_junit_reports_skipped_element
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skipped_tag.xml
+    EXPECT_SUBSTRING "<skipped message=\"fixture setup failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:12: manual-setup-assert\"/>"
+    EXPECT_RC 1
+    ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skipped_tag.xml)
 
 gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_setup_assert_junit_reports_location
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skip.xml
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_location.xml
     EXPECT_SUBSTRING "tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:12"
     EXPECT_RC 1
-    ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skip.xml)
+    ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_location.xml)
 
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_manual_setup_throw_runs_teardown
