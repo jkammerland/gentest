@@ -215,6 +215,14 @@ gentest_add_check_death(
     EXPECT_SUBSTRING "failed at tests/regressions/bench_assert_propagation.cpp:"
     ARGS --run=regressions/bench_fatal_assert_should_fail --kind=bench)
 
+gentest_add_run_and_check_file(
+    NAME regression_bench_fatal_assert_failure_junit_reports_detail
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure.xml
+    EXPECT_SUBSTRING "intentional fatal benchmark assertion failure"
+    EXPECT_RC 1
+    ARGS --run=regressions/bench_fatal_assert_should_fail --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_fatal_assert_failure.xml)
+
 gentest_add_check_death(
     NAME regression_bench_std_exception_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
@@ -256,6 +264,14 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
     EXPECT_SUBSTRING "failed at tests/regressions/bench_assert_propagation.cpp:"
     ARGS --run=regressions/jitter_fatal_assert_should_fail --kind=jitter)
+
+gentest_add_run_and_check_file(
+    NAME regression_jitter_fatal_assert_failure_junit_reports_detail
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure.xml
+    EXPECT_SUBSTRING "intentional fatal jitter assertion failure"
+    EXPECT_RC 1
+    ARGS --run=regressions/jitter_fatal_assert_should_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_fatal_assert_failure.xml)
 
 gentest_add_check_death(
     NAME regression_jitter_skip_failure_propagates
@@ -513,6 +529,22 @@ _gentest_add_measured_pair_no_substring_checks(
     EXPECT_RC 1
     BENCH_SUBSTRING bench-setup-fatal-assert-marker
     JITTER_SUBSTRING jitter-setup-fatal-assert-marker)
+
+gentest_add_run_and_check_file(
+    NAME regression_bench_local_fixture_setup_assert_teardown_armed_junit_reports_detail
+    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_assert_teardown_armed>
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed.xml
+    EXPECT_SUBSTRING "bench-setup-fatal-assert-marker"
+    EXPECT_RC 1
+    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/bench --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_local_fixture_setup_assert_teardown_armed.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_jitter_local_fixture_setup_assert_teardown_armed_junit_reports_detail
+    PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_assert_teardown_armed>
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed.xml
+    EXPECT_SUBSTRING "jitter-setup-fatal-assert-marker"
+    EXPECT_RC 1
+    ARGS --run=regressions/measured_local_fixture_setup_assert_teardown_armed/jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_local_fixture_setup_assert_teardown_armed.xml)
 
 _gentest_add_measured_pair_no_substring_checks(
     BENCH_NAME regression_bench_local_fixture_setup_throw_teardown_armed

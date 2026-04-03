@@ -94,7 +94,7 @@ void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestC
 }
 
 void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string_view default_skip_reason,
-                                 std::string_view assertion_fallback, bool &had_assert_fail) {
+                                 const std::string &assertion_fallback, bool &had_assert_fail) {
     wait_and_flush_test_context(ctxinfo);
     bool        runtime_skip_requested = false;
     std::string runtime_skip_reason;
@@ -350,9 +350,8 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
             runtime_skipped = false;
             error           = "skip requested without active runtime skip state";
         }
-        if (!runtime_skipped && inv.exception == gentest::runner::InvokeException::Assertion && !first_failure.empty()) {
-            error = first_failure;
-        } else if (!runtime_skipped && error.empty() && !first_failure.empty()) {
+        if (!runtime_skipped && !first_failure.empty()
+            && (inv.exception == gentest::runner::InvokeException::Assertion || error.empty())) {
             error = first_failure;
         }
     }

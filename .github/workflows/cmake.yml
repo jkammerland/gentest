@@ -57,7 +57,13 @@ jobs:
           else
             brew install llvm ninja ccache
           fi
+          if [ "${{ matrix.compiler }}" = "llvm@21" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
+            brew install bazelisk
+          fi
           echo "$(brew --prefix ninja)/bin" >> $GITHUB_PATH
+          if [ "${{ matrix.compiler }}" = "llvm@21" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
+            echo "$(brew --prefix)/bin" >> $GITHUB_PATH
+          fi
 
       - name: Configure LLVM environment
         run: |
@@ -125,8 +131,12 @@ jobs:
       - name: Build
         run: cmake --build --preset=${{ matrix.build-type }}
 
+      - name: Test Bazel Bzlmod Consumer
+        if: matrix.compiler == 'llvm@21' && matrix.build-type == 'debug' && matrix.variant == 'default'
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure -R '^(gentest_bazel_bzlmod_consumer)$'
+
       - name: Test
-        run: ctest --preset=${{ matrix.build-type }} --output-on-failure --parallel 4
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure --parallel 4 -E '^(gentest_bazel_bzlmod_consumer)$'
 
   windows:
     name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }}
@@ -231,9 +241,13 @@ jobs:
         shell: pwsh
         run: cmake --build --preset=${{ matrix.preset }}
 
+      - name: Test Bazel helper contract
+        shell: pwsh
+        run: ctest --preset=${{ matrix.preset }} --output-on-failure -R '^(gentest_bazel_helpers_use_configured_toolchain)$'
+
       - name: Test
         shell: pwsh
-        run: ctest --preset=${{ matrix.preset }} --output-on-failure --parallel 4
+        run: ctest --preset=${{ matrix.preset }} --output-on-failure --parallel 4 -E '^(gentest_bazel_helpers_use_configured_toolchain)$'
 
       - name: Configure/Build/Test (MSVC)
         if: matrix.preset == 'debug-system'

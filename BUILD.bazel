@@ -37,6 +37,11 @@ _gentest_linkopts = select({
 })
 
 _gentest_module_features = ['cpp_modules']
+_gentest_public_copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({
+    '@bazel_tools//src/conditions:windows': ['/wd5030'],
+    '//conditions:default': ['-Wno-attributes'],
+})
+_gentest_public_module_copts = _gentest_public_copts + ['-fmodules-embed-all-files']
 
 # Build gentest_codegen via CMake inside Bazel
 _gentest_codegen_build_srcs = glob(
@@ -176,10 +181,7 @@ cc_library(
         'include/gentest/detail/*.h',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
-    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({
-        '@bazel_tools//src/conditions:windows': ['/wd5030'],
-        '//conditions:default': ['-Wno-attributes'],
-    }),
+    copts = _gentest_public_copts,
     includes = ['include', 'third_party/include'],
     linkopts = _gentest_linkopts,
     deps = ['@fmt//:fmt'],
@@ -194,10 +196,7 @@ cc_library(
         'include/gentest/detail/*.h',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
-    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({
-        '@bazel_tools//src/conditions:windows': ['/wd5030'],
-        '//conditions:default': ['-Wno-attributes'],
-    }),
+    copts = _gentest_public_module_copts,
     includes = ['include', 'third_party/include'],
     linkopts = _gentest_linkopts,
     deps = [
@@ -216,10 +215,7 @@ cc_library(
         'include/gentest/detail/*.h',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
-    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({
-        '@bazel_tools//src/conditions:windows': ['/wd5030'],
-        '//conditions:default': ['-Wno-attributes'],
-    }),
+    copts = _gentest_public_module_copts,
     includes = ['include', 'third_party/include'],
     linkopts = _gentest_linkopts,
     deps = [
@@ -239,10 +235,7 @@ cc_library(
         'include/gentest/detail/*.h',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
-    copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({
-        '@bazel_tools//src/conditions:windows': ['/wd5030'],
-        '//conditions:default': ['-Wno-attributes'],
-    }),
+    copts = _gentest_public_module_copts,
     includes = ['include', 'third_party/include'],
     linkopts = _gentest_linkopts,
     deps = [

@@ -2564,6 +2564,13 @@ _gentest_add_cmake_helper_test(
     contract)
 
 _gentest_add_cmake_helper_test(
+    gentest_bazel_module_mock_header_propagation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBazelModuleMockHeaderPropagation.cmake
+    contract)
+set_property(TEST gentest_bazel_module_mock_header_propagation APPEND PROPERTY LABELS "bazel" "modules" "contract")
+
+_gentest_add_cmake_helper_test(
     gentest_module_doc_contract
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckModuleDocContract.cmake

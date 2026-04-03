@@ -73,9 +73,8 @@
 ## Coding Style & Naming Conventions
 - Follow `.clang-format` (LLVM-derived): 4-space indent, 140-column limit.
 - Format edited C/C++ files explicitly with `clang-format -i <paths...>`; there is no dedicated format preset in this repo today.
-- Run the CI-aligned clang-tidy gate with `scripts/check_clang_tidy.sh build/debug-system` after configuring the preset and building `gentest gentest_textual_suite_mocks` once so module response files and shared generated mock surfaces exist. The script derives direct tidy inputs from `build/debug-system/compile_commands.json`, remaps generated test shims back to tracked handwritten test sources where possible, excludes build-tree generated sources/headers from direct tidy coverage, and warns when module units are skipped because the compile database entry is not clang/clang-cl based.
-- A small set of tests that intentionally include the generated `gentest_textual_suite_mocks` public surface are still excluded from direct clang-tidy coverage because clang-tidy reports generated mock implementation diagnostics through the owning handwritten source file.
-- For local static-analysis workflows, you can also use `ninja clang-tidy` in the build tree or the `tidy` / `tidy-fix` presets when you want configure/build/test wired together.
+- Run the CI-aligned clang-tidy gate with `scripts/check_clang_tidy.sh build/debug-system` after configuring `cmake --preset=debug-system`. The script currently checks tracked translation units under `src/*.cpp` and `tools/src/*.cpp`.
+- For the vcpkg-backed static-analysis workflow, you can also use `ninja clang-tidy` in the build tree or the `tidy` / `tidy-fix` presets when you want configure/build/test wired together.
 - Filenames: lowercase `snake_case`; types: `PascalCase`; functions: `camelCase`.
 - Keep public symbols in the `gentest` namespace.
 

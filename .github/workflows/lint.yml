@@ -90,10 +90,6 @@ jobs:
             -DClang_DIR=/usr/lib64/cmake/clang \
             -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
 
-      - name: Build module prerequisites
-        run: |
-          cmake --build build/debug-system --target gentest gentest_textual_suite_mocks -j 1
-
       - name: Check clang-tidy
         run: |
           CLANG_TIDY_JOBS=4 scripts/check_clang_tidy.sh build/debug-system

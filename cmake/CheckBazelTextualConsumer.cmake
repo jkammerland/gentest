@@ -9,10 +9,6 @@ if(NOT _bazel)
 endif()
 
 set(_bazel_command "${_bazel}")
-if(WIN32 AND _bazel MATCHES "\\.(cmd|bat)$")
-  file(TO_NATIVE_PATH "${_bazel}" _bazel_native)
-  set(_bazel_command cmd /d /c call "${_bazel_native}")
-endif()
 execute_process(
   COMMAND ${_bazel_command} --version
   RESULT_VARIABLE _bazel_version_rc
@@ -25,6 +21,20 @@ if(_bazel_version_rc EQUAL 0)
 else()
   set(_bazel_version_text "version probe failed: ${_bazel_version_err}")
 endif()
+
+function(_gentest_resolve_bazel_binary_path base_path out_var)
+  set(_candidates "${base_path}")
+  if(WIN32)
+    list(APPEND _candidates "${base_path}.exe" "${base_path}.cmd" "${base_path}.bat")
+  endif()
+  foreach(_candidate IN LISTS _candidates)
+    if(EXISTS "${_candidate}")
+      set(${out_var} "${_candidate}" PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+  set(${out_var} "" PARENT_SCOPE)
+endfunction()
 
 function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
   get_filename_component(_clang_real "${clang_cxx}" REALPATH)
@@ -319,6 +329,11 @@ if(NOT _bazel_bin_rc EQUAL 0 OR _bazel_bin_out STREQUAL "")
     "stderr:\n${_bazel_bin_err}")
 endif()
 file(TO_CMAKE_PATH "${_bazel_bin_out}" _bazel_bin_dir)
+set(_consumer_binary_base "${_bazel_bin_dir}/gentest_consumer_textual_bazel")
+_gentest_resolve_bazel_binary_path("${_consumer_binary_base}" _consumer_binary)
+if(_consumer_binary STREQUAL "")
+  message(FATAL_ERROR "Expected Bazel textual consumer binary not found: ${_consumer_binary_base}")
+endif()
 
 foreach(_expected_file IN ITEMS
     "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_mocks.hpp"
@@ -336,7 +351,7 @@ foreach(_expected_file IN ITEMS
 endforeach()
 
 execute_process(
-  COMMAND "${_bazel_bin_dir}/gentest_consumer_textual_bazel" --list
+  COMMAND "${_consumer_binary}" --list
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _list_rc
   OUTPUT_VARIABLE _list_out
@@ -362,7 +377,7 @@ foreach(_expected IN ITEMS
 endforeach()
 
 execute_process(
-  COMMAND "${_bazel_bin_dir}/gentest_consumer_textual_bazel" --run=consumer/consumer/module_test --kind=test
+  COMMAND "${_consumer_binary}" --run=consumer/consumer/module_test --kind=test
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _plain_test_rc
   OUTPUT_VARIABLE _plain_test_out
@@ -375,7 +390,7 @@ if(NOT _plain_test_rc EQUAL 0)
 endif()
 
 execute_process(
-  COMMAND "${_bazel_bin_dir}/gentest_consumer_textual_bazel" --run=consumer/consumer/module_mock --kind=test
+  COMMAND "${_consumer_binary}" --run=consumer/consumer/module_mock --kind=test
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _test_rc
   OUTPUT_VARIABLE _test_out
@@ -388,7 +403,7 @@ if(NOT _test_rc EQUAL 0)
 endif()
 
 execute_process(
-  COMMAND "${_bazel_bin_dir}/gentest_consumer_textual_bazel" --run=consumer/consumer/module_bench --kind=bench
+  COMMAND "${_consumer_binary}" --run=consumer/consumer/module_bench --kind=bench
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _bench_rc
   OUTPUT_VARIABLE _bench_out
@@ -401,7 +416,7 @@ if(NOT _bench_rc EQUAL 0)
 endif()
 
 execute_process(
-  COMMAND "${_bazel_bin_dir}/gentest_consumer_textual_bazel" --run=consumer/consumer/module_jitter --kind=jitter
+  COMMAND "${_consumer_binary}" --run=consumer/consumer/module_jitter --kind=jitter
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _jitter_rc
   OUTPUT_VARIABLE _jitter_out

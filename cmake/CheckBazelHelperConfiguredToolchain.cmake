@@ -9,15 +9,29 @@ if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
   message(FATAL_ERROR "CheckBazelHelperConfiguredToolchain.cmake: BUILD_ROOT not set")
 endif()
 
-set(_work_dir "${BUILD_ROOT}/bazel_helper_configured_toolchain")
-set(_fake_bin_dir "${_work_dir}/fake-bin")
-set(_fake_toolchain_root "${_work_dir}/fake-toolchain")
-set(_fake_cc_dir "${_fake_toolchain_root}/cc-bin")
-set(_fake_cxx_dir "${_fake_toolchain_root}/cxx-bin")
-set(_fake_resource_dir "${_fake_toolchain_root}/resource-dir")
-set(_fake_llvm_dir "${_work_dir}/provided-llvm")
-set(_fake_clang_dir "${_work_dir}/provided-clang")
-set(_marker_dir "${_work_dir}/markers")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+
+if(WIN32)
+  set(_work_dir "${BUILD_ROOT}/bzh")
+  set(_fake_bin_dir "${_work_dir}/bin")
+  set(_fake_toolchain_root "${_work_dir}/tool")
+  set(_fake_cc_dir "${_fake_toolchain_root}/cc")
+  set(_fake_cxx_dir "${_fake_toolchain_root}/cxx")
+  set(_fake_resource_dir "${_fake_toolchain_root}/res")
+  set(_fake_llvm_dir "${_work_dir}/llvm")
+  set(_fake_clang_dir "${_work_dir}/clang")
+  set(_marker_dir "${_work_dir}/m")
+else()
+  set(_work_dir "${BUILD_ROOT}/bazel_helper_configured_toolchain")
+  set(_fake_bin_dir "${_work_dir}/fake-bin")
+  set(_fake_toolchain_root "${_work_dir}/fake-toolchain")
+  set(_fake_cc_dir "${_fake_toolchain_root}/cc-bin")
+  set(_fake_cxx_dir "${_fake_toolchain_root}/cxx-bin")
+  set(_fake_resource_dir "${_fake_toolchain_root}/resource-dir")
+  set(_fake_llvm_dir "${_work_dir}/provided-llvm")
+  set(_fake_clang_dir "${_work_dir}/provided-clang")
+  set(_marker_dir "${_work_dir}/markers")
+endif()
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY
   "${_fake_bin_dir}"
@@ -28,16 +42,33 @@ file(MAKE_DIRECTORY
   "${_fake_clang_dir}"
   "${_marker_dir}")
 
-set(_fake_cc "${_fake_cc_dir}/clang")
-set(_fake_cxx "${_fake_cxx_dir}/clang++")
-set(_fake_bazel "${_fake_bin_dir}/bazel")
-set(_fake_bazelisk "${_fake_bin_dir}/bazelisk")
+set(_fake_cc_base "${_fake_cc_dir}/clang")
+set(_fake_cxx_base "${_fake_cxx_dir}/clang++")
+set(_fake_bazel_base "${_fake_bin_dir}/bazel")
+set(_fake_bazelisk_base "${_fake_bin_dir}/bazelisk")
 
-file(WRITE "${_fake_cc}" "#!/bin/sh\nexit 0\n")
-file(CHMOD "${_fake_cc}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+if(WIN32)
+  set(_fake_cc "${_fake_cc_base}.bat")
+  set(_fake_cxx "${_fake_cxx_base}.bat")
+  set(_fake_bazel "${_fake_bazel_base}.bat")
+  set(_fake_bazelisk "${_fake_bazelisk_base}.bat")
 
-file(WRITE "${_fake_cxx}" "#!/bin/sh\nif [ \"$1\" = \"-print-resource-dir\" ]; then\n  printf '%s\\n' \"$FAKE_RESOURCE_DIR\"\n  exit 0\nfi\nexit 0\n")
-file(CHMOD "${_fake_cxx}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+  file(WRITE "${_fake_cc}" "@echo off\r\nexit /b 0\r\n")
+  file(WRITE
+    "${_fake_cxx}"
+    "@echo off\r\nif /I \"%~1\"==\"-print-resource-dir\" (\r\n  echo %FAKE_RESOURCE_DIR%\r\n)\r\nexit /b 0\r\n")
+else()
+  set(_fake_cc "${_fake_cc_base}")
+  set(_fake_cxx "${_fake_cxx_base}")
+  set(_fake_bazel "${_fake_bazel_base}")
+  set(_fake_bazelisk "${_fake_bazelisk_base}")
+
+  file(WRITE "${_fake_cc}" "#!/bin/sh\nexit 0\n")
+  file(CHMOD "${_fake_cc}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+
+  file(WRITE "${_fake_cxx}" "#!/bin/sh\nif [ \"$1\" = \"-print-resource-dir\" ]; then\n  printf '%s\\n' \"$FAKE_RESOURCE_DIR\"\n  exit 0\nfi\nexit 0\n")
+  file(CHMOD "${_fake_cxx}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+endif()
 
 file(WRITE "${_fake_llvm_dir}/LLVMConfig.cmake" "# fake llvm config\n")
 file(WRITE "${_fake_clang_dir}/ClangConfig.cmake" "# fake clang config\n")
@@ -48,7 +79,175 @@ if(WIN32)
 endif()
 set(_fake_path "${_fake_bin_dir}${_path_sep}$ENV{PATH}")
 
-set(_fake_bazel_script [=[
+if(WIN32)
+  set(_fake_bazel_impl "${_fake_bin_dir}/fake-bazel.ps1")
+  set(_fake_bazel_script [==[
+param([Parameter(ValueFromRemainingArguments = $true)][string[]] $RemainingArgs)
+
+function Fail([string]$Message, [int]$Code) {
+  Write-Error $Message
+  exit $Code
+}
+
+function Assert-EnvEquals([string]$Name, [string]$Expected, [int]$Code) {
+  $Actual = [Environment]::GetEnvironmentVariable($Name)
+  if ($Actual -ne $Expected) {
+    Fail "expected ${Name}=${Expected}, got ${Actual}" $Code
+  }
+}
+
+function Touch-File([string]$Path) {
+  $NormalizedPath = $Path -replace '/', '\'
+  $Parent = [System.IO.Path]::GetDirectoryName($NormalizedPath)
+  if ($Parent) {
+    [System.IO.Directory]::CreateDirectory($Parent) | Out-Null
+  }
+  if (-not (Test-Path $NormalizedPath)) {
+    [System.IO.File]::WriteAllText($NormalizedPath, '', [System.Text.Encoding]::ASCII)
+  }
+}
+
+function Write-AsciiFile([string]$Path, [string]$Content) {
+  $NormalizedPath = $Path -replace '/', '\'
+  $Parent = [System.IO.Path]::GetDirectoryName($NormalizedPath)
+  if ($Parent) {
+    [System.IO.Directory]::CreateDirectory($Parent) | Out-Null
+  }
+  [System.IO.File]::WriteAllText($NormalizedPath, $Content, [System.Text.Encoding]::ASCII)
+}
+
+function New-Runner([string]$Path) {
+  $Runner = @'
+@echo off
+if /I "%~1"=="--list" goto list
+if /I "%~1"=="--list-tests" goto list
+goto done
+:list
+echo consumer/consumer/module_test
+echo consumer/consumer/module_mock
+echo consumer/consumer/module_bench
+echo consumer/consumer/module_jitter
+echo downstream/bazel/test
+echo downstream/bazel/mock
+echo downstream/bazel/bench
+echo downstream/bazel/jitter
+:done
+exit /b 0
+'@
+  Write-AsciiFile $Path $Runner
+}
+
+if ($RemainingArgs.Count -gt 0 -and $RemainingArgs[0] -eq '--version') {
+  Write-Output 'bazel fake 0.0'
+  exit 0
+}
+
+$Mode = ''
+$OutputRoot = ''
+$LastArg = ''
+foreach ($Arg in $RemainingArgs) {
+  $LastArg = $Arg
+  switch ($Arg) {
+    'build' { $Mode = 'build'; continue }
+    'info' { $Mode = 'info'; continue }
+    default {
+      if ($Arg.StartsWith('--output_user_root=')) {
+        $OutputRoot = $Arg.Substring('--output_user_root='.Length)
+      }
+    }
+  }
+}
+
+if ([string]::IsNullOrEmpty($OutputRoot)) {
+  Fail 'missing --output_user_root' 2
+}
+
+$BazelBin = Join-Path $OutputRoot 'bazel-bin'
+if ($Mode -eq 'info') {
+  if ($LastArg -eq 'bazel-bin') {
+    Write-Output $BazelBin
+    exit 0
+  }
+  Fail 'unsupported fake bazel info request' 2
+}
+
+if ($Mode -ne 'build') {
+  Fail ("unsupported fake bazel invocation: " + ($RemainingArgs -join ' ')) 2
+}
+
+Assert-EnvEquals 'CC' $env:EXPECT_CC 3
+Assert-EnvEquals 'CXX' $env:EXPECT_CXX 4
+Assert-EnvEquals 'LLVM_DIR' $env:EXPECT_LLVM_DIR 5
+Assert-EnvEquals 'Clang_DIR' $env:EXPECT_CLANG_DIR 6
+Assert-EnvEquals 'GENTEST_CODEGEN_HOST_CLANG' $env:EXPECT_CXX 7
+Assert-EnvEquals 'GENTEST_CODEGEN_RESOURCE_DIR' $env:EXPECT_RESOURCE_DIR 8
+
+New-Item -ItemType Directory -Force -Path $BazelBin | Out-Null
+
+foreach ($Arg in $RemainingArgs) {
+  if (@('//:gentest_consumer_textual_bazel', '//:gentest_consumer_textual_mocks') -contains $Arg) {
+    foreach ($File in @(
+        'gen/gentest_consumer_textual_mocks/gentest_consumer_mocks.hpp',
+        'gen/gentest_consumer_textual_mocks/tu_0000_gentest_consumer_textual_mocks_defs.gentest.h',
+        'gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_registry.hpp',
+        'gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl.hpp',
+        'gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_registry__domain_0000_header.hpp',
+        'gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl__domain_0000_header.hpp')) {
+      Touch-File (Join-Path $BazelBin $File)
+    }
+    New-Runner (Join-Path $BazelBin 'gentest_consumer_textual_bazel.cmd')
+    Touch-File (Join-Path $env:MARKER_DIR 'textual.ok')
+  } elseif (@('//:gentest_consumer_module_bazel', '//:gentest_consumer_module_mocks') -contains $Arg) {
+    foreach ($File in @(
+        'gen/gentest_consumer_module_mocks/gentest/consumer_mocks.cppm',
+        'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry.hpp',
+        'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl.hpp',
+        'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0000_header.hpp',
+        'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0000_header.hpp',
+        'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0001_gentest_consumer_service.hpp',
+        'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0001_gentest_consumer_service.hpp',
+        'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry__domain_0002_gentest_consumer_mock_defs.hpp',
+        'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl__domain_0002_gentest_consumer_mock_defs.hpp',
+        'gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.module.gentest.cppm',
+        'gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.gentest.h',
+        'gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.module.gentest.cppm',
+        'gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h')) {
+      Touch-File (Join-Path $BazelBin $File)
+    }
+    New-Runner (Join-Path $BazelBin 'gentest_consumer_module_bazel.cmd')
+    Touch-File (Join-Path $env:MARKER_DIR 'module.ok')
+  } elseif (@(
+      '//:gentest_downstream_textual',
+      '//:gentest_downstream_textual_mocks',
+      '//:gentest_downstream_module',
+      '//:gentest_downstream_module_mocks') -contains $Arg) {
+    foreach ($File in @(
+        'gen/gentest_downstream_textual_mocks/gentest_downstream_mocks.hpp',
+        'gen/gentest_downstream_textual_mocks/gentest_downstream_textual_mocks_mock_registry.hpp',
+        'gen/gentest_downstream_textual_mocks/gentest_downstream_textual_mocks_mock_impl.hpp',
+        'gen/gentest_downstream_module_mocks/downstream/bazel/consumer_mocks.cppm',
+        'gen/gentest_downstream_module_mocks/gentest_downstream_module_mocks_mock_registry.hpp',
+        'gen/gentest_downstream_module_mocks/gentest_downstream_module_mocks_mock_impl.hpp',
+        'gen/gentest_downstream_module/tu_0000_suite_0000.gentest.h')) {
+      Touch-File (Join-Path $BazelBin $File)
+    }
+    New-Runner (Join-Path $BazelBin 'gentest_downstream_textual.cmd')
+    New-Runner (Join-Path $BazelBin 'gentest_downstream_module.cmd')
+    Touch-File (Join-Path $env:MARKER_DIR 'bzlmod.ok')
+  }
+}
+
+exit 0
+]==])
+  file(WRITE "${_fake_bazel_impl}" "${_fake_bazel_script}")
+  file(WRITE
+    "${_fake_bazel}"
+    "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0fake-bazel.ps1\" %*\r\nexit /b %ERRORLEVEL%\r\n")
+  file(WRITE
+    "${_fake_bazelisk}"
+    "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0fake-bazel.ps1\" %*\r\nexit /b %ERRORLEVEL%\r\n")
+else()
+  set(_fake_bazel_script [=[
 #!/bin/sh
 set -eu
 
@@ -196,10 +395,11 @@ done
 
 exit 0
 ]=])
-file(WRITE "${_fake_bazel}" "${_fake_bazel_script}")
-file(CHMOD "${_fake_bazel}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
-file(WRITE "${_fake_bazelisk}" "${_fake_bazel_script}")
-file(CHMOD "${_fake_bazelisk}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+  file(WRITE "${_fake_bazel}" "${_fake_bazel_script}")
+  file(CHMOD "${_fake_bazel}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+  file(WRITE "${_fake_bazelisk}" "${_fake_bazel_script}")
+  file(CHMOD "${_fake_bazelisk}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+endif()
 
 function(_run_bazel_helper_regression name script_path)
   execute_process(
@@ -248,9 +448,13 @@ if(NOT EXISTS "${_marker_dir}/module.ok")
   message(FATAL_ERROR "Module Bazel helper did not invoke the configured-toolchain fake bazel harness")
 endif()
 
-_run_bazel_helper_regression(bzlmod "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
-if(NOT EXISTS "${_marker_dir}/bzlmod.ok")
-  message(FATAL_ERROR "Bzlmod Bazel helper did not invoke the configured-toolchain fake bazel harness")
+if(WIN32)
+  message(STATUS "Configured-toolchain Bazel helper regression on Windows validates textual and module consumers; the Bzlmod lane remains covered by Linux Bazel CI.")
+else()
+  _run_bazel_helper_regression(bzlmod "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
+  if(NOT EXISTS "${_marker_dir}/bzlmod.ok")
+    message(FATAL_ERROR "Bzlmod Bazel helper did not invoke the configured-toolchain fake bazel harness")
+  endif()
 endif()
 
 message(STATUS "Configured-toolchain Bazel helper regression passed")

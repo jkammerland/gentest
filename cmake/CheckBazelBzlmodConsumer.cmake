@@ -12,10 +12,20 @@ if(NOT _bazel)
 endif()
 
 set(_bazel_command "${_bazel}")
-if(WIN32 AND _bazel MATCHES "\\.(cmd|bat)$")
-  file(TO_NATIVE_PATH "${_bazel}" _bazel_native)
-  set(_bazel_command cmd /d /c call "${_bazel_native}")
-endif()
+
+function(_gentest_resolve_bazel_binary_path base_path out_var)
+  set(_candidates "${base_path}")
+  if(WIN32)
+    list(APPEND _candidates "${base_path}.exe" "${base_path}.cmd" "${base_path}.bat")
+  endif()
+  foreach(_candidate IN LISTS _candidates)
+    if(EXISTS "${_candidate}")
+      set(${out_var} "${_candidate}" PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+  set(${out_var} "" PARENT_SCOPE)
+endfunction()
 
 function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
   get_filename_component(_clang_real "${clang_cxx}" REALPATH)
@@ -306,8 +316,10 @@ endforeach()
 foreach(_binary IN ITEMS
     "${_bazel_bin_dir}/gentest_downstream_textual"
     "${_bazel_bin_dir}/gentest_downstream_module")
-  if(NOT EXISTS "${_binary}")
-    message(FATAL_ERROR "Expected Bazel downstream binary not found: ${_binary}")
+  set(_binary_base "${_binary}")
+  _gentest_resolve_bazel_binary_path("${_binary_base}" _binary)
+  if(_binary STREQUAL "")
+    message(FATAL_ERROR "Expected Bazel downstream binary not found: ${_binary_base}")
   endif()
 
   execute_process(

@@ -67,17 +67,20 @@ Format edited C/C++ files explicitly:
 clang-format -i path/to/file.cpp path/to/file.hpp
 ```
 
-Run the clang-tidy preset:
+Run the CI-aligned clang-tidy gate:
+
+```bash
+cmake --preset=debug-system
+scripts/check_clang_tidy.sh build/debug-system
+```
+
+The `tidy` / `tidy-fix` presets still exist for the vcpkg-backed workflow:
 
 ```bash
 cmake --preset=tidy
 cmake --build --preset=tidy
 ctest --preset=tidy --output-on-failure
-```
 
-Auto-fix variant:
-
-```bash
 cmake --preset=tidy-fix
 cmake --build --preset=tidy-fix
 ```
