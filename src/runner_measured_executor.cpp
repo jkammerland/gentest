@@ -350,20 +350,23 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
             runtime_skipped = false;
             error           = "skip requested without active runtime skip state";
         }
-        if (!runtime_skipped && !first_failure.empty()
-            && (inv.exception == gentest::runner::InvokeException::Assertion || error.empty())) {
-            error = first_failure;
-        }
+    }
+    if (!first_failure.empty() && (inv.exception == gentest::runner::InvokeException::Assertion || error.empty())) {
+        error = first_failure;
+    }
+    if (!error.empty()) {
+        runtime_skipped = false;
+    }
+    if (gentest::detail::has_bench_error()) {
+        error              = gentest::detail::take_bench_error();
+        allocation_failure = true;
+        runtime_skipped    = false;
+        return false;
     }
     if (runtime_skipped)
         return false;
     if (!error.empty())
         return false;
-    if (gentest::detail::has_bench_error()) {
-        error              = gentest::detail::take_bench_error();
-        allocation_failure = true;
-        return false;
-    }
     return true;
 }
 // NOLINTEND(bugprone-easily-swappable-parameters)
@@ -501,6 +504,18 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
 
 template <typename Result, typename CallFn>
 bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_result, MeasurementCaseFailure &out_failure) {
+    using clock = std::chrono::steady_clock;
+
+    const auto case_start         = clock::now();
+    const auto stamp_failure_time = [&] {
+        const double elapsed_s  = std::chrono::duration<double>(clock::now() - case_start).count();
+        const double floor_time = std::chrono::duration<double>(clock::duration{1}).count();
+        out_failure.time_s      = std::max({out_failure.time_s, out_result.wall_time_s, elapsed_s});
+        if (out_failure.time_s <= 0.0) {
+            out_failure.time_s = floor_time;
+        }
+    };
+
     void       *ctx = nullptr;
     std::string reason;
     if (!gentest::runner::acquire_case_fixture(c, ctx, reason)) {
@@ -515,6 +530,7 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
         out_failure.skipped       = true;
         out_failure.infra_failure = true;
         out_failure.phase         = "allocation";
+        stamp_failure_time();
         return false;
     }
 
@@ -549,6 +565,7 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
                     (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) ||
                     (teardown_after_setup.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
                 out_failure.phase = "setup+teardown";
+                stamp_failure_time();
                 return false;
             }
             const std::string setup_issue =
@@ -566,6 +583,7 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
                 (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) ||
                 (teardown_after_setup.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
             out_failure.phase = "setup+teardown";
+            stamp_failure_time();
             return false;
         }
 
@@ -574,15 +592,18 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
             out_failure.skipped       = true;
             out_failure.infra_failure = (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
             out_failure.phase         = "setup";
+            stamp_failure_time();
             return false;
         }
         out_failure.reason             = setup_phase.reason;
         out_failure.allocation_failure = setup_phase.allocation_failure;
         out_failure.phase              = "setup";
+        stamp_failure_time();
         return false;
     }
 
-    out_result = run_call(c, ctx);
+    out_result         = run_call(c, ctx);
+    out_failure.time_s = out_result.wall_time_s;
 
     std::string call_error;
     if (gentest::detail::has_bench_error()) {
@@ -601,18 +622,22 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
             out_failure.skipped            = false;
             out_failure.infra_failure = (teardown_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
             out_failure.phase         = "call+teardown";
+            stamp_failure_time();
             return false;
         }
         if (teardown_phase.runtime_skipped) {
             out_failure.reason = teardown_phase.skip_reason.empty() ? std::string("teardown requested skip") : teardown_phase.skip_reason;
             out_failure.allocation_failure = false;
+            out_failure.skipped            = true;
             out_failure.infra_failure = (teardown_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
             out_failure.phase         = "teardown";
+            stamp_failure_time();
             return false;
         }
         out_failure.reason             = teardown_phase.reason;
         out_failure.allocation_failure = teardown_phase.allocation_failure;
         out_failure.phase              = "teardown";
+        stamp_failure_time();
         return false;
     }
 
@@ -620,6 +645,7 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
         out_failure.reason             = std::move(call_error);
         out_failure.allocation_failure = false;
         out_failure.phase              = "call";
+        stamp_failure_time();
         return false;
     }
 
@@ -643,11 +669,15 @@ std::string format_measured_fixture_failure_message(std::string_view kind_label,
     }
 }
 
-void report_measured_case_skip(const gentest::Case &c, std::string_view reason) {
+void report_measured_case_skip(const gentest::Case &c, std::string_view reason, double time_s) {
+    long long duration_ms = std::llround(time_s * 1000.0);
+    if (time_s > 0.0 && duration_ms == 0) {
+        duration_ms = 1;
+    }
     if (!reason.empty()) {
-        fmt::print("[ SKIP ] {} :: {} (0 ms)\n", c.name, reason);
+        fmt::print("[ SKIP ] {} :: {} ({} ms)\n", c.name, reason, duration_ms);
     } else {
-        fmt::print("[ SKIP ] {} (0 ms)\n", c.name);
+        fmt::print("[ SKIP ] {} ({} ms)\n", c.name, duration_ms);
     }
 }
 
@@ -662,7 +692,7 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
         ++status.total;
         if (!run_measured_case(c, run_call, result, failure)) {
             if (failure.skipped && !failure.infra_failure) {
-                report_measured_case_skip(c, failure.reason);
+                report_measured_case_skip(c, failure.reason, failure.time_s);
                 on_failure(c, failure, {});
                 ++status.skipped;
                 continue;

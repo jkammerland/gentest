@@ -60,6 +60,13 @@ std::string qualifiers_for(const MockMethodInfo &method) {
     return q;
 }
 
+std::string tidy_exception_escape_suppression(const MockMethodInfo &method) {
+    if (method.is_noexcept) {
+        return " // NOLINT(bugprone-exception-escape)";
+    }
+    return {};
+}
+
 std::string ensure_global_qualifiers(std::string value) {
     if (value.starts_with("::")) {
         return value;
@@ -503,7 +510,9 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
         // Inline definition for template methods (must be visible to callers)
         const std::string fq_type = fmt::format("::{}", cls.qualified_name);
         const std::string tpl_use = template_usage_suffix(method);
-        decl.append_raw(" {\n");
+        decl.append_raw(" {");
+        decl.append_raw(tidy_exception_escape_suppression(method));
+        decl.append_raw("\n");
         decl.append_raw(dispatch_block("        ", cls, method, fq_type, tpl_use));
         decl.append_raw("    }");
     } else {
@@ -710,8 +719,10 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
     if (!method.template_prefix.empty()) {
         def.append("{}\n", method.template_prefix);
     }
-    def.append("{} gentest::mock<{}>::{}({}){} {{\n", ensure_global_qualifiers(method.return_type), fq_type, method.method_name,
+    def.append("{} gentest::mock<{}>::{}({}){} {{", ensure_global_qualifiers(method.return_type), fq_type, method.method_name,
                join_parameter_list(method.parameters), qualifiers_for(method));
+    def.append_raw(tidy_exception_escape_suppression(method));
+    def.append_raw("\n");
     const std::string tpl_usage = template_usage_suffix(method);
     def.append_raw(dispatch_block("    ", cls, method, fq_type, tpl_usage));
     def.append_raw("}\n");

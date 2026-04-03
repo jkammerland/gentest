@@ -90,6 +90,6 @@ jobs:
             -DClang_DIR=/usr/lib64/cmake/clang \
             -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
 
-      - name: Check clang-tidy
+      - name: Check clang-tidy (configured TUs)
         run: |
           CLANG_TIDY_JOBS=4 scripts/check_clang_tidy.sh build/debug-system

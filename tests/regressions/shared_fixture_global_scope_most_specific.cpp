@@ -43,20 +43,14 @@ gentest::Case kCases[] = {
     },
 };
 
-struct FixtureRegistrar {
-    FixtureRegistrar() {
-        constexpr std::string_view kFixtureName = "regressions::shared_fixture_global_scope_most_specific::SpecificFixture";
-        gentest::detail::register_shared_fixture<SpecificFixture>(gentest::detail::SharedFixtureScope::Global, "regressions/parent",
-                                                                  kFixtureName);
-        gentest::detail::register_shared_fixture<SpecificFixture>(gentest::detail::SharedFixtureScope::Global, "regressions/parent/child",
-                                                                  kFixtureName);
-    }
-} kFixtureRegistrar;
-
 } // namespace regressions::shared_fixture_global_scope_most_specific
 
 int main(int argc, char **argv) {
-    gentest::detail::register_cases(
-        std::span<const gentest::Case>(regressions::shared_fixture_global_scope_most_specific::kCases));
+    constexpr std::string_view kFixtureName = "regressions::shared_fixture_global_scope_most_specific::SpecificFixture";
+    gentest::detail::register_shared_fixture<regressions::shared_fixture_global_scope_most_specific::SpecificFixture>(
+        gentest::detail::SharedFixtureScope::Global, "regressions/parent", kFixtureName);
+    gentest::detail::register_shared_fixture<regressions::shared_fixture_global_scope_most_specific::SpecificFixture>(
+        gentest::detail::SharedFixtureScope::Global, "regressions/parent/child", kFixtureName);
+    gentest::detail::register_cases(std::span<const gentest::Case>(regressions::shared_fixture_global_scope_most_specific::kCases));
     return gentest::run_all_tests(argc, argv);
 }

@@ -14,42 +14,66 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 if(WIN32)
   set(_work_dir "${BUILD_ROOT}/bzh")
   set(_fake_bin_dir "${_work_dir}/bin")
+  set(_wrapper_dir "${_work_dir}/ccache")
   set(_fake_toolchain_root "${_work_dir}/tool")
   set(_fake_cc_dir "${_fake_toolchain_root}/cc")
   set(_fake_cxx_dir "${_fake_toolchain_root}/cxx")
   set(_fake_resource_dir "${_fake_toolchain_root}/res")
   set(_fake_llvm_dir "${_work_dir}/llvm")
   set(_fake_clang_dir "${_work_dir}/clang")
+  set(_wrong_toolchain_root "${_work_dir}/wrong-tool")
+  set(_wrong_cc_dir "${_wrong_toolchain_root}/cc")
+  set(_wrong_cxx_dir "${_wrong_toolchain_root}/cxx")
+  set(_wrong_resource_dir "${_wrong_toolchain_root}/res")
+  set(_wrong_llvm_dir "${_work_dir}/wrong-llvm")
+  set(_wrong_clang_dir "${_work_dir}/wrong-clang")
   set(_marker_dir "${_work_dir}/m")
 else()
   set(_work_dir "${BUILD_ROOT}/bazel_helper_configured_toolchain")
   set(_fake_bin_dir "${_work_dir}/fake-bin")
+  set(_wrapper_dir "${_work_dir}/ccache")
   set(_fake_toolchain_root "${_work_dir}/fake-toolchain")
   set(_fake_cc_dir "${_fake_toolchain_root}/cc-bin")
   set(_fake_cxx_dir "${_fake_toolchain_root}/cxx-bin")
   set(_fake_resource_dir "${_fake_toolchain_root}/resource-dir")
   set(_fake_llvm_dir "${_work_dir}/provided-llvm")
   set(_fake_clang_dir "${_work_dir}/provided-clang")
+  set(_wrong_toolchain_root "${_work_dir}/wrong-toolchain")
+  set(_wrong_cc_dir "${_wrong_toolchain_root}/cc-bin")
+  set(_wrong_cxx_dir "${_wrong_toolchain_root}/cxx-bin")
+  set(_wrong_resource_dir "${_wrong_toolchain_root}/resource-dir")
+  set(_wrong_llvm_dir "${_work_dir}/wrong-llvm")
+  set(_wrong_clang_dir "${_work_dir}/wrong-clang")
   set(_marker_dir "${_work_dir}/markers")
 endif()
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY
   "${_fake_bin_dir}"
+  "${_wrapper_dir}"
   "${_fake_cc_dir}"
   "${_fake_cxx_dir}"
   "${_fake_resource_dir}"
   "${_fake_llvm_dir}"
   "${_fake_clang_dir}"
+  "${_wrong_cc_dir}"
+  "${_wrong_cxx_dir}"
+  "${_wrong_resource_dir}"
+  "${_wrong_llvm_dir}"
+  "${_wrong_clang_dir}"
   "${_marker_dir}")
 
 set(_fake_cc_base "${_fake_cc_dir}/clang")
 set(_fake_cxx_base "${_fake_cxx_dir}/clang++")
+set(_wrong_cc_base "${_wrong_cc_dir}/clang")
+set(_wrong_cxx_base "${_wrong_cxx_dir}/clang++")
 set(_fake_bazel_base "${_fake_bin_dir}/bazel")
 set(_fake_bazelisk_base "${_fake_bin_dir}/bazelisk")
 
 if(WIN32)
   set(_fake_cc "${_fake_cc_base}.bat")
   set(_fake_cxx "${_fake_cxx_base}.bat")
+  set(_wrong_cc "${_wrong_cc_base}.bat")
+  set(_wrong_cxx "${_wrong_cxx_base}.bat")
   set(_fake_bazel "${_fake_bazel_base}.bat")
   set(_fake_bazelisk "${_fake_bazelisk_base}.bat")
 
@@ -57,9 +81,15 @@ if(WIN32)
   file(WRITE
     "${_fake_cxx}"
     "@echo off\r\nif /I \"%~1\"==\"-print-resource-dir\" (\r\n  echo %FAKE_RESOURCE_DIR%\r\n)\r\nexit /b 0\r\n")
+  file(WRITE "${_wrong_cc}" "@echo off\r\nexit /b 0\r\n")
+  file(WRITE
+    "${_wrong_cxx}"
+    "@echo off\r\nif /I \"%~1\"==\"-print-resource-dir\" (\r\n  echo %WRONG_RESOURCE_DIR%\r\n)\r\nexit /b 0\r\n")
 else()
   set(_fake_cc "${_fake_cc_base}")
   set(_fake_cxx "${_fake_cxx_base}")
+  set(_wrong_cc "${_wrong_cc_base}")
+  set(_wrong_cxx "${_wrong_cxx_base}")
   set(_fake_bazel "${_fake_bazel_base}")
   set(_fake_bazelisk "${_fake_bazelisk_base}")
 
@@ -68,10 +98,30 @@ else()
 
   file(WRITE "${_fake_cxx}" "#!/bin/sh\nif [ \"$1\" = \"-print-resource-dir\" ]; then\n  printf '%s\\n' \"$FAKE_RESOURCE_DIR\"\n  exit 0\nfi\nexit 0\n")
   file(CHMOD "${_fake_cxx}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+  file(WRITE "${_wrong_cc}" "#!/bin/sh\nexit 0\n")
+  file(CHMOD "${_wrong_cc}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+
+  file(WRITE "${_wrong_cxx}" "#!/bin/sh\nif [ \"$1\" = \"-print-resource-dir\" ]; then\n  printf '%s\\n' \"$WRONG_RESOURCE_DIR\"\n  exit 0\nfi\nexit 0\n")
+  file(CHMOD "${_wrong_cxx}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+
+  set(_fake_cc_wrapper "${_wrapper_dir}/clang")
+  set(_fake_cxx_wrapper "${_wrapper_dir}/clang++")
+  file(CREATE_LINK "${_fake_cc}" "${_fake_cc_wrapper}" SYMBOLIC)
+  file(CREATE_LINK "${_fake_cxx}" "${_fake_cxx_wrapper}" SYMBOLIC)
+
+  set(_ccache_real "${_wrapper_dir}/ccache")
+  file(WRITE "${_ccache_real}" "#!/bin/sh\nif [ \"$1\" = \"-print-resource-dir\" ]; then\n  exit 19\nfi\nexit 19\n")
+  file(CHMOD "${_ccache_real}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+  set(_fake_cc_ccache_wrapper "${_wrapper_dir}/clang-path-only")
+  set(_fake_cxx_ccache_wrapper "${_wrapper_dir}/clang++-path-only")
+  file(CREATE_LINK "${_ccache_real}" "${_fake_cc_ccache_wrapper}" SYMBOLIC)
+  file(CREATE_LINK "${_ccache_real}" "${_fake_cxx_ccache_wrapper}" SYMBOLIC)
 endif()
 
 file(WRITE "${_fake_llvm_dir}/LLVMConfig.cmake" "# fake llvm config\n")
 file(WRITE "${_fake_clang_dir}/ClangConfig.cmake" "# fake clang config\n")
+file(WRITE "${_wrong_llvm_dir}/LLVMConfig.cmake" "# wrong llvm config\n")
+file(WRITE "${_wrong_clang_dir}/ClangConfig.cmake" "# wrong clang config\n")
 
 set(_path_sep ":")
 if(WIN32)
@@ -173,6 +223,17 @@ if ($Mode -eq 'info') {
 
 if ($Mode -ne 'build') {
   Fail ("unsupported fake bazel invocation: " + ($RemainingArgs -join ' ')) 2
+}
+
+if (-not [string]::IsNullOrEmpty($env:EXPECT_FLAGS)) {
+  foreach ($Flag in $env:EXPECT_FLAGS -split '\|') {
+    if ([string]::IsNullOrEmpty($Flag)) {
+      continue
+    }
+    if (-not ($RemainingArgs -contains $Flag)) {
+      Fail ("missing required Bazel flag: " + $Flag) 20
+    }
+  }
 }
 
 Assert-EnvEquals 'CC' $env:EXPECT_CC 3
@@ -289,6 +350,20 @@ if [ "$mode" != "build" ]; then
   exit 2
 fi
 
+if [ -n "${EXPECT_FLAGS:-}" ]; then
+  bazel_args=" $* "
+  for expected_flag in $(printf '%s' "${EXPECT_FLAGS}" | tr '|' ' '); do
+    [ -n "$expected_flag" ] || continue
+    case "${bazel_args}" in
+      *" ${expected_flag} "*) ;;
+      *)
+        echo "missing required Bazel flag: ${expected_flag}" >&2
+        exit 20
+        ;;
+    esac
+  done
+fi
+
 if [ "${CC:-}" != "${EXPECT_CC:-}" ]; then
   echo "expected CC=${EXPECT_CC:-}, got ${CC:-}" >&2
   exit 3
@@ -402,26 +477,76 @@ exit 0
 endif()
 
 function(_run_bazel_helper_regression name script_path)
+  set(options PATH_ONLY_REAL_CLANG)
+  cmake_parse_arguments(RUN "${options}" "" "" ${ARGN})
+  set(_configured_cc "${_fake_cc}")
+  set(_configured_cxx "${_fake_cxx}")
+  set(_configured_path "${_fake_path}")
+  set(_expected_flags
+    "--action_env=CCACHE_DISABLE"
+    "--action_env=PATH"
+    "--action_env=CC"
+    "--action_env=CXX"
+    "--action_env=LLVM_BIN"
+    "--action_env=LLVM_DIR"
+    "--action_env=Clang_DIR"
+    "--action_env=GENTEST_CODEGEN_HOST_CLANG"
+    "--action_env=GENTEST_CODEGEN_RESOURCE_DIR"
+    "--host_action_env=CCACHE_DISABLE"
+    "--host_action_env=PATH"
+    "--host_action_env=CC"
+    "--host_action_env=CXX"
+    "--host_action_env=LLVM_BIN"
+    "--host_action_env=LLVM_DIR"
+    "--host_action_env=Clang_DIR"
+    "--host_action_env=GENTEST_CODEGEN_HOST_CLANG"
+    "--host_action_env=GENTEST_CODEGEN_RESOURCE_DIR"
+    "--host_action_env=HOME"
+    "--repo_env=PATH"
+    "--repo_env=CC"
+    "--repo_env=CXX"
+    "--repo_env=LLVM_BIN"
+    "--repo_env=LLVM_DIR"
+    "--repo_env=Clang_DIR"
+    "--repo_env=GENTEST_CODEGEN_HOST_CLANG"
+    "--repo_env=GENTEST_CODEGEN_RESOURCE_DIR"
+    "--repo_env=HOME")
+  if(NOT name MATCHES "^bzlmod")
+    list(APPEND _expected_flags "--action_env=HOME")
+  endif()
+  string(JOIN "|" _expected_flags_joined ${_expected_flags})
+  if(NOT WIN32)
+    if(RUN_PATH_ONLY_REAL_CLANG)
+      set(_configured_cc "${_fake_cc_ccache_wrapper}")
+      set(_configured_cxx "${_fake_cxx_ccache_wrapper}")
+      set(_configured_path "${_fake_cc_dir}${_path_sep}${_fake_cxx_dir}${_path_sep}${_fake_bin_dir}${_path_sep}$ENV{PATH}")
+    else()
+      set(_configured_cc "${_fake_cc_wrapper}")
+      set(_configured_cxx "${_fake_cxx_wrapper}")
+    endif()
+  endif()
   execute_process(
     COMMAND
       "${CMAKE_COMMAND}" -E env
-      "PATH=${_fake_path}"
+      "PATH=${_configured_path}"
       "FAKE_RESOURCE_DIR=${_fake_resource_dir}"
+      "WRONG_RESOURCE_DIR=${_wrong_resource_dir}"
       "EXPECT_CC=${_fake_cc}"
       "EXPECT_CXX=${_fake_cxx}"
       "EXPECT_LLVM_DIR=${_fake_llvm_dir}"
       "EXPECT_CLANG_DIR=${_fake_clang_dir}"
       "EXPECT_RESOURCE_DIR=${_fake_resource_dir}"
+      "EXPECT_FLAGS=${_expected_flags_joined}"
       "MARKER_DIR=${_marker_dir}"
-      "GENTEST_CODEGEN_HOST_CLANG="
+      "GENTEST_CODEGEN_HOST_CLANG=${_wrong_cxx}"
       "LLVM_BIN="
-      "LLVM_DIR="
-      "Clang_DIR="
+      "LLVM_DIR=${_wrong_llvm_dir}"
+      "Clang_DIR=${_wrong_clang_dir}"
       "${CMAKE_COMMAND}"
       "-DSOURCE_DIR=${SOURCE_DIR}"
       "-DBUILD_ROOT=${_work_dir}/${name}"
-      "-DC_COMPILER=${_fake_cc}"
-      "-DCXX_COMPILER=${_fake_cxx}"
+      "-DC_COMPILER=${_configured_cc}"
+      "-DCXX_COMPILER=${_configured_cxx}"
       "-DLLVM_DIR=${_fake_llvm_dir}"
       "-DClang_DIR=${_fake_clang_dir}"
       "-P" "${script_path}"
@@ -442,19 +567,24 @@ _run_bazel_helper_regression(textual "${SOURCE_DIR}/cmake/CheckBazelTextualConsu
 if(NOT EXISTS "${_marker_dir}/textual.ok")
   message(FATAL_ERROR "Textual Bazel helper did not invoke the configured-toolchain fake bazel harness")
 endif()
+if(NOT WIN32)
+  _run_bazel_helper_regression(textual_path_only "${SOURCE_DIR}/cmake/CheckBazelTextualConsumer.cmake" PATH_ONLY_REAL_CLANG)
+endif()
 
 _run_bazel_helper_regression(module "${SOURCE_DIR}/cmake/CheckBazelModuleConsumer.cmake")
 if(NOT EXISTS "${_marker_dir}/module.ok")
   message(FATAL_ERROR "Module Bazel helper did not invoke the configured-toolchain fake bazel harness")
 endif()
+if(NOT WIN32)
+  _run_bazel_helper_regression(module_path_only "${SOURCE_DIR}/cmake/CheckBazelModuleConsumer.cmake" PATH_ONLY_REAL_CLANG)
+endif()
 
-if(WIN32)
-  message(STATUS "Configured-toolchain Bazel helper regression on Windows validates textual and module consumers; the Bzlmod lane remains covered by Linux Bazel CI.")
-else()
-  _run_bazel_helper_regression(bzlmod "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
-  if(NOT EXISTS "${_marker_dir}/bzlmod.ok")
-    message(FATAL_ERROR "Bzlmod Bazel helper did not invoke the configured-toolchain fake bazel harness")
-  endif()
+_run_bazel_helper_regression(bzlmod "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
+if(NOT EXISTS "${_marker_dir}/bzlmod.ok")
+  message(FATAL_ERROR "Bzlmod Bazel helper did not invoke the configured-toolchain fake bazel harness")
+endif()
+if(NOT WIN32)
+  _run_bazel_helper_regression(bzlmod_path_only "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake" PATH_ONLY_REAL_CLANG)
 endif()
 
 message(STATUS "Configured-toolchain Bazel helper regression passed")

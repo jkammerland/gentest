@@ -12,12 +12,14 @@ endif()
 
 set(_consumer_file "${SOURCE_DIR}/tests/consumer/CMakeLists.txt")
 set(_readme_file "${SOURCE_DIR}/README.md")
+set(_agents_file "${SOURCE_DIR}/AGENTS.md")
 set(_modules_file "${SOURCE_DIR}/docs/modules.md")
 set(_story_file "${SOURCE_DIR}/docs/stories/010_public_modules_progress_report.md")
 
 foreach(_required IN ITEMS
     "${_consumer_file}"
     "${_readme_file}"
+    "${_agents_file}"
     "${_modules_file}"
     "${_story_file}")
   if(NOT EXISTS "${_required}")
@@ -25,16 +27,26 @@ foreach(_required IN ITEMS
   endif()
 endforeach()
 
-file(READ "${_consumer_file}" _consumer_content)
-foreach(_expected IN ITEMS
-    "target_link_libraries(gentest_consumer PRIVATE gentest::gentest gentest::gentest_main)"
-    "target_link_libraries(gentest_consumer PRIVATE gentest::gentest gentest::gentest_runtime)"
-    "target_link_libraries(gentest_consumer PRIVATE gentest::gentest gentest::gentest_main gentest::gentest_runtime)")
-  string(FIND "${_consumer_content}" "${_expected}" _expected_pos)
-  if(_expected_pos EQUAL -1)
-    message(FATAL_ERROR "tests/consumer/CMakeLists.txt is missing supported module link contract token: ${_expected}")
+function(_assert_regex content pattern description)
+  string(REGEX MATCH "${pattern}" _match "${content}")
+  if(_match STREQUAL "")
+    message(FATAL_ERROR "${description}")
   endif()
-endforeach()
+endfunction()
+
+file(READ "${_consumer_file}" _consumer_content)
+_assert_regex(
+  "${_consumer_content}"
+  "target_link_libraries\\(gentest_consumer PRIVATE[ \t\r\n]+gentest::gentest[ \t\r\n]+gentest::gentest_main[ \t\r\n]*\\)"
+  "tests/consumer/CMakeLists.txt must keep the module main-only link contract.")
+_assert_regex(
+  "${_consumer_content}"
+  "target_link_libraries\\(gentest_consumer PRIVATE[ \t\r\n]+gentest::gentest[ \t\r\n]+gentest::gentest_runtime[ \t\r\n]*\\)"
+  "tests/consumer/CMakeLists.txt must keep the module runtime-only link contract.")
+_assert_regex(
+  "${_consumer_content}"
+  "target_link_libraries\\(gentest_consumer PRIVATE[ \t\r\n]+gentest::gentest[ \t\r\n]+gentest::gentest_main[ \t\r\n]+gentest::gentest_runtime[ \t\r\n]*\\)"
+  "tests/consumer/CMakeLists.txt must keep the module double-link contract.")
 
 file(READ "${_readme_file}" _readme_content)
 string(REGEX MATCH
@@ -46,6 +58,14 @@ if(_readme_module_link STREQUAL "")
 endif()
 
 file(READ "${_modules_file}" _modules_content)
+string(REGEX MATCH
+  "target_link_libraries\\(my_tests PRIVATE[ \t\r\n]+gentest::gentest[ \t\r\n]+gentest::gentest_runtime[ \t\r\n]*\\)"
+  _modules_quickstart_link "${_modules_content}")
+if(_modules_quickstart_link STREQUAL "")
+  message(FATAL_ERROR
+    "docs/modules.md must keep the quick-start `import gentest;` example linking `gentest::gentest` with `gentest::gentest_runtime` when the snippet provides its own `main()`.")
+endif()
+
 string(REGEX MATCH
   "target_link_libraries\\(my_tests PRIVATE[ \t\r\n]+gentest::gentest[ \t\r\n]+gentest::gentest_runtime[ \t\r\n]+my_service_mocks[ \t\r\n]*\\)"
   _modules_link "${_modules_content}")
@@ -60,6 +80,16 @@ foreach(_expected IN ITEMS
   string(FIND "${_modules_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "docs/modules.md is missing module-doc contract token: ${_expected}")
+  endif()
+endforeach()
+
+file(READ "${_agents_file}" _agents_content)
+foreach(_expected IN ITEMS
+    "`import gentest;` consumers should link `gentest::gentest`"
+    "`gentest::gentest_runtime` if they provide their own `main()`")
+  string(FIND "${_agents_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "AGENTS.md is missing module-doc contract token: ${_expected}")
   endif()
 endforeach()
 

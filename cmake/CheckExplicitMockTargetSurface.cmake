@@ -226,3 +226,41 @@ gentest_check_run_or_fail(
   COMMAND "${_build_dir}/explicit_header_consumer${CMAKE_EXECUTABLE_SUFFIX}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+
+message(STATUS "Mutate explicit module mock defs and rebuild late-linked module consumer...")
+file(READ "${_src_dir}/module_mocks.cppm" _module_mocks_content)
+string(FIND "${_module_mocks_content}" "\r\n" _module_mocks_has_crlf)
+if(NOT _module_mocks_has_crlf EQUAL -1)
+  string(REPLACE "\r\n" "\n" _module_mocks_content "${_module_mocks_content}")
+endif()
+string(REPLACE
+  "export import fixture.service_module;\n"
+  "export import fixture.service_module;\n\n// late-link module rebuild marker\n"
+  _module_mocks_content
+  "${_module_mocks_content}")
+if(NOT _module_mocks_has_crlf EQUAL -1)
+  string(REPLACE "\n" "\r\n" _module_mocks_content "${_module_mocks_content}")
+endif()
+file(WRITE "${_src_dir}/module_mocks.cppm" "${_module_mocks_content}")
+
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target explicit_late_link_module_consumer
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE _late_link_module_rebuild_output)
+
+string(FIND "${_late_link_module_rebuild_output}" "Running gentest_codegen for target explicit_late_link_module_consumer"
+  _late_link_module_codegen_pos)
+if(_late_link_module_codegen_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Incremental rebuild after editing explicit module mock defs did not rerun codegen for "
+    "'explicit_late_link_module_consumer'.\n"
+    "Build output:\n${_late_link_module_rebuild_output}")
+endif()
+
+gentest_check_run_or_fail(
+  COMMAND
+    "${_build_dir}/explicit_late_link_module_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    "--run=explicit_mock_target/late_link_module_consumer"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)

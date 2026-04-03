@@ -9,6 +9,10 @@ if(NOT _bazel)
 endif()
 
 set(_bazel_command "${_bazel}")
+if(WIN32 AND _bazel MATCHES "\\.(cmd|bat)$")
+  file(TO_NATIVE_PATH "${_bazel}" _bazel_native)
+  set(_bazel_command cmd /d /c call "${_bazel_native}")
+endif()
 execute_process(
   COMMAND ${_bazel_command} --version
   RESULT_VARIABLE _bazel_version_rc
@@ -68,7 +72,7 @@ function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
   if(DEFINED LLVM_DIR AND NOT LLVM_DIR STREQUAL "" AND EXISTS "${LLVM_DIR}/LLVMConfig.cmake")
     set(_resolved_llvm "${LLVM_DIR}")
   endif()
-  if(NOT "$ENV{LLVM_DIR}" STREQUAL "" AND EXISTS "$ENV{LLVM_DIR}/LLVMConfig.cmake")
+  if(_resolved_llvm STREQUAL "" AND NOT "$ENV{LLVM_DIR}" STREQUAL "" AND EXISTS "$ENV{LLVM_DIR}/LLVMConfig.cmake")
     set(_resolved_llvm "$ENV{LLVM_DIR}")
   endif()
   foreach(_candidate IN LISTS _llvm_candidates)
@@ -82,7 +86,7 @@ function(_gentest_resolve_llvm_cmake_dirs clang_cxx out_llvm_dir out_clang_dir)
   if(DEFINED Clang_DIR AND NOT Clang_DIR STREQUAL "" AND EXISTS "${Clang_DIR}/ClangConfig.cmake")
     set(_resolved_clang "${Clang_DIR}")
   endif()
-  if(NOT "$ENV{Clang_DIR}" STREQUAL "" AND EXISTS "$ENV{Clang_DIR}/ClangConfig.cmake")
+  if(_resolved_clang STREQUAL "" AND NOT "$ENV{Clang_DIR}" STREQUAL "" AND EXISTS "$ENV{Clang_DIR}/ClangConfig.cmake")
     set(_resolved_clang "$ENV{Clang_DIR}")
   endif()
   if(_resolved_clang STREQUAL "" AND NOT _resolved_llvm STREQUAL "")
@@ -121,31 +125,91 @@ set(_gentest_clang_search_paths
   /usr/lib/llvm-20/bin
   /usr/bin)
 
+function(_gentest_filter_non_ccache_paths out_var)
+  set(_filtered_paths "")
+  foreach(_path IN LISTS ARGN)
+    if("${_path}" STREQUAL "")
+      continue()
+    endif()
+    if(_path MATCHES "(^|[/\\\\])ccache([/\\\\]|$)")
+      continue()
+    endif()
+    list(APPEND _filtered_paths "${_path}")
+  endforeach()
+  list(REMOVE_DUPLICATES _filtered_paths)
+  set(${out_var} "${_filtered_paths}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_resolve_non_ccache_clang candidate out_var)
+  set(_resolved "${candidate}")
+  if(NOT "${candidate}" STREQUAL "" AND EXISTS "${candidate}" AND candidate MATCHES "(^|[/\\\\])ccache([/\\\\]|$)")
+    get_filename_component(_candidate_real "${candidate}" REALPATH)
+    get_filename_component(_candidate_real_name "${_candidate_real}" NAME)
+    if(EXISTS "${_candidate_real}" AND NOT _candidate_real_name MATCHES "^ccache(\\.exe)?$")
+      set(_resolved "${_candidate_real}")
+    else()
+      set(_gentest_non_ccache_clang_search_paths "")
+      if(NOT "$ENV{PATH}" STREQUAL "")
+        cmake_path(CONVERT "$ENV{PATH}" TO_CMAKE_PATH_LIST _gentest_env_path_entries NORMALIZE)
+        _gentest_filter_non_ccache_paths(_gentest_env_non_ccache_clang_search_paths ${_gentest_env_path_entries})
+        list(APPEND _gentest_non_ccache_clang_search_paths ${_gentest_env_non_ccache_clang_search_paths})
+      endif()
+      _gentest_filter_non_ccache_paths(_gentest_known_non_ccache_clang_search_paths ${_gentest_clang_search_paths})
+      list(APPEND _gentest_non_ccache_clang_search_paths ${_gentest_known_non_ccache_clang_search_paths})
+      list(REMOVE_DUPLICATES _gentest_non_ccache_clang_search_paths)
+      set(_gentest_search_names "")
+      foreach(_gentest_name IN LISTS ARGN)
+        if(_gentest_name STREQUAL "clang++" OR _gentest_name STREQUAL "clang")
+          list(APPEND _gentest_search_names "${_gentest_name}")
+        endif()
+      endforeach()
+      list(APPEND _gentest_search_names ${ARGN})
+      list(REMOVE_DUPLICATES _gentest_search_names)
+      unset(_resolved_candidate CACHE)
+      unset(_resolved_candidate)
+      find_program(_resolved_candidate
+        NAMES ${_gentest_search_names}
+        PATHS ${_gentest_non_ccache_clang_search_paths}
+        NO_DEFAULT_PATH
+        NO_CACHE)
+      if(_resolved_candidate)
+        set(_resolved "${_resolved_candidate}")
+      endif()
+    endif()
+  endif()
+  set(${out_var} "${_resolved}" PARENT_SCOPE)
+endfunction()
+
 set(_resource_dir "")
 set(_use_explicit_c_compiler FALSE)
-set(_codegen_host_clang "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
-if(NOT _codegen_host_clang STREQUAL "" AND NOT EXISTS "${_codegen_host_clang}")
-  message(FATAL_ERROR
-    "GENTEST_CODEGEN_HOST_CLANG points to a missing clang++ executable for the Bazel module consumer smoke check.\n"
-    "GENTEST_CODEGEN_HOST_CLANG: ${_codegen_host_clang}")
-endif()
-if(_codegen_host_clang STREQUAL "" AND DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
+set(_codegen_host_clang "")
+if(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
   if(NOT EXISTS "${CXX_COMPILER}")
     message(FATAL_ERROR
       "CXX_COMPILER points to a missing clang++ executable for the Bazel module consumer smoke check.\n"
       "CXX_COMPILER: ${CXX_COMPILER}")
   endif()
+  _gentest_resolve_non_ccache_clang("${CXX_COMPILER}" _configured_cxx clang++-22 clang++-21 clang++-20 clang++)
   execute_process(
-    COMMAND "${CXX_COMPILER}" -print-resource-dir
+    COMMAND "${_configured_cxx}" -print-resource-dir
     RESULT_VARIABLE _configured_resource_rc
     OUTPUT_VARIABLE _configured_resource_out
     ERROR_VARIABLE _configured_resource_err
     OUTPUT_STRIP_TRAILING_WHITESPACE)
   if(_configured_resource_rc EQUAL 0 AND NOT _configured_resource_out STREQUAL "")
-    set(_codegen_host_clang "${CXX_COMPILER}")
+    set(_codegen_host_clang "${_configured_cxx}")
     set(_resource_dir "${_configured_resource_out}")
     set(_use_explicit_c_compiler TRUE)
   endif()
+endif()
+if(_codegen_host_clang STREQUAL "" AND NOT "$ENV{GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
+  set(_codegen_host_clang "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
+  if(NOT EXISTS "${_codegen_host_clang}")
+    message(FATAL_ERROR
+      "GENTEST_CODEGEN_HOST_CLANG points to a missing clang++ executable for the Bazel module consumer smoke check.\n"
+      "GENTEST_CODEGEN_HOST_CLANG: ${_codegen_host_clang}")
+  endif()
+  _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-22 clang++-21 clang++-20 clang++)
 endif()
 if(_codegen_host_clang STREQUAL "")
   if(NOT "$ENV{LLVM_BIN}" STREQUAL "" AND EXISTS "$ENV{LLVM_BIN}/clang++")
@@ -164,6 +228,7 @@ if(NOT _codegen_host_clang)
     return()
   endif()
 endif()
+_gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-22 clang++-21 clang++-20 clang++)
 set(_clang_cxx "${_codegen_host_clang}")
 get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
 
@@ -173,7 +238,7 @@ if(_use_explicit_c_compiler AND DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "
       "C_COMPILER points to a missing clang executable for the Bazel module consumer smoke check.\n"
       "C_COMPILER: ${C_COMPILER}")
   endif()
-  set(_clang_cc "${C_COMPILER}")
+  _gentest_resolve_non_ccache_clang("${C_COMPILER}" _clang_cc clang-22 clang-21 clang-20 clang)
 else()
   find_program(_clang_cc NAMES clang-22 clang-21 clang-20 clang
     PATHS "${_clang_bin_dir}" ${_gentest_clang_search_paths}
@@ -189,6 +254,7 @@ if(NOT _clang_cc)
     "GENTEST_CODEGEN_HOST_CLANG: ${_clang_cxx}\n"
     "clang bin dir: ${_clang_bin_dir}")
 endif()
+_gentest_resolve_non_ccache_clang("${_clang_cc}" _clang_cc clang-22 clang-21 clang-20 clang)
 
 if(_resource_dir STREQUAL "")
   execute_process(

@@ -28,6 +28,11 @@ file(WRITE "${_fixture_support_include_dir}/fixture/generated_support.hpp"
 namespace fixture {\n\
 inline constexpr int kGeneratedSupportSentinel = 17;\n\
 } // namespace fixture\n")
+file(WRITE "${_fixture_support_include_dir}/fixture/a+b.hpp"
+"#pragma once\n\
+namespace fixture {\n\
+inline constexpr int kRegexMetacharSupportSentinel = 23;\n\
+} // namespace fixture\n")
 
 add_library(fixture_support INTERFACE)
 target_include_directories(fixture_support INTERFACE

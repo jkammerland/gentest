@@ -41,13 +41,13 @@ add_executable(my_tests
 
 target_link_libraries(my_tests PRIVATE
   gentest::gentest
-  gentest::gentest_main)
+  gentest::gentest_runtime)
 
 gentest_attach_codegen(my_tests)
 gentest_discover_tests(my_tests)
 ```
 
-If you provide your own `main()`, link `gentest::gentest_runtime` instead of `gentest::gentest_main`.
+If you do not provide your own `main()`, link `gentest::gentest_main` instead of `gentest::gentest_runtime`.
 
 ## Minimal layout
 

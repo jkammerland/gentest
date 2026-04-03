@@ -24,14 +24,17 @@ list_cpp_files() {
             continue
         fi
         case "${tracked_file}" in
-        *.c | *.cc | *.cpp | *.cxx | *.h | *.hh | *.hpp | *.hxx | *.ipp | *.cppm | *.ixx | *.c++ | *.h++)
+        *.c | *.cc | *.cpp | *.cxx | *.cu | *.h | *.hh | *.hpp | *.hxx | *.ipp | *.cppm | *.ixx | *.mpp | *.c++ | *.h++)
             printf '%s\n' "${tracked_file}"
             ;;
         esac
     done < <(git -c safe.directory="${repo_root}" -C "${repo_root}" ls-files -- include src tests tools)
 }
 
-mapfile -t cpp_files < <(list_cpp_files)
+cpp_files=()
+while IFS= read -r cpp_file; do
+    cpp_files+=("${cpp_file}")
+done < <(list_cpp_files)
 
 if [ "${#cpp_files[@]}" -eq 0 ]; then
     echo "No C++ files found for clang-format check."

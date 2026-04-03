@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fixture/a+b.hpp>
 #include <fixture/generated_support.hpp>
 #include <fixture/service.hpp>
 

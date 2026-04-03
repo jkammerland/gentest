@@ -69,6 +69,7 @@ struct MeasurementCaseFailure {
     bool             allocation_failure = false;
     bool             skipped            = false;
     bool             infra_failure      = false;
+    double           time_s             = 0.0;
     std::string_view phase{};
 };
 

@@ -160,7 +160,7 @@ jobs:
 
       - name: Cache extracted LLVM toolchain
         id: cache-llvm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}\llvm\clang+llvm-${{ matrix.llvm-version }}-x86_64-pc-windows-msvc
           key: llvm-${{ runner.os }}-${{ matrix.llvm-version }}

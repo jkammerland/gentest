@@ -394,7 +394,7 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
         std::size_t total_skip  = 0;
         std::size_t total_err   = acc.infra_errors.size();
         for (const auto &it : acc.report_items) {
-            if (it.skipped)
+            if (it.skipped && it.failures.empty())
                 ++total_skip;
             if (!it.failures.empty())
                 ++total_fail;
@@ -412,7 +412,7 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
                 }
                 out << "    </properties>\n";
             }
-            if (it.skipped) {
+            if (it.skipped && it.failures.empty()) {
                 out << "    <skipped";
                 if (!it.skip_reason.empty())
                     out << " message=\"" << escape_xml(it.skip_reason) << "\"";

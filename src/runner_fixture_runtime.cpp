@@ -15,7 +15,6 @@
 
 namespace {
 
-bool is_assertion_summary_label(std::string_view value) { return value.starts_with("ASSERT_"); }
 struct SharedFixtureEntry {
     std::string                         fixture_name;
     std::string                         suite;
@@ -172,34 +171,59 @@ struct FixtureContextGuard {
     }
 };
 
+std::string resolve_fixture_context_issue(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx, std::string current_error,
+                                          bool caught_assertion, bool caught_runtime_skip) {
+    std::string first_failure = gentest::detail::first_recorded_failure(ctx);
+    if (caught_assertion && !first_failure.empty()) {
+        return first_failure;
+    }
+    if (!current_error.empty()) {
+        return current_error;
+    }
+    if (!first_failure.empty()) {
+        return first_failure;
+    }
+    if (gentest::detail::has_bench_error()) {
+        return gentest::detail::take_bench_error();
+    }
+    if (!ctx) {
+        if (caught_runtime_skip) {
+            return "skip requested without active runtime skip state";
+        }
+        return current_error;
+    }
+
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    if (ctx->runtime_skip_requested.load(std::memory_order_relaxed)) {
+        if (!ctx->runtime_skip_reason.empty()) {
+            return ctx->runtime_skip_reason;
+        }
+        return "skip requested";
+    }
+    if (caught_runtime_skip) {
+        return "skip requested without active runtime skip state";
+    }
+    return current_error;
+}
+
 bool run_fixture_phase(std::string_view label, const std::function<void(std::string &)> &fn, std::string &error_out) {
     error_out.clear();
     gentest::detail::clear_bench_error();
     FixtureContextGuard guard(label);
-    bool                caught_assertion = false;
+    bool                caught_assertion    = false;
+    bool                caught_runtime_skip = false;
     try {
         fn(error_out);
-    } catch (const gentest::assertion &e) {
-        error_out        = e.message();
+    } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
         caught_assertion = true;
+        error_out        = e.message();
     } catch (const std::exception &e) { error_out = std::string("std::exception: ") + e.what(); } catch (...) {
         error_out = "unknown exception";
     }
     gentest::detail::wait_for_adopted_tokens(guard.ctx);
     gentest::detail::flush_current_buffer_for(guard.ctx.get());
-    const std::string first_failure = gentest::detail::first_recorded_failure(guard.ctx);
-    if (!first_failure.empty() && (caught_assertion || is_assertion_summary_label(error_out))) {
-        error_out = first_failure;
-    }
+    error_out = resolve_fixture_context_issue(guard.ctx, std::move(error_out), caught_assertion, caught_runtime_skip);
     if (!error_out.empty()) {
-        return false;
-    }
-    if (gentest::detail::has_bench_error()) {
-        error_out = gentest::detail::take_bench_error();
-        return false;
-    }
-    if (!first_failure.empty()) {
-        error_out = first_failure;
         return false;
     }
     return true;
@@ -326,11 +350,25 @@ bool setup_shared_fixtures() {
         if (!create_fn) {
             error = "missing factory";
         } else {
+            gentest::detail::clear_bench_error();
+            FixtureContextGuard guard(fmt::format("{} create", fixture_name));
+            bool                caught_assertion    = false;
+            bool                caught_runtime_skip = false;
             try {
                 instance = create_fn(suite_name, error);
-            } catch (const gentest::assertion &e) { error = e.message(); } catch (const std::exception &e) {
-                error = std::string("std::exception: ") + e.what();
-            } catch (...) { error = "unknown exception"; }
+            } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
+                caught_assertion = true;
+                error            = e.message();
+            } catch (const std::exception &e) { error = std::string("std::exception: ") + e.what(); } catch (...) {
+                error = "unknown exception";
+            }
+            gentest::detail::wait_for_adopted_tokens(guard.ctx);
+            gentest::detail::flush_current_buffer_for(guard.ctx.get());
+            error = resolve_fixture_context_issue(guard.ctx, std::move(error), caught_assertion, caught_runtime_skip);
+        }
+
+        if (!error.empty()) {
+            instance.reset();
         }
 
         if (!instance) {

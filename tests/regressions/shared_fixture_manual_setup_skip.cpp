@@ -5,20 +5,20 @@
 
 namespace {
 
-constexpr std::string_view kFixtureName = "regressions::AssertingSetupFixture";
+constexpr std::string_view kFixtureName = "regressions::SkippingSetupFixture";
 
 std::shared_ptr<void> create_fixture(std::string_view, std::string &) { return std::make_shared<int>(1); }
 
-void setup_assert(void *, std::string &) { gentest::asserts::ASSERT_TRUE(false, "manual-setup-assert"); }
+void setup_skip(void *, std::string &) { gentest::skip("manual-setup-skip"); }
 
-void teardown_marker(void *, std::string &) { static_cast<void>(std::fputs("manual-setup-assert-teardown-ran\n", stderr)); }
+void teardown_marker(void *, std::string &) { static_cast<void>(std::fputs("manual-setup-skip-teardown-ran\n", stderr)); }
 
 constexpr unsigned kNoopCaseLine = __LINE__ + 1;
 void               noop_case(void *) {}
 
 gentest::Case kCases[] = {
     {
-        .name             = "regressions/shared_fixture_manual_setup_assert_skip/member_case",
+        .name             = "regressions/shared_fixture_manual_setup_skip/member_case",
         .fn               = &noop_case,
         .file             = __FILE__,
         .line             = kNoopCaseLine,
@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
         .suite        = std::string_view{},
         .scope        = gentest::detail::SharedFixtureScope::Global,
         .create       = &create_fixture,
-        .setup        = &setup_assert,
+        .setup        = &setup_skip,
         .teardown     = &teardown_marker,
     });
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));

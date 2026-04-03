@@ -71,6 +71,7 @@ RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, st
     if (failure.skipped) {
         if (failure.infra_failure) {
             result.outcome          = Outcome::Fail;
+            result.time_s           = failure.time_s;
             const std::string issue = failure.reason.empty() ? std::string("shared fixture unavailable") : failure.reason;
             result.failures.push_back(issue);
             result.summary_issues.push_back(issue);
@@ -78,11 +79,13 @@ RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, st
         }
         result.skipped     = true;
         result.outcome     = Outcome::Skip;
+        result.time_s      = failure.time_s;
         result.skip_reason = failure.reason;
         return result;
     }
 
     result.outcome = Outcome::Fail;
+    result.time_s  = failure.time_s;
     std::string issue;
     if (!failure_message.empty()) {
         issue = std::string(failure_message);

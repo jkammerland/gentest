@@ -1,6 +1,7 @@
 #include "gentest/runner.h"
 
 #include <atomic>
+#include <stdexcept>
 #include <string_view>
 
 namespace {
@@ -15,7 +16,8 @@ std::atomic<int>  g_jitter_call_count{0};
 struct BenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() override {
         g_bench_setup_entered.store(true, std::memory_order_relaxed);
-        gentest::asserts::ASSERT_TRUE(false, "bench-setup-fatal-assert-marker");
+        gentest::asserts::EXPECT_TRUE(false, "bench-setup-expect-before-throw-marker");
+        throw std::runtime_error("bench-setup-throw-after-expect-marker");
     }
     void tearDown() override { g_bench_teardown_count.fetch_add(1, std::memory_order_relaxed); }
 };
@@ -23,13 +25,14 @@ struct BenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
 struct JitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() override {
         g_jitter_setup_entered.store(true, std::memory_order_relaxed);
-        gentest::asserts::ASSERT_TRUE(false, "jitter-setup-fatal-assert-marker");
+        gentest::asserts::EXPECT_TRUE(false, "jitter-setup-expect-before-throw-marker");
+        throw std::runtime_error("jitter-setup-throw-after-expect-marker");
     }
     void tearDown() override { g_jitter_teardown_count.fetch_add(1, std::memory_order_relaxed); }
 };
 
-constexpr unsigned kBenchSetupAssertTeardownArmedLine = __LINE__ + 1;
-void               bench_setup_assert_teardown_armed(void *) {
+constexpr unsigned kBenchSetupExpectThrowLine = __LINE__ + 1;
+void               bench_setup_expect_throw(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {
@@ -41,30 +44,35 @@ void               bench_setup_assert_teardown_armed(void *) {
 
         if (phase == gentest::detail::BenchPhase::Setup) {
             bench_state = BenchState{};
-            if (!bench_state.fx.init())
+            if (!bench_state.fx.init()) {
                 return;
+            }
             bench_state.teardown_armed = true;
             bench_state.fx.ref().setUp();
             bench_state.ready = true;
             return;
         }
         if (phase == gentest::detail::BenchPhase::Teardown) {
-            if (bench_state.teardown_armed)
+            if (bench_state.teardown_armed) {
                 bench_state.fx.ref().tearDown();
+            }
             bench_state = BenchState{};
             return;
         }
         if (phase == gentest::detail::BenchPhase::Call) {
+            if (!bench_state.ready) {
+                return;
+            }
             g_bench_call_count.fetch_add(1, std::memory_order_relaxed);
-            gentest::asserts::ASSERT_TRUE(false, "regression marker: bench call executed after setup assert");
+            gentest::asserts::EXPECT_TRUE(false, "regression marker: bench call executed after setup expect+throw");
             return;
         }
         return;
     }
 }
 
-constexpr unsigned kJitterSetupAssertTeardownArmedLine = __LINE__ + 1;
-void               jitter_setup_assert_teardown_armed(void *) {
+constexpr unsigned kJitterSetupExpectThrowLine = __LINE__ + 1;
+void               jitter_setup_expect_throw(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {
@@ -76,37 +84,42 @@ void               jitter_setup_assert_teardown_armed(void *) {
 
         if (phase == gentest::detail::BenchPhase::Setup) {
             bench_state = BenchState{};
-            if (!bench_state.fx.init())
+            if (!bench_state.fx.init()) {
                 return;
+            }
             bench_state.teardown_armed = true;
             bench_state.fx.ref().setUp();
             bench_state.ready = true;
             return;
         }
         if (phase == gentest::detail::BenchPhase::Teardown) {
-            if (bench_state.teardown_armed)
+            if (bench_state.teardown_armed) {
                 bench_state.fx.ref().tearDown();
+            }
             bench_state = BenchState{};
             return;
         }
         if (phase == gentest::detail::BenchPhase::Call) {
+            if (!bench_state.ready) {
+                return;
+            }
             g_jitter_call_count.fetch_add(1, std::memory_order_relaxed);
-            gentest::asserts::ASSERT_TRUE(false, "regression marker: jitter call executed after setup assert");
+            gentest::asserts::EXPECT_TRUE(false, "regression marker: jitter call executed after setup expect+throw");
             return;
         }
         return;
     }
 }
 
-constexpr std::string_view kBenchCaseName  = "regressions/measured_local_fixture_setup_assert_teardown_armed/bench";
-constexpr std::string_view kJitterCaseName = "regressions/measured_local_fixture_setup_assert_teardown_armed/jitter";
+constexpr std::string_view kBenchCaseName  = "regressions/measured_local_fixture_setup_expect_throw/bench";
+constexpr std::string_view kJitterCaseName = "regressions/measured_local_fixture_setup_expect_throw/jitter";
 
 gentest::Case kCases[] = {
     {
         .name             = kBenchCaseName,
-        .fn               = &bench_setup_assert_teardown_armed,
+        .fn               = &bench_setup_expect_throw,
         .file             = __FILE__,
-        .line             = kBenchSetupAssertTeardownArmedLine,
+        .line             = kBenchSetupExpectThrowLine,
         .is_benchmark     = true,
         .is_jitter        = false,
         .is_baseline      = false,
@@ -120,9 +133,9 @@ gentest::Case kCases[] = {
     },
     {
         .name             = kJitterCaseName,
-        .fn               = &jitter_setup_assert_teardown_armed,
+        .fn               = &jitter_setup_expect_throw,
         .file             = __FILE__,
-        .line             = kJitterSetupAssertTeardownArmedLine,
+        .line             = kJitterSetupExpectThrowLine,
         .is_benchmark     = false,
         .is_jitter        = true,
         .is_baseline      = false,
@@ -142,13 +155,17 @@ int main(int argc, char **argv) {
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     const int rc = gentest::run_all_tests(argc, argv);
 
-    if (g_bench_setup_entered.load(std::memory_order_relaxed) && g_bench_teardown_count.load(std::memory_order_relaxed) != 1)
+    if (g_bench_setup_entered.load(std::memory_order_relaxed) && g_bench_teardown_count.load(std::memory_order_relaxed) != 1) {
         return 3;
-    if (g_jitter_setup_entered.load(std::memory_order_relaxed) && g_jitter_teardown_count.load(std::memory_order_relaxed) != 1)
+    }
+    if (g_jitter_setup_entered.load(std::memory_order_relaxed) && g_jitter_teardown_count.load(std::memory_order_relaxed) != 1) {
         return 3;
-    if (g_bench_call_count.load(std::memory_order_relaxed) != 0)
+    }
+    if (g_bench_call_count.load(std::memory_order_relaxed) != 0) {
         return 3;
-    if (g_jitter_call_count.load(std::memory_order_relaxed) != 0)
+    }
+    if (g_jitter_call_count.load(std::memory_order_relaxed) != 0) {
         return 3;
+    }
     return rc;
 }

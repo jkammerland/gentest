@@ -19,7 +19,7 @@ void basic() {
 // namespaced attribute list for brevity
 // generates a 2x2 test matrix
 template <typename T, template <class...> class C>
-[[using gentest: template(T, int, long), template(C, std::vector, std::list)]]
+[[using gentest: test("tt/mixed"), template(T, int, long), template(C, std::vector, std::list)]]
 void emplace_matrix() {
     C<T> values;
     values.emplace_back(T{1});
@@ -67,12 +67,21 @@ Format edited C/C++ files explicitly:
 clang-format -i path/to/file.cpp path/to/file.hpp
 ```
 
-Run the CI-aligned clang-tidy gate:
+Run the CI-aligned format check:
 
 ```bash
-cmake --preset=debug-system
+scripts/check_clang_format.sh
+```
+
+Run the same `clang-tidy` script CI uses after configuring a Clang-based `debug-system` build:
+
+```bash
+cmake --preset=debug-system -DGENTEST_ENABLE_PACKAGE_TESTS=OFF \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 scripts/check_clang_tidy.sh build/debug-system
 ```
+
+On systems where CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=/path/to/lib/cmake/llvm -DClang_DIR=/path/to/lib/cmake/clang`, as the Fedora CI lane does. The script checks the translation units present in the active compile database, remapping gentest `tu_*.gentest.*` shims back to their original repo sources when possible, so the `debug-system` lane covers the configured `src/`, `tools/`, `tests/`, and public module units. It also surfaces diagnostics from matching repo headers included by those translation units, while still excluding generated fixture outputs outside the active preset. For broader local coverage in the vcpkg-backed workflow, use the `tidy` / `tidy-fix` presets and build them with CMake.
 
 The `tidy` / `tidy-fix` presets still exist for the vcpkg-backed workflow:
 

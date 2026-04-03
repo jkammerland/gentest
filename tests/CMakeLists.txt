@@ -2478,6 +2478,12 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_clang_tidy_script_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckClangTidyScriptContract.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_workflow_action_versions
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckWorkflowActionVersions.cmake
@@ -2564,11 +2570,11 @@ _gentest_add_cmake_helper_test(
     contract)
 
 _gentest_add_cmake_helper_test(
-    gentest_bazel_module_mock_header_propagation
+    gentest_bazel_module_embed_flag_contract
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/cmake/CheckBazelModuleMockHeaderPropagation.cmake
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBazelModuleEmbedFlagContract.cmake
     contract)
-set_property(TEST gentest_bazel_module_mock_header_propagation APPEND PROPERTY LABELS "bazel" "modules" "contract")
+set_property(TEST gentest_bazel_module_embed_flag_contract APPEND PROPERTY LABELS "bazel" "modules" "contract")
 
 _gentest_add_cmake_helper_test(
     gentest_module_doc_contract

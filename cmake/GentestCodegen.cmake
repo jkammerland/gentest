@@ -155,7 +155,10 @@ function(_gentest_stage_explicit_mock_file stage_dir source_file staged_rel out_
             "${stage_dir}/${_gentest_stage_file_dir}"
             "${stage_dir}/${_gentest_dep_rel}")
         set(_gentest_include_replacement "${_gentest_include_match}")
-        string(REGEX REPLACE "([<\"])${_gentest_include_path}([>\"])" "\"${_gentest_dep_include_rel}\""
+        set(_gentest_include_path_regex "${_gentest_include_path}")
+        string(REGEX REPLACE "([][+.*()^$?{}|\\\\])" "\\\\\\1"
+            _gentest_include_path_regex "${_gentest_include_path_regex}")
+        string(REGEX REPLACE "([<\"])${_gentest_include_path_regex}([>\"])" "\"${_gentest_dep_include_rel}\""
             _gentest_include_replacement "${_gentest_include_replacement}")
         string(REPLACE "${_gentest_include_match}" "${_gentest_include_replacement}"
             _gentest_rewritten_content "${_gentest_rewritten_content}")
@@ -2383,6 +2386,10 @@ function(gentest_link_mocks target)
             add_dependencies(${_gentest_consumer_codegen_dep} ${_gentest_mock_codegen_dep})
         endif()
         add_dependencies(${_gentest_consumer_codegen_dep} ${_gentest_mock_target_actual})
+        get_target_property(_gentest_mock_codegen_outputs "${_gentest_mock_target_actual}" GENTEST_CODEGEN_OUTPUTS)
+        if(_gentest_mock_codegen_outputs AND NOT _gentest_mock_codegen_outputs MATCHES "-NOTFOUND$")
+            _gentest_append_target_list_property(${target} GENTEST_CODEGEN_EXTRA_DEPENDS ${_gentest_mock_codegen_outputs})
+        endif()
         list(APPEND _gentest_explicit_mock_targets_for_codegen "${_gentest_mock_target_actual}")
     endforeach()
 
@@ -2728,11 +2735,17 @@ function(gentest_attach_codegen target)
             ${_gentest_mock_registry_domain_outputs}
             ${_gentest_mock_impl_domain_outputs})
     endif()
+    set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_OUTPUTS "${_gentest_codegen_outputs}")
+    set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTRA_DEPENDS "")
     set(_gentest_custom_command_args
         OUTPUT ${_gentest_codegen_outputs}
         COMMAND ${_command}
         COMMAND_EXPAND_LISTS
-        DEPENDS ${_gentest_codegen_deps} ${_gentest_tus} ${GENTEST_DEPENDS}
+        DEPENDS
+            ${_gentest_codegen_deps}
+            ${_gentest_tus}
+            ${GENTEST_DEPENDS}
+            "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>"
         COMMENT "Running gentest_codegen for target ${target}"
         VERBATIM)
     if(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
