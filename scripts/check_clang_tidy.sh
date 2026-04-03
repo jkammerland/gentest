@@ -54,6 +54,16 @@ tracked = {
     if path.endswith(allowed_exts)
 }
 
+excluded_paths = {
+    "tests/smoke/namespace_suite_comment.cpp",
+}
+excluded_prefixes = (
+    "tests/cmake/module_same_line_directives/",
+    "tests/cmake/module_multiline_directives/",
+    "tests/cmake/module_manual_include_whitespace/",
+    "tests/cmake/module_name_literal_false_match/",
+)
+
 with open(os.path.join(build_dir, "compile_commands.json"), encoding="utf-8") as f:
     compile_commands = json.load(f)
 
@@ -72,6 +82,10 @@ for entry in compile_commands:
     if os.path.commonpath([abs_path, build_dir]) == build_dir:
         continue
     if rel_path not in tracked:
+        continue
+    if rel_path in excluded_paths:
+        continue
+    if rel_path.startswith(excluded_prefixes):
         continue
     if rel_path in seen:
         continue
