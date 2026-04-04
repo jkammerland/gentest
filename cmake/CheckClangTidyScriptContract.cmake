@@ -38,6 +38,12 @@ if(_safe_directory_pos EQUAL -1)
     "scripts/check_clang_tidy.sh must tolerate Git safe.directory checks in CI by passing a repo-local safe.directory override "
     "or equivalent fallback through the tracked-file discovery path.")
 endif()
+string(FIND "${_script_content}" "materializing generated targets" _materialize_generated_targets_pos)
+if(_materialize_generated_targets_pos EQUAL -1)
+  message(FATAL_ERROR
+    "scripts/check_clang_tidy.sh must materialize generated mock/codegen targets from the active compile database "
+    "before invoking clang-tidy so configure-only CI builds still have the generated surfaces they include.")
+endif()
 string(REGEX MATCHALL "--line-filter=\"\\$\\{LINE_FILTER_JSON\\}\"" _line_filter_usages "${_script_content}")
 list(LENGTH _line_filter_usages _line_filter_usage_count)
 if(_line_filter_usage_count LESS 3)
@@ -52,6 +58,12 @@ if(_readme_contract_pos EQUAL -1)
   message(FATAL_ERROR
     "README.md must describe the CI-aligned clang-tidy lane as covering matching repo headers included by the active translation units.")
 endif()
+string(FIND "${_readme_content}" "materializes any generated mock/codegen targets referenced by the active compile database"
+  _readme_generated_contract_pos)
+if(_readme_generated_contract_pos EQUAL -1)
+  message(FATAL_ERROR
+    "README.md must note that scripts/check_clang_tidy.sh materializes generated mock/codegen targets referenced by the active compile database.")
+endif()
 string(FIND "${_readme_content}" "ninja clang-tidy" _readme_ninja_tidy_pos)
 if(NOT _readme_ninja_tidy_pos EQUAL -1)
   message(FATAL_ERROR
@@ -64,6 +76,12 @@ string(FIND "${_agents_content}" "surfaces diagnostics from matching repo header
 if(_agents_contract_pos EQUAL -1)
   message(FATAL_ERROR
     "AGENTS.md must describe the CI-aligned clang-tidy lane as covering matching repo headers included by the active translation units.")
+endif()
+string(FIND "${_agents_content}" "materializes any generated mock/codegen targets referenced by the active compile database"
+  _agents_generated_contract_pos)
+if(_agents_generated_contract_pos EQUAL -1)
+  message(FATAL_ERROR
+    "AGENTS.md must note that scripts/check_clang_tidy.sh materializes generated mock/codegen targets referenced by the active compile database.")
 endif()
 string(FIND "${_agents_content}" "ninja clang-tidy" _agents_ninja_tidy_pos)
 if(NOT _agents_ninja_tidy_pos EQUAL -1)

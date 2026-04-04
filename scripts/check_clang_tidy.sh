@@ -41,6 +41,42 @@ PY
 
 jobs="${CLANG_TIDY_JOBS:-$(default_jobs)}"
 
+materialize_generated_targets=()
+while IFS= read -r target_name; do
+    materialize_generated_targets+=("${target_name}")
+done < <(python3 - "${build_dir}/compile_commands.json" <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+compile_commands_path = pathlib.Path(sys.argv[1]).resolve()
+compile_commands = json.loads(compile_commands_path.read_text())
+build_root = compile_commands_path.parent.resolve()
+generated_root = (build_root / "tests" / "generated").resolve()
+target_re = re.compile(r'(?:^|[\\/])CMakeFiles[\\/](.+?)\.dir(?:[\\/]|$)')
+
+seen = set()
+for entry in compile_commands:
+    file_path = pathlib.Path(entry.get("file", "")).resolve()
+    if not str(file_path).startswith(str(generated_root)):
+        continue
+    match = target_re.search(entry.get("output", "")) or target_re.search(entry.get("command", ""))
+    if not match:
+        continue
+    target = match.group(1)
+    if target in seen:
+        continue
+    seen.add(target)
+    print(target)
+PY
+)
+
+if [ "${#materialize_generated_targets[@]}" -ne 0 ]; then
+    echo "clang-tidy: materializing generated targets: ${materialize_generated_targets[*]}"
+    cmake --build "${build_dir}" --parallel "${jobs}" --target "${materialize_generated_targets[@]}"
+fi
+
 tidy_compdb_dir="$(mktemp -d "${build_dir}/clang-tidy.XXXXXX")"
 trap 'rm -rf "${tidy_compdb_dir}"' EXIT
 tidy_compdb="${tidy_compdb_dir}/compile_commands.json"
