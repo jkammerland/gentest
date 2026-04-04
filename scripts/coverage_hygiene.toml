@@ -16,3 +16,9 @@ no_exec = []
 
 fail_on = "missing_obj,missing_gcda,stamp_mismatch,no_match,gcov_error"
 warn_on = "zero_hits"
+
+[report]
+fail_under_line = 75.0
+fail_under_branch = 45.0
+top_files = 10
+gcov_ignore_parse_errors = "negative_hits.warn_once_per_file"

@@ -2472,6 +2472,13 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_coverage_report_script_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCoverageReportScriptContract.cmake
+    contract)
+set_property(TEST gentest_coverage_report_script_contract APPEND PROPERTY LABELS "contract" "docs")
+
+_gentest_add_cmake_helper_test(
     gentest_diagnostic_workflow_lanes
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckDiagnosticWorkflowLanes.cmake

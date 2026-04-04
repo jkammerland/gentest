@@ -39,6 +39,14 @@
   - `cmake --preset=debug-system`
   - `cmake --build --preset=debug-system`
   - `ctest --preset=debug-system --output-on-failure`
+- Coverage (CI-aligned report + gate for repo-owned implementation code):
+  - `python3 -m pip install --upgrade gcovr`
+  - `cmake --preset=coverage-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`
+  - `cmake --build --preset=coverage-system`
+  - `ctest --preset=coverage-system --output-on-failure --parallel 1`
+  - `python3 scripts/coverage_hygiene.py --build-dir build/coverage-system --ignore-statuses stamp_mismatch --gcov llvm-cov gcov`
+  - `python3 scripts/coverage_report.py --build-dir build/coverage-system`
+  - Report outputs land in `build/coverage-system/coverage-report/`, notably `coverage-report/summary.md` and `index.html`.
 - Static analysis presets:
   - `cmake --preset=tidy`
   - `cmake --build --preset=tidy`
@@ -75,6 +83,7 @@
 - Format edited C/C++ files explicitly with `clang-format -i <paths...>`; there is no dedicated format preset in this repo today.
 - Run the CI-aligned format gate with `scripts/check_clang_format.sh` when you want the same repo-wide dry-run check used by the lint workflow.
 - Run the same clang-tidy script CI uses with `scripts/check_clang_tidy.sh build/debug-system` after configuring a Clang-based `debug-system` build, for example `cmake --preset=debug-system -DGENTEST_ENABLE_PACKAGE_TESTS=OFF -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=... -DClang_DIR=...`. The script checks the translation units present in the active compile database, remapping gentest `tu_*.gentest.*` shims back to their original repo sources when possible, so the CI-aligned `debug-system` lane covers the configured `src/`, `tools/`, `tests/`, and public module units. It also surfaces diagnostics from matching repo headers included by those translation units, while still excluding generated fixture outputs outside the active preset.
+- Run the repo-owned coverage report with `python3 scripts/coverage_report.py --build-dir build/coverage-system` after a coverage-instrumented serial test pass. It reads the same `scripts/coverage_hygiene.toml` policy as the hygiene gate, scopes totals to `src/` and `tools/src`, excludes intentional exemptions, writes a Markdown summary for GitHub Actions, and emits the detailed HTML report under `build/<preset>/coverage-report/`.
 - For the vcpkg-backed static-analysis workflow, use the `tidy` / `tidy-fix` presets when you want configure/build/test wired together.
 - Filenames: lowercase `snake_case`; types: `PascalCase`; functions: `camelCase`.
 - Keep public symbols in the `gentest` namespace.

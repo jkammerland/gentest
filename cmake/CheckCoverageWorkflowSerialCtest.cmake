@@ -107,3 +107,57 @@ if(NOT _warn_override_pos EQUAL -1)
   message(FATAL_ERROR
     "Coverage workflow should use coverage_hygiene.toml for warn-on policy instead of overriding --warn-on in YAML.")
 endif()
+
+set(_expected_report_script [=[python3 scripts/coverage_report.py \]=])
+string(FIND "${_content}" "${_expected_report_script}" _report_script_pos)
+if(_report_script_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must invoke scripts/coverage_report.py from the Linux coverage lane.")
+endif()
+
+set(_expected_report_snippet [=[python3 scripts/coverage_report.py \
+            --build-dir "build/${GENTEST_CMAKE_PRESET}"]=])
+string(FIND "${_content}" "${_expected_report_snippet}" _report_build_dir_pos)
+if(_report_build_dir_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must pass the preset-derived build directory to scripts/coverage_report.py.\n"
+    "Expected snippet:\n${_expected_report_snippet}")
+endif()
+
+set(_expected_summary_line [=[cat "build/${GENTEST_CMAKE_PRESET}/coverage-report/summary.md" >> "$GITHUB_STEP_SUMMARY"]=])
+string(FIND "${_content}" "${_expected_summary_line}" _summary_line_pos)
+if(_summary_line_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must append the generated Markdown summary to GITHUB_STEP_SUMMARY.\n"
+    "Expected line:\n${_expected_summary_line}")
+endif()
+
+string(FIND "${_content}" "actions/upload-artifact@v6" _upload_artifact_pos)
+if(_upload_artifact_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must upload the generated coverage report artifact with actions/upload-artifact@v6.")
+endif()
+
+string(FIND "${_content}" "path: build/${{ env.GENTEST_CMAKE_PRESET }}/coverage-report/" _coverage_artifact_path_pos)
+if(_coverage_artifact_path_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must upload the preset-derived coverage-report directory as a workflow artifact.")
+endif()
+
+string(FIND "${_content}" "gcovr " _raw_gcovr_pos)
+if(NOT _raw_gcovr_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow should route report generation through scripts/coverage_report.py instead of invoking gcovr directly in YAML.")
+endif()
+
+string(FIND "${_content}" "--fail-under-line" _raw_line_threshold_pos)
+if(NOT _raw_line_threshold_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow should take report thresholds from scripts/coverage_hygiene.toml via scripts/coverage_report.py, not inline YAML flags.")
+endif()
+
+string(FIND "${_content}" "--fail-under-branch" _raw_branch_threshold_pos)
+if(NOT _raw_branch_threshold_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow should take report thresholds from scripts/coverage_hygiene.toml via scripts/coverage_report.py, not inline YAML flags.")
+endif()

@@ -94,6 +94,22 @@ cmake --preset=tidy-fix
 cmake --build --preset=tidy-fix
 ```
 
+Generate the CI-aligned coverage report and threshold gate for the runtime library and codegen tool:
+
+```bash
+python3 -m pip install --upgrade gcovr
+cmake --preset=coverage-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build --preset=coverage-system
+ctest --preset=coverage-system --output-on-failure --parallel 1
+python3 scripts/coverage_hygiene.py \
+  --build-dir build/coverage-system \
+  --ignore-statuses stamp_mismatch \
+  --gcov llvm-cov gcov
+python3 scripts/coverage_report.py --build-dir build/coverage-system
+```
+
+The coverage report reads the repo policy from `scripts/coverage_hygiene.toml`, scopes totals to `src/` and `tools/src/`, excludes intentional exemptions listed there, writes a GitHub-friendly Markdown summary to `build/coverage-system/coverage-report/summary.md`, and writes a per-file HTML report under `build/coverage-system/coverage-report/`. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=/path/to/lib/cmake/llvm -DClang_DIR=/path/to/lib/cmake/clang`.
+
 ## Use in your project (CMake)
 
 ```cmake
