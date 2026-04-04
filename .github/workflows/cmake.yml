@@ -289,19 +289,6 @@ jobs:
             clang_version: "20"
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: coverage
-            preset: coverage-system
-            run_coverage: true
-            ctest_parallel: 1
-          - name: Ubuntu 24.04 • Clang 20
-            container: ubuntu:24.04
-            pkg_manager: apt
-            compiler: clang
-            cc: clang-20
-            cxx: clang++-20
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: ASan+UBSan
             preset: alusan-system
             ctest_parallel: 2
@@ -837,11 +824,6 @@ jobs:
           ${CC} --version
           clang --version || true
           if command -v llvm-config >/dev/null 2>&1; then llvm-config --version; fi
-      - name: Install coverage reporting tool
-        if: ${{ matrix.run_coverage == true }}
-        run: |
-          set -euxo pipefail
-          python3 -m pip install --break-system-packages --upgrade gcovr==8.6
       - name: Configure
         env:
           LC_ALL: C.UTF-8
@@ -879,14 +861,6 @@ jobs:
         run: |
           set -euxo pipefail
           cmake --build --preset=${GENTEST_CMAKE_PRESET} --parallel
-      - name: "Coverage: reset coverage artifacts"
-        if: ${{ matrix.run_coverage == true }}
-        run: |
-          set -euxo pipefail
-          if [ -d "build/${GENTEST_CMAKE_PRESET}" ]; then
-            find "build/${GENTEST_CMAKE_PRESET}" -name '*.gcda' -delete
-            rm -rf "build/${GENTEST_CMAKE_PRESET}/coverage-report"
-          fi
       - name: Test
         env:
           LC_ALL: C.UTF-8
@@ -894,53 +868,6 @@ jobs:
         run: |
           set -euxo pipefail
           ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }}
-      - name: Coverage hygiene (codegen + runtime)
-        if: ${{ matrix.run_coverage == true }}
-        env:
-          LC_ALL: C.UTF-8
-          LANG: C.UTF-8
-        run: |
-          set -euxo pipefail
-          python3 scripts/coverage_hygiene.py \
-            --build-dir "build/${GENTEST_CMAKE_PRESET}" \
-            --ignore-statuses stamp_mismatch \
-            --gcov llvm-cov gcov
-      - name: Coverage report (codegen + runtime)
-        if: ${{ matrix.run_coverage == true }}
-        id: coverage_report
-        env:
-          LC_ALL: C.UTF-8
-          LANG: C.UTF-8
-        run: |
-          set -euxo pipefail
-          python3 scripts/coverage_report.py \
-            --build-dir "build/${GENTEST_CMAKE_PRESET}"
-      - name: Publish coverage summary
-        if: ${{ always() && matrix.run_coverage == true }}
-        id: publish_coverage_summary
-        env:
-          COVERAGE_REPORT_OUTCOME: ${{ steps.coverage_report.outcome }}
-        run: |
-          set -euxo pipefail
-          summary_file="build/${GENTEST_CMAKE_PRESET}/coverage-report/summary.md"
-          has_summary=false
-          if [ -f "${summary_file}" ]; then
-            has_summary=true
-            cat "${summary_file}" >> "$GITHUB_STEP_SUMMARY"
-          elif [ "${COVERAGE_REPORT_OUTCOME}" = "failure" ] || [ "${COVERAGE_REPORT_OUTCOME}" = "skipped" ]; then
-            printf '%s\n' 'Coverage report summary was not available because coverage generation failed before summary publication completed.' >> "$GITHUB_STEP_SUMMARY"
-          else
-            printf '%s\n' "Expected coverage report at ${summary_file} after successful coverage_report step." >&2
-            exit 1
-          fi
-          printf 'has_summary=%s\n' "${has_summary}" >> "$GITHUB_OUTPUT"
-      - name: Upload coverage report artifact
-        if: ${{ always() && matrix.run_coverage == true && steps.publish_coverage_summary.outputs.has_summary == 'true' }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: coverage-${{ env.GENTEST_CMAKE_PRESET }}
-          path: build/${{ env.GENTEST_CMAKE_PRESET }}/coverage-report/
-          if-no-files-found: error
 
   package-workflow:
     name: Package Workflow

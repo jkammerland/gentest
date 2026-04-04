@@ -1,5 +1,8 @@
 # gentest
 
+[![lint](https://github.com/jkammerland/gentest/actions/workflows/lint.yml/badge.svg)](https://github.com/jkammerland/gentest/actions/workflows/lint.yml)
+[![coverage](https://github.com/jkammerland/gentest/actions/workflows/coverage.yml/badge.svg)](https://github.com/jkammerland/gentest/actions/workflows/coverage.yml)
+
 `gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
 
 Write tests with standard C++ attributes 
