@@ -2479,6 +2479,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_coverage_report_script_contract APPEND PROPERTY LABELS "contract" "docs")
 
 _gentest_add_cmake_helper_test(
+    gentest_coverage_report_script_smoke
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCoverageReportScriptSmoke.cmake
+    contract)
+set_property(TEST gentest_coverage_report_script_smoke APPEND PROPERTY LABELS "contract")
+
+_gentest_add_cmake_helper_test(
     gentest_diagnostic_workflow_lanes
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckDiagnosticWorkflowLanes.cmake
@@ -2488,6 +2495,12 @@ _gentest_add_cmake_helper_test(
     gentest_clang_tidy_script_contract
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckClangTidyScriptContract.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_clang_tidy_arguments_materialization
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckClangTidyArgumentsMaterialization.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(

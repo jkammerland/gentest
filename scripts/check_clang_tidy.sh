@@ -48,6 +48,7 @@ done < <(python3 - "${build_dir}/compile_commands.json" <<'PY'
 import json
 import pathlib
 import re
+import shlex
 import sys
 
 compile_commands_path = pathlib.Path(sys.argv[1]).resolve()
@@ -56,12 +57,31 @@ build_root = compile_commands_path.parent.resolve()
 generated_root = (build_root / "tests" / "generated").resolve()
 target_re = re.compile(r'(?:^|[\\/])CMakeFiles[\\/](.+?)\.dir(?:[\\/]|$)')
 
+def argv_for_entry(entry):
+    argv = entry.get("arguments")
+    if isinstance(argv, list):
+        return [str(arg) for arg in argv]
+    command = entry.get("command", "")
+    if not isinstance(command, str) or not command:
+        return []
+    return shlex.split(command)
+
+def target_match(entry):
+    match = target_re.search(entry.get("output", ""))
+    if match:
+        return match
+    for arg in argv_for_entry(entry):
+        match = target_re.search(arg)
+        if match:
+            return match
+    return None
+
 seen = set()
 for entry in compile_commands:
     file_path = pathlib.Path(entry.get("file", "")).resolve()
     if not str(file_path).startswith(str(generated_root)):
         continue
-    match = target_re.search(entry.get("output", "")) or target_re.search(entry.get("command", ""))
+    match = target_match(entry)
     if not match:
         continue
     target = match.group(1)
