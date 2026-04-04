@@ -81,7 +81,7 @@ cmake --preset=debug-system -DGENTEST_ENABLE_PACKAGE_TESTS=OFF \
 scripts/check_clang_tidy.sh build/debug-system
 ```
 
-On systems where CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=/path/to/lib/cmake/llvm -DClang_DIR=/path/to/lib/cmake/clang`, as the Fedora CI lane does. The script checks the translation units present in the active compile database, remapping gentest `tu_*.gentest.*` shims back to their original repo sources when possible, so the `debug-system` lane covers the configured `src/`, `tools/`, `tests/`, and public module units. It also surfaces diagnostics from matching repo headers included by those translation units, while still excluding generated fixture outputs outside the active preset. When the active compile database references generated explicit mock/codegen surfaces, `scripts/check_clang_tidy.sh` materializes any generated mock/codegen targets referenced by the active compile database before running clang-tidy, so a configure-only build dir is enough for the CI-aligned lint flow. For broader local coverage in the vcpkg-backed workflow, use the `tidy` / `tidy-fix` presets and build them with CMake.
+On systems where CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=/path/to/lib/cmake/llvm -DClang_DIR=/path/to/lib/cmake/clang`, as the Fedora CI lane does. The script checks the translation units present in the active compile database, remapping gentest `tu_*.gentest.*` shims back to their original repo sources when possible, so the `debug-system` lane covers the configured `src/`, `tools/`, `tests/`, and public module units. It also surfaces diagnostics from matching repo headers included by those translation units, while still excluding generated fixture outputs outside the active preset. For this repo's generated test surfaces, `scripts/check_clang_tidy.sh` also materializes the generated test mock/codegen targets needed by translation units that reference `build/<preset>/tests/generated` before running clang-tidy, so a configure-only build dir is enough for the CI-aligned lint flow. For broader local coverage in the vcpkg-backed workflow, use the `tidy` / `tidy-fix` presets and build them with CMake.
 
 The `tidy` / `tidy-fix` presets still exist for the vcpkg-backed workflow:
 
@@ -94,21 +94,32 @@ cmake --preset=tidy-fix
 cmake --build --preset=tidy-fix
 ```
 
-Generate the CI-aligned coverage report and threshold gate for the runtime library and codegen tool:
+Generate the POSIX-shell coverage report and threshold gate for the runtime library and codegen tool:
 
 ```bash
-python3 -m pip install --upgrade gcovr
+python3 -m pip install --upgrade gcovr==8.6
+# Add --break-system-packages on distros that require it.
 cmake --preset=coverage-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 cmake --build --preset=coverage-system
+find build/coverage-system -name '*.gcda' -delete
+rm -rf build/coverage-system/coverage-report
 ctest --preset=coverage-system --output-on-failure --parallel 1
 python3 scripts/coverage_hygiene.py \
   --build-dir build/coverage-system \
-  --ignore-statuses stamp_mismatch \
-  --gcov llvm-cov gcov
+  --ignore-statuses stamp_mismatch
 python3 scripts/coverage_report.py --build-dir build/coverage-system
 ```
 
-The coverage report reads the repo policy from `scripts/coverage_hygiene.toml`, scopes totals to `src/` and `tools/src/`, excludes intentional exemptions listed there, writes a GitHub-friendly Markdown summary to `build/coverage-system/coverage-report/summary.md`, and writes a per-file HTML report under `build/coverage-system/coverage-report/`. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=/path/to/lib/cmake/llvm -DClang_DIR=/path/to/lib/cmake/clang`.
+The coverage report reads the repo policy from `scripts/coverage_hygiene.toml`, scopes totals to `src/` and `tools/src/`, excludes intentional exemptions listed there, writes a GitHub-friendly Markdown summary to `build/coverage-system/coverage-report/summary.md`, and writes a per-file HTML report under `build/coverage-system/coverage-report/`. `scripts/coverage_hygiene.py` and `scripts/coverage_report.py` auto-select `llvm-cov gcov` for Clang coverage builds and `gcov` for GCC builds. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=/path/to/lib/cmake/llvm -DClang_DIR=/path/to/lib/cmake/clang`.
+
+For explicit overrides, prefer passing `--gcov` as separate argv tokens, for example `--gcov llvm-cov gcov`; that form is the most portable on Windows.
+
+On Windows/PowerShell, remove stale coverage artifacts before `ctest` with:
+
+```powershell
+Get-ChildItem -Path build/coverage-system -Filter *.gcda -Recurse | Remove-Item -Force
+Remove-Item -Recurse -Force build/coverage-system/coverage-report -ErrorAction SilentlyContinue
+```
 
 ## Use in your project (CMake)
 

@@ -85,6 +85,63 @@ def _read_policy_config(config_path: Path) -> Dict[str, Any]:
     return policy
 
 
+def _parse_cmake_cache(cache_path: Path) -> Dict[str, str]:
+    entries: Dict[str, str] = {}
+    if not cache_path.exists():
+        return entries
+    for raw_line in cache_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("//") or line.startswith("#"):
+            continue
+        if "=" not in line or ":" not in line:
+            continue
+        lhs, rhs = line.split("=", 1)
+        key, _, _ = lhs.partition(":")
+        entries[key] = rhs
+    return entries
+
+
+def _compiler_family(build_dir: Path) -> str:
+    cache = _parse_cmake_cache(build_dir / "CMakeCache.txt")
+    compiler_id = cache.get("CMAKE_CXX_COMPILER_ID", "") or cache.get("CMAKE_C_COMPILER_ID", "")
+    compiler = cache.get("CMAKE_CXX_COMPILER", "") or cache.get("CMAKE_C_COMPILER", "")
+    compiler_text = f"{compiler_id} {compiler}".lower()
+    if "clang" in compiler_text:
+        return "clang"
+    if "gnu" in compiler_text or re.search(r"(^|[\\/])(g\+\+|gcc|cc|c\+\+)([.-]|$)", compiler_text):
+        return "gcc"
+    return ""
+
+
+def _resolve_gcov_command(build_dir: Path, explicit: Sequence[str] | None) -> List[str]:
+    if explicit:
+        if len(explicit) == 1:
+            single = explicit[0]
+            if single.endswith(" gcov") and re.search(r"[A-Za-z]:\\", single):
+                command = [single[: -len(" gcov")], "gcov"]
+            else:
+                command = shlex.split(single)
+        else:
+            command = list(explicit)
+    else:
+        family = _compiler_family(build_dir)
+        if family == "clang":
+            command = ["llvm-cov", "gcov"]
+        else:
+            command = ["gcov"]
+
+    if not command:
+        raise RuntimeError(f"gcov command not recognized: {explicit}")
+    binary = shutil.which(command[0])
+    if not binary:
+        raise RuntimeError(
+            f"Coverage frontend '{command[0]}' was not found in PATH. "
+            "Install the matching gcov frontend or pass --gcov explicitly."
+        )
+    command[0] = str(binary)
+    return command
+
+
 def _to_abs_paths(project_root: Path, values: Sequence[str]) -> List[Path]:
     paths: List[Path] = []
     for value in values:
@@ -298,19 +355,6 @@ def _parse_status_set(value: str) -> Set[GcovStatus]:
     return {item.strip() for item in value.split(",") if item.strip()}
 
 
-def _parse_gcov_command(spec: Sequence[str] | str) -> List[str]:
-    if isinstance(spec, str):
-        return [token for token in shlex.split(spec) if token]
-    out: List[str] = []
-    for token in spec:
-        if not isinstance(token, str):
-            continue
-        chunks = shlex.split(token)
-        if chunks:
-            out.extend(chunks)
-    return out
-
-
 def _probe_gcov_support(gcov_cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> Set[str]:
     try:
         proc = subprocess.run(
@@ -480,7 +524,11 @@ def main() -> int:
     policy = _read_policy_config(Path(config_args.config))
 
     ap = argparse.ArgumentParser(parents=[config_parser])
-    ap.add_argument("--build-dir", default="build/coverage", help="Build directory containing compile_commands.json and *.gcda")
+    ap.add_argument(
+        "--build-dir",
+        default="build/coverage-system",
+        help="Build directory containing compile_commands.json and *.gcda (default: build/coverage-system)",
+    )
     ap.add_argument("--roots", nargs="*", default=policy["roots"], help="Relative source roots to inspect")
     ap.add_argument("--exclude-prefix", nargs="*", default=policy["exclude_prefix"], help="Path prefixes to skip")
     ap.add_argument(
@@ -495,7 +543,12 @@ def main() -> int:
         default=policy["no_exec"],
         help="Path prefixes expected to have no executable lines.",
     )
-    ap.add_argument("--gcov", nargs="+", default=["gcov"], help="gcov-compatible command line")
+    ap.add_argument(
+        "--gcov",
+        nargs="+",
+        default=None,
+        help="Explicit gcov-compatible frontend command. Defaults to a build-aware auto selection.",
+    )
     ap.add_argument(
         "--gcov-args",
         nargs="*",
@@ -529,13 +582,7 @@ def main() -> int:
     fail_set = fail_set - ignore_set
     warn_set = _parse_status_set(args.warn_on)
 
-    gcov_cmd = _parse_gcov_command(args.gcov)
-    if not gcov_cmd:
-        raise RuntimeError(f"gcov command not recognized: {args.gcov}")
-    gcov_binary = shutil.which(gcov_cmd[0])
-    if not gcov_binary:
-        raise RuntimeError(f"gcov not found: {gcov_cmd[0]}")
-    gcov_cmd[0] = str(gcov_binary)
+    gcov_cmd = _resolve_gcov_command(build_dir, args.gcov)
     gcov_support = _probe_gcov_support(gcov_cmd)
     if not gcov_support:
         # Stay conservative when help probing is inconclusive. Text-mode gcov

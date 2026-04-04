@@ -26,7 +26,7 @@ job summary, and emits a per-file HTML report artifact.
 The script uses the active build tree to:
 
 1. read `compile_commands.json`
-2. find tracked source files under the configured roots
+2. walk source files under the configured roots
 3. map each source to object files and candidate `.gcda` files
 4. run a `gcov`-compatible tool on those coverage artifacts
 5. classify each file into a repo-specific status
@@ -63,41 +63,53 @@ report-generation logic.
 
 ## Local Use
 
-Typical local usage:
+Typical local usage on POSIX shells:
 
 ```bash
-python3 -m pip install --upgrade gcovr
+python3 -m pip install --upgrade gcovr==8.6
+# Add --break-system-packages on distros that require it.
 cmake --preset=coverage-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 cmake --build --preset=coverage-system
+find build/coverage-system -name '*.gcda' -delete
+rm -rf build/coverage-system/coverage-report
 ctest --preset=coverage-system --output-on-failure --parallel 1
 python3 scripts/coverage_hygiene.py \
   --build-dir build/coverage-system \
-  --ignore-statuses stamp_mismatch \
-  --gcov llvm-cov gcov
+  --ignore-statuses stamp_mismatch
 python3 scripts/coverage_report.py --build-dir build/coverage-system
 ```
 
 Notes:
 
 - `--build-dir` points at the coverage-instrumented build tree.
+- Delete old `*.gcda` files before reruns so the local report matches the CI lane's stale-counter reset.
 - `--ignore-statuses stamp_mismatch` matches the current CI behavior.
-- `scripts/coverage_report.py` auto-selects `llvm-cov gcov` for Clang builds and `gcov` for GCC builds.
+- `scripts/coverage_hygiene.py` and `scripts/coverage_report.py` auto-select `llvm-cov gcov` for Clang builds and `gcov` for GCC builds.
+- For explicit frontend overrides, prefer separate argv tokens such as `--gcov llvm-cov gcov`; that is the most portable form on Windows.
 - The report script writes `summary.md`, `summary.json`, and `index.html` under `build/<preset>/coverage-report/`.
 - If you need a non-default policy file, pass `--config <path>`.
+
+Windows/PowerShell cleanup equivalent before `ctest`:
+
+```powershell
+Get-ChildItem -Path build/coverage-system -Filter *.gcda -Recurse | Remove-Item -Force
+Remove-Item -Recurse -Force build/coverage-system/coverage-report -ErrorAction SilentlyContinue
+```
 
 ## How CI Uses It
 
 The Linux coverage lane in
 [`.github/workflows/cmake.yml`](../.github/workflows/cmake.yml)
-does seven things:
+does eight things:
 
-1. configures and builds the `coverage-system` preset with Clang
-2. deletes old `.gcda` files from `build/coverage-system`
-3. runs `ctest` serially for that lane
-4. runs `scripts/coverage_hygiene.py`
-5. runs `scripts/coverage_report.py`
-6. appends `coverage-report/summary.md` to the GitHub job summary
-7. uploads the HTML detail report as a workflow artifact
+1. installs `gcovr`
+2. configures and builds the `coverage-system` preset with Clang
+3. deletes old `.gcda` files and any prior `coverage-report/` directory from `build/coverage-system`
+4. runs `ctest` serially for that lane
+5. runs `scripts/coverage_hygiene.py`
+6. runs `scripts/coverage_report.py`
+7. appends `coverage-report/summary.md` to the GitHub job summary when the report exists; otherwise it appends a note that an earlier coverage step prevented report generation
+8. uploads the HTML detail report as a workflow artifact whenever `coverage-report/` exists, including threshold-failure runs that still generated fresh report files
 
 If either script exits non-zero, the coverage CI job fails.
 

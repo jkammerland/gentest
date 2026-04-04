@@ -46,29 +46,175 @@ while IFS= read -r target_name; do
     materialize_generated_targets+=("${target_name}")
 done < <(python3 - "${build_dir}/compile_commands.json" <<'PY'
 import json
+import os
 import pathlib
 import re
+import shlex
 import sys
 
 compile_commands_path = pathlib.Path(sys.argv[1]).resolve()
 compile_commands = json.loads(compile_commands_path.read_text())
 build_root = compile_commands_path.parent.resolve()
 generated_root = (build_root / "tests" / "generated").resolve()
+generated_root_key = generated_root.as_posix()
 target_re = re.compile(r'(?:^|[\\/])CMakeFiles[\\/](.+?)\.dir(?:[\\/]|$)')
 
+def normalize_windows_drive_paths(command: str):
+    def slashify(value):
+        return value.replace("\\", "/")
+
+    command = re.sub(
+        r'(-I)"([A-Za-z]:\\[^"]*)"',
+        lambda match: f'{match.group(1)}"{slashify(match.group(2))}"',
+        command,
+    )
+    command = re.sub(
+        r'(-I)([A-Za-z]:\\[^\s"]*)',
+        lambda match: f'{match.group(1)}{slashify(match.group(2))}',
+        command,
+    )
+    for flag in ("-isystem", "-iquote", "-o"):
+        command = re.sub(
+            rf'({flag}\s+)"([A-Za-z]:\\[^"]*)"',
+            lambda match: f'{match.group(1)}"{slashify(match.group(2))}"',
+            command,
+        )
+        command = re.sub(
+            rf'({flag}\s+)([A-Za-z]:\\[^\s"]*)',
+            lambda match: f'{match.group(1)}{slashify(match.group(2))}',
+            command,
+        )
+    return command
+
+def normalized_path_text(raw_path, base_dir):
+    normalized = strip_outer_quotes(str(raw_path))
+    if re.match(r'^[A-Za-z]:[\\/]', normalized):
+        return normalized.replace("\\", "/")
+    path = pathlib.Path(normalized)
+    if not path.is_absolute():
+        path = pathlib.Path(base_dir) / path
+    return path.resolve().as_posix()
+
+def argv_for_entry(entry):
+    argv = entry.get("arguments")
+    if argv is not None:
+        return argv
+    command = entry.get("command", "")
+    if not command:
+        return []
+    return shlex.split(normalize_windows_drive_paths(command))
+
+def resolve_path(entry, raw_path):
+    return normalized_path_text(raw_path, entry.get("directory", build_root))
+
+def generated_surface_dir(path):
+    normalized = normalized_path_text(path, build_root)
+    prefix = generated_root_key + "/"
+    if not normalized.startswith(prefix):
+        return None
+    rel = normalized[len(prefix):]
+    if not rel:
+        return None
+    return prefix + rel.split("/", 1)[0]
+
+def strip_outer_quotes(text):
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+        return text[1:-1]
+    return text
+
+def target_match(entry):
+    match = target_re.search(entry.get("output", ""))
+    if match:
+        return match
+    argv = argv_for_entry(entry)
+    for arg in argv:
+        normalized = strip_outer_quotes(arg)
+        match = target_re.search(normalized)
+        if match:
+            return match
+    return None
+
+def entry_references_generated_root(entry):
+    file_path = normalized_path_text(entry.get("file", ""), build_root)
+    if file_path.startswith(generated_root_key + "/"):
+        return True
+
+    argv = argv_for_entry(entry)
+    index = 0
+    while index < len(argv):
+        arg = strip_outer_quotes(argv[index])
+        if arg in ("-I", "-isystem", "-iquote") and index + 1 < len(argv):
+            include_path = resolve_path(entry, argv[index + 1])
+            if include_path.startswith(generated_root_key + "/"):
+                return True
+            index += 2
+            continue
+        for prefix in ("-I", "-isystem", "-iquote"):
+            if arg.startswith(prefix) and len(arg) > len(prefix):
+                include_path = resolve_path(entry, arg[len(prefix):])
+                if include_path.startswith(generated_root_key + "/"):
+                    return True
+                break
+        index += 1
+    return False
+
+def generated_surface_targets(entry, generated_dir_targets):
+    targets = []
+    file_path = pathlib.Path(entry.get("file", "")).resolve()
+    generated_dir = generated_surface_dir(file_path)
+    if generated_dir is not None:
+        direct_target = target_match(entry)
+        if direct_target:
+            targets.append(direct_target.group(1))
+        mapped_target = generated_dir_targets.get(generated_dir)
+        if mapped_target:
+            targets.append(mapped_target)
+        return targets
+
+    argv = argv_for_entry(entry)
+    index = 0
+    while index < len(argv):
+        arg = strip_outer_quotes(argv[index])
+        include_path = None
+        if arg in ("-I", "-isystem", "-iquote") and index + 1 < len(argv):
+            include_path = resolve_path(entry, argv[index + 1])
+            index += 2
+        else:
+            for prefix in ("-I", "-isystem", "-iquote"):
+                if arg.startswith(prefix) and len(arg) > len(prefix):
+                    include_path = resolve_path(entry, arg[len(prefix):])
+                    break
+            index += 1
+        if include_path is None:
+            continue
+        generated_dir = generated_surface_dir(include_path)
+        if generated_dir is None:
+            continue
+        mapped_target = generated_dir_targets.get(generated_dir)
+        if mapped_target:
+            targets.append(mapped_target)
+    return targets
+
 seen = set()
+generated_dir_targets = {}
 for entry in compile_commands:
     file_path = pathlib.Path(entry.get("file", "")).resolve()
-    if not str(file_path).startswith(str(generated_root)):
+    generated_dir = generated_surface_dir(file_path)
+    if generated_dir is None:
         continue
-    match = target_re.search(entry.get("output", "")) or target_re.search(entry.get("command", ""))
+    match = target_match(entry)
     if not match:
         continue
-    target = match.group(1)
-    if target in seen:
+    generated_dir_targets[generated_dir] = match.group(1)
+
+for entry in compile_commands:
+    if not entry_references_generated_root(entry):
         continue
-    seen.add(target)
-    print(target)
+    for target in generated_surface_targets(entry, generated_dir_targets):
+        if target in seen:
+            continue
+        seen.add(target)
+        print(target)
 PY
 )
 
@@ -97,6 +243,7 @@ output_path = pathlib.Path(sys.argv[3])
 compile_commands = json.loads(compile_commands_path.read_text())
 build_root = compile_commands_path.parent.resolve()
 generated_root = (build_root / "tests" / "generated").resolve()
+generated_root_key = generated_root.as_posix()
 
 allowed_prefixes = ("include/", "src/", "tools/", "tests/")
 allowed_suffixes = (".c", ".cc", ".cpp", ".cxx", ".cu", ".c++", ".cppm", ".ixx", ".mpp")
@@ -114,6 +261,50 @@ def repo_rel(path: pathlib.Path):
     if rel.startswith("tests/generated/"):
         return None
     return rel
+
+def normalize_windows_drive_paths(command: str):
+    def slashify(value):
+        return value.replace("\\", "/")
+
+    command = re.sub(
+        r'(-I)"([A-Za-z]:\\[^"]*)"',
+        lambda match: f'{match.group(1)}"{slashify(match.group(2))}"',
+        command,
+    )
+    command = re.sub(
+        r'(-I)([A-Za-z]:\\[^\s"]*)',
+        lambda match: f'{match.group(1)}{slashify(match.group(2))}',
+        command,
+    )
+    for flag in ("-isystem", "-iquote", "-o"):
+        command = re.sub(
+            rf'({flag}\s+)"([A-Za-z]:\\[^"]*)"',
+            lambda match: f'{match.group(1)}"{slashify(match.group(2))}"',
+            command,
+        )
+        command = re.sub(
+            rf'({flag}\s+)([A-Za-z]:\\[^\s"]*)',
+            lambda match: f'{match.group(1)}{slashify(match.group(2))}',
+            command,
+        )
+    return command
+
+def split_command(command: str):
+    return shlex.split(normalize_windows_drive_paths(command))
+
+def strip_outer_quotes(text: str):
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+        return text[1:-1]
+    return text
+
+def normalized_path_text(raw_path, base_dir):
+    normalized = strip_outer_quotes(str(raw_path))
+    if re.match(r'^[A-Za-z]:[\\/]', normalized):
+        return normalized.replace("\\", "/")
+    path = pathlib.Path(normalized)
+    if not path.is_absolute():
+        path = pathlib.Path(base_dir) / path
+    return path.resolve().as_posix()
 
 def mapped_repo_rel(path: pathlib.Path):
     if not str(path).startswith(str(build_root)):
@@ -134,33 +325,31 @@ def mapped_repo_rel(path: pathlib.Path):
 def transformed_entry(entry, source_path: pathlib.Path):
     argv = entry.get("arguments")
     if argv is None:
-        argv = shlex.split(entry["command"])
+        argv = split_command(entry["command"])
     original = str(pathlib.Path(entry["file"]).resolve())
     rewritten = str(source_path)
     replaced = False
     transformed = []
     def resolve_include(include_arg: str):
-        include_path = pathlib.Path(include_arg)
-        if include_path.is_absolute():
-            return include_path.resolve()
-        return (pathlib.Path(entry["directory"]) / include_path).resolve()
+        return normalized_path_text(include_arg, entry["directory"])
     index = 0
     while index < len(argv):
-        arg = argv[index]
+        arg = strip_outer_quotes(argv[index])
         if arg == original:
             transformed.append(rewritten)
             replaced = True
             index += 1
             continue
         if arg == "-I" and index + 1 < len(argv):
-            resolved_include = resolve_include(argv[index + 1])
-            if str(resolved_include).startswith(str(generated_root)):
-                transformed.extend(["-isystem", argv[index + 1]])
+            include_arg = strip_outer_quotes(argv[index + 1])
+            resolved_include = resolve_include(include_arg)
+            if resolved_include.startswith(generated_root_key + "/"):
+                transformed.extend(["-isystem", include_arg])
                 index += 2
                 continue
         if arg.startswith("-I") and len(arg) > 2:
             resolved_include = resolve_include(arg[2:])
-            if str(resolved_include).startswith(str(generated_root)):
+            if resolved_include.startswith(generated_root_key + "/"):
                 transformed.extend(["-isystem", arg[2:]])
                 index += 1
                 continue

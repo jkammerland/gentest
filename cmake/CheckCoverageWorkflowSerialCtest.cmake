@@ -8,6 +8,13 @@ if(NOT EXISTS "${_workflow_file}")
 endif()
 
 file(READ "${_workflow_file}" _content)
+string(FIND "${_content}" "  linux:" _build_test_job_start)
+string(FIND "${_content}" "  package-workflow:" _package_workflow_start)
+if(_build_test_job_start EQUAL -1 OR _package_workflow_start EQUAL -1 OR _package_workflow_start LESS _build_test_job_start)
+  message(FATAL_ERROR "Unable to isolate the linux job block in ${_workflow_file}")
+endif()
+math(EXPR _build_test_job_len "${_package_workflow_start} - ${_build_test_job_start}")
+string(SUBSTRING "${_content}" "${_build_test_job_start}" "${_build_test_job_len}" _build_test_job_content)
 
 string(REPLACE "\n" ";" _lines "${_content}")
 set(_coverage_row "")
@@ -82,30 +89,19 @@ if(NOT _hardcoded_coverage_dir_pos EQUAL -1)
     "Coverage workflow must not hardcode build/coverage; it should follow the selected preset build directory.")
 endif()
 
-set(_expected_gcov_args [=[--gcov llvm-cov gcov]=])
-string(FIND "${_content}" "${_expected_gcov_args}" _gcov_flag_pos)
-if(_gcov_flag_pos EQUAL -1)
+set(_expected_gcovr_bootstrap [=[python3 -m pip install --break-system-packages --upgrade gcovr==8.6]=])
+string(FIND "${_content}" "${_expected_gcovr_bootstrap}" _gcovr_bootstrap_pos)
+if(_gcovr_bootstrap_pos EQUAL -1)
   message(FATAL_ERROR
-    "Coverage workflow must pass '--gcov llvm-cov gcov' so Clang coverage data is parsed by the matching LLVM gcov frontend.\n"
-    "Expected line fragment:\n${_expected_gcov_args}")
+    "Coverage workflow must install gcovr before invoking scripts/coverage_report.py.\n"
+    "Expected line:\n${_expected_gcovr_bootstrap}")
 endif()
 
-string(FIND "${_content}" "--roots " _roots_override_pos)
-if(NOT _roots_override_pos EQUAL -1)
+set(_expected_cleanup_dir [=[rm -rf "build/${GENTEST_CMAKE_PRESET}/coverage-report"]=])
+string(FIND "${_content}" "${_expected_cleanup_dir}" _cleanup_dir_pos)
+if(_cleanup_dir_pos EQUAL -1)
   message(FATAL_ERROR
-    "Coverage workflow should use coverage_hygiene.toml for source roots instead of overriding --roots in YAML.")
-endif()
-
-string(FIND "${_content}" "--fail-on " _fail_override_pos)
-if(NOT _fail_override_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Coverage workflow should use coverage_hygiene.toml for fail-on policy instead of overriding --fail-on in YAML.")
-endif()
-
-string(FIND "${_content}" "--warn-on " _warn_override_pos)
-if(NOT _warn_override_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Coverage workflow should use coverage_hygiene.toml for warn-on policy instead of overriding --warn-on in YAML.")
+    "Coverage workflow must clear the prior coverage-report directory before a run so failure-path publishing cannot reuse stale artifacts.")
 endif()
 
 set(_expected_report_script [=[python3 scripts/coverage_report.py \]=])
@@ -124,12 +120,20 @@ if(_report_build_dir_pos EQUAL -1)
     "Expected snippet:\n${_expected_report_snippet}")
 endif()
 
-set(_expected_summary_line [=[cat "build/${GENTEST_CMAKE_PRESET}/coverage-report/summary.md" >> "$GITHUB_STEP_SUMMARY"]=])
-string(FIND "${_content}" "${_expected_summary_line}" _summary_line_pos)
-if(_summary_line_pos EQUAL -1)
+set(_expected_summary_guard [=[if [ -f "${summary_file}" ]; then]=])
+set(_expected_summary_append [=[cat "${summary_file}" >> "$GITHUB_STEP_SUMMARY"]=])
+string(FIND "${_content}" "Coverage report was not generated because an earlier coverage step failed." _missing_summary_note_pos)
+string(FIND "${_content}" "${_expected_summary_guard}" _summary_guard_pos)
+string(FIND "${_content}" "${_expected_summary_append}" _summary_append_pos)
+if(_missing_summary_note_pos EQUAL -1 OR _summary_guard_pos EQUAL -1 OR _summary_append_pos EQUAL -1)
   message(FATAL_ERROR
-    "Coverage workflow must append the generated Markdown summary to GITHUB_STEP_SUMMARY.\n"
-    "Expected line:\n${_expected_summary_line}")
+    "Coverage workflow must append the generated Markdown summary when present and publish a clear fallback note when report generation never produced summary.md.")
+endif()
+string(REGEX MATCHALL "if: \\$\\{\\{ always\\(\\) && matrix\\.run_coverage == true \\}\\}" _always_if_matches "${_content}")
+list(LENGTH _always_if_matches _always_if_count)
+if(_always_if_count LESS 2)
+  message(FATAL_ERROR
+    "Coverage summary/artifact publication must use always() on both publish steps so threshold failures still publish diagnostics.")
 endif()
 
 string(FIND "${_content}" "actions/upload-artifact@v6" _upload_artifact_pos)
@@ -138,26 +142,27 @@ if(_upload_artifact_pos EQUAL -1)
     "Coverage workflow must upload the generated coverage report artifact with actions/upload-artifact@v6.")
 endif()
 
-string(FIND "${_content}" "path: build/${{ env.GENTEST_CMAKE_PRESET }}/coverage-report/" _coverage_artifact_path_pos)
+set(_expected_artifact_path [=[path: build/${{ env.GENTEST_CMAKE_PRESET }}/coverage-report/]=])
+string(FIND "${_content}" "${_expected_artifact_path}" _coverage_artifact_path_pos)
 if(_coverage_artifact_path_pos EQUAL -1)
   message(FATAL_ERROR
     "Coverage workflow must upload the preset-derived coverage-report directory as a workflow artifact.")
 endif()
-
-string(FIND "${_content}" "gcovr " _raw_gcovr_pos)
-if(NOT _raw_gcovr_pos EQUAL -1)
+string(FIND "${_content}" "if-no-files-found: ignore" _coverage_if_missing_ignore_pos)
+if(_coverage_if_missing_ignore_pos EQUAL -1)
   message(FATAL_ERROR
-    "Coverage workflow should route report generation through scripts/coverage_report.py instead of invoking gcovr directly in YAML.")
+    "Coverage workflow must ignore missing coverage-report artifacts so earlier failures do not add noisy secondary errors.")
 endif()
 
-string(FIND "${_content}" "--fail-under-line" _raw_line_threshold_pos)
-if(NOT _raw_line_threshold_pos EQUAL -1)
+foreach(_forbidden_token IN ITEMS "--roots " "--fail-on " "--warn-on " "--fail-under-line" "--fail-under-branch")
+  string(FIND "${_build_test_job_content}" "${_forbidden_token}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Coverage workflow must keep repo coverage policy in scripts/coverage_hygiene.toml and scripts/coverage_report.py instead of overriding ${_forbidden_token} in the linux-build-test job.")
+  endif()
+endforeach()
+string(REGEX MATCH "(^|\\n)[^\n]*gcovr[ \t-]" _raw_gcovr_match "${_build_test_job_content}")
+if(NOT _raw_gcovr_match STREQUAL "")
   message(FATAL_ERROR
-    "Coverage workflow should take report thresholds from scripts/coverage_hygiene.toml via scripts/coverage_report.py, not inline YAML flags.")
-endif()
-
-string(FIND "${_content}" "--fail-under-branch" _raw_branch_threshold_pos)
-if(NOT _raw_branch_threshold_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Coverage workflow should take report thresholds from scripts/coverage_hygiene.toml via scripts/coverage_report.py, not inline YAML flags.")
+    "Coverage workflow must route report generation through scripts/coverage_report.py instead of invoking gcovr directly in the linux-build-test job.")
 endif()

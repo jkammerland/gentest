@@ -841,7 +841,7 @@ jobs:
         if: ${{ matrix.run_coverage == true }}
         run: |
           set -euxo pipefail
-          python3 -m pip install --break-system-packages --upgrade gcovr
+          python3 -m pip install --break-system-packages --upgrade gcovr==8.6
       - name: Configure
         env:
           LC_ALL: C.UTF-8
@@ -885,6 +885,7 @@ jobs:
           set -euxo pipefail
           if [ -d "build/${GENTEST_CMAKE_PRESET}" ]; then
             find "build/${GENTEST_CMAKE_PRESET}" -name '*.gcda' -delete
+            rm -rf "build/${GENTEST_CMAKE_PRESET}/coverage-report"
           fi
       - name: Test
         env:
@@ -902,8 +903,7 @@ jobs:
           set -euxo pipefail
           python3 scripts/coverage_hygiene.py \
             --build-dir "build/${GENTEST_CMAKE_PRESET}" \
-            --ignore-statuses stamp_mismatch \
-            --gcov llvm-cov gcov
+            --ignore-statuses stamp_mismatch
       - name: Coverage report (codegen + runtime)
         if: ${{ matrix.run_coverage == true }}
         env:
@@ -914,17 +914,22 @@ jobs:
           python3 scripts/coverage_report.py \
             --build-dir "build/${GENTEST_CMAKE_PRESET}"
       - name: Publish coverage summary
-        if: ${{ matrix.run_coverage == true }}
+        if: ${{ always() && matrix.run_coverage == true }}
         run: |
           set -euxo pipefail
-          cat "build/${GENTEST_CMAKE_PRESET}/coverage-report/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          summary_file="build/${GENTEST_CMAKE_PRESET}/coverage-report/summary.md"
+          if [ -f "${summary_file}" ]; then
+            cat "${summary_file}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n' 'Coverage report was not generated because an earlier coverage step failed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Upload coverage report artifact
-        if: ${{ matrix.run_coverage == true }}
+        if: ${{ always() && matrix.run_coverage == true }}
         uses: actions/upload-artifact@v6
         with:
           name: coverage-${{ env.GENTEST_CMAKE_PRESET }}
           path: build/${{ env.GENTEST_CMAKE_PRESET }}/coverage-report/
-          if-no-files-found: error
+          if-no-files-found: ignore
 
   package-workflow:
     name: Package Workflow

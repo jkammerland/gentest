@@ -6,14 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
-from coverage_hygiene import DEFAULT_POLICY_PATH, _read_policy_config
+from coverage_hygiene import DEFAULT_POLICY_PATH, _read_policy_config, _resolve_gcov_command
 
 
 DEFAULT_REPORT_POLICY = {
@@ -54,52 +56,8 @@ def _read_report_policy(config_path: Path) -> Dict[str, Any]:
     return policy
 
 
-def _parse_cmake_cache(cache_path: Path) -> Dict[str, str]:
-    entries: Dict[str, str] = {}
-    if not cache_path.exists():
-        return entries
-    for raw_line in cache_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("//") or line.startswith("#"):
-            continue
-        if "=" not in line or ":" not in line:
-            continue
-        lhs, rhs = line.split("=", 1)
-        key, _, _ = lhs.partition(":")
-        entries[key] = rhs
-    return entries
-
-
-def _compiler_family(build_dir: Path) -> str:
-    cache = _parse_cmake_cache(build_dir / "CMakeCache.txt")
-    compiler_id = cache.get("CMAKE_CXX_COMPILER_ID", "") or cache.get("CMAKE_C_COMPILER_ID", "")
-    compiler = cache.get("CMAKE_CXX_COMPILER", "") or cache.get("CMAKE_C_COMPILER", "")
-    compiler_text = f"{compiler_id} {compiler}".lower()
-    if "clang" in compiler_text:
-        return "clang"
-    if "gnu" in compiler_text or re.search(r"(^|[\\/])(g\+\+|gcc|cc|c\+\+)([.-]|$)", compiler_text):
-        return "gcc"
-    return ""
-
-
-def _resolve_gcov_command(build_dir: Path, explicit: Sequence[str] | None) -> List[str]:
-    if explicit:
-        command = list(explicit)
-    else:
-        family = _compiler_family(build_dir)
-        if family == "clang":
-            command = ["llvm-cov", "gcov"]
-        else:
-            command = ["gcov"]
-
-    binary = shutil.which(command[0])
-    if not binary:
-        raise RuntimeError(
-            f"Coverage frontend '{command[0]}' was not found in PATH. "
-            "Install the matching gcov frontend or pass --gcov explicitly."
-        )
-    command[0] = binary
-    return command
+def _format_gcov_command(command: Sequence[str]) -> str:
+    return shlex.join(list(command))
 
 
 def _path_regex(path: Path, directory: bool) -> str:
@@ -250,7 +208,7 @@ def _gcovr_command(
         str(project_root),
         str(build_dir),
         "--gcov-executable",
-        " ".join(gcov_cmd),
+        _format_gcov_command(gcov_cmd),
         "--gcov-ignore-parse-errors",
         gcov_ignore_parse_errors,
         "--txt-summary",
@@ -274,7 +232,7 @@ def _gcovr_command(
 
     for item in intentional:
         exclude_path = (project_root / item).resolve(strict=False)
-        cmd.extend(["--exclude", _path_regex(exclude_path, directory=False)])
+        cmd.extend(["--exclude", _path_regex(exclude_path, directory=True)])
 
     return cmd
 
@@ -300,7 +258,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         default="",
-        help="Output directory for summary/json/html reports. Defaults to <build-dir>/coverage-report.",
+        help="Output directory for summary/json/html reports. Defaults to <build-dir>/coverage-report and must stay within the build dir.",
     )
     parser.add_argument(
         "--gcov",
@@ -340,13 +298,20 @@ def main() -> int:
     if not output_dir.is_absolute():
         output_dir = project_root / output_dir
     output_dir = output_dir.resolve(strict=False)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if output_dir == build_dir or not output_dir.is_relative_to(build_dir):
+        raise RuntimeError(
+            f"--output-dir must be a subdirectory of the build dir to avoid deleting unrelated files: {output_dir}"
+        )
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
 
     gcov_cmd = _resolve_gcov_command(build_dir, args.gcov)
+    temp_output_dir = Path(tempfile.mkdtemp(prefix=f"{output_dir.name}.tmp.", dir=output_dir.parent))
     gcovr_cmd = _gcovr_command(
         project_root,
         build_dir,
-        output_dir,
+        temp_output_dir,
         hygiene_policy["roots"],
         hygiene_policy["exclude_prefix"],
         hygiene_policy["intentional"],
@@ -364,25 +329,32 @@ def main() -> int:
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.returncode != 0:
+        shutil.rmtree(temp_output_dir, ignore_errors=True)
         return proc.returncode
 
-    summary_json = output_dir / "summary.json"
-    if not summary_json.exists():
-        raise FileNotFoundError(f"gcovr did not produce the expected summary file: {summary_json}")
-    data = json.loads(summary_json.read_text(encoding="utf-8"))
+    try:
+        summary_json = temp_output_dir / "summary.json"
+        if not summary_json.exists():
+            raise FileNotFoundError(f"gcovr did not produce the expected summary file: {summary_json}")
+        data = json.loads(summary_json.read_text(encoding="utf-8"))
 
-    summary_md = output_dir / "summary.md"
-    _write_summary(
-        summary_md,
-        build_dir,
-        data,
-        args.fail_under_line,
-        args.fail_under_branch,
-        args.top_files,
-    )
+        summary_md = temp_output_dir / "summary.md"
+        _write_summary(
+            summary_md,
+            build_dir,
+            data,
+            args.fail_under_line,
+            args.fail_under_branch,
+            args.top_files,
+        )
+
+        temp_output_dir.replace(output_dir)
+    except Exception:
+        shutil.rmtree(temp_output_dir, ignore_errors=True)
+        raise
 
     failures = _metric_failures(data, args.fail_under_line, args.fail_under_branch)
-    print(f"Coverage summary written to {summary_md}")
+    print(f"Coverage summary written to {output_dir / 'summary.md'}")
     print(f"Coverage details written to {output_dir / 'index.html'}")
     if failures:
         print("Coverage threshold failures:")
