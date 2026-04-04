@@ -176,8 +176,8 @@ def _write_summary(
         "",
         f"Build dir: `{build_dir}`",
         "",
-        "Scope: repo-owned implementation under `src/` and `tools/src/` only. "
-        "Intentional exemptions from `scripts/coverage_hygiene.toml` are excluded from totals.",
+        "Scope: repo-owned files in the implementation trees under `src/` and `tools/src/`, including internal "
+        "headers in those trees. Intentional exemptions from `scripts/coverage_hygiene.toml` are excluded from totals.",
         "",
         "## Overall coverage",
         "",

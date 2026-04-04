@@ -841,7 +841,7 @@ jobs:
         if: ${{ matrix.run_coverage == true }}
         run: |
           set -euxo pipefail
-          python3 -m pip install --break-system-packages --upgrade gcovr
+          python3 -m pip install --break-system-packages --upgrade gcovr==8.6
       - name: Configure
         env:
           LC_ALL: C.UTF-8
@@ -885,6 +885,7 @@ jobs:
           set -euxo pipefail
           if [ -d "build/${GENTEST_CMAKE_PRESET}" ]; then
             find "build/${GENTEST_CMAKE_PRESET}" -name '*.gcda' -delete
+            rm -rf "build/${GENTEST_CMAKE_PRESET}/coverage-report"
           fi
       - name: Test
         env:
@@ -906,6 +907,7 @@ jobs:
             --gcov llvm-cov gcov
       - name: Coverage report (codegen + runtime)
         if: ${{ matrix.run_coverage == true }}
+        id: coverage_report
         env:
           LC_ALL: C.UTF-8
           LANG: C.UTF-8
@@ -914,12 +916,26 @@ jobs:
           python3 scripts/coverage_report.py \
             --build-dir "build/${GENTEST_CMAKE_PRESET}"
       - name: Publish coverage summary
-        if: ${{ matrix.run_coverage == true }}
+        if: ${{ always() && matrix.run_coverage == true }}
+        id: publish_coverage_summary
+        env:
+          COVERAGE_REPORT_OUTCOME: ${{ steps.coverage_report.outcome }}
         run: |
           set -euxo pipefail
-          cat "build/${GENTEST_CMAKE_PRESET}/coverage-report/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          summary_file="build/${GENTEST_CMAKE_PRESET}/coverage-report/summary.md"
+          has_summary=false
+          if [ -f "${summary_file}" ]; then
+            has_summary=true
+            cat "${summary_file}" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${COVERAGE_REPORT_OUTCOME}" = "failure" ] || [ "${COVERAGE_REPORT_OUTCOME}" = "skipped" ]; then
+            printf '%s\n' 'Coverage report summary was not available because coverage generation failed before summary publication completed.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n' "Expected coverage report at ${summary_file} after successful coverage_report step." >&2
+            exit 1
+          fi
+          printf 'has_summary=%s\n' "${has_summary}" >> "$GITHUB_OUTPUT"
       - name: Upload coverage report artifact
-        if: ${{ matrix.run_coverage == true }}
+        if: ${{ always() && matrix.run_coverage == true && steps.publish_coverage_summary.outputs.has_summary == 'true' }}
         uses: actions/upload-artifact@v6
         with:
           name: coverage-${{ env.GENTEST_CMAKE_PRESET }}

@@ -19,7 +19,9 @@ The repo-specific policy for that check lives in
 
 `scripts/coverage_report.py` reads the same policy file, generates scoped line /
 function / branch coverage summaries, writes a Markdown report for the GitHub
-job summary, and emits a per-file HTML report artifact.
+job summary, and emits a per-file HTML report artifact. Its aggregate totals are
+directory-scoped to repo-owned files in the implementation trees under `src/`
+and `tools/src/`, including internal headers in those trees.
 
 ## What It Checks
 
@@ -63,12 +65,15 @@ report-generation logic.
 
 ## Local Use
 
-Typical local usage:
+Typical local Linux/POSIX-shell usage:
 
 ```bash
-python3 -m pip install --upgrade gcovr
+python3 -m pip install --upgrade gcovr==8.6
+# On distro-managed Python, add --break-system-packages or use a virtualenv.
 cmake --preset=coverage-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 cmake --build --preset=coverage-system
+find build/coverage-system -name '*.gcda' -delete
+rm -rf build/coverage-system/coverage-report
 ctest --preset=coverage-system --output-on-failure --parallel 1
 python3 scripts/coverage_hygiene.py \
   --build-dir build/coverage-system \
@@ -89,17 +94,21 @@ Notes:
 
 The Linux coverage lane in
 [`.github/workflows/cmake.yml`](../.github/workflows/cmake.yml)
-does seven things:
+does eight things:
 
 1. configures and builds the `coverage-system` preset with Clang
 2. deletes old `.gcda` files from `build/coverage-system`
-3. runs `ctest` serially for that lane
-4. runs `scripts/coverage_hygiene.py`
-5. runs `scripts/coverage_report.py`
-6. appends `coverage-report/summary.md` to the GitHub job summary
-7. uploads the HTML detail report as a workflow artifact
+3. deletes any stale `coverage-report/` directory from the same build tree
+4. runs `ctest` serially for that lane
+5. runs `scripts/coverage_hygiene.py`
+6. runs `scripts/coverage_report.py`
+7. appends `coverage-report/summary.md` to the GitHub job summary
+8. uploads the HTML detail report as a workflow artifact
 
-If either script exits non-zero, the coverage CI job fails.
+If either script exits non-zero, the coverage CI job fails. The summary step
+still runs after coverage-script failures. For threshold-failure cases where
+`coverage_report.py` writes `summary.md`/HTML before returning non-zero, the
+summary and HTML artifact still publish so those diagnostics remain visible.
 
 That makes the hygiene script a coverage sanity gate and the report script the
 aggregate threshold gate.

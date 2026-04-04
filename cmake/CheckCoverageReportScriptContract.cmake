@@ -53,7 +53,14 @@ foreach(_required_token IN ITEMS "[report]" "fail_under_line = 75.0" "fail_under
 endforeach()
 
 file(READ "${_readme_file}" _readme_content)
-foreach(_required_token IN ITEMS "scripts/coverage_report.py" "cmake --preset=coverage-system" "ctest --preset=coverage-system --output-on-failure --parallel 1")
+foreach(_required_token IN ITEMS
+    "scripts/coverage_report.py"
+    "cmake --preset=coverage-system"
+    "ctest --preset=coverage-system --output-on-failure --parallel 1"
+    "--break-system-packages"
+    "internal headers"
+    "`src/`"
+    "`tools/src/`")
   string(FIND "${_readme_content}" "${_required_token}" _token_pos)
   if(_token_pos EQUAL -1)
     message(FATAL_ERROR
@@ -62,7 +69,14 @@ foreach(_required_token IN ITEMS "scripts/coverage_report.py" "cmake --preset=co
 endforeach()
 
 file(READ "${_agents_file}" _agents_content)
-foreach(_required_token IN ITEMS "scripts/coverage_report.py" "coverage-system" "coverage-report/summary.md")
+foreach(_required_token IN ITEMS
+    "scripts/coverage_report.py"
+    "coverage-system"
+    "coverage-report/summary.md"
+    "--break-system-packages"
+    "internal headers"
+    "`src/`"
+    "`tools/src/`")
   string(FIND "${_agents_content}" "${_required_token}" _token_pos)
   if(_token_pos EQUAL -1)
     message(FATAL_ERROR
@@ -71,7 +85,14 @@ foreach(_required_token IN ITEMS "scripts/coverage_report.py" "coverage-system" 
 endforeach()
 
 file(READ "${_doc_file}" _doc_content)
-foreach(_required_token IN ITEMS "not a general coverage-reporting tool" "scripts/coverage_report.py" "GitHub job summary")
+foreach(_required_token IN ITEMS
+    "not a general coverage-reporting tool"
+    "scripts/coverage_report.py"
+    "GitHub job summary"
+    "--break-system-packages"
+    "internal headers"
+    "`src/`"
+    "`tools/src/`")
   string(FIND "${_doc_content}" "${_required_token}" _token_pos)
   if(_token_pos EQUAL -1)
     message(FATAL_ERROR

@@ -108,6 +108,12 @@ if(NOT _warn_override_pos EQUAL -1)
     "Coverage workflow should use coverage_hygiene.toml for warn-on policy instead of overriding --warn-on in YAML.")
 endif()
 
+string(FIND "${_content}" "gcovr==8.6" _gcovr_pin_pos)
+if(_gcovr_pin_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Coverage workflow must pin gcovr==8.6 so the Linux coverage lane stays on the validated report generator version.")
+endif()
+
 set(_expected_report_script [=[python3 scripts/coverage_report.py \]=])
 string(FIND "${_content}" "${_expected_report_script}" _report_script_pos)
 if(_report_script_pos EQUAL -1)
@@ -124,24 +130,64 @@ if(_report_build_dir_pos EQUAL -1)
     "Expected snippet:\n${_expected_report_snippet}")
 endif()
 
-set(_expected_summary_line [=[cat "build/${GENTEST_CMAKE_PRESET}/coverage-report/summary.md" >> "$GITHUB_STEP_SUMMARY"]=])
-string(FIND "${_content}" "${_expected_summary_line}" _summary_line_pos)
-if(_summary_line_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Coverage workflow must append the generated Markdown summary to GITHUB_STEP_SUMMARY.\n"
-    "Expected line:\n${_expected_summary_line}")
+set(_summary_step_marker [=[- name: Publish coverage summary]=])
+string(FIND "${_content}" "${_summary_step_marker}" _summary_step_start)
+if(_summary_step_start EQUAL -1)
+  message(FATAL_ERROR "Coverage workflow is missing the 'Publish coverage summary' step.")
 endif()
 
-string(FIND "${_content}" "actions/upload-artifact@v6" _upload_artifact_pos)
-if(_upload_artifact_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Coverage workflow must upload the generated coverage report artifact with actions/upload-artifact@v6.")
+set(_artifact_step_marker [=[- name: Upload coverage report artifact]=])
+string(FIND "${_content}" "${_artifact_step_marker}" _artifact_step_start)
+if(_artifact_step_start EQUAL -1)
+  message(FATAL_ERROR "Coverage workflow is missing the 'Upload coverage report artifact' step.")
 endif()
 
-string(FIND "${_content}" "path: build/${{ env.GENTEST_CMAKE_PRESET }}/coverage-report/" _coverage_artifact_path_pos)
-if(_coverage_artifact_path_pos EQUAL -1)
+math(EXPR _summary_step_len "${_artifact_step_start} - ${_summary_step_start}")
+string(SUBSTRING "${_content}" "${_summary_step_start}" "${_summary_step_len}" _summary_step_block)
+foreach(_summary_token IN ITEMS
+    [=[if: ${{ always() && matrix.run_coverage == true }}]=]
+    [=[id: publish_coverage_summary]=]
+    [=[COVERAGE_REPORT_OUTCOME: ${{ steps.coverage_report.outcome }}]=]
+    [=[if [ -f "${summary_file}" ]; then]=]
+    [=[printf 'has_summary=%s\n' "${has_summary}" >> "$GITHUB_OUTPUT"]=]
+    [=[cat "${summary_file}" >> "$GITHUB_STEP_SUMMARY"]=]
+    [=[elif [ "${COVERAGE_REPORT_OUTCOME}" = "failure" ] || [ "${COVERAGE_REPORT_OUTCOME}" = "skipped" ]; then]=]
+    [=[Coverage report summary was not available because coverage generation failed before summary publication completed.]=]
+    [=[Expected coverage report at ${summary_file} after successful coverage_report step.]=])
+  string(FIND "${_summary_step_block}" "${_summary_token}" _summary_token_pos)
+  if(_summary_token_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Publish coverage summary must retain token '${_summary_token}' inside its own step block.")
+  endif()
+endforeach()
+
+string(LENGTH "${_content}" _content_len)
+math(EXPR _artifact_tail_len "${_content_len} - ${_artifact_step_start}")
+string(SUBSTRING "${_content}" "${_artifact_step_start}" "${_artifact_tail_len}" _artifact_tail)
+string(REGEX MATCH "\n  [A-Za-z0-9_-]+:" _next_job_marker "${_artifact_tail}")
+if(_next_job_marker STREQUAL "")
+  set(_artifact_step_block "${_artifact_tail}")
+else()
+  string(FIND "${_artifact_tail}" "${_next_job_marker}" _artifact_block_end_rel)
+  string(SUBSTRING "${_artifact_tail}" 0 "${_artifact_block_end_rel}" _artifact_step_block)
+endif()
+foreach(_artifact_token IN ITEMS
+    [=[if: ${{ always() && matrix.run_coverage == true && steps.publish_coverage_summary.outputs.has_summary == 'true' }}]=]
+    [=[uses: actions/upload-artifact@v6]=]
+    [=[path: build/${{ env.GENTEST_CMAKE_PRESET }}/coverage-report/]=]
+    [=[if-no-files-found: error]=])
+  string(FIND "${_artifact_step_block}" "${_artifact_token}" _artifact_token_pos)
+  if(_artifact_token_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Upload coverage report artifact must retain token '${_artifact_token}' inside its own step block.")
+  endif()
+endforeach()
+
+set(_expected_reset_report [=[rm -rf "build/${GENTEST_CMAKE_PRESET}/coverage-report"]=])
+string(FIND "${_content}" "${_expected_reset_report}" _coverage_reset_report_pos)
+if(_coverage_reset_report_pos EQUAL -1)
   message(FATAL_ERROR
-    "Coverage workflow must upload the preset-derived coverage-report directory as a workflow artifact.")
+    "Coverage workflow must clear stale coverage-report output before a new coverage run.")
 endif()
 
 string(FIND "${_content}" "gcovr " _raw_gcovr_pos)

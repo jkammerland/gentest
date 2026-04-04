@@ -94,12 +94,15 @@ cmake --preset=tidy-fix
 cmake --build --preset=tidy-fix
 ```
 
-Generate the CI-aligned coverage report and threshold gate for the runtime library and codegen tool:
+Generate the CI-aligned Linux coverage report and threshold gate for the runtime/codegen implementation trees:
 
 ```bash
-python3 -m pip install --upgrade gcovr
+python3 -m pip install --upgrade gcovr==8.6
+# On distro-managed Python, add --break-system-packages or use a virtualenv.
 cmake --preset=coverage-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 cmake --build --preset=coverage-system
+find build/coverage-system -name '*.gcda' -delete
+rm -rf build/coverage-system/coverage-report
 ctest --preset=coverage-system --output-on-failure --parallel 1
 python3 scripts/coverage_hygiene.py \
   --build-dir build/coverage-system \
@@ -108,7 +111,7 @@ python3 scripts/coverage_hygiene.py \
 python3 scripts/coverage_report.py --build-dir build/coverage-system
 ```
 
-The coverage report reads the repo policy from `scripts/coverage_hygiene.toml`, scopes totals to `src/` and `tools/src/`, excludes intentional exemptions listed there, writes a GitHub-friendly Markdown summary to `build/coverage-system/coverage-report/summary.md`, and writes a per-file HTML report under `build/coverage-system/coverage-report/`. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=/path/to/lib/cmake/llvm -DClang_DIR=/path/to/lib/cmake/clang`.
+The coverage report reads the repo policy from `scripts/coverage_hygiene.toml`, scopes totals to repo-owned files in the implementation trees under `src/` and `tools/src/`, includes internal headers in those trees, excludes intentional exemptions listed there, writes a GitHub-friendly Markdown summary to `build/coverage-system/coverage-report/summary.md`, and writes a per-file HTML report under `build/coverage-system/coverage-report/`. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=/path/to/lib/cmake/llvm -DClang_DIR=/path/to/lib/cmake/clang`.
 
 ## Use in your project (CMake)
 
