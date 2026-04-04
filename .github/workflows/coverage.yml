@@ -16,16 +16,16 @@ concurrency:
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   GENTEST_CMAKE_PRESET: coverage-system
-  LLVM_DIR: /usr/lib/llvm-20/lib/cmake/llvm
-  Clang_DIR: /usr/lib/llvm-20/lib/cmake/clang
-  CC: clang-20
-  CXX: clang++-20
+  LLVM_DIR: /usr/lib64/cmake/llvm
+  Clang_DIR: /usr/lib64/cmake/clang
+  CC: clang
+  CXX: clang++
 
 jobs:
   coverage:
-    name: Ubuntu 24.04 • Clang 20 • coverage
+    name: Fedora 43 • Clang 21 • coverage
     runs-on: ubuntu-24.04
-    container: ubuntu:24.04
+    container: fedora:43
     defaults:
       run:
         shell: bash
@@ -33,11 +33,12 @@ jobs:
       - name: Update and install dependencies
         run: |
           set -euxo pipefail
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update
-          apt-get install -y --no-install-recommends \
+          dnf -y upgrade --refresh
+          dnf -y install \
             git \
-            build-essential \
+            which \
+            tar \
+            xz \
             ccache \
             ninja-build \
             python3 \
@@ -46,28 +47,27 @@ jobs:
             curl \
             zip \
             unzip \
-            tar \
+            clang \
+            clang-libs \
+            clang-devel \
+            clang-tools-extra \
+            llvm-devel \
+            fmt-devel \
+            zlib-ng-compat-devel \
+            libunwind-devel \
+            libcurl-devel \
+            libffi-devel \
+            libxml2-devel \
+            gcc \
+            gcc-c++ \
+            make \
             ca-certificates \
-            gnupg \
-            libffi-dev \
-            libxml2-dev \
-            zlib1g-dev \
-            libzstd-dev \
-            libcurl4-openssl-dev \
-            libunwind-dev \
-            libfmt-dev \
-            clang-20 \
-            clang-tools-20 \
-            libclang-20-dev \
-            libclang-rt-20-dev \
-            libclang-cpp20-dev \
-            llvm-20-dev
-          python3 -m pip install --break-system-packages --upgrade cmake ninja gcovr==8.6
+            ncurses-compat-libs
+          python3 -m pip install --upgrade pip cmake ninja gcovr==8.6
           python3 - <<'PY' >> "$GITHUB_PATH"
           import sysconfig
           print(sysconfig.get_path("scripts"))
           PY
-          echo "/usr/lib/llvm-20/bin" >> "$GITHUB_PATH"
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -76,7 +76,7 @@ jobs:
         run: |
           echo "GENTEST_XMAKE_TEST_TARGET_CC=${CC}" >> $GITHUB_ENV
           echo "GENTEST_XMAKE_TEST_TARGET_CXX=${CXX}" >> $GITHUB_ENV
-          echo "GENTEST_CODEGEN_HOST_CLANG=/usr/lib/llvm-20/bin/clang++" >> $GITHUB_ENV
+          echo "GENTEST_CODEGEN_HOST_CLANG=$(command -v clang++)" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
           echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
 
@@ -99,7 +99,6 @@ jobs:
           scan_deps=""
           for candidate in \
             "${CXX/clang++/clang-scan-deps}" \
-            "clang-scan-deps-20" \
             "clang-scan-deps"
           do
             if [ -n "$candidate" ] && command -v "$candidate" >/dev/null 2>&1; then

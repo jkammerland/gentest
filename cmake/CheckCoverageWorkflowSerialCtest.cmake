@@ -21,6 +21,23 @@ if(_coverage_preset_env_pos EQUAL -1)
     "Coverage workflow must run the dedicated coverage-system preset.")
 endif()
 
+foreach(_required_token IN ITEMS
+    "name: Fedora 43 • Clang 21 • coverage"
+    "container: fedora:43"
+    "LLVM_DIR: /usr/lib64/cmake/llvm"
+    "Clang_DIR: /usr/lib64/cmake/clang"
+    "CC: clang"
+    "CXX: clang++"
+    "dnf -y install"
+    "clang-tools-extra"
+    "llvm-devel")
+  string(FIND "${_content}" "${_required_token}" _required_token_pos)
+  if(_required_token_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Coverage workflow must stay on the Fedora 43 system Clang lane. Missing token '${_required_token}'.")
+  endif()
+endforeach()
+
 set(_expected_test_line [=[ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel 1]=])
 string(FIND "${_content}" "${_expected_test_line}" _test_line_pos)
 if(_test_line_pos EQUAL -1)
