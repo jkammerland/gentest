@@ -4,6 +4,7 @@ endif()
 
 set(_workflow_files
   "${SOURCE_DIR}/.github/workflows/cmake.yml"
+  "${SOURCE_DIR}/.github/workflows/coverage.yml"
   "${SOURCE_DIR}/.github/workflows/lint.yml"
   "${SOURCE_DIR}/.github/workflows/buildsystems_linux.yml"
   "${SOURCE_DIR}/.github/workflows/cross_qemu.yml")
