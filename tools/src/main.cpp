@@ -36,6 +36,7 @@
 #include <llvm/ADT/IntrusiveRefCntPtr.h>
 #include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/Statistic.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -314,11 +315,26 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     return targets;
 }
 
-[[nodiscard]] bool should_force_serial_parse_jobs() {
+[[nodiscard]] std::optional<std::string_view> forced_serial_parse_reason() {
     if (const auto force_serial = get_env_value("GENTEST_CODEGEN_FORCE_SERIAL_PARSE"); force_serial && *force_serial != "0") {
+        return std::string_view{"GENTEST_CODEGEN_FORCE_SERIAL_PARSE"};
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] bool should_log_parse_policy() {
+    if (const auto log_policy = get_env_value("GENTEST_CODEGEN_LOG_PARSE_POLICY"); log_policy && *log_policy != "0") {
         return true;
     }
     return false;
+}
+
+void prime_llvm_statistics_registry() {
+    // TrackingStatistic::RegisterStatistic lazily constructs StatLock/StatInfo
+    // on first use. Prime those ManagedStatics on the main thread before any
+    // worker parses a TU so TSAN-instrumented Clang builds stay on the normal
+    // parallel path instead of racing during lazy registry setup.
+    [[maybe_unused]] const auto statistics = llvm::GetStatistics();
 }
 
 [[nodiscard]] bool write_depfile(const CollectorOptions &options, const std::vector<std::string> &dependencies) {
@@ -3721,11 +3737,22 @@ int main(int argc, const char **argv) {
         std::vector<std::string>                     dependencies;
     };
 
-    std::size_t parse_jobs = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
-    if (parse_jobs > 1 && should_force_serial_parse_jobs()) {
+    const bool  multi_tu            = allow_includes && options.sources.size() > 1;
+    std::size_t parse_jobs          = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
+    const auto  serial_parse_reason = forced_serial_parse_reason();
+    if (parse_jobs > 1 && serial_parse_reason.has_value()) {
         parse_jobs = 1;
     }
-    const bool multi_tu = allow_includes && options.sources.size() > 1;
+    if (multi_tu && parse_jobs > 1) {
+        prime_llvm_statistics_registry();
+    }
+    if (multi_tu && should_log_parse_policy()) {
+        if (serial_parse_reason.has_value()) {
+            gentest::codegen::log_err("gentest_codegen: forcing serial multi-TU parse ({})\n", *serial_parse_reason);
+        } else {
+            gentest::codegen::log_err("gentest_codegen: using multi-TU parse jobs={}\n", parse_jobs);
+        }
+    }
     if (multi_tu) {
         // Snapshot each TU's compile command up front so every worker gets an
         // immutable one-file view and does not need to share lookup state while
@@ -3842,9 +3869,8 @@ int main(int argc, const char **argv) {
             diag_texts[idx] = std::move(diag_buffer);
         };
 
-        // Some system LLVM/Clang builds are not TSAN-clean for first-use global
-        // initialization. Run one TU serially to warm up internal singletons
-        // before fanning out across worker threads.
+        // Run one TU serially to warm up other Clang lazy initialization before
+        // fanning out across worker threads.
         if (parse_jobs > 1) {
             parse_one(0);
             gentest::codegen::parallel_for(options.sources.size() - 1, parse_jobs,

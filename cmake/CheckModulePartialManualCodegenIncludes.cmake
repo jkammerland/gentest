@@ -11,6 +11,8 @@
 #  -DC_COMPILER=<path>
 #  -DCXX_COMPILER=<path>
 #  -DBUILD_TYPE=<Debug|Release|...>
+# Optional:
+#  -DTSAN_BUILD=<ON|OFF>
 
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckModulePartialManualCodegenIncludes.cmake: SOURCE_DIR not set")
@@ -94,10 +96,34 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+set(_build_command "${CMAKE_COMMAND}" --build "${_build_dir}" --target partial_manual_codegen_tests)
+if(DEFINED TSAN_BUILD AND TSAN_BUILD)
+  set(_build_command
+    "${CMAKE_COMMAND}" -E env
+      GENTEST_CODEGEN_LOG_PARSE_POLICY=1
+      "${CMAKE_COMMAND}" --build "${_build_dir}" --target partial_manual_codegen_tests)
+endif()
+
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target partial_manual_codegen_tests
+  COMMAND ${_build_command}
   WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
+  STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE _build_out)
+
+if(DEFINED TSAN_BUILD AND TSAN_BUILD)
+  string(FIND "${_build_out}" "gentest_codegen: using multi-TU parse jobs=" _tsan_parallel_parse_pos)
+  if(_tsan_parallel_parse_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected TSAN-instrumented gentest_codegen to keep multi-TU parse parallel.\n"
+      "Build output:\n${_build_out}")
+  endif()
+  string(FIND "${_build_out}" "gentest_codegen: forcing serial multi-TU parse" _tsan_serial_parse_pos)
+  if(NOT _tsan_serial_parse_pos EQUAL -1)
+    message(FATAL_ERROR
+      "TSAN build unexpectedly forced serial multi-TU parse.\n"
+      "Build output:\n${_build_out}")
+  endif()
+endif()
 
 file(GLOB _wrapper_candidates "${_build_dir}/generated/*.module.gentest.cppm")
 list(LENGTH _wrapper_candidates _wrapper_count)

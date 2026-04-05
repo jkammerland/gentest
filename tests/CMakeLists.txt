@@ -169,6 +169,12 @@ if(GENTEST_SKIP_TSAN_DEATH_TESTS)
     set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
 endif()
 
+option(GENTEST_ENABLE_TSAN_STRESS_TESTS "Enable long-running TSAN stress reproducers" OFF)
+set(GENTEST_TSAN_STRESS_TIMEOUT_SEC "660" CACHE STRING "Timeout in seconds for TSAN stress reproducers")
+
+set(_gentest_is_tsan_build OFF)
+gentest_detect_thread_sanitizer(_gentest_is_tsan_build)
+
 set(_gentest_codegen_prog "")
 if(GENTEST_CODEGEN_EXECUTABLE)
     set(_gentest_codegen_prog "${GENTEST_CODEGEN_EXECUTABLE}")
@@ -2251,8 +2257,24 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_partial_manual_codegen_includes
     ${PROJECT_SOURCE_DIR}/cmake/CheckModulePartialManualCodegenIncludes.cmake
     cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTSAN_BUILD=${_gentest_is_tsan_build})
 set_property(TEST gentest_module_partial_manual_codegen_includes APPEND PROPERTY LABELS "modules")
+
+if(GENTEST_ENABLE_TSAN_STRESS_TESTS)
+    _gentest_add_cmake_helper_test(
+        gentest_module_partial_manual_codegen_tsan_race_repro
+        ${PROJECT_SOURCE_DIR}/tests/cmake/module_partial_manual_codegen_includes
+        ${PROJECT_SOURCE_DIR}/cmake/CheckModulePartialManualCodegenTsanRaceRepro.cmake
+        cmake
+        -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DTSAN_BUILD=${_gentest_is_tsan_build}
+        -DREPRO_TIMEOUT_SEC=${GENTEST_TSAN_STRESS_TIMEOUT_SEC})
+    set_tests_properties(gentest_module_partial_manual_codegen_tsan_race_repro PROPERTIES LABELS "cmake;modules;stress;tsan")
+    math(EXPR _gentest_tsan_race_repro_test_timeout "${GENTEST_TSAN_STRESS_TIMEOUT_SEC} + 120")
+    set_tests_properties(gentest_module_partial_manual_codegen_tsan_race_repro PROPERTIES TIMEOUT "${_gentest_tsan_race_repro_test_timeout}")
+    unset(_gentest_tsan_race_repro_test_timeout)
+endif()
 
 _gentest_add_cmake_helper_test(
     gentest_module_manual_partial_includes
@@ -2325,6 +2347,14 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_public_module_gcc_version_fallback APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_public_module_gcc_tsan_fallback
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleGccTsanFallback.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_public_module_gcc_tsan_fallback APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
     gentest_public_module_surface
