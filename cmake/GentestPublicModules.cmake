@@ -27,7 +27,21 @@ function(gentest_detect_thread_sanitizer out_enabled)
     set(_probe
         "${CMAKE_CXX_FLAGS} ${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_MODULE_LINKER_FLAGS} ${CMAKE_SHARED_LINKER_FLAGS}")
 
-    if(CMAKE_BUILD_TYPE AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "")
+    if(CMAKE_CONFIGURATION_TYPES)
+        foreach(_config IN LISTS CMAKE_CONFIGURATION_TYPES)
+            string(TOUPPER "${_config}" _config_upper)
+            foreach(_flag_var
+                    IN ITEMS
+                        CMAKE_CXX_FLAGS_${_config_upper}
+                        CMAKE_EXE_LINKER_FLAGS_${_config_upper}
+                        CMAKE_MODULE_LINKER_FLAGS_${_config_upper}
+                        CMAKE_SHARED_LINKER_FLAGS_${_config_upper})
+                if(DEFINED ${_flag_var} AND NOT "${${_flag_var}}" STREQUAL "")
+                    string(APPEND _probe " ${${_flag_var}}")
+                endif()
+            endforeach()
+        endforeach()
+    elseif(CMAKE_BUILD_TYPE AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "")
         string(TOUPPER "${CMAKE_BUILD_TYPE}" _build_type_upper)
         foreach(_flag_var
                 IN ITEMS

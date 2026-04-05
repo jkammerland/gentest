@@ -173,18 +173,7 @@ option(GENTEST_ENABLE_TSAN_STRESS_TESTS "Enable long-running TSAN stress reprodu
 set(GENTEST_TSAN_STRESS_TIMEOUT_SEC "660" CACHE STRING "Timeout in seconds for TSAN stress reproducers")
 
 set(_gentest_is_tsan_build OFF)
-set(_gentest_sanitizer_probe "${CMAKE_CXX_FLAGS} ${CMAKE_EXE_LINKER_FLAGS}")
-if(CMAKE_BUILD_TYPE AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "")
-    string(TOUPPER "${CMAKE_BUILD_TYPE}" _gentest_build_type_upper)
-    string(APPEND _gentest_sanitizer_probe
-        " ${CMAKE_CXX_FLAGS_${_gentest_build_type_upper}}"
-        " ${CMAKE_EXE_LINKER_FLAGS_${_gentest_build_type_upper}}")
-    unset(_gentest_build_type_upper)
-endif()
-if(_gentest_sanitizer_probe MATCHES "(^|[ ;])-fsanitize=[^ ;]*thread[^ ;]*([ ;]|$)")
-    set(_gentest_is_tsan_build ON)
-endif()
-unset(_gentest_sanitizer_probe)
+gentest_detect_thread_sanitizer(_gentest_is_tsan_build)
 
 set(_gentest_codegen_prog "")
 if(GENTEST_CODEGEN_EXECUTABLE)
