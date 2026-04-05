@@ -2360,6 +2360,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_public_module_gcc_version_fallback APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_public_module_gcc_tsan_fallback
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleGccTsanFallback.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_public_module_gcc_tsan_fallback APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_public_module_surface
     ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_surface
     ${PROJECT_SOURCE_DIR}/cmake/CheckPublicModuleSurface.cmake
