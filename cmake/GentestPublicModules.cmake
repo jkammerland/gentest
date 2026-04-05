@@ -23,6 +23,31 @@ function(gentest_resolve_optional_program out_program candidate)
     set(${out_program} "" PARENT_SCOPE)
 endfunction()
 
+function(gentest_detect_thread_sanitizer out_enabled)
+    set(_probe
+        "${CMAKE_CXX_FLAGS} ${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_MODULE_LINKER_FLAGS} ${CMAKE_SHARED_LINKER_FLAGS}")
+
+    if(CMAKE_BUILD_TYPE AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "")
+        string(TOUPPER "${CMAKE_BUILD_TYPE}" _build_type_upper)
+        foreach(_flag_var
+                IN ITEMS
+                    CMAKE_CXX_FLAGS_${_build_type_upper}
+                    CMAKE_EXE_LINKER_FLAGS_${_build_type_upper}
+                    CMAKE_MODULE_LINKER_FLAGS_${_build_type_upper}
+                    CMAKE_SHARED_LINKER_FLAGS_${_build_type_upper})
+            if(DEFINED ${_flag_var} AND NOT "${${_flag_var}}" STREQUAL "")
+                string(APPEND _probe " ${${_flag_var}}")
+            endif()
+        endforeach()
+    endif()
+
+    if(_probe MATCHES "(^|[ ;])-fsanitize=[^ ;]*thread[^ ;]*([ ;]|$)")
+        set(${out_enabled} TRUE PARENT_SCOPE)
+    else()
+        set(${out_enabled} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
 function(gentest_detect_public_module_support out_supported out_reason)
     set(_supported TRUE)
     set(_reason "")
@@ -64,6 +89,18 @@ function(gentest_detect_public_module_support out_supported out_reason)
        AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15)
         set(_supported FALSE)
         set(_reason "GNU ${CMAKE_CXX_COMPILER_VERSION} is too old; GNU 15 or newer is required for public named modules")
+    endif()
+
+    if(_supported
+       AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+       AND DEFINED CMAKE_CXX_COMPILER_VERSION
+       AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
+        gentest_detect_thread_sanitizer(_gentest_thread_sanitizer_enabled)
+        if(_gentest_thread_sanitizer_enabled)
+            set(_supported FALSE)
+            set(_reason
+                "GNU ${CMAKE_CXX_COMPILER_VERSION} with ThreadSanitizer cannot build gentest's public named modules; GNU 16 or newer is required when -fsanitize=thread is enabled")
+        endif()
     endif()
 
     if(_supported)
