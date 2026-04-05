@@ -314,8 +314,23 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     return targets;
 }
 
-[[nodiscard]] bool should_force_serial_parse_jobs() {
+[[nodiscard]] std::optional<std::string_view> forced_serial_parse_reason() {
     if (const auto force_serial = get_env_value("GENTEST_CODEGEN_FORCE_SERIAL_PARSE"); force_serial && *force_serial != "0") {
+        return std::string_view{"GENTEST_CODEGEN_FORCE_SERIAL_PARSE"};
+    }
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+    return std::string_view{"thread-sanitized gentest_codegen"};
+#endif
+#endif
+#if defined(__SANITIZE_THREAD__)
+    return std::string_view{"thread-sanitized gentest_codegen"};
+#endif
+    return std::nullopt;
+}
+
+[[nodiscard]] bool should_log_parse_policy() {
+    if (const auto log_policy = get_env_value("GENTEST_CODEGEN_LOG_PARSE_POLICY"); log_policy && *log_policy != "0") {
         return true;
     }
     return false;
@@ -3721,11 +3736,19 @@ int main(int argc, const char **argv) {
         std::vector<std::string>                     dependencies;
     };
 
-    std::size_t parse_jobs = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
-    if (parse_jobs > 1 && should_force_serial_parse_jobs()) {
+    const bool  multi_tu            = allow_includes && options.sources.size() > 1;
+    std::size_t parse_jobs          = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
+    const auto  serial_parse_reason = forced_serial_parse_reason();
+    if (parse_jobs > 1 && serial_parse_reason.has_value()) {
         parse_jobs = 1;
     }
-    const bool multi_tu = allow_includes && options.sources.size() > 1;
+    if (multi_tu && should_log_parse_policy()) {
+        if (serial_parse_reason.has_value()) {
+            gentest::codegen::log_err("gentest_codegen: forcing serial multi-TU parse ({})\n", *serial_parse_reason);
+        } else {
+            gentest::codegen::log_err("gentest_codegen: using multi-TU parse jobs={}\n", parse_jobs);
+        }
+    }
     if (multi_tu) {
         // Snapshot each TU's compile command up front so every worker gets an
         // immutable one-file view and does not need to share lookup state while

@@ -169,6 +169,20 @@ if(GENTEST_SKIP_TSAN_DEATH_TESTS)
     set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
 endif()
 
+set(_gentest_is_tsan_build OFF)
+set(_gentest_sanitizer_probe "${CMAKE_CXX_FLAGS} ${CMAKE_EXE_LINKER_FLAGS}")
+if(CMAKE_BUILD_TYPE AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "")
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" _gentest_build_type_upper)
+    string(APPEND _gentest_sanitizer_probe
+        " ${CMAKE_CXX_FLAGS_${_gentest_build_type_upper}}"
+        " ${CMAKE_EXE_LINKER_FLAGS_${_gentest_build_type_upper}}")
+    unset(_gentest_build_type_upper)
+endif()
+if(_gentest_sanitizer_probe MATCHES "(^|[ ;])-fsanitize=[^ ;]*thread[^ ;]*([ ;]|$)")
+    set(_gentest_is_tsan_build ON)
+endif()
+unset(_gentest_sanitizer_probe)
+
 set(_gentest_codegen_prog "")
 if(GENTEST_CODEGEN_EXECUTABLE)
     set(_gentest_codegen_prog "${GENTEST_CODEGEN_EXECUTABLE}")
@@ -2251,7 +2265,8 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_partial_manual_codegen_includes
     ${PROJECT_SOURCE_DIR}/cmake/CheckModulePartialManualCodegenIncludes.cmake
     cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTSAN_BUILD=${_gentest_is_tsan_build})
 set_property(TEST gentest_module_partial_manual_codegen_includes APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
