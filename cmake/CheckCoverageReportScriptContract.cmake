@@ -5,10 +5,17 @@ endif()
 set(_script_file "${SOURCE_DIR}/scripts/coverage_report.py")
 set(_config_file "${SOURCE_DIR}/scripts/coverage_hygiene.toml")
 set(_readme_file "${SOURCE_DIR}/README.md")
+set(_contributing_file "${SOURCE_DIR}/CONTRIBUTING.md")
 set(_agents_file "${SOURCE_DIR}/AGENTS.md")
 set(_doc_file "${SOURCE_DIR}/docs/coverage_hygiene.md")
 
-foreach(_required_file IN ITEMS "${_script_file}" "${_config_file}" "${_readme_file}" "${_agents_file}" "${_doc_file}")
+foreach(_required_file IN ITEMS
+    "${_script_file}"
+    "${_config_file}"
+    "${_readme_file}"
+    "${_contributing_file}"
+    "${_agents_file}"
+    "${_doc_file}")
   if(NOT EXISTS "${_required_file}")
     message(FATAL_ERROR "Missing file for coverage report contract: ${_required_file}")
   endif()
@@ -53,6 +60,15 @@ foreach(_required_token IN ITEMS "[report]" "fail_under_line = 75.0" "fail_under
 endforeach()
 
 file(READ "${_readme_file}" _readme_content)
+foreach(_required_token IN ITEMS "CONTRIBUTING.md" "lint, static analysis, coverage")
+  string(FIND "${_readme_content}" "${_required_token}" _token_pos)
+  if(_token_pos EQUAL -1)
+    message(FATAL_ERROR
+      "README.md must point contributors to CONTRIBUTING.md with ${_required_token}.")
+  endif()
+endforeach()
+
+file(READ "${_contributing_file}" _contributing_content)
 foreach(_required_token IN ITEMS
     "scripts/coverage_report.py"
     "cmake --preset=coverage-system"
@@ -61,10 +77,10 @@ foreach(_required_token IN ITEMS
     "internal headers"
     "`src/`"
     "`tools/src/`")
-  string(FIND "${_readme_content}" "${_required_token}" _token_pos)
+  string(FIND "${_contributing_content}" "${_required_token}" _token_pos)
   if(_token_pos EQUAL -1)
     message(FATAL_ERROR
-      "README.md must document the CI-aligned coverage flow with ${_required_token}.")
+      "CONTRIBUTING.md must document the CI-aligned coverage flow with ${_required_token}.")
   endif()
 endforeach()
 

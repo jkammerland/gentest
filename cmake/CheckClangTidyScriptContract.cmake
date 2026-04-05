@@ -4,9 +4,10 @@ endif()
 
 set(_script_file "${SOURCE_DIR}/scripts/check_clang_tidy.sh")
 set(_readme_file "${SOURCE_DIR}/README.md")
+set(_contributing_file "${SOURCE_DIR}/CONTRIBUTING.md")
 set(_agents_file "${SOURCE_DIR}/AGENTS.md")
 
-foreach(_required_file IN ITEMS "${_script_file}" "${_readme_file}" "${_agents_file}")
+foreach(_required_file IN ITEMS "${_script_file}" "${_readme_file}" "${_contributing_file}" "${_agents_file}")
   if(NOT EXISTS "${_required_file}")
     message(FATAL_ERROR "Missing file for clang-tidy script contract: ${_required_file}")
   endif()
@@ -52,22 +53,34 @@ if(_line_filter_usage_count LESS 3)
 endif()
 
 file(READ "${_readme_file}" _readme_content)
-string(FIND "${_readme_content}" "surfaces diagnostics from matching repo headers included by those translation units"
-  _readme_contract_pos)
-if(_readme_contract_pos EQUAL -1)
+string(FIND "${_readme_content}" "CONTRIBUTING.md" _readme_contributing_pos)
+if(_readme_contributing_pos EQUAL -1)
   message(FATAL_ERROR
-    "README.md must describe the CI-aligned clang-tidy lane as covering matching repo headers included by the active translation units.")
-endif()
-string(FIND "${_readme_content}" "materializes any generated mock/codegen targets referenced by the active compile database"
-  _readme_generated_contract_pos)
-if(_readme_generated_contract_pos EQUAL -1)
-  message(FATAL_ERROR
-    "README.md must note that scripts/check_clang_tidy.sh materializes generated mock/codegen targets referenced by the active compile database.")
+    "README.md must point contributors to CONTRIBUTING.md for lint and static-analysis workflows.")
 endif()
 string(FIND "${_readme_content}" "ninja clang-tidy" _readme_ninja_tidy_pos)
 if(NOT _readme_ninja_tidy_pos EQUAL -1)
   message(FATAL_ERROR
     "README.md must not recommend a nonexistent 'ninja clang-tidy' target; point contributors to the tidy/tidy-fix preset build flow.")
+endif()
+
+file(READ "${_contributing_file}" _contributing_content)
+string(FIND "${_contributing_content}" "surfaces diagnostics from matching repo headers included by those translation units"
+  _contributing_contract_pos)
+if(_contributing_contract_pos EQUAL -1)
+  message(FATAL_ERROR
+    "CONTRIBUTING.md must describe the CI-aligned clang-tidy lane as covering matching repo headers included by the active translation units.")
+endif()
+string(FIND "${_contributing_content}" "materializes any generated mock/codegen targets referenced by the active compile database"
+  _contributing_generated_contract_pos)
+if(_contributing_generated_contract_pos EQUAL -1)
+  message(FATAL_ERROR
+    "CONTRIBUTING.md must note that scripts/check_clang_tidy.sh materializes generated mock/codegen targets referenced by the active compile database.")
+endif()
+string(FIND "${_contributing_content}" "ninja clang-tidy" _contributing_ninja_tidy_pos)
+if(NOT _contributing_ninja_tidy_pos EQUAL -1)
+  message(FATAL_ERROR
+    "CONTRIBUTING.md must not recommend a nonexistent 'ninja clang-tidy' target; point contributors to the tidy/tidy-fix preset build flow.")
 endif()
 
 file(READ "${_agents_file}" _agents_content)
