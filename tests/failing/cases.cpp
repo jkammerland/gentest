@@ -1,10 +1,10 @@
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
+#include "public/gentest_textual_suite_mocks.hpp"
+
 #include <memory>
 #include <stdexcept>
-
-#include "public/gentest_textual_suite_mocks.hpp"
 
 namespace failing {
 
@@ -13,15 +13,15 @@ struct NullFreeFixture {
 };
 
 [[using gentest: test("alloc/free_null")]]
-void free_null_fixture(NullFreeFixture&) {}
+void free_null_fixture(NullFreeFixture &) {}
 
 struct [[using gentest: fixture(suite)]] NullSuiteFixture {
-    static std::unique_ptr<NullSuiteFixture> gentest_allocate() { return {}; }
+    static std::unique_ptr<NullSuiteFixture>         gentest_allocate() { return {}; }
     [[using gentest: test("alloc/suite_null")]] void t() {}
 };
 
 struct [[using gentest: fixture(global)]] NullGlobalFixture {
-    static std::unique_ptr<NullGlobalFixture> gentest_allocate() { return {}; }
+    static std::unique_ptr<NullGlobalFixture>         gentest_allocate() { return {}; }
     [[using gentest: test("alloc/global_null")]] void t() {}
 };
 

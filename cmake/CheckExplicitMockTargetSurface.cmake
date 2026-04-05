@@ -118,6 +118,28 @@ foreach(_generated_header IN ITEMS
   endif()
 endforeach()
 
+file(GLOB _staged_regex_meta_headers "${_build_dir}/generated/header/defs/deps/*a+b.hpp")
+if(NOT _staged_regex_meta_headers)
+  message(FATAL_ERROR
+    "Expected staged explicit mock support header for regex-metachar include 'fixture/a+b.hpp', but none was written under "
+    "'${_build_dir}/generated/header/defs/deps'")
+endif()
+set(_saw_staged_regex_meta_header FALSE)
+foreach(_staged_regex_meta_header IN LISTS _staged_regex_meta_headers)
+  if(IS_DIRECTORY "${_staged_regex_meta_header}")
+    continue()
+  endif()
+  file(READ "${_staged_regex_meta_header}" _staged_regex_meta_header_content)
+  if(_staged_regex_meta_header_content MATCHES "kRegexMetaHeaderSentinel = 17")
+    set(_saw_staged_regex_meta_header TRUE)
+    break()
+  endif()
+endforeach()
+if(NOT _saw_staged_regex_meta_header)
+  message(FATAL_ERROR
+    "Expected staged explicit mock support header for regex-metachar include 'fixture/a+b.hpp' to preserve its contents.")
+endif()
+
 set(_generated_module_header "${_build_dir}/generated/module/public/fixture_module_mocks.hpp")
 if(EXISTS "${_generated_module_header}")
   message(FATAL_ERROR
@@ -186,10 +208,25 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+message(STATUS "Run explicit_late_link_module_consumer...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${_build_dir}/explicit_late_link_module_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    "--run=explicit_mock_target/late_link_module_consumer"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
 message(STATUS "Mutate local support header and rebuild explicit header consumer...")
 file(READ "${_src_dir}/service.hpp" _service_header_content)
 string(REPLACE "kServiceSentinel = 9" "kServiceSentinel = 11" _service_header_content "${_service_header_content}")
 file(WRITE "${_src_dir}/service.hpp" "${_service_header_content}")
+file(READ "${_src_dir}/fixture/a+b.hpp" _regex_meta_header_content)
+string(REPLACE
+  "kRegexMetaHeaderSentinel = 17"
+  "kRegexMetaHeaderSentinel = 23"
+  _regex_meta_header_content
+  "${_regex_meta_header_content}")
+file(WRITE "${_src_dir}/fixture/a+b.hpp" "${_regex_meta_header_content}")
 
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}"
@@ -214,7 +251,62 @@ if(NOT _saw_updated_staged_service_header)
     "'${_build_dir}/generated/header/defs/deps'")
 endif()
 
+set(_saw_updated_staged_regex_meta_header FALSE)
+foreach(_staged_regex_meta_header IN LISTS _staged_regex_meta_headers)
+  if(IS_DIRECTORY "${_staged_regex_meta_header}")
+    continue()
+  endif()
+  file(READ "${_staged_regex_meta_header}" _staged_regex_meta_header_content)
+  if(_staged_regex_meta_header_content MATCHES "kRegexMetaHeaderSentinel = 23")
+    set(_saw_updated_staged_regex_meta_header TRUE)
+    break()
+  endif()
+endforeach()
+if(NOT _saw_updated_staged_regex_meta_header)
+  message(FATAL_ERROR
+    "Rebuild after editing fixture/a+b.hpp did not refresh the staged explicit mock support header under "
+    "'${_build_dir}/generated/header/defs/deps'")
+endif()
+
 gentest_check_run_or_fail(
   COMMAND "${_build_dir}/explicit_header_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+message(STATUS "Mutate explicit module mock defs and rebuild late-linked module consumer...")
+file(READ "${_src_dir}/module_mocks.cppm" _module_mocks_content)
+string(FIND "${_module_mocks_content}" "\r\n" _module_mocks_has_crlf)
+if(NOT _module_mocks_has_crlf EQUAL -1)
+  string(REPLACE "\r\n" "\n" _module_mocks_content "${_module_mocks_content}")
+endif()
+string(REPLACE
+  "export import fixture.service_module;\n"
+  "export import fixture.service_module;\n\n// late-link module rebuild marker\n"
+  _module_mocks_content
+  "${_module_mocks_content}")
+if(NOT _module_mocks_has_crlf EQUAL -1)
+  string(REPLACE "\n" "\r\n" _module_mocks_content "${_module_mocks_content}")
+endif()
+file(WRITE "${_src_dir}/module_mocks.cppm" "${_module_mocks_content}")
+
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target explicit_late_link_module_consumer
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE _late_link_module_rebuild_output)
+
+string(FIND "${_late_link_module_rebuild_output}" "Running gentest_codegen for target explicit_late_link_module_consumer"
+  _late_link_module_codegen_pos)
+if(_late_link_module_codegen_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Incremental rebuild after editing explicit module mock defs did not rerun codegen for "
+    "'explicit_late_link_module_consumer'.\n"
+    "Build output:\n${_late_link_module_rebuild_output}")
+endif()
+
+gentest_check_run_or_fail(
+  COMMAND
+    "${_build_dir}/explicit_late_link_module_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    "--run=explicit_mock_target/late_link_module_consumer"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)

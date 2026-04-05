@@ -14,6 +14,7 @@
 #include <vector>
 
 namespace {
+
 struct SharedFixtureEntry {
     std::string                         fixture_name;
     std::string                         suite;
@@ -170,30 +171,60 @@ struct FixtureContextGuard {
     }
 };
 
+std::string resolve_fixture_context_issue(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx, std::string current_error,
+                                          bool caught_assertion, bool caught_runtime_skip) {
+    std::string first_failure = gentest::detail::first_recorded_failure(ctx);
+    if (caught_assertion && !first_failure.empty()) {
+        return first_failure;
+    }
+    if (!current_error.empty()) {
+        return current_error;
+    }
+    if (!first_failure.empty()) {
+        return first_failure;
+    }
+    if (gentest::detail::has_bench_error()) {
+        return gentest::detail::take_bench_error();
+    }
+    if (!ctx) {
+        if (caught_runtime_skip) {
+            return "skip requested without active runtime skip state";
+        }
+        return current_error;
+    }
+
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    if (ctx->runtime_skip_requested.load(std::memory_order_relaxed)) {
+        if (!ctx->runtime_skip_reason.empty()) {
+            return ctx->runtime_skip_reason;
+        }
+        return "skip requested";
+    }
+    if (caught_runtime_skip) {
+        return "skip requested without active runtime skip state";
+    }
+    return current_error;
+}
+
 bool run_fixture_phase(std::string_view label, const std::function<void(std::string &)> &fn, std::string &error_out) {
     error_out.clear();
     gentest::detail::clear_bench_error();
     FixtureContextGuard guard(label);
+    bool                caught_assertion    = false;
+    bool                caught_runtime_skip = false;
     try {
         fn(error_out);
-    } catch (const gentest::assertion &e) { error_out = e.message(); } catch (const std::exception &e) {
-        error_out = std::string("std::exception: ") + e.what();
-    } catch (...) { error_out = "unknown exception"; }
+    } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
+        caught_assertion = true;
+        error_out        = e.message();
+    } catch (const std::exception &e) { error_out = std::string("std::exception: ") + e.what(); } catch (...) {
+        error_out = "unknown exception";
+    }
     gentest::detail::wait_for_adopted_tokens(guard.ctx);
     gentest::detail::flush_current_buffer_for(guard.ctx.get());
+    error_out = resolve_fixture_context_issue(guard.ctx, std::move(error_out), caught_assertion, caught_runtime_skip);
     if (!error_out.empty()) {
         return false;
-    }
-    if (gentest::detail::has_bench_error()) {
-        error_out = gentest::detail::take_bench_error();
-        return false;
-    }
-    {
-        std::lock_guard<std::mutex> lk(guard.ctx->mtx);
-        if (!guard.ctx->failures.empty()) {
-            error_out = guard.ctx->failures.front();
-            return false;
-        }
     }
     return true;
 }
@@ -256,7 +287,7 @@ void register_shared_fixture(const SharedFixtureRegistration &registration) {
     entry.create       = registration.create;
     entry.setup        = registration.setup;
     entry.teardown     = registration.teardown;
-    auto it            = std::lower_bound(reg.entries.begin(), reg.entries.end(), entry, shared_fixture_order_less);
+    auto it            = std::ranges::lower_bound(reg.entries, entry, shared_fixture_order_less);
     reg.entries.insert(it, std::move(entry));
 }
 
@@ -319,11 +350,26 @@ bool setup_shared_fixtures() {
         if (!create_fn) {
             error = "missing factory";
         } else {
+            gentest::detail::clear_bench_error();
+            FixtureContextGuard guard(fmt::format("{} create", fixture_name));
+            bool                caught_assertion    = false;
+            bool                caught_runtime_skip = false;
             try {
                 instance = create_fn(suite_name, error);
-            } catch (const gentest::assertion &e) { error = e.message(); } catch (const std::exception &e) {
-                error = std::string("std::exception: ") + e.what();
-            } catch (...) { error = "unknown exception"; }
+            } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
+                caught_assertion = true;
+                // Fallback only. resolve_fixture_context_issue() prefers the recorded source-backed failure text.
+                error = e.message();
+            } catch (const std::exception &e) { error = std::string("std::exception: ") + e.what(); } catch (...) {
+                error = "unknown exception";
+            }
+            gentest::detail::wait_for_adopted_tokens(guard.ctx);
+            gentest::detail::flush_current_buffer_for(guard.ctx.get());
+            error = resolve_fixture_context_issue(guard.ctx, std::move(error), caught_assertion, caught_runtime_skip);
+        }
+
+        if (!error.empty()) {
+            instance.reset();
         }
 
         if (!instance) {
@@ -388,7 +434,7 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
         if (!gate.active || gate.owner != std::this_thread::get_id()) {
             fmt::print(stderr, "gentest: shared fixture teardown requires an active runtime session\n");
             if (errors) {
-                errors->push_back("shared fixture teardown requires an active runtime session");
+                errors->emplace_back("shared fixture teardown requires an active runtime session");
             }
             return false;
         }
@@ -478,16 +524,12 @@ std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_v
             continue;
         if (entry.fixture_name != fixture_name)
             continue;
-        if (scope == SharedFixtureScope::Suite) {
-            if (!suite_scope_matches(entry.suite, suite))
-                continue;
-            if (!selected || entry.suite.size() > selected->suite.size()) {
-                selected = &entry;
-            }
+        if (!suite_scope_matches(entry.suite, suite)) {
             continue;
         }
-        selected = &entry;
-        break;
+        if (!selected || entry.suite.size() > selected->suite.size()) {
+            selected = &entry;
+        }
     }
     if (!selected) {
         if (reg.teardown_in_progress) {
@@ -573,7 +615,7 @@ bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtur
     errors.reserve(reg.registration_errors.size() + reg.entries.size());
 
     for (const auto &msg : reg.registration_errors) {
-        if (std::find(errors.begin(), errors.end(), msg) == errors.end()) {
+        if (std::ranges::find(errors, msg) == errors.end()) {
             errors.push_back(msg);
         }
     }
@@ -581,7 +623,7 @@ bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtur
         if (!entry.failed || entry.error.empty())
             continue;
         const std::string msg = fmt::format("fixture '{}' {}", entry.fixture_name, entry.error);
-        if (std::find(errors.begin(), errors.end(), msg) == errors.end()) {
+        if (std::ranges::find(errors, msg) == errors.end()) {
             errors.push_back(msg);
         }
     }

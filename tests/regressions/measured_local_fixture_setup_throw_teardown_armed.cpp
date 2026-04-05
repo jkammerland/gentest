@@ -8,9 +8,9 @@
 namespace {
 
 std::atomic<bool> g_bench_setup_entered{false};
-std::atomic<int> g_bench_teardown_count{0};
+std::atomic<int>  g_bench_teardown_count{0};
 std::atomic<bool> g_jitter_setup_entered{false};
-std::atomic<int> g_jitter_teardown_count{0};
+std::atomic<int>  g_jitter_teardown_count{0};
 
 struct BenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() override {
@@ -29,7 +29,7 @@ struct JitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
 };
 
 constexpr unsigned kBenchSetupThrowTeardownArmedLine = __LINE__ + 1;
-void bench_setup_throw_teardown_armed(void *) {
+void               bench_setup_throw_teardown_armed(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {
@@ -64,7 +64,7 @@ void bench_setup_throw_teardown_armed(void *) {
 }
 
 constexpr unsigned kJitterSetupThrowTeardownArmedLine = __LINE__ + 1;
-void jitter_setup_throw_teardown_armed(void *) {
+void               jitter_setup_throw_teardown_armed(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {

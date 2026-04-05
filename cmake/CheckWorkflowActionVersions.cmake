@@ -4,6 +4,8 @@ endif()
 
 set(_workflow_files
   "${SOURCE_DIR}/.github/workflows/cmake.yml"
+  "${SOURCE_DIR}/.github/workflows/coverage.yml"
+  "${SOURCE_DIR}/.github/workflows/lint.yml"
   "${SOURCE_DIR}/.github/workflows/buildsystems_linux.yml"
   "${SOURCE_DIR}/.github/workflows/cross_qemu.yml")
 
@@ -24,5 +26,11 @@ foreach(_workflow_file IN LISTS _workflow_files)
   if(NOT _setup_ninja_pos EQUAL -1)
     message(FATAL_ERROR
       "Workflow ${_workflow_file} must not use seanmiddleditch/gha-setup-ninja because its published releases still run on deprecated Node.js 20.")
+  endif()
+
+  string(FIND "${_content}" "actions/cache@v4" _cache_v4_pos)
+  if(NOT _cache_v4_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Workflow ${_workflow_file} must not use actions/cache@v4 because it runs on deprecated Node.js 20.")
   endif()
 endforeach()

@@ -1,7 +1,7 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
-#include "public/gentest_textual_suite_mocks.hpp"
 #include "helper.hpp" // use mock<T> in non-annotated helper code
+#include "public/gentest_textual_suite_mocks.hpp"
 
 #include <array>
 #include <condition_variable>
@@ -46,8 +46,8 @@ void interface_returns_ref() {
     int                        storage = 7;
     EXPECT_CALL(mock_ref, value).times(1).returns_ref(storage);
 
-    RefProvider *iface = &mock_ref;
-    int &result = iface->value();
+    RefProvider *iface  = &mock_ref;
+    int         &result = iface->value();
     EXPECT_EQ(&result, &storage);
     result = 9;
     EXPECT_EQ(storage, 9);
@@ -209,9 +209,7 @@ void concrete_direct_constant_expect_signature_collision() {
     int                   tadd_sum = 0;
 
     gentest::expect<&Ticker::tick>(mock_tick, "::mocking::Ticker::tick").times(1).with(4).invokes([&](int v) { tick_sum += v; });
-    gentest::expect<&Ticker::tadd<int>>(mock_tick, "::mocking::Ticker::tadd<int>").times(2).with(9).invokes([&](int v) {
-        tadd_sum += v;
-    });
+    gentest::expect<&Ticker::tadd<int>>(mock_tick, "::mocking::Ticker::tadd<int>").times(2).with(9).invokes([&](int v) { tadd_sum += v; });
 
     mock_tick.tick(4);
     mock_tick.tadd(9);
@@ -226,9 +224,9 @@ void template_forwarding_alias() {
     gentest::mock<ForwardingAlias> mock_alias;
     TrackedMove                    value;
     int                            calls = 0;
-    EXPECT_CALL(mock_alias, take<TrackedMove&>).times(1).invokes([&](const TrackedMove &) { ++calls; });
+    EXPECT_CALL(mock_alias, take<TrackedMove &>).times(1).invokes([&](const TrackedMove &) { ++calls; });
 
-    mock_alias.template take<TrackedMove&>(value);
+    mock_alias.template take<TrackedMove &>(value);
 
     EXPECT_EQ(calls, 1);
     EXPECT_FALSE(value.moved);
@@ -240,11 +238,9 @@ void direct_unique_template_member_expect() {
     TrackedMove                    value;
     int                            calls = 0;
 
-    gentest::expect(mock_alias, &ForwardingAlias::template take<TrackedMove&>)
-        .times(1)
-        .invokes([&](const TrackedMove &) { ++calls; });
+    gentest::expect(mock_alias, &ForwardingAlias::template take<TrackedMove &>).times(1).invokes([&](const TrackedMove &) { ++calls; });
 
-    mock_alias.template take<TrackedMove&>(value);
+    mock_alias.template take<TrackedMove &>(value);
 
     EXPECT_EQ(calls, 1);
     EXPECT_FALSE(value.moved);
@@ -255,9 +251,9 @@ void template_template_member_expect() {
     gentest::mock<TemplateTemplateFixed> mock_fixed;
     int                                  calls = 0;
 
-    gentest::expect(mock_fixed, &TemplateTemplateFixed::template take<std::array>)
-        .times(1)
-        .invokes([&](std::array<int, 2> value) { calls += value[0]; });
+    gentest::expect(mock_fixed, &TemplateTemplateFixed::template take<std::array>).times(1).invokes([&](std::array<int, 2> value) {
+        calls += value[0];
+    });
 
     mock_fixed.template take<std::array>(std::array<int, 2>{1, 2});
 
@@ -477,7 +473,7 @@ void concurrency_adopted_ordered_dispatch() {
     });
     EXPECT_CALL(mock_calc, compute).times(1).with(1, 1).returns(22);
 
-    auto        tok = gentest::ctx::current();
+    auto        tok   = gentest::ctx::current();
     Calculator *iface = &mock_calc;
     std::thread t1([&] {
         gentest::ctx::Adopt guard(tok);

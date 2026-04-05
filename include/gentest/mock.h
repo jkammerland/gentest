@@ -2,8 +2,8 @@
 
 #include "gentest/runner.h"
 
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstring>
 #include <deque>
@@ -15,11 +15,11 @@
 #include <optional>
 #include <ostream>
 #include <sstream>
-#include <tuple>
 #include <string>
 #include <string_view>
-#include <typeinfo>
+#include <tuple>
 #include <type_traits>
+#include <typeinfo>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -28,20 +28,17 @@ namespace gentest {
 
 #ifdef GENTEST_CODEGEN
 namespace detail::mocking {
-template <typename T, typename = void>
-struct PlaceholderMockBase {
+template <typename T, typename = void> struct PlaceholderMockBase {
     PlaceholderMockBase() = default;
 
     // Allow constructing codegen-only placeholder mocks with arbitrary
     // arguments (for targets without a default constructor).
-    template <typename... Args>
-    explicit PlaceholderMockBase(Args &&...) {}
+    template <typename... Args> explicit PlaceholderMockBase(Args &&...) {}
 
     ~PlaceholderMockBase() = default;
 };
 
-template <typename T>
-struct PlaceholderMockBase<T, std::void_t<decltype(sizeof(T)), std::enable_if_t<!std::is_abstract_v<T>>>> : T {
+template <typename T> struct PlaceholderMockBase<T, std::void_t<decltype(sizeof(T)), std::enable_if_t<!std::is_abstract_v<T>>>> : T {
     using T::T;
 };
 } // namespace detail::mocking
@@ -120,8 +117,7 @@ struct MethodIdentityHash {
     }
 };
 
-template <typename Lhs, typename Rhs>
-inline constexpr bool same_v = std::is_same_v<Lhs, Rhs>;
+template <typename Lhs, typename Rhs> inline constexpr bool same_v = std::is_same_v<Lhs, Rhs>;
 
 struct ExpectationBase {
     virtual ~ExpectationBase()                        = default;
@@ -132,12 +128,9 @@ struct ExpectationBase {
 template <typename Signature> struct Expectation;
 
 template <typename T>
-concept Ostreamable = requires(std::ostream &os, const T &v) {
-    os << v;
-};
+concept Ostreamable = requires(std::ostream &os, const T &v) { os << v; };
 
-template <typename T>
-inline std::string to_string_fallback(const T &v) {
+template <typename T> inline std::string to_string_fallback(const T &v) {
     if constexpr (Ostreamable<T>) {
         std::ostringstream oss;
         oss << v;
@@ -157,8 +150,7 @@ concept HasMakeFor = requires(const P &p) {
     { p.template make<T>() } -> std::same_as<ArgPredicate<T>>;
 };
 
-template <typename T, typename P>
-ArgPredicate<T> to_arg_predicate(P &&p) {
+template <typename T, typename P> ArgPredicate<T> to_arg_predicate(P &&p) {
     if constexpr (HasMakeFor<T, P>) {
         return p.template make<T>();
     } else {
@@ -183,7 +175,8 @@ void report_first_tuple_arg_mismatch(const ExpectedTuple &expected, std::string_
     if constexpr (I < std::tuple_size_v<std::remove_reference_t<ExpectedTuple>>) {
         if (!(std::get<I>(expected) == std::get<I>(actual))) {
             ::gentest::detail::record_failure(fmt::format("argument[{}] mismatch for {}: expected {}, got {}", I, method_name,
-                to_string_fallback(std::get<I>(expected)), to_string_fallback(std::get<I>(actual))));
+                                                          to_string_fallback(std::get<I>(expected)),
+                                                          to_string_fallback(std::get<I>(actual))));
             return;
         }
         report_first_tuple_arg_mismatch<I + 1>(expected, method_name, actual);
@@ -236,17 +229,17 @@ inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std
 }
 
 template <typename... Args> struct ExpectationCommon : ExpectationBase {
-    std::size_t                                                     expected_calls = 1;
-    std::size_t                                                     observed_calls = 0;
-    bool                                                            allow_excess   = false;
-    std::optional<std::tuple<std::decay_t<Args>...>>                expected_args;
-    std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>>  arg_predicates;
-    std::function<bool(const std::decay_t<Args>&...)>               call_predicate;
-    std::shared_ptr<std::atomic<bool>>                              runtime_started;
+    std::size_t                                                    expected_calls = 1;
+    std::size_t                                                    observed_calls = 0;
+    bool                                                           allow_excess   = false;
+    std::optional<std::tuple<std::decay_t<Args>...>>               expected_args;
+    std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
+    std::function<bool(const std::decay_t<Args> &...)>             call_predicate;
+    std::shared_ptr<std::atomic<bool>>                             runtime_started;
     // Configure expectations before worker threads start. Runtime dispatch and
     // verification keep queue/counter mutation in InstanceState and never hold
     // this mutex across user predicates/actions.
-    mutable std::recursive_mutex                                    state_mtx_;
+    mutable std::recursive_mutex state_mtx_;
 
     void verify(std::string_view method_name) override {
         verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified);
@@ -267,24 +260,21 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
         expected_calls = expected;
     }
 
-    template <typename... X>
-    void set_expected(std::string_view method_name, X &&...values) {
+    template <typename... X> void set_expected(std::string_view method_name, X &&...values) {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
         if (!allow_mutation(method_name))
             return;
         expected_args = std::tuple<std::decay_t<Args>...>(std::forward<X>(values)...);
     }
 
-    template <typename... P>
-    void set_predicates(std::string_view method_name, P &&...preds) {
+    template <typename... P> void set_predicates(std::string_view method_name, P &&...preds) {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
         if (!allow_mutation(method_name))
             return;
-        arg_predicates = std::tuple<ArgPredicate<std::decay_t<Args>>...>(
-            to_arg_predicate<std::decay_t<Args>>(std::forward<P>(preds))...);
+        arg_predicates = std::tuple<ArgPredicate<std::decay_t<Args>>...>(to_arg_predicate<std::decay_t<Args>>(std::forward<P>(preds))...);
     }
 
-    void set_call_predicate(std::string_view method_name, std::function<bool(const std::decay_t<Args>&...)> predicate) {
+    void set_call_predicate(std::string_view method_name, std::function<bool(const std::decay_t<Args> &...)> predicate) {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
         if (!allow_mutation(method_name))
             return;
@@ -307,15 +297,16 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
             }
             return true;
         }
-        if (arg_predicates) return check_args_by_predicates(arg_predicates, method_name, actual...);
+        if (arg_predicates)
+            return check_args_by_predicates(arg_predicates, method_name, actual...);
         return check_args_equal(expected_args, method_name, actual...);
     }
 };
 
 template <typename R, typename... Args> struct Expectation<R(Args...)> : ExpectationCommon<Args...> {
-    std::function<R(const std::decay_t<Args>&...)> action;
+    std::function<R(const std::decay_t<Args> &...)> action;
 
-    void set_action(std::string_view method_name, std::function<R(const std::decay_t<Args>&...)> next_action) {
+    void set_action(std::string_view method_name, std::function<R(const std::decay_t<Args> &...)> next_action) {
         std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
         if (!this->allow_mutation(method_name))
             return;
@@ -323,7 +314,7 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
     }
 
     R invoke(std::string_view method_name, const std::decay_t<Args> &...args) {
-        std::function<R(const std::decay_t<Args>&...)> action_snapshot;
+        std::function<R(const std::decay_t<Args> &...)> action_snapshot;
         {
             std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
             action_snapshot = action;
@@ -343,9 +334,9 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
 };
 
 template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommon<Args...> {
-    std::function<void(const std::decay_t<Args>&...)> action;
+    std::function<void(const std::decay_t<Args> &...)> action;
 
-    void set_action(std::string_view method_name, std::function<void(const std::decay_t<Args>&...)> next_action) {
+    void set_action(std::string_view method_name, std::function<void(const std::decay_t<Args> &...)> next_action) {
         std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
         if (!this->allow_mutation(method_name))
             return;
@@ -353,7 +344,7 @@ template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommo
     }
 
     void invoke(std::string_view method_name, const std::decay_t<Args> &...args) {
-        std::function<void(const std::decay_t<Args>&...)> action_snapshot;
+        std::function<void(const std::decay_t<Args> &...)> action_snapshot;
         {
             std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
             action_snapshot = action;
@@ -405,7 +396,7 @@ class InstanceState {
         auto &entry = methods_[id];
         if (entry.method_name.empty())
             entry.method_name = std::move(method_name);
-        auto expectation = std::make_shared<Expectation<R(Args...)>>();
+        auto expectation             = std::make_shared<Expectation<R(Args...)>>();
         expectation->runtime_started = runtime_started_;
         entry.expectations.push_back(expectation);
         return expectation;
@@ -417,14 +408,14 @@ class InstanceState {
 
     template <typename R, typename... Args>
     R dispatch_with_fallback(const MethodIdentity &id, const MethodIdentity &fallback_id, std::string_view method_name, Args &&...args) {
-        using ExpectationT = Expectation<R(Args...)>;
+        using ExpectationT        = Expectation<R(Args...)>;
         bool          nice_mode   = false;
         bool          unexpected  = false;
         ExpectationT *expectation = nullptr;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             runtime_started_->store(true, std::memory_order_release);
-            frozen_ = true;
+            frozen_                         = true;
             const auto try_take_expectation = [&](const MethodIdentity &candidate) -> bool {
                 auto it = methods_.find(candidate);
                 if (it == methods_.end() || it->second.next_expectation >= it->second.expectations.size()) {
@@ -435,7 +426,7 @@ class InstanceState {
                 // the mock lifetime, so a raw pointer avoids fragile shared_ptr
                 // copy/assignment emission in downstream module consumers.
                 expectation = static_cast<ExpectationT *>(it->second.expectations[it->second.next_expectation].get());
-                unexpected       = !expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls;
+                unexpected  = !expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls;
                 ++expectation->observed_calls;
                 if (!expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls) {
                     ++it->second.next_expectation;
@@ -443,8 +434,7 @@ class InstanceState {
                 return true;
             };
 
-            const bool matched = try_take_expectation(id) ||
-                                 (!(fallback_id == id) && try_take_expectation(fallback_id));
+            const bool matched = try_take_expectation(id) || (!(fallback_id == id) && try_take_expectation(fallback_id));
             if (!matched) {
                 nice_mode = nice_mode_;
             }
@@ -476,23 +466,23 @@ class InstanceState {
 
   private:
     struct MethodEntry {
-        std::string                                  method_name;
+        std::string method_name;
         // Keep a single stable container for both dispatch and verification.
         std::deque<std::shared_ptr<ExpectationBase>> expectations;
         std::size_t                                  next_expectation = 0;
     };
 
-    mutable std::mutex                                                mtx_;
+    mutable std::mutex                                                  mtx_;
     std::unordered_map<MethodIdentity, MethodEntry, MethodIdentityHash> methods_;
-    std::shared_ptr<std::atomic<bool>>                                 runtime_started_ = std::make_shared<std::atomic<bool>>(false);
-    bool                                                               nice_mode_       = false;
-    bool                                                               frozen_          = false;
+    std::shared_ptr<std::atomic<bool>>                                  runtime_started_ = std::make_shared<std::atomic<bool>>(false);
+    bool                                                                nice_mode_       = false;
+    bool                                                                frozen_          = false;
 };
 
 // Keep these out-of-class so GCC module consumers emit concrete special-member
 // definitions for imported mocks instead of referencing a missing defaulted
 // constructor symbol from downstream package builds.
-inline InstanceState::InstanceState() = default;
+inline InstanceState::InstanceState()  = default;
 inline InstanceState::~InstanceState() = default;
 
 template <typename Signature> class ExpectationHandle;
@@ -527,16 +517,14 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
         return *this;
     }
 
-    template <typename... X>
-    ExpectationHandle &with(X &&... expected) {
+    template <typename... X> ExpectationHandle &with(X &&...expected) {
         if (expectation_) {
             expectation_->set_expected(method_name_, std::forward<X>(expected)...);
         }
         return *this;
     }
 
-    template <typename... P>
-    ExpectationHandle &where_args(P &&... predicates) {
+    template <typename... P> ExpectationHandle &where_args(P &&...predicates) {
         static_assert(sizeof...(P) == sizeof...(Args), "where_args arity must match mocked method");
         if (expectation_) {
             expectation_->set_predicates(method_name_, std::forward<P>(predicates)...);
@@ -545,15 +533,12 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     }
 
     // Convenience alias to mirror common matcher API naming
-    template <typename... P>
-    ExpectationHandle &where(P &&... predicates) {
-        return where_args(std::forward<P>(predicates)...);
-    }
+    template <typename... P> ExpectationHandle &where(P &&...predicates) { return where_args(std::forward<P>(predicates)...); }
 
-    template <typename Callable>
-    ExpectationHandle &where_call(Callable &&call_pred) {
+    template <typename Callable> ExpectationHandle &where_call(Callable &&call_pred) {
         if (expectation_) {
-            expectation_->set_call_predicate(method_name_, std::function<bool(const std::decay_t<Args>&...)>(std::forward<Callable>(call_pred)));
+            expectation_->set_call_predicate(method_name_,
+                                             std::function<bool(const std::decay_t<Args> &...)>(std::forward<Callable>(call_pred)));
         }
         return *this;
     }
@@ -565,7 +550,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
             static_assert(!std::is_reference_v<R>, "returns() is not available for reference-returning methods; use returns_ref()");
         } else {
             if (expectation_) {
-                expectation_->set_action(method_name_, [captured = std::forward<Value>(value)](const std::decay_t<Args> &... a) -> R {
+                expectation_->set_action(method_name_, [captured = std::forward<Value>(value)](const std::decay_t<Args> &...a) -> R {
                     (void)sizeof...(a);
                     return captured;
                 });
@@ -574,14 +559,13 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
         return *this;
     }
 
-    template <typename RR = R>
-    ExpectationHandle &returns_ref(std::remove_reference_t<RR> &value) {
+    template <typename RR = R> ExpectationHandle &returns_ref(std::remove_reference_t<RR> &value) {
         if constexpr (!std::is_lvalue_reference_v<RR>) {
             static_assert(std::is_lvalue_reference_v<RR>, "returns_ref() is only available for lvalue-reference returning methods");
         } else {
             if (expectation_) {
-                auto *ptr            = std::addressof(value);
-                expectation_->set_action(method_name_, [ptr](const std::decay_t<Args> &... a) -> R {
+                auto *ptr = std::addressof(value);
+                expectation_->set_action(method_name_, [ptr](const std::decay_t<Args> &...a) -> R {
                     (void)sizeof...(a);
                     return *ptr;
                 });
@@ -630,16 +614,12 @@ struct MethodTraits<R (Class::*)(Args...) const volatile> : MethodTraits<R(Args.
 template <typename Class, typename R, typename... Args>
 struct MethodTraits<R (Class::*)(Args...) const volatile noexcept> : MethodTraits<R(Args...)> {};
 
-template <typename Class, typename R, typename... Args>
-struct MethodTraits<R (Class::*)(Args...) &> : MethodTraits<R(Args...)> {};
-template <typename Class, typename R, typename... Args>
-struct MethodTraits<R (Class::*)(Args...) & noexcept> : MethodTraits<R(Args...)> {};
-template <typename Class, typename R, typename... Args>
-struct MethodTraits<R (Class::*)(Args...) const &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args> struct MethodTraits<R (Class::*)(Args...) &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args> struct MethodTraits<R (Class::*)(Args...) & noexcept> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args> struct MethodTraits<R (Class::*)(Args...) const &> : MethodTraits<R(Args...)> {};
 template <typename Class, typename R, typename... Args>
 struct MethodTraits<R (Class::*)(Args...) const & noexcept> : MethodTraits<R(Args...)> {};
-template <typename Class, typename R, typename... Args>
-struct MethodTraits<R (Class::*)(Args...) volatile &> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args> struct MethodTraits<R (Class::*)(Args...) volatile &> : MethodTraits<R(Args...)> {};
 template <typename Class, typename R, typename... Args>
 struct MethodTraits<R (Class::*)(Args...) volatile & noexcept> : MethodTraits<R(Args...)> {};
 template <typename Class, typename R, typename... Args>
@@ -647,12 +627,10 @@ struct MethodTraits<R (Class::*)(Args...) const volatile &> : MethodTraits<R(Arg
 template <typename Class, typename R, typename... Args>
 struct MethodTraits<R (Class::*)(Args...) const volatile & noexcept> : MethodTraits<R(Args...)> {};
 
-template <typename Class, typename R, typename... Args>
-struct MethodTraits<R (Class::*)(Args...) &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args> struct MethodTraits<R (Class::*)(Args...) &&> : MethodTraits<R(Args...)> {};
 template <typename Class, typename R, typename... Args>
 struct MethodTraits<R (Class::*)(Args...) && noexcept> : MethodTraits<R(Args...)> {};
-template <typename Class, typename R, typename... Args>
-struct MethodTraits<R (Class::*)(Args...) const &&> : MethodTraits<R(Args...)> {};
+template <typename Class, typename R, typename... Args> struct MethodTraits<R (Class::*)(Args...) const &&> : MethodTraits<R(Args...)> {};
 template <typename Class, typename R, typename... Args>
 struct MethodTraits<R (Class::*)(Args...) const && noexcept> : MethodTraits<R(Args...)> {};
 template <typename Class, typename R, typename... Args>
@@ -704,19 +682,15 @@ template <auto Method, class Mock> auto expect(Mock &instance, std::string_view 
     return detail::MockAccess<std::remove_cvref_t<Mock>>::template expect_constant<Method>(instance, method_name);
 }
 
-template <class Mock>
-void make_nice(Mock &instance, bool v = true) {
+template <class Mock> void make_nice(Mock &instance, bool v = true) {
     detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, v);
 }
-template <class Mock>
-void make_strict(Mock &instance) {
-    detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, false);
-}
+template <class Mock> void make_strict(Mock &instance) { detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, false); }
 
 // Convenience macros to configure expectations with a terse syntax.
 // Usage: EXPECT_CALL(mock, method).times(2)...
 #ifndef GENTEST_NO_EXPECT_CALL_MACROS
-#define EXPECT_CALL(instance, method)                                                                               \
+#define EXPECT_CALL(instance, method)                                                                                                      \
     (::gentest::expect<&std::remove_reference_t<decltype(instance)>::GentestTarget::method>((instance), #method))
 #define ASSERT_CALL(instance, method) EXPECT_CALL(instance, method)
 #endif
@@ -738,14 +712,14 @@ inline auto Any() { return AnyFactory{}; }
 
 template <typename V> struct EqFactory {
     using Value = std::decay_t<V>;
-    Value expected;
+    Value                                 expected;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const Value     exp = expected;
         ap.test             = [exp](const T &a) { return a == exp; };
         ap.describe         = [exp](const T &a) {
             return fmt::format("expected == {}, got {}", ::gentest::detail::mocking::to_string_fallback(exp),
-                               ::gentest::detail::mocking::to_string_fallback(a));
+                                       ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -755,25 +729,26 @@ template <typename V> inline auto Eq(V &&v) { return EqFactory<V>{std::forward<V
 template <typename A, typename B> struct InRangeFactory {
     using Lo = std::decay_t<A>;
     using Hi = std::decay_t<B>;
-    Lo l;
-    Hi h;
+    Lo                                    l;
+    Hi                                    h;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const Lo        lo = l;
         const Hi        hi = h;
-        ap.test             = [lo, hi](const T &a) { return (a >= lo) && (a <= hi); };
-        ap.describe         = [lo, hi](const T &a) {
+        ap.test            = [lo, hi](const T &a) { return (a >= lo) && (a <= hi); };
+        ap.describe        = [lo, hi](const T &a) {
             return fmt::format("expected in [{}, {}], got {}", ::gentest::detail::mocking::to_string_fallback(lo),
-                               ::gentest::detail::mocking::to_string_fallback(hi),
-                               ::gentest::detail::mocking::to_string_fallback(a));
+                                      ::gentest::detail::mocking::to_string_fallback(hi), ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
 };
-template <typename A, typename B> inline auto InRange(A &&lo, B &&hi) { return InRangeFactory<A, B>{std::forward<A>(lo), std::forward<B>(hi)}; }
+template <typename A, typename B> inline auto InRange(A &&lo, B &&hi) {
+    return InRangeFactory<A, B>{std::forward<A>(lo), std::forward<B>(hi)};
+}
 
 template <typename P> struct NotFactory {
-    P inner;
+    P                                     inner;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ip = inner.template make<T>();
         ArgPredicate<T> ap;
@@ -789,14 +764,14 @@ template <typename P> inline auto Not(P &&p) { return NotFactory<std::decay_t<P>
 
 template <typename V> struct GeFactory {
     using Value = std::decay_t<V>;
-    Value bound;
+    Value                                 bound;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const Value     b = bound;
-        ap.test            = [b](const T &a) { return a >= b; };
-        ap.describe        = [b](const T &a) {
+        ap.test           = [b](const T &a) { return a >= b; };
+        ap.describe       = [b](const T &a) {
             return fmt::format("expected >= {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                               ::gentest::detail::mocking::to_string_fallback(a));
+                                     ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -805,14 +780,14 @@ template <typename V> inline auto Ge(V &&v) { return GeFactory<V>{std::forward<V
 
 template <typename V> struct LeFactory {
     using Value = std::decay_t<V>;
-    Value bound;
+    Value                                 bound;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const Value     b = bound;
-        ap.test            = [b](const T &a) { return a <= b; };
-        ap.describe        = [b](const T &a) {
+        ap.test           = [b](const T &a) { return a <= b; };
+        ap.describe       = [b](const T &a) {
             return fmt::format("expected <= {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                               ::gentest::detail::mocking::to_string_fallback(a));
+                                     ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -821,14 +796,14 @@ template <typename V> inline auto Le(V &&v) { return LeFactory<V>{std::forward<V
 
 template <typename V> struct GtFactory {
     using Value = std::decay_t<V>;
-    Value bound;
+    Value                                 bound;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const Value     b = bound;
-        ap.test            = [b](const T &a) { return a > b; };
-        ap.describe        = [b](const T &a) {
+        ap.test           = [b](const T &a) { return a > b; };
+        ap.describe       = [b](const T &a) {
             return fmt::format("expected > {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                               ::gentest::detail::mocking::to_string_fallback(a));
+                                     ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -837,14 +812,14 @@ template <typename V> inline auto Gt(V &&v) { return GtFactory<V>{std::forward<V
 
 template <typename V> struct LtFactory {
     using Value = std::decay_t<V>;
-    Value bound;
+    Value                                 bound;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const Value     b = bound;
-        ap.test            = [b](const T &a) { return a < b; };
-        ap.describe        = [b](const T &a) {
+        ap.test           = [b](const T &a) { return a < b; };
+        ap.describe       = [b](const T &a) {
             return fmt::format("expected < {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                               ::gentest::detail::mocking::to_string_fallback(a));
+                                     ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -854,8 +829,8 @@ template <typename V> inline auto Lt(V &&v) { return LtFactory<V>{std::forward<V
 template <typename V, typename E> struct NearFactory {
     using Value = std::decay_t<V>;
     using Eps   = std::decay_t<E>;
-    Value expected;
-    Eps   eps;
+    Value                                 expected;
+    Eps                                   eps;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const Value     exp = expected;
@@ -866,16 +841,14 @@ template <typename V, typename E> struct NearFactory {
         };
         ap.describe = [exp, e](const T &a) {
             return fmt::format("expected near {} ± {}, got {}", ::gentest::detail::mocking::to_string_fallback(exp),
-                               ::gentest::detail::mocking::to_string_fallback(e),
-                               ::gentest::detail::mocking::to_string_fallback(a));
+                               ::gentest::detail::mocking::to_string_fallback(e), ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
 };
 template <typename V, typename E> inline auto Near(V &&v, E &&eps) { return NearFactory<V, E>{std::forward<V>(v), std::forward<E>(eps)}; }
 
-template <typename T>
-inline std::optional<std::string_view> to_string_view_safe(const T &a) {
+template <typename T> inline std::optional<std::string_view> to_string_view_safe(const T &a) {
     using D = std::decay_t<T>;
     if constexpr (std::is_same_v<D, const char *> || std::is_same_v<D, char *>) {
         if (a == nullptr)
@@ -887,11 +860,11 @@ inline std::optional<std::string_view> to_string_view_safe(const T &a) {
 }
 
 struct StrContainsFactory {
-    std::string needle;
+    std::string                           needle;
     template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
+        ArgPredicate<T>   ap;
         const std::string nd = needle;
-        ap.test               = [nd](const T &a) {
+        ap.test              = [nd](const T &a) {
             auto s = to_string_view_safe(a);
             if (!s)
                 return false;
@@ -909,11 +882,11 @@ struct StrContainsFactory {
 inline auto StrContains(std::string needle) { return StrContainsFactory{std::move(needle)}; }
 
 struct StartsWithFactory {
-    std::string prefix;
+    std::string                           prefix;
     template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
+        ArgPredicate<T>   ap;
         const std::string px = prefix;
-        ap.test               = [px](const T &a) {
+        ap.test              = [px](const T &a) {
             auto s = to_string_view_safe(a);
             if (!s)
                 return false;
@@ -931,11 +904,11 @@ struct StartsWithFactory {
 inline auto StartsWith(std::string prefix) { return StartsWithFactory{std::move(prefix)}; }
 
 struct EndsWithFactory {
-    std::string suffix;
+    std::string                           suffix;
     template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
+        ArgPredicate<T>   ap;
         const std::string sx = suffix;
-        ap.test               = [sx](const T &a) {
+        ap.test              = [sx](const T &a) {
             auto s = to_string_view_safe(a);
             if (!s)
                 return false;
@@ -953,7 +926,7 @@ struct EndsWithFactory {
 inline auto EndsWith(std::string suffix) { return EndsWithFactory{std::move(suffix)}; }
 
 template <typename... M> struct AnyOfFactory {
-    std::tuple<M...> subs;
+    std::tuple<M...>                      subs;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const auto      subs_local = subs;
@@ -963,15 +936,19 @@ template <typename... M> struct AnyOfFactory {
             return ok;
         };
         ap.describe = [subs_local](const T &a) {
-            std::string msg = "expected any of: ";
+            std::string msg   = "expected any of: ";
             bool        first = true;
             std::apply(
                 [&](auto const &...m) {
                     (([&] {
                          auto inner = m.template make<T>();
-                         if (!first) msg += "; ";
+                         if (!first)
+                             msg += "; ";
                          first = false;
-                         if (inner.describe) msg += inner.describe(a); else msg += "predicate";
+                         if (inner.describe)
+                             msg += inner.describe(a);
+                         else
+                             msg += "predicate";
                      }()),
                      ...);
                 },
@@ -981,10 +958,12 @@ template <typename... M> struct AnyOfFactory {
         return ap;
     }
 };
-template <typename... M> inline auto AnyOf(M &&...m) { return AnyOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)}; }
+template <typename... M> inline auto AnyOf(M &&...m) {
+    return AnyOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)};
+}
 
 template <typename... M> struct AllOfFactory {
-    std::tuple<M...> subs;
+    std::tuple<M...>                      subs;
     template <typename T> ArgPredicate<T> make() const {
         ArgPredicate<T> ap;
         const auto      subs_local = subs;
@@ -994,15 +973,19 @@ template <typename... M> struct AllOfFactory {
             return ok;
         };
         ap.describe = [subs_local](const T &a) {
-            std::string msg = "expected all of: ";
+            std::string msg   = "expected all of: ";
             bool        first = true;
             std::apply(
                 [&](auto const &...m) {
                     (([&] {
                          auto inner = m.template make<T>();
-                         if (!first) msg += "; ";
+                         if (!first)
+                             msg += "; ";
                          first = false;
-                         if (inner.describe) msg += inner.describe(a); else msg += "predicate";
+                         if (inner.describe)
+                             msg += inner.describe(a);
+                         else
+                             msg += "predicate";
                      }()),
                      ...);
                 },
@@ -1012,7 +995,9 @@ template <typename... M> struct AllOfFactory {
         return ap;
     }
 };
-template <typename... M> inline auto AllOf(M &&...m) { return AllOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)}; }
+template <typename... M> inline auto AllOf(M &&...m) {
+    return AllOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)};
+}
 } // namespace match
 
 } // namespace gentest

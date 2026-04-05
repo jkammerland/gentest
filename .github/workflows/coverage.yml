@@ -1,0 +1,191 @@
+name: coverage
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: 1
+  GENTEST_CMAKE_PRESET: coverage-system
+  LLVM_DIR: /usr/lib64/cmake/llvm
+  Clang_DIR: /usr/lib64/cmake/clang
+  CC: clang
+  CXX: clang++
+
+jobs:
+  coverage:
+    name: Fedora 43 • Clang 21 • coverage
+    runs-on: ubuntu-24.04
+    container: fedora:43
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Update and install dependencies
+        run: |
+          set -euxo pipefail
+          dnf -y upgrade --refresh
+          dnf -y install \
+            git \
+            which \
+            tar \
+            xz \
+            ccache \
+            ninja-build \
+            python3 \
+            python3-pip \
+            pkg-config \
+            curl \
+            zip \
+            unzip \
+            clang \
+            clang-libs \
+            clang-devel \
+            clang-tools-extra \
+            llvm-devel \
+            fmt-devel \
+            zlib-ng-compat-devel \
+            libunwind-devel \
+            libcurl-devel \
+            libffi-devel \
+            libxml2-devel \
+            gcc \
+            gcc-c++ \
+            make \
+            ca-certificates \
+            ncurses-compat-libs
+          python3 -m pip install --upgrade pip cmake ninja gcovr==8.6
+          python3 - <<'PY' >> "$GITHUB_PATH"
+          import sysconfig
+          print(sysconfig.get_path("scripts"))
+          PY
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure environment variables
+        run: |
+          echo "GENTEST_XMAKE_TEST_TARGET_CC=${CC}" >> $GITHUB_ENV
+          echo "GENTEST_XMAKE_TEST_TARGET_CXX=${CXX}" >> $GITHUB_ENV
+          echo "GENTEST_CODEGEN_HOST_CLANG=$(command -v clang++)" >> $GITHUB_ENV
+          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
+          echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Show tool versions
+        run: |
+          set -euxo pipefail
+          cmake --version
+          command -v ninja
+          ninja --version
+          ${CC} --version
+          clang --version || true
+          llvm-cov --version
+
+      - name: Configure
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: |
+          set -euxo pipefail
+          scan_deps=""
+          for candidate in \
+            "${CXX/clang++/clang-scan-deps}" \
+            "clang-scan-deps"
+          do
+            if [ -n "$candidate" ] && command -v "$candidate" >/dev/null 2>&1; then
+              scan_deps="$(command -v "$candidate")"
+              break
+            fi
+          done
+          CMAKE_ARGS=(
+            "--preset=${GENTEST_CMAKE_PRESET}"
+            "-DCMAKE_C_COMPILER=${CC}"
+            "-DCMAKE_CXX_COMPILER=${CXX}"
+            "-DCMAKE_MAKE_PROGRAM=$(command -v ninja)"
+            "-DLLVM_DIR=${LLVM_DIR}"
+            "-DClang_DIR=${Clang_DIR}"
+            "-DGENTEST_CODEGEN_HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}"
+          )
+          if [ -n "$scan_deps" ]; then
+            CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${scan_deps}")
+          fi
+          cmake "${CMAKE_ARGS[@]}"
+
+      - name: Build
+        run: |
+          set -euxo pipefail
+          cmake --build --preset=${GENTEST_CMAKE_PRESET} --parallel
+
+      - name: Reset coverage artifacts
+        run: |
+          set -euxo pipefail
+          if [ -d "build/${GENTEST_CMAKE_PRESET}" ]; then
+            find "build/${GENTEST_CMAKE_PRESET}" -name '*.gcda' -delete
+            rm -rf "build/${GENTEST_CMAKE_PRESET}/coverage-report"
+          fi
+
+      - name: Test
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: |
+          set -euxo pipefail
+          ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel 1
+
+      - name: Coverage hygiene (codegen + runtime)
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: |
+          set -euxo pipefail
+          python3 scripts/coverage_hygiene.py \
+            --build-dir "build/${GENTEST_CMAKE_PRESET}" \
+            --ignore-statuses stamp_mismatch \
+            --gcov llvm-cov gcov
+
+      - name: Coverage report (codegen + runtime)
+        id: coverage_report
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: |
+          set -euxo pipefail
+          python3 scripts/coverage_report.py \
+            --build-dir "build/${GENTEST_CMAKE_PRESET}"
+
+      - name: Publish coverage summary
+        if: ${{ always() }}
+        id: publish_coverage_summary
+        env:
+          COVERAGE_REPORT_OUTCOME: ${{ steps.coverage_report.outcome }}
+        run: |
+          set -euxo pipefail
+          summary_file="build/${GENTEST_CMAKE_PRESET}/coverage-report/summary.md"
+          has_summary=false
+          if [ -f "${summary_file}" ]; then
+            has_summary=true
+            cat "${summary_file}" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${COVERAGE_REPORT_OUTCOME}" = "failure" ] || [ "${COVERAGE_REPORT_OUTCOME}" = "skipped" ]; then
+            printf '%s\n' 'Coverage report summary was not available because coverage generation failed before summary publication completed.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n' "Expected coverage report at ${summary_file} after successful coverage_report step." >&2
+            exit 1
+          fi
+          printf 'has_summary=%s\n' "${has_summary}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload coverage report artifact
+        if: ${{ always() && steps.publish_coverage_summary.outputs.has_summary == 'true' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-${{ env.GENTEST_CMAKE_PRESET }}
+          path: build/${{ env.GENTEST_CMAKE_PRESET }}/coverage-report/
+          if-no-files-found: error

@@ -36,12 +36,12 @@ struct JitterSkipThenTeardownFailFixture : gentest::FixtureSetup, gentest::Fixtu
 };
 
 constexpr unsigned kBenchSetupSkipTeardownFailLine = __LINE__ + 1;
-void bench_setup_skip_teardown_fail(void *) {
+void               bench_setup_skip_teardown_fail(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {
-            gentest::detail::FixtureHandle<BenchSkipThenTeardownFailFixture>
-                fx{gentest::detail::FixtureHandle<BenchSkipThenTeardownFailFixture>::empty()};
+            gentest::detail::FixtureHandle<BenchSkipThenTeardownFailFixture> fx{
+                gentest::detail::FixtureHandle<BenchSkipThenTeardownFailFixture>::empty()};
             bool teardown_armed = false;
         };
         static thread_local BenchState bench_state{};
@@ -70,12 +70,12 @@ void bench_setup_skip_teardown_fail(void *) {
 }
 
 constexpr unsigned kJitterSetupSkipTeardownFailLine = __LINE__ + 1;
-void jitter_setup_skip_teardown_fail(void *) {
+void               jitter_setup_skip_teardown_fail(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {
-            gentest::detail::FixtureHandle<JitterSkipThenTeardownFailFixture>
-                fx{gentest::detail::FixtureHandle<JitterSkipThenTeardownFailFixture>::empty()};
+            gentest::detail::FixtureHandle<JitterSkipThenTeardownFailFixture> fx{
+                gentest::detail::FixtureHandle<JitterSkipThenTeardownFailFixture>::empty()};
             bool teardown_armed = false;
         };
         static thread_local BenchState bench_state{};

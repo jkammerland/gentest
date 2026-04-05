@@ -8,12 +8,12 @@ namespace downstream {
 
 struct [[using gentest: fixture(suite)]] SuiteFixture : gentest::FixtureSetup {
     void setUp() override { value = 7; }
-    int value = 0;
+    int  value = 0;
 };
 
 struct [[using gentest: fixture(global)]] GlobalFixture : gentest::FixtureSetup {
     void setUp() override { value = 11; }
-    int value = 0;
+    int  value = 0;
 };
 
 [[using gentest: test("downstream/xrepo/test")]]

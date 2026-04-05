@@ -19,8 +19,8 @@
 namespace gentest::runner {
 namespace {
 
-using Outcome = gentest::runner::Outcome;
-using RunResult = gentest::runner::RunResult;
+using Outcome         = gentest::runner::Outcome;
+using RunResult       = gentest::runner::RunResult;
 using SelectionStatus = gentest::runner::SelectionStatus;
 
 struct SharedFixtureRunGuard {
@@ -70,7 +70,8 @@ RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, st
     RunResult result;
     if (failure.skipped) {
         if (failure.infra_failure) {
-            result.outcome = Outcome::Fail;
+            result.outcome          = Outcome::Fail;
+            result.time_s           = failure.time_s;
             const std::string issue = failure.reason.empty() ? std::string("shared fixture unavailable") : failure.reason;
             result.failures.push_back(issue);
             result.summary_issues.push_back(issue);
@@ -78,11 +79,13 @@ RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, st
         }
         result.skipped     = true;
         result.outcome     = Outcome::Skip;
+        result.time_s      = failure.time_s;
         result.skip_reason = failure.reason;
         return result;
     }
 
     result.outcome = Outcome::Fail;
+    result.time_s  = failure.time_s;
     std::string issue;
     if (!failure_message.empty()) {
         issue = std::string(failure_message);
@@ -136,9 +139,8 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         test_state.color_output   = state.color_output;
         test_state.record_results = state.record_results;
         test_state.acc            = &state.acc;
-        const auto test_plans =
-            gentest::runner::build_suite_execution_plan(kCases, std::span<const std::size_t>{test_idxs.data(), test_idxs.size()},
-                                                        opt.shuffle, opt.shuffle_seed);
+        const auto test_plans     = gentest::runner::build_suite_execution_plan(
+            kCases, std::span<const std::size_t>{test_idxs.data(), test_idxs.size()}, opt.shuffle, opt.shuffle_seed);
 
         if (opt.shuffle && !has_selection)
             fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
@@ -233,7 +235,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
                 std::vector<std::string> unique_issues;
                 unique_issues.reserve(item.issues.size());
                 for (const auto &issue : item.issues) {
-                    if (std::find(unique_issues.begin(), unique_issues.end(), issue) == unique_issues.end()) {
+                    if (std::ranges::find(unique_issues, issue) == unique_issues.end()) {
                         unique_issues.push_back(issue);
                     }
                 }
@@ -245,8 +247,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         fmt::print("{}", summary);
     }
 
-    const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() &&
-                    state.acc.infra_errors.empty();
+    const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() && state.acc.infra_errors.empty();
     return ok ? 0 : 1;
 }
 
@@ -348,9 +349,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
 
     switch (selection.status) {
     case SelectionStatus::Ok: break;
-    case SelectionStatus::CaseNotFound:
-        fmt::print(stderr, "Case not found: {}\n", opt.run_exact);
-        return kExitCaseNotFound;
+    case SelectionStatus::CaseNotFound: fmt::print(stderr, "Case not found: {}\n", opt.run_exact); return kExitCaseNotFound;
     case SelectionStatus::KindMismatch:
         fmt::print(stderr, "Case '{}' does not match --kind={}\n", opt.run_exact, gentest::runner::kind_to_string(opt.kind));
         return 1;
@@ -379,9 +378,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     case SelectionStatus::DeathExcludedExact:
         fmt::print(stderr, "Case '{}' is tagged as a death test; rerun with --include-death\n", opt.run_exact);
         return 1;
-    case SelectionStatus::DeathExcludedAll:
-        fmt::print("Executed 0 case(s). (death tests excluded; use --include-death)\n");
-        return 0;
+    case SelectionStatus::DeathExcludedAll: fmt::print("Executed 0 case(s). (death tests excluded; use --include-death)\n"); return 0;
     }
 
     if (selection.filtered_death > 0) {

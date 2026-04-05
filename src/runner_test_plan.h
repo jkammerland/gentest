@@ -17,10 +17,10 @@ struct FixtureGroupPlan {
 };
 
 struct SuiteExecutionPlan {
-    std::string_view                suite;
-    std::vector<std::size_t>        free_like;
-    std::vector<FixtureGroupPlan>   suite_groups;
-    std::vector<FixtureGroupPlan>   global_groups;
+    std::string_view              suite;
+    std::vector<std::size_t>      free_like;
+    std::vector<FixtureGroupPlan> suite_groups;
+    std::vector<FixtureGroupPlan> global_groups;
 };
 
 std::vector<SuiteExecutionPlan> build_suite_execution_plan(std::span<const gentest::Case> cases, std::span<const std::size_t> idxs,

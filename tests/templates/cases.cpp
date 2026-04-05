@@ -1,7 +1,7 @@
 #include "gentest/runner.h"
 
-#include <chrono>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <list>
 #include <string_view>
@@ -41,6 +41,7 @@ void pairs(int a, int b) {
 }
 
 [[using gentest: test("strs"), parameters(s, "a", b)]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void strs(std::string s) {
     gentest::expect(s == "a" || s == "b", "strings axis values");
 }
@@ -49,6 +50,7 @@ void strs(std::string s) {
 
 template <typename T>
 [[using gentest: test("bar"), template(T, int, long), parameters(s, x, y)]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void bar(std::string s) {
     if constexpr (!std::is_integral_v<T>) {
         gentest::expect(false, "T must be integral");
@@ -112,6 +114,7 @@ void tt_pack() {
 // parameters_pack: bundle multiple args per row
 
 [[using gentest: test("pack"), parameters_pack((a, b), (42, a), (7, "b"))]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void pack(int a, std::string b) {
     const bool row1 = (a == 42 && b == "a");
     const bool row2 = (a == 7 && b == "b");
@@ -120,8 +123,7 @@ void pack(int a, std::string b) {
 
 // Raw axis: verbatim expressions
 
-[[using gentest: test("raw"), parameters(v, std::chrono::milliseconds{10})]]
-void raw_msec(std::chrono::milliseconds v) {
+[[using gentest: test("raw"), parameters(v, std::chrono::milliseconds{10})]] void raw_msec(std::chrono::milliseconds v) {
     gentest::expect_eq(v.count(), 10LL, "raw milliseconds value");
 }
 
@@ -135,6 +137,7 @@ void chars(char c) {
 // Wide/UTF strings
 
 [[using gentest: test("wstrs"), parameters(s, Alpha)]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void wstrs(std::wstring s) {
     gentest::expect(s == L"Alpha", "wide string literal value");
 }
@@ -243,6 +246,7 @@ void size_value() {
 }
 
 // Scoped enum in nested namespaces; value template parameter should accept fully qualified tokens
+// NOLINTNEXTLINE(modernize-concat-nested-namespaces)
 namespace ns_outer {
 namespace ns_inner {
 enum class Shade { Dark, Light };
@@ -303,6 +307,7 @@ void cstr_params(const char *s) {
 
 // u8string axis ensures correct UTF-8 literal prefixing
 [[using gentest: test("u8strs"), parameters(s, alpha, beta)]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void u8strs(std::u8string s) {
     gentest::expect(s == u8"alpha" || s == u8"beta", "u8string values");
 }
@@ -336,6 +341,7 @@ void wsv_params(std::wstring_view sv) {
 
 // u16string axis (non-view)
 [[using gentest: test("u16strs"), parameters(s, alpha, u"beta")]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void u16strs(std::u16string s) {
     gentest::expect(s == u"alpha" || s == u"beta", "u16string values");
 }
@@ -348,6 +354,7 @@ void u32sv_params(std::u32string_view sv) {
 
 // Combined boolean + string axis
 [[using gentest: test("bool_and_str"), parameters(b, true, false), parameters(s, Hello, "World")]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void bool_and_str(bool b, std::string s) {
     gentest::expect((b == true || b == false) && (s == "Hello" || s == "World"), "bool+string values");
 }
@@ -377,14 +384,13 @@ struct LocalPoint {
     int y;
 };
 
-[[using gentest: test("local_struct/axis"), parameters(p, LocalPoint{1, 2}, LocalPoint{3, 4})]]
-void local_struct_axis(LocalPoint p) {
+[[using gentest: test("local_struct/axis"), parameters(p, LocalPoint{1, 2}, LocalPoint{3, 4})]] void local_struct_axis(LocalPoint p) {
     gentest::expect((p.x == 1 && p.y == 2) || (p.x == 3 && p.y == 4), "LocalPoint matches");
 }
 
-[[using gentest: test("local_struct/pack"),
-  parameters_pack((p, q), (LocalPoint{1, 2}, LocalPoint{3, 4}), (LocalPoint{5, 6}, LocalPoint{7, 8}))]]
-void local_struct_pack(LocalPoint p, LocalPoint q) {
+[[using gentest: test("local_struct/pack"), parameters_pack((p, q), (LocalPoint{1, 2}, LocalPoint{3, 4}),
+                                                            (LocalPoint{5, 6}, LocalPoint{7, 8}))]] void local_struct_pack(LocalPoint p,
+                                                                                                                           LocalPoint q) {
     const bool row1 = (p.x == 1 && p.y == 2 && q.x == 3 && q.y == 4);
     const bool row2 = (p.x == 5 && p.y == 6 && q.x == 7 && q.y == 8);
     gentest::expect(row1 || row2, "LocalPoint pack rows");

@@ -20,8 +20,7 @@ struct CounterBase : gentest::FixtureSetup, gentest::FixtureTearDown {
     }
 };
 
-template <int ExpectedTouches>
-struct SharedCounterBase : CounterBase {
+template <int ExpectedTouches> struct SharedCounterBase : CounterBase {
     void tearDown() override {
         EXPECT_EQ(this->set_up_calls, 1, "shared fixture setup runs once");
         EXPECT_EQ(this->touches, ExpectedTouches, "shared fixture collected all touches");

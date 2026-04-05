@@ -25,7 +25,7 @@ struct TestRunContext {
     RunAccumulator *acc            = nullptr;
 };
 
-bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans,
-                    bool fail_fast, TestCounters &counters);
+bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans, bool fail_fast,
+                    TestCounters &counters);
 
 } // namespace gentest::runner

@@ -169,7 +169,7 @@ Passing meaning:
 - named modules that mock header-defined types now get the generated header-domain mock code injected automatically, without user includes
 - installed package exports are now checked for relocatability and no longer leak the producer checkout through `third_party/include`
 - installed-package consumers no longer need an external `GENTEST_CODEGEN_EXECUTABLE` in the supported native, non-cross package path; native install builds now install `bin/gentest_codegen` by default when packaging without tests, and the installed package auto-discovers it
-- module consumers can link just `gentest::gentest_main`; it now pulls in `gentest::gentest_runtime`
+- module consumers should link `gentest::gentest`; `gentest_main` still provides the main entrypoint/runtime side when you want the default executable entry
 - downstream GCC package-consumer module smoke is covered and green
 
 ### Intentionally Still Red / Known Limited
@@ -272,10 +272,10 @@ Fixes:
 - `cmake/GentestCodegen.cmake`
   - auto-discovers the installed `gentest_codegen` binary from the package prefix
 - `src/CMakeLists.txt`
-  - makes `gentest_main` bring in `gentest_runtime`, so module consumers can link only `gentest::gentest_main`
+  - links `gentest_runtime` transitively from `gentest_main`, so module consumers that also want the default main can link `gentest::gentest gentest::gentest_main` without adding `gentest::gentest_runtime` separately
 - `cmake/CheckPackageConsumer.cmake`
   - now tests the installed package without injecting an external codegen path
-  - supports link-mode selection so the consumer regression proves the `gentest_main`-only path
+  - supports link-mode selection so the consumer regression proves the supported `gentest::gentest` + entry/runtime combinations
 - `tests/CMakeLists.txt`
   - adds the GCC installed-package consumer regression alongside the existing package smoke
 

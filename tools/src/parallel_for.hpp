@@ -10,9 +10,9 @@
 namespace gentest::codegen {
 
 [[nodiscard]] inline std::size_t default_concurrency(std::size_t task_count) {
-    const unsigned hw = std::thread::hardware_concurrency();
+    const unsigned hw   = std::thread::hardware_concurrency();
     std::size_t    jobs = hw == 0 ? 1u : static_cast<std::size_t>(hw);
-    jobs               = std::max<std::size_t>(1, std::min(jobs, task_count));
+    jobs                = std::max<std::size_t>(1, std::min(jobs, task_count));
     return jobs;
 }
 
@@ -26,8 +26,7 @@ namespace gentest::codegen {
     return std::max<std::size_t>(1, std::min(requested_jobs, task_count));
 }
 
-template <typename Func>
-void parallel_for(std::size_t task_count, std::size_t jobs, Func &&func) {
+template <typename Func> void parallel_for(std::size_t task_count, std::size_t jobs, Func &&func) {
     if (task_count == 0) {
         return;
     }

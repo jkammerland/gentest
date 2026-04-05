@@ -90,10 +90,9 @@ enum class BenchPhase {
 };
 GENTEST_RUNTIME_API auto bench_phase_storage() -> BenchPhase &;
 GENTEST_RUNTIME_API auto bench_error_storage() -> std::string &;
-inline BenchPhase bench_phase();
+inline BenchPhase        bench_phase();
 
-template <class T>
-inline void append_moved(std::vector<T> &dst, std::vector<T> &src) {
+template <class T> inline void append_moved(std::vector<T> &dst, std::vector<T> &src) {
     if (src.empty()) {
         return;
     }
@@ -123,7 +122,7 @@ inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
     if (current_test) {
         flush_current_buffer_for(current_test.get());
     }
-    current_test  = std::move(ctx);
+    current_test = std::move(ctx);
     buffer.owner = current_test ? current_test.get() : nullptr;
 }
 
@@ -137,6 +136,17 @@ inline void wait_for_adopted_tokens(const std::shared_ptr<TestContextInfo> &ctx)
     // completion blocks by design to preserve one-shot outcome accounting.
     std::unique_lock<std::mutex> lk(ctx->adopted_mtx);
     ctx->adopted_cv.wait(lk, [&] { return ctx->adopted_tokens.load(std::memory_order_acquire) == 0; });
+}
+
+inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo> &ctx) {
+    if (!ctx)
+        return {};
+
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    if (ctx->failures.empty()) {
+        return {};
+    }
+    return ctx->failures.front();
 }
 
 inline void request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
@@ -279,7 +289,8 @@ GENTEST_RUNTIME_API auto noexceptions_fatal_hook_storage() -> NoExceptionsFatalH
 struct NoExceptionsFatalHookScope {
     NoExceptionsFatalHookState previous{};
 
-    explicit NoExceptionsFatalHookScope(NoExceptionsFatalHook hook, void *user_data) noexcept : previous(noexceptions_fatal_hook_storage()) {
+    explicit NoExceptionsFatalHookScope(NoExceptionsFatalHook hook, void *user_data) noexcept
+        : previous(noexceptions_fatal_hook_storage()) {
         noexceptions_fatal_hook_storage() = {
             .hook      = hook,
             .user_data = user_data,

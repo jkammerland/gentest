@@ -6,7 +6,7 @@ export namespace fixture {
 
 struct Outer {
     struct Inner {
-        virtual ~Inner() = default;
+        virtual ~Inner()    = default;
         virtual int value() = 0;
     };
 };

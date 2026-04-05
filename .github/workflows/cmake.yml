@@ -57,7 +57,13 @@ jobs:
           else
             brew install llvm ninja ccache
           fi
+          if [ "${{ matrix.compiler }}" = "llvm@21" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
+            brew install bazelisk
+          fi
           echo "$(brew --prefix ninja)/bin" >> $GITHUB_PATH
+          if [ "${{ matrix.compiler }}" = "llvm@21" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
+            echo "$(brew --prefix)/bin" >> $GITHUB_PATH
+          fi
 
       - name: Configure LLVM environment
         run: |
@@ -125,8 +131,12 @@ jobs:
       - name: Build
         run: cmake --build --preset=${{ matrix.build-type }}
 
+      - name: Test Bazel Bzlmod Consumer
+        if: matrix.compiler == 'llvm@21' && matrix.build-type == 'debug' && matrix.variant == 'default'
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure -R '^(gentest_bazel_bzlmod_consumer)$'
+
       - name: Test
-        run: ctest --preset=${{ matrix.build-type }} --output-on-failure --parallel 4
+        run: ctest --preset=${{ matrix.build-type }} --output-on-failure --parallel 4 -E '^(gentest_bazel_bzlmod_consumer)$'
 
   windows:
     name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }}
@@ -150,7 +160,7 @@ jobs:
 
       - name: Cache extracted LLVM toolchain
         id: cache-llvm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}\llvm\clang+llvm-${{ matrix.llvm-version }}-x86_64-pc-windows-msvc
           key: llvm-${{ runner.os }}-${{ matrix.llvm-version }}
@@ -231,9 +241,13 @@ jobs:
         shell: pwsh
         run: cmake --build --preset=${{ matrix.preset }}
 
+      - name: Test Bazel helper contract
+        shell: pwsh
+        run: ctest --preset=${{ matrix.preset }} --output-on-failure -R '^(gentest_bazel_helpers_use_configured_toolchain)$'
+
       - name: Test
         shell: pwsh
-        run: ctest --preset=${{ matrix.preset }} --output-on-failure --parallel 4
+        run: ctest --preset=${{ matrix.preset }} --output-on-failure --parallel 4 -E '^(gentest_bazel_helpers_use_configured_toolchain)$'
 
       - name: Configure/Build/Test (MSVC)
         if: matrix.preset == 'debug-system'
@@ -266,19 +280,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Ubuntu 24.04 • Clang 20
-            container: ubuntu:24.04
-            pkg_manager: apt
-            compiler: clang
-            cc: clang-20
-            cxx: clang++-20
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: coverage
-            preset: coverage-system
-            run_coverage: true
-            ctest_parallel: 1
           - name: Ubuntu 24.04 • Clang 20
             container: ubuntu:24.04
             pkg_manager: apt
@@ -860,13 +861,6 @@ jobs:
         run: |
           set -euxo pipefail
           cmake --build --preset=${GENTEST_CMAKE_PRESET} --parallel
-      - name: "Coverage: reset coverage artifacts"
-        if: ${{ matrix.run_coverage == true }}
-        run: |
-          set -euxo pipefail
-          if [ -d "build/${GENTEST_CMAKE_PRESET}" ]; then
-            find "build/${GENTEST_CMAKE_PRESET}" -name '*.gcda' -delete
-          fi
       - name: Test
         env:
           LC_ALL: C.UTF-8
@@ -874,17 +868,6 @@ jobs:
         run: |
           set -euxo pipefail
           ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }}
-      - name: Coverage hygiene (codegen + runtime)
-        if: ${{ matrix.run_coverage == true }}
-        env:
-          LC_ALL: C.UTF-8
-          LANG: C.UTF-8
-        run: |
-          set -euxo pipefail
-          python3 scripts/coverage_hygiene.py \
-            --build-dir "build/${GENTEST_CMAKE_PRESET}" \
-            --ignore-statuses stamp_mismatch \
-            --gcov llvm-cov gcov
 
   package-workflow:
     name: Package Workflow

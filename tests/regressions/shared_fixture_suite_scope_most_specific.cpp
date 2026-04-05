@@ -10,7 +10,7 @@ struct SpecificFixture {
     int marker = 0;
 
     static std::unique_ptr<SpecificFixture> gentest_allocate(std::string_view suite) {
-        auto fx = std::make_unique<SpecificFixture>();
+        auto fx    = std::make_unique<SpecificFixture>();
         fx->marker = (suite == "regressions/parent/child") ? 2 : 1;
         return fx;
     }
@@ -44,12 +44,12 @@ gentest::Case kCases[] = {
 };
 
 struct FixtureRegistrar {
-    FixtureRegistrar() {
+    FixtureRegistrar() noexcept {
         constexpr std::string_view kFixtureName = "regressions::shared_fixture_suite_scope_most_specific::SpecificFixture";
         gentest::detail::register_shared_fixture<SpecificFixture>(gentest::detail::SharedFixtureScope::Suite, "regressions/parent",
                                                                   kFixtureName);
-        gentest::detail::register_shared_fixture<SpecificFixture>(gentest::detail::SharedFixtureScope::Suite,
-                                                                  "regressions/parent/child", kFixtureName);
+        gentest::detail::register_shared_fixture<SpecificFixture>(gentest::detail::SharedFixtureScope::Suite, "regressions/parent/child",
+                                                                  kFixtureName);
     }
 } kFixtureRegistrar;
 

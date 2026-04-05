@@ -85,9 +85,7 @@ bool is_likely_template_right(char ch) {
     return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == ':' || ch == '(' || ch == '+' || ch == '-' || ch == '\'';
 }
 
-bool is_word_char(char ch) {
-    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
-}
+bool is_word_char(char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_'; }
 
 bool is_char_literal_prefix(std::string_view text, std::size_t index) {
     if (index >= 1 && (text[index - 1] == 'L' || text[index - 1] == 'u' || text[index - 1] == 'U')) {
@@ -127,8 +125,7 @@ std::optional<RawStringStart> detect_raw_string_start(std::string_view text, std
     std::size_t cursor = index;
     if (text.substr(index).starts_with("R\"")) {
         cursor += 2;
-    } else if (text.substr(index).starts_with("uR\"") || text.substr(index).starts_with("UR\"") ||
-               text.substr(index).starts_with("LR\"")) {
+    } else if (text.substr(index).starts_with("uR\"") || text.substr(index).starts_with("UR\"") || text.substr(index).starts_with("LR\"")) {
         cursor += 3;
     } else if (text.substr(index).starts_with("u8R\"")) {
         cursor += 4;
@@ -149,7 +146,7 @@ std::optional<RawStringStart> detect_raw_string_start(std::string_view text, std
     }
     return RawStringStart{
         .prefix_length = cursor - index + 1,
-        .delimiter = std::string(text.substr(delim_start, cursor - delim_start)),
+        .delimiter     = std::string(text.substr(delim_start, cursor - delim_start)),
     };
 }
 
@@ -252,7 +249,7 @@ bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
                     return true;
                 }
                 switch (follower) {
-                case '_': return true;
+                case '_':
                 case ',':
                 case ')':
                 case ']':
@@ -508,7 +505,7 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
                 }
                 if (const auto raw_start = detect_raw_string_start(list, index); raw_start.has_value()) {
                     in_raw        = true;
-                    raw_delimiter = std::move(raw_start->delimiter);
+                    raw_delimiter = raw_start->delimiter;
                     index += raw_start->prefix_length - 1;
                     continue;
                 }

@@ -1,6 +1,9 @@
 export module gentest.multiline_mock_defs;
 
-export import gentest.mock;
+// clang-format off
+export import
+    gentest.mock;
+// clang-format on
 
 export import gentest.multiline_provider;
 

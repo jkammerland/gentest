@@ -13,10 +13,10 @@ void mixed_summary_test_pass(void *) {}
 void mixed_summary_bench_pass(void *) {}
 
 constexpr unsigned kDuplicateFailureOneLine = __LINE__ + 1;
-void duplicate_failure_one(void *) { gentest::fail("duplicate-summary-one"); }
+void               duplicate_failure_one(void *) { gentest::fail("duplicate-summary-one"); }
 
 constexpr unsigned kDuplicateFailureTwoLine = __LINE__ + 1;
-void duplicate_failure_two(void *) { gentest::fail("duplicate-summary-two"); }
+void               duplicate_failure_two(void *) { gentest::fail("duplicate-summary-two"); }
 
 void death_case(void *) {}
 

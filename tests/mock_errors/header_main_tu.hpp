@@ -11,5 +11,5 @@ struct Sink {
 };
 } // namespace headermain
 
-using SinkMock = gentest::mock<headermain::Sink>;
+using SinkMock                                 = gentest::mock<headermain::Sink>;
 [[maybe_unused]] inline SinkMock *kSinkMockPtr = nullptr;

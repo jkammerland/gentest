@@ -31,33 +31,33 @@ struct BenchResult {
 };
 
 struct JitterResult {
-    std::size_t         epochs             = 0;
-    std::size_t         iters_per_epoch    = 0;
-    std::size_t         total_iters        = 0;
-    bool                batch_mode         = false;
-    double              min_ns             = 0;
-    double              max_ns             = 0;
-    double              median_ns          = 0;
-    double              mean_ns            = 0;
-    double              stddev_ns          = 0;
-    double              p05_ns             = 0;
-    double              p95_ns             = 0;
-    double              overhead_mean_ns   = 0;
-    double              overhead_sd_ns     = 0;
-    double              overhead_ratio_pct = 0;
-    double              total_time_s       = 0;
-    double              warmup_time_s      = 0;
-    double              wall_time_s        = 0;
-    double              calibration_time_s = 0;
-    std::size_t         calibration_iters  = 0;
-    int                 histogram_bins     = 0;
+    std::size_t                epochs             = 0;
+    std::size_t                iters_per_epoch    = 0;
+    std::size_t                total_iters        = 0;
+    bool                       batch_mode         = false;
+    double                     min_ns             = 0;
+    double                     max_ns             = 0;
+    double                     median_ns          = 0;
+    double                     mean_ns            = 0;
+    double                     stddev_ns          = 0;
+    double                     p05_ns             = 0;
+    double                     p95_ns             = 0;
+    double                     overhead_mean_ns   = 0;
+    double                     overhead_sd_ns     = 0;
+    double                     overhead_ratio_pct = 0;
+    double                     total_time_s       = 0;
+    double                     warmup_time_s      = 0;
+    double                     wall_time_s        = 0;
+    double                     calibration_time_s = 0;
+    std::size_t                calibration_iters  = 0;
+    int                        histogram_bins     = 0;
     gentest::detail::Histogram histogram;
-    std::vector<double> samples_ns;
+    std::vector<double>        samples_ns;
 };
 
 struct TimedRunStatus {
-    bool ok      = true;
-    bool stopped = false;
+    bool        ok      = true;
+    bool        stopped = false;
     std::size_t total   = 0;
     std::size_t passed  = 0;
     std::size_t skipped = 0;
@@ -69,6 +69,7 @@ struct MeasurementCaseFailure {
     bool             allocation_failure = false;
     bool             skipped            = false;
     bool             infra_failure      = false;
+    double           time_s             = 0.0;
     std::string_view phase{};
 };
 

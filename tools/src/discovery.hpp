@@ -18,10 +18,8 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
     explicit TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes);
 
     // Called by clang tooling; extracts a TestCaseInfo when the bound node is a function definition.
-    void run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
-    std::optional<clang::TraversalKind> getCheckTraversalKind() const override {
-        return clang::TK_IgnoreUnlessSpelledInSource;
-    }
+    void                                run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
+    std::optional<clang::TraversalKind> getCheckTraversalKind() const override { return clang::TK_IgnoreUnlessSpelledInSource; }
 
     // Whether any hard validation errors were observed.
     [[nodiscard]] bool has_errors() const;
@@ -43,18 +41,16 @@ class FixtureDeclCollector : public clang::ast_matchers::MatchFinder::MatchCallb
   public:
     explicit FixtureDeclCollector(std::vector<FixtureDeclInfo> &out);
 
-    void run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
-    std::optional<clang::TraversalKind> getCheckTraversalKind() const override {
-        return clang::TK_IgnoreUnlessSpelledInSource;
-    }
+    void                                run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
+    std::optional<clang::TraversalKind> getCheckTraversalKind() const override { return clang::TK_IgnoreUnlessSpelledInSource; }
 
     [[nodiscard]] bool has_errors() const;
 
   private:
     void report(const clang::CXXRecordDecl &decl, const clang::SourceManager &sm, std::string_view message) const;
 
-    std::vector<FixtureDeclInfo> &out_;
-    mutable bool                  had_error_ = false;
+    std::vector<FixtureDeclInfo>                                                   &out_;
+    mutable bool                                                                    had_error_ = false;
     mutable std::unordered_map<const clang::NamespaceDecl *, SuiteAttributeSummary> suite_cache_;
 };
 

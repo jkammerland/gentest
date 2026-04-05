@@ -40,13 +40,9 @@ void append_tsv_metric(std::string &out, std::string_view key, std::string_view 
     out.push_back('\n');
 }
 
-void append_tsv_metric(std::string &out, std::string_view key, double value) {
-    append_tsv_metric(out, key, fmt::format("{}", value));
-}
+void append_tsv_metric(std::string &out, std::string_view key, double value) { append_tsv_metric(out, key, fmt::format("{}", value)); }
 
-void append_tsv_metric(std::string &out, std::string_view key, std::size_t value) {
-    append_tsv_metric(out, key, fmt::format("{}", value));
-}
+void append_tsv_metric(std::string &out, std::string_view key, std::size_t value) { append_tsv_metric(out, key, fmt::format("{}", value)); }
 
 std::string escape_xml_text(std::string_view value) {
     std::string out;
@@ -113,9 +109,12 @@ std::string make_bench_summary_svg(const gentest::Case &c, const BenchResult &re
         "<line x1=\"{7:.2f}\" y1=\"{12:.2f}\" x2=\"{7:.2f}\" y2=\"{13:.2f}\" stroke=\"#111827\" stroke-width=\"3\"/>"
         "<circle cx=\"{14:.2f}\" cy=\"{5:.2f}\" r=\"5\" fill=\"#f97316\" stroke=\"#9a3412\" stroke-width=\"1\"/>"
         "<text x=\"{2}\" y=\"126\" font-family=\"monospace\" font-size=\"11\" fill=\"#374151\">best {15:.3f} ns</text>"
-        "<text x=\"{2}\" y=\"142\" font-family=\"monospace\" font-size=\"11\" fill=\"#374151\">p05 {16:.3f}  median {17:.3f}  mean {18:.3f}</text>"
-        "<text x=\"{2}\" y=\"158\" font-family=\"monospace\" font-size=\"11\" fill=\"#374151\">p95 {19:.3f}  worst {20:.3f}  epochs {21}  iters/epoch {22}</text>"
-        "<text x=\"{23}\" y=\"174\" text-anchor=\"end\" font-family=\"monospace\" font-size=\"11\" fill=\"#6b7280\">axis max {24:.3f} ns/op</text>"
+        "<text x=\"{2}\" y=\"142\" font-family=\"monospace\" font-size=\"11\" fill=\"#374151\">p05 {16:.3f}  median {17:.3f}  mean "
+        "{18:.3f}</text>"
+        "<text x=\"{2}\" y=\"158\" font-family=\"monospace\" font-size=\"11\" fill=\"#374151\">p95 {19:.3f}  worst {20:.3f}  epochs {21}  "
+        "iters/epoch {22}</text>"
+        "<text x=\"{23}\" y=\"174\" text-anchor=\"end\" font-family=\"monospace\" font-size=\"11\" fill=\"#6b7280\">axis max {24:.3f} "
+        "ns/op</text>"
         "</svg>",
         width, height, left_margin, escape_xml_text(c.name), best_x, center_y, p05_x, median_x, p95_x, worst_x, center_y - 14.0,
         center_y + 14.0, center_y - 16.0, center_y + 16.0, mean_x, result.best_ns, result.p05_ns, result.median_ns, result.mean_ns,
@@ -123,14 +122,14 @@ std::string make_bench_summary_svg(const gentest::Case &c, const BenchResult &re
 }
 
 std::string make_jitter_histogram_svg(const gentest::Case &c, std::span<const gentest::detail::HistogramBin> bins) {
-    constexpr double width        = 720.0;
-    constexpr double height       = 220.0;
-    constexpr double left_margin  = 56.0;
-    constexpr double right_margin = 28.0;
-    constexpr double top_margin   = 34.0;
+    constexpr double width         = 720.0;
+    constexpr double height        = 220.0;
+    constexpr double left_margin   = 56.0;
+    constexpr double right_margin  = 28.0;
+    constexpr double top_margin    = 34.0;
     constexpr double bottom_margin = 44.0;
-    const double plot_width       = width - left_margin - right_margin;
-    const double plot_height      = height - top_margin - bottom_margin;
+    const double     plot_width    = width - left_margin - right_margin;
+    const double     plot_height   = height - top_margin - bottom_margin;
 
     std::size_t max_count = 0;
     double      first_lo  = 0.0;
@@ -146,7 +145,7 @@ std::string make_jitter_histogram_svg(const gentest::Case &c, std::span<const ge
         max_count = 1;
     }
 
-    std::string bars;
+    std::string  bars;
     const double slot_width = bins.empty() ? plot_width : (plot_width / static_cast<double>(bins.size()));
     for (std::size_t i = 0; i < bins.size(); ++i) {
         const auto  &bin     = bins[i];
@@ -155,8 +154,8 @@ std::string make_jitter_histogram_svg(const gentest::Case &c, std::span<const ge
         const double bar_w   = std::max(1.0, slot_width - bar_gap);
         const double bar_h   = (static_cast<double>(bin.count) / static_cast<double>(max_count)) * plot_height;
         const double bar_y   = top_margin + plot_height - bar_h;
-        bars += fmt::format("<rect x=\"{:.2f}\" y=\"{:.2f}\" width=\"{:.2f}\" height=\"{:.2f}\" fill=\"#2563eb\" opacity=\"0.82\"/>",
-                            bar_x, bar_y, bar_w, bar_h);
+        bars += fmt::format(R"(<rect x="{:.2f}" y="{:.2f}" width="{:.2f}" height="{:.2f}" fill="#2563eb" opacity="0.82"/>)", bar_x, bar_y,
+                            bar_w, bar_h);
     }
 
     return fmt::format(
@@ -171,16 +170,16 @@ std::string make_jitter_histogram_svg(const gentest::Case &c, std::span<const ge
         "<text x=\"{5}\" y=\"{8}\" text-anchor=\"end\" font-family=\"monospace\" font-size=\"11\" fill=\"#374151\">max {10:.3f} ns</text>"
         "<text x=\"{2}\" y=\"{11}\" font-family=\"monospace\" font-size=\"11\" fill=\"#374151\">bins {12}  peak count {13}</text>"
         "</svg>",
-        width, height, left_margin, escape_xml_text(c.name), top_margin, width - right_margin, height - bottom_margin, bars,
-        height - 20.0, first_lo, last_hi, height - 6.0, bins.size(), max_count);
+        width, height, left_margin, escape_xml_text(c.name), top_margin, width - right_margin, height - bottom_margin, bars, height - 20.0,
+        first_lo, last_hi, height - 6.0, bins.size(), max_count);
 }
 
 std::string make_samples_json(std::span<const double> samples_ns) {
     constexpr std::size_t kMaxStoredSamples = 2048;
 
     const std::size_t stored_count = std::min(samples_ns.size(), kMaxStoredSamples);
-    std::string       out          = fmt::format("{{\"sample_count\":{},\"stored_count\":{},\"truncated\":{},\"samples_ns\":[",
-                                       samples_ns.size(), stored_count, (samples_ns.size() > stored_count) ? "true" : "false");
+    std::string out = fmt::format(R"({{"sample_count":{},"stored_count":{},"truncated":{},"samples_ns":[)", samples_ns.size(), stored_count,
+                                  (samples_ns.size() > stored_count) ? "true" : "false");
     if (stored_count == 0) {
         out += "]}";
         return out;
@@ -191,8 +190,7 @@ std::string make_samples_json(std::span<const double> samples_ns) {
             out.push_back(',');
         }
 
-        const std::size_t sample_index =
-            (stored_count == samples_ns.size()) ? i : ((i * (samples_ns.size() - 1)) / (stored_count - 1));
+        const std::size_t sample_index = (stored_count == samples_ns.size()) ? i : ((i * (samples_ns.size() - 1)) / (stored_count - 1));
         out.append(fmt::format("{}", samples_ns[sample_index]));
     }
     out += "]}";
@@ -231,9 +229,8 @@ std::vector<ReportAttachment> make_bench_allure_attachments(const gentest::Case 
     append_tsv_metric(metrics, "wall_time_s", result.wall_time_s);
     append_tsv_metric(metrics, "calibration_time_s", result.calibration_time_s);
     append_tsv_metric(metrics, "calibration_iters", result.calibration_iters);
-    const double calls_per_sec = (result.total_time_s > 0.0 && result.total_iters != 0)
-                                     ? (static_cast<double>(result.total_iters) / result.total_time_s)
-                                     : 0.0;
+    const double calls_per_sec =
+        (result.total_time_s > 0.0 && result.total_iters != 0) ? (static_cast<double>(result.total_iters) / result.total_time_s) : 0.0;
     append_tsv_metric(metrics, "calls_per_sec", calls_per_sec);
 
     attachments.push_back(ReportAttachment{
@@ -288,13 +285,13 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
         .contents       = std::move(metrics),
     });
 
-    std::string histogram = "bin\trange_lo_ns\trange_hi_ns\tinclusive_hi\tcount\tpercent\tcumulative_percent\n";
+    std::string                histogram = "bin\trange_lo_ns\trange_hi_ns\tinclusive_hi\tcount\tpercent\tcumulative_percent\n";
     gentest::detail::Histogram fallback_histogram;
     const auto                &hist = select_jitter_histogram(result, bins, fallback_histogram);
     for (std::size_t i = 0; i < hist.bins.size(); ++i) {
         const auto &bin = hist.bins[i];
-        histogram.append(fmt::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\n", i + 1, bin.lo, bin.hi, bin.inclusive_hi ? "true" : "false",
-                                     bin.count, bin.percent, bin.cumulative_percent));
+        histogram.append(fmt::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\n", i + 1, bin.lo, bin.hi, bin.inclusive_hi ? "true" : "false", bin.count,
+                                     bin.percent, bin.cumulative_percent));
     }
     attachments.push_back(ReportAttachment{
         .name           = "histogram",
@@ -375,9 +372,8 @@ void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &
         pick_time_display_spec_from_s(bench_max_abs_s([](const BenchResult &result) { return result.wall_time_s; }), opt.time_unit_mode);
     const TimeDisplaySpec warmup_debug_spec =
         pick_time_display_spec_from_s(bench_max_abs_s([](const BenchResult &result) { return result.warmup_time_s; }), opt.time_unit_mode);
-    const TimeDisplaySpec calib_debug_spec =
-        pick_time_display_spec_from_s(bench_max_abs_s([](const BenchResult &result) { return result.calibration_time_s; }),
-                                      opt.time_unit_mode);
+    const TimeDisplaySpec calib_debug_spec = pick_time_display_spec_from_s(
+        bench_max_abs_s([](const BenchResult &result) { return result.calibration_time_s; }), opt.time_unit_mode);
     const TimeDisplaySpec min_epoch_debug_spec =
         pick_time_display_spec_from_s(std::fabs(opt.bench_cfg.min_epoch_time_s), opt.time_unit_mode);
     const TimeDisplaySpec min_total_debug_spec =
@@ -460,7 +456,7 @@ void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &
 }
 
 void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions &opt) {
-    const int bins = opt.jitter_bins;
+    const int                     bins = opt.jitter_bins;
     std::map<std::string, double> baseline_median_ns;
     std::map<std::string, double> baseline_stddev_ns;
     for (const auto &row : rows) {
@@ -519,8 +515,8 @@ void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions
     const TimeDisplaySpec overhead_spec = pick_time_display_spec_from_ns(overhead_abs_max_ns, opt.time_unit_mode);
     const TimeDisplaySpec measured_debug_spec =
         pick_time_display_spec_from_s(jitter_max_abs_s([](const JitterResult &result) { return result.total_time_s; }), opt.time_unit_mode);
-    const TimeDisplaySpec warmup_debug_spec =
-        pick_time_display_spec_from_s(jitter_max_abs_s([](const JitterResult &result) { return result.warmup_time_s; }), opt.time_unit_mode);
+    const TimeDisplaySpec warmup_debug_spec = pick_time_display_spec_from_s(
+        jitter_max_abs_s([](const JitterResult &result) { return result.warmup_time_s; }), opt.time_unit_mode);
     const TimeDisplaySpec wall_debug_spec =
         pick_time_display_spec_from_s(jitter_max_abs_s([](const JitterResult &result) { return result.wall_time_s; }), opt.time_unit_mode);
     const TimeDisplaySpec min_total_debug_spec =
@@ -547,9 +543,8 @@ void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions
         const auto        base_sd_it  = baseline_stddev_ns.find(suite);
         const double      base_median = (base_med_it == baseline_median_ns.end()) ? 0.0 : base_med_it->second;
         const double      base_sd     = (base_sd_it == baseline_stddev_ns.end()) ? 0.0 : base_sd_it->second;
-        const std::string baseline_med_cell = (base_median > 0.0)
-                                                  ? fmt::format("{:+.2f}%", (row.result.median_ns - base_median) / base_median * 100.0)
-                                                  : std::string("-");
+        const std::string baseline_med_cell =
+            (base_median > 0.0) ? fmt::format("{:+.2f}%", (row.result.median_ns - base_median) / base_median * 100.0) : std::string("-");
         const std::string baseline_sd_cell =
             (base_sd > 0.0) ? fmt::format("{:+.2f}%", (row.result.stddev_ns - base_sd) / base_sd * 100.0) : std::string("-");
         summary.add_row(Row_t{

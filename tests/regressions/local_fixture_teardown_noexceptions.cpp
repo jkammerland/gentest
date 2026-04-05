@@ -1,6 +1,6 @@
-#include <cstdio>
-
 #include "gentest/runner.h"
+
+#include <cstdio>
 
 using namespace gentest::asserts;
 
@@ -10,8 +10,8 @@ struct LocalFx : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() override {}
 
     void tearDown() override {
-        std::fputs("local-fixture-teardown-noexc-marker\n", stderr);
-        std::fflush(stderr);
+        (void)std::fputs("local-fixture-teardown-noexc-marker\n", stderr);
+        (void)std::fflush(stderr);
     }
 };
 

@@ -46,6 +46,9 @@ def _gentest_define_copts(defines):
 def _gentest_compile_copts(defines = [], clang_args = []):
     return _gentest_common_copts + _gentest_warning_copts + _gentest_define_copts(defines) + list(clang_args)
 
+def _gentest_module_compile_copts(defines = [], clang_args = []):
+    return _gentest_compile_copts(defines, clang_args) + ["-fmodules-embed-all-files"]
+
 def _gentest_driver_args(defines = [], clang_args = [], extra_include_dirs = []):
     args = [
         "-std=c++20",
@@ -888,7 +891,7 @@ def gentest_add_mocks_modules(
         srcs = [_gentest_output_groups(gen_name)["srcs"]],
         hdrs = [_gentest_output_groups(gen_name)["hdrs"], _gentest_output_groups(gen_name)["module_interfaces"]],
         module_interfaces = [_gentest_output_groups(gen_name)["module_interfaces"]],
-        copts = _gentest_compile_copts(defines, clang_args),
+        copts = _gentest_module_compile_copts(defines, clang_args),
         includes = [out_dir],
         linkopts = linkopts,
         deps = [_GENTEST_MODULE_LABEL, _GENTEST_MOCK_MODULE_LABEL] + deps,
@@ -931,7 +934,7 @@ def gentest_attach_codegen_modules(
         name = name,
         srcs = [main, _gentest_output_groups(gen_name)["hdrs"]],
         module_interfaces = [_gentest_output_groups(gen_name)["module_interfaces"]],
-        copts = _gentest_compile_copts(defines, clang_args),
+        copts = _gentest_module_compile_copts(defines, clang_args),
         includes = _gentest_unique([out_dir] + source_includes),
         linkopts = linkopts,
         deps = mock_targets + deps,

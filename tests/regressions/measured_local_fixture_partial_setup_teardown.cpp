@@ -8,9 +8,9 @@
 namespace {
 
 std::atomic<bool> g_bench_first_setup_entered{false};
-std::atomic<int> g_bench_first_teardown_count{0};
+std::atomic<int>  g_bench_first_teardown_count{0};
 std::atomic<bool> g_jitter_first_setup_entered{false};
-std::atomic<int> g_jitter_first_teardown_count{0};
+std::atomic<int>  g_jitter_first_teardown_count{0};
 
 struct BenchFirstFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() override { g_bench_first_setup_entered.store(true, std::memory_order_relaxed); }
@@ -31,14 +31,14 @@ struct JitterSecondFixture : gentest::FixtureSetup {
 };
 
 constexpr unsigned kBenchPartialSetupTeardownLine = __LINE__ + 1;
-void bench_partial_setup_teardown(void *) {
+void               bench_partial_setup_teardown(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {
             gentest::detail::FixtureHandle<BenchFirstFixture>  first{gentest::detail::FixtureHandle<BenchFirstFixture>::empty()};
             gentest::detail::FixtureHandle<BenchSecondFixture> second{gentest::detail::FixtureHandle<BenchSecondFixture>::empty()};
-            bool                                               first_setup_complete  = false;
-            bool                                               ready                 = false;
+            bool                                               first_setup_complete = false;
+            bool                                               ready                = false;
         };
         static thread_local BenchState bench_state{};
         if (phase == gentest::detail::BenchPhase::Setup) {
@@ -50,7 +50,7 @@ void bench_partial_setup_teardown(void *) {
             bench_state.first.ref().setUp();
             bench_state.first_setup_complete = true;
             bench_state.second.ref().setUp();
-            bench_state.ready                 = true;
+            bench_state.ready = true;
             return;
         }
         if (phase == gentest::detail::BenchPhase::Teardown) {
@@ -70,14 +70,14 @@ void bench_partial_setup_teardown(void *) {
 }
 
 constexpr unsigned kJitterPartialSetupTeardownLine = __LINE__ + 1;
-void jitter_partial_setup_teardown(void *) {
+void               jitter_partial_setup_teardown(void *) {
     const auto phase = gentest::detail::bench_phase();
     if (phase != gentest::detail::BenchPhase::None) {
         struct BenchState {
             gentest::detail::FixtureHandle<JitterFirstFixture>  first{gentest::detail::FixtureHandle<JitterFirstFixture>::empty()};
             gentest::detail::FixtureHandle<JitterSecondFixture> second{gentest::detail::FixtureHandle<JitterSecondFixture>::empty()};
-            bool                                                first_setup_complete  = false;
-            bool                                                ready                 = false;
+            bool                                                first_setup_complete = false;
+            bool                                                ready                = false;
         };
         static thread_local BenchState bench_state{};
         if (phase == gentest::detail::BenchPhase::Setup) {
@@ -89,7 +89,7 @@ void jitter_partial_setup_teardown(void *) {
             bench_state.first.ref().setUp();
             bench_state.first_setup_complete = true;
             bench_state.second.ref().setUp();
-            bench_state.ready                 = true;
+            bench_state.ready = true;
             return;
         }
         if (phase == gentest::detail::BenchPhase::Teardown) {
@@ -152,8 +152,7 @@ int main(int argc, char **argv) {
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     const int rc = gentest::run_all_tests(argc, argv);
 
-    if (g_bench_first_setup_entered.load(std::memory_order_relaxed) &&
-        g_bench_first_teardown_count.load(std::memory_order_relaxed) != 1) {
+    if (g_bench_first_setup_entered.load(std::memory_order_relaxed) && g_bench_first_teardown_count.load(std::memory_order_relaxed) != 1) {
         return 3;
     }
     if (g_jitter_first_setup_entered.load(std::memory_order_relaxed) &&

@@ -1,7 +1,8 @@
 #pragma once
 
-#include "fixture/generated_support.hpp"
-#include "fixture/service.hpp"
+#include <fixture/a+b.hpp>
+#include <fixture/generated_support.hpp>
+#include <fixture/service.hpp>
 
 namespace fixture::mocks {
 

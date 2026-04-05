@@ -19,10 +19,10 @@ enum class Phase {
     GlobalGroups,
 };
 
-Phase            g_phase = Phase::FreeCases;
-int              g_free_remaining = 2;
-int              g_suite_a_remaining = 2;
-int              g_suite_b_remaining = 2;
+Phase            g_phase              = Phase::FreeCases;
+int              g_free_remaining     = 2;
+int              g_suite_a_remaining  = 2;
+int              g_suite_b_remaining  = 2;
 int              g_global_a_remaining = 2;
 int              g_global_b_remaining = 2;
 std::string_view g_active_suite_group{};
@@ -51,8 +51,7 @@ bool all_global_done() { return g_global_a_remaining == 0 && g_global_b_remainin
 
 void visit_free(void *ctx) {
     EXPECT_TRUE(ctx == nullptr, "free/local cases must not receive fixture context");
-    EXPECT_EQ(static_cast<int>(g_phase), static_cast<int>(Phase::FreeCases),
-              "free/local cases must execute before fixture groups");
+    EXPECT_EQ(static_cast<int>(g_phase), static_cast<int>(Phase::FreeCases), "free/local cases must execute before fixture groups");
     if (g_phase != Phase::FreeCases)
         return;
 
@@ -119,8 +118,7 @@ void visit_global_group(std::string_view fixture, void *ctx) {
         g_phase = Phase::GlobalGroups;
     }
 
-    EXPECT_EQ(static_cast<int>(g_phase), static_cast<int>(Phase::GlobalGroups),
-              "global fixture groups must execute in global-group phase");
+    EXPECT_EQ(static_cast<int>(g_phase), static_cast<int>(Phase::GlobalGroups), "global fixture groups must execute in global-group phase");
     if (g_phase != Phase::GlobalGroups)
         return;
 

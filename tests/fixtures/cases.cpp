@@ -3,9 +3,9 @@
 #include "gentest/runner.h"
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include <stdexcept>
 
 namespace fixtures {
 
@@ -29,49 +29,50 @@ struct StackFixture {
 using StackFixtureSharedAlias = std::shared_ptr<StackFixture>;
 
 struct AllocEphemeral {
-    static inline int allocations = 0;
+    static inline int                      allocations = 0;
     static std::unique_ptr<AllocEphemeral> gentest_allocate() {
         ++allocations;
         return std::make_unique<AllocEphemeral>();
     }
 
     [[using gentest: test("ephemeral/alloc_hook")]]
-    void alloc_hook(StackFixture& helper) {
+    void alloc_hook(StackFixture &helper) {
         gentest::expect_eq(allocations, 1, "allocation hook runs for ephemeral fixtures");
         gentest::expect_eq(helper.data.size(), std::size_t{0}, "member test receives inferred fixture parameter");
     }
 };
 
 struct [[using gentest: fixture(suite)]] Counter /* optionally implement setup/teardown later */ {
-    int x = 0;
-    static inline Counter* last = nullptr;
+    int                    x    = 0;
+    static inline Counter *last = nullptr;
 
     [[using gentest: test("stateful/a_set_flag")]]
     void set_flag() {
-        x = 1;
+        x    = 1;
         last = this;
     }
 
     [[using gentest: test("stateful/b_check_flag")]]
-    void check_flag(StackFixture& helper) {
+    void check_flag(StackFixture &helper) {
         gentest::expect_eq(x, 1, "state preserved across methods");
         gentest::expect_eq(this, last, "suite fixture instance reused");
         gentest::expect_eq(helper.data.size(), std::size_t{0}, "suite member test receives inferred fixture parameter");
     }
 
     [[using gentest: test("stateful/c_default_ptr_passthrough")]]
-    void default_ptr_passthrough(StackFixture* helper = nullptr) {
+    void default_ptr_passthrough(StackFixture *helper = nullptr) {
         gentest::expect(helper == nullptr, "defaulted fixture-like pointer parameter is passed through (not fixture-inferred)");
     }
 
     [[using gentest: test("stateful/d_default_shared_ptr_alias_passthrough")]]
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
     void default_shared_ptr_alias_passthrough(StackFixtureSharedAlias helper = nullptr) {
         gentest::expect(!helper, "defaulted shared_ptr fixture-like alias parameter is passed through (not fixture-inferred)");
     }
 };
 
 struct [[using gentest: fixture(suite)]] SuiteAlloc {
-    static inline int allocations = 0;
+    static inline int                  allocations = 0;
     static std::unique_ptr<SuiteAlloc> gentest_allocate() {
         ++allocations;
         return std::make_unique<SuiteAlloc>();
@@ -93,9 +94,9 @@ struct [[using gentest: fixture(suite)]] SuiteAlloc {
 };
 
 struct [[using gentest: fixture(suite)]] SuiteHook {
-    static inline int allocations = 0;
+    static inline int         allocations = 0;
     static inline std::string seen_suite;
-    static inline SuiteHook* first = nullptr;
+    static inline SuiteHook  *first = nullptr;
 
     static std::unique_ptr<SuiteHook> gentest_allocate(std::string_view suite) {
         ++allocations;
@@ -105,7 +106,8 @@ struct [[using gentest: fixture(suite)]] SuiteHook {
 
     [[using gentest: test("suite_hook/a_allocate")]]
     void allocate() {
-        if (!first) first = this;
+        if (!first)
+            first = this;
         gentest::expect_eq(allocations, 1, "suite fixture allocated once");
         gentest::expect_eq(seen_suite, "fixtures", "suite name passed to allocation hook");
     }
@@ -119,8 +121,8 @@ struct [[using gentest: fixture(suite)]] SuiteHook {
 };
 
 struct [[using gentest: fixture(global)]] GlobalCounter {
-    int hits = 0;
-    static inline GlobalCounter* last = nullptr;
+    int                          hits = 0;
+    static inline GlobalCounter *last = nullptr;
 
     [[using gentest: test("global/increment")]]
     void increment() {
@@ -137,8 +139,8 @@ struct [[using gentest: fixture(global)]] GlobalCounter {
 };
 
 struct [[using gentest: fixture(global)]] GlobalAlloc {
-    static inline int allocations = 0;
-    static inline GlobalAlloc* last = nullptr;
+    static inline int                   allocations = 0;
+    static inline GlobalAlloc          *last        = nullptr;
     static std::shared_ptr<GlobalAlloc> gentest_allocate() {
         ++allocations;
         return std::make_shared<GlobalAlloc>();
@@ -185,8 +187,8 @@ class C {
 };
 
 struct PtrFixture {
-    static inline int allocations = 0;
-    static inline std::string seen_suite;
+    static inline int                  allocations = 0;
+    static inline std::string          seen_suite;
     static std::unique_ptr<PtrFixture> gentest_allocate(std::string_view suite) {
         ++allocations;
         seen_suite = std::string(suite);
@@ -196,8 +198,8 @@ struct PtrFixture {
 };
 
 struct RawFixture {
-    static inline int allocations = 0;
-    static RawFixture* gentest_allocate() {
+    static inline int  allocations = 0;
+    static RawFixture *gentest_allocate() {
         ++allocations;
         return new RawFixture();
     }
@@ -210,7 +212,7 @@ struct RawPolymorphicFixture {
     static inline int base_deletes    = 0;
     static inline int derived_deletes = 0;
 
-    static RawDerivedFixture* gentest_allocate();
+    static RawDerivedFixture *gentest_allocate();
 
     ~RawPolymorphicFixture() { ++base_deletes; }
 
@@ -221,10 +223,10 @@ struct RawDerivedFixture : RawPolymorphicFixture {
     ~RawDerivedFixture() { ++derived_deletes; }
 };
 
-inline RawDerivedFixture* RawPolymorphicFixture::gentest_allocate() { return new RawDerivedFixture(); }
+inline RawDerivedFixture *RawPolymorphicFixture::gentest_allocate() { return new RawDerivedFixture(); }
 
 struct SharedFixture {
-    static inline int allocations = 0;
+    static inline int                     allocations = 0;
     static std::shared_ptr<SharedFixture> gentest_allocate() {
         ++allocations;
         return std::make_shared<SharedFixture>();
@@ -232,17 +234,17 @@ struct SharedFixture {
     int value = 4;
 };
 
-using SharedFixtureHandle = std::shared_ptr<SharedFixture>;
+using SharedFixtureHandle   = std::shared_ptr<SharedFixture>;
 using PtrFixtureSharedAlias = std::shared_ptr<PtrFixture>;
 
 struct CustomDeleterFixture {
     struct Deleter {
-        void operator()(CustomDeleterFixture* ptr) const {
+        void operator()(CustomDeleterFixture *ptr) const {
             ++CustomDeleterFixture::deletes;
             delete ptr;
         }
     };
-    static inline int deletes = 0;
+    static inline int                                     deletes = 0;
     static std::unique_ptr<CustomDeleterFixture, Deleter> gentest_allocate() {
         return std::unique_ptr<CustomDeleterFixture, Deleter>(new CustomDeleterFixture(), Deleter{});
     }
@@ -275,11 +277,12 @@ void free_basic(A &a, B<int> &b, C &c, int marker = 7) {
 }
 
 [[using gentest: test("free/default_ptr_passthrough")]]
-void free_default_ptr_passthrough(PtrFixture* fx = nullptr) {
+void free_default_ptr_passthrough(PtrFixture *fx = nullptr) {
     gentest::expect(fx == nullptr, "defaulted fixture-like pointer parameter is passed through (not fixture-inferred)");
 }
 
 [[using gentest: test("free/default_shared_ptr_alias_passthrough")]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void free_default_shared_ptr_alias_passthrough(PtrFixtureSharedAlias fx = nullptr) {
     gentest::expect(!fx, "defaulted shared_ptr fixture-like alias parameter is passed through (not fixture-inferred)");
 }
@@ -321,6 +324,7 @@ void free_raw_pointer_polymorphic_b_after_first(RawPolymorphicFixture *fx) {
 }
 
 [[using gentest: test("free/shared_ptr")]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void free_shared_ptr(SharedFixtureHandle fx) {
     gentest::expect(static_cast<bool>(fx), "shared fixture pointer is valid");
     gentest::expect_eq(fx->value, 4, "fixture state available");
@@ -329,11 +333,11 @@ void free_shared_ptr(SharedFixtureHandle fx) {
 
 namespace suite_shared {
 struct [[using gentest: fixture(suite)]] SharedSuiteFx : gentest::FixtureSetup, gentest::FixtureTearDown {
-    static inline int setups = 0;
-    static inline int teardowns = 0;
-    static inline SharedSuiteFx* first = nullptr;
-    static inline bool saw_test = false;
-    int value = 0;
+    static inline int            setups    = 0;
+    static inline int            teardowns = 0;
+    static inline SharedSuiteFx *first     = nullptr;
+    static inline bool           saw_test  = false;
+    int                          value     = 0;
 
     void setUp() override { ++setups; }
     void tearDown() override {
@@ -350,8 +354,9 @@ using SharedSuiteAlias = SharedSuiteFx;
 
 namespace inner_a {
 [[using gentest: test("suite_shared/inner_a/set")]]
-void set(SharedSuiteFx& fx) {
-    if (!SharedSuiteFx::first) SharedSuiteFx::first = &fx;
+void set(SharedSuiteFx &fx) {
+    if (!SharedSuiteFx::first)
+        SharedSuiteFx::first = &fx;
     SharedSuiteFx::saw_test = true;
     gentest::expect_eq(SharedSuiteFx::setups, 1, "suite fixture setUp runs once");
     gentest::expect_eq(SharedSuiteFx::teardowns, 0, "suite fixture tearDown not yet run");
@@ -361,7 +366,7 @@ void set(SharedSuiteFx& fx) {
 
 namespace inner_b {
 [[using gentest: test("suite_shared/inner_b/check")]]
-void check(SharedSuiteAlias& fx) {
+void check(SharedSuiteAlias &fx) {
     SharedSuiteFx::saw_test = true;
     gentest::expect_eq(&fx, SharedSuiteFx::first, "suite fixture instance reused across namespaces");
     gentest::expect_eq(SharedSuiteFx::setups, 1, "suite fixture setUp runs once");
@@ -372,11 +377,11 @@ void check(SharedSuiteAlias& fx) {
 
 namespace global_shared {
 struct [[using gentest: fixture(global)]] SharedGlobalFx : gentest::FixtureSetup, gentest::FixtureTearDown {
-    static inline int setups = 0;
-    static inline int teardowns = 0;
-    static inline SharedGlobalFx* first = nullptr;
-    static inline bool saw_test = false;
-    int hits = 0;
+    static inline int             setups    = 0;
+    static inline int             teardowns = 0;
+    static inline SharedGlobalFx *first     = nullptr;
+    static inline bool            saw_test  = false;
+    int                           hits      = 0;
 
     void setUp() override { ++setups; }
     void tearDown() override {
@@ -389,13 +394,14 @@ struct [[using gentest: fixture(global)]] SharedGlobalFx : gentest::FixtureSetup
     }
 };
 
-using SharedGlobalAlias = std::shared_ptr<SharedGlobalFx>;
-using SharedGlobalRawAlias = SharedGlobalFx*;
+using SharedGlobalAlias    = std::shared_ptr<SharedGlobalFx>;
+using SharedGlobalRawAlias = SharedGlobalFx *;
 
 namespace inner_a {
 [[using gentest: test("global_shared/inner_a/hit")]]
-void hit(SharedGlobalFx& fx) {
-    if (!SharedGlobalFx::first) SharedGlobalFx::first = &fx;
+void hit(SharedGlobalFx &fx) {
+    if (!SharedGlobalFx::first)
+        SharedGlobalFx::first = &fx;
     SharedGlobalFx::saw_test = true;
     ++fx.hits;
     gentest::expect_eq(SharedGlobalFx::setups, 1, "global fixture setUp runs once");
@@ -404,6 +410,7 @@ void hit(SharedGlobalFx& fx) {
 
 namespace inner_b {
 [[using gentest: test("global_shared/inner_b/check")]]
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 void check(SharedGlobalAlias fx) {
     SharedGlobalFx::saw_test = true;
     gentest::expect(static_cast<bool>(fx), "shared pointer provided");
@@ -424,49 +431,51 @@ void pointer(SharedGlobalRawAlias fx) {
 
 namespace mixed_suite {
 struct LocalMix : gentest::FixtureSetup, gentest::FixtureTearDown {
-    static inline int setups = 0;
+    static inline int setups    = 0;
     static inline int teardowns = 0;
-    int value = 0;
+    int               value     = 0;
 
     void setUp() override { ++setups; }
     void tearDown() override { ++teardowns; }
 };
 
 struct [[using gentest: fixture(suite)]] SuiteMix : gentest::FixtureSetup {
-    static inline int setups = 0;
-    static inline SuiteMix* first = nullptr;
-    static inline bool initialized = false;
-    int value = 0;
+    static inline int       setups      = 0;
+    static inline SuiteMix *first       = nullptr;
+    static inline bool      initialized = false;
+    int                     value       = 0;
 
     void setUp() override { ++setups; }
 };
 
 struct [[using gentest: fixture(global)]] GlobalMix : gentest::FixtureSetup {
-    static inline int setups = 0;
-    static inline GlobalMix* first = nullptr;
-    static inline bool initialized = false;
-    int value = 0;
+    static inline int        setups      = 0;
+    static inline GlobalMix *first       = nullptr;
+    static inline bool       initialized = false;
+    int                      value       = 0;
 
     void setUp() override { ++setups; }
 };
 
-using SuiteMixAlias = SuiteMix;
+using SuiteMixAlias   = SuiteMix;
 using GlobalMixHandle = std::shared_ptr<GlobalMix>;
 
 [[using gentest: test("mixed/one")]]
-void mixed_one(LocalMix& local, SuiteMix& suite, GlobalMix& global) {
-    if (!SuiteMix::first) SuiteMix::first = &suite;
+void mixed_one(LocalMix &local, SuiteMix &suite, GlobalMix &global) {
+    if (!SuiteMix::first)
+        SuiteMix::first = &suite;
     if (!SuiteMix::initialized) {
-        suite.value = 42;
+        suite.value           = 42;
         SuiteMix::initialized = true;
     }
     gentest::expect_eq(SuiteMix::setups, 1, "suite fixture setUp runs once");
     gentest::expect_eq(&suite, SuiteMix::first, "suite fixture instance reused");
     gentest::expect_eq(suite.value, 42, "suite fixture state persists");
 
-    if (!GlobalMix::first) GlobalMix::first = &global;
+    if (!GlobalMix::first)
+        GlobalMix::first = &global;
     if (!GlobalMix::initialized) {
-        global.value = 24;
+        global.value           = 24;
         GlobalMix::initialized = true;
     }
     gentest::expect_eq(GlobalMix::setups, 1, "global fixture setUp runs once");
@@ -479,7 +488,8 @@ void mixed_one(LocalMix& local, SuiteMix& suite, GlobalMix& global) {
 }
 
 [[using gentest: test("mixed/two"), parameters(marker, 9, 11, 13)]]
-void mixed_two(LocalMix& local, int marker, SuiteMixAlias& suite, GlobalMixHandle global) {
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
+void mixed_two(LocalMix &local, int marker, SuiteMixAlias &suite, GlobalMixHandle global) {
     gentest::expect(marker == 9 || marker == 11 || marker == 13, "parameter values bound between fixture args");
     gentest::expect_eq(SuiteMix::setups, 1, "suite fixture setUp runs once");
     gentest::expect_eq(&suite, SuiteMix::first, "suite fixture instance reused");

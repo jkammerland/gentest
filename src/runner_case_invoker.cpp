@@ -12,7 +12,7 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
     gentest::detail::set_current_test(out.ctxinfo);
 
     const auto start_tp = std::chrono::steady_clock::now();
-    auto run_call = [&] { c.fn(ctx); };
+    auto       run_call = [&] { c.fn(ctx); };
     try {
         if (phase == gentest::detail::BenchPhase::None) {
             run_call();
@@ -20,9 +20,7 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
             gentest::detail::BenchPhaseScope scope(phase);
             run_call();
         }
-    } catch (const gentest::detail::skip_exception &) {
-        out.exception = InvokeException::Skip;
-    } catch (const gentest::assertion &e) {
+    } catch (const gentest::detail::skip_exception &) { out.exception = InvokeException::Skip; } catch (const gentest::assertion &e) {
         out.exception = InvokeException::Assertion;
         out.message   = e.message();
     } catch (const gentest::failure &e) {
@@ -49,10 +47,15 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
 
     gentest::detail::wait_for_adopted_tokens(out.ctxinfo);
     gentest::detail::flush_current_buffer_for(out.ctxinfo.get());
+    if (out.exception == InvokeException::Assertion) {
+        if (auto recorded_failure = gentest::detail::first_recorded_failure(out.ctxinfo); !recorded_failure.empty()) {
+            out.message = std::move(recorded_failure);
+        }
+    }
     out.ctxinfo->active = false;
     gentest::detail::set_current_test(nullptr);
     const auto end_tp = std::chrono::steady_clock::now();
-    out.elapsed_s      = std::chrono::duration<double>(end_tp - start_tp).count();
+    out.elapsed_s     = std::chrono::duration<double>(end_tp - start_tp).count();
     return out;
 }
 

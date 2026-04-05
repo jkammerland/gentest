@@ -1,5 +1,5 @@
-#include "public/fixture_header_mocks.hpp"
 #include "public/fixture_alt_header_mocks.hpp"
+#include "public/fixture_header_mocks.hpp"
 
 int main() {
     fixture::mocks::ServiceMock alias_mock;

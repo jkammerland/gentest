@@ -28,7 +28,6 @@ struct InvokeResult {
     std::string                                       message;
 };
 
-InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail::BenchPhase phase,
-                              UnhandledExceptionPolicy policy);
+InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail::BenchPhase phase, UnhandledExceptionPolicy policy);
 
 } // namespace gentest::runner

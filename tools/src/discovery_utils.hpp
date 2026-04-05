@@ -1,17 +1,16 @@
 // Helper utilities for discovery: template param collection and validation
 #pragma once
 
+#include "axis_expander.hpp"
+#include "validate.hpp"
+
 #include <cctype>
+#include <clang/AST/Decl.h>
 #include <functional>
 #include <map>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include <clang/AST/Decl.h>
-
-#include "axis_expander.hpp"
-#include "validate.hpp"
 
 namespace gentest::codegen::disc {
 
@@ -54,9 +53,7 @@ inline bool is_likely_template_right(char ch) {
     return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == ':' || ch == '(' || ch == '+' || ch == '-' || ch == '\'';
 }
 
-inline bool is_word_char(char ch) {
-    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
-}
+inline bool is_word_char(char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_'; }
 
 inline bool is_char_literal_prefix(std::string_view text, std::size_t index) {
     if (index >= 1 && (text[index - 1] == 'L' || text[index - 1] == 'u' || text[index - 1] == 'U')) {
@@ -286,9 +283,7 @@ inline SplitTopLevelItemsResult split_top_level_items_result(std::string_view te
     return result;
 }
 
-inline std::vector<std::string> split_top_level_items(std::string_view text) {
-    return split_top_level_items_result(text).parts;
-}
+inline std::vector<std::string> split_top_level_items(std::string_view text) { return split_top_level_items_result(text).parts; }
 
 struct ParsedParenthesizedRow {
     std::vector<std::string> parts;
@@ -363,13 +358,15 @@ inline bool validate_template_binding_shape(const TemplateBindingSet &set, const
             if (param.kind == TemplateParamKind::Value) {
                 continue;
             }
-            report("non-pack template parameter '" + param.name + "' does not accept parenthesized rows in 'template(" + param.name + ", ...)'");
+            report("non-pack template parameter '" + param.name + "' does not accept parenthesized rows in 'template(" + param.name +
+                   ", ...)'");
             return false;
         }
         if (param.is_pack) {
             const auto parsed = parse_parenthesized_row(candidate);
             if (parsed.had_empty_item) {
-                report("template parameter pack '" + param.name + "' does not accept empty row entries in 'template(" + param.name + ", ...)'");
+                report("template parameter pack '" + param.name + "' does not accept empty row entries in 'template(" + param.name +
+                       ", ...)'");
                 return false;
             }
         }
@@ -406,7 +403,7 @@ inline std::vector<std::vector<std::string>> build_binding_rows_attr_order(const
 inline std::vector<std::vector<std::string>> flatten_row_cartesian(const std::vector<std::vector<std::vector<std::string>>> &axes) {
     std::vector<std::vector<std::string>> out;
     if (axes.empty()) {
-        out.push_back({});
+        out.emplace_back();
         return out;
     }
 
@@ -425,15 +422,15 @@ inline std::vector<std::vector<std::string>> flatten_row_cartesian(const std::ve
     }
 
     if (out.empty()) {
-        out.push_back({});
+        out.emplace_back();
     }
     return out;
 }
 
 // Validate that attribute-provided sets cover all declared template parameters by name and shape,
 // and that no unknown parameter names are present in attributes.
-inline bool validate_template_attributes(const std::vector<TemplateBindingSet> &template_sets,
-                                         const std::vector<TemplateParamInfo> &decl_order,
+inline bool validate_template_attributes(const std::vector<TemplateBindingSet>          &template_sets,
+                                         const std::vector<TemplateParamInfo>           &decl_order,
                                          const std::function<void(const std::string &)> &report) {
 #ifdef GENTEST_DISABLE_TEMPLATE_VALIDATION
     (void)template_sets;
@@ -476,7 +473,7 @@ inline bool validate_template_attributes(const std::vector<TemplateBindingSet> &
 
 // Build ordered template argument combinations in declaration order.
 inline std::vector<std::vector<std::string>> build_template_arg_combos(const std::vector<TemplateBindingSet> &template_sets,
-                                                                       const std::vector<TemplateParamInfo> &decl_order) {
+                                                                       const std::vector<TemplateParamInfo>  &decl_order) {
     std::map<std::string, const TemplateBindingSet *> set_map;
     for (const auto &set : template_sets) {
         set_map.emplace(set.param_name, &set);

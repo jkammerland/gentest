@@ -12,16 +12,17 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cmath>
-#include <cstdio>
 #include <clang/AST/Decl.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
+#include <cmath>
+#include <cstdio>
 #include <fmt/format.h>
 #include <iterator>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -69,9 +70,9 @@ bool should_report_namespace_diag_once(const NamespaceDecl &ns, const SourceMana
         name = "(anonymous namespace)";
     }
 
-    static std::mutex                     mutex;
+    static std::mutex                      mutex;
     static std::unordered_set<std::string> seen;
-    const std::string key = fmt::format("{}:{}:{}:{}", file.str(), line, name, message);
+    const std::string                      key = fmt::format("{}:{}:{}:{}", file.str(), line, name, message);
 
     std::scoped_lock lock(mutex);
     return seen.insert(key).second;
@@ -111,7 +112,7 @@ auto find_suite_override(const DeclContext *ctx, const SourceManager &sm, SuiteA
             if (it == suite_cache.end()) {
                 auto ns_attrs = collect_gentest_attributes_for(*ns, sm);
                 for (const auto &msg : ns_attrs.mis_scoped_gentest) {
-                    had_error = true;
+                    had_error       = true;
                     const auto diag = mis_scoped_gentest_message(msg);
                     if (should_report_namespace_diag_once(*ns, sm, diag)) {
                         report_namespace_diag(*ns, sm, diag);
@@ -124,7 +125,7 @@ auto find_suite_override(const DeclContext *ctx, const SourceManager &sm, SuiteA
                     had_error = true;
                     report_namespace_diag(*ns, sm, m);
                 });
-                it = suite_cache.emplace(ns, std::move(summary_ns)).first;
+                it              = suite_cache.emplace(ns, std::move(summary_ns)).first;
             }
             if (it->second.suite_name.has_value()) {
                 return it->second.suite_name;
@@ -160,7 +161,7 @@ auto find_suite_override(const DeclContext *ctx, const SourceManager &sm, SuiteA
 
 [[nodiscard]] std::vector<std::string> collect_namespace_parts(const DeclContext *ctx) {
     std::vector<std::string> parts;
-    const DeclContext *current = ctx;
+    const DeclContext       *current = ctx;
     while (current != nullptr) {
         if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
             if (!ns->isAnonymousNamespace()) {
@@ -177,7 +178,7 @@ auto find_suite_override(const DeclContext *ctx, const SourceManager &sm, SuiteA
 }
 
 std::string print_type(QualType type, const PrintingPolicy &policy) {
-    std::string             out;
+    std::string              out;
     llvm::raw_string_ostream os(out);
     type.print(os, policy);
     os.flush();
@@ -200,7 +201,7 @@ bool is_std_namespace(const DeclContext *ctx) {
 }
 
 std::optional<QualType> unwrap_std_shared_ptr(QualType type) {
-    type = type.getCanonicalType().getUnqualifiedType();
+    type                    = type.getCanonicalType().getUnqualifiedType();
     const auto *record_type = type->getAs<RecordType>();
     if (!record_type) {
         return std::nullopt;
@@ -235,19 +236,19 @@ std::string infer_fixture_type_from_param(const ParmVarDecl &param, const Printi
     if (const auto shared_inner = unwrap_std_shared_ptr(type.getUnqualifiedType())) {
         type = shared_inner->getUnqualifiedType();
     }
-    type = type.getUnqualifiedType();
+    type                     = type.getUnqualifiedType();
     const QualType canonical = type.getCanonicalType().getUnqualifiedType();
     return print_type(canonical, policy);
 }
 
 struct FunctionParamInfo {
-    const ParmVarDecl* decl = nullptr;
-    std::string name;
-    std::string type_spelling;
-    bool        is_value_axis = false;
-    bool        has_default_arg = false;
-    bool        is_fixture = false;
-    std::size_t fixture_index = 0;
+    const ParmVarDecl          *decl = nullptr;
+    std::string                 name;
+    std::string                 type_spelling;
+    bool                        is_value_axis   = false;
+    bool                        has_default_arg = false;
+    bool                        is_fixture      = false;
+    std::size_t                 fixture_index   = 0;
     std::optional<FixtureScope> required_scope;
 };
 } // namespace
@@ -261,7 +262,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         return;
     }
 
-    const auto *sm   = result.SourceManager;
+    const auto *sm = result.SourceManager;
 
     // Allow templated functions; instantiation handled by codegen.
 
@@ -349,11 +350,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
 #ifndef GENTEST_DISABLE_TEMPLATE_VALIDATION
         if (!fn_params_order.empty()) {
-            if (!disc::validate_template_attributes(summary.template_sets, fn_params_order,
-                                                    [&](const std::string &m) {
-                                                        had_error_ = true;
-                                                        report(m);
-                                                    })) {
+            if (!disc::validate_template_attributes(summary.template_sets, fn_params_order, [&](const std::string &m) {
+                    had_error_ = true;
+                    report(m);
+                })) {
                 return;
             }
         }
@@ -376,7 +376,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         combined_tpl_combos.emplace_back();
 
     const bool is_function_template = func->getDescribedFunctionTemplate() != nullptr;
-    auto make_qualified = [&](const std::vector<std::string> &tpl_ordered) {
+    auto       make_qualified       = [&](const std::vector<std::string> &tpl_ordered) {
         if (!is_function_template)
             return qualified;
         std::string q = qualified;
@@ -415,7 +415,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     if (summary.case_name.has_value()) {
         base_case_name = *summary.case_name;
     } else if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
-        const auto *fixture = method->getParent();
+        const auto       *fixture      = method->getParent();
         const std::string fixture_name = fixture ? fixture->getNameAsString() : std::string{};
         const std::string method_name  = method->getNameAsString();
         if (!fixture_name.empty()) {
@@ -426,7 +426,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     } else {
         base_case_name = func->getNameAsString();
     }
-    std::string final_base     = suite_path.empty() ? base_case_name : (suite_path + "/" + base_case_name);
+    std::string final_base = suite_path.empty() ? base_case_name : (suite_path + "/" + base_case_name);
     // Enforce uniqueness of final base names across this binary
     {
         const SourceLocation  sloc    = sm->getSpellingLoc(func->getBeginLoc());
@@ -447,11 +447,11 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     {
         const SourceLocation  tu_loc  = sm->getLocForStartOfFile(sm->getMainFileID());
         const llvm::StringRef tu_file = sm->getFilename(tu_loc);
-        tu_filename = tu_file.str();
+        tu_filename                   = tu_file.str();
     }
 
     struct FixtureContext {
-        std::string    qualified_name;
+        std::string     qualified_name;
         FixtureLifetime lifetime = FixtureLifetime::MemberEphemeral;
     };
     std::optional<FixtureContext> fixture_ctx;
@@ -464,14 +464,14 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
             for (const auto &message : class_attrs.other_namespaces)
                 report(fmt::format("attribute '{}' ignored (unsupported attribute namespace)", message));
-            auto fixture_summary = validate_fixture_attributes(class_attrs.gentest, [&](const std::string &m) {
+            auto           fixture_summary = validate_fixture_attributes(class_attrs.gentest, [&](const std::string &m) {
                 had_error_ = true;
                 report(m);
             });
             FixtureContext ctx;
             ctx.qualified_name = record->getQualifiedNameAsString();
             if (fixture_summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
-                had_error_  = true;
+                had_error_ = true;
                 report("'fixture(suite)' requires an enclosing named namespace to derive a suite path");
                 ctx.lifetime = FixtureLifetime::MemberEphemeral;
             } else {
@@ -481,9 +481,11 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 if (strict_fixture_) {
                     had_error_ = true;
                     if (ctx.lifetime == FixtureLifetime::MemberSuite) {
-                        report("suite fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
+                        report("suite fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral "
+                               "fixture");
                     } else {
-                        report("global fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral fixture");
+                        report("global fixtures cannot declare member tests; move assertions to setUp()/tearDown() or use an ephemeral "
+                               "fixture");
                     }
                 }
             }
@@ -493,29 +495,29 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &display_args, const std::string &call_args,
-                        const std::vector<std::string> &free_fixture_types,
+                        const std::vector<std::string>                 &free_fixture_types,
                         const std::vector<std::optional<FixtureScope>> &free_fixture_required_scopes,
-                        const std::vector<FreeCallArg> &free_call_args) {
+                        const std::vector<FreeCallArg>                 &free_call_args) {
         TestCaseInfo info{};
-        info.qualified_name = make_qualified(tpl_ordered);
-        info.display_name   = make_display(final_base, tpl_ordered, display_args);
-        info.base_name      = final_base;
-        info.tu_filename    = tu_filename;
-        info.filename       = filename.str();
-        info.suite_name     = suite_path;
-        info.line           = lnum;
-        info.tags           = summary.tags;
-        info.requirements   = summary.requirements;
-        info.should_skip    = summary.should_skip;
-        info.skip_reason    = summary.skip_reason;
-        info.is_benchmark   = summary.is_benchmark;
-        info.is_jitter      = summary.is_jitter;
-        info.is_baseline    = summary.is_baseline;
-        info.template_args       = tpl_ordered;
-        info.call_arguments      = call_args;
-        info.is_function_template = is_function_template;
-        info.returns_value       = !func->getReturnType()->isVoidType();
-        info.namespace_parts = namespace_parts;
+        info.qualified_name               = make_qualified(tpl_ordered);
+        info.display_name                 = make_display(final_base, tpl_ordered, display_args);
+        info.base_name                    = final_base;
+        info.tu_filename                  = tu_filename;
+        info.filename                     = filename.str();
+        info.suite_name                   = suite_path;
+        info.line                         = lnum;
+        info.tags                         = summary.tags;
+        info.requirements                 = summary.requirements;
+        info.should_skip                  = summary.should_skip;
+        info.skip_reason                  = summary.skip_reason;
+        info.is_benchmark                 = summary.is_benchmark;
+        info.is_jitter                    = summary.is_jitter;
+        info.is_baseline                  = summary.is_baseline;
+        info.template_args                = tpl_ordered;
+        info.call_arguments               = call_args;
+        info.is_function_template         = is_function_template;
+        info.returns_value                = !func->getReturnType()->isVoidType();
+        info.namespace_parts              = namespace_parts;
         info.free_fixture_types           = free_fixture_types;
         info.free_fixture_required_scopes = free_fixture_required_scopes;
         info.free_call_args               = free_call_args;
@@ -539,9 +541,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     std::map<std::string, std::string> param_types;
     for (const ParmVarDecl *p : func->parameters()) {
         FunctionParamInfo param{};
-        param.decl = p;
-        param.name = p->getNameAsString();
-        param.type_spelling = print_type(p->getType(), policy);
+        param.decl            = p;
+        param.name            = p->getNameAsString();
+        param.type_spelling   = print_type(p->getType(), policy);
         param.has_default_arg = p->hasDefaultArg();
         if (!param.name.empty()) {
             param_types.emplace(param.name, param.type_spelling);
@@ -551,7 +553,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
     // Validate: all named axes refer to known parameters; no overlaps.
     std::set<std::string> value_axis_names;
-    auto validate_axis_name = [&](const std::string &name, std::string_view origin) -> bool {
+    auto                  validate_axis_name = [&](const std::string &name, std::string_view origin) -> bool {
         if (!param_types.contains(name)) {
             had_error_ = true;
             report(fmt::format("unknown parameter name '{}' in {}(...)", name, origin));
@@ -605,7 +607,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
 
-    std::vector<std::string> inferred_fixture_types;
+    std::vector<std::string>                 inferred_fixture_types;
     std::vector<std::optional<FixtureScope>> inferred_fixture_required_scopes;
     for (auto &param : function_params) {
         if (!param.name.empty() && value_axis_names.contains(param.name)) {
@@ -615,7 +617,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         if (param.has_default_arg) {
             continue;
         }
-        param.is_fixture = true;
+        param.is_fixture    = true;
         param.fixture_index = inferred_fixture_types.size();
         if (!param.decl) {
             had_error_ = true;
@@ -624,7 +626,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         std::string fixture_type = infer_fixture_type_from_param(*param.decl, policy);
         if (fixture_type.empty()) {
-            had_error_ = true;
+            had_error_                      = true;
             const std::string fallback_name = param.name.empty() ? std::string("<unnamed>") : param.name;
             report(fmt::format("unable to infer fixture type for parameter '{}'", fallback_name));
             return;
@@ -685,9 +687,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             try {
                 const double d = std::stod(std::string(s));
                 return static_cast<long long>(std::llround(d));
-            } catch (...) {
-                return 0LL;
-            }
+            } catch (...) { return 0LL; }
         }
     };
     auto to_double = [](std::string_view s) -> double {
@@ -696,23 +696,22 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         } catch (...) {
             try {
                 return static_cast<double>(std::stoll(std::string(s)));
-            } catch (...) {
-                return 0.0;
-            }
+            } catch (...) { return 0.0; }
         }
     };
-    auto fmt_int = [](long long v) -> std::string { return std::to_string(v); };
+    auto fmt_int    = [](long long v) -> std::string { return std::to_string(v); };
     auto fmt_double = [](double v) -> std::string {
         char buf[64];
         (void)std::snprintf(buf, sizeof(buf), "%.17g", v);
         return {buf};
     };
     for (const auto &rs : summary.parameter_ranges) {
-        const std::string &ty = param_types_norm.at(rs.name);
+        const std::string                               &ty = param_types_norm.at(rs.name);
         std::vector<std::pair<std::string, std::string>> axis;
         if (is_integer_type(ty)) {
             long long a = to_int(rs.start), st = to_int(rs.step), b = to_int(rs.end);
-            if (st == 0) st = 1;
+            if (st == 0)
+                st = 1;
             if ((st > 0 && a > b) || (st < 0 && a < b)) {
                 had_error_ = true;
                 report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name));
@@ -762,9 +761,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         scalar_axes.push_back(std::move(axis));
     }
     for (const auto &ls : summary.parameter_linspaces) {
-        const std::string &ty = param_types_norm.at(ls.name);
+        const std::string                               &ty = param_types_norm.at(ls.name);
         std::vector<std::pair<std::string, std::string>> axis;
-        long long n = to_int(ls.count);
+        long long                                        n = to_int(ls.count);
         if (n < 1)
             n = 1;
         if (is_integer_type(ty)) {
@@ -797,9 +796,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         scalar_axes.push_back(std::move(axis));
     }
     for (const auto &gs : summary.parameter_geoms) {
-        const std::string &ty = param_types_norm.at(gs.name);
+        const std::string                               &ty = param_types_norm.at(gs.name);
         std::vector<std::pair<std::string, std::string>> axis;
-        long long n = to_int(gs.count);
+        long long                                        n = to_int(gs.count);
         if (n < 1)
             n = 1;
         if (is_integer_type(ty)) {
@@ -826,9 +825,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         scalar_axes.push_back(std::move(axis));
     }
     for (const auto &ls : summary.parameter_logspaces) {
-        const std::string &ty = param_types_norm.at(ls.name);
+        const std::string                               &ty = param_types_norm.at(ls.name);
         std::vector<std::pair<std::string, std::string>> axis;
-        long long n = to_int(ls.count);
+        long long                                        n = to_int(ls.count);
         if (n < 1)
             n = 1;
         const double base = ls.base.empty() ? 10.0 : to_double(ls.base);
@@ -867,7 +866,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     auto join_csv = [](const std::vector<std::string> &parts) {
         std::string out;
         for (std::size_t i = 0; i < parts.size(); ++i) {
-            if (i) out += ", ";
+            if (i)
+                out += ", ";
             out += parts[i];
         }
         return out;
@@ -923,12 +923,12 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 report(fmt::format("missing value for function parameter '{}' in parameters(...) or parameters_pack(...)", param.name));
                 return;
             }
-            auto kind = classify_type(param.type_spelling);
+            auto        kind = classify_type(param.type_spelling);
             std::string expr = quote_for_type(kind, it->second, param.type_spelling);
             value_exprs_for_call.push_back(expr);
             value_exprs_for_display.push_back(expr);
             FreeCallArg arg{};
-            arg.kind = FreeCallArgKind::Value;
+            arg.kind             = FreeCallArgKind::Value;
             arg.value_expression = std::move(expr);
             free_call_args.push_back(std::move(arg));
         }
@@ -938,41 +938,41 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         add_case(tpl_combo, display_args, call_args, inferred_fixture_types, inferred_fixture_required_scopes, free_call_args);
     };
 
-    std::function<void(std::size_t, const std::vector<std::string> &)> visit_scalars =
-        [&](std::size_t idx, const std::vector<std::string> &tpl_combo) {
-            if (idx == scalar_axes.size()) {
-                emit_case(tpl_combo);
-                return;
-            }
-            for (const auto &nv : scalar_axes[idx]) {
-                const auto prev = set_value(nv.first, nv.second);
-                visit_scalars(idx + 1, tpl_combo);
-                restore_value(nv.first, prev);
-            }
-        };
+    std::function<void(std::size_t, const std::vector<std::string> &)> visit_scalars = [&](std::size_t                     idx,
+                                                                                           const std::vector<std::string> &tpl_combo) {
+        if (idx == scalar_axes.size()) {
+            emit_case(tpl_combo);
+            return;
+        }
+        for (const auto &nv : scalar_axes[idx]) {
+            const auto prev = set_value(nv.first, nv.second);
+            visit_scalars(idx + 1, tpl_combo);
+            restore_value(nv.first, prev);
+        }
+    };
 
-    std::function<void(std::size_t, const std::vector<std::string> &)> visit_packs =
-        [&](std::size_t idx, const std::vector<std::string> &tpl_combo) {
-            if (idx == summary.param_packs.size()) {
-                if (scalar_axes.empty())
-                    emit_case(tpl_combo);
-                else
-                    visit_scalars(0, tpl_combo);
-                return;
+    std::function<void(std::size_t, const std::vector<std::string> &)> visit_packs = [&](std::size_t                     idx,
+                                                                                         const std::vector<std::string> &tpl_combo) {
+        if (idx == summary.param_packs.size()) {
+            if (scalar_axes.empty())
+                emit_case(tpl_combo);
+            else
+                visit_scalars(0, tpl_combo);
+            return;
+        }
+        const auto &pp = summary.param_packs[idx];
+        for (const auto &row : pp.rows) {
+            std::vector<std::pair<std::string, std::optional<std::string>>> prev;
+            prev.reserve(pp.names.size());
+            for (std::size_t i = 0; i < pp.names.size(); ++i) {
+                prev.emplace_back(pp.names[i], set_value(pp.names[i], row[i]));
             }
-            const auto &pp = summary.param_packs[idx];
-            for (const auto &row : pp.rows) {
-                std::vector<std::pair<std::string, std::optional<std::string>>> prev;
-                prev.reserve(pp.names.size());
-                for (std::size_t i = 0; i < pp.names.size(); ++i) {
-                    prev.emplace_back(pp.names[i], set_value(pp.names[i], row[i]));
-                }
-                visit_packs(idx + 1, tpl_combo);
-                for (auto it = prev.rbegin(); it != prev.rend(); ++it) {
-                    restore_value(it->first, it->second);
-                }
+            visit_packs(idx + 1, tpl_combo);
+            for (auto &it : std::ranges::reverse_view(prev)) {
+                restore_value(it.first, it.second);
             }
-        };
+        }
+    };
 
     for (const auto &tpl_combo : combined_tpl_combos) {
         if (summary.param_packs.empty()) {
@@ -988,8 +988,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
 bool TestCaseCollector::has_errors() const { return had_error_; }
 
-FixtureDeclCollector::FixtureDeclCollector(std::vector<FixtureDeclInfo> &out)
-    : out_(out) {}
+FixtureDeclCollector::FixtureDeclCollector(std::vector<FixtureDeclInfo> &out) : out_(out) {}
 
 void FixtureDeclCollector::report(const clang::CXXRecordDecl &decl, const clang::SourceManager &sm, std::string_view message) const {
     const SourceLocation  loc     = sm.getSpellingLoc(decl.getBeginLoc());
@@ -1009,8 +1008,8 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
     if (!record->isThisDeclarationADefinition()) {
         return;
     }
-    const auto *sm = result.SourceManager;
-    auto loc = record->getBeginLoc();
+    const auto *sm  = result.SourceManager;
+    auto        loc = record->getBeginLoc();
     if (loc.isInvalid()) {
         return;
     }
@@ -1043,8 +1042,8 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
         return; // not a shared fixture declaration
     }
 
-    const auto suite_override = find_suite_override(record->getDeclContext(), *sm, suite_cache_, had_error_);
-    const std::string suite_path = suite_override.value_or(derive_namespace_path(record->getDeclContext()));
+    const auto        suite_override = find_suite_override(record->getDeclContext(), *sm, suite_cache_, had_error_);
+    const std::string suite_path     = suite_override.value_or(derive_namespace_path(record->getDeclContext()));
     if (summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
         had_error_ = true;
         report(*record, *sm, "'fixture(suite)' requires an enclosing named namespace to derive a suite path");
@@ -1058,15 +1057,15 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
     info.suite_name      = suite_path;
     info.scope           = (summary.lifetime == FixtureLifetime::MemberSuite) ? FixtureScope::Suite : FixtureScope::Global;
     {
-        const SourceLocation tu_loc = sm->getLocForStartOfFile(sm->getMainFileID());
+        const SourceLocation  tu_loc  = sm->getLocForStartOfFile(sm->getMainFileID());
         const llvm::StringRef tu_file = sm->getFilename(tu_loc);
-        info.tu_filename = tu_file.str();
+        info.tu_filename              = tu_file.str();
     }
     {
-        const SourceLocation file_loc = sm->getFileLoc(record->getLocation());
-        const llvm::StringRef file = sm->getFilename(file_loc);
-        info.filename = file.str();
-        info.line = sm->getSpellingLineNumber(file_loc);
+        const SourceLocation  file_loc = sm->getFileLoc(record->getLocation());
+        const llvm::StringRef file     = sm->getFilename(file_loc);
+        info.filename                  = file.str();
+        info.line                      = sm->getSpellingLineNumber(file_loc);
     }
     out_.push_back(std::move(info));
 }
@@ -1083,7 +1082,7 @@ struct ParsedFixtureType {
 
 struct FixtureLookup {
     std::unordered_map<std::string, std::vector<const FixtureDeclInfo *>> by_base;
-    std::unordered_map<std::string, const FixtureDeclInfo *> by_qualified;
+    std::unordered_map<std::string, const FixtureDeclInfo *>              by_qualified;
 };
 
 std::string trim_copy(std::string_view text) {
@@ -1100,8 +1099,8 @@ std::string trim_copy(std::string_view text) {
 
 ParsedFixtureType parse_fixture_type(std::string_view text) {
     ParsedFixtureType out{};
-    out.full = trim_copy(text);
-    int depth = 0;
+    out.full          = trim_copy(text);
+    int         depth = 0;
     std::size_t split = std::string::npos;
     for (std::size_t i = 0; i < out.full.size(); ++i) {
         char ch = out.full[i];
@@ -1120,7 +1119,7 @@ ParsedFixtureType parse_fixture_type(std::string_view text) {
     if (split == std::string::npos) {
         out.base = trim_copy(out.full);
     } else {
-        out.base = trim_copy(out.full.substr(0, split));
+        out.base   = trim_copy(out.full.substr(0, split));
         out.suffix = out.full.substr(split);
     }
     out.qualified = out.base.find("::") != std::string::npos;
@@ -1149,7 +1148,8 @@ bool is_prefix(const std::vector<std::string> &prefix, const std::vector<std::st
 std::string join_namespace(const std::vector<std::string> &parts) {
     std::string out;
     for (std::size_t i = 0; i < parts.size(); ++i) {
-        if (i) out.append("::");
+        if (i)
+            out.append("::");
         out.append(parts[i]);
     }
     return out;
@@ -1206,19 +1206,16 @@ std::string derive_local_fixture_type_name(const ParsedFixtureType &parsed, cons
 bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures) {
     const auto lookups = build_fixture_lookups(fixtures);
 
-    bool ok = true;
+    bool       ok     = true;
     const auto report = [&](const TestCaseInfo &test, const std::string &message) {
         ok = false;
         log_err("gentest_codegen: {}:{}: {} (test {})\n", test.filename, test.line, message, test.display_name);
     };
     const auto scope_name = [](FixtureScope scope) -> std::string_view {
         switch (scope) {
-            case FixtureScope::Local:
-                return "local";
-            case FixtureScope::Suite:
-                return "suite";
-            case FixtureScope::Global:
-                return "global";
+        case FixtureScope::Local: return "local";
+        case FixtureScope::Suite: return "suite";
+        case FixtureScope::Global: return "global";
         }
         return "unknown";
     };
@@ -1228,10 +1225,10 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
             continue;
         }
         test.free_fixtures.clear();
-        const auto it = lookups.find(test.tu_filename);
+        const auto           it     = lookups.find(test.tu_filename);
         const FixtureLookup *lookup = (it == lookups.end()) ? nullptr : &it->second;
         for (std::size_t fixture_idx = 0; fixture_idx < test.free_fixture_types.size(); ++fixture_idx) {
-            const std::string &raw_type = test.free_fixture_types[fixture_idx];
+            const std::string                &raw_type = test.free_fixture_types[fixture_idx];
             const std::optional<FixtureScope> required_scope =
                 (fixture_idx < test.free_fixture_required_scopes.size()) ? test.free_fixture_required_scopes[fixture_idx] : std::nullopt;
             ParsedFixtureType parsed = parse_fixture_type(raw_type);
@@ -1240,25 +1237,24 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
                 continue;
             }
             const std::string base_no_colons = strip_leading_colons(parsed.base);
-            const auto emit_local = [&](const std::string &qualified_name) {
+            const auto        emit_local     = [&](const std::string &qualified_name) {
                 if (required_scope.has_value()) {
                     report(test,
-                           fmt::format(
+                                      fmt::format(
                                "fixture '{}' is declared as '{}' but resolved as local; ensure the fixture declaration is visible and in "
-                               "an ancestor namespace",
+                                          "an ancestor namespace",
                                parsed.full, scope_name(*required_scope)));
                     return;
                 }
                 FreeFixtureUse use{};
                 use.type_name = qualified_name;
-                use.scope = FixtureScope::Local;
+                use.scope     = FixtureScope::Local;
                 test.free_fixtures.push_back(std::move(use));
             };
             const auto emit_declared = [&](const FixtureDeclInfo *decl) {
                 if (required_scope.has_value() && decl->scope != *required_scope) {
-                    report(test,
-                           fmt::format("fixture '{}' declared as '{}' but resolved as '{}' via '{}'", parsed.full,
-                                       scope_name(*required_scope), scope_name(decl->scope), decl->qualified_name));
+                    report(test, fmt::format("fixture '{}' declared as '{}' but resolved as '{}' via '{}'", parsed.full,
+                                             scope_name(*required_scope), scope_name(decl->scope), decl->qualified_name));
                     return;
                 }
                 FreeFixtureUse use{};

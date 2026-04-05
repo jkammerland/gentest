@@ -2472,9 +2472,35 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_coverage_report_script_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCoverageReportScriptContract.cmake
+    contract)
+set_property(TEST gentest_coverage_report_script_contract APPEND PROPERTY LABELS "contract" "docs")
+
+_gentest_add_cmake_helper_test(
+    gentest_coverage_report_script_smoke
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCoverageReportScriptSmoke.cmake
+    contract)
+set_property(TEST gentest_coverage_report_script_smoke APPEND PROPERTY LABELS "contract")
+
+_gentest_add_cmake_helper_test(
     gentest_diagnostic_workflow_lanes
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckDiagnosticWorkflowLanes.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_clang_tidy_script_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckClangTidyScriptContract.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_clang_tidy_arguments_materialization
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckClangTidyArgumentsMaterialization.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(
@@ -2556,6 +2582,33 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake
     cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_bazel_helpers_use_configured_toolchain
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBazelHelperConfiguredToolchain.cmake
+    contract)
+
+_gentest_add_cmake_helper_test(
+    gentest_bazel_module_embed_flag_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckBazelModuleEmbedFlagContract.cmake
+    contract)
+set_property(TEST gentest_bazel_module_embed_flag_contract APPEND PROPERTY LABELS "bazel" "modules" "contract")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_doc_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckModuleDocContract.cmake
+    contract)
+set_property(TEST gentest_module_doc_contract APPEND PROPERTY LABELS "modules" "docs")
+
+_gentest_add_cmake_helper_test(
+    gentest_syntax_sensitive_regression_fixtures
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckSyntaxSensitiveRegressionFixtures.cmake
+    contract)
+set_property(TEST gentest_syntax_sensitive_regression_fixtures APPEND PROPERTY LABELS "modules" "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_non_cmake_module_contract

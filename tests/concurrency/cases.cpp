@@ -77,13 +77,11 @@ void mock_adopt_dispatch() {
 
     gentest::mock<mocking::Ticker> mock_tick;
     std::atomic<int>               sum{0};
-    EXPECT_CALL(mock_tick, tick).times(kExpectedInvokes).invokes([&](int value) {
-        sum.fetch_add(value, std::memory_order_relaxed);
-    });
+    EXPECT_CALL(mock_tick, tick).times(kExpectedInvokes).invokes([&](int value) { sum.fetch_add(value, std::memory_order_relaxed); });
 
-    auto                tok = gentest::ctx::current();
-    std::latch          ready(kThreads);
-    std::latch          start(1);
+    auto                     tok = gentest::ctx::current();
+    std::latch               ready(kThreads);
+    std::latch               start(1);
     std::vector<std::thread> threads;
     threads.reserve(kThreads);
     for (int i = 0; i < kThreads; ++i) {

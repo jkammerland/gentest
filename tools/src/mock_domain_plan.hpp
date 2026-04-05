@@ -31,10 +31,10 @@ struct MockOutputDomainPlan {
 
     domains.push_back(MockOutputDomainPlan{
         .kind          = MockOutputDomainPlan::Kind::Header,
-        .registry_path = options.mock_registry_path.empty() ? std::filesystem::path{} :
-                                                         make_mock_domain_output_path(options.mock_registry_path, 0, "header"),
-        .impl_path     = options.mock_impl_path.empty() ? std::filesystem::path{} :
-                                                     make_mock_domain_output_path(options.mock_impl_path, 0, "header"),
+        .registry_path = options.mock_registry_path.empty() ? std::filesystem::path{}
+                                                            : make_mock_domain_output_path(options.mock_registry_path, 0, "header"),
+        .impl_path =
+            options.mock_impl_path.empty() ? std::filesystem::path{} : make_mock_domain_output_path(options.mock_impl_path, 0, "header"),
     });
 
     if (options.mock_registry_path.empty() || options.mock_impl_path.empty()) {
@@ -45,8 +45,7 @@ struct MockOutputDomainPlan {
     std::size_t           idx = 1;
     for (const auto &source : options.sources) {
         std::optional<std::string> module_name;
-        if (const auto it = options.module_interface_names_by_source.find(source);
-            it != options.module_interface_names_by_source.end()) {
+        if (const auto it = options.module_interface_names_by_source.find(source); it != options.module_interface_names_by_source.end()) {
             module_name = it->second;
         } else {
             module_name = scan::named_module_name_from_source_file(std::filesystem::path(source));

@@ -185,6 +185,72 @@ if(NOT _installed_staged_support)
   message(FATAL_ERROR "Expected installed staged support headers under '${_install_prefix}/include/defs/deps', but none were found")
 endif()
 
+set(_installed_textual_staged_defs)
+foreach(_installed_staged_def IN LISTS _installed_staged_defs)
+  if(_installed_staged_def MATCHES "_header_mocks\\.hpp$")
+    list(APPEND _installed_textual_staged_defs "${_installed_staged_def}")
+  endif()
+endforeach()
+if(NOT _installed_textual_staged_defs)
+  message(FATAL_ERROR
+    "Expected an installed staged explicit mock defs header under '${_install_prefix}/include/defs', but none matched '*_header_mocks.hpp'.")
+endif()
+list(GET _installed_textual_staged_defs 0 _installed_textual_staged_defs_file)
+
+file(READ "${_installed_textual_staged_defs_file}" _installed_textual_defs_content)
+foreach(_forbidden IN ITEMS
+    "<fixture/a+b.hpp>"
+    "<fixture/generated_support.hpp>"
+    "<fixture/service.hpp>")
+  string(FIND "${_installed_textual_defs_content}" "${_forbidden}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Installed staged explicit mock defs should not retain original fixture includes.\n"
+      "Found '${_forbidden}' in ${_installed_textual_staged_defs_file}.")
+  endif()
+endforeach()
+foreach(_expected_regex IN ITEMS
+    "#include \"deps/[^\"]+_a\\+b\\.hpp\""
+    "#include \"deps/[^\"]+_generated_support\\.hpp\""
+    "#include \"deps/[^\"]+_service\\.hpp\"")
+  string(REGEX MATCH "${_expected_regex}" _expected_match "${_installed_textual_defs_content}")
+  if(_expected_match STREQUAL "")
+    message(FATAL_ERROR
+      "Installed staged explicit mock defs must rewrite support includes into deps/ copies.\n"
+      "Missing regex '${_expected_regex}' in ${_installed_textual_staged_defs_file}.")
+  endif()
+endforeach()
+
+file(GLOB _installed_module_wrappers "${_install_prefix}/include/tu_*.module.gentest.cppm")
+if(NOT _installed_module_wrappers)
+  message(FATAL_ERROR "Expected installed staged module wrappers under '${_install_prefix}/include', but none were found")
+endif()
+set(_installed_module_wrapper_content "")
+foreach(_installed_module_wrapper IN LISTS _installed_module_wrappers)
+  file(READ "${_installed_module_wrapper}" _module_wrapper_fragment)
+  string(APPEND _installed_module_wrapper_content "\n" "${_module_wrapper_fragment}")
+endforeach()
+foreach(_forbidden IN ITEMS
+    "<fixture/a+b.hpp>"
+    "<fixture/module_support.hpp>")
+  string(FIND "${_installed_module_wrapper_content}" "${_forbidden}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Installed staged module wrappers should not retain original fixture includes.\n"
+      "Found '${_forbidden}' under '${_install_prefix}/include/tu_*.module.gentest.cppm'.")
+  endif()
+endforeach()
+foreach(_expected_regex IN ITEMS
+    "#include \"deps/[^\"]+_a\\+b\\.hpp\""
+    "#include \"deps/[^\"]+_module_support\\.hpp\"")
+  string(REGEX MATCH "${_expected_regex}" _expected_match "${_installed_module_wrapper_content}")
+  if(_expected_match STREQUAL "")
+    message(FATAL_ERROR
+      "Installed staged module wrappers must rewrite support includes into deps/ copies.\n"
+      "Missing regex '${_expected_regex}' under '${_install_prefix}/include/tu_*.module.gentest.cppm'.")
+  endif()
+endforeach()
+
 message(STATUS "Configure explicit mock target downstream consumer...")
 gentest_check_run_or_fail(
   COMMAND

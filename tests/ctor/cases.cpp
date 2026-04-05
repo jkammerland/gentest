@@ -13,9 +13,11 @@ struct Thrower {
 };
 
 // Free-function fixtures: constructor throws
-struct FreeFx { FreeFx() { throw std::runtime_error("free-fx-ctor"); } };
+struct FreeFx {
+    FreeFx() { throw std::runtime_error("free-fx-ctor"); }
+};
 [[using gentest: test("free_fixtures")]]
-void free_uses_throwing_fixture(FreeFx&) {}
+void free_uses_throwing_fixture(FreeFx &) {}
 
 // Suite-level fixture with throwing constructor
 struct [[using gentest: fixture(suite)]] BadSuite {

@@ -50,3 +50,15 @@ target_link_libraries(explicit_late_link_consumer PRIVATE gentest_main)
 gentest_attach_codegen(explicit_late_link_consumer
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/late_link")
 gentest_link_mocks(explicit_late_link_consumer PRIVATE explicit_header_mocks)
+
+add_executable(explicit_late_link_module_consumer
+    late_link_module_main.cpp)
+target_sources(explicit_late_link_module_consumer
+    PRIVATE
+        FILE_SET explicit_late_link_module_cases TYPE CXX_MODULES FILES
+            ${CMAKE_CURRENT_SOURCE_DIR}/late_link_module_cases.cppm)
+target_link_libraries(explicit_late_link_module_consumer PRIVATE gentest gentest_runtime)
+target_compile_features(explicit_late_link_module_consumer PRIVATE cxx_std_20)
+gentest_attach_codegen(explicit_late_link_module_consumer
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/late_link_module")
+gentest_link_mocks(explicit_late_link_module_consumer PRIVATE explicit_module_mocks)

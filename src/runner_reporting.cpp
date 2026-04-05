@@ -202,8 +202,8 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             ex["message"]        = it.skip_reason;
             obj["statusDetails"] = std::move(ex);
         }
-        boost::json::array attachments;
-        bool               has_attachments = false;
+        boost::json::array       attachments;
+        bool                     has_attachments = false;
         std::vector<std::string> used_stems{"result"};
         if (!it.logs.empty()) {
             const std::string attachment_name = "result-" + std::to_string(static_cast<unsigned>(idx)) + "-attachment.txt";
@@ -294,11 +294,7 @@ std::vector<PendingAllureFile> select_writable_allure_files(RunAccumulator &acc,
         if (std::find(blocked_paths.begin(), blocked_paths.end(), path_string) != blocked_paths.end()) {
             continue;
         }
-        if (!preflight_output_file(
-                [&](std::string message) {
-                    record_allure_failure(acc, std::move(message));
-                },
-                file.path, file.label)) {
+        if (!preflight_output_file([&](std::string message) { record_allure_failure(acc, std::move(message)); }, file.path, file.label)) {
             blocked_paths.push_back(path_string);
             continue;
         }
@@ -319,13 +315,14 @@ bool write_allure_files(RunAccumulator &acc, const std::vector<PendingAllureFile
 #endif
 } // namespace
 
-void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues, std::string_view file, unsigned line) {
+void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues, std::string_view file,
+                            unsigned line) {
     if (issues.empty())
         issues.emplace_back("failure (no details)");
     acc.failure_items.push_back(FailureSummary{
-        .name = std::string(name),
-        .file = std::string(file),
-        .line = line,
+        .name   = std::string(name),
+        .file   = std::string(file),
+        .line   = line,
         .issues = std::move(issues),
     });
 }
@@ -379,7 +376,7 @@ void emit_github_annotations(const RunAccumulator &acc) {
 }
 
 bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
-    bool report_ok = true;
+    bool report_ok   = true;
     bool junit_ready = cfg.junit_path != nullptr;
 
     const auto write_junit_report = [&] {
@@ -388,8 +385,7 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
         }
         std::ofstream out(cfg.junit_path, std::ios::binary);
         if (!out) {
-            record_runner_level_failure(acc, "gentest/reporting/junit",
-                                        fmt::format("failed to open JUnit report: {}", cfg.junit_path));
+            record_runner_level_failure(acc, "gentest/reporting/junit", fmt::format("failed to open JUnit report: {}", cfg.junit_path));
             report_ok = false;
             return;
         }
@@ -404,15 +400,15 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
                 ++total_fail;
         }
         out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-        out << "<testsuite name=\"gentest\" tests=\"" << total_tests << "\" failures=\"" << total_fail << "\" skipped=\"" << total_skip
+        out << R"(<testsuite name="gentest" tests=")" << total_tests << "\" failures=\"" << total_fail << "\" skipped=\"" << total_skip
             << "\" errors=\"" << total_err << "\">\n";
         for (const auto &it : acc.report_items) {
-            out << "  <testcase classname=\"" << escape_xml(it.suite) << "\" name=\"" << escape_xml(it.name) << "\" time=\""
-                << it.time_s << "\">\n";
+            out << "  <testcase classname=\"" << escape_xml(it.suite) << "\" name=\"" << escape_xml(it.name) << "\" time=\"" << it.time_s
+                << "\">\n";
             if (!it.requirements.empty()) {
                 out << "    <properties>\n";
                 for (const auto &req : it.requirements) {
-                    out << "      <property name=\"requirement\" value=\"" << escape_xml(req) << "\"/>\n";
+                    out << R"(      <property name="requirement" value=")" << escape_xml(req) << "\"/>\n";
                 }
                 out << "    </properties>\n";
             }
@@ -444,15 +440,14 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
         out << "</testsuite>\n";
         out.flush();
         if (!out) {
-            record_runner_level_failure(acc, "gentest/reporting/junit",
-                                        fmt::format("failed to write JUnit report: {}", cfg.junit_path));
+            record_runner_level_failure(acc, "gentest/reporting/junit", fmt::format("failed to write JUnit report: {}", cfg.junit_path));
             report_ok = false;
         }
     };
 
 #ifdef GENTEST_USE_BOOST_JSON
-    std::filesystem::path allure_dir{};
-    bool                  allure_ready = cfg.allure_dir != nullptr;
+    std::filesystem::path          allure_dir{};
+    bool                           allure_ready = cfg.allure_dir != nullptr;
     std::vector<PendingAllureFile> pending_allure_files;
     std::vector<PendingAllureFile> writable_allure_files;
     std::vector<std::string>       blocked_allure_paths;
@@ -462,12 +457,12 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
         std::filesystem::create_directories(allure_dir, ec);
         if (ec) {
             record_allure_failure(acc, fmt::format("failed to prepare Allure report directory: {} ({})", cfg.allure_dir, ec.message()));
-            report_ok = false;
+            report_ok    = false;
             allure_ready = false;
         } else {
             const std::size_t infra_errors_before_allure = acc.infra_errors.size();
-            pending_allure_files = build_pending_allure_files(acc, allure_dir);
-            writable_allure_files = select_writable_allure_files(acc, pending_allure_files, blocked_allure_paths);
+            pending_allure_files                         = build_pending_allure_files(acc, allure_dir);
+            writable_allure_files                        = select_writable_allure_files(acc, pending_allure_files, blocked_allure_paths);
             if (!blocked_allure_paths.empty()) {
                 report_ok = false;
             }
@@ -486,16 +481,14 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
         const std::size_t infra_errors_before_junit = acc.infra_errors.size();
 #endif
         if (!preflight_output_file(
-                [&](std::string message) {
-                    record_runner_level_failure(acc, "gentest/reporting/junit", std::move(message));
-                },
+                [&](std::string message) { record_runner_level_failure(acc, "gentest/reporting/junit", std::move(message)); },
                 cfg.junit_path, "JUnit report")) {
-            report_ok    = false;
-            junit_ready  = false;
+            report_ok   = false;
+            junit_ready = false;
         }
 #ifdef GENTEST_USE_BOOST_JSON
         if (cfg.allure_dir && allure_ready && acc.infra_errors.size() != infra_errors_before_junit) {
-            pending_allure_files = build_pending_allure_files(acc, allure_dir);
+            pending_allure_files  = build_pending_allure_files(acc, allure_dir);
             writable_allure_files = select_writable_allure_files(acc, pending_allure_files, blocked_allure_paths);
         }
 #endif

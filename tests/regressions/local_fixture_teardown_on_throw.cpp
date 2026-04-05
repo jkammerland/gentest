@@ -1,7 +1,7 @@
+#include "gentest/runner.h"
+
 #include <cstdlib>
 #include <stdexcept>
-
-#include "gentest/runner.h"
 
 namespace regressions::local_teardown {
 

@@ -62,6 +62,22 @@ function(run_matrix_case _label _prog _expect_rc _expect_summary _expect_junit)
   if(_junit_pos EQUAL -1)
     message(FATAL_ERROR "${_label}: expected JUnit substring not found: '${_expect_junit}'. File:\n${_junit_content}")
   endif()
+
+  if(_label STREQUAL "infra_skip_test")
+    string(FIND "${_junit_content}"
+      "<skipped message=\"shared fixture unavailable for 'regressions::shared_setup_skip::NullGlobalFx': fixture allocation returned null\"/>"
+      _global_skip_pos)
+    if(_global_skip_pos EQUAL -1)
+      message(FATAL_ERROR "${_label}: expected global-case <skipped .../> element not found. File:\n${_junit_content}")
+    endif()
+
+    string(FIND "${_junit_content}"
+      "<skipped message=\"shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null\"/>"
+      _suite_skip_pos)
+    if(_suite_skip_pos EQUAL -1)
+      message(FATAL_ERROR "${_label}: expected suite-case <skipped .../> element not found. File:\n${_junit_content}")
+    endif()
+  endif()
 endfunction()
 
 run_matrix_case(

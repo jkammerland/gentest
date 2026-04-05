@@ -94,22 +94,15 @@ void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestC
 }
 
 void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string_view default_skip_reason,
-                                 bool &had_assert_fail) {
+                                 const std::string &assertion_fallback, bool &had_assert_fail) {
     wait_and_flush_test_context(ctxinfo);
-    if (had_assert_fail)
-        return;
-
     bool        runtime_skip_requested = false;
     std::string runtime_skip_reason;
-    std::string first_failure;
     {
         std::scoped_lock lk(ctxinfo->mtx);
         runtime_skip_requested = ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
         if (runtime_skip_requested) {
             runtime_skip_reason = ctxinfo->runtime_skip_reason;
-        }
-        if (!ctxinfo->failures.empty()) {
-            first_failure = ctxinfo->failures.front();
         }
     }
     if (runtime_skip_requested) {
@@ -121,8 +114,14 @@ void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestCont
         had_assert_fail = true;
         return;
     }
+    std::string first_failure = gentest::detail::first_recorded_failure(ctxinfo);
     if (!first_failure.empty()) {
         gentest::detail::record_bench_error(std::move(first_failure));
+        had_assert_fail = true;
+        return;
+    }
+    if (!assertion_fallback.empty()) {
+        gentest::detail::record_bench_error(std::string(assertion_fallback));
         had_assert_fail = true;
     }
 }
@@ -138,6 +137,7 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
     gentest::detail::BenchPhaseScope bench_scope(gentest::detail::BenchPhase::Call);
     auto                             start = clock::now();
     had_assert_fail                        = false;
+    std::string assertion_fallback;
     try {
         body();
     } catch (const gentest::detail::skip_exception &) {
@@ -146,8 +146,8 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
         had_assert_fail = true;
     } catch (const gentest::assertion &e) {
         on_interrupted();
-        gentest::detail::record_bench_error(e.message());
-        had_assert_fail = true;
+        assertion_fallback = e.message();
+        had_assert_fail    = true;
     } catch (const gentest::failure &e) {
         on_interrupted();
         gentest::detail::record_bench_error(e.what());
@@ -161,7 +161,7 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
         gentest::detail::record_bench_error("unknown exception");
         had_assert_fail = true;
     }
-    finalize_call_phase_failure(ctxinfo, default_skip_reason, had_assert_fail);
+    finalize_call_phase_failure(ctxinfo, default_skip_reason, assertion_fallback, had_assert_fail);
     auto end        = clock::now();
     ctxinfo->active = false;
     gentest::detail::set_current_test(nullptr);
@@ -170,7 +170,7 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail) {
-    iterations_done                        = 0;
+    iterations_done = 0;
     return run_call_phase_with_context(
         c, "skip requested during benchmark call phase",
         [&] {
@@ -179,8 +179,7 @@ double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std
                 iterations_done = i + 1;
             }
         },
-        [] {},
-        had_assert_fail);
+        [] {}, had_assert_fail);
 }
 
 CalibratedEpoch calibrate_epoch_iterations(const gentest::Case &c, void *ctx, const BenchConfig &cfg) {
@@ -216,8 +215,8 @@ double run_warmup_epochs(const gentest::Case &c, void *ctx, std::size_t iters, s
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail,
                               std::vector<double> &samples_ns) {
-    using clock      = std::chrono::steady_clock;
-    iterations_done  = 0;
+    using clock     = std::chrono::steady_clock;
+    iterations_done = 0;
     return run_call_phase_with_context(
         c, "skip requested during jitter call phase",
         [&] {
@@ -229,13 +228,12 @@ double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t ite
                 iterations_done = i + 1;
             }
         },
-        [] {},
-        had_assert_fail);
+        [] {}, had_assert_fail);
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 double run_jitter_batch_epoch_calls(const gentest::Case &c, void *ctx, std::size_t batch_iters, std::size_t batch_samples,
-                                    std::size_t &iterations_done, bool &had_assert_fail, std::vector<double> &samples_ns) { // NOLINT(bugprone-easily-swappable-parameters)
+                                    std::size_t &iterations_done, bool &had_assert_fail, std::vector<double> &samples_ns) {
     using clock             = std::chrono::steady_clock;
     iterations_done         = 0;
     std::size_t local_done  = 0;
@@ -270,6 +268,7 @@ double run_jitter_batch_epoch_calls(const gentest::Case &c, void *ctx, std::size
         },
         had_assert_fail);
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 OverheadEstimate estimate_timer_overhead_per_iter(std::size_t sample_count) {
     using clock = std::chrono::steady_clock;
@@ -319,10 +318,10 @@ OverheadEstimate estimate_timer_overhead_batch(std::size_t sample_count, std::si
     return est;
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::BenchPhase phase, std::string &error,
-                           bool &allocation_failure, bool &runtime_skipped, std::string &skip_reason, // NOLINT(bugprone-easily-swappable-parameters)
-                           gentest::detail::TestContextInfo::RuntimeSkipKind &runtime_skip_kind) { // NOLINT(bugprone-easily-swappable-parameters)
+                           bool &allocation_failure, bool &runtime_skipped, std::string &skip_reason,
+                           gentest::detail::TestContextInfo::RuntimeSkipKind &runtime_skip_kind) {
     error.clear();
     skip_reason.clear();
     allocation_failure = false;
@@ -339,6 +338,7 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
     case gentest::runner::InvokeException::StdException:
     case gentest::runner::InvokeException::Unknown: error = inv.message; break;
     }
+    const std::string first_failure = gentest::detail::first_recorded_failure(ctxinfo);
     {
         std::lock_guard<std::mutex> lk(ctxinfo->mtx);
         const bool                  skip_requested = ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
@@ -350,21 +350,26 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
             runtime_skipped = false;
             error           = "skip requested without active runtime skip state";
         }
-        if (!runtime_skipped && error.empty() && !ctxinfo->failures.empty()) {
-            error = ctxinfo->failures.front();
-        }
+    }
+    if (!first_failure.empty() && (inv.exception == gentest::runner::InvokeException::Assertion || error.empty())) {
+        error = first_failure;
+    }
+    if (!error.empty()) {
+        runtime_skipped = false;
+    }
+    if (gentest::detail::has_bench_error()) {
+        error              = gentest::detail::take_bench_error();
+        allocation_failure = true;
+        runtime_skipped    = false;
+        return false;
     }
     if (runtime_skipped)
         return false;
     if (!error.empty())
         return false;
-    if (gentest::detail::has_bench_error()) {
-        error              = gentest::detail::take_bench_error();
-        allocation_failure = true;
-        return false;
-    }
     return true;
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg) {
     BenchResult br{};
@@ -426,8 +431,8 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
     std::size_t  done        = calibration.completed;
     std::size_t  epoch_count = 0;
     const double calib_s     = calibration.elapsed_s;
-    jr.calibration_time_s = calib_s;
-    jr.calibration_iters  = iters;
+    jr.calibration_time_s    = calib_s;
+    jr.calibration_iters     = iters;
 
     const std::size_t      calib_iters        = done ? done : iters;
     const double           real_ns_per_iter   = (calib_iters > 0) ? (ns_from_s(calib_s) / static_cast<double>(calib_iters)) : 0.0;
@@ -499,6 +504,18 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
 
 template <typename Result, typename CallFn>
 bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_result, MeasurementCaseFailure &out_failure) {
+    using clock = std::chrono::steady_clock;
+
+    const auto case_start         = clock::now();
+    const auto stamp_failure_time = [&] {
+        const double elapsed_s  = std::chrono::duration<double>(clock::now() - case_start).count();
+        const double floor_time = std::chrono::duration<double>(clock::duration{1}).count();
+        out_failure.time_s      = std::max({out_failure.time_s, out_result.wall_time_s, elapsed_s});
+        if (out_failure.time_s <= 0.0) {
+            out_failure.time_s = floor_time;
+        }
+    };
+
     void       *ctx = nullptr;
     std::string reason;
     if (!gentest::runner::acquire_case_fixture(c, ctx, reason)) {
@@ -513,15 +530,16 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
         out_failure.skipped       = true;
         out_failure.infra_failure = true;
         out_failure.phase         = "allocation";
+        stamp_failure_time();
         return false;
     }
 
     struct MeasurementPhaseResult {
-        bool   ok                 = false;
-        bool   allocation_failure = false;
-        bool   runtime_skipped    = false;
-        std::string reason;
-        std::string skip_reason;
+        bool                                              ok                 = false;
+        bool                                              allocation_failure = false;
+        bool                                              runtime_skipped    = false;
+        std::string                                       reason;
+        std::string                                       skip_reason;
         gentest::detail::TestContextInfo::RuntimeSkipKind skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
     };
 
@@ -536,35 +554,36 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
         const MeasurementPhaseResult teardown_after_setup = run_phase(gentest::detail::BenchPhase::Teardown);
         if (!teardown_after_setup.ok) {
             if (setup_phase.runtime_skipped && teardown_after_setup.runtime_skipped) {
-                const std::string setup_issue = setup_phase.skip_reason.empty() ? std::string("setup requested skip") : setup_phase.skip_reason;
+                const std::string setup_issue =
+                    setup_phase.skip_reason.empty() ? std::string("setup requested skip") : setup_phase.skip_reason;
                 const std::string teardown_issue =
                     teardown_after_setup.skip_reason.empty() ? std::string("teardown requested skip") : teardown_after_setup.skip_reason;
-                out_failure.reason = (setup_issue == teardown_issue)
-                                         ? setup_issue
-                                         : fmt::format("{}; teardown: {}", setup_issue, teardown_issue);
-                out_failure.skipped       = true;
-                out_failure.infra_failure = (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) ||
-                                            (teardown_after_setup.skip_kind ==
-                                             gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
-                out_failure.phase         = "setup+teardown";
+                out_failure.reason =
+                    (setup_issue == teardown_issue) ? setup_issue : fmt::format("{}; teardown: {}", setup_issue, teardown_issue);
+                out_failure.skipped = true;
+                out_failure.infra_failure =
+                    (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) ||
+                    (teardown_after_setup.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+                out_failure.phase = "setup+teardown";
+                stamp_failure_time();
                 return false;
             }
-            const std::string setup_issue = setup_phase.runtime_skipped
-                                                ? (setup_phase.skip_reason.empty() ? std::string("setup requested skip")
-                                                                                   : setup_phase.skip_reason)
-                                                : (setup_phase.reason.empty() ? std::string("setup failed") : setup_phase.reason);
+            const std::string setup_issue =
+                setup_phase.runtime_skipped
+                    ? (setup_phase.skip_reason.empty() ? std::string("setup requested skip") : setup_phase.skip_reason)
+                    : (setup_phase.reason.empty() ? std::string("setup failed") : setup_phase.reason);
             const std::string teardown_issue =
                 teardown_after_setup.runtime_skipped
-                    ? (teardown_after_setup.skip_reason.empty() ? std::string("teardown requested skip")
-                                                                : teardown_after_setup.skip_reason)
+                    ? (teardown_after_setup.skip_reason.empty() ? std::string("teardown requested skip") : teardown_after_setup.skip_reason)
                     : (teardown_after_setup.reason.empty() ? std::string("teardown failed") : teardown_after_setup.reason);
-            out_failure.reason = fmt::format("setup issue: {}; teardown issue: {}", setup_issue, teardown_issue);
+            out_failure.reason             = fmt::format("setup issue: {}; teardown issue: {}", setup_issue, teardown_issue);
             out_failure.allocation_failure = setup_phase.allocation_failure || teardown_after_setup.allocation_failure;
             out_failure.skipped            = false;
-            out_failure.infra_failure      = (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) ||
-                                        (teardown_after_setup.skip_kind ==
-                                         gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.infra_failure =
+                (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) ||
+                (teardown_after_setup.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
             out_failure.phase = "setup+teardown";
+            stamp_failure_time();
             return false;
         }
 
@@ -573,15 +592,18 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
             out_failure.skipped       = true;
             out_failure.infra_failure = (setup_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
             out_failure.phase         = "setup";
+            stamp_failure_time();
             return false;
         }
         out_failure.reason             = setup_phase.reason;
         out_failure.allocation_failure = setup_phase.allocation_failure;
         out_failure.phase              = "setup";
+        stamp_failure_time();
         return false;
     }
 
-    out_result = run_call(c, ctx);
+    out_result         = run_call(c, ctx);
+    out_failure.time_s = out_result.wall_time_s;
 
     std::string call_error;
     if (gentest::detail::has_bench_error()) {
@@ -600,18 +622,22 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
             out_failure.skipped            = false;
             out_failure.infra_failure = (teardown_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
             out_failure.phase         = "call+teardown";
+            stamp_failure_time();
             return false;
         }
         if (teardown_phase.runtime_skipped) {
             out_failure.reason = teardown_phase.skip_reason.empty() ? std::string("teardown requested skip") : teardown_phase.skip_reason;
             out_failure.allocation_failure = false;
-            out_failure.infra_failure      = (teardown_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
-            out_failure.phase              = "teardown";
+            out_failure.skipped            = true;
+            out_failure.infra_failure = (teardown_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+            out_failure.phase         = "teardown";
+            stamp_failure_time();
             return false;
         }
         out_failure.reason             = teardown_phase.reason;
         out_failure.allocation_failure = teardown_phase.allocation_failure;
         out_failure.phase              = "teardown";
+        stamp_failure_time();
         return false;
     }
 
@@ -619,6 +645,7 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
         out_failure.reason             = std::move(call_error);
         out_failure.allocation_failure = false;
         out_failure.phase              = "call";
+        stamp_failure_time();
         return false;
     }
 
@@ -642,11 +669,15 @@ std::string format_measured_fixture_failure_message(std::string_view kind_label,
     }
 }
 
-void report_measured_case_skip(const gentest::Case &c, std::string_view reason) {
+void report_measured_case_skip(const gentest::Case &c, std::string_view reason, double time_s) {
+    long long duration_ms = std::llround(time_s * 1000.0);
+    if (time_s > 0.0 && duration_ms == 0) {
+        duration_ms = 1;
+    }
     if (!reason.empty()) {
-        fmt::print("[ SKIP ] {} :: {} (0 ms)\n", c.name, reason);
+        fmt::print("[ SKIP ] {} :: {} ({} ms)\n", c.name, reason, duration_ms);
     } else {
-        fmt::print("[ SKIP ] {} (0 ms)\n", c.name);
+        fmt::print("[ SKIP ] {} ({} ms)\n", c.name, duration_ms);
     }
 }
 
@@ -661,7 +692,7 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
         ++status.total;
         if (!run_measured_case(c, run_call, result, failure)) {
             if (failure.skipped && !failure.infra_failure) {
-                report_measured_case_skip(c, failure.reason);
+                report_measured_case_skip(c, failure.reason, failure.time_s);
                 on_failure(c, failure, {});
                 ++status.skipped;
                 continue;
@@ -673,7 +704,12 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
             status.ok = false;
             ++status.failed;
             if (fail_fast)
-                return TimedRunStatus{.ok = false, .stopped = true, .total = status.total, .passed = status.passed, .skipped = status.skipped, .failed = status.failed};
+                return TimedRunStatus{.ok      = false,
+                                      .stopped = true,
+                                      .total   = status.total,
+                                      .passed  = status.passed,
+                                      .skipped = status.skipped,
+                                      .failed  = status.failed};
             continue;
         }
         on_success(c, std::move(result));

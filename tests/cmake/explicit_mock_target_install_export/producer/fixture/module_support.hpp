@@ -2,7 +2,6 @@
 
 namespace fixture::detail {
 
-struct ModuleServiceBase {
-};
+struct ModuleServiceBase {};
 
 } // namespace fixture::detail

@@ -11,5 +11,5 @@ struct Sink {
 };
 } // namespace badmpp
 
-using SinkMock = gentest::mock<badmpp::Sink>;
+using SinkMock                                 = gentest::mock<badmpp::Sink>;
 [[maybe_unused]] inline SinkMock *kSinkMockPtr = nullptr;

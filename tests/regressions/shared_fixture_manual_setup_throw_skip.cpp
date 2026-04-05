@@ -12,7 +12,7 @@ std::shared_ptr<void> create_fixture(std::string_view, std::string &) { return s
 
 void setup_throw(void *, std::string &) { throw std::runtime_error("manual-setup-throw"); }
 
-void teardown_marker(void *, std::string &) { std::fputs("manual-setup-teardown-ran\n", stderr); }
+void teardown_marker(void *, std::string &) { (void)std::fputs("manual-setup-teardown-ran\n", stderr); }
 
 void noop_case(void *) {}
 
