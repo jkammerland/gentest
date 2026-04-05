@@ -111,10 +111,16 @@ gentest_check_run_or_fail(
   OUTPUT_VARIABLE _build_out)
 
 if(DEFINED TSAN_BUILD AND TSAN_BUILD)
-  string(FIND "${_build_out}" "gentest_codegen: forcing serial multi-TU parse (thread-sanitized gentest_codegen)" _tsan_serial_parse_pos)
-  if(_tsan_serial_parse_pos EQUAL -1)
+  string(FIND "${_build_out}" "gentest_codegen: using multi-TU parse jobs=" _tsan_parallel_parse_pos)
+  if(_tsan_parallel_parse_pos EQUAL -1)
     message(FATAL_ERROR
-      "Expected TSAN-instrumented gentest_codegen to force serial multi-TU parse.\n"
+      "Expected TSAN-instrumented gentest_codegen to keep multi-TU parse parallel.\n"
+      "Build output:\n${_build_out}")
+  endif()
+  string(FIND "${_build_out}" "gentest_codegen: forcing serial multi-TU parse" _tsan_serial_parse_pos)
+  if(NOT _tsan_serial_parse_pos EQUAL -1)
+    message(FATAL_ERROR
+      "TSAN build unexpectedly forced serial multi-TU parse.\n"
       "Build output:\n${_build_out}")
   endif()
 endif()

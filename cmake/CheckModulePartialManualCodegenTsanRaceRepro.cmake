@@ -31,7 +31,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 if(NOT DEFINED TSAN_BUILD OR NOT TSAN_BUILD)
-  gentest_skip_test("TSAN codegen race reproducer: top-level build is not ThreadSanitizer-instrumented")
+  gentest_skip_test("TSAN codegen parallel-parse stress: top-level build is not ThreadSanitizer-instrumented")
   return()
 endif()
 
@@ -44,18 +44,18 @@ file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
-  gentest_skip_test("TSAN codegen race reproducer: clang/clang++ not found")
+  gentest_skip_test("TSAN codegen parallel-parse stress: clang/clang++ not found")
   return()
 endif()
 
 if(NOT (GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config"))
-  gentest_skip_test("TSAN codegen race reproducer: Ninja generator required")
+  gentest_skip_test("TSAN codegen parallel-parse stress: Ninja generator required")
   return()
 endif()
 
 gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
 if(NOT _supported_ninja)
-  gentest_skip_test("TSAN codegen race reproducer: ${_supported_ninja_reason}")
+  gentest_skip_test("TSAN codegen parallel-parse stress: ${_supported_ninja_reason}")
   return()
 endif()
 
@@ -132,14 +132,13 @@ while(1)
     ERROR_STRIP_TRAILING_WHITESPACE)
   if(NOT _clean_rc EQUAL 0)
     message(FATAL_ERROR
-      "TSAN codegen race reproducer: failed to clean codegen outputs before iteration ${_iteration}.\n"
+      "TSAN codegen parallel-parse stress: failed to clean codegen outputs before iteration ${_iteration}.\n"
       "--- stdout ---\n${_clean_out}\n--- stderr ---\n${_clean_err}")
   endif()
 
   execute_process(
     COMMAND
       "${CMAKE_COMMAND}" -E env
-        GENTEST_CODEGEN_ALLOW_TSAN_PARALLEL_PARSE=1
         GENTEST_CODEGEN_LOG_PARSE_POLICY=1
         TSAN_OPTIONS=${_tsan_options}
         "${CMAKE_COMMAND}" --build "${_build_dir}" --target codegen
@@ -158,34 +157,35 @@ while(1)
     endif()
   endif()
 
-  if(_build_rc EQUAL 0)
-    continue()
+  string(FIND "${_all_output}" "gentest_codegen: forcing serial multi-TU parse" _serial_policy_pos)
+  if(NOT _serial_policy_pos EQUAL -1)
+    message(FATAL_ERROR
+      "TSAN codegen parallel-parse stress unexpectedly forced serial parse on iteration ${_iteration} after ${_elapsed_sec}s.\n"
+      "--- output ---\n${_all_output}")
   endif()
 
   string(FIND "${_all_output}" "ThreadSanitizer: data race" _race_pos)
   string(FIND "${_all_output}" "TrackingStatistic::RegisterStatistic" _stat_pos)
   if(NOT _race_pos EQUAL -1 AND NOT _stat_pos EQUAL -1)
-    if(NOT _saw_parallel_policy)
-      message(FATAL_ERROR
-        "TSAN codegen race reproducer hit a race before confirming parallel parse policy.\n"
-        "Iteration: ${_iteration}\nElapsed: ${_elapsed_sec}s\nOutput:\n${_all_output}")
-    endif()
-    message(STATUS
-      "Reproduced TSAN codegen parallel-parse race after ${_elapsed_sec}s on iteration ${_iteration}")
-    return()
+    message(FATAL_ERROR
+      "TSAN codegen parallel-parse stress reproduced the TrackingStatistic::RegisterStatistic race on iteration ${_iteration} after ${_elapsed_sec}s.\n"
+      "--- output ---\n${_all_output}")
+  endif()
+
+  if(_build_rc EQUAL 0)
+    continue()
   endif()
 
   message(FATAL_ERROR
-    "TSAN codegen race reproducer hit an unexpected failure on iteration ${_iteration} after ${_elapsed_sec}s.\n"
+    "TSAN codegen parallel-parse stress hit an unexpected failure on iteration ${_iteration} after ${_elapsed_sec}s.\n"
     "--- output ---\n${_all_output}")
 endwhile()
 
 if(NOT _saw_parallel_policy)
   message(FATAL_ERROR
-    "TSAN codegen race reproducer never confirmed that parallel parse was re-enabled.\n"
+    "TSAN codegen parallel-parse stress never confirmed that parallel parse stayed enabled.\n"
     "Iterations: ${_iteration}\nElapsed: ${_elapsed_sec}s")
 endif()
 
-message(FATAL_ERROR
-  "TSAN codegen race reproducer did not reproduce the expected race within ${_repro_timeout_sec}s.\n"
-  "Iterations: ${_iteration}")
+message(STATUS
+  "TSAN codegen parallel-parse stress stayed clean for ${_elapsed_sec}s across ${_iteration} iterations")
