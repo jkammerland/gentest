@@ -318,6 +318,9 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     if (const auto force_serial = get_env_value("GENTEST_CODEGEN_FORCE_SERIAL_PARSE"); force_serial && *force_serial != "0") {
         return std::string_view{"GENTEST_CODEGEN_FORCE_SERIAL_PARSE"};
     }
+    if (const auto allow_parallel = get_env_value("GENTEST_CODEGEN_ALLOW_TSAN_PARALLEL_PARSE"); allow_parallel && *allow_parallel != "0") {
+        return std::nullopt;
+    }
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer)
     return std::string_view{"thread-sanitized gentest_codegen"};
