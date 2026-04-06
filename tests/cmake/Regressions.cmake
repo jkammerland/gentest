@@ -425,7 +425,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/logging_output/on_failure_policy_pass_silent --kind=test
     DEFINES
         "EXPECT_RC=0"
-        "EXPECT_SUBSTRING=[ PASS ] regressions/logging_output/on_failure_policy_pass_silent"
+        "EXPECT_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; xfail 0; xpass 0."
         "FORBID_SUBSTRING=failure-only hidden on pass")
 
 gentest_add_cmake_script_test(
@@ -457,7 +457,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/logging_output/explicit_never_overrides_default_always --kind=test
     DEFINES
         "EXPECT_RC=0"
-        "EXPECT_SUBSTRING=[ PASS ] regressions/logging_output/explicit_never_overrides_default_always"
+        "EXPECT_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; xfail 0; xpass 0."
         "FORBID_SUBSTRING=default-always overridden by explicit never")
 
 set(_gentest_measured_line_files
