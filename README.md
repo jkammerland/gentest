@@ -321,36 +321,36 @@ void rows(int a, int b) {
 The generator also supports convenience axes like `range(...)`, `linspace(...)`, `geom(...)`, and `logspace(...)` (see
 `include/gentest/attributes.h`).
 
-### Templates (mixed axes)
+### Templates (including template-template packs)
 
-Generate a compact 2D matrix by combining a type axis with a template-template axis:
+Generate a compact template-template pack expansion by combining parenthesized rows into a
+single `template(...)` attribute:
 
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 #include <list>
+#include <tuple>
 #include <vector>
 
-template <typename T, template <class...> class C>
-[[using gentest: template(T, int, long), template(C, std::vector, std::list)]]
-void emplace_matrix() {
-    C<T> values;
-    values.emplace_back(T{1});
-    gentest::expect_eq(values.size(), std::size_t{1}, "container emplace");
+template <template <class...> class... Cs>
+[[using gentest: template(Cs, (), (std::vector), (std::vector, std::list))]]
+void tt_pack() {
+    using tuple_t = std::tuple<Cs<int>...>;
+    gentest::expect_eq(std::tuple_size_v<tuple_t>, sizeof...(Cs), "template-template pack arity");
 }
 ```
 
-This expands to four concrete cases:
+This expands to three concrete cases:
 
 ```text
-[ PASS ] templates/tt/mixed<std::list,int>
-[ PASS ] templates/tt/mixed<std::list,long>
-[ PASS ] templates/tt/mixed<std::vector,int>
-[ PASS ] templates/tt/mixed<std::vector,long>
+[ PASS ] tt_pack<>
+[ PASS ] tt_pack<std::vector,std::list>
+[ PASS ] tt_pack<std::vector>
 ```
 
 `template(NAME, ...)` applies to type, value, and template-template parameters.
-Template parameter packs use parenthesized rows inside the same attribute, for example
+Template parameter packs use parenthesized rows inside the same attribute, as in
 `template(Cs, (), (std::vector), (std::vector, std::list))`.
 
 ### Fixtures
