@@ -46,7 +46,10 @@ struct Adopt {
 
 } // namespace ctx
 
-// Lightweight per-test logging; appended to failure messages when enabled.
+// Lightweight per-test logging.
+// - `always_log_this_test()` enables capturing logs for this context.
+// - `always_log()` enables capturing logs globally across all contexts.
+// - `log_on_fail()` preserves legacy per-test failure-only behavior.
 inline void log(std::string_view message) {
     auto  ctx    = detail::current_test_storage();
     auto &buffer = detail::current_buffer_storage();
@@ -58,25 +61,32 @@ inline void log(std::string_view message) {
     }
 
     bool dump_logs_on_failure = false;
+    bool always_log_this_test = false;
     {
         std::lock_guard<std::mutex> lk(ctx->mtx);
         dump_logs_on_failure = ctx->dump_logs_on_failure;
+        always_log_this_test = ctx->always_log_this_test;
     }
 
     buffer.logs.emplace_back(message);
-    if (dump_logs_on_failure) {
+    const bool always_log = dump_logs_on_failure || always_log_this_test || detail::always_log_storage().load(std::memory_order_acquire);
+    if (always_log) {
         buffer.event_lines.emplace_back(message);
         buffer.event_kinds.push_back('L');
     }
 }
 
-inline void log_on_fail(bool enable = true) {
+inline void always_log_this_test(bool enable = true) {
     auto ctx = detail::current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed))
         return;
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->dump_logs_on_failure = enable;
+    ctx->always_log_this_test = enable;
 }
+
+inline void always_log(bool enable = true) { detail::always_log_storage().store(enable, std::memory_order_release); }
+
+inline void log_on_fail(bool enable = true) { always_log_this_test(enable); }
 
 [[noreturn]] inline void skip(std::string_view reason = {}, const std::source_location &loc = std::source_location::current()) {
     (void)loc;

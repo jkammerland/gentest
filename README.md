@@ -271,8 +271,8 @@ void xfail_example() {
 ### Threads/coroutines + logging (ctx::Adopt)
 
 Assertions must run under an active test context. When you spawn threads/coroutines, adopt the current context so
-`EXPECT_*` failures are attributed to the right test. Use `gentest::log_on_fail(true)` + `gentest::log(...)` for
-lightweight attachments.
+`EXPECT_*` failures are attributed to the right test. Use `gentest::always_log_this_test(true)` (or `gentest::log_on_fail(true)` for
+legacy failure-only behavior) plus `gentest::log(...)` for lightweight attachments.
 
 ```cpp
 #include "gentest/attributes.h"
@@ -283,7 +283,7 @@ using namespace gentest::asserts;
 
 [[gentest::test("concurrency/adopt_and_log")]]
 void adopt_and_log() {
-    gentest::log_on_fail(true);
+    gentest::always_log_this_test(true);
     auto tok = gentest::ctx::current();
 
     std::thread t([tok] {
@@ -334,6 +334,7 @@ single `template(...)` attribute:
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 #include <list>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -341,7 +342,10 @@ template <template <class...> class... Cs>
 [[using gentest: template(Cs, (), (std::vector), (std::vector, std::list))]]
 void tt_pack() {
     using tuple_t = std::tuple<Cs<int>...>;
-    gentest::expect_eq(std::tuple_size_v<tuple_t>, sizeof...(Cs), "template-template pack arity");
+    const auto arity = std::tuple_size_v<tuple_t>;
+    gentest::always_log_this_test(true);
+    gentest::log(std::string("template-template pack arity = ") + std::to_string(arity));
+    gentest::expect_eq(arity, sizeof...(Cs), "template-template pack arity");
 }
 ```
 
@@ -349,8 +353,11 @@ This expands to three concrete cases:
 
 ```text
 [ PASS ] tt_pack<>
-[ PASS ] tt_pack<std::vector,std::list>
+template-template pack arity = 0
 [ PASS ] tt_pack<std::vector>
+template-template pack arity = 1
+[ PASS ] tt_pack<std::vector,std::list>
+template-template pack arity = 2
 ```
 
 `template(NAME, ...)` applies to type, value, and template-template parameters.

@@ -201,6 +201,12 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         } else {
             fmt::print("[ PASS ] {} ({} ms)\n", test.name, dur_ms);
         }
+        for (std::size_t i = 0; i < ctxinfo->event_lines.size(); ++i) {
+            const auto &ln = ctxinfo->event_lines[i];
+            fmt::print("{}\n", ln);
+        }
+        if (!ctxinfo->event_lines.empty())
+            fmt::print("\n");
         rr.outcome = Outcome::Pass;
         ++c.passed;
     } else {

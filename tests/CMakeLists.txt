@@ -213,6 +213,9 @@ _gentest_add_proof_test(
     gentest_proof_api_context_event_chronology
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/event_chronology_red.cpp)
 _gentest_add_proof_test(
+    gentest_proof_api_context_always_log
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/always_log_red.cpp)
+_gentest_add_proof_test(
     gentest_proof_api_context_expect_throw_std_exception
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/expect_throw_std_exception_red.cpp)
 

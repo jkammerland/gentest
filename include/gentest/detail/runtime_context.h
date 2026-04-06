@@ -42,6 +42,7 @@ struct TestContextInfo {
     std::atomic<bool>        has_failures{false};
     std::atomic<std::size_t> adopted_tokens{0};
     bool                     dump_logs_on_failure{false};
+    bool                     always_log_this_test{false};
 
     std::atomic<bool> runtime_skip_requested{false};
     std::string       runtime_skip_reason;
@@ -79,6 +80,7 @@ struct TestContextLocalBuffer {
 
 GENTEST_RUNTIME_API auto current_test_storage() -> std::shared_ptr<TestContextInfo> &;
 GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer &;
+GENTEST_RUNTIME_API auto always_log_storage() -> std::atomic<bool> &;
 
 struct skip_exception {};
 

@@ -19,6 +19,8 @@ export module gentest;
 
 export namespace gentest {
 
+using ::gentest::always_log;
+using ::gentest::always_log_this_test;
 using ::gentest::assert_eq;
 using ::gentest::assert_false;
 using ::gentest::assert_true;
