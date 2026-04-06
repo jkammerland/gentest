@@ -21,6 +21,8 @@ Supported module-authored test flows:
 - C++20 compiler with named-module support
 - LLVM/Clang available for `gentest_codegen`
 - `CMAKE_EXPORT_COMPILE_COMMANDS=ON`
+- installed-package consumers also need the exact matching `fmt` CMake package
+  discoverable, typically through the same `CMAKE_PREFIX_PATH` as `gentest`
 
 For host-toolchain vs target-sysroot setup details, including cross-build
 examples, see [buildsystems/host_toolchain_sysroots.md](buildsystems/host_toolchain_sysroots.md).

@@ -11,12 +11,18 @@ For host Clang, sysroot, and cross-build guidance, see
 
 | Build system | Downstream status | What you consume | Module support |
 | --- | --- | --- | --- |
-| CMake | primary / packaged | installed package + `gentest_attach_codegen()` | supported |
+| CMake | primary / packaged | installed package + discoverable exact-match `fmt` package + `gentest_attach_codegen()` | supported |
 | Bazel | official Bzlmod source-package | `@gentest//bazel:defs.bzl` | supported |
 | Xmake / xrepo | official installed-helper / xrepo story | staged install prefix + `share/gentest/xmake/gentest.lua` | supported |
 | Meson | official wrap/subproject textual story | subproject / wrap + exported Meson variables | textual only |
 
 ## Common contract
+
+For installed-package CMake consumers, the runtime package also requires the
+exact matching `fmt` CMake package to be discoverable. The simplest setup is to
+install `gentest` and `fmt` into the same prefix and set `CMAKE_PREFIX_PATH`
+once; otherwise, pass both the `gentest` package path and the matching
+`fmt_DIR`.
 
 All non-CMake downstream consumers need the same host-side codegen tools:
 

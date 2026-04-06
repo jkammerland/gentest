@@ -66,8 +66,12 @@ Contributor workflows, including lint, static analysis, coverage, and local CI-a
 
 ## Use in your project (CMake)
 
+Installed-package consumers must also make the exact matching `fmt` CMake
+package discoverable. The simplest setup is to install `gentest` and `fmt`
+into the same prefix and point `CMAKE_PREFIX_PATH` at that prefix.
+
 ```cmake
-# Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below
+# Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
 
 # The test

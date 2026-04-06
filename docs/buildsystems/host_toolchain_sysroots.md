@@ -49,6 +49,10 @@ CMake is still the cleanest path, but the stable codegen-host contract is now
 explicit: use `GENTEST_CODEGEN_HOST_CLANG` for the host parser/compiler and use
 the normal CMake compiler/toolchain surface for the final target build.
 
+Installed-package consumers also need the exact matching `fmt` CMake package to
+be discoverable. The simplest setup is to install `gentest` and `fmt` into the
+same prefix and point `CMAKE_PREFIX_PATH` at that prefix.
+
 Project `CMakeLists.txt`:
 
 ```cmake

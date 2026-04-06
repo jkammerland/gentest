@@ -26,7 +26,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
 set(_work_dir "${BUILD_ROOT}/fmt_version_metadata_guard")
 set(_build_dir_ok "${_work_dir}/build-ok")
-set(_build_dir_install "${_work_dir}/build-install")
+set(_build_dir_install_fail "${_work_dir}/build-install-fail")
+set(_build_dir_install_ok "${_work_dir}/build-install-ok")
+set(_install_prefix_ok "${_work_dir}/install-prefix")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
@@ -74,7 +76,7 @@ execute_process(
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
     -S "${SOURCE_DIR}"
-    -B "${_build_dir_install}"
+    -B "${_build_dir_install_fail}"
     ${_common_cache_args}
     "-Dgentest_INSTALL=ON"
   WORKING_DIRECTORY "${_work_dir}"
@@ -96,6 +98,47 @@ if(_msg_pos EQUAL -1)
     "Unexpected failure while probing fmt version metadata guard.\n"
     "stdout:\n${_out}\n"
     "stderr:\n${_err}")
+endif()
+
+message(STATUS "fmt metadata guard passed")
+
+message(STATUS "Configure fmt metadata guard fixture with gentest_INSTALL=ON and explicit fmt_VERSION...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}"
+    ${_cmake_gen_args}
+    -S "${SOURCE_DIR}"
+    -B "${_build_dir_install_ok}"
+    ${_common_cache_args}
+    "-Dgentest_INSTALL=ON"
+    "-Dfmt_VERSION=12.1.0"
+    "-DCMAKE_INSTALL_PREFIX=${_install_prefix_ok}"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+message(STATUS "Build install target for fmt metadata guard fixture...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}"
+    --build "${_build_dir_install_ok}"
+    --target install
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+file(GLOB_RECURSE _config_candidates
+  LIST_DIRECTORIES FALSE
+  "${_install_prefix_ok}/*/gentestConfig.cmake"
+  "${_install_prefix_ok}/*/*/gentestConfig.cmake")
+if(NOT _config_candidates)
+  message(FATAL_ERROR "fmt metadata guard did not install gentestConfig.cmake under '${_install_prefix_ok}'")
+endif()
+list(GET _config_candidates 0 _config_file)
+file(READ "${_config_file}" _config_text)
+string(FIND "${_config_text}" "find_dependency(fmt 12.1.0 EXACT CONFIG REQUIRED)" _config_dep_pos)
+if(_config_dep_pos EQUAL -1)
+  message(FATAL_ERROR
+    "fmt metadata guard installed config must require the explicit fmt_VERSION value.\n"
+    "Config file: ${_config_file}")
 endif()
 
 message(STATUS "fmt metadata guard passed")

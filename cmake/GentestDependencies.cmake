@@ -43,6 +43,17 @@ function(_gentest_cache_fmt_version)
         "Resolved fmt version used by gentest's install/export metadata" FORCE)
 endfunction()
 
+function(_gentest_ensure_fmt_dependency_target)
+    if(NOT TARGET fmt::fmt)
+        message(FATAL_ERROR "gentest: failed to locate fmt (fmt::fmt)")
+    endif()
+
+    if(NOT TARGET gentest::fmt_dependency)
+        add_library(gentest::fmt_dependency INTERFACE IMPORTED GLOBAL)
+        set_property(TARGET gentest::fmt_dependency PROPERTY INTERFACE_LINK_LIBRARIES "fmt::fmt")
+    endif()
+endfunction()
+
 function(gentest_ensure_fmt)
     if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         # Align CRT selection with the prebuilt LLVM/Clang libraries (this
@@ -135,6 +146,8 @@ function(gentest_ensure_fmt)
     if(NOT TARGET fmt::fmt)
         message(FATAL_ERROR "gentest: failed to locate fmt (fmt::fmt)")
     endif()
+
+    _gentest_ensure_fmt_dependency_target()
 
     if(DEFINED gentest_INSTALL AND gentest_INSTALL)
         _gentest_cache_fmt_version()

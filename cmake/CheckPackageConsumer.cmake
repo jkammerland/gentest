@@ -236,15 +236,28 @@ endif()
 set(_producer_source_surface_key "")
 foreach(_producer_surface_file IN ITEMS
     "${SOURCE_DIR}/CMakeLists.txt"
+    "${SOURCE_DIR}/src/CMakeLists.txt"
     "${SOURCE_DIR}/include/gentest/mock.h"
     "${SOURCE_DIR}/include/gentest/gentest.cppm"
+    "${SOURCE_DIR}/include/gentest/gentest.bench_util.cppm"
     "${SOURCE_DIR}/include/gentest/gentest.mock.cppm"
+    "${SOURCE_DIR}/cmake/GentestDependencies.cmake"
+    "${SOURCE_DIR}/cmake/GentestFmtDependency.cmake"
     "${SOURCE_DIR}/cmake/GentestCodegen.cmake"
-    "${SOURCE_DIR}/cmake/gentestConfig.cmake.in")
+    "${SOURCE_DIR}/third_party/target_install_package/VENDORED_TAG.txt")
   if(EXISTS "${_producer_surface_file}")
     file(SHA256 "${_producer_surface_file}" _producer_surface_hash)
     string(APPEND _producer_source_surface_key "|${_producer_surface_file}:${_producer_surface_hash}")
   endif()
+endforeach()
+
+file(GLOB_RECURSE _tip_vendored_cmake_surface
+  LIST_DIRECTORIES FALSE
+  "${SOURCE_DIR}/third_party/target_install_package/share/cmake/target_install_package/*")
+list(SORT _tip_vendored_cmake_surface)
+foreach(_producer_surface_file IN LISTS _tip_vendored_cmake_surface)
+  file(SHA256 "${_producer_surface_file}" _producer_surface_hash)
+  string(APPEND _producer_source_surface_key "|${_producer_surface_file}:${_producer_surface_hash}")
 endforeach()
 
 set(_work_dir_semantic_key
