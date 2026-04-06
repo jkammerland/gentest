@@ -236,15 +236,28 @@ endif()
 set(_producer_source_surface_key "")
 foreach(_producer_surface_file IN ITEMS
     "${SOURCE_DIR}/CMakeLists.txt"
+    "${SOURCE_DIR}/src/CMakeLists.txt"
     "${SOURCE_DIR}/include/gentest/mock.h"
     "${SOURCE_DIR}/include/gentest/gentest.cppm"
+    "${SOURCE_DIR}/include/gentest/gentest.bench_util.cppm"
     "${SOURCE_DIR}/include/gentest/gentest.mock.cppm"
+    "${SOURCE_DIR}/cmake/GentestDependencies.cmake"
+    "${SOURCE_DIR}/cmake/GentestFmtDependency.cmake"
     "${SOURCE_DIR}/cmake/GentestCodegen.cmake"
-    "${SOURCE_DIR}/cmake/gentestConfig.cmake.in")
+    "${SOURCE_DIR}/third_party/target_install_package/VENDORED_TAG.txt")
   if(EXISTS "${_producer_surface_file}")
     file(SHA256 "${_producer_surface_file}" _producer_surface_hash)
     string(APPEND _producer_source_surface_key "|${_producer_surface_file}:${_producer_surface_hash}")
   endif()
+endforeach()
+
+file(GLOB_RECURSE _tip_vendored_cmake_surface
+  LIST_DIRECTORIES FALSE
+  "${SOURCE_DIR}/third_party/target_install_package/share/cmake/target_install_package/*")
+list(SORT _tip_vendored_cmake_surface)
+foreach(_producer_surface_file IN LISTS _tip_vendored_cmake_surface)
+  file(SHA256 "${_producer_surface_file}" _producer_surface_hash)
+  string(APPEND _producer_source_surface_key "|${_producer_surface_file}:${_producer_surface_hash}")
 endforeach()
 
 set(_work_dir_semantic_key
@@ -349,6 +362,7 @@ else()
 endif()
 
 set(_producer_fmt_dir "")
+set(_producer_fmt_version "")
 set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
 if(EXISTS "${_producer_cache_file}")
   file(STRINGS "${_producer_cache_file}" _producer_fmt_dir_line REGEX "^fmt_DIR:PATH=" LIMIT_COUNT 1)
@@ -356,6 +370,10 @@ if(EXISTS "${_producer_cache_file}")
     list(GET _producer_fmt_dir_line 0 _producer_fmt_dir_line_value)
     string(REGEX REPLACE "^fmt_DIR:PATH=" "" _producer_fmt_dir "${_producer_fmt_dir_line_value}")
     unset(_producer_fmt_dir_line_value)
+  endif()
+  _gentest_read_cache_value("${_producer_cache_file}" "GENTEST_FMT_VERSION" _producer_fmt_version_found _producer_fmt_version)
+  if(NOT _producer_fmt_version_found OR "${_producer_fmt_version}" STREQUAL "")
+    message(FATAL_ERROR "Producer cache must record GENTEST_FMT_VERSION for installed package dependency export")
   endif()
 endif()
 
@@ -369,6 +387,15 @@ if(NOT _config_candidates)
 endif()
 list(GET _config_candidates 0 _config_file)
 get_filename_component(_config_dir "${_config_file}" DIRECTORY)
+file(READ "${_config_file}" _installed_config_text)
+set(_expected_fmt_dependency "find_dependency(fmt ${_producer_fmt_version} EXACT CONFIG REQUIRED)")
+string(FIND "${_installed_config_text}" "${_expected_fmt_dependency}" _expected_fmt_dependency_pos)
+if(_expected_fmt_dependency_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Installed package config must require the producer's exact fmt version.\n"
+    "Expected line: ${_expected_fmt_dependency}\n"
+    "Config file: ${_config_file}")
+endif()
 file(GLOB _installed_cmake_files
   LIST_DIRECTORIES FALSE
   "${_config_dir}/*.cmake")

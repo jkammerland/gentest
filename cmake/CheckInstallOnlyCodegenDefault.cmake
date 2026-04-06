@@ -21,9 +21,11 @@ endif()
 if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckInstallOnlyCodegenDefault.cmake: GENTEST_SOURCE_DIR not set")
 endif()
-if(NOT EXISTS "${SOURCE_DIR}/target_install_package/CMakeLists.txt")
+set(_vendored_tip_prefix "${GENTEST_SOURCE_DIR}/third_party/target_install_package")
+set(_vendored_tip_config "${_vendored_tip_prefix}/share/cmake/target_install_package/target_install_packageConfig.cmake")
+if(NOT EXISTS "${_vendored_tip_config}")
   message(FATAL_ERROR
-    "CheckInstallOnlyCodegenDefault.cmake: expected stub target_install_package fixture at '${SOURCE_DIR}/target_install_package'")
+    "CheckInstallOnlyCodegenDefault.cmake: expected vendored target_install_package config at '${_vendored_tip_config}'")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
@@ -47,7 +49,6 @@ set(_cmake_cache_args
   "-Dgentest_BUILD_TESTING=OFF"
   "-Dgentest_INSTALL=ON"
   "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF"
-  "-DFETCHCONTENT_SOURCE_DIR_TARGET_INSTALL_PACKAGE=${SOURCE_DIR}/target_install_package"
   "-DLLVM_DIR=${_missing_llvm_dir}"
   "-DClang_DIR=${_missing_clang_dir}")
 
@@ -90,4 +91,21 @@ if(NOT _codegen_default STREQUAL "GENTEST_BUILD_CODEGEN:BOOL=OFF")
     "Observed cache entry: '${_codegen_default}'")
 endif()
 
-message(STATUS "Install-only producer configure defaults codegen off")
+file(STRINGS "${_cache_file}" _tip_dir_line REGEX "^target_install_package_DIR:PATH=" LIMIT_COUNT 1)
+if(NOT _tip_dir_line)
+  message(FATAL_ERROR "Expected configure cache to record target_install_package_DIR")
+endif()
+
+list(GET _tip_dir_line 0 _tip_dir_line_value)
+string(REGEX REPLACE "^target_install_package_DIR:PATH=" "" _tip_dir "${_tip_dir_line_value}")
+set(_expected_tip_dir "${_vendored_tip_prefix}/share/cmake/target_install_package")
+cmake_path(NORMAL_PATH _tip_dir OUTPUT_VARIABLE _tip_dir_normalized)
+cmake_path(NORMAL_PATH _expected_tip_dir OUTPUT_VARIABLE _expected_tip_dir_normalized)
+if(NOT _tip_dir_normalized STREQUAL _expected_tip_dir_normalized)
+  message(FATAL_ERROR
+    "Install-only producer configure must resolve target_install_package from the vendored third_party install.\n"
+    "Expected: '${_expected_tip_dir_normalized}'\n"
+    "Observed: '${_tip_dir_normalized}'")
+endif()
+
+message(STATUS "Install-only producer configure defaults codegen off and resolves vendored target_install_package")

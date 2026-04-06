@@ -2440,8 +2440,15 @@ set_property(TEST gentest_runtime_shared_context_exports APPEND PROPERTY LABELS 
 
 _gentest_add_cmake_helper_test(
     gentest_install_only_codegen_default
-    ${PROJECT_SOURCE_DIR}/tests/cmake/install_only_codegen_default
+    ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckInstallOnlyCodegenDefault.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+
+_gentest_add_cmake_helper_test(
+    gentest_fmt_version_metadata_guard
+    ${PROJECT_SOURCE_DIR}/tests/cmake/fmt_version_metadata_guard
+    ${PROJECT_SOURCE_DIR}/cmake/CheckFmtVersionMetadataGuard.cmake
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 

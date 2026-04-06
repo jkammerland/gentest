@@ -46,7 +46,8 @@ if(GENTEST_RUNTIME_SHARED)
 endif()
 
 target_link_libraries(gentest_runtime
-    PUBLIC fmt::fmt)
+    PUBLIC
+        gentest::fmt_dependency)
 
 if(GENTEST_USE_BOOST_JSON)
     # Enable the runtime Allure JSON writer implementation.
