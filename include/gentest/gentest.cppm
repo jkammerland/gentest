@@ -19,8 +19,6 @@ export module gentest;
 
 export namespace gentest {
 
-using ::gentest::always_log;
-using ::gentest::always_log_this_test;
 using ::gentest::assert_eq;
 using ::gentest::assert_false;
 using ::gentest::assert_true;
@@ -40,7 +38,7 @@ using ::gentest::FixtureLifetime;
 using ::gentest::FixtureSetup;
 using ::gentest::FixtureTearDown;
 using ::gentest::log;
-using ::gentest::log_on_fail;
+using ::gentest::LogPolicy;
 using ::gentest::registered_cases;
 using ::gentest::require;
 using ::gentest::require_eq;
@@ -51,8 +49,11 @@ using ::gentest::require_le;
 using ::gentest::require_lt;
 using ::gentest::require_ne;
 using ::gentest::run_all_tests;
+using ::gentest::set_default_log_policy;
+using ::gentest::set_log_policy;
 using ::gentest::skip;
 using ::gentest::skip_if;
+using ::gentest::to_underlying;
 using ::gentest::xfail;
 using ::gentest::xfail_if;
 

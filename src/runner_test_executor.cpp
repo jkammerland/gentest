@@ -23,6 +23,17 @@ using RunResult = gentest::runner::RunResult;
 
 long long duration_ms(double seconds) { return std::llround(seconds * 1000.0); }
 
+auto collect_pass_visible_timeline(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo) -> std::vector<std::string> {
+    std::vector<std::string> lines;
+    lines.reserve(ctxinfo->event_lines.size());
+    for (std::size_t i = 0; i < ctxinfo->event_lines.size(); ++i) {
+        const char kind = (i < ctxinfo->event_kinds.size() ? ctxinfo->event_kinds[i] : 'L');
+        if (kind == 'A')
+            lines.push_back(ctxinfo->event_lines[i]);
+    }
+    return lines;
+}
+
 RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c) {
     RunResult rr;
     if (test.should_skip) {
@@ -201,11 +212,11 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
         } else {
             fmt::print("[ PASS ] {} ({} ms)\n", test.name, dur_ms);
         }
-        for (std::size_t i = 0; i < ctxinfo->event_lines.size(); ++i) {
-            const auto &ln = ctxinfo->event_lines[i];
+        rr.timeline = collect_pass_visible_timeline(ctxinfo);
+        for (const auto &ln : rr.timeline) {
             fmt::print("{}\n", ln);
         }
-        if (!ctxinfo->event_lines.empty())
+        if (!rr.timeline.empty())
             fmt::print("\n");
         rr.outcome = Outcome::Pass;
         ++c.passed;

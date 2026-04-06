@@ -84,6 +84,7 @@ set(_gentest_manual_regressions
     "gentest_regression_shared_fixture_runtime_registration_during_run|shared_fixture_runtime_registration_during_run.cpp"
     "gentest_regression_shared_fixture_retry_after_failure|shared_fixture_retry_after_failure.cpp"
     "gentest_regression_runtime_case_snapshot_isolated|runtime_case_snapshot_isolated.cpp"
+    "gentest_regression_logging_output|logging_output_regressions.cpp"
     "gentest_regression_shared_fixture_runtime_reentry_rejected|shared_fixture_runtime_reentry_rejected.cpp"
     "gentest_regression_shared_fixture_suite_scope_descendant|shared_fixture_suite_scope_descendant.cpp"
     "gentest_regression_shared_fixture_suite_scope_most_specific|shared_fixture_suite_scope_most_specific.cpp"
@@ -416,6 +417,48 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=0"
         "EXPECT_SUBSTRING=regressions/runtime_selection/bench_table_case")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_on_failure_policy_pass_silent
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/on_failure_policy_pass_silent --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=[ PASS ] regressions/logging_output/on_failure_policy_pass_silent"
+        "FORBID_SUBSTRING=failure-only hidden on pass")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_always_policy_visible_on_pass
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/always_policy_visible_on_pass --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=always-policy visible on pass"
+        "EXPECT_COUNT_SUBSTRING=always-policy visible on pass"
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_default_always_policy_visible_on_pass
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/default_always_policy_visible_on_pass --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=default-always visible on pass"
+        "EXPECT_COUNT_SUBSTRING=default-always visible on pass"
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_explicit_never_overrides_default_always
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/explicit_never_overrides_default_always --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_SUBSTRING=[ PASS ] regressions/logging_output/explicit_never_overrides_default_always"
+        "FORBID_SUBSTRING=default-always overridden by explicit never")
 
 set(_gentest_measured_line_files
     "${CMAKE_CURRENT_SOURCE_DIR}/regressions/bench_assert_propagation.cpp"

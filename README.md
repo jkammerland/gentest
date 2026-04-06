@@ -271,8 +271,9 @@ void xfail_example() {
 ### Threads/coroutines + logging (ctx::Adopt)
 
 Assertions must run under an active test context. When you spawn threads/coroutines, adopt the current context so
-`EXPECT_*` failures are attributed to the right test. Use `gentest::always_log_this_test(true)` (or `gentest::log_on_fail(true)` for
-legacy failure-only behavior) plus `gentest::log(...)` for lightweight attachments.
+`EXPECT_*` failures are attributed to the right test. Use `gentest::set_log_policy(gentest::LogPolicy::Always)` when logs should be
+emitted even for passing tests, or `gentest::set_log_policy(gentest::LogPolicy::OnFailure)` for failure-only log output. Use
+`gentest::set_default_log_policy(...)` to change the default for tests that do not override it explicitly.
 
 ```cpp
 #include "gentest/attributes.h"
@@ -283,7 +284,7 @@ using namespace gentest::asserts;
 
 [[gentest::test("concurrency/adopt_and_log")]]
 void adopt_and_log() {
-    gentest::always_log_this_test(true);
+    gentest::set_log_policy(gentest::LogPolicy::Always);
     auto tok = gentest::ctx::current();
 
     std::thread t([tok] {
@@ -343,7 +344,7 @@ template <template <class...> class... Cs>
 void tt_pack() {
     using tuple_t = std::tuple<Cs<int>...>;
     const auto arity = std::tuple_size_v<tuple_t>;
-    gentest::always_log_this_test(true);
+    gentest::set_log_policy(gentest::LogPolicy::Always);
     gentest::log(std::string("template-template pack arity = ") + std::to_string(arity));
     gentest::expect_eq(arity, sizeof...(Cs), "template-template pack arity");
 }

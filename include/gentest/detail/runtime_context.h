@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/detail/runtime_base.h"
+#include "gentest/log_policy.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -32,7 +33,8 @@ struct TestContextInfo {
     };
     std::vector<FailureLoc>  failure_locations;
     std::vector<std::string> logs;
-    // Chronological event stream for console/JUnit (kind: 'F' failure, 'L' log)
+    // Chronological event stream for console/reporting.
+    // kind: 'F' failure, 'L' failure-only log, 'A' always-visible log
     std::vector<std::string> event_lines;
     std::vector<char>        event_kinds;
     std::mutex               mtx;
@@ -41,8 +43,8 @@ struct TestContextInfo {
     std::atomic<bool>        active{false};
     std::atomic<bool>        has_failures{false};
     std::atomic<std::size_t> adopted_tokens{0};
-    bool                     dump_logs_on_failure{false};
-    bool                     always_log_this_test{false};
+    gentest::LogPolicy       log_policy{gentest::LogPolicy::Never};
+    bool                     log_policy_overridden{false};
 
     std::atomic<bool> runtime_skip_requested{false};
     std::string       runtime_skip_reason;
@@ -80,7 +82,7 @@ struct TestContextLocalBuffer {
 
 GENTEST_RUNTIME_API auto current_test_storage() -> std::shared_ptr<TestContextInfo> &;
 GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer &;
-GENTEST_RUNTIME_API auto always_log_storage() -> std::atomic<bool> &;
+GENTEST_RUNTIME_API auto default_log_policy_storage() -> std::atomic<std::underlying_type_t<gentest::LogPolicy>> &;
 
 struct skip_exception {};
 

@@ -47,9 +47,9 @@ struct Adopt {
 } // namespace ctx
 
 // Lightweight per-test logging.
-// - `always_log_this_test()` enables capturing logs for this context.
-// - `always_log()` enables capturing logs globally across all contexts.
-// - `log_on_fail()` preserves legacy per-test failure-only behavior.
+// - `set_log_policy()` overrides log visibility for the active test context.
+// - `set_default_log_policy()` controls the process-global default when a test
+//   does not override it explicitly.
 inline void log(std::string_view message) {
     auto  ctx    = detail::current_test_storage();
     auto &buffer = detail::current_buffer_storage();
@@ -60,33 +60,42 @@ inline void log(std::string_view message) {
         buffer.owner = ctx.get();
     }
 
-    bool dump_logs_on_failure = false;
-    bool always_log_this_test = false;
+    LogPolicy  policy            = LogPolicy::Never;
+    bool       policy_overridden = false;
+    const auto always_bits       = gentest::to_underlying(LogPolicy::Always);
+    const auto on_failure_bits   = gentest::to_underlying(LogPolicy::OnFailure);
     {
         std::lock_guard<std::mutex> lk(ctx->mtx);
-        dump_logs_on_failure = ctx->dump_logs_on_failure;
-        always_log_this_test = ctx->always_log_this_test;
+        policy            = ctx->log_policy;
+        policy_overridden = ctx->log_policy_overridden;
+    }
+    if (!policy_overridden) {
+        policy = static_cast<LogPolicy>(detail::default_log_policy_storage().load(std::memory_order_acquire));
     }
 
     buffer.logs.emplace_back(message);
-    const bool always_log = dump_logs_on_failure || always_log_this_test || detail::always_log_storage().load(std::memory_order_acquire);
-    if (always_log) {
+    const auto policy_bits = gentest::to_underlying(policy);
+    if ((policy_bits & always_bits) == always_bits) {
+        buffer.event_lines.emplace_back(message);
+        buffer.event_kinds.push_back('A');
+    } else if ((policy_bits & on_failure_bits) != 0) {
         buffer.event_lines.emplace_back(message);
         buffer.event_kinds.push_back('L');
     }
 }
 
-inline void always_log_this_test(bool enable = true) {
+inline void set_log_policy(LogPolicy policy) {
     auto ctx = detail::current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed))
         return;
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->always_log_this_test = enable;
+    ctx->log_policy            = policy;
+    ctx->log_policy_overridden = true;
 }
 
-inline void always_log(bool enable = true) { detail::always_log_storage().store(enable, std::memory_order_release); }
-
-inline void log_on_fail(bool enable = true) { always_log_this_test(enable); }
+inline void set_default_log_policy(LogPolicy policy) {
+    detail::default_log_policy_storage().store(gentest::to_underlying(policy), std::memory_order_release);
+}
 
 [[noreturn]] inline void skip(std::string_view reason = {}, const std::source_location &loc = std::source_location::current()) {
     (void)loc;

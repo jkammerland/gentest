@@ -216,6 +216,9 @@ _gentest_add_proof_test(
     gentest_proof_api_context_always_log
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/always_log_red.cpp)
 _gentest_add_proof_test(
+    gentest_proof_api_context_log_policy
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/log_policy_red.cpp)
+_gentest_add_proof_test(
     gentest_proof_api_context_expect_throw_std_exception
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/expect_throw_std_exception_red.cpp)
 
@@ -1318,7 +1321,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single)
     set_tests_properties(allure_smoke_single PROPERTIES LABELS "allure")
 
-    # Allure logs attachment: failing test with log_on_fail(true) should create a logs attachment
+    # Allure logs attachment: failing test with LogPolicy::OnFailure should create a logs attachment
     gentest_add_run_and_check_file(
         NAME allure_logs_attachment
         PROG $<TARGET_FILE:gentest_failing_tests>
