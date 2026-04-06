@@ -26,7 +26,6 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(GentestDependencies)
 include(GentestPublicModules)
-gentest_ensure_fmt()
 
 option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
 option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ON)
@@ -34,6 +33,8 @@ option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated run
 option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
 set(GENTEST_ENABLE_PUBLIC_MODULES "AUTO" CACHE STRING "Enable gentest's public C++ module interfaces (AUTO, ON, or OFF)")
 set_property(CACHE GENTEST_ENABLE_PUBLIC_MODULES PROPERTY STRINGS AUTO ON OFF)
+
+gentest_ensure_fmt()
 
 if(NOT GENTEST_ENABLE_PUBLIC_MODULES MATCHES "^(AUTO|ON|OFF)$")
     message(FATAL_ERROR "GENTEST_ENABLE_PUBLIC_MODULES must be AUTO, ON, or OFF")
