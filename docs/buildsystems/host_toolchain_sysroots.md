@@ -344,6 +344,12 @@ Why that split still matters:
 - Clang / `clang-scan-deps` are **host toolchain dependencies**
 - cross-builds often need different host and target environments
 
+For gentest's own install/export flow, the packaging helper itself is vendored
+under `third_party/target_install_package` and resolved with a strict
+`find_package(... EXACT CONFIG REQUIRED)` path. Packaging the gentest developer
+surface should therefore be a no-network configure path; host compiler/toolchain
+selection remains a separate concern.
+
 So the clean packaging model is:
 
 - package `gentest_codegen`, helper scripts, exports, and install metadata as

@@ -1,5 +1,48 @@
 include_guard(GLOBAL)
 
+function(_gentest_resolve_fmt_target out_var)
+    if(TARGET fmt::fmt)
+        get_target_property(_gentest_fmt_aliased_target fmt::fmt ALIASED_TARGET)
+        if(_gentest_fmt_aliased_target AND NOT _gentest_fmt_aliased_target MATCHES "-NOTFOUND$")
+            set(${out_var} "${_gentest_fmt_aliased_target}" PARENT_SCOPE)
+            return()
+        endif()
+        set(${out_var} "fmt::fmt" PARENT_SCOPE)
+        return()
+    endif()
+
+    if(TARGET fmt)
+        set(${out_var} "fmt" PARENT_SCOPE)
+        return()
+    endif()
+
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_cache_fmt_version)
+    set(_gentest_fmt_version "")
+    if(DEFINED fmt_VERSION AND NOT "${fmt_VERSION}" STREQUAL "")
+        set(_gentest_fmt_version "${fmt_VERSION}")
+    elseif(DEFINED fmt_VERSION_STRING AND NOT "${fmt_VERSION_STRING}" STREQUAL "")
+        set(_gentest_fmt_version "${fmt_VERSION_STRING}")
+    else()
+        _gentest_resolve_fmt_target(_gentest_fmt_version_target)
+        if(NOT "${_gentest_fmt_version_target}" STREQUAL "")
+            get_target_property(_gentest_fmt_version "${_gentest_fmt_version_target}" VERSION)
+            if(NOT _gentest_fmt_version OR _gentest_fmt_version MATCHES "-NOTFOUND$")
+                set(_gentest_fmt_version "")
+            endif()
+        endif()
+    endif()
+
+    if("${_gentest_fmt_version}" STREQUAL "")
+        message(FATAL_ERROR "gentest: failed to determine resolved fmt version for install/export metadata")
+    endif()
+
+    set(GENTEST_FMT_VERSION "${_gentest_fmt_version}" CACHE INTERNAL
+        "Resolved fmt version used by gentest's install/export metadata" FORCE)
+endfunction()
+
 function(gentest_ensure_fmt)
     if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         # Align CRT selection with the prebuilt LLVM/Clang libraries (this
@@ -85,4 +128,6 @@ function(gentest_ensure_fmt)
     if(NOT TARGET fmt::fmt)
         message(FATAL_ERROR "gentest: failed to locate fmt (fmt::fmt)")
     endif()
+
+    _gentest_cache_fmt_version()
 endfunction()

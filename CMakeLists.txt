@@ -86,27 +86,24 @@ include(GentestCodegen)
 add_subdirectory(src)
 
 if(${PROJECT_NAME}_INSTALL)
-    include(FetchContent)
-    FetchContent_Declare(
-        target_install_package
-        GIT_REPOSITORY https://github.com/jkammerland/target_install_package.cmake.git
-        GIT_TAG v6.1.7
-        FIND_PACKAGE_ARGS 6.1.7 CONFIG QUIET
-    )
-    FetchContent_MakeAvailable(target_install_package)
+    set(_gentest_target_install_package_root "${PROJECT_SOURCE_DIR}/third_party/target_install_package")
+    find_package(target_install_package 6.1.7 EXACT CONFIG REQUIRED
+        PATHS "${_gentest_target_install_package_root}"
+        NO_DEFAULT_PATH)
+    set(_gentest_fmt_public_dependency "fmt ${GENTEST_FMT_VERSION} EXACT CONFIG REQUIRED")
 
     # Export a single 'gentest' package that contains both the interface target and the runtime library.
     target_install_package(gentest_runtime
         EXPORT_NAME ${PROJECT_NAME}
-        PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
+        PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}")
     target_install_package(gentest_main
         EXPORT_NAME ${PROJECT_NAME}
-        PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
+        PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}")
     target_install_package(${PROJECT_NAME}
         EXPORT_NAME ${PROJECT_NAME}
         INCLUDE_ON_FIND_PACKAGE
             "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
-        PUBLIC_DEPENDENCIES "fmt CONFIG REQUIRED")
+        PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}")
 
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/xmake/"
         DESTINATION "share/gentest/xmake")
@@ -115,6 +112,8 @@ if(${PROJECT_NAME}_INSTALL)
     set(CPACK_PACKAGE_VENDOR "${PROJECT_NAME}")
     set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
     include(CPack)
+    unset(_gentest_fmt_public_dependency)
+    unset(_gentest_target_install_package_root)
 else()
     message(STATUS "Enable install of ${PROJECT_NAME} with -D${PROJECT_NAME}_INSTALL=ON")
 endif()
