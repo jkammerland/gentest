@@ -23,6 +23,9 @@ FetchContent_Populate(
 add_library(fmt_predefined INTERFACE)
 target_include_directories(fmt_predefined INTERFACE "${fmt_headers_SOURCE_DIR}/include")
 target_compile_definitions(fmt_predefined INTERFACE FMT_HEADER_ONLY=1)
+if(MSVC)
+    target_compile_options(fmt_predefined INTERFACE /utf-8)
+endif()
 add_library(fmt::fmt ALIAS fmt_predefined)
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
