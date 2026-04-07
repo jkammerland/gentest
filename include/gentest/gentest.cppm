@@ -39,6 +39,8 @@ using ::gentest::FixtureSetup;
 using ::gentest::FixtureTearDown;
 using ::gentest::log;
 using ::gentest::LogPolicy;
+using ::gentest::operator|;
+using ::gentest::operator|=;
 using ::gentest::registered_cases;
 using ::gentest::require;
 using ::gentest::require_eq;
