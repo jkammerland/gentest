@@ -15,3 +15,6 @@ Mapping:
   third_party/include/tabulate/string_view_lite.hpp,
   third_party/include/tabulate/variant_lite.hpp
   are from Martin Moene "lite" libraries under Boost Software License 1.0.
+- Files under third_party/target_install_package are a vendored install tree from
+  target_install_package.cmake, are MIT-licensed, and carry their upstream
+  LICENSE file in that vendored tree.

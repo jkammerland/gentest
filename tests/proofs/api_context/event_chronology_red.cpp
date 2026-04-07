@@ -12,7 +12,7 @@ int main() {
         ctx->active       = true;
         gentest::detail::set_current_test(ctx);
 
-        gentest::log_on_fail(true);
+        gentest::set_log_policy(gentest::LogPolicy::OnFailure);
         gentest::detail::record_failure("F-before-log");
         gentest::log("L-after-failure");
         gentest::detail::flush_current_buffer_for(ctx.get());

@@ -66,8 +66,12 @@ Contributor workflows, including lint, static analysis, coverage, and local CI-a
 
 ## Use in your project (CMake)
 
+Installed-package consumers must also make the exact matching `fmt` CMake
+package discoverable. The simplest setup is to install `gentest` and `fmt`
+into the same prefix and point `CMAKE_PREFIX_PATH` at that prefix.
+
 ```cmake
-# Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below
+# Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
 
 # The test
@@ -267,8 +271,9 @@ void xfail_example() {
 ### Threads/coroutines + logging (ctx::Adopt)
 
 Assertions must run under an active test context. When you spawn threads/coroutines, adopt the current context so
-`EXPECT_*` failures are attributed to the right test. Use `gentest::log_on_fail(true)` + `gentest::log(...)` for
-lightweight attachments.
+`EXPECT_*` failures are attributed to the right test. Use `gentest::set_log_policy(gentest::LogPolicy::Always)` when logs should be
+emitted even for passing tests, or `gentest::set_log_policy(gentest::LogPolicy::OnFailure)` for failure-only log output. Use
+`gentest::set_default_log_policy(...)` to change the default for tests that do not override it explicitly.
 
 ```cpp
 #include "gentest/attributes.h"
@@ -279,7 +284,7 @@ using namespace gentest::asserts;
 
 [[gentest::test("concurrency/adopt_and_log")]]
 void adopt_and_log() {
-    gentest::log_on_fail(true);
+    gentest::set_log_policy(gentest::LogPolicy::Always);
     auto tok = gentest::ctx::current();
 
     std::thread t([tok] {
@@ -321,36 +326,43 @@ void rows(int a, int b) {
 The generator also supports convenience axes like `range(...)`, `linspace(...)`, `geom(...)`, and `logspace(...)` (see
 `include/gentest/attributes.h`).
 
-### Templates (mixed axes)
+### Templates (including template-template packs)
 
-Generate a compact 2D matrix by combining a type axis with a template-template axis:
+Generate a compact template-template pack expansion by combining parenthesized rows into a
+single `template(...)` attribute:
 
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 #include <list>
+#include <string>
+#include <tuple>
 #include <vector>
 
-template <typename T, template <class...> class C>
-[[using gentest: template(T, int, long), template(C, std::vector, std::list)]]
-void emplace_matrix() {
-    C<T> values;
-    values.emplace_back(T{1});
-    gentest::expect_eq(values.size(), std::size_t{1}, "container emplace");
+template <template <class...> class... Cs>
+[[using gentest: template(Cs, (), (std::vector), (std::vector, std::list))]]
+void tt_pack() {
+    using tuple_t = std::tuple<Cs<int>...>;
+    const auto arity = std::tuple_size_v<tuple_t>;
+    gentest::set_log_policy(gentest::LogPolicy::Always);
+    gentest::log(std::string("template-template pack arity = ") + std::to_string(arity));
+    gentest::expect_eq(arity, sizeof...(Cs), "template-template pack arity");
 }
 ```
 
-This expands to four concrete cases:
+This expands to three concrete cases:
 
 ```text
-[ PASS ] templates/tt/mixed<std::list,int>
-[ PASS ] templates/tt/mixed<std::list,long>
-[ PASS ] templates/tt/mixed<std::vector,int>
-[ PASS ] templates/tt/mixed<std::vector,long>
+[ PASS ] tt_pack<>
+template-template pack arity = 0
+[ PASS ] tt_pack<std::vector>
+template-template pack arity = 1
+[ PASS ] tt_pack<std::vector,std::list>
+template-template pack arity = 2
 ```
 
 `template(NAME, ...)` applies to type, value, and template-template parameters.
-Template parameter packs use parenthesized rows inside the same attribute, for example
+Template parameter packs use parenthesized rows inside the same attribute, as in
 `template(Cs, (), (std::vector), (std::vector, std::list))`.
 
 ### Fixtures

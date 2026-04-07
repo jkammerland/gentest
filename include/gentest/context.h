@@ -46,7 +46,10 @@ struct Adopt {
 
 } // namespace ctx
 
-// Lightweight per-test logging; appended to failure messages when enabled.
+// Lightweight per-test logging.
+// - `set_log_policy()` overrides log visibility for the active test context.
+// - `set_default_log_policy()` controls the process-global default when a test
+//   does not override it explicitly.
 inline void log(std::string_view message) {
     auto  ctx    = detail::current_test_storage();
     auto &buffer = detail::current_buffer_storage();
@@ -57,25 +60,41 @@ inline void log(std::string_view message) {
         buffer.owner = ctx.get();
     }
 
-    bool dump_logs_on_failure = false;
+    LogPolicy  policy            = LogPolicy::Never;
+    bool       policy_overridden = false;
+    const auto always_bits       = gentest::to_underlying(LogPolicy::Always);
+    const auto on_failure_bits   = gentest::to_underlying(LogPolicy::OnFailure);
     {
         std::lock_guard<std::mutex> lk(ctx->mtx);
-        dump_logs_on_failure = ctx->dump_logs_on_failure;
+        policy            = ctx->log_policy;
+        policy_overridden = ctx->log_policy_overridden;
+    }
+    if (!policy_overridden) {
+        policy = static_cast<LogPolicy>(detail::default_log_policy_storage().load(std::memory_order_acquire));
     }
 
     buffer.logs.emplace_back(message);
-    if (dump_logs_on_failure) {
+    const auto policy_bits = gentest::to_underlying(policy);
+    if ((policy_bits & always_bits) == always_bits) {
+        buffer.event_lines.emplace_back(message);
+        buffer.event_kinds.push_back('A');
+    } else if ((policy_bits & on_failure_bits) != 0) {
         buffer.event_lines.emplace_back(message);
         buffer.event_kinds.push_back('L');
     }
 }
 
-inline void log_on_fail(bool enable = true) {
+inline void set_log_policy(LogPolicy policy) {
     auto ctx = detail::current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed))
         return;
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->dump_logs_on_failure = enable;
+    ctx->log_policy            = policy;
+    ctx->log_policy_overridden = true;
+}
+
+inline void set_default_log_policy(LogPolicy policy) {
+    detail::default_log_policy_storage().store(gentest::to_underlying(policy), std::memory_order_release);
 }
 
 [[noreturn]] inline void skip(std::string_view reason = {}, const std::source_location &loc = std::source_location::current()) {

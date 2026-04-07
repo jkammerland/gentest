@@ -49,6 +49,10 @@ CMake is still the cleanest path, but the stable codegen-host contract is now
 explicit: use `GENTEST_CODEGEN_HOST_CLANG` for the host parser/compiler and use
 the normal CMake compiler/toolchain surface for the final target build.
 
+Installed-package consumers also need the exact matching `fmt` CMake package to
+be discoverable. The simplest setup is to install `gentest` and `fmt` into the
+same prefix and point `CMAKE_PREFIX_PATH` at that prefix.
+
 Project `CMakeLists.txt`:
 
 ```cmake
@@ -343,6 +347,12 @@ Why that split still matters:
 - `gentest_codegen` is a **host executable**
 - Clang / `clang-scan-deps` are **host toolchain dependencies**
 - cross-builds often need different host and target environments
+
+For gentest's own install/export flow, the packaging helper itself is vendored
+under `third_party/target_install_package` and resolved with a strict
+`find_package(... EXACT CONFIG REQUIRED)` path. Packaging the gentest developer
+surface should therefore be a no-network configure path; host compiler/toolchain
+selection remains a separate concern.
 
 So the clean packaging model is:
 
