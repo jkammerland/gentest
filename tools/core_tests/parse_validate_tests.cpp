@@ -8,9 +8,12 @@
 #include <string_view>
 #include <vector>
 
+using gentest::codegen::FixtureLifetime;
 using gentest::codegen::parse_attribute_list;
 using gentest::codegen::ParsedAttribute;
 using gentest::codegen::validate_attributes;
+using gentest::codegen::validate_fixture_attributes;
+using gentest::codegen::validate_namespace_attributes;
 
 struct Run {
     int  failures = 0;
@@ -128,6 +131,323 @@ int main() {
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(summary.had_error, "unknown gentest value attribute errors");
         t.expect(!diags.empty(), "unknown value attribute reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(fixture(suite))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_fixture_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "fixture(suite) should validate");
+        t.expect(summary.lifetime == FixtureLifetime::MemberSuite, "fixture(suite) lifetime");
+        t.expect(diags.empty(), "fixture(suite) should not report diagnostics");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(fixture(global))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_fixture_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "fixture(global) should validate");
+        t.expect(summary.lifetime == FixtureLifetime::MemberGlobal, "fixture(global) lifetime");
+        t.expect(diags.empty(), "fixture(global) should not report diagnostics");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(fixture(suite), fixture(global))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_fixture_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "duplicate fixture attribute errors");
+        t.expect(!diags.empty(), "duplicate fixture attribute reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(fixture())");
+        std::vector<std::string> diags;
+        auto                     summary = validate_fixture_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "fixture without scope errors");
+        t.expect(!diags.empty(), "fixture without scope reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(fixture(suite, global))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_fixture_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "fixture with multiple scopes errors");
+        t.expect(!diags.empty(), "fixture with multiple scopes reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(fixture(local))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_fixture_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "fixture(local) errors");
+        t.expect(!diags.empty(), "fixture(local) reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(slow)");
+        std::vector<std::string> diags;
+        auto                     summary = validate_fixture_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "unknown class flag errors");
+        t.expect(!diags.empty(), "unknown class flag reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(owner("ops", "runtime"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_fixture_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "unknown class value attribute errors");
+        t.expect(!diags.empty(), "unknown class value attribute reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(suite("codegen/ns"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "namespace suite validates");
+        t.expect(summary.suite_name && *summary.suite_name == "codegen/ns", "namespace suite name parsed");
+        t.expect(diags.empty(), "namespace suite should not report diagnostics");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(suite("a"), suite("b"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "duplicate namespace suite errors");
+        t.expect(!diags.empty(), "duplicate namespace suite reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(suite())");
+        std::vector<std::string> diags;
+        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "namespace suite without argument errors");
+        t.expect(!diags.empty(), "namespace suite without argument reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(suite("a", "b"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "namespace suite with too many args errors");
+        t.expect(!diags.empty(), "namespace suite with too many args reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(suite(""))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "empty namespace suite errors");
+        t.expect(!diags.empty(), "empty namespace suite reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(slow)");
+        std::vector<std::string> diags;
+        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "unknown namespace flag errors");
+        t.expect(!diags.empty(), "unknown namespace flag reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(owner("ops", "runtime"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "unknown namespace value attribute errors");
+        t.expect(!diags.empty(), "unknown namespace value attribute reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(bench("x"), bench("y"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "duplicate bench errors");
+        t.expect(!diags.empty(), "duplicate bench reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(bench)");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "bare bench errors");
+        t.expect(!diags.empty(), "bare bench reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(baseline("x"), bench("b"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "baseline arguments error");
+        t.expect(!diags.empty(), "baseline arguments report a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(baseline, test("x"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "baseline without measured kind errors");
+        t.expect(!diags.empty(), "baseline without measured kind reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(jitter("x"), jitter("y"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "duplicate jitter errors");
+        t.expect(!diags.empty(), "duplicate jitter reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(jitter)");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "bare jitter errors");
+        t.expect(!diags.empty(), "bare jitter reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(test("x"), skip("first", "second"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "skip with multiple reasons should validate");
+        t.expect(summary.should_skip, "skip marks the case");
+        t.expect(summary.skip_reason == "first, second", "skip reasons are joined");
+        t.expect(diags.empty(), "skip with multiple reasons should not report diagnostics");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(template())");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "template without args errors");
+        t.expect(!diags.empty(), "template without args reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(template("", int), test("templated-empty-param"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "template empty parameter name errors");
+        t.expect(!diags.empty(), "template empty parameter name reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(parameters(v))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "parameters without values errors");
+        t.expect(!diags.empty(), "parameters without values reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(test("x"), range(i, "1:2:5"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "range string form should validate");
+        t.expect(summary.parameter_ranges.size() == 1, "range string form records one range");
+        if (summary.parameter_ranges.size() == 1) {
+            t.expect(summary.parameter_ranges[0].start == "1", "range string form start");
+            t.expect(summary.parameter_ranges[0].step == "2", "range string form step");
+            t.expect(summary.parameter_ranges[0].end == "5", "range string form end");
+        }
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(range(i, "1:2"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "malformed range string errors");
+        t.expect(!diags.empty(), "malformed range string reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(range(i, 1, 2))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "range with invalid arity errors");
+        t.expect(!diags.empty(), "range with invalid arity reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(linspace(i, 0, 1))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "linspace with invalid arity errors");
+        t.expect(!diags.empty(), "linspace with invalid arity reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(geom(i, 1, 2))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "geom with invalid arity errors");
+        t.expect(!diags.empty(), "geom with invalid arity reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(logspace(i, 0, 1))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "logspace with invalid arity errors");
+        t.expect(!diags.empty(), "logspace with invalid arity reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(test("x"), logspace(i, 0, 3, 4, 2))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "logspace with explicit base should validate");
+        t.expect(summary.parameter_logspaces.size() == 1, "logspace with explicit base records one spec");
+        if (summary.parameter_logspaces.size() == 1) {
+            t.expect(summary.parameter_logspaces[0].base == "2", "logspace with explicit base stores base");
+        }
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(parameters_pack((a)))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "parameters_pack without rows errors");
+        t.expect(!diags.empty(), "parameters_pack without rows reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(parameters_pack((), (1)))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "parameters_pack with empty names errors");
+        t.expect(!diags.empty(), "parameters_pack with empty names reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(parameters_pack((a, b), (1)))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "parameters_pack arity mismatch errors");
+        t.expect(!diags.empty(), "parameters_pack arity mismatch reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(test("x"), fixtures(LegacyFx))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "removed fixtures attribute errors");
+        t.expect(!diags.empty(), "removed fixtures attribute reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(test("x"), slow, slow)");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "duplicate flag errors");
+        t.expect(!diags.empty(), "duplicate flag reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(test("x"), owner("ops", "runtime"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "owner with invalid arity errors");
+        t.expect(!diags.empty(), "owner with invalid arity reports a diagnostic");
     }
 
     // Regression: split_arguments must treat '<...>' as a nesting delimiter so template commas

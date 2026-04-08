@@ -266,6 +266,20 @@ gentest_add_check_exit_code(
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
 gentest_add_check_exit_code(
+    NAME gentest_codegen_check_parameters_pack
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_parameters_pack.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_exit_code(
     NAME gentest_codegen_check_fixture_resolution
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
@@ -274,6 +288,20 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_fixture_resolution.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_template_fixture_resolution
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_template_fixture_resolution.cpp
         -- ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
         -I${PROJECT_SOURCE_DIR}/include
@@ -542,6 +570,27 @@ gentest_add_cmake_script_test(
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment.gentest.cpp"
         "EXPECT_SUBSTRING=suite_override/comment_backscan/trailing_comment_suite_attr_case")
 
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_namespace_suite_diag_dedup
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespace_suite_diag_dedup.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR}
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=duplicate gentest namespace attribute 'suite'"
+        "EXPECT_COUNT_SUBSTRING=attribute 'suite(\"smoke/namespace_diag/plain\")' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
+        "EXPECT_COUNT=1")
+
 gentest_add_check_death(
     NAME gentest_codegen_check_invalid_unknown_attr
     NO_EMULATOR
@@ -636,6 +685,150 @@ gentest_add_check_death(
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/baseline_requires_bench.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_invalid_axis_unknown_parameters_name
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "unknown parameter name 'missing' in parameters(...)"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_invalid_axis_unknown_pack_name
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "unknown parameter name 'missing' in parameters_pack(...)"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_invalid_axis_duplicate_axis
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "duplicate parameter axis for 'i'"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_invalid_axis_overlap_pack
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "parameter 'i' supplied by multiple parameter sets/packs"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_invalid_axis_range_inconsistent
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "parameters_range for 'i' has inconsistent bounds"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_invalid_axis_range_unsupported
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "parameters_range not supported for parameter type"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_range_unsupported.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_invalid_axis_linspace_unsupported
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "parameters_linspace not supported for parameter type"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_linspace_unsupported.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_invalid_axis_geom_unsupported
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "parameters_geom not supported for parameter type"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_geom_unsupported.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
+    NAME gentest_codegen_invalid_axis_logspace_unsupported
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "logspace not supported for parameter type"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_logspace_unsupported.cpp
         --
         ${_gentest_codegen_cross_target_arg}
         ${_gentest_codegen_std_flag}
@@ -992,6 +1185,22 @@ gentest_add_check_death(
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
 gentest_add_check_death(
+    NAME gentest_codegen_top_level_suite_fixture
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_SUBSTRING "'fixture(suite)' requires an enclosing named namespace to derive a suite path"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/top_level_suite_fixture.cpp
+        --
+        ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_death(
     NAME gentest_codegen_fixture_attr_removed
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
@@ -1011,10 +1220,14 @@ gentest_add_check_death(
 set_tests_properties(
     gentest_codegen_check_valid
     gentest_codegen_check_namespaced_attrs
+    gentest_codegen_check_axis_generators
+    gentest_codegen_check_parameters_pack
+    gentest_codegen_check_template_fixture_resolution
     gentest_codegen_mis_scoped_attr_keyword
     gentest_codegen_mis_scoped_attr_value_keyword
     gentest_codegen_mis_scoped_attr_unqualified_test
     gentest_codegen_namespace_suite_attr_with_trailing_comment
+    gentest_codegen_namespace_suite_diag_dedup
     gentest_codegen_check_invalid_unknown_attr
     gentest_codegen_check_invalid_duplicate_template_attr
     gentest_codegen_check_invalid_template_pack_bare
@@ -1022,6 +1235,15 @@ set_tests_properties(
     gentest_codegen_check_template_parenthesized_nttp_ok
     gentest_codegen_check_invalid_template_pack_empty_cells
     gentest_codegen_baseline_requires_bench
+    gentest_codegen_invalid_axis_unknown_parameters_name
+    gentest_codegen_invalid_axis_unknown_pack_name
+    gentest_codegen_invalid_axis_duplicate_axis
+    gentest_codegen_invalid_axis_overlap_pack
+    gentest_codegen_invalid_axis_range_inconsistent
+    gentest_codegen_invalid_axis_range_unsupported
+    gentest_codegen_invalid_axis_linspace_unsupported
+    gentest_codegen_invalid_axis_geom_unsupported
+    gentest_codegen_invalid_axis_logspace_unsupported
     gentest_codegen_mock_incomplete_virtual_msg
     gentest_codegen_mock_virtual_defined_in_cpp_msg
     gentest_codegen_mock_nonvirtual_defined_in_cpp_msg
@@ -1040,6 +1262,7 @@ set_tests_properties(
     gentest_codegen_fixture_suite_member_illegal
     gentest_codegen_fixture_global_member_illegal
     gentest_codegen_fixture_namespace_scope
+    gentest_codegen_top_level_suite_fixture
     gentest_codegen_fixture_attr_removed
     PROPERTIES LABELS "codegen")
 
@@ -1915,13 +2138,13 @@ gentest_add_run_and_check_file(
 gentest_add_check_death(
     NAME regression_bench_unknown_exception_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    EXPECT_SUBSTRING "unknown exception"
+    EXPECT_SUBSTRING "benchmark call failed for regressions/bench_unknown_exception_should_fail: unknown exception"
     ARGS --run=regressions/bench_unknown_exception_should_fail --kind=bench)
 
 gentest_add_check_death(
     NAME regression_jitter_unknown_exception_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    EXPECT_SUBSTRING "unknown exception"
+    EXPECT_SUBSTRING "jitter call failed for regressions/jitter_unknown_exception_should_fail: unknown exception"
     ARGS --run=regressions/jitter_unknown_exception_should_fail --kind=jitter)
 
 gentest_add_cmake_script_test(
@@ -2306,9 +2529,23 @@ _gentest_add_cmake_helper_test(
     -DCODEGEN_STD=${_gentest_codegen_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_axis_generators.cpp
-    -DEXPECT_CASE_COUNT=23
-    "-DEXPECT_SUBSTRINGS=return range_many(1);;return range_many(3);;return range_many(5);;return linspace_many(0.25);;return geom_many(8);;return logspace_many(1000);;.name = \"smoke/axis_generators/logspace_many(0.10000000000000001)\"")
+    -DEXPECT_CASE_COUNT=45
+    "-DEXPECT_SUBSTRINGS=return range_many(1);;return range_descending_int(5);;return range_descending_int(3);;return range_descending_int(1);;return range_step_zero_int(1);;return range_step_zero_int(2);;return range_step_zero_int(3);;return range_float_many(0);;return range_float_many(0.25);;return range_float_many(0.5);;return range_float_descending(1);;return range_float_descending(0.75);;return range_float_descending(0.5);;return linspace_many(0.25);;return linspace_many_int(1);;return linspace_many_int(3);;return linspace_many_int(5);;return geom_many(8);;return geom_many_float(1.5);;return geom_many_float(3);;return geom_many_float(6);;return logspace_many(1000);;return logspace_many_int(1);;return logspace_many_int(2);;return logspace_many_int(4);;return logspace_many_int(8);;.name = \"smoke/axis_generators/logspace_many(0.10000000000000001)\"")
 set_property(TEST gentest_codegen_emit_axis_generators APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_emit_parameters_pack
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenSmokeEmission.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DSMOKE_SOURCE=tests/smoke/codegen_parameters_pack.cpp
+    -DEXPECT_CASE_COUNT=6
+    "-DEXPECT_SUBSTRINGS=return pack_rows(1, 2);;return pack_rows(3, 4);;return pack_mixed(10, 20, 7);;return pack_mixed(30, 40, 8);;.name = \"smoke/parameters_pack/mixed(10, 20, 7)\"")
+set_property(TEST gentest_codegen_emit_parameters_pack APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_emit_fixture_resolution
@@ -2323,6 +2560,21 @@ _gentest_add_cmake_helper_test(
     -DEXPECT_CASE_COUNT=2
     "-DEXPECT_SUBSTRINGS=gentest_init_fixture(fx0_, \"smoke::fixture_resolution::LocalFixture\");;gentest_init_shared_fixture(fx0_, ::gentest::detail::SharedFixtureScope::Suite, \"smoke/fixture_resolution\", \"smoke::fixture_resolution::SharedSuiteFixture\")")
 set_property(TEST gentest_codegen_emit_fixture_resolution APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_emit_template_fixture_resolution
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenSmokeEmission.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DEXPECT_COMPILE=ON
+    -DSMOKE_SOURCE=tests/smoke/codegen_template_fixture_resolution.cpp
+    -DEXPECT_CASE_COUNT=2)
+set_property(TEST gentest_codegen_emit_template_fixture_resolution APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_emit_template_parser_edges

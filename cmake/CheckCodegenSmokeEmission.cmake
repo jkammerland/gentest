@@ -75,3 +75,31 @@ foreach(_expected IN LISTS EXPECT_SUBSTRINGS)
       "Generated file: ${_output}\n${_output_text}")
   endif()
 endforeach()
+
+if(DEFINED EXPECT_COMPILE AND EXPECT_COMPILE)
+  if(NOT DEFINED CXX_COMPILER OR "${CXX_COMPILER}" STREQUAL "")
+    message(FATAL_ERROR "CheckCodegenSmokeEmission.cmake: CXX_COMPILER must be set when EXPECT_COMPILE=ON")
+  endif()
+
+  set(_compile_output "${_work_dir}/${_smoke_name}.o")
+  execute_process(
+    COMMAND
+      "${CXX_COMPILER}"
+      "${CODEGEN_STD}"
+      "-I${SOURCE_DIR}/include"
+      "-I${SOURCE_DIR}/tests"
+      -c "${_output}"
+      -o "${_compile_output}"
+    RESULT_VARIABLE _compile_rc
+    OUTPUT_VARIABLE _compile_out
+    ERROR_VARIABLE _compile_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _compile_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Expected generated output for '${SMOKE_SOURCE}' to compile successfully.\n"
+      "Generated file: ${_output}\n"
+      "Compiler output:\n${_compile_out}\n${_compile_err}")
+  endif()
+endif()
