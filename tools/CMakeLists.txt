@@ -359,8 +359,6 @@ if(WIN32 AND MSVC)
     # When building gentest_codegen (which links against those libs) with MSVC, keep
     # the tool compatible even in Debug builds.
     set_property(TARGET gentest_codegen PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
-    target_compile_options(gentest_codegen PRIVATE /wd4805 /wd4291)
-    target_compile_definitions(gentest_codegen PRIVATE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
 endif()
 
 set(_gentest_use_libcxx FALSE)
@@ -430,6 +428,14 @@ if(_gentest_use_libcxx OR (WIN32 AND MSVC))
     set(_gentest_fmt_target fmt::fmt-header-only)
 endif()
 
+add_library(gentest_codegen_support INTERFACE)
+target_link_libraries(gentest_codegen PRIVATE gentest_codegen_support)
+
+if(WIN32 AND MSVC)
+    target_compile_options(gentest_codegen_support INTERFACE /wd4805 /wd4291)
+    target_compile_definitions(gentest_codegen_support INTERFACE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
+endif()
+
 if(UNIX AND NOT APPLE)
     if(_gentest_use_local_tinfo_shim AND NOT TARGET gentest_tinfo_shim)
         target_sources(gentest_codegen PRIVATE src/terminfo_shim.cpp)
@@ -447,24 +453,24 @@ endif()
 ## Embedded templates are used by default; --template can point to an external file if desired
 
 if(DEFINED LLVM_INCLUDE_DIRS)
-    target_include_directories(gentest_codegen SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
+    target_include_directories(gentest_codegen_support SYSTEM INTERFACE ${LLVM_INCLUDE_DIRS})
 endif()
 
 if(TARGET clangTooling)
     get_target_property(_gentest_clang_includes clangTooling INTERFACE_INCLUDE_DIRECTORIES)
     if(_gentest_clang_includes)
-        target_include_directories(gentest_codegen SYSTEM PRIVATE ${_gentest_clang_includes})
+        target_include_directories(gentest_codegen_support SYSTEM INTERFACE ${_gentest_clang_includes})
     endif()
 endif()
 
 if(LLVM_ENABLE_RTTI)
-    target_compile_definitions(gentest_codegen PRIVATE LLVM_ENABLE_RTTI)
+    target_compile_definitions(gentest_codegen_support INTERFACE LLVM_ENABLE_RTTI)
 else()
     if(MSVC)
         # MSVC/clang-cl frontend
-        target_compile_options(gentest_codegen PRIVATE /GR-)
+        target_compile_options(gentest_codegen_support INTERFACE /GR-)
     else()
-        target_compile_options(gentest_codegen PRIVATE -fno-rtti)
+        target_compile_options(gentest_codegen_support INTERFACE -fno-rtti)
     endif()
 endif()
 
@@ -476,15 +482,15 @@ if(TARGET clang-cpp)
     # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
     # Link it when the imported target exists; otherwise fall back to LLVMSupport.
     # Link the monolithic clang-cpp; avoid mixing in static LLVM components.
-    target_link_libraries(gentest_codegen PRIVATE clang-cpp ${_gentest_fmt_target})
+    target_link_libraries(gentest_codegen_support INTERFACE clang-cpp ${_gentest_fmt_target})
     if(TARGET Terminfo::terminfo)
-        target_link_libraries(gentest_codegen PRIVATE Terminfo::terminfo)
+        target_link_libraries(gentest_codegen_support INTERFACE Terminfo::terminfo)
     endif()
     # If we discovered a monolithic libLLVM DSO, link it to satisfy LLVMSupport
     # RTTI/vtables required by our TU and by clang-cpp on some platforms.
     if(_gentest_llvm_dso)
         message(STATUS "gentest: linking LLVM DSO: ${_gentest_llvm_dso}")
-        target_link_libraries(gentest_codegen PRIVATE "${_gentest_llvm_dso}")
+        target_link_libraries(gentest_codegen_support INTERFACE "${_gentest_llvm_dso}")
         # Ensure runtime can locate the DSO without LD_LIBRARY_PATH tweaks.
         if(UNIX)
             set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_llvm_dso_dir}")
@@ -526,8 +532,8 @@ else()
         clangLex
         clangParse
         clangSema)
-    target_link_libraries(gentest_codegen
-        PRIVATE
+    target_link_libraries(gentest_codegen_support
+        INTERFACE
             ${_gentest_clang_libs}
             ${_gentest_llvm_support}
             ${_gentest_fmt_target})
