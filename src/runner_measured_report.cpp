@@ -20,6 +20,7 @@ using Row_t = Table::Row_t;
 
 std::string escape_tsv_cell(std::string_view value) {
     fmt::memory_buffer out;
+    out.reserve(value.size());
     for (char ch : value) {
         switch (ch) {
         case '\\': fmt::format_to(std::back_inserter(out), "\\\\"); break;
@@ -43,6 +44,7 @@ void append_tsv_metric(std::string &out, std::string_view key, std::size_t value
 
 std::string escape_xml_text(std::string_view value) {
     fmt::memory_buffer out;
+    out.reserve(value.size());
     for (char ch : value) {
         switch (ch) {
         case '&': fmt::format_to(std::back_inserter(out), "&amp;"); break;

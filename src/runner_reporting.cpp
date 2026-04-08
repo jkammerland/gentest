@@ -105,7 +105,13 @@ struct PendingAllureFile {
 };
 
 std::string join_lines(const std::vector<std::string> &lines) {
+    std::size_t total_size = lines.empty() ? 0 : (lines.size() - 1);
+    for (const auto &line : lines) {
+        total_size += line.size();
+    }
+
     std::string out;
+    out.reserve(total_size);
     for (std::size_t i = 0; i < lines.size(); ++i) {
         if (i != 0) {
             out.push_back('\n');
