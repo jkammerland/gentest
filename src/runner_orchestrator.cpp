@@ -287,7 +287,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
                 }
             }
         }
-        fmt::print("{}", fmt::to_string(summary));
+        fmt::print("{}", std::string_view(summary.data(), summary.size()));
     }
 
     const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() && state.acc.infra_errors.empty();
