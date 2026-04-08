@@ -1912,6 +1912,50 @@ gentest_add_run_and_check_file(
     EXPECT_RC 1
     ARGS --run=regressions/jitter_assert_should_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_failure_junit.xml)
 
+gentest_add_check_death(
+    NAME regression_bench_unknown_exception_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "unknown exception"
+    ARGS --run=regressions/bench_unknown_exception_should_fail --kind=bench)
+
+gentest_add_check_death(
+    NAME regression_jitter_unknown_exception_failure_propagates
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    EXPECT_SUBSTRING "unknown exception"
+    ARGS --run=regressions/jitter_unknown_exception_should_fail --kind=jitter)
+
+gentest_add_cmake_script_test(
+    NAME regression_bench_warmup_assert_stops_before_measurement
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --run=regressions/bench_warmup_assert_should_stop_before_measurement
+        --kind=bench
+        --bench-warmup=1
+        --bench-epochs=1
+        --bench-min-total-time-s=0
+        --bench-min-epoch-time-s=0
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=warmup benchmark assertion failure"
+        "FORBID_SUBSTRING=regression marker: benchmark continued after warmup failure")
+
+gentest_add_cmake_script_test(
+    NAME regression_jitter_warmup_assert_stops_before_measurement
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    ARGS
+        --run=regressions/jitter_warmup_assert_should_stop_before_measurement
+        --kind=jitter
+        --bench-warmup=1
+        --bench-epochs=1
+        --bench-min-total-time-s=0
+        --bench-min-epoch-time-s=0
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_SUBSTRING=warmup jitter assertion failure"
+        "FORBID_SUBSTRING=regression marker: jitter continued after warmup failure")
+
 gentest_add_cmake_script_test(
     NAME regression_outcome_consistency_matrix
     PROG $<TARGET_FILE:gentest_unit_tests>
