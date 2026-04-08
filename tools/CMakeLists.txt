@@ -28,15 +28,30 @@ foreach(_cand IN LISTS _gentest_llvm_config_candidates)
 endforeach()
 unset(_gentest_llvm_config_candidates)
 
-# Work around upstream LLVM exports referring to zstd::libzstd_shared while
-# vcpkg's zstd port commonly exposes zstd::libzstd. Define a compatibility
-# imported interface target before loading LLVM's exports so configure doesn't fail.
+# Work around LLVM exports referring to zstd targets that not every package
+# layout provides. Some environments only expose zstd::libzstd, while others
+# export zstd::libzstd_shared or zstd::libzstd_static. Define compatibility
+# imported interface targets before loading LLVM's exports so configure doesn't
+# fail on those naming differences.
 find_package(zstd CONFIG QUIET)
-if(TARGET zstd::libzstd AND NOT TARGET zstd::libzstd_shared)
-    add_library(zstd::libzstd_shared INTERFACE IMPORTED)
-    set_target_properties(zstd::libzstd_shared PROPERTIES
-        INTERFACE_LINK_LIBRARIES "zstd::libzstd")
-endif()
+set(_gentest_zstd_link_target "")
+foreach(_gentest_zstd_candidate zstd::libzstd_static zstd::libzstd_shared zstd::libzstd)
+    if(TARGET ${_gentest_zstd_candidate})
+        set(_gentest_zstd_link_target ${_gentest_zstd_candidate})
+        break()
+    endif()
+endforeach()
+
+foreach(_gentest_zstd_compat_target zstd::libzstd_static zstd::libzstd_shared zstd::libzstd)
+    if(_gentest_zstd_link_target AND NOT TARGET ${_gentest_zstd_compat_target})
+        add_library(${_gentest_zstd_compat_target} INTERFACE IMPORTED)
+        set_target_properties(${_gentest_zstd_compat_target} PROPERTIES
+            INTERFACE_LINK_LIBRARIES "${_gentest_zstd_link_target}")
+    endif()
+endforeach()
+unset(_gentest_zstd_candidate)
+unset(_gentest_zstd_compat_target)
+unset(_gentest_zstd_link_target)
 
 # Some LLVM builds export a Terminfo::terminfo dependency even when the host
 # toolchain lacks a proper CMake package. Provide a best-effort target before
