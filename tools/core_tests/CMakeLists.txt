@@ -1,4 +1,8 @@
 function(_gentest_copy_codegen_runtime_settings target)
+    if(NOT TARGET gentest_codegen)
+        return()
+    endif()
+
     get_target_property(_gentest_codegen_compile_defs gentest_codegen COMPILE_DEFINITIONS)
     if(_gentest_codegen_compile_defs AND NOT _gentest_codegen_compile_defs STREQUAL "_gentest_codegen_compile_defs-NOTFOUND")
         target_compile_definitions(${target} PRIVATE ${_gentest_codegen_compile_defs})
@@ -37,15 +41,17 @@ target_link_libraries(gentest_core_tests PRIVATE fmt::fmt)
 add_test(NAME gentest_core_parse_validate
     COMMAND gentest_core_tests)
 
-add_executable(gentest_core_log_tests
-    log_tests.cpp)
+if(TARGET gentest_codegen_log_support)
+    add_executable(gentest_core_log_tests
+        log_tests.cpp)
 
-target_compile_features(gentest_core_log_tests PRIVATE cxx_std_20)
-target_include_directories(gentest_core_log_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
-target_link_libraries(gentest_core_log_tests PRIVATE gentest_codegen_log_support)
+    target_compile_features(gentest_core_log_tests PRIVATE cxx_std_20)
+    target_include_directories(gentest_core_log_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+    target_link_libraries(gentest_core_log_tests PRIVATE gentest_codegen_log_support)
 
-add_test(NAME gentest_core_log
-    COMMAND gentest_core_log_tests)
+    add_test(NAME gentest_core_log
+        COMMAND gentest_core_log_tests)
+endif()
 
 add_executable(gentest_core_type_kind_tests
     type_kind_tests.cpp
@@ -70,31 +76,35 @@ target_link_libraries(gentest_core_render_tests PRIVATE fmt::fmt)
 add_test(NAME gentest_core_render
     COMMAND gentest_core_render_tests)
 
-add_executable(gentest_core_discovery_utils_tests
-    discovery_utils_tests.cpp)
+if(TARGET gentest_codegen_llvm_support)
+    add_executable(gentest_core_discovery_utils_tests
+        discovery_utils_tests.cpp)
 
-target_compile_features(gentest_core_discovery_utils_tests PRIVATE cxx_std_20)
-target_include_directories(gentest_core_discovery_utils_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
-target_link_libraries(gentest_core_discovery_utils_tests PRIVATE gentest_codegen_llvm_support)
+    target_compile_features(gentest_core_discovery_utils_tests PRIVATE cxx_std_20)
+    target_include_directories(gentest_core_discovery_utils_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+    target_link_libraries(gentest_core_discovery_utils_tests PRIVATE gentest_codegen_llvm_support)
 
-add_test(NAME gentest_core_discovery_utils
-    COMMAND gentest_core_discovery_utils_tests)
+    add_test(NAME gentest_core_discovery_utils
+        COMMAND gentest_core_discovery_utils_tests)
+endif()
 
-add_executable(gentest_core_discovery_tests
-    discovery_tests.cpp
-    ../src/discovery.cpp
-    ../src/parse.cpp
-    ../src/parse_core.cpp
-    ../src/render.cpp
-    ../src/type_kind.cpp
-    ../src/validate.cpp)
+if(TARGET gentest_codegen_support)
+    add_executable(gentest_core_discovery_tests
+        discovery_tests.cpp
+        ../src/discovery.cpp
+        ../src/parse.cpp
+        ../src/parse_core.cpp
+        ../src/render.cpp
+        ../src/type_kind.cpp
+        ../src/validate.cpp)
 
-target_compile_features(gentest_core_discovery_tests PRIVATE cxx_std_20)
-target_include_directories(gentest_core_discovery_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    ${LLVM_INCLUDE_DIRS})
-target_link_libraries(gentest_core_discovery_tests PRIVATE gentest_codegen_support)
-_gentest_copy_codegen_runtime_settings(gentest_core_discovery_tests)
+    target_compile_features(gentest_core_discovery_tests PRIVATE cxx_std_20)
+    target_include_directories(gentest_core_discovery_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src
+        ${LLVM_INCLUDE_DIRS})
+    target_link_libraries(gentest_core_discovery_tests PRIVATE gentest_codegen_support)
+    _gentest_copy_codegen_runtime_settings(gentest_core_discovery_tests)
 
-add_test(NAME gentest_core_discovery
-    COMMAND gentest_core_discovery_tests)
+    add_test(NAME gentest_core_discovery
+        COMMAND gentest_core_discovery_tests)
+endif()

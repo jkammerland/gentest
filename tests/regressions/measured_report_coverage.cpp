@@ -182,9 +182,8 @@ void check_zero_and_one_sample_attachments() {
            "zero-sample histogram should still emit header");
     expect(contains(find_attachment(zero, "histogram-plot").contents, "bins 0  peak count 1"),
            "zero-sample histogram SVG should handle empty bins");
-    expect(
-        contains(find_attachment(zero, "samples").contents, R"("sample_count":0,"stored_count":0,"truncated":false,"samples_ns":[])"),
-        "zero-sample JSON should stay empty without truncation");
+    expect(contains(find_attachment(zero, "samples").contents, R"("sample_count":0,"stored_count":0,"truncated":false,"samples_ns":[])"),
+           "zero-sample JSON should stay empty without truncation");
 
     auto one                   = make_jitter_result({42.5}, 1);
     one.overhead_mean_ns       = 0.0;

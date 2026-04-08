@@ -56,7 +56,7 @@ int main() {
         std::filesystem::remove(fixture_path, ec);
     }
 
-    t.expect(escape_string("\\\"\n\r\t") == "\\\\\\\"\\n\\r\\t", "escape_string escapes control characters");
+    t.expect(escape_string("\\\"\n\r\t") == R"(\\\"\n\r\t)", "escape_string escapes control characters");
     t.expect(render_forward_decls({}, "ignored", "ignored").empty(), "render_forward_decls stays empty");
 
     {
@@ -106,7 +106,7 @@ int main() {
         t.contains(rendered, "N=bench/case|W=::kCaseInvoke_1|F=bench.cpp|L=23|B=true|J=true|BASE=true",
                    "render_case_entries renders measured flags");
         t.contains(rendered,
-                   "SK=\"why \\\"quoted\\\"\"|SS=true|FX=\"fixtures::Shared\"|LT=gentest::FixtureLifetime::MemberSuite|SU=\"bench/suite\"",
+                   R"(SK="why \"quoted\""|SS=true|FX="fixtures::Shared"|LT=gentest::FixtureLifetime::MemberSuite|SU="bench/suite")",
                    "render_case_entries escapes skip reason and fixture name");
     }
 
@@ -242,7 +242,7 @@ int main() {
                    "render_wrappers preserves return values for shared members");
         t.contains(rendered, "static_cast<decltype(self)&&>(self).template go(static_cast<decltype(fx0)&&>(fx0), 42)",
                    "render_wrappers emits templated member helper calls");
-        t.contains(rendered, "gentest_record_fixture_failure(\"fixture::SharedWithFx\", \"instance missing\");",
+        t.contains(rendered, R"(gentest_record_fixture_failure("fixture::SharedWithFx", "instance missing");)",
                    "render_wrappers reports missing shared member fixtures");
         t.contains(rendered, "static thread_local BenchState bench_state{};", "render_wrappers emits measured bench state");
     }

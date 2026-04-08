@@ -56,7 +56,7 @@ bool redirect_fd(int from, int to) { return dup2(from, to) >= 0; }
 #endif
 
 template <typename Fn> std::string capture_stderr(Fn &&fn) {
-    std::fflush(stderr);
+    static_cast<void>(std::fflush(stderr));
     llvm::errs().flush();
 
     int pipe_fds[2] = {-1, -1};
@@ -98,7 +98,7 @@ template <typename Fn> std::string capture_stderr(Fn &&fn) {
     });
 
     const auto restore_stderr = [&] {
-        std::fflush(stderr);
+        static_cast<void>(std::fflush(stderr));
         llvm::errs().flush();
         redirect_fd(saved_stderr, 2);
         close_fd(saved_stderr);

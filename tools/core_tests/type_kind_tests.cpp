@@ -50,9 +50,9 @@ int main() {
     t.expect(quote_for_type(TypeKind::String, " u8\"utf8\" ", "std::u8string_view") == " u8\"utf8\" ", "u8 string literal is preserved");
     t.expect(quote_for_type(TypeKind::String, " u\"utf16\" ", "std::u16string") == " u\"utf16\" ", "u16 string literal is preserved");
     t.expect(quote_for_type(TypeKind::String, " U\"utf32\" ", "std::u32string_view") == " U\"utf32\" ", "u32 string literal is preserved");
-    t.expect(quote_for_type(TypeKind::String, "tab\tline\nquote\"", "std::string") == "\"tab\\tline\\nquote\\\"\"",
+    t.expect(quote_for_type(TypeKind::String, "tab\tline\nquote\"", "std::string") == R"("tab\tline\nquote\"")",
              "plain string quoting escapes content");
-    t.expect(quote_for_type(TypeKind::String, "row\rnext", "std::string") == "\"row\\rnext\"",
+    t.expect(quote_for_type(TypeKind::String, "row\rnext", "std::string") == R"("row\rnext")",
              "plain string quoting escapes carriage return");
     t.expect(quote_for_type(TypeKind::String, "wide", "std::wstring_view") == "L\"wide\"", "wstring prefix selection");
     t.expect(quote_for_type(TypeKind::String, "utf8", "std::u8string") == "u8\"utf8\"", "u8string prefix selection");
