@@ -79,7 +79,7 @@ using gentest::codegen::TestCaseInfo;
 #ifndef GENTEST_TEMPLATE_DIR
 #define GENTEST_TEMPLATE_DIR ""
 #endif
-static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
+static constexpr std::string_view kTemplateDir                         = GENTEST_TEMPLATE_DIR;
 static constexpr std::string_view kMissingCompdbSyntheticCommandMarker = "__gentest_missing_compdb_entry__";
 
 namespace {
