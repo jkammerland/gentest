@@ -152,6 +152,95 @@ elseif(_mode STREQUAL "write_failure")
         "Expected generated output '${_generated}' to exist before depfile write failure. Output:\n${_all}")
     endif()
   endforeach()
+elseif(_mode STREQUAL "escaped_paths")
+  set(_special_dir "${_work_dir}/fixture dir#hash")
+  set(_special_generated_dir "${_work_dir}/generated dir#hash")
+  file(REMOVE_RECURSE "${_special_dir}" "${_special_generated_dir}")
+  file(MAKE_DIRECTORY "${_special_dir}" "${_special_generated_dir}")
+
+  file(COPY
+    "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.hpp"
+    "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.hpp"
+    "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.cpp"
+    "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.cpp"
+    DESTINATION "${_special_dir}")
+
+  file(TO_CMAKE_PATH "${_special_dir}" _special_dir_norm)
+  file(TO_CMAKE_PATH "${_special_generated_dir}" _special_generated_dir_norm)
+
+  set(_special_a_cpp "${_special_dir}/a.cpp")
+  set(_special_b_cpp "${_special_dir}/b.cpp")
+  set(_special_depfile "${_special_generated_dir}/dep manifest#special$:colon:.d")
+  set(_special_output "${_special_generated_dir}/dep manifest#special$:colon:.cpp")
+  set(_special_mock_registry "${_special_generated_dir}/dep manifest#special$:colon:_mock_registry.hpp")
+  set(_special_mock_impl "${_special_generated_dir}/dep manifest#special$:colon:_mock_impl.hpp")
+  set(_special_mock_registry_domain "${_special_generated_dir}/dep manifest#special$:colon:_mock_registry__domain_0000_header.hpp")
+  set(_special_mock_impl_domain "${_special_generated_dir}/dep manifest#special$:colon:_mock_impl__domain_0000_header.hpp")
+
+  file(TO_CMAKE_PATH "${_special_a_cpp}" _special_a_cpp_norm)
+  file(TO_CMAKE_PATH "${_special_b_cpp}" _special_b_cpp_norm)
+
+  set(_special_compile_args_a "${_real_clang_norm}")
+  set(_special_compile_args_b "${_real_clang_norm}")
+  if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+    list(APPEND _special_compile_args_a "${TARGET_ARG}")
+    list(APPEND _special_compile_args_b "${TARGET_ARG}")
+  endif()
+  list(APPEND _special_compile_args_a "${CODEGEN_STD}" "-I${_source_dir_norm}/include" "-I${_special_dir_norm}" "-c" "${_special_a_cpp_norm}")
+  list(APPEND _special_compile_args_a "-o" "${_special_dir_norm}/a.o")
+  list(APPEND _special_compile_args_b "${CODEGEN_STD}" "-I${_source_dir_norm}/include" "-I${_special_dir_norm}" "-c" "${_special_b_cpp_norm}")
+  list(APPEND _special_compile_args_b "-o" "${_special_dir_norm}/b.o")
+
+  gentest_fixture_make_compdb_entry(_special_a_entry
+    DIRECTORY "${_special_dir_norm}"
+    FILE "${_special_a_cpp_norm}"
+    ARGUMENTS ${_special_compile_args_a})
+  gentest_fixture_make_compdb_entry(_special_b_entry
+    DIRECTORY "${_special_dir_norm}"
+    FILE "${_special_b_cpp_norm}"
+    ARGUMENTS ${_special_compile_args_b})
+  gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_special_a_entry}" "${_special_b_entry}")
+
+  execute_process(
+    COMMAND
+      "${PROG}"
+      --output "${_special_output}"
+      --mock-registry "${_special_mock_registry}"
+      --mock-impl "${_special_mock_impl}"
+      --depfile "${_special_depfile}"
+      --compdb "${_work_dir}"
+      "${_special_a_cpp_norm}"
+      "${_special_b_cpp_norm}"
+    RESULT_VARIABLE _rc
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _rc EQUAL 0)
+    message(FATAL_ERROR
+      "gentest_codegen failed while writing a depfile for escaped paths.\n"
+      "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
+  endif()
+
+  file(READ "${_special_depfile}" _depfile_text)
+  foreach(_needle IN ITEMS
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:.cpp"
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:_mock_registry.hpp"
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:_mock_impl.hpp"
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:_mock_registry__domain_0000_header.hpp"
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:_mock_impl__domain_0000_header.hpp"
+      "fixture\\ dir\\#hash/a.cpp"
+      "fixture\\ dir\\#hash/a.hpp"
+      "fixture\\ dir\\#hash/b.cpp"
+      "fixture\\ dir\\#hash/b.hpp"
+      "compile_commands.json")
+    string(FIND "${_depfile_text}" "${_needle}" _pos)
+    if(_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Escaped-path depfile is missing '${_needle}'. Full depfile:\n${_depfile_text}")
+    endif()
+  endforeach()
 else()
   message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: unknown MODE='${_mode}'")
 endif()

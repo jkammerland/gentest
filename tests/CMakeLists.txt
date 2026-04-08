@@ -2213,6 +2213,17 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_depfile_write_failure APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_manifest_depfile_escaped_paths
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenManifestDepfileAggregation.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DMODE=escaped_paths)
+set_property(TEST gentest_codegen_manifest_depfile_escaped_paths APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_cli_validation_warnings
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenCliValidationWarnings.cmake
@@ -2222,6 +2233,15 @@ _gentest_add_cmake_helper_test(
     -DCODEGEN_STD=${_gentest_codegen_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_cli_validation_warnings APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_response_file_expansion
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenResponseFileExpansion.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_response_file_expansion APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_synthetic_compdb_fallback
