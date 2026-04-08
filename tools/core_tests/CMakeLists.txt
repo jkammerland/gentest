@@ -60,6 +60,21 @@ add_test(NAME gentest_core_discovery_utils
     COMMAND gentest_core_discovery_utils_tests)
 
 function(_gentest_copy_codegen_runtime_settings target)
+    get_target_property(_gentest_codegen_compile_defs gentest_codegen COMPILE_DEFINITIONS)
+    if(_gentest_codegen_compile_defs AND NOT _gentest_codegen_compile_defs STREQUAL "_gentest_codegen_compile_defs-NOTFOUND")
+        target_compile_definitions(${target} PRIVATE ${_gentest_codegen_compile_defs})
+    endif()
+
+    get_target_property(_gentest_codegen_compile_opts gentest_codegen COMPILE_OPTIONS)
+    if(_gentest_codegen_compile_opts AND NOT _gentest_codegen_compile_opts STREQUAL "_gentest_codegen_compile_opts-NOTFOUND")
+        target_compile_options(${target} PRIVATE ${_gentest_codegen_compile_opts})
+    endif()
+
+    get_target_property(_gentest_codegen_link_opts gentest_codegen LINK_OPTIONS)
+    if(_gentest_codegen_link_opts AND NOT _gentest_codegen_link_opts STREQUAL "_gentest_codegen_link_opts-NOTFOUND")
+        target_link_options(${target} PRIVATE ${_gentest_codegen_link_opts})
+    endif()
+
     get_target_property(_gentest_codegen_build_rpath gentest_codegen BUILD_RPATH)
     if(_gentest_codegen_build_rpath AND NOT _gentest_codegen_build_rpath STREQUAL "_gentest_codegen_build_rpath-NOTFOUND")
         set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "${_gentest_codegen_build_rpath}")
