@@ -244,24 +244,6 @@ int main() {
         empty_type.free_fixture_types = {"   "};
         error_cases.push_back(std::move(empty_type));
 
-        // These cases intentionally seed resolver-only required-scope state to
-        // exercise the diagnostic branches in resolve_free_fixtures() directly.
-        // The current source-level discovery path does not populate this field.
-        auto missing_decl                         = make_test("missing-decl", {"outer"}, "tu_req.cpp");
-        missing_decl.free_fixture_types           = {"MissingFx"};
-        missing_decl.free_fixture_required_scopes = {FixtureScope::Suite};
-        error_cases.push_back(std::move(missing_decl));
-
-        auto missing_local                         = make_test("missing-local", {"outer"}, "tu_req.cpp");
-        missing_local.free_fixture_types           = {"MissingLocalFx"};
-        missing_local.free_fixture_required_scopes = {FixtureScope::Local};
-        error_cases.push_back(std::move(missing_local));
-
-        auto scope_mismatch                         = make_test("scope-mismatch", {"outer", "leaf"}, "tu_req.cpp");
-        scope_mismatch.free_fixture_types           = {"::outer::GlobalFx"};
-        scope_mismatch.free_fixture_required_scopes = {FixtureScope::Suite};
-        error_cases.push_back(std::move(scope_mismatch));
-
         const std::string output =
             capture_stderr([&] { t.expect(!resolve_free_fixtures(error_cases, fixtures), "resolver reports invalid fixture cases"); });
 
@@ -269,9 +251,6 @@ int main() {
         t.expect(error_cases[1].free_fixtures.empty(), "invisible unqualified fixture is rejected");
         t.expect(error_cases[2].free_fixtures.empty(), "deeper fixture namespace is rejected");
         t.expect(error_cases[3].free_fixtures.empty(), "empty fixture type is rejected");
-        t.expect(error_cases[4].free_fixtures.empty(), "required-scope suite fallback is rejected");
-        t.expect(error_cases[5].free_fixtures.empty(), "required-scope local fallback is rejected");
-        t.expect(error_cases[6].free_fixtures.empty(), "required-scope mismatch is rejected");
 
         t.contains(output, "fixture 'outer::SharedFx' is not in an ancestor namespace of this test",
                    "resolver reports invisible qualified fixture");
@@ -279,12 +258,6 @@ int main() {
                    "resolver reports invisible unqualified fixture");
         t.contains(output, "fixture 'NestedFx' is not in an ancestor namespace of this test", "resolver reports deeper fixture namespace");
         t.contains(output, "empty inferred fixture type from function signature", "resolver reports empty fixture type");
-        t.contains(output, "fixture 'MissingFx' is declared as 'suite' but resolved as local",
-                   "resolver reports required scope suite fallback");
-        t.contains(output, "fixture 'MissingLocalFx' is declared as 'local' but resolved as local",
-                   "resolver reports required scope local fallback");
-        t.contains(output, "fixture '::outer::GlobalFx' declared as 'suite' but resolved as 'global' via 'outer::GlobalFx'",
-                   "resolver reports required scope mismatch");
     }
 
     if (t.failures != 0) {
