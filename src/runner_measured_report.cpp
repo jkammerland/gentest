@@ -7,6 +7,7 @@
 #include <cmath>
 #include <fmt/format.h>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <tabulate/table.hpp>
 
@@ -18,26 +19,22 @@ using tabulate::Table;
 using Row_t = Table::Row_t;
 
 std::string escape_tsv_cell(std::string_view value) {
-    std::string out;
-    out.reserve(value.size());
+    fmt::memory_buffer out;
     for (char ch : value) {
         switch (ch) {
-        case '\\': out += "\\\\"; break;
-        case '\t': out += "\\t"; break;
-        case '\n': out += "\\n"; break;
-        case '\r': out += "\\r"; break;
+        case '\\': fmt::format_to(std::back_inserter(out), "\\\\"); break;
+        case '\t': fmt::format_to(std::back_inserter(out), "\\t"); break;
+        case '\n': fmt::format_to(std::back_inserter(out), "\\n"); break;
+        case '\r': fmt::format_to(std::back_inserter(out), "\\r"); break;
         default: out.push_back(ch); break;
         }
     }
-    return out;
+    return fmt::to_string(out);
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void append_tsv_metric(std::string &out, std::string_view key, std::string_view value) {
-    out.append(escape_tsv_cell(key));
-    out.push_back('\t');
-    out.append(escape_tsv_cell(value));
-    out.push_back('\n');
+    fmt::format_to(std::back_inserter(out), "{}\t{}\n", escape_tsv_cell(key), escape_tsv_cell(value));
 }
 
 void append_tsv_metric(std::string &out, std::string_view key, double value) { append_tsv_metric(out, key, fmt::format("{}", value)); }
@@ -45,19 +42,18 @@ void append_tsv_metric(std::string &out, std::string_view key, double value) { a
 void append_tsv_metric(std::string &out, std::string_view key, std::size_t value) { append_tsv_metric(out, key, fmt::format("{}", value)); }
 
 std::string escape_xml_text(std::string_view value) {
-    std::string out;
-    out.reserve(value.size());
+    fmt::memory_buffer out;
     for (char ch : value) {
         switch (ch) {
-        case '&': out += "&amp;"; break;
-        case '<': out += "&lt;"; break;
-        case '>': out += "&gt;"; break;
-        case '"': out += "&quot;"; break;
-        case '\'': out += "&apos;"; break;
+        case '&': fmt::format_to(std::back_inserter(out), "&amp;"); break;
+        case '<': fmt::format_to(std::back_inserter(out), "&lt;"); break;
+        case '>': fmt::format_to(std::back_inserter(out), "&gt;"); break;
+        case '"': fmt::format_to(std::back_inserter(out), "&quot;"); break;
+        case '\'': fmt::format_to(std::back_inserter(out), "&apos;"); break;
         default: out.push_back(ch); break;
         }
     }
-    return out;
+    return fmt::to_string(out);
 }
 
 double safe_axis_max(std::initializer_list<double> values) {
@@ -154,8 +150,9 @@ std::string make_jitter_histogram_svg(const gentest::Case &c, std::span<const ge
         const double bar_w   = std::max(1.0, slot_width - bar_gap);
         const double bar_h   = (static_cast<double>(bin.count) / static_cast<double>(max_count)) * plot_height;
         const double bar_y   = top_margin + plot_height - bar_h;
-        bars += fmt::format(R"(<rect x="{:.2f}" y="{:.2f}" width="{:.2f}" height="{:.2f}" fill="#2563eb" opacity="0.82"/>)", bar_x, bar_y,
-                            bar_w, bar_h);
+        fmt::format_to(std::back_inserter(bars),
+                       R"(<rect x="{:.2f}" y="{:.2f}" width="{:.2f}" height="{:.2f}" fill="#2563eb" opacity="0.82"/>)", bar_x, bar_y, bar_w,
+                       bar_h);
     }
 
     return fmt::format(
@@ -177,12 +174,14 @@ std::string make_jitter_histogram_svg(const gentest::Case &c, std::span<const ge
 std::string make_samples_json(std::span<const double> samples_ns) {
     constexpr std::size_t kMaxStoredSamples = 2048;
 
-    const std::size_t stored_count = std::min(samples_ns.size(), kMaxStoredSamples);
-    std::string out = fmt::format(R"({{"sample_count":{},"stored_count":{},"truncated":{},"samples_ns":[)", samples_ns.size(), stored_count,
-                                  (samples_ns.size() > stored_count) ? "true" : "false");
+    const std::size_t  stored_count = std::min(samples_ns.size(), kMaxStoredSamples);
+    fmt::memory_buffer out;
+    fmt::format_to(std::back_inserter(out), R"({{"sample_count":{},"stored_count":{},"truncated":{},"samples_ns":[)", samples_ns.size(),
+                   stored_count, (samples_ns.size() > stored_count) ? "true" : "false");
     if (stored_count == 0) {
-        out += "]}";
-        return out;
+        out.push_back(']');
+        out.push_back('}');
+        return fmt::to_string(out);
     }
 
     for (std::size_t i = 0; i < stored_count; ++i) {
@@ -191,10 +190,11 @@ std::string make_samples_json(std::span<const double> samples_ns) {
         }
 
         const std::size_t sample_index = (stored_count == samples_ns.size()) ? i : ((i * (samples_ns.size() - 1)) / (stored_count - 1));
-        out.append(fmt::format("{}", samples_ns[sample_index]));
+        fmt::format_to(std::back_inserter(out), "{}", samples_ns[sample_index]);
     }
-    out += "]}";
-    return out;
+    out.push_back(']');
+    out.push_back('}');
+    return fmt::to_string(out);
 }
 
 const gentest::detail::Histogram &select_jitter_histogram(const JitterResult &result, int bins,
@@ -290,8 +290,8 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
     const auto                &hist = select_jitter_histogram(result, bins, fallback_histogram);
     for (std::size_t i = 0; i < hist.bins.size(); ++i) {
         const auto &bin = hist.bins[i];
-        histogram.append(fmt::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\n", i + 1, bin.lo, bin.hi, bin.inclusive_hi ? "true" : "false", bin.count,
-                                     bin.percent, bin.cumulative_percent));
+        fmt::format_to(std::back_inserter(histogram), "{}\t{}\t{}\t{}\t{}\t{}\t{}\n", i + 1, bin.lo, bin.hi,
+                       bin.inclusive_hi ? "true" : "false", bin.count, bin.percent, bin.cumulative_percent);
     }
     attachments.push_back(ReportAttachment{
         .name           = "histogram",

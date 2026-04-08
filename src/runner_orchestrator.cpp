@@ -53,13 +53,51 @@ struct OrchestratorState {
 };
 
 std::string join_span(std::span<const std::string_view> items, char sep) {
-    std::string out;
+    fmt::memory_buffer out;
     for (std::size_t i = 0; i < items.size(); ++i) {
-        if (i != 0)
+        if (i != 0) {
             out.push_back(sep);
-        out.append(items[i]);
+        }
+        fmt::format_to(std::back_inserter(out), "{}", items[i]);
     }
-    return out;
+    return fmt::to_string(out);
+}
+
+std::string format_list_sections(const gentest::Case &test) {
+    if (test.tags.empty() && test.requirements.empty() && !test.should_skip) {
+        return {};
+    }
+
+    fmt::memory_buffer sections;
+    fmt::format_to(std::back_inserter(sections), " [gentest:");
+    bool first = true;
+
+    const auto append_separator = [&] {
+        if (!first) {
+            sections.push_back(';');
+        }
+        first = false;
+    };
+
+    if (!test.tags.empty()) {
+        append_separator();
+        fmt::format_to(std::back_inserter(sections), "tags={}", join_span(test.tags, ','));
+    }
+    if (!test.requirements.empty()) {
+        append_separator();
+        fmt::format_to(std::back_inserter(sections), "requires={}", join_span(test.requirements, ','));
+    }
+    if (test.should_skip) {
+        append_separator();
+        if (test.skip_reason.empty()) {
+            fmt::format_to(std::back_inserter(sections), "skip");
+        } else {
+            fmt::format_to(std::back_inserter(sections), "skip={}", test.skip_reason);
+        }
+    }
+
+    sections.push_back(']');
+    return fmt::to_string(sections);
 }
 
 void record_runner_level_failure(OrchestratorState &state, std::string_view name, std::string message) {
@@ -225,7 +263,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n", passed_count,
                        total_count, failed_count, skipped_count, counters.xfail, counters.xpass);
         if (!state.acc.failure_items.empty()) {
-            summary.append("Failed tests:\n");
+            fmt::format_to(std::back_inserter(summary), "Failed tests:\n");
             for (const auto &item : state.acc.failure_items) {
                 if (!item.file.empty() && item.line != 0) {
                     fmt::format_to(std::back_inserter(summary), "  {} ({}:{}):\n", item.name, item.file, item.line);
@@ -298,34 +336,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         return 0;
     case Mode::ListMeta:
         for (const auto &test : kCases) {
-            std::string sections;
-            if (!test.tags.empty() || !test.requirements.empty() || test.should_skip) {
-                sections.push_back(' ');
-                sections.append("[gentest:");
-                bool first = true;
-                if (!test.tags.empty()) {
-                    sections.append("tags=");
-                    sections.append(join_span(test.tags, ','));
-                    first = false;
-                }
-                if (!test.requirements.empty()) {
-                    if (!first)
-                        sections.push_back(';');
-                    sections.append("requires=");
-                    sections.append(join_span(test.requirements, ','));
-                    first = false;
-                }
-                if (test.should_skip) {
-                    if (!first)
-                        sections.push_back(';');
-                    sections.append("skip");
-                    if (!test.skip_reason.empty()) {
-                        sections.push_back('=');
-                        sections.append(test.skip_reason);
-                    }
-                }
-                sections.push_back(']');
-            }
+            const std::string sections = format_list_sections(test);
             fmt::print("{}{} ({}:{})\n", test.name, sections, test.file, test.line);
         }
         return 0;

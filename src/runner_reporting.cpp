@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fmt/format.h>
 #include <fstream>
+#include <iterator>
 #include <ostream>
 
 #ifdef GENTEST_USE_BOOST_JSON
@@ -106,9 +107,10 @@ struct PendingAllureFile {
 std::string join_lines(const std::vector<std::string> &lines) {
     std::string out;
     for (std::size_t i = 0; i < lines.size(); ++i) {
-        if (i != 0)
+        if (i != 0) {
             out.push_back('\n');
-        out.append(lines[i]);
+        }
+        fmt::format_to(std::back_inserter(out), "{}", lines[i]);
     }
     return out;
 }
@@ -206,7 +208,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
         bool                     has_attachments = false;
         std::vector<std::string> used_stems{"result"};
         if (!it.logs.empty()) {
-            const std::string attachment_name = "result-" + std::to_string(static_cast<unsigned>(idx)) + "-attachment.txt";
+            const std::string attachment_name = fmt::format("result-{}-attachment.txt", idx);
             files.push_back(PendingAllureFile{
                 .path     = allure_dir / attachment_name,
                 .label    = "Allure attachment",
@@ -217,7 +219,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             used_stems.push_back("attachment");
         }
         if (!it.timeline.empty()) {
-            const std::string attachment_name = "result-" + std::to_string(static_cast<unsigned>(idx)) + "-timeline.txt";
+            const std::string attachment_name = fmt::format("result-{}-timeline.txt", idx);
             files.push_back(PendingAllureFile{
                 .path     = allure_dir / attachment_name,
                 .label    = "Allure attachment",
@@ -233,11 +235,11 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             std::string unique_stem{stem};
             std::size_t duplicate_count = 1;
             while (std::find(used_stems.begin(), used_stems.end(), unique_stem) != used_stems.end()) {
-                unique_stem = stem + "-" + std::to_string(static_cast<unsigned>(duplicate_count));
+                unique_stem = fmt::format("{}-{}", stem, duplicate_count);
                 ++duplicate_count;
             }
             used_stems.push_back(unique_stem);
-            const std::string attachment_name = "result-" + std::to_string(static_cast<unsigned>(idx)) + "-" + unique_stem + ext;
+            const std::string attachment_name = fmt::format("result-{}-{}{}", idx, unique_stem, ext);
             files.push_back(PendingAllureFile{
                 .path     = allure_dir / attachment_name,
                 .label    = "Allure attachment",
@@ -250,7 +252,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             obj["attachments"] = std::move(attachments);
         }
         files.push_back(PendingAllureFile{
-            .path     = allure_dir / ("result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json"),
+            .path     = allure_dir / fmt::format("result-{}-result.json", idx),
             .label    = "Allure result",
             .contents = boost::json::serialize(obj),
         });
@@ -273,7 +275,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
         obj["statusDetails"] = std::move(details);
 
         files.push_back(PendingAllureFile{
-            .path     = allure_dir / ("result-" + std::to_string(static_cast<unsigned>(idx)) + "-result.json"),
+            .path     = allure_dir / fmt::format("result-{}-result.json", idx),
             .label    = "Allure result",
             .contents = boost::json::serialize(obj),
         });

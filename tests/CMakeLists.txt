@@ -1221,7 +1221,22 @@ gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests>
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "--time-unit=<mode>" ARGS --help)
 gentest_add_check_contains(NAME unit_list_contains_attr_close_marker_name_prefix PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "unit/attributes/close_marker_in_string_" ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "tags=fast" ARGS --list)
+gentest_add_check_contains(
+    NAME unit_list_tags_requires_shape
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    EXPECT_SUBSTRING "strings/concatenate [gentest:tags=slow;requires=#42]"
+    ARGS --list)
 gentest_add_check_contains(NAME integration_list_tags_owner PROG $<TARGET_FILE:gentest_integration_tests> EXPECT_SUBSTRING "owner=team-runtime" ARGS --list)
+gentest_add_check_contains(
+    NAME integration_list_tags_requires_shape
+    PROG $<TARGET_FILE:gentest_integration_tests>
+    EXPECT_SUBSTRING "errors/recover [gentest:tags=owner=team-runtime;requires=BUG-123]"
+    ARGS --list)
+gentest_add_check_contains(
+    NAME integration_list_skip_shape
+    PROG $<TARGET_FILE:gentest_integration_tests>
+    EXPECT_SUBSTRING "errors/throw [gentest:tags=windows;skip=unstable]"
+    ARGS --list)
 
 gentest_add_check_counts(
     NAME run_test_exact
@@ -1375,7 +1390,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_bench_metrics_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_metrics_file/result-0-metrics.tsv
-        EXPECT_SUBSTRING "best_ns_per_op"
+        EXPECT_SUBSTRING "metric\tvalue\nname\tbenchmarks/math/sqrt"
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sqrt
@@ -1440,7 +1455,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_jitter_histogram_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_histogram_file/result-0-histogram.tsv
-        EXPECT_SUBSTRING "range_lo_ns"
+        EXPECT_SUBSTRING "bin\trange_lo_ns\trange_hi_ns\tinclusive_hi\tcount\tpercent\tcumulative_percent\n1\t"
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -1508,7 +1523,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_jitter_samples_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_file/result-0-samples.json
-        EXPECT_SUBSTRING "\"stored_count\":"
+        EXPECT_SUBSTRING "\"sample_count\":"
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -1520,6 +1535,23 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             --jitter-bins=4
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_file)
     set_tests_properties(allure_jitter_samples_attachment_file PROPERTIES LABELS "allure")
+
+    gentest_add_run_and_check_file(
+        NAME allure_jitter_samples_attachment_schema
+        PROG $<TARGET_FILE:gentest_benchmarks_tests>
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_schema/result-0-samples.json
+        EXPECT_SUBSTRING "\"samples_ns\":"
+        EXPECT_RC 0
+        ARGS
+            --run=benchmarks/math/sin_jitter
+            --kind=jitter
+            --bench-min-epoch-time-s=0.0001
+            --bench-epochs=1
+            --bench-warmup=0
+            --bench-max-total-time-s=0.005
+            --jitter-bins=4
+            --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_schema)
+    set_tests_properties(allure_jitter_samples_attachment_schema PROPERTIES LABELS "allure")
 
     gentest_add_cmake_script_test(
         NAME regression_allure_directory_failure_reports_infra

@@ -504,6 +504,7 @@ std::string render_module_registration_support_include_block() {
     out.reserve(320);
     out.append("\n// gentest_codegen: injected registration support includes.\n");
     out.append("#include <array>\n");
+    out.append("#include <fmt/format.h>\n");
     out.append("#include <memory>\n");
     out.append("#include <span>\n");
     out.append("#include <string>\n");

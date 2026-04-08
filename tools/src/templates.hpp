@@ -50,15 +50,8 @@ inline void gentest_maybe_teardown(T& t) {
 }
 
 inline void gentest_record_fixture_failure(std::string_view fixture, std::string_view reason) {
-    std::string msg;
-    msg.reserve(fixture.size() + reason.size() + 40);
-    msg.append("fixture allocation failed for '");
-    msg.append(fixture);
-    msg.push_back('\'');
-    if (!reason.empty()) {
-        msg.append(": ");
-        msg.append(reason);
-    }
+    std::string msg =
+        reason.empty() ? fmt::format("fixture allocation failed for '{}'", fixture) : fmt::format("fixture allocation failed for '{}': {}", fixture, reason);
     if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
         ::gentest::detail::record_bench_error(std::move(msg));
         return;
@@ -67,15 +60,8 @@ inline void gentest_record_fixture_failure(std::string_view fixture, std::string
 }
 
 inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, std::string_view reason) {
-    std::string msg;
-    msg.reserve(fixture.size() + reason.size() + 48);
-    msg.append("shared fixture unavailable for '");
-    msg.append(fixture);
-    msg.push_back('\'');
-    if (!reason.empty()) {
-        msg.append(": ");
-        msg.append(reason);
-    }
+    std::string msg =
+        reason.empty() ? fmt::format("shared fixture unavailable for '{}'", fixture) : fmt::format("shared fixture unavailable for '{}': {}", fixture, reason);
     if constexpr (::gentest::detail::exceptions_enabled) {
         ::gentest::detail::skip_shared_fixture_unavailable(msg);
     } else {
@@ -167,6 +153,7 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 // Do not edit manually.
 
 #include <array>
+#include <fmt/format.h>
 #include <span>
 #include <type_traits>
 
@@ -212,6 +199,7 @@ inline constexpr std::string_view tu_registration_header = R"CPP(// This file is
 
 #if !defined(GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE)
 #include <array>
+#include <fmt/format.h>
 #include <span>
 #include <type_traits>
 

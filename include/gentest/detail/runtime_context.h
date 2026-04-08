@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <fmt/format.h>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -230,14 +231,6 @@ inline void record_failure(std::string msg, const std::source_location &loc) {
 #endif
 }
 
-inline void append_label(std::string &out, std::string_view label) {
-    static constexpr std::size_t kWidth = 12; // longest of EXPECT_FALSE/ASSERT_FALSE
-    out.append(label);
-    if (label.size() < kWidth)
-        out.append(kWidth - label.size(), ' ');
-    out.append(" failed at ");
-}
-
 inline std::string loc_to_string(const std::source_location &loc) {
     std::filesystem::path p(std::string(loc.file_name()));
     p                     = p.lexically_normal();
@@ -251,9 +244,39 @@ inline std::string loc_to_string(const std::source_location &loc) {
         return false;
     };
     (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
-    s.push_back(':');
-    s.append(std::to_string(loc.line()));
-    return s;
+    return fmt::format("{}:{}", s, loc.line());
+}
+
+template <typename T> std::string to_string_fallback(const T &v);
+
+inline std::string failure_site_text(std::string_view label, const std::source_location &loc) {
+    return fmt::format("{:<12} failed at {}", label, loc_to_string(loc));
+}
+
+inline std::string failure_text(std::string_view label, const std::source_location &loc, std::string_view message = {}) {
+    std::string out = failure_site_text(label, loc);
+    if (!message.empty()) {
+        fmt::format_to(std::back_inserter(out), ": {}", message);
+    }
+    return out;
+}
+
+template <typename... Args>
+inline std::string format_failure_text(std::string_view label, const std::source_location &loc, fmt::format_string<Args...> format_string,
+                                       Args &&...args) {
+    std::string out = failure_site_text(label, loc);
+    fmt::format_to(std::back_inserter(out), ": ");
+    fmt::format_to(std::back_inserter(out), format_string, std::forward<Args>(args)...);
+    return out;
+}
+
+template <typename L, typename R>
+inline std::string comparison_failure_text(std::string_view label, const std::source_location &loc, std::string_view message, const L &lhs,
+                                           const R &rhs) {
+    std::string out = failure_text(label, loc, message);
+    fmt::format_to(std::back_inserter(out), "{}lhs={}, rhs={}", message.empty() ? ": " : "; ", to_string_fallback(lhs),
+                   to_string_fallback(rhs));
+    return out;
 }
 
 struct BenchPhaseScope {
@@ -327,35 +350,16 @@ template <typename T> inline std::string to_string_fallback(const T &v) {
     } else {
 #if defined(__clang__)
 #if __has_feature(cxx_rtti)
-        std::string out = typeid(T).name();
-        out.append(" (unprintable)");
-        return out;
+        return fmt::format("{} (unprintable)", typeid(T).name());
 #else
         return "(unprintable, enable RTTI)";
 #endif
 #elif defined(__GXX_RTTI) || defined(_CPPRTTI)
-        std::string out = typeid(T).name();
-        out.append(" (unprintable)");
-        return out;
+        return fmt::format("{} (unprintable)", typeid(T).name());
 #else
         return "(unprintable, enable RTTI)";
 #endif
     }
-}
-
-inline void append_message(std::string &out, std::string_view message) {
-    if (message.empty())
-        return;
-    out.append(": ");
-    out.append(message);
-}
-
-template <typename L, typename R> inline void append_cmp_values(std::string &out, const L &lhs, const R &rhs, std::string_view message) {
-    out.append(message.empty() ? ": " : "; ");
-    out.append("lhs=");
-    out.append(to_string_fallback(lhs));
-    out.append(", rhs=");
-    out.append(to_string_fallback(rhs));
 }
 
 [[noreturn]] inline void terminate_no_exceptions_fatal(std::string_view origin) {
@@ -385,11 +389,8 @@ template <typename L, typename R> inline void append_cmp_values(std::string &out
 template <class Expected, class Fn> inline void expect_throw(Fn &&fn, std::string_view expected_name, const std::source_location &loc) {
 #if !GENTEST_EXCEPTIONS_ENABLED
     (void)fn;
-    std::string text;
-    ::gentest::detail::append_label(text, "EXPECT_THROW");
-    text.append(::gentest::detail::loc_to_string(loc));
-    text.append(": exceptions are disabled; cannot verify thrown exception");
-    ::gentest::detail::record_failure(std::move(text), loc);
+    ::gentest::detail::record_failure(
+        ::gentest::detail::failure_text("EXPECT_THROW", loc, "exceptions are disabled; cannot verify thrown exception"), loc);
 #else
     using ExpectedT = std::remove_cvref_t<Expected>;
 
@@ -413,23 +414,15 @@ template <class Expected, class Fn> inline void expect_throw(Fn &&fn, std::strin
             if (dynamic_cast<const ExpectedT *>(&err) != nullptr) {
                 return;
             }
-            std::string text;
-            ::gentest::detail::append_label(text, "EXPECT_THROW");
-            text.append(::gentest::detail::loc_to_string(loc));
-            text.append(": expected ");
-            text.append(expected_name);
-            text.append(" but caught std::exception: ");
-            text.append(err.what());
-            ::gentest::detail::record_failure(std::move(text), loc);
+            ::gentest::detail::record_failure(::gentest::detail::format_failure_text("EXPECT_THROW", loc,
+                                                                                     "expected {} but caught std::exception: {}",
+                                                                                     expected_name, err.what()),
+                                              loc);
             return;
         } catch (...) {
-            std::string text;
-            ::gentest::detail::append_label(text, "EXPECT_THROW");
-            text.append(::gentest::detail::loc_to_string(loc));
-            text.append(": expected ");
-            text.append(expected_name);
-            text.append(" but caught unknown exception");
-            ::gentest::detail::record_failure(std::move(text), loc);
+            ::gentest::detail::record_failure(
+                ::gentest::detail::format_failure_text("EXPECT_THROW", loc, "expected {} but caught unknown exception", expected_name),
+                loc);
             return;
         }
     } else {
@@ -449,34 +442,21 @@ template <class Expected, class Fn> inline void expect_throw(Fn &&fn, std::strin
             }
             throw;
         } catch (const ExpectedT &) { return; } catch (const std::exception &err) {
-            std::string text;
-            ::gentest::detail::append_label(text, "EXPECT_THROW");
-            text.append(::gentest::detail::loc_to_string(loc));
-            text.append(": expected ");
-            text.append(expected_name);
-            text.append(" but caught std::exception: ");
-            text.append(err.what());
-            ::gentest::detail::record_failure(std::move(text), loc);
+            ::gentest::detail::record_failure(::gentest::detail::format_failure_text("EXPECT_THROW", loc,
+                                                                                     "expected {} but caught std::exception: {}",
+                                                                                     expected_name, err.what()),
+                                              loc);
             return;
         } catch (...) {
-            std::string text;
-            ::gentest::detail::append_label(text, "EXPECT_THROW");
-            text.append(::gentest::detail::loc_to_string(loc));
-            text.append(": expected ");
-            text.append(expected_name);
-            text.append(" but caught unknown exception");
-            ::gentest::detail::record_failure(std::move(text), loc);
+            ::gentest::detail::record_failure(
+                ::gentest::detail::format_failure_text("EXPECT_THROW", loc, "expected {} but caught unknown exception", expected_name),
+                loc);
             return;
         }
     }
 
-    std::string text;
-    ::gentest::detail::append_label(text, "EXPECT_THROW");
-    text.append(::gentest::detail::loc_to_string(loc));
-    text.append(": expected ");
-    text.append(expected_name);
-    text.append(" but no exception was thrown");
-    ::gentest::detail::record_failure(std::move(text), loc);
+    ::gentest::detail::record_failure(
+        ::gentest::detail::format_failure_text("EXPECT_THROW", loc, "expected {} but no exception was thrown", expected_name), loc);
 #endif
 }
 
@@ -490,18 +470,10 @@ template <class Fn> inline void expect_no_throw(Fn &&fn, const std::source_locat
     } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
         throw;
     } catch (const gentest::assertion &) { throw; } catch (const std::exception &err) {
-        std::string text;
-        ::gentest::detail::append_label(text, "EXPECT_NO_THROW");
-        text.append(::gentest::detail::loc_to_string(loc));
-        text.append(": caught std::exception: ");
-        text.append(err.what());
-        ::gentest::detail::record_failure(std::move(text), loc);
+        ::gentest::detail::record_failure(
+            ::gentest::detail::format_failure_text("EXPECT_NO_THROW", loc, "caught std::exception: {}", err.what()), loc);
     } catch (...) {
-        std::string text;
-        ::gentest::detail::append_label(text, "EXPECT_NO_THROW");
-        text.append(::gentest::detail::loc_to_string(loc));
-        text.append(": caught unknown exception");
-        ::gentest::detail::record_failure(std::move(text), loc);
+        ::gentest::detail::record_failure(::gentest::detail::failure_text("EXPECT_NO_THROW", loc, "caught unknown exception"), loc);
     }
 #endif
 }
@@ -509,11 +481,8 @@ template <class Fn> inline void expect_no_throw(Fn &&fn, const std::source_locat
 template <class Expected, class Fn> inline void require_throw(Fn &&fn, std::string_view expected_name, const std::source_location &loc) {
 #if !GENTEST_EXCEPTIONS_ENABLED
     (void)fn;
-    std::string text;
-    ::gentest::detail::append_label(text, "ASSERT_THROW");
-    text.append(::gentest::detail::loc_to_string(loc));
-    text.append(": exceptions are disabled; cannot verify thrown exception");
-    ::gentest::detail::record_failure(std::move(text), loc);
+    ::gentest::detail::record_failure(
+        ::gentest::detail::failure_text("ASSERT_THROW", loc, "exceptions are disabled; cannot verify thrown exception"), loc);
     ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_throw");
 #else
     using ExpectedT = std::remove_cvref_t<Expected>;
@@ -538,23 +507,15 @@ template <class Expected, class Fn> inline void require_throw(Fn &&fn, std::stri
             if (dynamic_cast<const ExpectedT *>(&err) != nullptr) {
                 return;
             }
-            std::string text;
-            ::gentest::detail::append_label(text, "ASSERT_THROW");
-            text.append(::gentest::detail::loc_to_string(loc));
-            text.append(": expected ");
-            text.append(expected_name);
-            text.append(" but caught std::exception: ");
-            text.append(err.what());
-            ::gentest::detail::record_failure(std::move(text), loc);
+            ::gentest::detail::record_failure(::gentest::detail::format_failure_text("ASSERT_THROW", loc,
+                                                                                     "expected {} but caught std::exception: {}",
+                                                                                     expected_name, err.what()),
+                                              loc);
             throw gentest::assertion("ASSERT_THROW");
         } catch (...) {
-            std::string text;
-            ::gentest::detail::append_label(text, "ASSERT_THROW");
-            text.append(::gentest::detail::loc_to_string(loc));
-            text.append(": expected ");
-            text.append(expected_name);
-            text.append(" but caught unknown exception");
-            ::gentest::detail::record_failure(std::move(text), loc);
+            ::gentest::detail::record_failure(
+                ::gentest::detail::format_failure_text("ASSERT_THROW", loc, "expected {} but caught unknown exception", expected_name),
+                loc);
             throw gentest::assertion("ASSERT_THROW");
         }
     } else {
@@ -574,34 +535,21 @@ template <class Expected, class Fn> inline void require_throw(Fn &&fn, std::stri
             }
             throw;
         } catch (const ExpectedT &) { return; } catch (const std::exception &err) {
-            std::string text;
-            ::gentest::detail::append_label(text, "ASSERT_THROW");
-            text.append(::gentest::detail::loc_to_string(loc));
-            text.append(": expected ");
-            text.append(expected_name);
-            text.append(" but caught std::exception: ");
-            text.append(err.what());
-            ::gentest::detail::record_failure(std::move(text), loc);
+            ::gentest::detail::record_failure(::gentest::detail::format_failure_text("ASSERT_THROW", loc,
+                                                                                     "expected {} but caught std::exception: {}",
+                                                                                     expected_name, err.what()),
+                                              loc);
             throw gentest::assertion("ASSERT_THROW");
         } catch (...) {
-            std::string text;
-            ::gentest::detail::append_label(text, "ASSERT_THROW");
-            text.append(::gentest::detail::loc_to_string(loc));
-            text.append(": expected ");
-            text.append(expected_name);
-            text.append(" but caught unknown exception");
-            ::gentest::detail::record_failure(std::move(text), loc);
+            ::gentest::detail::record_failure(
+                ::gentest::detail::format_failure_text("ASSERT_THROW", loc, "expected {} but caught unknown exception", expected_name),
+                loc);
             throw gentest::assertion("ASSERT_THROW");
         }
     }
 
-    std::string text;
-    ::gentest::detail::append_label(text, "ASSERT_THROW");
-    text.append(::gentest::detail::loc_to_string(loc));
-    text.append(": expected ");
-    text.append(expected_name);
-    text.append(" but no exception was thrown");
-    ::gentest::detail::record_failure(std::move(text), loc);
+    ::gentest::detail::record_failure(
+        ::gentest::detail::format_failure_text("ASSERT_THROW", loc, "expected {} but no exception was thrown", expected_name), loc);
     throw gentest::assertion("ASSERT_THROW");
 #endif
 }
@@ -616,19 +564,11 @@ template <class Fn> inline void require_no_throw(Fn &&fn, const std::source_loca
     } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
         throw;
     } catch (const gentest::assertion &) { throw; } catch (const std::exception &err) {
-        std::string text;
-        ::gentest::detail::append_label(text, "ASSERT_NO_THROW");
-        text.append(::gentest::detail::loc_to_string(loc));
-        text.append(": caught std::exception: ");
-        text.append(err.what());
-        ::gentest::detail::record_failure(std::move(text), loc);
+        ::gentest::detail::record_failure(
+            ::gentest::detail::format_failure_text("ASSERT_NO_THROW", loc, "caught std::exception: {}", err.what()), loc);
         throw gentest::assertion("ASSERT_NO_THROW");
     } catch (...) {
-        std::string text;
-        ::gentest::detail::append_label(text, "ASSERT_NO_THROW");
-        text.append(::gentest::detail::loc_to_string(loc));
-        text.append(": caught unknown exception");
-        ::gentest::detail::record_failure(std::move(text), loc);
+        ::gentest::detail::record_failure(::gentest::detail::failure_text("ASSERT_NO_THROW", loc, "caught unknown exception"), loc);
         throw gentest::assertion("ASSERT_NO_THROW");
     }
 #endif
