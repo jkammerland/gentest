@@ -1032,7 +1032,7 @@ unset(_gentest_inventory_fail)
 unset(_gentest_inventory_skip)
 unset(_gentest_inventory_expected_list)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 7 SKIP 2)
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 10 SKIP 2)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -1213,6 +1213,24 @@ gentest_add_check_death(
     PROG gentest_failing_tests
     EXPECT_SUBSTRING "EXPECT_NO_THROW failed at tests/failing/cases.cpp:"
     ARGS --run=failing/exceptions/expect_no_throw_unknown)
+
+gentest_add_check_death(
+    NAME assert_throw_location_smoke
+    PROG gentest_failing_tests
+    EXPECT_SUBSTRING "ASSERT_THROW failed at tests/failing/cases.cpp:"
+    ARGS --run=failing/exceptions/assert_throw_location)
+
+gentest_add_check_death(
+    NAME assert_no_throw_unknown_smoke
+    PROG gentest_failing_tests
+    EXPECT_SUBSTRING "ASSERT_NO_THROW failed at tests/failing/cases.cpp:"
+    ARGS --run=failing/exceptions/assert_no_throw_unknown)
+
+gentest_add_check_death(
+    NAME expect_eq_message_values_smoke
+    PROG gentest_failing_tests
+    EXPECT_SUBSTRING "comparison detail; lhs=1, rhs=2"
+    ARGS --run=failing/comparison/expect_eq_message_values)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Regressions.cmake)
 
