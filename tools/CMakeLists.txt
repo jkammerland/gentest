@@ -6,27 +6,35 @@ if(${PROJECT_NAME}_INSTALL)
     include(GNUInstallDirs)
 endif()
 
-# Minimal, version-flexible LLVM/Clang discovery (works with LLVM 18–22)
-# Prefer llvm-config if available to seed CMAKE_PREFIX_PATH without hardcoded paths.
-set(_gentest_llvm_config_candidates llvm-config)
-foreach(_v 22 21 20 19 18)
-    list(APPEND _gentest_llvm_config_candidates "llvm-config-${_v}")
-endforeach()
-foreach(_cand IN LISTS _gentest_llvm_config_candidates)
-    execute_process(
-        COMMAND ${_cand} --cmakedir
-        OUTPUT_VARIABLE _gentest_llvm_cmakedir
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET)
-    if(_gentest_llvm_cmakedir AND EXISTS "${_gentest_llvm_cmakedir}/LLVMConfig.cmake")
-        # Use the install prefix (two dirs up from .../lib/cmake/llvm) so Clang is found too.
-        get_filename_component(_gentest_llvm_prefix "${_gentest_llvm_cmakedir}/../.." ABSOLUTE)
-        list(PREPEND CMAKE_PREFIX_PATH "${_gentest_llvm_prefix}")
-        set(_gentest_found_llvm_config TRUE)
-        break()
-    endif()
-endforeach()
-unset(_gentest_llvm_config_candidates)
+# Minimal, version-flexible LLVM/Clang discovery (works with LLVM 18–22).
+# If an explicit package root was already provided, prefer that over probing
+# llvm-config again.
+if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
+    get_filename_component(_gentest_llvm_prefix "${LLVM_DIR}/../.." ABSOLUTE)
+    list(PREPEND CMAKE_PREFIX_PATH "${_gentest_llvm_prefix}")
+elseif(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
+    get_filename_component(_gentest_llvm_prefix "${Clang_DIR}/../.." ABSOLUTE)
+    list(PREPEND CMAKE_PREFIX_PATH "${_gentest_llvm_prefix}")
+else()
+    set(_gentest_llvm_config_candidates llvm-config)
+    foreach(_v 22 21 20 19 18)
+        list(APPEND _gentest_llvm_config_candidates "llvm-config-${_v}")
+    endforeach()
+    foreach(_cand IN LISTS _gentest_llvm_config_candidates)
+        execute_process(
+            COMMAND ${_cand} --cmakedir
+            OUTPUT_VARIABLE _gentest_llvm_cmakedir
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+        if(_gentest_llvm_cmakedir AND EXISTS "${_gentest_llvm_cmakedir}/LLVMConfig.cmake")
+            # Use the install prefix (two dirs up from .../lib/cmake/llvm) so Clang is found too.
+            get_filename_component(_gentest_llvm_prefix "${_gentest_llvm_cmakedir}/../.." ABSOLUTE)
+            list(PREPEND CMAKE_PREFIX_PATH "${_gentest_llvm_prefix}")
+            break()
+        endif()
+    endforeach()
+    unset(_gentest_llvm_config_candidates)
+endif()
 
 # Work around LLVM exports referring to zstd targets that not every package
 # layout provides. Some environments only expose zstd::libzstd, while others
@@ -379,10 +387,6 @@ function(_gentest_append_codegen_runtime_rpath path_value)
     endif()
 endfunction()
 
-if(WIN32)
-    target_compile_definitions(gentest_codegen PRIVATE _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING)
-endif()
-
 if(WIN32 AND MSVC)
     # Prebuilt LLVM/Clang distributions typically ship with /MT and a release-mode STL.
     # When building gentest_codegen (which links against those libs) with MSVC, keep
@@ -434,12 +438,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
 endif()
 
 if(_gentest_use_libcxx)
-    target_compile_options(gentest_codegen PRIVATE "-stdlib=libc++")
-    target_link_options(gentest_codegen PRIVATE "-stdlib=libc++")
-    if(APPLE)
-        target_compile_options(gentest_codegen PRIVATE "-Wno-deprecated-declarations")
-    endif()
-
     # For LLVM 21+, explicitly link LLVM's libc++ to avoid ABI issues with system libc++
     if(APPLE AND DEFINED _gentest_llvm_libdirs)
         foreach(_dir IN LISTS _gentest_llvm_libdirs)
@@ -458,38 +456,34 @@ if(_gentest_use_libcxx OR (WIN32 AND MSVC))
 endif()
 
 add_library(gentest_codegen_headers INTERFACE)
+add_library(gentest_codegen_abi_support INTERFACE)
 add_library(gentest_codegen_llvm_support INTERFACE)
 add_library(gentest_codegen_log_support INTERFACE)
 add_library(gentest_codegen_support INTERFACE)
+target_link_libraries(gentest_codegen_headers INTERFACE gentest_codegen_abi_support)
 target_link_libraries(gentest_codegen_llvm_support INTERFACE gentest_codegen_headers)
 target_link_libraries(gentest_codegen_log_support INTERFACE gentest_codegen_llvm_support)
-target_link_libraries(gentest_codegen_support INTERFACE gentest_codegen_headers)
+target_link_libraries(gentest_codegen_support INTERFACE gentest_codegen_log_support)
 target_link_libraries(gentest_codegen PRIVATE gentest_codegen_support)
 
+if(WIN32)
+    target_compile_definitions(gentest_codegen_abi_support INTERFACE _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING)
+endif()
+
 if(WIN32 AND MSVC)
-    target_compile_options(gentest_codegen_support INTERFACE /wd4805 /wd4291)
-    target_compile_definitions(gentest_codegen_support INTERFACE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
-    target_compile_definitions(gentest_codegen_llvm_support INTERFACE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
-    target_compile_definitions(gentest_codegen_log_support INTERFACE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
+    target_compile_options(gentest_codegen_abi_support INTERFACE /wd4805 /wd4291)
+    target_compile_definitions(gentest_codegen_abi_support INTERFACE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
 endif()
 
 if(DEFINED _gentest_codegen_explicit_libcxx AND NOT "${_gentest_codegen_explicit_libcxx}" STREQUAL "")
-    target_link_libraries(gentest_codegen_llvm_support INTERFACE "${_gentest_codegen_explicit_libcxx}")
-    target_link_libraries(gentest_codegen_log_support INTERFACE "${_gentest_codegen_explicit_libcxx}")
-    target_link_libraries(gentest_codegen_support INTERFACE "${_gentest_codegen_explicit_libcxx}")
+    target_link_libraries(gentest_codegen_abi_support INTERFACE "${_gentest_codegen_explicit_libcxx}")
 endif()
 
-if(UNIX AND NOT APPLE)
-    if(_gentest_use_local_tinfo_shim AND NOT TARGET gentest_tinfo_shim)
-        target_sources(gentest_codegen PRIVATE src/terminfo_shim.cpp)
-        find_library(_gentest_dl_lib dl)
-        if(_gentest_dl_lib)
-            target_link_libraries(gentest_codegen PRIVATE "${_gentest_dl_lib}")
-        else()
-            target_link_libraries(gentest_codegen PRIVATE dl)
-        endif()
-        unset(_gentest_dl_lib CACHE)
-        unset(_gentest_dl_lib)
+if(_gentest_use_libcxx)
+    target_compile_options(gentest_codegen_abi_support INTERFACE "-stdlib=libc++")
+    target_link_options(gentest_codegen_abi_support INTERFACE "-stdlib=libc++")
+    if(APPLE)
+        target_compile_options(gentest_codegen_abi_support INTERFACE "-Wno-deprecated-declarations")
     endif()
 endif()
 
@@ -524,6 +518,9 @@ if(_gentest_codegen_support_includes)
     target_include_directories(gentest_codegen_headers SYSTEM INTERFACE ${_gentest_codegen_support_includes})
 endif()
 
+# Toggle for template attribute validation (default ON)
+option(GENTEST_ENABLE_TEMPLATE_VALIDATION "Enable template attribute validation in generator" ON)
+
 if(LLVM_ENABLE_RTTI)
     target_compile_definitions(gentest_codegen_headers INTERFACE LLVM_ENABLE_RTTI)
 else()
@@ -535,36 +532,37 @@ else()
     endif()
 endif()
 
+if(NOT GENTEST_ENABLE_TEMPLATE_VALIDATION)
+    target_compile_definitions(gentest_codegen_headers INTERFACE GENTEST_DISABLE_TEMPLATE_VALIDATION)
+endif()
+
 llvm_map_components_to_libnames(_gentest_llvm_support Support)
+
+if(TARGET Terminfo::terminfo)
+    target_link_libraries(gentest_codegen_llvm_support INTERFACE Terminfo::terminfo)
+endif()
+
+if(TARGET LLVMSupport)
+    target_link_libraries(gentest_codegen_llvm_support INTERFACE LLVMSupport)
+else()
+    target_link_libraries(gentest_codegen_llvm_support INTERFACE ${_gentest_llvm_support})
+endif()
+
+if(_gentest_llvm_dso)
+    message(STATUS "gentest: linking LLVM DSO: ${_gentest_llvm_dso}")
+    target_link_libraries(gentest_codegen_llvm_support INTERFACE "${_gentest_llvm_dso}")
+endif()
+
+target_link_libraries(gentest_codegen_log_support INTERFACE ${_gentest_fmt_target})
 
 # Prefer monolithic clang-cpp when available (more stable across LLVM versions),
 # otherwise fall back to per-component linking.
 if(TARGET clang-cpp)
-    # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
-    # Link it when the imported target exists; otherwise fall back to LLVMSupport.
-    # Link the monolithic clang-cpp; avoid mixing in static LLVM components.
-    target_link_libraries(gentest_codegen_support INTERFACE clang-cpp ${_gentest_fmt_target})
-    if(TARGET LLVMSupport)
-        target_link_libraries(gentest_codegen_llvm_support INTERFACE LLVMSupport)
-    else()
-        target_link_libraries(gentest_codegen_llvm_support INTERFACE ${_gentest_llvm_support})
-    endif()
-    target_link_libraries(gentest_codegen_log_support INTERFACE ${_gentest_fmt_target})
-    if(TARGET Terminfo::terminfo)
-        target_link_libraries(gentest_codegen_llvm_support INTERFACE Terminfo::terminfo)
-        target_link_libraries(gentest_codegen_log_support INTERFACE Terminfo::terminfo)
-        target_link_libraries(gentest_codegen_support INTERFACE Terminfo::terminfo)
-    endif()
-    # If we discovered a monolithic libLLVM DSO, link it to satisfy LLVMSupport
-    # RTTI/vtables required by our TU and by clang-cpp on some platforms.
-    if(_gentest_llvm_dso)
-        message(STATUS "gentest: linking LLVM DSO: ${_gentest_llvm_dso}")
-        target_link_libraries(gentest_codegen_support INTERFACE "${_gentest_llvm_dso}")
+    target_link_libraries(gentest_codegen_support INTERFACE clang-cpp)
+    if(_gentest_llvm_dso AND UNIX)
         # Ensure runtime can locate the DSO without LD_LIBRARY_PATH tweaks.
-        if(UNIX)
-            set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_llvm_dso_dir}")
-            _gentest_append_codegen_runtime_rpath("${_gentest_llvm_dso_dir}")
-        endif()
+        set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_llvm_dso_dir}")
+        _gentest_append_codegen_runtime_rpath("${_gentest_llvm_dso_dir}")
     endif()
 
     get_target_property(_gentest_clang_cpp_imported_configs clang-cpp IMPORTED_CONFIGURATIONS)
@@ -604,14 +602,7 @@ else()
     target_link_libraries(gentest_codegen_support
         INTERFACE
             ${_gentest_clang_libs}
-            ${_gentest_llvm_support}
-            ${_gentest_fmt_target})
-    target_link_libraries(gentest_codegen_llvm_support INTERFACE ${_gentest_llvm_support})
-    target_link_libraries(gentest_codegen_log_support INTERFACE ${_gentest_fmt_target})
-    if(TARGET Terminfo::terminfo)
-        target_link_libraries(gentest_codegen_llvm_support INTERFACE Terminfo::terminfo)
-        target_link_libraries(gentest_codegen_log_support INTERFACE Terminfo::terminfo)
-    endif()
+            ${_gentest_llvm_support})
 endif()
 
 if(UNIX AND _gentest_codegen_build_rpaths)
@@ -624,9 +615,6 @@ endif()
 
 # Provide generator with project version for --help output in generated code
 target_compile_definitions(gentest_codegen PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")
-
-# Toggle for template attribute validation (default ON)
-option(GENTEST_ENABLE_TEMPLATE_VALIDATION "Enable template attribute validation in generator" ON)
 if(NOT GENTEST_ENABLE_TEMPLATE_VALIDATION)
     target_compile_definitions(gentest_codegen PRIVATE GENTEST_DISABLE_TEMPLATE_VALIDATION)
 endif()
