@@ -6,6 +6,7 @@
 
 #include <cctype>
 #include <clang/AST/Decl.h>
+#include <clang/AST/DeclTemplate.h>
 #include <functional>
 #include <map>
 #include <string>

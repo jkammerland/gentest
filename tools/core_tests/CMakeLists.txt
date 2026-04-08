@@ -46,6 +46,19 @@ target_link_libraries(gentest_core_render_tests PRIVATE fmt::fmt)
 add_test(NAME gentest_core_render
     COMMAND gentest_core_render_tests)
 
+add_executable(gentest_core_discovery_utils_tests
+    discovery_utils_tests.cpp)
+
+target_compile_features(gentest_core_discovery_utils_tests PRIVATE cxx_std_20)
+target_include_directories(gentest_core_discovery_utils_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${LLVM_INCLUDE_DIRS})
+llvm_map_components_to_libnames(_gentest_core_discovery_utils_llvm_support Support Demangle)
+target_link_libraries(gentest_core_discovery_utils_tests PRIVATE ${_gentest_core_discovery_utils_llvm_support})
+
+add_test(NAME gentest_core_discovery_utils
+    COMMAND gentest_core_discovery_utils_tests)
+
 add_executable(gentest_core_discovery_tests
     discovery_tests.cpp
     ../src/discovery.cpp
