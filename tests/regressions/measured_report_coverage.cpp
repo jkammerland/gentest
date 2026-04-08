@@ -92,8 +92,7 @@ JitterResult make_jitter_result(std::vector<double> samples, int stored_bins) {
 bool contains(std::string_view haystack, std::string_view needle) { return haystack.find(needle) != std::string_view::npos; }
 
 const ReportAttachment &find_attachment(const std::vector<ReportAttachment> &attachments, std::string_view name) {
-    const auto it = std::find_if(attachments.begin(), attachments.end(),
-                                 [name](const ReportAttachment &attachment) { return attachment.name == name; });
+    const auto it = std::ranges::find_if(attachments, [name](const ReportAttachment &attachment) { return attachment.name == name; });
     if (it == attachments.end()) {
         throw std::runtime_error("missing attachment: " + std::string(name));
     }
@@ -184,7 +183,7 @@ void check_zero_and_one_sample_attachments() {
     expect(contains(find_attachment(zero, "histogram-plot").contents, "bins 0  peak count 1"),
            "zero-sample histogram SVG should handle empty bins");
     expect(
-        contains(find_attachment(zero, "samples").contents, "\"sample_count\":0,\"stored_count\":0,\"truncated\":false,\"samples_ns\":[]"),
+        contains(find_attachment(zero, "samples").contents, R"("sample_count":0,"stored_count":0,"truncated":false,"samples_ns":[])"),
         "zero-sample JSON should stay empty without truncation");
 
     auto one                   = make_jitter_result({42.5}, 1);
@@ -194,7 +193,7 @@ void check_zero_and_one_sample_attachments() {
     expect(contains(find_attachment(one_attachments, "histogram").contents, "1\t42.5\t42.5\ttrue\t1\t100\t100"),
            "single-sample histogram should preserve the lone sample");
     expect(contains(find_attachment(one_attachments, "samples").contents,
-                    "\"sample_count\":1,\"stored_count\":1,\"truncated\":false,\"samples_ns\":[42.5]"),
+                    R"("sample_count":1,"stored_count":1,"truncated":false,"samples_ns":[42.5])"),
            "single-sample JSON should keep the single sample");
 }
 
