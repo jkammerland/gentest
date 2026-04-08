@@ -54,18 +54,26 @@ file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}/suite.cppm" _suite_source_abs)
 file(TO_CMAKE_PATH "${_generated_dir}/tu_0000_suite.module.gentest.cppm" _wrapper_abs)
 file(TO_CMAKE_PATH "${_bin_dir}/g++" _fake_gxx_abs)
-set(_suite_compile_args
-  "${_fake_gxx_abs}"
-  "-std=c++20"
-  "-I${_source_dir_norm}/include")
-gentest_append_public_dependency_include_args(_suite_compile_args)
-list(APPEND _suite_compile_args "-c" "suite.cppm" "-o" "suite.o")
-set(_wrapper_compile_args
-  "${_clangxx_norm}"
-  "-std=c++20"
-  "-I${_source_dir_norm}/include")
-gentest_append_public_dependency_include_args(_wrapper_compile_args)
-list(APPEND _wrapper_compile_args "-c" "${_wrapper_abs}" "-o" "${_wrapper_abs}.o")
+gentest_make_public_api_compile_args(
+  _suite_compile_args
+  COMPILER "${_fake_gxx_abs}"
+  STD "-std=c++20"
+  SOURCE_ROOT "${_source_dir_norm}"
+  EXTRA_ARGS
+    "-c"
+    "suite.cppm"
+    "-o"
+    "suite.o")
+gentest_make_public_api_compile_args(
+  _wrapper_compile_args
+  COMPILER "${_clangxx_norm}"
+  STD "-std=c++20"
+  SOURCE_ROOT "${_source_dir_norm}"
+  EXTRA_ARGS
+    "-c"
+    "${_wrapper_abs}"
+    "-o"
+    "${_wrapper_abs}.o")
 
 gentest_fixture_make_compdb_entry(_source_entry
   DIRECTORY "${_work_dir_norm}"

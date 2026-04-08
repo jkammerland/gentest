@@ -15,6 +15,7 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_compdb_root "${BUILD_ROOT}")
 if(DEFINED COMPDB_ROOT AND NOT "${COMPDB_ROOT}" STREQUAL "")
@@ -40,10 +41,12 @@ set(_codegen_args
 if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
   list(APPEND _codegen_args "${TARGET_ARG}")
 endif()
-list(APPEND _codegen_args
-  "${CODEGEN_STD}"
-  "-I${SOURCE_DIR}/include"
-  "-I${SOURCE_DIR}/tests")
+gentest_make_public_api_include_args(
+  _public_include_args
+  SOURCE_ROOT "${SOURCE_DIR}"
+  INCLUDE_TESTS
+  APPLE_SYSROOT)
+list(APPEND _codegen_args "${CODEGEN_STD}" ${_public_include_args})
 
 gentest_check_run_or_fail(
   COMMAND
@@ -86,8 +89,7 @@ if(DEFINED EXPECT_COMPILE AND EXPECT_COMPILE)
     COMMAND
       "${CXX_COMPILER}"
       "${CODEGEN_STD}"
-      "-I${SOURCE_DIR}/include"
-      "-I${SOURCE_DIR}/tests"
+      ${_public_include_args}
       -c "${_output}"
       -o "${_compile_output}"
     RESULT_VARIABLE _compile_rc

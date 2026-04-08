@@ -11,6 +11,8 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
   message(FATAL_ERROR "CheckCodegenCliValidationWarnings.cmake: CODEGEN_STD not set")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+
 set(_compdb_root "${BUILD_ROOT}")
 if(DEFINED COMPDB_ROOT AND NOT "${COMPDB_ROOT}" STREQUAL "")
   set(_compdb_root "${COMPDB_ROOT}")
@@ -27,10 +29,12 @@ if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
   list(APPEND _clang_args "${TARGET_ARG}")
 endif()
 
-list(APPEND _clang_args
-  "${CODEGEN_STD}"
-  "-I${SOURCE_DIR}/include"
-  "-I${SOURCE_DIR}/tests")
+gentest_make_public_api_include_args(
+  _public_include_args
+  SOURCE_ROOT "${SOURCE_DIR}"
+  INCLUDE_TESTS
+  APPLE_SYSROOT)
+list(APPEND _clang_args "${CODEGEN_STD}" ${_public_include_args})
 
 set(_common_args
   --check

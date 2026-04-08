@@ -12,6 +12,7 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/codegen_synthetic_compdb_fallback")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -38,9 +39,11 @@ set(_codegen_args
 if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
   list(APPEND _codegen_args "${TARGET_ARG}")
 endif()
-list(APPEND _codegen_args
-  "${CODEGEN_STD}"
-  "-I${_source_dir_norm}/include")
+gentest_make_public_api_include_args(
+  _public_include_args
+  SOURCE_ROOT "${_source_dir_norm}"
+  APPLE_SYSROOT)
+list(APPEND _codegen_args "${CODEGEN_STD}" ${_public_include_args})
 
 execute_process(
   COMMAND

@@ -60,12 +60,13 @@ void macro_module_import() {
 }
 ]=])
 
-set(_common_args
-  "${_clangxx}"
-  "-std=c++20"
-  "-I${GENTEST_SOURCE_DIR}/include"
-  "-I${GENTEST_SOURCE_DIR}/tests")
-gentest_append_public_dependency_include_args(_common_args)
+gentest_make_public_api_compile_args(
+  _common_args
+  COMPILER "${_clangxx}"
+  STD "-std=c++20"
+  SOURCE_ROOT "${GENTEST_SOURCE_DIR}"
+  INCLUDE_TESTS
+  APPLE_SYSROOT)
 get_filename_component(_clangxx_name "${_clangxx}" NAME_WE)
 string(TOLOWER "${_clangxx_name}" _clangxx_name_lower)
 if(_clangxx_name_lower STREQUAL "cl" OR _clangxx_name_lower STREQUAL "clang-cl")
@@ -78,24 +79,6 @@ set(_consumer_define_flag "-D")
 set(_consumer_define_value "GENTEST_SCAN_ENABLE_CONSUMER=1")
 set(_consumer_undef_flag "-U")
 set(_consumer_undef_value "GENTEST_SCAN_ENABLE_PROVIDER")
-if(CMAKE_HOST_APPLE)
-  set(_sdkroot "$ENV{SDKROOT}")
-  if("${_sdkroot}" STREQUAL "")
-    execute_process(
-      COMMAND xcrun --sdk macosx --show-sdk-path
-      RESULT_VARIABLE _xcrun_rc
-      OUTPUT_VARIABLE _xcrun_out
-      ERROR_VARIABLE _xcrun_err
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      ERROR_STRIP_TRAILING_WHITESPACE)
-    if(_xcrun_rc EQUAL 0 AND NOT "${_xcrun_out}" STREQUAL "")
-      set(_sdkroot "${_xcrun_out}")
-    endif()
-  endif()
-  if(NOT "${_sdkroot}" STREQUAL "")
-    list(APPEND _common_args "-isysroot" "${_sdkroot}")
-  endif()
-endif()
 
 gentest_fixture_make_compdb_entry(
   _provider_entry

@@ -12,6 +12,7 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 find_program(_real_clang NAMES clang++-22 clang++-21 clang++-20 clang++ clang++.exe REQUIRED)
 file(TO_CMAKE_PATH "${_real_clang}" _real_clang_norm)
@@ -30,10 +31,15 @@ file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.cpp" _source_abs)
 file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.gentest.cpp" _output_abs)
+gentest_make_public_api_include_args(
+  _public_include_args
+  SOURCE_ROOT "${_source_dir_norm}"
+  APPLE_SYSROOT)
+string(JOIN "\n" _public_include_args_rsp ${_public_include_args})
 
 gentest_fixture_write_file("${_work_dir}/args.rsp" "
 ${CODEGEN_STD}
--I${_source_dir_norm}/include
+${_public_include_args_rsp}
 -c
 namespaced_attrs.cpp
 -o

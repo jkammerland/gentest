@@ -64,16 +64,16 @@ struct GentestRegistrar {
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_source}" _source_norm)
-set(_compile_args
-  "${CXX_COMPILER}"
-  "-std=c++20"
-  "-I${_source_dir_norm}/include")
-gentest_append_public_dependency_include_args(_compile_args)
-list(APPEND _compile_args
-  "-c"
-  "${_source_norm}"
-  "-o"
-  "legacy_template_case.o")
+gentest_make_public_api_compile_args(
+  _compile_args
+  COMPILER "${CXX_COMPILER}"
+  STD "-std=c++20"
+  SOURCE_ROOT "${_source_dir_norm}"
+  EXTRA_ARGS
+    "-c"
+    "${_source_norm}"
+    "-o"
+    "legacy_template_case.o")
 
 gentest_fixture_make_compdb_entry(
   _compdb_entry

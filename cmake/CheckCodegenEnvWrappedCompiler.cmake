@@ -9,6 +9,7 @@ if(NOT DEFINED SOURCE_DIR)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 find_program(_real_cxx NAMES c++ g++ clang++ clang++-21 clang++-20 REQUIRED)
 file(TO_CMAKE_PATH "${_real_cxx}" _real_cxx_norm)
@@ -37,6 +38,7 @@ file(TO_CMAKE_PATH "${_sample_cmake_env_cpp}" _sample_cmake_env_cpp_norm)
 file(TO_CMAKE_PATH "${_sample_cmake_env_obj}" _sample_cmake_env_obj_norm)
 file(TO_CMAKE_PATH "${_sample_plain_env_cpp}" _sample_plain_env_cpp_norm)
 file(TO_CMAKE_PATH "${_sample_plain_env_obj}" _sample_plain_env_obj_norm)
+gentest_make_public_api_include_args(_public_include_args SOURCE_ROOT "${_source_dir_norm}" APPLE_SYSROOT)
 
 gentest_fixture_make_compdb_entry(_cmake_env_entry
   DIRECTORY "${_work_dir_norm}"
@@ -44,7 +46,7 @@ gentest_fixture_make_compdb_entry(_cmake_env_entry
   ARGUMENTS
     "${CMAKE_COMMAND}" "-E" "env" "FOO=1"
     "${_real_cxx_norm}" "-std=c++20"
-    "-I${_source_dir_norm}/include" "-I${_work_dir_norm}"
+    ${_public_include_args} "-I${_work_dir_norm}"
     "-c" "${_sample_cmake_env_cpp_norm}" "-o" "${_sample_cmake_env_obj_norm}")
 set(_compdb_entries "${_cmake_env_entry}")
 if(UNIX AND NOT CMAKE_HOST_WIN32 AND _env_program)
@@ -54,7 +56,7 @@ if(UNIX AND NOT CMAKE_HOST_WIN32 AND _env_program)
     ARGUMENTS
       "${_env_program_norm}" "FOO=1"
       "${_real_cxx_norm}" "-std=c++20"
-      "-I${_source_dir_norm}/include" "-I${_work_dir_norm}"
+      ${_public_include_args} "-I${_work_dir_norm}"
       "-c" "${_sample_plain_env_cpp_norm}" "-o" "${_sample_plain_env_obj_norm}")
   list(APPEND _compdb_entries "${_plain_env_entry}")
 endif()

@@ -55,12 +55,16 @@ void cache_resource_dir_case() {}
 
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}/suite.cppm" _suite_source_abs)
-set(_suite_compile_args
-  "${_clangxx_norm}"
-  "-std=c++20"
-  "-I${_source_dir_norm}/include")
-gentest_append_public_dependency_include_args(_suite_compile_args)
-list(APPEND _suite_compile_args "-c" "suite.cppm" "-o" "suite.o")
+gentest_make_public_api_compile_args(
+  _suite_compile_args
+  COMPILER "${_clangxx_norm}"
+  STD "-std=c++20"
+  SOURCE_ROOT "${_source_dir_norm}"
+  EXTRA_ARGS
+    "-c"
+    "suite.cppm"
+    "-o"
+    "suite.o")
 gentest_fixture_make_compdb_entry(_entry
   DIRECTORY "${_work_dir_norm}"
   FILE "suite.cppm"
