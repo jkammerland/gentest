@@ -77,6 +77,35 @@ _gentest_require_substring(
   "Namespace suite comment regression fixture lost the trailing comment separator")
 
 _gentest_require_substring(
+  "${SOURCE_DIR}/tests/smoke/codegen_template_parser_edges.cpp"
+  "template(TQuotedComma, decltype(\"a,b\"))"
+  "Template parser edge fixture lost the quoted-comma candidate")
+_gentest_require_substring(
+  "${SOURCE_DIR}/tests/smoke/codegen_template_parser_edges.cpp"
+  "template(TEscapedQuote, decltype(\"\\\"edge\\\"\"))"
+  "Template parser edge fixture lost the escaped-quote candidate")
+_gentest_require_substring(
+  "${SOURCE_DIR}/tests/smoke/codegen_template_parser_edges.cpp"
+  "template(TQualified, std::integral_constant<int, 1> const)"
+  "Template parser edge fixture lost the post-template qualifier candidate")
+_gentest_require_substring(
+  "${SOURCE_DIR}/tests/smoke/codegen_template_parser_edges.cpp"
+  "template(C8, u8'c')"
+  "Template parser edge fixture lost the char8_t literal candidate")
+_gentest_require_substring(
+  "${SOURCE_DIR}/tests/smoke/codegen_template_parser_edges.cpp"
+  "template(C16, u'd')"
+  "Template parser edge fixture lost the char16_t literal candidate")
+_gentest_require_substring(
+  "${SOURCE_DIR}/tests/smoke/codegen_template_parser_edges.cpp"
+  "template(C32, U'e')"
+  "Template parser edge fixture lost the char32_t literal candidate")
+_gentest_require_substring(
+  "${SOURCE_DIR}/tests/smoke/codegen_template_parser_edges.cpp"
+  "template(CW, L'f')"
+  "Template parser edge fixture lost the wchar_t literal candidate")
+
+_gentest_require_substring(
   "${SOURCE_DIR}/tests/cmake/module_manual_partial_includes/impl_cases.cppm"
   "#include \"gentest/mock_impl_codegen.h\""
   "Module manual partial include fixture lost the manual impl include")

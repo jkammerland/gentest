@@ -98,6 +98,7 @@ gentest_check_run_or_fail(
 
 set(_build_command
   "${CMAKE_COMMAND}" -E env
+    "--unset=GENTEST_CODEGEN_FORCE_SERIAL_PARSE"
     GENTEST_CODEGEN_LOG_PARSE_POLICY=1
     "${CMAKE_COMMAND}" --build "${_build_dir}" --target partial_manual_codegen_tests)
 
@@ -125,6 +126,34 @@ if(DEFINED TSAN_BUILD AND TSAN_BUILD)
     message(FATAL_ERROR
       "TSAN build unexpectedly forced serial multi-TU parse.\n"
       "Build output:\n${_build_out}")
+  endif()
+else()
+  if(_parallel_parse_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected the default partial manual module codegen build to keep multi-TU parse parallel.\n"
+      "Build output:\n${_build_out}")
+  endif()
+  if(NOT _serial_parse_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Default partial manual module codegen build unexpectedly forced serial parsing.\n"
+      "Build output:\n${_build_out}")
+  endif()
+
+  gentest_check_run_or_fail(
+    COMMAND
+      "${CMAKE_COMMAND}" -E env
+        GENTEST_CODEGEN_FORCE_SERIAL_PARSE=1
+        GENTEST_CODEGEN_LOG_PARSE_POLICY=1
+        "${CMAKE_COMMAND}" --build "${_build_dir}" --target partial_manual_codegen_tests --clean-first
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE
+    OUTPUT_VARIABLE _forced_build_out)
+
+  string(FIND "${_forced_build_out}" "gentest_codegen: forcing serial multi-TU parse (GENTEST_CODEGEN_FORCE_SERIAL_PARSE)" _forced_serial_pos)
+  if(_forced_serial_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected forced-serial partial manual module codegen build to log the env-driven serial parse reason.\n"
+      "Build output:\n${_forced_build_out}")
   endif()
 endif()
 

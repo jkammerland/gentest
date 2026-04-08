@@ -8,14 +8,13 @@
 #include <llvm/Support/raw_ostream.h>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
-#include <vector>
 
 #if defined(_WIN32)
 #include <fcntl.h>
 #include <io.h>
 #else
-#include <cstdio>
 #include <unistd.h>
 #endif
 
@@ -47,12 +46,14 @@ struct Run {
 #if defined(_WIN32)
 int  close_fd(int fd) { return _close(fd); }
 int  dup_fd(int fd) { return _dup(fd); }
-int  temp_fd(std::FILE *file) { return _fileno(file); }
+int  make_pipe(int fds[2]) { return _pipe(fds, 4096, _O_BINARY); }
+int  read_fd(int fd, char *buffer, unsigned int size) { return _read(fd, buffer, size); }
 bool redirect_fd(int from, int to) { return _dup2(from, to) == 0; }
 #else
 int  close_fd(int fd) { return close(fd); }
 int  dup_fd(int fd) { return dup(fd); }
-int  temp_fd(std::FILE *file) { return fileno(file); }
+int  make_pipe(int fds[2]) { return pipe(fds); }
+int  read_fd(int fd, char *buffer, std::size_t size) { return static_cast<int>(read(fd, buffer, size)); }
 bool redirect_fd(int from, int to) { return dup2(from, to) >= 0; }
 #endif
 
@@ -60,52 +61,64 @@ template <typename Fn> std::string capture_stderr(Fn &&fn) {
     std::fflush(stderr);
     llvm::errs().flush();
 
-    std::FILE *capture_file = std::tmpfile();
-    if (!capture_file) {
-        std::cerr << "capture_stderr: tmpfile failed: " << std::strerror(errno) << "\n";
+    int pipe_fds[2] = {-1, -1};
+    if (make_pipe(pipe_fds) != 0) {
+        std::cerr << "capture_stderr: pipe failed: " << std::strerror(errno) << "\n";
         return {};
     }
 
     const int saved_stderr = dup_fd(2);
     if (saved_stderr < 0) {
         std::cerr << "capture_stderr: dup failed: " << std::strerror(errno) << "\n";
-        std::fclose(capture_file);
+        close_fd(pipe_fds[0]);
+        close_fd(pipe_fds[1]);
         return {};
     }
 
-    if (!redirect_fd(temp_fd(capture_file), 2)) {
+    if (!redirect_fd(pipe_fds[1], 2)) {
         std::cerr << "capture_stderr: dup2 failed: " << std::strerror(errno) << "\n";
         close_fd(saved_stderr);
-        std::fclose(capture_file);
+        close_fd(pipe_fds[0]);
+        close_fd(pipe_fds[1]);
         return {};
     }
+    close_fd(pipe_fds[1]);
+    pipe_fds[1] = -1;
+
+    std::string out;
+    std::thread reader([&] {
+        char buffer[512];
+        while (true) {
+            const int n = read_fd(pipe_fds[0], buffer, sizeof(buffer));
+            if (n <= 0) {
+                break;
+            }
+            out.append(buffer, static_cast<std::size_t>(n));
+        }
+        close_fd(pipe_fds[0]);
+        pipe_fds[0] = -1;
+    });
+
+    const auto restore_stderr = [&] {
+        std::fflush(stderr);
+        llvm::errs().flush();
+        redirect_fd(saved_stderr, 2);
+        close_fd(saved_stderr);
+    };
 
     try {
         std::forward<Fn>(fn)();
-        std::fflush(stderr);
-        llvm::errs().flush();
-        redirect_fd(saved_stderr, 2);
-        close_fd(saved_stderr);
+        restore_stderr();
     } catch (...) {
-        std::fflush(stderr);
-        llvm::errs().flush();
-        redirect_fd(saved_stderr, 2);
-        close_fd(saved_stderr);
-        std::fclose(capture_file);
+        restore_stderr();
+        if (reader.joinable()) {
+            reader.join();
+        }
         throw;
     }
-
-    std::string out;
-    char        buffer[512];
-    if (std::fflush(capture_file) != 0 || std::fseek(capture_file, 0, SEEK_SET) != 0) {
-        std::cerr << "capture_stderr: rewind failed: " << std::strerror(errno) << "\n";
-        std::fclose(capture_file);
-        return {};
+    if (reader.joinable()) {
+        reader.join();
     }
-    while (const std::size_t n = std::fread(buffer, 1, sizeof(buffer), capture_file)) {
-        out.append(buffer, n);
-    }
-    std::fclose(capture_file);
     return out;
 }
 

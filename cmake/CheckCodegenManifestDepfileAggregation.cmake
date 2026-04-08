@@ -10,6 +10,11 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 
+set(_mode "aggregation")
+if(DEFINED MODE AND NOT "${MODE}" STREQUAL "")
+  set(_mode "${MODE}")
+endif()
+
 find_program(_real_clang NAMES clang++-22 clang++-21 clang++-20 clang++ clang++.exe REQUIRED)
 file(TO_CMAKE_PATH "${_real_clang}" _real_clang_norm)
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
@@ -50,45 +55,87 @@ gentest_fixture_make_compdb_entry(_b_entry
   ARGUMENTS "${_real_clang_norm}" "-std=c++20" "-I${_source_dir_norm}/include" "-I${_work_dir_norm}" "-c" "${_b_cpp_norm}")
 gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_a_entry}" "${_b_entry}")
 
-execute_process(
-  COMMAND
-    "${PROG}"
-    --output "${_output}"
-    --mock-registry "${_mock_registry}"
-    --mock-impl "${_mock_impl}"
-    --depfile "${_depfile}"
-    --compdb "${_work_dir}"
-    "${_a_cpp_norm}"
-    "${_b_cpp_norm}"
-  RESULT_VARIABLE _rc
-  OUTPUT_VARIABLE _out
-  ERROR_VARIABLE _err
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_STRIP_TRAILING_WHITESPACE)
+function(_gentest_run_manifest_codegen depfile_path out_rc out_out out_err)
+  execute_process(
+    COMMAND
+      "${PROG}"
+      --output "${_output}"
+      --mock-registry "${_mock_registry}"
+      --mock-impl "${_mock_impl}"
+      --depfile "${depfile_path}"
+      --compdb "${_work_dir}"
+      "${_a_cpp_norm}"
+      "${_b_cpp_norm}"
+    RESULT_VARIABLE _rc
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
 
-if(NOT _rc EQUAL 0)
-  message(FATAL_ERROR
-    "gentest_codegen failed while writing a manifest depfile. Output:\n${_out}\nErrors:\n${_err}")
+  set(${out_rc} "${_rc}" PARENT_SCOPE)
+  set(${out_out} "${_out}" PARENT_SCOPE)
+  set(${out_err} "${_err}" PARENT_SCOPE)
+endfunction()
+
+if(_mode STREQUAL "aggregation")
+  _gentest_run_manifest_codegen("${_depfile}" _rc _out _err)
+
+  if(NOT _rc EQUAL 0)
+    message(FATAL_ERROR
+      "gentest_codegen failed while writing a manifest depfile. Output:\n${_out}\nErrors:\n${_err}")
+  endif()
+
+  file(READ "${_depfile}" _depfile_text)
+  foreach(_target IN ITEMS
+      "${_output}"
+      "${_mock_registry}"
+      "${_mock_impl}"
+      "${_mock_registry_domain}"
+      "${_mock_impl_domain}")
+    get_filename_component(_target_name "${_target}" NAME)
+    string(FIND "${_depfile_text}" "${_target_name}" _pos)
+    if(_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Manifest depfile is missing target '${_target_name}'. Full depfile:\n${_depfile_text}")
+    endif()
+  endforeach()
+  foreach(_needle IN ITEMS "a.cpp" "a.hpp" "b.cpp" "b.hpp" "compile_commands.json")
+    string(FIND "${_depfile_text}" "${_needle}" _pos)
+    if(_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Manifest depfile is missing '${_needle}'. Full depfile:\n${_depfile_text}")
+    endif()
+  endforeach()
+elseif(_mode STREQUAL "write_failure")
+  file(REMOVE_RECURSE "${_depfile}")
+  file(MAKE_DIRECTORY "${_depfile}")
+
+  _gentest_run_manifest_codegen("${_depfile}" _rc _out _err)
+
+  set(_all "${_out}\n${_err}")
+  if(NOT _rc EQUAL 1)
+    message(FATAL_ERROR
+      "Expected depfile write failure to exit with code 1, got ${_rc}.\n"
+      "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
+  endif()
+
+  set(_expected "gentest_codegen: failed to write depfile '${_depfile}':")
+  string(FIND "${_all}" "${_expected}" _pos)
+  if(_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected depfile write failure output to contain '${_expected}'.\n"
+      "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
+  endif()
+
+  foreach(_generated IN ITEMS
+      "${_output}"
+      "${_mock_registry}"
+      "${_mock_impl}")
+    if(NOT EXISTS "${_generated}")
+      message(FATAL_ERROR
+        "Expected generated output '${_generated}' to exist before depfile write failure. Output:\n${_all}")
+    endif()
+  endforeach()
+else()
+  message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: unknown MODE='${_mode}'")
 endif()
-
-file(READ "${_depfile}" _depfile_text)
-foreach(_target IN ITEMS
-    "${_output}"
-    "${_mock_registry}"
-    "${_mock_impl}"
-    "${_mock_registry_domain}"
-    "${_mock_impl_domain}")
-  get_filename_component(_target_name "${_target}" NAME)
-  string(FIND "${_depfile_text}" "${_target_name}" _pos)
-  if(_pos EQUAL -1)
-    message(FATAL_ERROR
-      "Manifest depfile is missing target '${_target_name}'. Full depfile:\n${_depfile_text}")
-  endif()
-endforeach()
-foreach(_needle IN ITEMS "a.cpp" "a.hpp" "b.cpp" "b.hpp" "compile_commands.json")
-  string(FIND "${_depfile_text}" "${_needle}" _pos)
-  if(_pos EQUAL -1)
-    message(FATAL_ERROR
-      "Manifest depfile is missing '${_needle}'. Full depfile:\n${_depfile_text}")
-  endif()
-endforeach()
