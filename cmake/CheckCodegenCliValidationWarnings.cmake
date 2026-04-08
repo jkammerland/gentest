@@ -21,20 +21,23 @@ if(NOT EXISTS "${_smoke_source}")
   message(FATAL_ERROR "CheckCodegenCliValidationWarnings.cmake: missing smoke source '${_smoke_source}'")
 endif()
 
+set(_clang_args)
+
+if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+  list(APPEND _clang_args "${TARGET_ARG}")
+endif()
+
+list(APPEND _clang_args
+  "${CODEGEN_STD}"
+  "-I${SOURCE_DIR}/include"
+  "-I${SOURCE_DIR}/tests")
+
 set(_common_args
   --check
   --compdb "${_compdb_root}"
   "${_smoke_source}"
-  --)
-
-if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
-  list(APPEND _common_args "${TARGET_ARG}")
-endif()
-
-list(APPEND _common_args
-  "${CODEGEN_STD}"
-  "-I${SOURCE_DIR}/include"
-  "-I${SOURCE_DIR}/tests")
+  --
+  ${_clang_args})
 
 function(_gentest_expect_result label expected_rc expected_substring)
   execute_process(

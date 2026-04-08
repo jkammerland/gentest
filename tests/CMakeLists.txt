@@ -1290,6 +1290,15 @@ gentest_add_check_death(
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Regressions.cmake)
 
+gentest_add_manual_regression(
+    TARGET gentest_regression_measured_report_coverage
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_report_coverage.cpp)
+
+gentest_add_check_exit_code(
+    NAME regression_measured_report_coverage
+    PROG $<TARGET_FILE:gentest_regression_measured_report_coverage>
+    EXPECT_RC 0)
+
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "--time-unit=<mode>" ARGS --help)
