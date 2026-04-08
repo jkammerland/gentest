@@ -179,3 +179,10 @@ target("poc_cross_aarch64_qemu")
         -- Use a plain shell call; this target is marked local/manual in other build systems too.
         os.vrunv("bash", {path.join(project_root, "scripts", "poc_cross_aarch64_qemu.sh")})
     end)
+
+target("poc_cross_riscv64_qemu")
+    set_kind("phony")
+    on_run(function ()
+        -- Use a plain shell call; this target is marked local/manual in other build systems too.
+        os.vrunv("bash", {path.join(project_root, "scripts", "poc_cross_riscv64_qemu.sh")})
+    end)
