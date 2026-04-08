@@ -34,3 +34,14 @@ target_link_libraries(gentest_core_type_kind_tests PRIVATE fmt::fmt)
 
 add_test(NAME gentest_core_type_kind
     COMMAND gentest_core_type_kind_tests)
+
+add_executable(gentest_core_render_tests
+    render_tests.cpp
+    ../src/render.cpp)
+
+target_compile_features(gentest_core_render_tests PRIVATE cxx_std_20)
+target_include_directories(gentest_core_render_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_link_libraries(gentest_core_render_tests PRIVATE fmt::fmt)
+
+add_test(NAME gentest_core_render
+    COMMAND gentest_core_render_tests)

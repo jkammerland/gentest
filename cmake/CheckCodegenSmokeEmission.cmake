@@ -10,6 +10,9 @@ endif()
 if(NOT DEFINED SMOKE_SOURCE OR "${SMOKE_SOURCE}" STREQUAL "")
   message(FATAL_ERROR "CheckCodegenSmokeEmission.cmake: SMOKE_SOURCE not set")
 endif()
+if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
+  message(FATAL_ERROR "CheckCodegenSmokeEmission.cmake: CODEGEN_STD not set")
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
@@ -29,16 +32,23 @@ set(_output "${_work_dir}/${_smoke_name}.gentest.cpp")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
+set(_codegen_args
+  --output "${_output}"
+  --compdb "${_compdb_root}"
+  "${_smoke_abs}"
+  --)
+if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+  list(APPEND _codegen_args "${TARGET_ARG}")
+endif()
+list(APPEND _codegen_args
+  "${CODEGEN_STD}"
+  "-I${SOURCE_DIR}/include"
+  "-I${SOURCE_DIR}/tests")
+
 gentest_check_run_or_fail(
   COMMAND
     "${PROG}"
-    --output "${_output}"
-    --compdb "${_compdb_root}"
-    "${_smoke_abs}"
-    --
-    -std=c++20
-    "-I${SOURCE_DIR}/include"
-    "-I${SOURCE_DIR}/tests"
+    ${_codegen_args}
   STRIP_TRAILING_WHITESPACE)
 
 if(NOT EXISTS "${_output}")

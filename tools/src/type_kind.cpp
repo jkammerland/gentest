@@ -25,8 +25,14 @@ std::string normalize_impl(std::string_view sv, PointerPolicy policy) {
         }
     };
 
-    for (std::string_view qualifier :
-         std::array{std::string_view("const "), std::string_view("volatile "), std::string_view("&"), std::string_view("&&")}) {
+    for (std::string_view qualifier : std::array{
+             std::string_view("const "),
+             std::string_view(" const"),
+             std::string_view("volatile "),
+             std::string_view(" volatile"),
+             std::string_view("&"),
+             std::string_view("&&"),
+         }) {
         erase_all(qualifier);
     }
     if (policy == PointerPolicy::Strip) {
@@ -71,6 +77,23 @@ bool is_char_literal(std::string_view token) {
     if (token.size() >= 5 && token[0] == 'u' && token[1] == '8' && token[2] == '\'' && token.back() == '\'')
         return true;
     return false;
+}
+
+const char *char_literal_prefix(std::string_view type_name) {
+    const std::string normalized = normalize(type_name);
+    if (normalized == "wchar_t") {
+        return "L";
+    }
+    if (normalized == "char8_t") {
+        return "u8";
+    }
+    if (normalized == "char16_t") {
+        return "u";
+    }
+    if (normalized == "char32_t") {
+        return "U";
+    }
+    return "";
 }
 
 } // namespace
@@ -124,6 +147,7 @@ std::string quote_for_type(TypeKind kind, std::string_view token, std::string_vi
             return std::string(token);
         if (token.size() == 1) {
             std::string out;
+            out += char_literal_prefix(type_name);
             out.push_back(kSingleQuote);
             if (token.front() == kSingleQuote)
                 out += "\\'";

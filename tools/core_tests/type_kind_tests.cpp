@@ -29,10 +29,15 @@ int main() {
     t.expect(classify_type("const std::string&") == TypeKind::String, "std::string classification");
     t.expect(classify_type("volatile std::string_view&&") == TypeKind::String, "std::string_view classification");
     t.expect(classify_type("const char *") == TypeKind::String, "char pointer classification");
+    t.expect(classify_type("char const*") == TypeKind::String, "east const char pointer classification");
     t.expect(classify_type("const wchar_t*") == TypeKind::String, "wchar_t pointer classification");
+    t.expect(classify_type("wchar_t const*") == TypeKind::String, "east const wchar_t pointer classification");
     t.expect(classify_type("const char8_t *") == TypeKind::String, "char8_t pointer classification");
+    t.expect(classify_type("char8_t const*") == TypeKind::String, "east const char8_t pointer classification");
     t.expect(classify_type("const char16_t*") == TypeKind::String, "char16_t pointer classification");
+    t.expect(classify_type("char16_t const*") == TypeKind::String, "east const char16_t pointer classification");
     t.expect(classify_type("const char32_t *") == TypeKind::String, "char32_t pointer classification");
+    t.expect(classify_type("char32_t const*") == TypeKind::String, "east const char32_t pointer classification");
     t.expect(classify_type("char") == TypeKind::Char, "char classification");
     t.expect(classify_type("wchar_t") == TypeKind::Char, "wchar_t classification");
     t.expect(classify_type("char8_t") == TypeKind::Char, "char8_t classification");
@@ -52,15 +57,25 @@ int main() {
     t.expect(quote_for_type(TypeKind::String, "wide", "std::wstring_view") == "L\"wide\"", "wstring prefix selection");
     t.expect(quote_for_type(TypeKind::String, "utf8", "std::u8string") == "u8\"utf8\"", "u8string prefix selection");
     t.expect(quote_for_type(TypeKind::String, "utf16", "const char16_t*") == "u\"utf16\"", "char16_t pointer prefix selection");
+    t.expect(quote_for_type(TypeKind::String, "utf16-east", "char16_t const*") == "u\"utf16-east\"",
+             "east const char16_t pointer prefix selection");
     t.expect(quote_for_type(TypeKind::String, "utf32", "const char32_t *") == "U\"utf32\"", "char32_t pointer prefix selection");
+    t.expect(quote_for_type(TypeKind::String, "wide-east", "wchar_t const*") == "L\"wide-east\"",
+             "east const wchar_t pointer prefix selection");
 
     t.expect(quote_for_type(TypeKind::Char, " 'x' ", "char") == " 'x' ", "char literal is preserved");
     t.expect(quote_for_type(TypeKind::Char, " L'x' ", "wchar_t") == " L'x' ", "wide char literal is preserved");
     t.expect(quote_for_type(TypeKind::Char, " u'x' ", "char16_t") == " u'x' ", "u16 char literal is preserved");
     t.expect(quote_for_type(TypeKind::Char, " U'x' ", "char32_t") == " U'x' ", "u32 char literal is preserved");
     t.expect(quote_for_type(TypeKind::Char, " u8'x' ", "char8_t") == " u8'x' ", "u8 char literal is preserved");
+    t.expect(quote_for_type(TypeKind::Char, "x", "wchar_t") == "L'x'", "wide char prefix selection");
+    t.expect(quote_for_type(TypeKind::Char, "x", "char8_t") == "u8'x'", "char8_t prefix selection");
+    t.expect(quote_for_type(TypeKind::Char, "x", "char16_t") == "u'x'", "char16_t prefix selection");
+    t.expect(quote_for_type(TypeKind::Char, "x", "char32_t") == "U'x'", "char32_t prefix selection");
     t.expect(quote_for_type(TypeKind::Char, "\\", "char") == "'\\\\'", "single char quoting escapes backslash");
+    t.expect(quote_for_type(TypeKind::Char, "\\", "wchar_t") == "L'\\\\'", "wide char quoting escapes backslash");
     t.expect(quote_for_type(TypeKind::Char, "'", "char") == "'\\''", "single quote quoting escapes apostrophe");
+    t.expect(quote_for_type(TypeKind::Char, "'", "char16_t") == "u'\\''", "utf16 quote quoting escapes apostrophe");
     t.expect(quote_for_type(TypeKind::Char, "ab", "char") == "ab", "multi-char token stays unquoted");
 
     t.expect(quote_for_type(TypeKind::Other, "value", "int") == "value", "other token passes through");

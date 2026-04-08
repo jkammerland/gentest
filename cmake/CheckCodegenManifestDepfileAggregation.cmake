@@ -7,6 +7,9 @@ endif()
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: SOURCE_DIR not set")
 endif()
+if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
+  message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: CODEGEN_STD not set")
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 
@@ -45,14 +48,25 @@ file(COPY
 file(TO_CMAKE_PATH "${_a_cpp}" _a_cpp_norm)
 file(TO_CMAKE_PATH "${_b_cpp}" _b_cpp_norm)
 
+set(_compile_command_args_a "${_real_clang_norm}")
+set(_compile_command_args_b "${_real_clang_norm}")
+if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+  list(APPEND _compile_command_args_a "${TARGET_ARG}")
+  list(APPEND _compile_command_args_b "${TARGET_ARG}")
+endif()
+list(APPEND _compile_command_args_a "${CODEGEN_STD}" "-I${_source_dir_norm}/include" "-I${_work_dir_norm}" "-c" "${_a_cpp_norm}")
+list(APPEND _compile_command_args_a "-o" "${_work_dir_norm}/a.o")
+list(APPEND _compile_command_args_b "${CODEGEN_STD}" "-I${_source_dir_norm}/include" "-I${_work_dir_norm}" "-c" "${_b_cpp_norm}")
+list(APPEND _compile_command_args_b "-o" "${_work_dir_norm}/b.o")
+
 gentest_fixture_make_compdb_entry(_a_entry
   DIRECTORY "${_work_dir_norm}"
   FILE "${_a_cpp_norm}"
-  ARGUMENTS "${_real_clang_norm}" "-std=c++20" "-I${_source_dir_norm}/include" "-I${_work_dir_norm}" "-c" "${_a_cpp_norm}")
+  ARGUMENTS ${_compile_command_args_a})
 gentest_fixture_make_compdb_entry(_b_entry
   DIRECTORY "${_work_dir_norm}"
   FILE "${_b_cpp_norm}"
-  ARGUMENTS "${_real_clang_norm}" "-std=c++20" "-I${_source_dir_norm}/include" "-I${_work_dir_norm}" "-c" "${_b_cpp_norm}")
+  ARGUMENTS ${_compile_command_args_b})
 gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_a_entry}" "${_b_entry}")
 
 function(_gentest_run_manifest_codegen depfile_path out_rc out_out out_err)
@@ -130,7 +144,9 @@ elseif(_mode STREQUAL "write_failure")
   foreach(_generated IN ITEMS
       "${_output}"
       "${_mock_registry}"
-      "${_mock_impl}")
+      "${_mock_impl}"
+      "${_mock_registry_domain}"
+      "${_mock_impl_domain}")
     if(NOT EXISTS "${_generated}")
       message(FATAL_ERROR
         "Expected generated output '${_generated}' to exist before depfile write failure. Output:\n${_all}")

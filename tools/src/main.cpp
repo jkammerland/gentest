@@ -80,6 +80,7 @@ using gentest::codegen::TestCaseInfo;
 #define GENTEST_TEMPLATE_DIR ""
 #endif
 static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
+static constexpr std::string_view kMissingCompdbSyntheticCommandMarker = "__gentest_missing_compdb_entry__";
 
 namespace {
 using gentest::codegen::scan::is_preprocessor_directive_scan_line;
@@ -1638,6 +1639,10 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
                             std::string_view forced_compiler_path = {}, bool preserve_module_mapping_args = false) {
     clang::tooling::CommandLineArguments sanitized_command_line = command_line;
     strip_shell_control_tail(sanitized_command_line);
+    if (std::ranges::find(sanitized_command_line, std::string(kMissingCompdbSyntheticCommandMarker)) != sanitized_command_line.end()) {
+        sanitized_command_line.clear();
+    }
+    const bool use_synthetic_fallback = sanitized_command_line.empty();
 
     auto has_explicit_language_mode = [](std::span<const std::string> args) {
         for (const auto &arg : args) {
@@ -1791,6 +1796,9 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
     }
 
     adjusted.insert(adjusted.end(), extra_module_args.begin(), extra_module_args.end());
+    if (use_synthetic_fallback) {
+        adjusted.emplace_back(file.str());
+    }
     return adjusted;
 }
 
@@ -2901,8 +2909,7 @@ int main(int argc, const char **argv) {
         clang::tooling::CompileCommand synthetic_command;
         synthetic_command.Directory = compdb_dir;
         synthetic_command.Filename  = options.sources[i];
-        synthetic_command.CommandLine.emplace_back(default_compiler_path.empty() ? std::string("clang++") : default_compiler_path);
-        synthetic_command.CommandLine.emplace_back(options.sources[i]);
+        synthetic_command.CommandLine.emplace_back(kMissingCompdbSyntheticCommandMarker);
         tool_compile_commands[i].push_back(std::move(synthetic_command));
     }
 

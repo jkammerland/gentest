@@ -7,6 +7,9 @@ endif()
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckCodegenSyntheticFallback.cmake: SOURCE_DIR not set")
 endif()
+if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
+  message(FATAL_ERROR "CheckCodegenSyntheticFallback.cmake: CODEGEN_STD not set")
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 
@@ -27,15 +30,22 @@ file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.cpp" _source_norm)
 file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.gentest.cpp" _output_norm)
 
+set(_codegen_args
+  --output "${_output_norm}"
+  --compdb "${_work_dir_norm}"
+  "${_source_norm}"
+  --)
+if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+  list(APPEND _codegen_args "${TARGET_ARG}")
+endif()
+list(APPEND _codegen_args
+  "${CODEGEN_STD}"
+  "-I${_source_dir_norm}/include")
+
 execute_process(
   COMMAND
     "${PROG}"
-    --output "${_output_norm}"
-    --compdb "${_work_dir_norm}"
-    "${_source_norm}"
-    --
-    -std=c++20
-    "-I${_source_dir_norm}/include"
+    ${_codegen_args}
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err

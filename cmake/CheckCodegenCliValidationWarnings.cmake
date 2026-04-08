@@ -7,6 +7,9 @@ endif()
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckCodegenCliValidationWarnings.cmake: SOURCE_DIR not set")
 endif()
+if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
+  message(FATAL_ERROR "CheckCodegenCliValidationWarnings.cmake: CODEGEN_STD not set")
+endif()
 
 set(_compdb_root "${BUILD_ROOT}")
 if(DEFINED COMPDB_ROOT AND NOT "${COMPDB_ROOT}" STREQUAL "")
@@ -22,8 +25,14 @@ set(_common_args
   --check
   --compdb "${_compdb_root}"
   "${_smoke_source}"
-  --
-  -std=c++20
+  --)
+
+if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+  list(APPEND _common_args "${TARGET_ARG}")
+endif()
+
+list(APPEND _common_args
+  "${CODEGEN_STD}"
   "-I${SOURCE_DIR}/include"
   "-I${SOURCE_DIR}/tests")
 
@@ -103,7 +112,4 @@ _gentest_expect_result(
   --check
   --compdb "${_compdb_root}/missing-compdb"
   "${_smoke_source}"
-  --
-  -std=c++20
-  "-I${SOURCE_DIR}/include"
-  "-I${SOURCE_DIR}/tests")
+  -- ${_clang_args})

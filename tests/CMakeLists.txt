@@ -2187,7 +2187,9 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenManifestDepfileAggregation.cmake
     cmake
-    -DPROG=${_gentest_codegen_prog})
+    -DPROG=${_gentest_codegen_prog}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_manifest_depfile_aggregation APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -2196,6 +2198,8 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenManifestDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DMODE=write_failure)
 set_property(TEST gentest_codegen_depfile_write_failure APPEND PROPERTY LABELS "codegen")
 
@@ -2205,14 +2209,18 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenCliValidationWarnings.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
-    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR})
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_cli_validation_warnings APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_synthetic_compdb_fallback
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/cmake/CheckCodegenSyntheticFallback.cmake
-    cmake)
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_synthetic_compdb_fallback APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -2222,6 +2230,8 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_axis_generators.cpp
     -DEXPECT_CASE_COUNT=23
     "-DEXPECT_SUBSTRINGS=return range_many(1);;return range_many(3);;return range_many(5);;return linspace_many(0.25);;return geom_many(8);;return logspace_many(1000);;.name = \"smoke/axis_generators/logspace_many(0.10000000000000001)\"")
@@ -2234,6 +2244,8 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_fixture_resolution.cpp
     -DEXPECT_CASE_COUNT=2
     "-DEXPECT_SUBSTRINGS=gentest_init_fixture(fx0_, \"smoke::fixture_resolution::LocalFixture\");;gentest_init_shared_fixture(fx0_, ::gentest::detail::SharedFixtureScope::Suite, \"smoke/fixture_resolution\", \"smoke::fixture_resolution::SharedSuiteFixture\")")
@@ -2246,6 +2258,8 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_template_parser_edges.cpp
     -DEXPECT_CASE_COUNT=7
     "-DEXPECT_SUBSTRINGS=return template_parser_template_template<std::list, std::pair<int, std::array<long, 2>>>();;return template_parser_template_template<std::vector, std::pair<int, std::array<long, 2>>>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\''>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\n'>();;return template_parser_syntax_sensitive<decltype(\"a,b\"), decltype(\"\\\"edge\\\"\"), std::integral_constant<int, 1> const>();;return template_parser_char_prefixes<u8'c', u'd', U'e', L'f'>();;.name = \"smoke/template_parser_edges/type_char<std::pair<int, std::array<long, 2>>,'\\\\''>\"")
@@ -2258,6 +2272,8 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_type_quoting.cpp
     -DEXPECT_CASE_COUNT=21
     "-DEXPECT_SUBSTRINGS=return char_params('\\'');;return char_params('\\\\');;return char16_params(u'D');;return char32_params(U'F');;return char8_params(u8'C');;return utf16_cstr(u\"hello\");;return utf32_cstr(U\"Dog\");;return utf8_string_view(u8\"beta\");;return wchar_params(L'Q');;return wide_string_view(L\"Wide\")")
