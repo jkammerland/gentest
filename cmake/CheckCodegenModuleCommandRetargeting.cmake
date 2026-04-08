@@ -115,10 +115,16 @@ void env_default_compiler_case() {}
 ]=])
 file(TO_CMAKE_PATH "${_env_fallback_dir}" _env_fallback_dir_norm)
 file(TO_CMAKE_PATH "${_env_fallback_dir}/suite.cppm" _env_fallback_source_abs)
+set(_env_fallback_args
+  "clang++"
+  "-std=c++20"
+  "-I${_source_dir_norm}/include")
+gentest_append_public_dependency_include_args(_env_fallback_args)
+list(APPEND _env_fallback_args "-c" "suite.cppm" "-o" "suite.o")
 gentest_fixture_make_compdb_entry(_env_fallback_entry
   DIRECTORY "${_env_fallback_dir_norm}"
   FILE "suite.cppm"
-  ARGUMENTS "clang++" "-std=c++20" "-I${_source_dir_norm}/include" "-c" "suite.cppm" "-o" "suite.o")
+  ARGUMENTS ${_env_fallback_args})
 gentest_fixture_write_compdb("${_env_fallback_dir}/compile_commands.json" "${_env_fallback_entry}")
 
 execute_process(

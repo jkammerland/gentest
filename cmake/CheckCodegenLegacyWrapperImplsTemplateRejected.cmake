@@ -17,6 +17,7 @@ if(NOT DEFINED CXX_COMPILER OR "${CXX_COMPILER}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/legacy_wrapper_impls_template_rejected")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -63,19 +64,22 @@ struct GentestRegistrar {
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_source}" _source_norm)
+set(_compile_args
+  "${CXX_COMPILER}"
+  "-std=c++20"
+  "-I${_source_dir_norm}/include")
+gentest_append_public_dependency_include_args(_compile_args)
+list(APPEND _compile_args
+  "-c"
+  "${_source_norm}"
+  "-o"
+  "legacy_template_case.o")
 
 gentest_fixture_make_compdb_entry(
   _compdb_entry
   DIRECTORY "${_work_dir_norm}"
   FILE "${_source_norm}"
-  ARGUMENTS
-    "${CXX_COMPILER}"
-    "-std=c++20"
-    "-I${_source_dir_norm}/include"
-    "-c"
-    "${_source_norm}"
-    "-o"
-    "legacy_template_case.o")
+  ARGUMENTS ${_compile_args})
 gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_compdb_entry}")
 
 execute_process(

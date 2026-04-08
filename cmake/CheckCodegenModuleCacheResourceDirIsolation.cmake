@@ -55,10 +55,16 @@ void cache_resource_dir_case() {}
 
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}/suite.cppm" _suite_source_abs)
+set(_suite_compile_args
+  "${_clangxx_norm}"
+  "-std=c++20"
+  "-I${_source_dir_norm}/include")
+gentest_append_public_dependency_include_args(_suite_compile_args)
+list(APPEND _suite_compile_args "-c" "suite.cppm" "-o" "suite.o")
 gentest_fixture_make_compdb_entry(_entry
   DIRECTORY "${_work_dir_norm}"
   FILE "suite.cppm"
-  ARGUMENTS "${_clangxx_norm}" "-std=c++20" "-I${_source_dir_norm}/include" "-c" "suite.cppm" "-o" "suite.o")
+  ARGUMENTS ${_suite_compile_args})
 gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_entry}")
 
 function(_gentest_run_codegen_with_resource_dir resource_dir)
@@ -96,4 +102,3 @@ if(NOT _module_cache_dir_count EQUAL 2)
   message(FATAL_ERROR
     "module cache resource-dir isolation: expected 2 distinct cache directories after changing the resource dir override, found '${_module_cache_dir_count}' in '${_generated_dir}'")
 endif()
-

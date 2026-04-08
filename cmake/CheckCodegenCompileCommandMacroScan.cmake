@@ -65,6 +65,7 @@ set(_common_args
   "-std=c++20"
   "-I${GENTEST_SOURCE_DIR}/include"
   "-I${GENTEST_SOURCE_DIR}/tests")
+gentest_append_public_dependency_include_args(_common_args)
 get_filename_component(_clangxx_name "${_clangxx}" NAME_WE)
 string(TOLOWER "${_clangxx_name}" _clangxx_name_lower)
 if(_clangxx_name_lower STREQUAL "cl" OR _clangxx_name_lower STREQUAL "clang-cl")
