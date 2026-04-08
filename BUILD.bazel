@@ -322,6 +322,13 @@ sh_binary(
     visibility = ['//visibility:public'],
 )
 
+sh_binary(
+    name = 'poc_cross_riscv64_qemu',
+    srcs = ['scripts/poc_cross_riscv64_qemu.sh'],
+    tags = ['local', 'manual'],
+    visibility = ['//visibility:public'],
+)
+
 gentest_suite('unit')
 gentest_suite('integration')
 gentest_suite('fixtures')

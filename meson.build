@@ -368,5 +368,9 @@ if bash.found()
     'poc_cross_aarch64_qemu',
     command: [bash, join_paths(meson.project_source_root(), 'scripts', 'poc_cross_aarch64_qemu.sh')]
   )
+  run_target(
+    'poc_cross_riscv64_qemu',
+    command: [bash, join_paths(meson.project_source_root(), 'scripts', 'poc_cross_riscv64_qemu.sh')]
+  )
 endif
 endif

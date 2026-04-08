@@ -25,6 +25,7 @@
 ## Cross-compiling
 
 - Linux → aarch64 (QEMU): [`docs/cross_compile/linux_aarch64_qemu.md`](cross_compile/linux_aarch64_qemu.md)
+- Linux → riscv64 (QEMU): [`docs/cross_compile/linux_riscv64_qemu.md`](cross_compile/linux_riscv64_qemu.md)
 
 ## Troubleshooting / notes
 
