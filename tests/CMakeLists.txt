@@ -251,6 +251,62 @@ gentest_add_check_exit_code(
         -I${PROJECT_SOURCE_DIR}/include
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_axis_generators
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_axis_generators.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_fixture_resolution
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_fixture_resolution.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_template_parser_edges
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_template_parser_edges.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
+gentest_add_check_exit_code(
+    NAME gentest_codegen_check_type_quoting_edges
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    EXPECT_RC 0
+    ARGS
+        --check
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_type_quoting.cpp
+        -- ${_gentest_codegen_cross_target_arg}
+        ${_gentest_codegen_std_flag}
+        -I${PROJECT_SOURCE_DIR}/include
+        -I${CMAKE_CURRENT_SOURCE_DIR})
+
 gentest_add_cmake_script_test(
     NAME gentest_codegen_warns_unknown_preprocessor_condition
     NO_EMULATOR

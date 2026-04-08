@@ -125,7 +125,10 @@ std::string quote_for_type(TypeKind kind, std::string_view token, std::string_vi
         if (token.size() == 1) {
             std::string out;
             out.push_back(kSingleQuote);
-            out += render::escape_string(token);
+            if (token.front() == kSingleQuote)
+                out += "\\'";
+            else
+                out += render::escape_string(token);
             out.push_back(kSingleQuote);
             return out;
         }

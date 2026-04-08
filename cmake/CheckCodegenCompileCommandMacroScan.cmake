@@ -116,13 +116,28 @@ gentest_fixture_write_compdb("${_compdb}" "${_provider_entry}" "${_consumer_entr
 message(STATUS "Run gentest_codegen with compile-command-defined module/import guards and scan-deps OFF...")
 gentest_check_run_or_fail(
   COMMAND
+    "${CMAKE_COMMAND}" -E env
+    "GENTEST_CODEGEN_LOG_MODULE_IMPORTS=1"
     "${PROG}"
     --compdb "${_work_dir}"
     --scan-deps-mode=OFF
     --tu-out-dir "${_generated_off_dir}"
     "${_consumer}"
   WORKING_DIRECTORY "${_work_dir}"
+  OUTPUT_VARIABLE _off_output
   STRIP_TRAILING_WHITESPACE)
+
+string(FIND "${_off_output}" "gentest_codegen: source-scanned module imports for '${_consumer}':" _off_log_pos)
+if(_off_log_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected gentest_codegen scan-deps OFF leg to log the source-scanned module imports for the consumer source. Output:\n${_off_output}")
+endif()
+
+string(FIND "${_off_output}" "  gentest.scan.provider" _off_import_pos)
+if(_off_import_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected gentest_codegen scan-deps OFF leg to log the discovered gentest.scan.provider import. Output:\n${_off_output}")
+endif()
 
 file(GLOB _provider_pcm_candidates "${_generated_off_dir}/.gentest_codegen_modules_*/ext_*.pcm")
 if(NOT _provider_pcm_candidates)
