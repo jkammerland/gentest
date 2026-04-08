@@ -59,6 +59,47 @@ target_link_libraries(gentest_core_discovery_utils_tests PRIVATE ${_gentest_core
 add_test(NAME gentest_core_discovery_utils
     COMMAND gentest_core_discovery_utils_tests)
 
+function(_gentest_inherit_codegen_target_settings target)
+    get_target_property(_gentest_codegen_link_libs gentest_codegen LINK_LIBRARIES)
+    if(_gentest_codegen_link_libs AND NOT _gentest_codegen_link_libs STREQUAL "_gentest_codegen_link_libs-NOTFOUND")
+        set(_gentest_codegen_safe_link_libs "")
+        foreach(_gentest_codegen_link_lib IN LISTS _gentest_codegen_link_libs)
+            if(_gentest_codegen_link_lib MATCHES "::" AND NOT TARGET "${_gentest_codegen_link_lib}")
+                continue()
+            endif()
+            list(APPEND _gentest_codegen_safe_link_libs "${_gentest_codegen_link_lib}")
+        endforeach()
+        if(_gentest_codegen_safe_link_libs)
+            target_link_libraries(${target} PRIVATE ${_gentest_codegen_safe_link_libs})
+        endif()
+    endif()
+
+    get_target_property(_gentest_codegen_compile_defs gentest_codegen COMPILE_DEFINITIONS)
+    if(_gentest_codegen_compile_defs AND NOT _gentest_codegen_compile_defs STREQUAL "_gentest_codegen_compile_defs-NOTFOUND")
+        target_compile_definitions(${target} PRIVATE ${_gentest_codegen_compile_defs})
+    endif()
+
+    get_target_property(_gentest_codegen_compile_opts gentest_codegen COMPILE_OPTIONS)
+    if(_gentest_codegen_compile_opts AND NOT _gentest_codegen_compile_opts STREQUAL "_gentest_codegen_compile_opts-NOTFOUND")
+        target_compile_options(${target} PRIVATE ${_gentest_codegen_compile_opts})
+    endif()
+
+    get_target_property(_gentest_codegen_link_opts gentest_codegen LINK_OPTIONS)
+    if(_gentest_codegen_link_opts AND NOT _gentest_codegen_link_opts STREQUAL "_gentest_codegen_link_opts-NOTFOUND")
+        target_link_options(${target} PRIVATE ${_gentest_codegen_link_opts})
+    endif()
+
+    get_target_property(_gentest_codegen_build_rpath gentest_codegen BUILD_RPATH)
+    if(_gentest_codegen_build_rpath AND NOT _gentest_codegen_build_rpath STREQUAL "_gentest_codegen_build_rpath-NOTFOUND")
+        set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "${_gentest_codegen_build_rpath}")
+    endif()
+
+    get_target_property(_gentest_codegen_msvc_runtime gentest_codegen MSVC_RUNTIME_LIBRARY)
+    if(_gentest_codegen_msvc_runtime AND NOT _gentest_codegen_msvc_runtime STREQUAL "_gentest_codegen_msvc_runtime-NOTFOUND")
+        set_property(TARGET ${target} PROPERTY MSVC_RUNTIME_LIBRARY "${_gentest_codegen_msvc_runtime}")
+    endif()
+endfunction()
+
 add_executable(gentest_core_discovery_tests
     discovery_tests.cpp
     ../src/discovery.cpp
@@ -72,36 +113,7 @@ target_compile_features(gentest_core_discovery_tests PRIVATE cxx_std_20)
 target_include_directories(gentest_core_discovery_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${LLVM_INCLUDE_DIRS})
-
-get_target_property(_gentest_core_discovery_link_libs gentest_codegen LINK_LIBRARIES)
-find_library(_gentest_core_discovery_clang_cpp
-    NAMES clang-cpp libclang-cpp
-    HINTS ${LLVM_LIBRARY_DIRS} ${LLVM_LIBRARY_DIR} ${_gentest_llvm_libdirs})
-find_library(_gentest_core_discovery_llvm
-    NAMES LLVM libLLVM LLVM-21 libLLVM-21
-    HINTS ${LLVM_LIBRARY_DIRS} ${LLVM_LIBRARY_DIR} ${_gentest_llvm_libdirs})
-find_library(_gentest_core_discovery_tinfo
-    NAMES tinfo ncursesw ncurses
-    HINTS ${LLVM_LIBRARY_DIRS} ${LLVM_LIBRARY_DIR} ${_gentest_llvm_libdirs})
-
-target_link_libraries(gentest_core_discovery_tests PRIVATE fmt::fmt)
-if(_gentest_core_discovery_clang_cpp)
-    target_link_libraries(gentest_core_discovery_tests PRIVATE ${_gentest_core_discovery_clang_cpp})
-elseif(_gentest_core_discovery_link_libs)
-    foreach(_gentest_core_discovery_lib IN LISTS _gentest_core_discovery_link_libs)
-        if(NOT _gentest_core_discovery_lib STREQUAL "Terminfo::terminfo")
-            target_link_libraries(gentest_core_discovery_tests PRIVATE ${_gentest_core_discovery_lib})
-        endif()
-    endforeach()
-endif()
-if(_gentest_core_discovery_llvm)
-    target_link_libraries(gentest_core_discovery_tests PRIVATE ${_gentest_core_discovery_llvm})
-elseif(DEFINED _gentest_llvm_dso AND NOT "${_gentest_llvm_dso}" STREQUAL "")
-    target_link_libraries(gentest_core_discovery_tests PRIVATE "${_gentest_llvm_dso}")
-endif()
-if(_gentest_core_discovery_tinfo)
-    target_link_libraries(gentest_core_discovery_tests PRIVATE ${_gentest_core_discovery_tinfo})
-endif()
+_gentest_inherit_codegen_target_settings(gentest_core_discovery_tests)
 
 add_test(NAME gentest_core_discovery
     COMMAND gentest_core_discovery_tests)

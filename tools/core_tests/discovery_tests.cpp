@@ -244,6 +244,9 @@ int main() {
         empty_type.free_fixture_types = {"   "};
         error_cases.push_back(std::move(empty_type));
 
+        // These cases intentionally seed resolver-only required-scope state to
+        // exercise the diagnostic branches in resolve_free_fixtures() directly.
+        // The current source-level discovery path does not populate this field.
         auto missing_decl                         = make_test("missing-decl", {"outer"}, "tu_req.cpp");
         missing_decl.free_fixture_types           = {"MissingFx"};
         missing_decl.free_fixture_required_scopes = {FixtureScope::Suite};

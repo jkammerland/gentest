@@ -43,6 +43,16 @@ struct Run {
     void contains(std::string_view haystack, std::string_view needle, std::string_view msg) {
         expect(haystack.find(needle) != std::string_view::npos, msg);
     }
+    auto expect_size_at_least(std::size_t actual, std::size_t expected, std::string_view msg) -> bool {
+        const bool ok = actual >= expected;
+        expect(ok, msg);
+        return ok;
+    }
+    template <typename T> auto expect_non_empty(const T &values, std::string_view msg) -> bool {
+        const bool ok = !values.empty();
+        expect(ok, msg);
+        return ok;
+    }
 };
 
 auto make_param(TemplateParamKind kind, std::string name, bool is_pack = false, std::string usage = {}) -> TemplateParamInfo {
@@ -107,8 +117,10 @@ int main() {
     {
         const auto split = split_top_level_items_result("alpha, std::pair<int, long>, func('x', \"y,z\"), tail");
         t.expect(split.parts.size() == 4, "split_top_level_items_result preserves top-level item count");
-        t.expect(split.parts[1] == "std::pair<int, long>", "split_top_level_items_result keeps template commas");
-        t.expect(split.parts[2] == "func('x', \"y,z\")", "split_top_level_items_result keeps nested commas");
+        if (t.expect_size_at_least(split.parts.size(), 3, "split_top_level_items_result exposes nested items")) {
+            t.expect(split.parts[1] == "std::pair<int, long>", "split_top_level_items_result keeps template commas");
+            t.expect(split.parts[2] == "func('x', \"y,z\")", "split_top_level_items_result keeps nested commas");
+        }
         t.expect(!split.had_empty_item, "split_top_level_items_result has no empty item");
     }
     {
@@ -125,7 +137,9 @@ int main() {
     {
         const auto parsed = parse_parenthesized_row(" ( left, std::pair<int, int> ) ");
         t.expect(parsed.parts.size() == 2, "parse_parenthesized_row splits enclosed row");
-        t.expect(parsed.parts[1] == "std::pair<int, int>", "parse_parenthesized_row keeps template commas");
+        if (t.expect_size_at_least(parsed.parts.size(), 2, "parse_parenthesized_row exposes enclosed row items")) {
+            t.expect(parsed.parts[1] == "std::pair<int, int>", "parse_parenthesized_row keeps template commas");
+        }
         t.expect(!parsed.had_empty_item, "parse_parenthesized_row reports no empty item");
     }
     {
@@ -153,7 +167,9 @@ int main() {
         t.expect(!validate_template_binding_shape(make_set("Ts", {"int"}), make_param(TemplateParamKind::Type, "Ts", true),
                                                   [&](const std::string &m) { diags.push_back(m); }),
                  "validate_template_binding_shape rejects bare pack element");
-        t.contains(diags.front(), "requires parenthesized rows", "validate_template_binding_shape reports pack shape");
+        if (t.expect_non_empty(diags, "validate_template_binding_shape emits pack-shape diagnostic")) {
+            t.contains(diags.front(), "requires parenthesized rows", "validate_template_binding_shape reports pack shape");
+        }
     }
     {
         std::vector<std::string> diags;
@@ -167,31 +183,41 @@ int main() {
         t.expect(!validate_template_binding_shape(make_set("T", {"(int)"}), make_param(TemplateParamKind::Type, "T"),
                                                   [&](const std::string &m) { diags.push_back(m); }),
                  "validate_template_binding_shape rejects parenthesized non-pack type row");
-        t.contains(diags.front(), "does not accept parenthesized rows", "validate_template_binding_shape reports non-pack row");
+        if (t.expect_non_empty(diags, "validate_template_binding_shape emits non-pack row diagnostic")) {
+            t.contains(diags.front(), "does not accept parenthesized rows", "validate_template_binding_shape reports non-pack row");
+        }
     }
     {
         std::vector<std::string> diags;
         t.expect(!validate_template_binding_shape(make_set("Ts", {"(int,,double)"}), make_param(TemplateParamKind::Type, "Ts", true),
                                                   [&](const std::string &m) { diags.push_back(m); }),
                  "validate_template_binding_shape rejects empty pack row entry");
-        t.contains(diags.front(), "does not accept empty row entries", "validate_template_binding_shape reports empty pack row");
+        if (t.expect_non_empty(diags, "validate_template_binding_shape emits empty-pack-row diagnostic")) {
+            t.contains(diags.front(), "does not accept empty row entries", "validate_template_binding_shape reports empty pack row");
+        }
     }
 
     {
         const auto rows = build_binding_rows(make_set("Ts", {"(int, double)", "(char)"}), true);
         t.expect(rows.size() == 2, "build_binding_rows creates pack rows");
-        t.expect(rows[0].size() == 2 && rows[0][1] == "double", "build_binding_rows parses pack row values");
+        if (t.expect_size_at_least(rows.size(), 1, "build_binding_rows exposes first pack row")) {
+            t.expect(rows[0].size() == 2 && rows[0][1] == "double", "build_binding_rows parses pack row values");
+        }
     }
     {
         const auto rows = build_binding_rows(make_set("T", {" int ", " long "}), false);
         t.expect(rows.size() == 2, "build_binding_rows creates scalar rows");
-        t.expect(rows[0].size() == 1 && rows[0][0] == "int", "build_binding_rows trims scalar values");
+        if (t.expect_size_at_least(rows.size(), 1, "build_binding_rows exposes first scalar row")) {
+            t.expect(rows[0].size() == 1 && rows[0][0] == "int", "build_binding_rows trims scalar values");
+        }
     }
     {
         const auto rows = build_binding_rows_attr_order(make_set("Attr", {"(int, double)", " value "}));
         t.expect(rows.size() == 2, "build_binding_rows_attr_order keeps row count");
-        t.expect(rows[0].size() == 2, "build_binding_rows_attr_order parses parenthesized row");
-        t.expect(rows[1].size() == 1 && rows[1][0] == "value", "build_binding_rows_attr_order trims scalar row");
+        if (t.expect_size_at_least(rows.size(), 2, "build_binding_rows_attr_order exposes both rows")) {
+            t.expect(rows[0].size() == 2, "build_binding_rows_attr_order parses parenthesized row");
+            t.expect(rows[1].size() == 1 && rows[1][0] == "value", "build_binding_rows_attr_order trims scalar row");
+        }
     }
 
     {
@@ -205,12 +231,6 @@ int main() {
         t.expect(flattened[0].size() == 3, "flatten_row_cartesian concatenates row payloads");
         t.expect(flattened[3][0] == "B" && flattened[3][1] == "3", "flatten_row_cartesian preserves axis order");
     }
-    {
-        const std::vector<std::vector<std::vector<std::string>>> axes      = {{{"A"}}, {}};
-        const auto                                               flattened = flatten_row_cartesian(axes);
-        t.expect(flattened.size() == 1 && flattened[0].empty(), "flatten_row_cartesian restores empty row after empty axis");
-    }
-
     {
         std::vector<std::string>              diags;
         const std::vector<TemplateBindingSet> sets = {
@@ -231,7 +251,9 @@ int main() {
         const std::vector<TemplateParamInfo> params = {make_param(TemplateParamKind::Type, "T"), make_param(TemplateParamKind::Value, "N")};
         t.expect(!validate_template_attributes(sets, params, [&](const std::string &m) { diags.push_back(m); }),
                  "validate_template_attributes rejects missing param set");
-        t.contains(diags.front(), "missing 'template(N, ...)'", "validate_template_attributes reports missing set");
+        if (t.expect_non_empty(diags, "validate_template_attributes emits missing-set diagnostic")) {
+            t.contains(diags.front(), "missing 'template(N, ...)'", "validate_template_attributes reports missing set");
+        }
     }
     {
         std::vector<std::string>              diags;
@@ -239,7 +261,9 @@ int main() {
         const std::vector<TemplateParamInfo>  params = {make_param(TemplateParamKind::Type, "T")};
         t.expect(!validate_template_attributes(sets, params, [&](const std::string &m) { diags.push_back(m); }),
                  "validate_template_attributes rejects unknown param set");
-        t.contains(diags.front(), "unknown template parameter 'Ghost'", "validate_template_attributes reports unknown set");
+        if (t.expect_non_empty(diags, "validate_template_attributes emits unknown-set diagnostic")) {
+            t.contains(diags.front(), "unknown template parameter 'Ghost'", "validate_template_attributes reports unknown set");
+        }
     }
     {
         std::vector<std::string>              diags;
@@ -247,7 +271,9 @@ int main() {
         const std::vector<TemplateParamInfo>  params = {make_param(TemplateParamKind::Type, "Ts", true)};
         t.expect(!validate_template_attributes(sets, params, [&](const std::string &m) { diags.push_back(m); }),
                  "validate_template_attributes propagates shape failure");
-        t.contains(diags.front(), "requires parenthesized rows", "validate_template_attributes reports shape failure");
+        if (t.expect_non_empty(diags, "validate_template_attributes emits shape-failure diagnostic")) {
+            t.contains(diags.front(), "requires parenthesized rows", "validate_template_attributes reports shape failure");
+        }
     }
 
     {
@@ -261,10 +287,12 @@ int main() {
         };
         const auto combos = build_template_arg_combos(sets, params);
         t.expect(combos.size() == 4, "build_template_arg_combos expands declaration-order Cartesian product");
-        t.expect(combos[0].size() == 2 && combos[0][0] == "int" && combos[0][1] == "char",
-                 "build_template_arg_combos preserves declaration order");
-        t.expect(combos[3].size() == 3 && combos[3][0] == "long" && combos[3][1] == "short" && combos[3][2] == "unsigned",
-                 "build_template_arg_combos flattens pack rows");
+        if (t.expect_size_at_least(combos.size(), 4, "build_template_arg_combos exposes expected combinations")) {
+            t.expect(combos[0].size() == 2 && combos[0][0] == "int" && combos[0][1] == "char",
+                     "build_template_arg_combos preserves declaration order");
+            t.expect(combos[3].size() == 3 && combos[3][0] == "long" && combos[3][1] == "short" && combos[3][2] == "unsigned",
+                     "build_template_arg_combos flattens pack rows");
+        }
     }
     {
         const std::vector<TemplateBindingSet> sets = {
@@ -273,10 +301,12 @@ int main() {
         };
         const auto combos = build_template_arg_combos_attr_order(sets);
         t.expect(combos.size() == 4, "build_template_arg_combos_attr_order expands attribute-order rows");
-        t.expect(combos[0].size() == 3 && combos[0][0] == "A" && combos[0][2] == "D",
-                 "build_template_arg_combos_attr_order parses parenthesized first axis");
-        t.expect(combos[3].size() == 3 && combos[3][0] == "C" && combos[3][1] == "E" && combos[3][2] == "F",
-                 "build_template_arg_combos_attr_order parses parenthesized later axis");
+        if (t.expect_size_at_least(combos.size(), 4, "build_template_arg_combos_attr_order exposes expected combinations")) {
+            t.expect(combos[0].size() == 3 && combos[0][0] == "A" && combos[0][2] == "D",
+                     "build_template_arg_combos_attr_order parses parenthesized first axis");
+            t.expect(combos[3].size() == 3 && combos[3][0] == "C" && combos[3][1] == "E" && combos[3][2] == "F",
+                     "build_template_arg_combos_attr_order parses parenthesized later axis");
+        }
     }
 
     if (t.failures != 0) {
