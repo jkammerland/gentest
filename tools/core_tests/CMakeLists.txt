@@ -48,6 +48,7 @@ if(TARGET gentest_codegen_log_support)
     target_compile_features(gentest_core_log_tests PRIVATE cxx_std_20)
     target_include_directories(gentest_core_log_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
     target_link_libraries(gentest_core_log_tests PRIVATE gentest_codegen_log_support)
+    _gentest_copy_codegen_runtime_settings(gentest_core_log_tests)
 
     add_test(NAME gentest_core_log
         COMMAND gentest_core_log_tests)
@@ -83,6 +84,7 @@ if(TARGET gentest_codegen_llvm_support)
     target_compile_features(gentest_core_discovery_utils_tests PRIVATE cxx_std_20)
     target_include_directories(gentest_core_discovery_utils_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
     target_link_libraries(gentest_core_discovery_utils_tests PRIVATE gentest_codegen_llvm_support)
+    _gentest_copy_codegen_runtime_settings(gentest_core_discovery_utils_tests)
 
     add_test(NAME gentest_core_discovery_utils
         COMMAND gentest_core_discovery_utils_tests)

@@ -28,44 +28,16 @@ foreach(_cand IN LISTS _gentest_llvm_config_candidates)
 endforeach()
 unset(_gentest_llvm_config_candidates)
 
-# Work around LLVM exports referring to zstd targets that not every package
-# layout provides. Some environments only expose zstd::libzstd, while others
-# export zstd::libzstd_shared or zstd::libzstd_static. Define compatibility
-# imported interface targets before loading LLVM's exports so configure doesn't
-# fail on those naming differences.
+# Work around upstream LLVM exports referring to zstd::libzstd_shared while
+# some package layouts only expose zstd::libzstd. Keep the compatibility shim
+# aligned with the long-standing gentest_codegen dependency shape instead of
+# widening it just for the newer split helper targets below.
 find_package(zstd CONFIG QUIET)
-set(_gentest_zstd_link_target "")
-foreach(_gentest_zstd_candidate zstd::libzstd_static zstd::libzstd_shared zstd::libzstd)
-    if(TARGET ${_gentest_zstd_candidate})
-        set(_gentest_zstd_link_target ${_gentest_zstd_candidate})
-        break()
-    endif()
-endforeach()
-
-if(NOT _gentest_zstd_link_target)
-    find_library(_gentest_zstd_library
-        NAMES zstd libzstd zstd_static libzstd_static)
-    if(_gentest_zstd_library)
-        if(NOT TARGET zstd::libzstd)
-            add_library(zstd::libzstd UNKNOWN IMPORTED)
-            set_target_properties(zstd::libzstd PROPERTIES
-                IMPORTED_LOCATION "${_gentest_zstd_library}")
-        endif()
-        set(_gentest_zstd_link_target zstd::libzstd)
-    endif()
+if(TARGET zstd::libzstd AND NOT TARGET zstd::libzstd_shared)
+    add_library(zstd::libzstd_shared INTERFACE IMPORTED)
+    set_target_properties(zstd::libzstd_shared PROPERTIES
+        INTERFACE_LINK_LIBRARIES "zstd::libzstd")
 endif()
-
-foreach(_gentest_zstd_compat_target zstd::libzstd_static zstd::libzstd_shared zstd::libzstd)
-    if(_gentest_zstd_link_target AND NOT TARGET ${_gentest_zstd_compat_target})
-        add_library(${_gentest_zstd_compat_target} INTERFACE IMPORTED)
-        set_target_properties(${_gentest_zstd_compat_target} PROPERTIES
-            INTERFACE_LINK_LIBRARIES "${_gentest_zstd_link_target}")
-    endif()
-endforeach()
-unset(_gentest_zstd_candidate)
-unset(_gentest_zstd_compat_target)
-unset(_gentest_zstd_library)
-unset(_gentest_zstd_link_target)
 
 # Some LLVM builds export a Terminfo::terminfo dependency even when the host
 # toolchain lacks a proper CMake package. Provide a best-effort target before
@@ -544,11 +516,10 @@ if(TARGET clang-cpp)
     # Link it when the imported target exists; otherwise fall back to LLVMSupport.
     # Link the monolithic clang-cpp; avoid mixing in static LLVM components.
     target_link_libraries(gentest_codegen_support INTERFACE clang-cpp ${_gentest_fmt_target})
-    if(TARGET LLVMSupport)
-        target_link_libraries(gentest_codegen_llvm_support INTERFACE LLVMSupport)
-    else()
-        target_link_libraries(gentest_codegen_llvm_support INTERFACE ${_gentest_llvm_support})
-    endif()
+    # Keep the split helper targets on the same resolved Support library mapping
+    # as gentest_codegen instead of depending on the package's LLVMSupport
+    # imported target and any extra zstd target aliases it may reference.
+    target_link_libraries(gentest_codegen_llvm_support INTERFACE ${_gentest_llvm_support})
     target_link_libraries(gentest_codegen_log_support INTERFACE ${_gentest_fmt_target})
     if(TARGET Terminfo::terminfo)
         target_link_libraries(gentest_codegen_llvm_support INTERFACE Terminfo::terminfo)
