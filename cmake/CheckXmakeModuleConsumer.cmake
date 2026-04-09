@@ -47,6 +47,19 @@ if(DEFINED BUILD_ROOT AND NOT "${BUILD_ROOT}" STREQUAL "")
   set(_gentest_xmake_root "${BUILD_ROOT}")
 endif()
 
+set(_project_dir "${SOURCE_DIR}")
+if(WIN32)
+  set(_project_dir "${_gentest_xmake_root}/xw")
+  file(REMOVE_RECURSE "${_project_dir}")
+  file(MAKE_DIRECTORY "${_project_dir}")
+  file(COPY "${SOURCE_DIR}/include" DESTINATION "${_project_dir}")
+  file(COPY "${SOURCE_DIR}/src" DESTINATION "${_project_dir}")
+  file(COPY "${SOURCE_DIR}/tests" DESTINATION "${_project_dir}")
+  file(COPY "${SOURCE_DIR}/xmake" DESTINATION "${_project_dir}")
+  file(COPY "${SOURCE_DIR}/third_party/include" DESTINATION "${_project_dir}/third_party")
+  file(COPY_FILE "${SOURCE_DIR}/xmake.lua" "${_project_dir}/xmake.lua")
+endif()
+
 set(_configured_target_cc "$ENV{GENTEST_XMAKE_TEST_TARGET_CC}")
 set(_configured_target_cxx "$ENV{GENTEST_XMAKE_TEST_TARGET_CXX}")
 set(_has_configured_target_cc FALSE)
@@ -232,11 +245,11 @@ if(_clang_scan_deps)
 endif()
 
 set(_clang_config_args
-  f -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -o "${_out_dir}" -m debug -c -y
+  f -P "${_project_dir}" -F "${_project_dir}/xmake.lua" -o "${_out_dir}" -m debug -c -y
   "--cc=${_clang_cc}"
   "--cxx=${_clang_cxx}")
 set(_clang_build_args
-  build -P "${SOURCE_DIR}" -F "${SOURCE_DIR}/xmake.lua" -y -vD)
+  build -P "${_project_dir}" -F "${_project_dir}/xmake.lua" -y -vD)
 if(APPLE OR WIN32)
   list(APPEND _clang_config_args "--toolchain=llvm")
 endif()
@@ -247,7 +260,7 @@ endif()
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" ${_clang_config_args}
-  WORKING_DIRECTORY "${SOURCE_DIR}"
+  WORKING_DIRECTORY "${_project_dir}"
   RESULT_VARIABLE _cfg_rc
   OUTPUT_VARIABLE _cfg_out
   ERROR_VARIABLE _cfg_err)
@@ -262,7 +275,7 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" ${_clang_build_args}
           gentest_consumer_module_mocks_xmake
-  WORKING_DIRECTORY "${SOURCE_DIR}"
+  WORKING_DIRECTORY "${_project_dir}"
   RESULT_VARIABLE _mock_build_rc
   OUTPUT_VARIABLE _mock_build_out
   ERROR_VARIABLE _mock_build_err)
@@ -277,7 +290,7 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" ${_clang_build_args}
           gentest_consumer_module_xmake
-  WORKING_DIRECTORY "${SOURCE_DIR}"
+  WORKING_DIRECTORY "${_project_dir}"
   RESULT_VARIABLE _build_rc
   OUTPUT_VARIABLE _build_out
   ERROR_VARIABLE _build_err)
@@ -324,22 +337,27 @@ foreach(_expected IN ITEMS
   endif()
 endforeach()
 
+set(_generated_glob_root "${_out_dir}/gen/*/*/*")
+if(WIN32)
+  set(_generated_glob_root "${_out_dir}/g/*")
+endif()
+
 foreach(_expected_glob IN ITEMS
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/gentest/consumer_mocks.cppm"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/consumer_module_mocks_mock_registry.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/consumer_module_mocks_mock_impl.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/consumer_module_mocks_mock_registry__domain_0000_header.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/consumer_module_mocks_mock_impl__domain_0000_header.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/consumer_module_mocks_mock_registry__domain_0001_gentest_consumer_service.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/consumer_module_mocks_mock_impl__domain_0001_gentest_consumer_service.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/consumer_module_mocks_mock_registry__domain_0002_gentest_consumer_mock_defs.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/consumer_module_mocks_mock_impl__domain_0002_gentest_consumer_mock_defs.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/tu_0000_service_module.gentest.h"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/tu_0000_service_module.module.gentest.cppm"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/tu_0001_module_mock_defs.gentest.h"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/tu_0001_module_mock_defs.module.gentest.cppm"
-    "${_out_dir}/gen/*/*/*/consumer_module/tu_0000_cases.gentest.h"
-    "${_out_dir}/gen/*/*/*/consumer_module/tu_0000_cases.module.gentest.cppm")
+    "${_generated_glob_root}/consumer_module_mocks/gentest/consumer_mocks.cppm"
+    "${_generated_glob_root}/consumer_module_mocks/consumer_module_mocks_mock_registry.hpp"
+    "${_generated_glob_root}/consumer_module_mocks/consumer_module_mocks_mock_impl.hpp"
+    "${_generated_glob_root}/consumer_module_mocks/consumer_module_mocks_mock_registry__domain_0000_header.hpp"
+    "${_generated_glob_root}/consumer_module_mocks/consumer_module_mocks_mock_impl__domain_0000_header.hpp"
+    "${_generated_glob_root}/consumer_module_mocks/consumer_module_mocks_mock_registry__domain_0001_gentest_consumer_service.hpp"
+    "${_generated_glob_root}/consumer_module_mocks/consumer_module_mocks_mock_impl__domain_0001_gentest_consumer_service.hpp"
+    "${_generated_glob_root}/consumer_module_mocks/consumer_module_mocks_mock_registry__domain_0002_gentest_consumer_mock_defs.hpp"
+    "${_generated_glob_root}/consumer_module_mocks/consumer_module_mocks_mock_impl__domain_0002_gentest_consumer_mock_defs.hpp"
+    "${_generated_glob_root}/consumer_module_mocks/tu_0000_service_module.gentest.h"
+    "${_generated_glob_root}/consumer_module_mocks/tu_0000_service_module.module.gentest.cppm"
+    "${_generated_glob_root}/consumer_module_mocks/tu_0001_module_mock_defs.gentest.h"
+    "${_generated_glob_root}/consumer_module_mocks/tu_0001_module_mock_defs.module.gentest.cppm"
+    "${_generated_glob_root}/consumer_module/tu_0000_cases.gentest.h"
+    "${_generated_glob_root}/consumer_module/tu_0000_cases.module.gentest.cppm")
   file(GLOB _expected_matches LIST_DIRECTORIES FALSE "${_expected_glob}")
   list(LENGTH _expected_matches _expected_match_count)
   if(NOT _expected_match_count EQUAL 1)
