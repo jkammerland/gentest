@@ -964,11 +964,15 @@ function gentest_apply_windows_llvm_toolchain()
     local configured_toolchain = configured_toolchain_hint():lower()
     if configured_toolchain == "llvm" then
         set_toolchains("llvm")
+        set_runtimes(is_mode("debug") and "MTd" or "MT")
+        add_defines("FMT_USE_CONSTEVAL=0", "_ITERATOR_DEBUG_LEVEL=0", "_HAS_ITERATOR_DEBUGGING=0")
         return
     end
     local cxx_tool = configured_cxx_tool_hint()
     if cxx_tool ~= "" and is_clang_tool(cxx_tool) then
         set_toolchains("llvm")
+        set_runtimes(is_mode("debug") and "MTd" or "MT")
+        add_defines("FMT_USE_CONSTEVAL=0", "_ITERATOR_DEBUG_LEVEL=0", "_HAS_ITERATOR_DEBUGGING=0")
     end
 end
 

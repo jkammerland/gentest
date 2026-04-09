@@ -44,8 +44,6 @@ package("gentest")
                 package:add("links", runtime_link)
             end
         end
-
-        package:add("defines", "FMT_HEADER_ONLY")
     end)
 
     on_install(function (package)
@@ -70,7 +68,6 @@ package("gentest")
             includedirs = os.isdir(includedir) and {includedir} or {},
             linkdirs = libdir and {libdir} or {},
             links = runtime_link and {runtime_link} or {},
-            defines = {"FMT_HEADER_ONLY"},
             extras = {
                 gentest = {
                     root = install_dir,

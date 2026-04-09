@@ -25,6 +25,10 @@ local function current_gen_root()
     if not path.is_absolute(builddir) then
         builddir = path.absolute(path.join(os.projectdir(), builddir))
     end
+    if is_host("windows") then
+        local mode = get_config("mode") or "release"
+        return path.join(builddir, "g", mode == "debug" and "d" or "r")
+    end
     local plat = get_config("plat") or os.host()
     local arch = get_config("arch") or os.arch()
     local mode = get_config("mode") or "release"
@@ -36,7 +40,7 @@ gentest_configure({
     gentest_root = gentest_prefix,
     helper_root = path.join(os.projectdir(), ".gentest_support"),
     incdirs = {"tests"},
-    gentest_common_defines = {"FMT_HEADER_ONLY"},
+    gentest_common_defines = {},
     gentest_common_cxxflags = {"-Wno-attributes"},
     gentest_module_files = module_files,
     codegen = {

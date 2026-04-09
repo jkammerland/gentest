@@ -221,6 +221,11 @@ foreach(_target IN ITEMS
   string(APPEND _build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}\n")
 endforeach()
 
+set(_generated_glob_root "${_out_dir}/gen/*/*/*")
+if(WIN32)
+  set(_generated_glob_root "${_out_dir}/g/*")
+endif()
+
 string(FIND "${_build_log}" "--host-clang" _host_clang_flag_pos)
 string(FIND "${_build_log}" "${_clang_cxx}" _host_clang_path_pos)
 if(_host_clang_flag_pos EQUAL -1 OR _host_clang_path_pos EQUAL -1)
@@ -240,16 +245,16 @@ if(_clang_scan_deps)
 endif()
 
 foreach(_expected_glob IN ITEMS
-    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/gentest_xrepo_mocks.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/tu_0000_xrepo_textual_mocks_defs.gentest.h"
-    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/xrepo_textual_mocks_mock_registry.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_textual_mocks/xrepo_textual_mocks_mock_impl.hpp"
-    "${_out_dir}/gen/*/*/*/consumer_textual/tu_0000_cases.gentest.h"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/downstream/xrepo/consumer_mocks.cppm"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/tu_0000_service_module.module.gentest.cppm"
-    "${_out_dir}/gen/*/*/*/consumer_module_mocks/tu_0001_module_mock_defs.module.gentest.cppm"
-    "${_out_dir}/gen/*/*/*/consumer_module/tu_0000_cases.module.gentest.cppm"
-    "${_out_dir}/gen/*/*/*/consumer_module/tu_0000_cases.gentest.h")
+    "${_generated_glob_root}/consumer_textual_mocks/gentest_xrepo_mocks.hpp"
+    "${_generated_glob_root}/consumer_textual_mocks/tu_0000_xrepo_textual_mocks_defs.gentest.h"
+    "${_generated_glob_root}/consumer_textual_mocks/xrepo_textual_mocks_mock_registry.hpp"
+    "${_generated_glob_root}/consumer_textual_mocks/xrepo_textual_mocks_mock_impl.hpp"
+    "${_generated_glob_root}/consumer_textual/tu_0000_cases.gentest.h"
+    "${_generated_glob_root}/consumer_module_mocks/downstream/xrepo/consumer_mocks.cppm"
+    "${_generated_glob_root}/consumer_module_mocks/tu_0000_service_module.module.gentest.cppm"
+    "${_generated_glob_root}/consumer_module_mocks/tu_0001_module_mock_defs.module.gentest.cppm"
+    "${_generated_glob_root}/consumer_module/tu_0000_cases.module.gentest.cppm"
+    "${_generated_glob_root}/consumer_module/tu_0000_cases.gentest.h")
   file(GLOB _expected_matches LIST_DIRECTORIES FALSE "${_expected_glob}")
   list(LENGTH _expected_matches _expected_match_count)
   if(NOT _expected_match_count EQUAL 1)
