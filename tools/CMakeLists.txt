@@ -42,6 +42,19 @@ foreach(_gentest_zstd_candidate zstd::libzstd_static zstd::libzstd_shared zstd::
     endif()
 endforeach()
 
+if(NOT _gentest_zstd_link_target)
+    find_library(_gentest_zstd_library
+        NAMES zstd libzstd zstd_static libzstd_static)
+    if(_gentest_zstd_library)
+        if(NOT TARGET zstd::libzstd)
+            add_library(zstd::libzstd UNKNOWN IMPORTED)
+            set_target_properties(zstd::libzstd PROPERTIES
+                IMPORTED_LOCATION "${_gentest_zstd_library}")
+        endif()
+        set(_gentest_zstd_link_target zstd::libzstd)
+    endif()
+endif()
+
 foreach(_gentest_zstd_compat_target zstd::libzstd_static zstd::libzstd_shared zstd::libzstd)
     if(_gentest_zstd_link_target AND NOT TARGET ${_gentest_zstd_compat_target})
         add_library(${_gentest_zstd_compat_target} INTERFACE IMPORTED)
@@ -51,6 +64,7 @@ foreach(_gentest_zstd_compat_target zstd::libzstd_static zstd::libzstd_shared zs
 endforeach()
 unset(_gentest_zstd_candidate)
 unset(_gentest_zstd_compat_target)
+unset(_gentest_zstd_library)
 unset(_gentest_zstd_link_target)
 
 # Some LLVM builds export a Terminfo::terminfo dependency even when the host
