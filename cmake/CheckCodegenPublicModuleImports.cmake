@@ -193,6 +193,19 @@ if(_auto_bad_fallback_pos EQUAL -1)
     "Expected build-time gentest_codegen AUTO missing-scanner leg to report source-scan fallback. Output:\n${_auto_bad_codegen_output}")
 endif()
 
+message(STATUS "Build consumer with scan-deps auto mode and missing scanner...")
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_auto_bad_dir}" --target gentest_consumer
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+set(_consumer_auto_bad_exe "${_consumer_build_auto_bad_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
+message(STATUS "Run consumer smoke with scan-deps auto mode and missing scanner...")
+gentest_check_run_or_fail(
+  COMMAND "${_consumer_auto_bad_exe}" --run=consumer/module_mock
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
 message(STATUS "Configure consumer with scan-deps ON mode and missing scanner...")
 _gentest_configure_consumer("${_consumer_build_on_bad_dir}" "ON"
   "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=${_missing_scan_deps}")
