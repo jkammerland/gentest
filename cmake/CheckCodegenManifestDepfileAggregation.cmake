@@ -175,12 +175,15 @@ elseif(_mode STREQUAL "escaped_paths")
 
   set(_special_a_cpp "${_special_dir}/a.cpp")
   set(_special_b_cpp "${_special_dir}/b.cpp")
-  set(_special_depfile "${_special_generated_dir}/dep manifest#special$:colon:.d")
-  set(_special_output "${_special_generated_dir}/dep manifest#special$:colon:.cpp")
-  set(_special_mock_registry "${_special_generated_dir}/dep manifest#special$:colon:_mock_registry.hpp")
-  set(_special_mock_impl "${_special_generated_dir}/dep manifest#special$:colon:_mock_impl.hpp")
-  set(_special_mock_registry_domain "${_special_generated_dir}/dep manifest#special$:colon:_mock_registry__domain_0000_header.hpp")
-  set(_special_mock_impl_domain "${_special_generated_dir}/dep manifest#special$:colon:_mock_impl__domain_0000_header.hpp")
+  # Keep the integration fixture portable: this regression exercises depfile escaping
+  # for real paths, not Windows-invalid basenames containing ':'.
+  set(_special_stem "dep manifest#special$")
+  set(_special_depfile "${_special_generated_dir}/${_special_stem}.d")
+  set(_special_output "${_special_generated_dir}/${_special_stem}.cpp")
+  set(_special_mock_registry "${_special_generated_dir}/${_special_stem}_mock_registry.hpp")
+  set(_special_mock_impl "${_special_generated_dir}/${_special_stem}_mock_impl.hpp")
+  set(_special_mock_registry_domain "${_special_generated_dir}/${_special_stem}_mock_registry__domain_0000_header.hpp")
+  set(_special_mock_impl_domain "${_special_generated_dir}/${_special_stem}_mock_impl__domain_0000_header.hpp")
 
   file(TO_CMAKE_PATH "${_special_a_cpp}" _special_a_cpp_norm)
   file(TO_CMAKE_PATH "${_special_b_cpp}" _special_b_cpp_norm)
@@ -230,11 +233,11 @@ elseif(_mode STREQUAL "escaped_paths")
 
   file(READ "${_special_depfile}" _depfile_text)
   foreach(_needle IN ITEMS
-      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:.cpp"
-      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:_mock_registry.hpp"
-      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:_mock_impl.hpp"
-      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:_mock_registry__domain_0000_header.hpp"
-      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$\\:colon\\:_mock_impl__domain_0000_header.hpp"
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$.cpp"
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$_mock_registry.hpp"
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$_mock_impl.hpp"
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$_mock_registry__domain_0000_header.hpp"
+      "generated\\ dir\\#hash/dep\\ manifest\\#special\\$_mock_impl__domain_0000_header.hpp"
       "fixture\\ dir\\#hash/a.cpp"
       "fixture\\ dir\\#hash/a.hpp"
       "fixture\\ dir\\#hash/b.cpp"
