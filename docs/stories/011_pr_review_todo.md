@@ -50,6 +50,6 @@ goal of this pass was to get the branch green again.
 - Package smoke coverage should include the common in-source build layout
   (`cmake -S . -B build` under the source tree), not only sibling source/build dirs.
   - Relevant files:
-    - `cmake/CheckPackageConsumer.cmake`
+    - `tests/cmake/scripts/CheckPackageConsumer.cmake`
     - `tests/consumer/CMakeLists.txt`
 

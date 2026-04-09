@@ -12,7 +12,7 @@ if(NOT EXISTS "${_build_file}")
   message(FATAL_ERROR "Expected Bazel BUILD file is missing: ${_build_file}")
 endif()
 
-set(_check_script "${SOURCE_DIR}/cmake/CheckBazelBzlmodConsumer.cmake")
+set(_check_script "${SOURCE_DIR}/tests/cmake/scripts/CheckBazelBzlmodConsumer.cmake")
 if(NOT EXISTS "${_check_script}")
   message(FATAL_ERROR "Expected Bazel Bzlmod consumer check is missing: ${_check_script}")
 endif()

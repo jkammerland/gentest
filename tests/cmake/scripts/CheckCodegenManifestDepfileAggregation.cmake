@@ -59,9 +59,11 @@ gentest_make_public_api_include_args(
   _public_include_args
   SOURCE_ROOT "${_source_dir_norm}"
   APPLE_SYSROOT)
-list(APPEND _compile_command_args_a "${CODEGEN_STD}" ${_public_include_args} "-I${_work_dir_norm}" "-c" "${_a_cpp_norm}")
+gentest_normalize_std_flag_for_compiler(_compdb_std "${_real_clang_norm}" "${CODEGEN_STD}")
+gentest_normalize_include_args_for_compiler(_compdb_include_args "${_real_clang_norm}" ${_public_include_args})
+list(APPEND _compile_command_args_a "${_compdb_std}" ${_compdb_include_args} "-I${_work_dir_norm}" "-c" "${_a_cpp_norm}")
 list(APPEND _compile_command_args_a "-o" "${_work_dir_norm}/a.o")
-list(APPEND _compile_command_args_b "${CODEGEN_STD}" ${_public_include_args} "-I${_work_dir_norm}" "-c" "${_b_cpp_norm}")
+list(APPEND _compile_command_args_b "${_compdb_std}" ${_compdb_include_args} "-I${_work_dir_norm}" "-c" "${_b_cpp_norm}")
 list(APPEND _compile_command_args_b "-o" "${_work_dir_norm}/b.o")
 
 gentest_fixture_make_compdb_entry(_a_entry
@@ -200,9 +202,9 @@ elseif(_mode STREQUAL "escaped_paths")
     list(APPEND _special_compile_args_a "${TARGET_ARG}")
     list(APPEND _special_compile_args_b "${TARGET_ARG}")
   endif()
-  list(APPEND _special_compile_args_a "${CODEGEN_STD}" ${_public_include_args} "-I${_special_dir_norm}" "-c" "${_special_a_cpp_norm}")
+  list(APPEND _special_compile_args_a "${_compdb_std}" ${_compdb_include_args} "-I${_special_dir_norm}" "-c" "${_special_a_cpp_norm}")
   list(APPEND _special_compile_args_a "-o" "${_special_dir_norm}/a.o")
-  list(APPEND _special_compile_args_b "${CODEGEN_STD}" ${_public_include_args} "-I${_special_dir_norm}" "-c" "${_special_b_cpp_norm}")
+  list(APPEND _special_compile_args_b "${_compdb_std}" ${_compdb_include_args} "-I${_special_dir_norm}" "-c" "${_special_b_cpp_norm}")
   list(APPEND _special_compile_args_b "-o" "${_special_dir_norm}/b.o")
 
   gentest_fixture_make_compdb_entry(_special_a_entry

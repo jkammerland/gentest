@@ -85,13 +85,15 @@ if(DEFINED EXPECT_COMPILE AND EXPECT_COMPILE)
   endif()
 
   set(_compile_output "${_work_dir}/${_smoke_name}.o")
+  gentest_make_compile_only_command_args(
+    _compile_command
+    COMPILER "${CXX_COMPILER}"
+    STD "${CODEGEN_STD}"
+    SOURCE "${_output}"
+    OBJECT "${_compile_output}"
+    INCLUDE_ARGS ${_public_include_args})
   execute_process(
-    COMMAND
-      "${CXX_COMPILER}"
-      "${CODEGEN_STD}"
-      ${_public_include_args}
-      -c "${_output}"
-      -o "${_compile_output}"
+    COMMAND ${_compile_command}
     RESULT_VARIABLE _compile_rc
     OUTPUT_VARIABLE _compile_out
     ERROR_VARIABLE _compile_err

@@ -1,7 +1,7 @@
 # Usage:
-#   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> -P cmake/CheckTestCounts.cmake
-#   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> [-DXFAIL=<n>] [-DXPASS=<n>] -P cmake/CheckTestCounts.cmake
-#   cmake -DPROG=<path> -DLIST=ON -DCASES=<n> -P cmake/CheckTestCounts.cmake
+#   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> -P tests/cmake/scripts/CheckTestCounts.cmake
+#   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> [-DXFAIL=<n>] [-DXPASS=<n>] -P tests/cmake/scripts/CheckTestCounts.cmake
+#   cmake -DPROG=<path> -DLIST=ON -DCASES=<n> -P tests/cmake/scripts/CheckTestCounts.cmake
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")

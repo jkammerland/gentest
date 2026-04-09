@@ -25,10 +25,10 @@ Capture the recent runtime correctness fixes and the regression harness updates 
   - Verifies benchmark assertion failures are propagated.
 - `regression_shared_fixture_reentry_no_timeout`
   - Verifies reentrant shared fixture lookup is blocked during setup and does not hang.
-  - Uses `cmake/CheckNoTimeout.cmake` with `EXPECT_RC=0`.
+  - Uses `tests/cmake/scripts/CheckNoTimeout.cmake` with `EXPECT_RC=0`.
 - `gentest_tu_header_case_collision`
   - Verifies case-insensitive TU output header collision detection.
-  - Uses `cmake/CheckTuHeaderCaseCollision.cmake`.
+  - Uses `tests/cmake/scripts/CheckTuHeaderCaseCollision.cmake`.
 
 ## CMake helper script notes
 

@@ -1,11 +1,11 @@
 # Usage:
-#   cmake -DPROG=<path> -DLINES=<n> [-DARGS="--flags ..."] -P cmake/CheckLines.cmake
+#   cmake -DPROG=<path> -DEXPECT_RC=<int> [-DARGS="--flags ..."] -P tests/cmake/scripts/CheckExitCode.cmake
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")
 endif()
-if(NOT DEFINED LINES)
-  message(FATAL_ERROR "LINES not set")
+if(NOT DEFINED EXPECT_RC)
+  message(FATAL_ERROR "EXPECT_RC not set")
 endif()
 
 set(_emu)
@@ -33,16 +33,6 @@ execute_process(
   RESULT_VARIABLE rc
 )
 
-if(NOT rc EQUAL 0)
-  message(FATAL_ERROR "Command failed with code ${rc}. Output:\n${out}\nErrors:\n${err}")
-endif()
-
-string(REGEX MATCHALL "\n" _lines "${out}")
-list(LENGTH _lines line_count)
-if(NOT out MATCHES "\n$")
-  math(EXPR line_count "${line_count} + 1")
-endif()
-
-if(NOT line_count EQUAL LINES)
-  message(FATAL_ERROR "Expected ${LINES} lines, got ${line_count}. Output:\n${out}")
+if(NOT rc EQUAL EXPECT_RC)
+  message(FATAL_ERROR "Expected exit code ${EXPECT_RC}, got ${rc}. Output:\n${out}\nErrors:\n${err}")
 endif()

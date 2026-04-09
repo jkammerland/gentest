@@ -29,13 +29,15 @@ function(_gentest_copy_codegen_runtime_settings target)
     endif()
 endfunction()
 
+set(_gentest_tool_core_src_dir "${PROJECT_SOURCE_DIR}/tools/src")
+
 add_executable(gentest_core_tests
     parse_validate_tests.cpp
-    ../src/parse_core.cpp
-    ../src/validate.cpp)
+    ${_gentest_tool_core_src_dir}/parse_core.cpp
+    ${_gentest_tool_core_src_dir}/validate.cpp)
 
 target_compile_features(gentest_core_tests PRIVATE cxx_std_20)
-target_include_directories(gentest_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_include_directories(gentest_core_tests PRIVATE ${_gentest_tool_core_src_dir})
 target_link_libraries(gentest_core_tests PRIVATE fmt::fmt)
 
 add_test(NAME gentest_core_parse_validate
@@ -46,7 +48,7 @@ if(TARGET gentest_codegen_log_support)
         log_tests.cpp)
 
     target_compile_features(gentest_core_log_tests PRIVATE cxx_std_20)
-    target_include_directories(gentest_core_log_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+    target_include_directories(gentest_core_log_tests PRIVATE ${_gentest_tool_core_src_dir})
     target_link_libraries(gentest_core_log_tests PRIVATE gentest_codegen_log_support)
     _gentest_copy_codegen_runtime_settings(gentest_core_log_tests)
 
@@ -56,11 +58,11 @@ endif()
 
 add_executable(gentest_core_type_kind_tests
     type_kind_tests.cpp
-    ../src/type_kind.cpp
-    ../src/render.cpp)
+    ${_gentest_tool_core_src_dir}/type_kind.cpp
+    ${_gentest_tool_core_src_dir}/render.cpp)
 
 target_compile_features(gentest_core_type_kind_tests PRIVATE cxx_std_20)
-target_include_directories(gentest_core_type_kind_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_include_directories(gentest_core_type_kind_tests PRIVATE ${_gentest_tool_core_src_dir})
 target_link_libraries(gentest_core_type_kind_tests PRIVATE fmt::fmt)
 
 add_test(NAME gentest_core_type_kind
@@ -68,10 +70,10 @@ add_test(NAME gentest_core_type_kind
 
 add_executable(gentest_core_render_tests
     render_tests.cpp
-    ../src/render.cpp)
+    ${_gentest_tool_core_src_dir}/render.cpp)
 
 target_compile_features(gentest_core_render_tests PRIVATE cxx_std_20)
-target_include_directories(gentest_core_render_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_include_directories(gentest_core_render_tests PRIVATE ${_gentest_tool_core_src_dir})
 target_link_libraries(gentest_core_render_tests PRIVATE fmt::fmt)
 
 add_test(NAME gentest_core_render
@@ -82,7 +84,7 @@ if(TARGET gentest_codegen_support)
         discovery_utils_tests.cpp)
 
     target_compile_features(gentest_core_discovery_utils_tests PRIVATE cxx_std_20)
-    target_include_directories(gentest_core_discovery_utils_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+    target_include_directories(gentest_core_discovery_utils_tests PRIVATE ${_gentest_tool_core_src_dir})
     target_link_libraries(gentest_core_discovery_utils_tests PRIVATE gentest_codegen_support)
     _gentest_copy_codegen_runtime_settings(gentest_core_discovery_utils_tests)
 
@@ -93,16 +95,16 @@ endif()
 if(TARGET gentest_codegen_support)
     add_executable(gentest_core_discovery_tests
         discovery_tests.cpp
-        ../src/discovery.cpp
-        ../src/parse.cpp
-        ../src/parse_core.cpp
-        ../src/render.cpp
-        ../src/type_kind.cpp
-        ../src/validate.cpp)
+        ${_gentest_tool_core_src_dir}/discovery.cpp
+        ${_gentest_tool_core_src_dir}/parse.cpp
+        ${_gentest_tool_core_src_dir}/parse_core.cpp
+        ${_gentest_tool_core_src_dir}/render.cpp
+        ${_gentest_tool_core_src_dir}/type_kind.cpp
+        ${_gentest_tool_core_src_dir}/validate.cpp)
 
     target_compile_features(gentest_core_discovery_tests PRIVATE cxx_std_20)
     target_include_directories(gentest_core_discovery_tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../src
+        ${_gentest_tool_core_src_dir}
         ${LLVM_INCLUDE_DIRS})
     target_link_libraries(gentest_core_discovery_tests PRIVATE gentest_codegen_support)
     _gentest_copy_codegen_runtime_settings(gentest_core_discovery_tests)
@@ -110,3 +112,5 @@ if(TARGET gentest_codegen_support)
     add_test(NAME gentest_core_discovery
         COMMAND gentest_core_discovery_tests)
 endif()
+
+unset(_gentest_tool_core_src_dir)

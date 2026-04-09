@@ -43,7 +43,8 @@ gentest_make_public_api_include_args(
   _public_include_args
   SOURCE_ROOT "${_source_dir_norm}"
   APPLE_SYSROOT)
-list(APPEND _codegen_args "${CODEGEN_STD}" ${_public_include_args})
+gentest_normalize_std_flag_for_compiler(_synthetic_std "clang++" "${CODEGEN_STD}")
+list(APPEND _codegen_args "${_synthetic_std}" ${_public_include_args})
 
 execute_process(
   COMMAND

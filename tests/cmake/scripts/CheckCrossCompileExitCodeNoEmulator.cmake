@@ -30,7 +30,7 @@ file(MAKE_DIRECTORY "${_fixture_src}")
 file(MAKE_DIRECTORY "${_fixture_src}/cmake")
 file(COPY "${_source_dir_norm}/tests/cmake/cross_compile_emulator_serialization/ProbeScript.cmake"
   DESTINATION "${_fixture_src}")
-file(COPY "${_source_dir_norm}/cmake/CheckExitCode.cmake"
+file(COPY "${_source_dir_norm}/tests/cmake/scripts/CheckExitCode.cmake"
   DESTINATION "${_fixture_src}/cmake")
 
 set(_fixture_cmakelists_template "${_source_dir_norm}/tests/cmake/check_exit_code_no_emulator/CMakeLists.in")

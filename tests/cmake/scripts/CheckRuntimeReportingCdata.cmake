@@ -1,5 +1,5 @@
 # Usage:
-#   cmake -DPROG=<path> -DJUNIT_FILE=<path> [-DARGS="..."] -DEXPECT_RC=<int> -P cmake/CheckRuntimeReportingCdata.cmake
+#   cmake -DPROG=<path> -DJUNIT_FILE=<path> [-DARGS="..."] -DEXPECT_RC=<int> -P tests/cmake/scripts/CheckRuntimeReportingCdata.cmake
 #
 # Runs PROG, verifies exit code, then checks that JUnit output does not contain
 # an unsplit CDATA terminator sequence from the known regression marker.

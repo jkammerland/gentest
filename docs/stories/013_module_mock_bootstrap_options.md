@@ -336,10 +336,10 @@ Any implementation should keep or extend coverage for:
 Relevant existing regression anchors:
 
 - `tests/consumer/`
-- `cmake/CheckCodegenPublicModuleImports.cmake`
-- `cmake/CheckModuleMockImportedSibling.cmake`
-- `cmake/CheckModuleMockMultiImportedSibling.cmake`
-- `cmake/CheckMixedModuleMockRegistry.cmake`
+- `tests/cmake/scripts/CheckCodegenPublicModuleImports.cmake`
+- `tests/cmake/scripts/CheckModuleMockImportedSibling.cmake`
+- `tests/cmake/scripts/CheckModuleMockMultiImportedSibling.cmake`
+- `tests/cmake/scripts/CheckMixedModuleMockRegistry.cmake`
 
 ## Open Questions
 

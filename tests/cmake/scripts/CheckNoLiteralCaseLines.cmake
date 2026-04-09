@@ -1,5 +1,5 @@
 # Usage:
-#   cmake -DFILES="file1|file2|..." -P cmake/CheckNoLiteralCaseLines.cmake
+#   cmake -DFILES="file1|file2|..." -P tests/cmake/scripts/CheckNoLiteralCaseLines.cmake
 #
 # Fails when any listed file contains a hard-coded numeric Case.line initializer
 # (".line = 123"). This guards against stale manual line mappings.

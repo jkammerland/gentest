@@ -17,7 +17,7 @@ execute_process(
     "-DFILE=${_file}"
     "-DEXPECT_SUBSTRING=needle"
     "-DARGS=-E\\;true"
-    -P "${SOURCE_DIR}/cmake/CheckFileContains.cmake"
+    -P "${SOURCE_DIR}/tests/cmake/scripts/CheckFileContains.cmake"
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err

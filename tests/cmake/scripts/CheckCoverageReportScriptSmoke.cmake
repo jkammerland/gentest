@@ -10,7 +10,7 @@ if(WIN32)
   return()
 endif()
 
-include("${SOURCE_DIR}/cmake/CheckFixtureWriteHelpers.cmake")
+include("${SOURCE_DIR}/tests/cmake/scripts/CheckFixtureWriteHelpers.cmake")
 
 find_program(_python3_program NAMES python3 python)
 if(NOT _python3_program)

@@ -16,7 +16,7 @@ if(NOT _bash_program)
   return()
 endif()
 
-include("${SOURCE_DIR}/cmake/CheckFixtureWriteHelpers.cmake")
+include("${SOURCE_DIR}/tests/cmake/scripts/CheckFixtureWriteHelpers.cmake")
 
 set(_work_dir "${BUILD_ROOT}/clang_tidy_arguments_materialization")
 file(REMOVE_RECURSE "${_work_dir}")

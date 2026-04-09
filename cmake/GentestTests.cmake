@@ -1,5 +1,8 @@
 include_guard(GLOBAL)
 
+get_filename_component(_gentest_tests_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(_gentest_test_script_dir "${_gentest_tests_root}/tests/cmake/scripts")
+
 function(gentest_resolve_test_std out_compile_feature out_codegen_std_arg)
     if(DEFINED GENTEST_TEST_CXX_STANDARD)
         set(_std "${GENTEST_TEST_CXX_STANDARD}")
@@ -213,8 +216,9 @@ function(gentest_add_cmake_script_test)
     endforeach()
     unset(_define_arg)
     if(NOT _defines_payload_def STREQUAL "")
-        list(APPEND _cmd_args "${_defines_payload_def}")
-        list(APPEND _cmd_args "-DGENTEST_SCRIPT:FILEPATH=${GENTEST_SCRIPT}" -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/RunScriptTest.cmake")
+        list(APPEND _cmd_args "${_defines_payload_def}"
+            "-DGENTEST_SCRIPT:FILEPATH=${GENTEST_SCRIPT}"
+            -P "${_gentest_test_script_dir}/RunScriptTest.cmake")
     else()
         list(APPEND _cmd_args -P "${GENTEST_SCRIPT}")
     endif()
@@ -259,7 +263,7 @@ function(gentest_add_check_counts)
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
-        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTestCounts.cmake"
+        SCRIPT "${_gentest_test_script_dir}/CheckTestCounts.cmake"
         ARGS ${GENTEST_ARGS}
         DEFINES ${_defines})
 endfunction()
@@ -299,7 +303,7 @@ function(gentest_add_check_inventory)
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
-        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTestInventory.cmake"
+        SCRIPT "${_gentest_test_script_dir}/CheckTestInventory.cmake"
         ARGS ${GENTEST_ARGS}
         DEFINES ${_defines})
 endfunction()
@@ -322,7 +326,7 @@ function(gentest_add_check_exit_code)
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
-        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckExitCode.cmake"
+        SCRIPT "${_gentest_test_script_dir}/CheckExitCode.cmake"
         ${_no_emulator_arg}
         ARGS ${GENTEST_ARGS}
         DEFINES "EXPECT_RC=${GENTEST_EXPECT_RC}")
@@ -340,7 +344,7 @@ function(gentest_add_check_contains)
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
-        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckContains.cmake"
+        SCRIPT "${_gentest_test_script_dir}/CheckContains.cmake"
         ARGS ${GENTEST_ARGS}
         DEFINES "EXPECT_SUBSTRING=${GENTEST_EXPECT_SUBSTRING}")
 endfunction()
@@ -357,7 +361,7 @@ function(gentest_add_check_lines)
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
-        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckLines.cmake"
+        SCRIPT "${_gentest_test_script_dir}/CheckLines.cmake"
         ARGS ${GENTEST_ARGS}
         DEFINES "LINES=${GENTEST_LINES}")
 endfunction()
@@ -385,7 +389,7 @@ function(gentest_add_check_death)
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
-        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckDeath.cmake"
+        SCRIPT "${_gentest_test_script_dir}/CheckDeath.cmake"
         ARGS ${GENTEST_ARGS}
         ENV_VARS ${GENTEST_ENV_VARS}
         ${_no_emulator_arg}
@@ -404,7 +408,7 @@ function(gentest_add_check_file_contains)
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
-        SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckFileContains.cmake"
+        SCRIPT "${_gentest_test_script_dir}/CheckFileContains.cmake"
         ARGS ${GENTEST_ARGS}
         DEFINES
             "FILE=${GENTEST_FILE}"

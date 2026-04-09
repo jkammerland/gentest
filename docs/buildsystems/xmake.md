@@ -185,7 +185,7 @@ The repository now validates:
   [`tests/downstream/xmake_xrepo_consumer`](../../tests/downstream/xmake_xrepo_consumer)
 
 The downstream proof in
-[`cmake/CheckXmakeXrepoConsumer.cmake`](../../cmake/CheckXmakeXrepoConsumer.cmake):
+[`tests/cmake/scripts/CheckXmakeXrepoConsumer.cmake`](../../tests/cmake/scripts/CheckXmakeXrepoConsumer.cmake):
 
 - stages a real install prefix with `gentest_codegen`, public headers/modules,
   and `share/gentest/xmake`

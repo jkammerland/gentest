@@ -9,7 +9,7 @@ if(NOT DEFINED BUILD_ROOT)
   message(FATAL_ERROR "CheckOutcomeConsistencyMatrixStaleJunit.cmake: BUILD_ROOT not set")
 endif()
 
-set(_matrix_script "${SOURCE_DIR}/cmake/CheckOutcomeConsistencyMatrix.cmake")
+set(_matrix_script "${SOURCE_DIR}/tests/cmake/scripts/CheckOutcomeConsistencyMatrix.cmake")
 if(NOT EXISTS "${_matrix_script}")
   message(FATAL_ERROR "Matrix script not found: ${_matrix_script}")
 endif()

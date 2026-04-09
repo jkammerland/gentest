@@ -28,7 +28,7 @@ function(_gentest_add_measured_pair_no_substring_checks)
         gentest_add_cmake_script_test(
             NAME ${_gentest_name}
             PROG ${GENTEST_PROG}
-            SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+            SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
             ARGS --run=${GENTEST_RUN_PREFIX}/${_gentest_kind} --kind=${_gentest_kind}
             DEFINES
                 "EXPECT_RC=${GENTEST_EXPECT_RC}"
@@ -323,7 +323,7 @@ gentest_add_run_and_check_file(
 gentest_add_cmake_script_test(
     NAME regression_runtime_reporting_github_annotation_escapes_file_title
     PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/runtime_reporting/gha,title:punct --kind=test --github-annotations
     DEFINES
         "EXPECT_RC=1"
@@ -333,7 +333,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_runtime_reporting_junit_cdata_token_split
     PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckRuntimeReportingCdata.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckRuntimeReportingCdata.cmake"
     ARGS --run=regressions/runtime_reporting/junit_cdata_close_token_failure --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/runtime_reporting_cdata_token.xml
     DEFINES
         "JUNIT_FILE=${CMAKE_CURRENT_BINARY_DIR}/runtime_reporting_cdata_token.xml"
@@ -342,7 +342,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_runtime_reporting_junit_open_failure_is_visible
     PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/runtime_reporting/pass_for_junit_io_visibility --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}
     DEFINES
         "EXPECT_RC=1"
@@ -353,7 +353,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_runtime_selection_mixed_summary_counts
     PROG $<TARGET_FILE:gentest_regression_runtime_selection>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS
         --filter=regressions/runtime_selection/mixed_summary_*
         --bench-epochs=1
@@ -367,7 +367,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_runtime_selection_duplicate_name_summary_first_location
     PROG $<TARGET_FILE:gentest_regression_runtime_selection>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --filter=regressions/runtime_selection/duplicate_name --kind=test
     DEFINES
         "EXPECT_RC=1"
@@ -376,7 +376,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_runtime_selection_duplicate_name_summary_second_location
     PROG $<TARGET_FILE:gentest_regression_runtime_selection>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --filter=regressions/runtime_selection/duplicate_name --kind=test
     DEFINES
         "EXPECT_RC=1"
@@ -405,7 +405,7 @@ gentest_add_check_counts(
 gentest_add_cmake_script_test(
     NAME regression_runtime_selection_positive_bench_table
     PROG $<TARGET_FILE:gentest_regression_runtime_selection>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS
         --run=regressions/runtime_selection/bench_table_case
         --kind=bench
@@ -421,7 +421,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_logging_output_on_failure_policy_pass_silent
     PROG $<TARGET_FILE:gentest_regression_logging_output>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/logging_output/on_failure_policy_pass_silent --kind=test
     DEFINES
         "EXPECT_RC=0"
@@ -431,7 +431,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_logging_output_always_policy_visible_on_pass
     PROG $<TARGET_FILE:gentest_regression_logging_output>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/logging_output/always_policy_visible_on_pass --kind=test
     DEFINES
         "EXPECT_RC=0"
@@ -442,7 +442,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_logging_output_default_always_policy_visible_on_pass
     PROG $<TARGET_FILE:gentest_regression_logging_output>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/logging_output/default_always_policy_visible_on_pass --kind=test
     DEFINES
         "EXPECT_RC=0"
@@ -453,7 +453,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_logging_output_explicit_never_overrides_default_always
     PROG $<TARGET_FILE:gentest_regression_logging_output>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/logging_output/explicit_never_overrides_default_always --kind=test
     DEFINES
         "EXPECT_RC=0"
@@ -475,7 +475,7 @@ string(JOIN "|" _gentest_measured_line_files_arg ${_gentest_measured_line_files}
 add_test(NAME regression_runtime_reporting_measured_case_lines_use___line__
     COMMAND ${CMAKE_COMMAND}
         -DFILES=${_gentest_measured_line_files_arg}
-        -P ${PROJECT_SOURCE_DIR}/cmake/CheckNoLiteralCaseLines.cmake)
+        -P ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoLiteralCaseLines.cmake)
 set_property(TEST regression_runtime_reporting_measured_case_lines_use___line__ APPEND PROPERTY LABELS "cmake")
 unset(_gentest_measured_line_files_arg)
 unset(_gentest_measured_line_files)
@@ -503,7 +503,7 @@ gentest_add_check_contains(
 gentest_add_cmake_script_test(
     NAME regression_orchestrator_fail_fast_blocks_measured_no_bench_call
     PROG $<TARGET_FILE:gentest_regression_orchestrator_fail_fast_blocks_measured>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --fail-fast
     DEFINES
         "EXPECT_RC=1"
@@ -513,7 +513,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_orchestrator_fail_fast_blocks_measured_no_jitter_call
     PROG $<TARGET_FILE:gentest_regression_orchestrator_fail_fast_blocks_measured>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --fail-fast
     DEFINES
         "EXPECT_RC=1"
@@ -551,7 +551,7 @@ gentest_add_run_and_check_file(
 gentest_add_cmake_script_test(
     NAME regression_bench_calibration_assert_stops_after_calibration
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS
         --run=regressions/bench_calibration_assert_should_stop_after_calibration
         --kind=bench
@@ -567,7 +567,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_jitter_calibration_assert_stops_after_calibration
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS
         --run=regressions/jitter_calibration_assert_should_stop_after_calibration
         --kind=jitter
@@ -655,7 +655,7 @@ _gentest_add_measured_pair_no_substring_checks(
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_call_teardown_dualfail_reports_teardown_detail
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench
     DEFINES
         "EXPECT_RC=1"
@@ -664,7 +664,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_call_teardown_dualfail_reports_call_detail
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench
     DEFINES
         "EXPECT_RC=1"
@@ -673,7 +673,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_call_teardown_dualfail_reports_phase_classification
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench
     DEFINES
         "EXPECT_RC=1"
@@ -711,7 +711,7 @@ gentest_add_run_and_check_file(
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_call_teardown_dualfail_reports_teardown_detail
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=1"
@@ -720,7 +720,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_call_teardown_dualfail_reports_call_detail
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=1"
@@ -729,7 +729,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_call_teardown_dualfail_reports_phase_classification
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=1"
@@ -767,7 +767,7 @@ gentest_add_run_and_check_file(
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_setup_skip_teardown_fail_reports_setup_issue
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/bench --kind=bench
     DEFINES
         "EXPECT_RC=1"
@@ -777,7 +777,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_setup_skip_teardown_fail_reports_teardown_issue
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/bench --kind=bench
     DEFINES
         "EXPECT_RC=1"
@@ -787,7 +787,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_setup_skip_teardown_fail_reports_phase_classification
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/bench --kind=bench
     DEFINES
         "EXPECT_RC=1"
@@ -814,7 +814,7 @@ gentest_add_run_and_check_file(
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_setup_skip_teardown_fail_reports_setup_issue
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=1"
@@ -824,7 +824,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_setup_skip_teardown_fail_reports_teardown_issue
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=1"
@@ -834,7 +834,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_setup_skip_teardown_fail_reports_phase_classification
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=1"
@@ -861,7 +861,7 @@ gentest_add_run_and_check_file(
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_setup_skip_teardown_skip_reports_setup_issue
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_skip>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_skip/bench --kind=bench
     DEFINES
         "EXPECT_RC=0"
@@ -871,7 +871,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_setup_skip_teardown_skip_reports_teardown_issue
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_skip>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_skip/bench --kind=bench
     DEFINES
         "EXPECT_RC=0"
@@ -881,7 +881,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_setup_skip_teardown_skip_reports_setup_issue
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_skip>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_skip/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=0"
@@ -891,7 +891,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_setup_skip_teardown_skip_reports_teardown_issue
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_skip>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_skip/jitter --kind=jitter
     DEFINES
         "EXPECT_RC=0"
@@ -968,7 +968,7 @@ _gentest_add_measured_pair_no_substring_checks(
 gentest_add_cmake_script_test(
     NAME regression_bench_local_fixture_teardown_skip_zero_budget_still_reports_nonzero_ms
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_teardown_skip>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS
         --run=regressions/measured_local_fixture_teardown_skip/bench
         --kind=bench
@@ -985,7 +985,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_jitter_local_fixture_teardown_skip_zero_budget_still_reports_nonzero_ms
     PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_teardown_skip>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS
         --run=regressions/measured_local_fixture_teardown_skip/jitter
         --kind=jitter
@@ -1153,7 +1153,7 @@ _gentest_add_measured_pair_no_substring_checks(
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_reentry_no_timeout
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_reentry>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoTimeout.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
     ARGS --run=regressions/shared_fixture_reentry_smoke --kind=test
     DEFINES TIMEOUT_SEC=10 EXPECT_RC=0)
 
@@ -1371,7 +1371,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_setup_skip_measured_fail_fast_stops_before_jitter
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --fail-fast
     DEFINES
         "EXPECT_RC=1"
@@ -1387,7 +1387,7 @@ gentest_add_check_death(
 gentest_add_cmake_script_test(
     NAME regression_member_shared_fixture_setup_skip_measured_bench_reports_failure_not_skip
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench
     DEFINES
         "EXPECT_RC=1"
@@ -1409,7 +1409,7 @@ gentest_add_check_death(
 gentest_add_cmake_script_test(
     NAME regression_member_shared_fixture_setup_skip_measured_jitter_reports_failure_not_skip
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter
     DEFINES
         "EXPECT_RC=1"
@@ -1498,7 +1498,7 @@ unset(_gentest_shared_fixture_skip_reason_substring)
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_manual_setup_assert_runs_teardown
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test
     DEFINES
         "EXPECT_RC=1"
@@ -1507,7 +1507,7 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_manual_setup_skip_runs_teardown
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_skip>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/shared_fixture_manual_setup_skip/member_case --kind=test
     DEFINES
         "EXPECT_RC=1"
@@ -1524,7 +1524,7 @@ gentest_add_check_counts(
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_manual_create_stale_bench_error_not_reported
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_stale_bench_error>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/shared_fixture_manual_create_stale_bench_error/member_case --kind=test
     DEFINES
         "EXPECT_RC=0"
@@ -1554,7 +1554,7 @@ gentest_add_check_counts(
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_manual_create_expect_skip_precedence_reports_failure_reason
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_expect_skip_precedence>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/shared_fixture_manual_create_expect_skip_precedence/member_case --kind=test
     DEFINES
         "EXPECT_RC=1"
@@ -1573,7 +1573,7 @@ gentest_add_check_counts(
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_manual_setup_expect_skip_precedence_reports_failure_reason
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_expect_skip_precedence>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/shared_fixture_manual_setup_expect_skip_precedence/member_case --kind=test
     DEFINES
         "EXPECT_RC=1"
@@ -1653,7 +1653,7 @@ gentest_add_run_and_check_file(
 gentest_add_cmake_script_test(
     NAME regression_shared_fixture_manual_setup_throw_runs_teardown
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_throw_skip>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckNoSubstring.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/shared_fixture_manual_setup_throw_skip/member_case --kind=test
     DEFINES
         "EXPECT_RC=1"
@@ -1751,12 +1751,12 @@ gentest_add_check_death(
 gentest_add_cmake_script_test(
     NAME regression_time_unit_tables
     PROG $<TARGET_FILE:gentest_regression_time_unit_scaling>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTimeUnitTables.cmake")
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTimeUnitTables.cmake")
 
 gentest_add_cmake_script_test(
     NAME regression_time_unit_ns_override
     PROG $<TARGET_FILE:gentest_regression_time_unit_scaling>
-    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/CheckTimeUnitNsOverride.cmake")
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTimeUnitNsOverride.cmake")
 
 gentest_add_check_death(
     NAME regression_time_unit_invalid_value

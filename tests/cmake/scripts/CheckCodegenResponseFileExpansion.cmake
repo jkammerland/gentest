@@ -35,10 +35,12 @@ gentest_make_public_api_include_args(
   _public_include_args
   SOURCE_ROOT "${_source_dir_norm}"
   APPLE_SYSROOT)
-string(JOIN "\n" _public_include_args_rsp ${_public_include_args})
+gentest_normalize_std_flag_for_compiler(_compdb_std "${_real_clang_norm}" "${CODEGEN_STD}")
+gentest_normalize_include_args_for_compiler(_compdb_include_args "${_real_clang_norm}" ${_public_include_args})
+string(JOIN "\n" _public_include_args_rsp ${_compdb_include_args})
 
 gentest_fixture_write_file("${_work_dir}/args.rsp" "
-${CODEGEN_STD}
+${_compdb_std}
 ${_public_include_args_rsp}
 -c
 namespaced_attrs.cpp

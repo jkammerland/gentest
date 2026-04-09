@@ -154,7 +154,7 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
         had_assert_fail = true;
     } catch (const std::exception &e) {
         on_interrupted();
-        gentest::detail::record_bench_error(std::string("std::exception: ") + e.what());
+        gentest::detail::record_bench_error(fmt::format("std::exception: {}", e.what()));
         had_assert_fail = true;
     } catch (...) {
         on_interrupted();

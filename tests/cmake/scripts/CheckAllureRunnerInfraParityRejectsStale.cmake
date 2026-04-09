@@ -19,7 +19,7 @@ execute_process(
     "-DPASS_CASE_NAME=pass"
     "-DINFRA_SUBSTRING=infra boom"
     "-DARGS=-E\\;true"
-    -P "${SOURCE_DIR}/cmake/CheckAllureRunnerInfraParity.cmake"
+    -P "${SOURCE_DIR}/tests/cmake/scripts/CheckAllureRunnerInfraParity.cmake"
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err

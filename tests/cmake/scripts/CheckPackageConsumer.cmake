@@ -21,7 +21,7 @@
 #     [-DPACKAGE_TEST_DRY_RUN_CONSUMER_EXE=<ON|OFF>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
-#     -P cmake/CheckPackageConsumer.cmake
+#     -P tests/cmake/scripts/CheckPackageConsumer.cmake
 
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "SOURCE_DIR not set")

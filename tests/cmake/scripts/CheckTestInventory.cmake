@@ -1,5 +1,5 @@
 # Usage:
-#   cmake -DPROG=<path> -DCASES=<n> [-DEXPECTED_LIST_FILE=<path>] [-DPASS=<n> -DFAIL=<n> -DSKIP=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P cmake/CheckTestInventory.cmake
+#   cmake -DPROG=<path> -DCASES=<n> [-DEXPECTED_LIST_FILE=<path>] [-DPASS=<n> -DFAIL=<n> -DSKIP=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")

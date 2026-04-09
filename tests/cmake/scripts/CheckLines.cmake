@@ -1,14 +1,11 @@
 # Usage:
-#   cmake -DPROG=<path> -DFILE=<path> -DEXPECT_SUBSTRING=<text> [-DARGS="--flags ..."] -P cmake/CheckFileContains.cmake
+#   cmake -DPROG=<path> -DLINES=<n> [-DARGS="--flags ..."] -P tests/cmake/scripts/CheckLines.cmake
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")
 endif()
-if(NOT DEFINED FILE)
-  message(FATAL_ERROR "FILE not set")
-endif()
-if(NOT DEFINED EXPECT_SUBSTRING)
-  message(FATAL_ERROR "EXPECT_SUBSTRING not set")
+if(NOT DEFINED LINES)
+  message(FATAL_ERROR "LINES not set")
 endif()
 
 set(_emu)
@@ -29,8 +26,6 @@ if(DEFINED ARGS)
   endif()
 endif()
 
-file(REMOVE "${FILE}")
-
 execute_process(
   COMMAND ${_emu} "${PROG}" ${_args}
   OUTPUT_VARIABLE out
@@ -42,12 +37,12 @@ if(NOT rc EQUAL 0)
   message(FATAL_ERROR "Command failed with code ${rc}. Output:\n${out}\nErrors:\n${err}")
 endif()
 
-if(NOT EXISTS "${FILE}")
-  message(FATAL_ERROR "Expected file not found: ${FILE}")
+string(REGEX MATCHALL "\n" _lines "${out}")
+list(LENGTH _lines line_count)
+if(NOT out MATCHES "\n$")
+  math(EXPR line_count "${line_count} + 1")
 endif()
 
-file(READ "${FILE}" _content)
-string(FIND "${_content}" "${EXPECT_SUBSTRING}" _pos)
-if(_pos EQUAL -1)
-  message(FATAL_ERROR "Expected substring not found in file: '${EXPECT_SUBSTRING}'. File: ${FILE}\nContent:\n${_content}")
+if(NOT line_count EQUAL LINES)
+  message(FATAL_ERROR "Expected ${LINES} lines, got ${line_count}. Output:\n${out}")
 endif()
