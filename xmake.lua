@@ -24,8 +24,10 @@ local gentest_common_cxxflags = {"-Wno-attributes"}
 local function current_gen_root()
     local buildir = get_config("builddir") or get_config("buildir") or "build"
     if is_host("windows") then
+        local plat = get_config("plat") or os.host()
+        local arch = get_config("arch") or os.arch()
         local mode = get_config("mode") or "release"
-        return path.join(buildir, "g", mode == "debug" and "d" or "r")
+        return path.join(buildir, "g", plat, arch, mode == "debug" and "d" or "r")
     end
     local plat = get_config("plat") or os.host()
     local arch = get_config("arch") or os.arch()

@@ -36,6 +36,19 @@ function(_gentest_resolve_xmake_test_tool out_var raw_value label)
   set(${out_var} "${_resolved_tool}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_prepare_windows_xmake_workspace out_var source_dir workspace_root)
+  set(_project_dir "${workspace_root}/xw")
+  file(REMOVE_RECURSE "${_project_dir}")
+  file(MAKE_DIRECTORY "${_project_dir}")
+  foreach(_entry IN ITEMS
+      cmake CMakeLists.txt CMakePresets.json docs include src tests third_party tools vcpkg.json xmake xmake.lua)
+    if(EXISTS "${source_dir}/${_entry}")
+      file(COPY "${source_dir}/${_entry}" DESTINATION "${_project_dir}")
+    endif()
+  endforeach()
+  set(${out_var} "${_project_dir}" PARENT_SCOPE)
+endfunction()
+
 find_program(_xmake NAMES xmake)
 if(NOT _xmake)
   message(STATUS "xmake not found; skipping Xmake module consumer smoke check.")
@@ -49,15 +62,7 @@ endif()
 
 set(_project_dir "${SOURCE_DIR}")
 if(WIN32)
-  set(_project_dir "${_gentest_xmake_root}/xw")
-  file(REMOVE_RECURSE "${_project_dir}")
-  file(MAKE_DIRECTORY "${_project_dir}")
-  file(COPY "${SOURCE_DIR}/include" DESTINATION "${_project_dir}")
-  file(COPY "${SOURCE_DIR}/src" DESTINATION "${_project_dir}")
-  file(COPY "${SOURCE_DIR}/tests" DESTINATION "${_project_dir}")
-  file(COPY "${SOURCE_DIR}/xmake" DESTINATION "${_project_dir}")
-  file(COPY "${SOURCE_DIR}/third_party/include" DESTINATION "${_project_dir}/third_party")
-  file(COPY_FILE "${SOURCE_DIR}/xmake.lua" "${_project_dir}/xmake.lua")
+  _gentest_prepare_windows_xmake_workspace(_project_dir "${SOURCE_DIR}" "${_gentest_xmake_root}")
 endif()
 
 set(_configured_target_cc "$ENV{GENTEST_XMAKE_TEST_TARGET_CC}")
@@ -224,7 +229,7 @@ endif()
 set(_out_dir "${_gentest_xmake_root}/tmp_xmake_module_consumer")
 set(_xmake_global_dir "${_gentest_xmake_root}/xg")
 if(WIN32)
-  set(_out_dir "${_project_dir}/b")
+  set(_out_dir "${_gentest_xmake_root}/b")
 endif()
 file(REMOVE_RECURSE "${_out_dir}")
 file(REMOVE_RECURSE "${_xmake_global_dir}")
@@ -253,7 +258,7 @@ set(_clang_build_args
 if(APPLE OR WIN32)
   if(WIN32)
     set(_clang_config_args
-      f -P . -F xmake.lua -o b -m debug -c -y
+      f -P . -F xmake.lua -o "${_out_dir}" -m debug -c -y
       "--cc=${_clang_cc}"
       "--cxx=${_clang_cxx}")
     set(_clang_build_args
@@ -347,7 +352,7 @@ endforeach()
 
 set(_generated_glob_root "${_out_dir}/gen/*/*/*")
 if(WIN32)
-  set(_generated_glob_root "${_out_dir}/g/*")
+  set(_generated_glob_root "${_out_dir}/g/*/*/*")
 endif()
 
 foreach(_expected_glob IN ITEMS
