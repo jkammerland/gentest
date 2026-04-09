@@ -6,7 +6,7 @@ if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/GentestPublicModules.cmake")
+include("${SOURCE_DIR}/cmake/GentestPublicModules.cmake")
 
 set(_work_dir "${BUILD_ROOT}/clang_scan_deps_program_resolution")
 file(REMOVE_RECURSE "${_work_dir}")
