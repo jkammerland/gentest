@@ -1366,7 +1366,8 @@ function gentest_add_mocks(opts)
 
     set_policy("build.fence", true)
     set_configdir(project_root())
-    if not gentest_uses_installed_libraries() then
+    local fmt_link = gentest_fmt_link_name()
+    if not fmt_link then
         add_packages("fmt")
     end
     add_includedirs(incdirs())
@@ -1379,7 +1380,6 @@ function gentest_add_mocks(opts)
     if runtime_link then
         add_links(runtime_link)
     end
-    local fmt_link = gentest_fmt_link_name()
     if fmt_link then
         add_links(fmt_link)
     end
@@ -1544,7 +1544,8 @@ function gentest_attach_codegen(opts)
         config.public_module_entries = materialized_public_module_entries(output_dir)
     end
     set_configdir(project_root())
-    if not gentest_uses_installed_libraries() then
+    local fmt_link = gentest_fmt_link_name()
+    if not fmt_link then
         add_packages("fmt")
     end
     add_includedirs(incdirs())
@@ -1557,7 +1558,6 @@ function gentest_attach_codegen(opts)
     if runtime_link then
         add_links(runtime_link)
     end
-    local fmt_link = gentest_fmt_link_name()
     if fmt_link then
         add_links(fmt_link)
     end
@@ -1652,7 +1652,7 @@ function gentest_add_public_modules(opts)
 
     set_policy("build.fence", true)
     set_configdir(project_root())
-    if not gentest_uses_installed_libraries() then
+    if not gentest_fmt_link_name() then
         add_packages("fmt")
     end
     add_includedirs(incdirs())
