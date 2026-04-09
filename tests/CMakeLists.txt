@@ -2266,6 +2266,7 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
             -DPROG=${_gentest_codegen_prog}
             -DLLVM_DIR=${LLVM_DIR}
             -DClang_DIR=${Clang_DIR}
+            -DPython3_EXECUTABLE:FILEPATH=${Python3_EXECUTABLE}
             -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
             ${ARGN}
             -P ${script_path})

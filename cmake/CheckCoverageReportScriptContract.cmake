@@ -21,8 +21,12 @@ foreach(_required_file IN ITEMS
   endif()
 endforeach()
 
+if(NOT DEFINED Python3_EXECUTABLE OR "${Python3_EXECUTABLE}" STREQUAL "")
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+endif()
+
 execute_process(
-  COMMAND python3 "${_script_file}" --help
+  COMMAND "${Python3_EXECUTABLE}" "${_script_file}" --help
   RESULT_VARIABLE _help_rc
   OUTPUT_VARIABLE _help_stdout
   ERROR_VARIABLE _help_stderr)
