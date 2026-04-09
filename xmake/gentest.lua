@@ -225,6 +225,10 @@ local function gentest_module_link_name()
     return detect_installed_library_name({"gentestd", "gentest"})
 end
 
+local function gentest_fmt_link_name()
+    return detect_installed_library_name({"fmtd", "fmt"})
+end
+
 local function registered_target_metadata()
     local metadata = gentest_state["registered_target_metadata"]
     if metadata == nil then
@@ -964,14 +968,14 @@ function gentest_apply_windows_llvm_toolchain()
     local configured_toolchain = configured_toolchain_hint():lower()
     if configured_toolchain == "llvm" then
         set_toolchains("llvm")
-        set_runtimes(is_mode("debug") and "MTd" or "MT")
+        set_runtimes("MT")
         add_defines("FMT_USE_CONSTEVAL=0", "_ITERATOR_DEBUG_LEVEL=0", "_HAS_ITERATOR_DEBUGGING=0")
         return
     end
     local cxx_tool = configured_cxx_tool_hint()
     if cxx_tool ~= "" and is_clang_tool(cxx_tool) then
         set_toolchains("llvm")
-        set_runtimes(is_mode("debug") and "MTd" or "MT")
+        set_runtimes("MT")
         add_defines("FMT_USE_CONSTEVAL=0", "_ITERATOR_DEBUG_LEVEL=0", "_HAS_ITERATOR_DEBUGGING=0")
     end
 end
@@ -1315,6 +1319,10 @@ function gentest_add_mocks(opts)
     if runtime_link then
         add_links(runtime_link)
     end
+    local fmt_link = gentest_fmt_link_name()
+    if fmt_link then
+        add_links(fmt_link)
+    end
     if kind == "modules" then
         local module_link = gentest_module_link_name()
         if module_link then
@@ -1486,6 +1494,10 @@ function gentest_attach_codegen(opts)
     local runtime_link = gentest_runtime_link_name()
     if runtime_link then
         add_links(runtime_link)
+    end
+    local fmt_link = gentest_fmt_link_name()
+    if fmt_link then
+        add_links(fmt_link)
     end
     if kind == "modules" then
         local module_link = gentest_module_link_name()

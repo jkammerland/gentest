@@ -224,7 +224,7 @@ endif()
 set(_out_dir "${_gentest_xmake_root}/tmp_xmake_module_consumer")
 set(_xmake_global_dir "${_gentest_xmake_root}/xg")
 if(WIN32)
-  set(_out_dir "${_gentest_xmake_root}/xm")
+  set(_out_dir "${_project_dir}/b")
 endif()
 file(REMOVE_RECURSE "${_out_dir}")
 file(REMOVE_RECURSE "${_xmake_global_dir}")
@@ -251,6 +251,14 @@ set(_clang_config_args
 set(_clang_build_args
   build -P "${_project_dir}" -F "${_project_dir}/xmake.lua" -y -vD)
 if(APPLE OR WIN32)
+  if(WIN32)
+    set(_clang_config_args
+      f -P . -F xmake.lua -o b -m debug -c -y
+      "--cc=${_clang_cc}"
+      "--cxx=${_clang_cxx}")
+    set(_clang_build_args
+      build -P . -F xmake.lua -y -vD)
+  endif()
   list(APPEND _clang_config_args "--toolchain=llvm")
 endif()
 if(APPLE)

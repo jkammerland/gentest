@@ -150,7 +150,7 @@ endif()
 set(_out_dir "${_gentest_xmake_root}/tmp_xmake_textual_consumer")
 set(_xmake_global_dir "${_gentest_xmake_root}/xg")
 if(WIN32)
-  set(_out_dir "${_gentest_xmake_root}/xt")
+  set(_out_dir "${_project_dir}/b")
 endif()
 file(REMOVE_RECURSE "${_out_dir}")
 file(REMOVE_RECURSE "${_xmake_global_dir}")
@@ -172,6 +172,12 @@ set(_xmake_config_args
 set(_xmake_build_args
   build -P "${_project_dir}" -F "${_project_dir}/xmake.lua" -y -vD)
 if(WIN32)
+  set(_xmake_config_args
+    f -P . -F xmake.lua -o b -m debug -c -y
+    "--cc=${_target_cc}"
+    "--cxx=${_target_cxx}")
+  set(_xmake_build_args
+    build -P . -F xmake.lua -y -vD)
   list(APPEND _xmake_config_args "--toolchain=llvm")
 endif()
 

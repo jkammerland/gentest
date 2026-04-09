@@ -29,6 +29,19 @@ package("gentest")
         return nil
     end
 
+    local function _detect_fmt_link(libdir)
+        if not libdir then
+            return nil
+        end
+        for _, candidate in ipairs({"fmtd", "fmt"}) do
+            local matches = os.files(path.join(libdir, "*" .. candidate .. "*"))
+            if matches and #matches > 0 then
+                return candidate
+            end
+        end
+        return nil
+    end
+
     on_load(function (package)
         local installdir = package:installdir()
         local includedir = path.join(installdir, "include")
@@ -42,6 +55,10 @@ package("gentest")
             local runtime_link = _detect_runtime_link(libdir)
             if runtime_link then
                 package:add("links", runtime_link)
+            end
+            local fmt_link = _detect_fmt_link(libdir)
+            if fmt_link then
+                package:add("links", fmt_link)
             end
         end
     end)
@@ -63,11 +80,19 @@ package("gentest")
         local libdir = nil
         libdir, _ = _detect_libdir(install_dir)
         local runtime_link = _detect_runtime_link(libdir)
+        local fmt_link = _detect_fmt_link(libdir)
+        local links = {}
+        if runtime_link then
+            table.insert(links, runtime_link)
+        end
+        if fmt_link then
+            table.insert(links, fmt_link)
+        end
         local codegen = path.join(install_dir, "bin", is_host("windows") and "gentest_codegen.exe" or "gentest_codegen")
         return {
             includedirs = os.isdir(includedir) and {includedir} or {},
             linkdirs = libdir and {libdir} or {},
-            links = runtime_link and {runtime_link} or {},
+            links = links,
             extras = {
                 gentest = {
                     root = install_dir,
