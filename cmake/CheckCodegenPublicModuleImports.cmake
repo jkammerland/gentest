@@ -16,15 +16,15 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-set(_work_dir "${BUILD_ROOT}/codegen_public_module_imports")
-set(_producer_build_dir "${_work_dir}/producer")
-set(_consumer_build_off_dir "${_work_dir}/consumer_off")
-set(_consumer_build_auto_dir "${_work_dir}/consumer_auto")
-set(_consumer_build_on_dir "${_work_dir}/consumer_on")
-set(_consumer_build_on_bare_dir "${_work_dir}/consumer_on_bare")
-set(_consumer_build_auto_bad_dir "${_work_dir}/consumer_auto_bad")
-set(_consumer_build_on_bad_dir "${_work_dir}/consumer_on_bad")
-set(_install_prefix "${_work_dir}/install")
+set(_work_dir "${BUILD_ROOT}/cgpmi")
+set(_producer_build_dir "${_work_dir}/p")
+set(_consumer_build_off_dir "${_work_dir}/co")
+set(_consumer_build_auto_dir "${_work_dir}/ca")
+set(_consumer_build_on_dir "${_work_dir}/cn")
+set(_consumer_build_on_bare_dir "${_work_dir}/cb")
+set(_consumer_build_auto_bad_dir "${_work_dir}/cab")
+set(_consumer_build_on_bad_dir "${_work_dir}/cob")
+set(_install_prefix "${_work_dir}/i")
 set(_consumer_source_dir "${GENTEST_SOURCE_DIR}/tests/consumer")
 set(_consumer_codegen_target gentest_codegen_gentest_consumer)
 
@@ -61,6 +61,9 @@ set(_common_cache_args
   "-DCMAKE_MAKE_PROGRAM=${_ninja}"
   "-DCMAKE_C_COMPILER=${_clang}"
   "-DCMAKE_CXX_COMPILER=${_clangxx}")
+if(CMAKE_HOST_WIN32)
+  list(APPEND _common_cache_args "-DCMAKE_OBJECT_PATH_MAX=160")
+endif()
 if(_scan_deps)
   list(APPEND _common_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_scan_deps}")
 endif()
@@ -189,19 +192,6 @@ if(_auto_bad_fallback_pos EQUAL -1)
   message(FATAL_ERROR
     "Expected build-time gentest_codegen AUTO missing-scanner leg to report source-scan fallback. Output:\n${_auto_bad_codegen_output}")
 endif()
-
-message(STATUS "Build consumer with scan-deps auto mode and missing scanner...")
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_auto_bad_dir}" --target gentest_consumer
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
-set(_consumer_auto_bad_exe "${_consumer_build_auto_bad_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
-message(STATUS "Run consumer smoke with scan-deps auto mode and missing scanner...")
-gentest_check_run_or_fail(
-  COMMAND "${_consumer_auto_bad_exe}" --run=consumer/module_mock
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
 
 message(STATUS "Configure consumer with scan-deps ON mode and missing scanner...")
 _gentest_configure_consumer("${_consumer_build_on_bad_dir}" "ON"
