@@ -183,6 +183,11 @@ set(_xmake_env
   "CXX=${_clang_cxx}"
   "TMPDIR=${_out_dir}/tmp"
   "XMAKE_GLOBALDIR=${_xmake_global_dir}")
+if(WIN32)
+  list(APPEND _xmake_env
+    "GENTEST_XMAKE_WINDOWS_RUNTIME=MT"
+    "GENTEST_XMAKE_WINDOWS_DEFINES=FMT_USE_CONSTEVAL=0;_ITERATOR_DEBUG_LEVEL=0;_HAS_ITERATOR_DEBUGGING=0")
+endif()
 if(_clang_scan_deps)
   list(APPEND _xmake_env "GENTEST_CODEGEN_CLANG_SCAN_DEPS=${_clang_scan_deps}")
 endif()
@@ -223,7 +228,7 @@ endforeach()
 
 set(_generated_glob_root "${_out_dir}/gen/*/*/*")
 if(WIN32)
-  set(_generated_glob_root "${_out_dir}/g/*")
+  set(_generated_glob_root "${_out_dir}/g/*/*/*")
 endif()
 
 string(FIND "${_build_log}" "--host-clang" _host_clang_flag_pos)
