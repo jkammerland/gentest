@@ -115,5 +115,6 @@ ctest --preset=riscv64-qemu-full --output-on-failure   # full suite (slow)
 ## Notes
 
 - The toolchain file tries to locate a riscv64 runtime root from the target compiler, then sets `CMAKE_CROSSCOMPILING_EMULATOR` to `qemu-riscv64 -L <root>` when available.
+- `scripts/poc_cross_riscv64_qemu.sh` only forwards `SYSROOT=...` into `CMAKE_SYSROOT` when you set it explicitly; otherwise it lets the toolchain file decide whether the compiler-reported root is a real sysroot or just a runtime prefix.
 - To use a custom sysroot/runtime root, configure with `-DCMAKE_SYSROOT=/path/to/sysroot` and/or set `-DCMAKE_CROSSCOMPILING_EMULATOR="qemu-riscv64;-L;/path/to/root"`.
 - On distros where `riscv64-linux-gnu-gcc` exists but the userspace sysroot is absent or incomplete, use a full userspace toolchain/sysroot and point the configure step at it explicitly.

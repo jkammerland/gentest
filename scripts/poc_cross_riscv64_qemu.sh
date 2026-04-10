@@ -16,7 +16,7 @@ Environment overrides:
   TARGET_CC        (default: <TARGET_TRIPLE>-gcc)
   TARGET_CXX       (default: <TARGET_TRIPLE>-g++)
   QEMU             (default: qemu-riscv64)
-  SYSROOT          (default: compiler/runtime-detected; used for CMAKE_SYSROOT and QEMU -L)
+  SYSROOT          (default: compiler/runtime-detected; explicit values are forwarded to CMAKE_SYSROOT)
   HOST_CC          (default: unset)
   HOST_CXX         (default: unset)
 EOF
@@ -89,7 +89,10 @@ need_cmd "${target_cxx}"
 need_cmd "${qemu_prog}"
 
 sysroot="${SYSROOT:-}"
-if [[ -z "${sysroot}" ]]; then
+explicit_sysroot=0
+if [[ -n "${sysroot}" ]]; then
+  explicit_sysroot=1
+else
   sysroot="$("${target_cc}" -print-sysroot 2>/dev/null || true)"
 fi
 if [[ -n "${sysroot}" && -d "${sysroot}" ]]; then
@@ -154,11 +157,14 @@ target_args=(
   -DCMAKE_CXX_COMPILER="${target_cxx}"
   -DCMAKE_C_COMPILER_TARGET="${target_triple}"
   -DCMAKE_CXX_COMPILER_TARGET="${target_triple}"
-  -DCMAKE_SYSROOT="${sysroot}"
   -DGENTEST_BUILD_CODEGEN=OFF
   -DGENTEST_CODEGEN_EXECUTABLE="${codegen}"
   -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
 )
+
+if [[ "${explicit_sysroot}" -eq 1 ]]; then
+  target_args+=(-DCMAKE_SYSROOT="${sysroot}")
+fi
 
 if [[ -n "${GENTEST_CODEGEN_HOST_CLANG:-}" ]]; then
   target_args+=(-DGENTEST_CODEGEN_HOST_CLANG="${GENTEST_CODEGEN_HOST_CLANG}")
