@@ -1145,7 +1145,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
                 return;
             }
 
-            if (is_module_interface_source(opts, source_path)) {
+            if (opts.emit_module_wrappers && is_module_interface_source(opts, source_path)) {
                 const auto       &source_mocks               = source_data ? source_data->direct_module_mocks : empty_mocks;
                 const bool        needs_mock_codegen_include = source_data && source_data->needs_mock_codegen_include;
                 const std::string registration_header_name =

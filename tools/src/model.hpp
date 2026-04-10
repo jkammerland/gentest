@@ -132,12 +132,13 @@ struct CollectorOptions {
     std::optional<std::filesystem::path>                                clang_scan_deps_executable;
     // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
     // 0 selects std::thread::hardware_concurrency().
-    std::size_t jobs            = 0;
-    bool        discover_mocks  = false;
-    bool        include_sources = true;
-    bool        strict_fixture  = false;
-    bool        quiet_clang     = false;
-    bool        check_only      = false;
+    std::size_t jobs                 = 0;
+    bool        discover_mocks       = false;
+    bool        emit_module_wrappers = true;
+    bool        include_sources      = true;
+    bool        strict_fixture       = false;
+    bool        quiet_clang          = false;
+    bool        check_only           = false;
 };
 
 // Description of a discovered test function or member function.

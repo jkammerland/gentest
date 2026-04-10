@@ -294,7 +294,7 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
                 header_out.replace_extension(".h");
                 targets.push_back(std::move(header_out));
             }
-            if (is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
+            if (options.emit_module_wrappers && is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
                 targets.push_back(resolve_module_wrapper_output(idx));
             }
         }
@@ -2487,6 +2487,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> tu_header_output_option{
         "tu-header-output", llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::opt<bool> no_module_wrapper_output_option{
+        "no-module-wrapper-output",
+        llvm::cl::desc("In TU mode, emit registration headers without generated replacement module wrapper outputs"), llvm::cl::init(false),
+        llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> source_root_option{
@@ -2563,7 +2567,8 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     }
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
-    opts.clang_args = std::move(clang_args);
+    opts.emit_module_wrappers = !no_module_wrapper_output_option.getValue();
+    opts.clang_args           = std::move(clang_args);
     strip_shell_control_tail(opts.clang_args);
     opts.check_only  = check_option.getValue();
     opts.quiet_clang = quiet_clang_option.getValue();
