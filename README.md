@@ -507,7 +507,7 @@ void mock_clock() {
 }
 ```
 
-After the generated surface is visible, raw `gentest::mock<T>` is also valid:
+After the generated header surface is visible, raw `gentest::mock<T>` is also valid in the header-based flow:
 
 ```cpp
 gentest::mock<Clock> raw_clock;
@@ -533,6 +533,8 @@ gentest_discover_tests(module_tests)
 ```
 
 Link explicit mock targets before `gentest_attach_codegen()`, so codegen sees the generated mock surface during the first parse.
+Named-module explicit mock targets currently require a single-config generator/build directory.
+If a module testcase target started on `gentest_register_module_tests(...)` and later needs explicit mocks, switch that target back to `gentest_attach_codegen(...)`.
 
 Mock defs module (`mock_defs.cppm`):
 

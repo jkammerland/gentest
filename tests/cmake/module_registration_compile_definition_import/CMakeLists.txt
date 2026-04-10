@@ -24,9 +24,21 @@ target_sources(module_registration_compile_definition_import
         FILE_SET module_cases TYPE CXX_MODULES FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
-target_link_libraries(module_registration_compile_definition_import PRIVATE gentest gentest_runtime)
+add_library(module_registration_compile_definition_import_iface_leaf INTERFACE)
+target_compile_definitions(module_registration_compile_definition_import_iface_leaf
+    INTERFACE
+        "$<$<BOOL:1>:GENTEST_ENABLE_IMPORT=1>")
+
+add_library(module_registration_compile_definition_import_iface INTERFACE)
+target_link_libraries(module_registration_compile_definition_import_iface
+    INTERFACE
+        "$<$<BOOL:1>:module_registration_compile_definition_import_iface_leaf>")
+
+target_link_libraries(module_registration_compile_definition_import PRIVATE
+    gentest
+    gentest_runtime
+    module_registration_compile_definition_import_iface)
 target_compile_features(module_registration_compile_definition_import PRIVATE cxx_std_20)
-target_compile_definitions(module_registration_compile_definition_import PRIVATE GENTEST_ENABLE_IMPORT=1)
 
 gentest_register_module_tests(module_registration_compile_definition_import
     FILE_SET module_cases

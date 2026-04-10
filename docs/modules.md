@@ -1,6 +1,6 @@
 # gentest modules guide
 
-This page is the module-first counterpart to the root [README](../README.md). It focuses on `import gentest;`, named-module test sources, and explicit mock targets for module-defined types.
+This page is the module-first counterpart to the root [README](../README.md). It focuses on `import gentest;`, named-module test sources, and the current explicit mock-target flow for module-defined types.
 
 ## What is supported
 
@@ -12,6 +12,7 @@ Public named modules:
 Supported module-authored test flows:
 - tests, benches, and jitters in named modules
 - suite/global fixtures declared in named modules
+- clean additive testcase registration with `gentest_register_module_tests(...)`
 - explicit mock targets for types defined in headers or named modules
 - package-consumer builds that use the installed public modules
 
@@ -21,15 +22,29 @@ Supported module-authored test flows:
 - C++20 compiler with named-module support
 - LLVM/Clang available for `gentest_codegen`
 - `CMAKE_EXPORT_COMPILE_COMMANDS=ON`
+- single-config generator/build directory for clean module registration
+- single-config generator/build directory for explicit module mock targets
 - installed-package consumers also need the exact matching `fmt` CMake package
   discoverable, typically through the same `CMAKE_PREFIX_PATH` as `gentest`
 
 For host-toolchain vs target-sysroot setup details, including cross-build
 examples, see [buildsystems/host_toolchain_sysroots.md](buildsystems/host_toolchain_sysroots.md).
 
-Per-TU wrapper mode for module sources requires a single-config generator/build directory. For multi-config generators, use manifest mode with `gentest_attach_codegen(... OUTPUT ...)`.
+There are three module-codegen paths today:
 
-## CMake quick start
+- clean additive testcase registration via `gentest_register_module_tests(...)`
+- the current explicit-mock testcase path via plain `gentest_attach_codegen(...)`
+- legacy manifest mode via `gentest_attach_codegen(... OUTPUT ...)`
+
+For multi-config generators, clean additive registration is not supported. Use
+a dedicated single-config build directory, or fall back to manifest mode via
+`gentest_attach_codegen(... OUTPUT ...)`.
+
+## Clean registration quick start
+
+Use `gentest_register_module_tests(...)` for named-module testcase file sets.
+The authored module source stays in your `FILE_SET CXX_MODULES`; gentest adds
+private same-module implementation units under the build tree for registration.
 
 ```cmake
 include(CTest)
@@ -38,31 +53,98 @@ enable_testing()
 find_package(gentest CONFIG REQUIRED)
 
 add_executable(my_tests
-  main.cpp
-  cases.cppm)
+  main.cpp)
+
+target_sources(my_tests
+  PRIVATE
+    FILE_SET module_cases TYPE CXX_MODULES FILES
+      ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
 target_link_libraries(my_tests PRIVATE
   gentest::gentest
   gentest::gentest_runtime)
 
-gentest_attach_codegen(my_tests)
+gentest_register_module_tests(my_tests
+  FILE_SET module_cases)
 gentest_discover_tests(my_tests)
 ```
 
 If you do not provide your own `main()`, link `gentest::gentest_main` instead of `gentest::gentest_runtime`.
 
-## Minimal layout
-
 `main.cpp`:
 
 ```cpp
-import gentest;
-import my.tests;
+#include "gentest/runner.h"
 
 auto main(int argc, char** argv) -> int {
     return gentest::run_all_tests(argc, argv);
 }
 ```
+
+`cases.cppm`:
+
+```cpp
+export module my.tests;
+
+import gentest;
+import gentest.bench_util;
+
+using namespace gentest::asserts;
+
+export namespace demo {
+
+struct [[using gentest: fixture(suite)]] SuiteFixture : gentest::FixtureSetup {
+    void setUp() override { value = 7; }
+    int value = 0;
+};
+
+[[using gentest: test("demo/module_test")]]
+void module_test(SuiteFixture& suite_fx) {
+    EXPECT_EQ(suite_fx.value, 7);
+}
+
+[[using gentest: bench("demo/module_bench"), baseline]]
+void module_bench(SuiteFixture& suite_fx) {
+    gentest::doNotOptimizeAway(suite_fx.value);
+}
+
+[[using gentest: jitter("demo/module_jitter")]]
+void module_jitter(SuiteFixture& suite_fx) {
+    gentest::doNotOptimizeAway(suite_fx.value);
+}
+
+} // namespace demo
+```
+
+### Clean registration rules
+
+- `gentest_register_module_tests(...)` requires an explicit `FILE_SET` name
+- the selected file set must contain primary named-module interface units
+- partition units are rejected in the clean path
+- global module fragments (`module;`) are rejected in the clean path
+- private module fragments (`module :private;`) are rejected in the clean path
+- each testcase module must directly `import gentest;`
+- `gentest_register_module_tests(...)` cannot be combined with `gentest_attach_codegen()` on the same target
+
+## Explicit module mocks
+
+Module testcase registration is clean now, but explicit module mocks still use
+the current explicit mock-target flow. That means:
+
+- explicit mock targets are still created with `gentest_add_mocks(...)`
+- testcase targets that consume those explicit mock targets still use
+  `gentest_attach_codegen(...)` today so codegen can see the generated mock
+  surface during discovery
+- clean additive registration via `gentest_register_module_tests(...)` does not
+  currently compose with explicit mock targets on the same testcase target
+- explicit module mock targets also require a single-config generator/build
+  directory today
+
+If a testcase target started on `gentest_register_module_tests(...)` and later
+needs explicit mocks, replace that target's clean registration call with
+`gentest_attach_codegen(...)`.
+
+Example:
 
 `service.cppm`:
 
@@ -101,22 +183,11 @@ using ServiceMock = gentest::mock<demo::Service>;
 export module my.tests;
 
 import gentest;
-import gentest.bench_util;
 import my.service_mocks;
 
 using namespace gentest::asserts;
 
 export namespace demo {
-
-struct [[using gentest: fixture(suite)]] SuiteFixture : gentest::FixtureSetup {
-    void setUp() override { value = 7; }
-    int value = 0;
-};
-
-[[using gentest: test("demo/module_test")]]
-void module_test(SuiteFixture& suite_fx) {
-    EXPECT_EQ(suite_fx.value, 7);
-}
 
 [[using gentest: test("demo/module_mock")]]
 void module_mock() {
@@ -124,11 +195,6 @@ void module_mock() {
     gentest::expect(mock_service, &Service::compute).times(1).with(3).returns(9);
     Service* service = &mock_service;
     EXPECT_EQ(service->compute(3), 9);
-}
-
-[[using gentest: bench("demo/module_bench"), baseline]]
-void module_bench(SuiteFixture& suite_fx) {
-    gentest::doNotOptimizeAway(suite_fx.value);
 }
 
 } // namespace demo
@@ -194,12 +260,13 @@ demo::mocks::ServiceMock service;
 gentest::expect(service, &demo::Service::compute).times(1).with(3).returns(9);
 ```
 
-After the generated surface is visible, raw `gentest::mock<demo::Service>` is also valid.
+Prefer the aliases and helper surface exported by the mock module itself.
 
 ## Practical notes
 
 - `gentest_codegen` uses your active compilation database. If module imports fail during codegen, check the target's `compile_commands.json` first.
 - `import gentest;` consumers should link `gentest::gentest`, not just `gentest::gentest_main`.
+- Clean module registration is intended for explicitly selected testcase file sets, not every `CXX_MODULES` file set on a target.
 - If you need background on how the module flow was built and hardened, see:
   - [docs/stories/009_public_modules_end_to_end.md](stories/009_public_modules_end_to_end.md)
   - [docs/stories/010_public_modules_progress_report.md](stories/010_public_modules_progress_report.md)

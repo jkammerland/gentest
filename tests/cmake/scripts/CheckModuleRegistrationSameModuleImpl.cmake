@@ -90,11 +90,18 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+file(GLOB _registration_headers "${_build_dir}/generated/*.gentest.h")
+if(_registration_headers)
+  string(JOIN "\n" _header_list ${_registration_headers})
+  message(FATAL_ERROR
+    "Clean module registration must not emit intermediate TU registration headers, but found:\n${_header_list}")
+endif()
+
 file(GLOB _registration_impls "${_build_dir}/generated/*.registration.gentest.cpp")
 list(LENGTH _registration_impls _registration_impl_count)
 if(NOT _registration_impl_count EQUAL 1)
   message(FATAL_ERROR
-    "Expected exactly one additive registration implementation unit under '${_build_dir}/generated', found ${_registration_impl_count}")
+    "Expected exactly one additive registration implementation unit under '${_build_dir}/generated' for the selected module file set, found ${_registration_impl_count}")
 endif()
 
 file(GLOB _module_wrappers "${_build_dir}/generated/*.module.gentest.*")
@@ -111,10 +118,16 @@ if(_module_decl_pos EQUAL -1)
   message(FATAL_ERROR
     "Expected additive registration implementation '${_registration_impl}' to declare 'module gentest.module_registration_same_module_impl;'.")
 endif()
-string(FIND "${_registration_impl_text}" "GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE" _preamble_guard_pos)
-if(_preamble_guard_pos EQUAL -1)
+string(FIND "${_registration_impl_text}" "register_cases(std::span{kCases})" _register_cases_pos)
+if(_register_cases_pos EQUAL -1)
   message(FATAL_ERROR
-    "Expected additive registration implementation '${_registration_impl}' to include the TU registration header with preamble suppression.")
+    "Expected additive registration implementation '${_registration_impl}' to contain direct registration code.")
+endif()
+string(REGEX MATCH "#include[ \t]+\"[^\"]+\\.gentest\\.h\"" _generated_header_include "${_registration_impl_text}")
+if(NOT "${_generated_header_include}" STREQUAL "")
+  message(FATAL_ERROR
+    "Expected additive registration implementation '${_registration_impl}' to avoid including a generated TU registration header.\n"
+    "Current contents:\n${_registration_impl_text}")
 endif()
 
 file(REMOVE "${_registration_impl}")
@@ -128,8 +141,8 @@ if(NOT EXISTS "${_registration_impl}")
 endif()
 
 file(READ "${_src_dir}/cases.cppm" _module_source_text)
-string(REPLACE "gentest.module_registration_same_module_impl"
-  "gentest.module_registration_same_module_impl_renamed"
+string(REPLACE "export module gentest.module_registration_same_module_impl;"
+  "export module gentest.module_registration_same_module_impl_renamed;"
   _module_source_text
   "${_module_source_text}")
 file(WRITE "${_src_dir}/cases.cppm" "${_module_source_text}")
@@ -153,6 +166,32 @@ if(CMAKE_HOST_WIN32)
 endif()
 
 gentest_check_run_or_fail(
+  COMMAND "${_exe}" --list
+  WORKING_DIRECTORY "${_build_dir}"
+  OUTPUT_VARIABLE _list_out
+  STRIP_TRAILING_WHITESPACE)
+foreach(_expected_name IN ITEMS
+    "module_registration_same_module_impl_ns/module/same_module_impl"
+    "module_registration_same_module_impl_ns/module/same_module_impl_bench"
+    "module_registration_same_module_impl_ns/module/same_module_impl_jitter")
+  string(FIND "${_list_out}" "${_expected_name}" _list_pos)
+  if(_list_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected clean module registration list output to contain '${_expected_name}'.\nCurrent output:\n${_list_out}")
+  endif()
+endforeach()
+
+gentest_check_run_or_fail(
   COMMAND "${_exe}" --run=module/same_module_impl
+  WORKING_DIRECTORY "${_build_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+gentest_check_run_or_fail(
+  COMMAND "${_exe}" --run=module/same_module_impl_bench --kind=bench --bench-epochs=1 --bench-warmup=0 --bench-max-total-time-s=0.01
+  WORKING_DIRECTORY "${_build_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+gentest_check_run_or_fail(
+  COMMAND "${_exe}" --run=module/same_module_impl_jitter --kind=jitter --bench-epochs=1 --bench-warmup=0 --bench-max-total-time-s=0.01
   WORKING_DIRECTORY "${_build_dir}"
   STRIP_TRAILING_WHITESPACE)

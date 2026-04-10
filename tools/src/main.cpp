@@ -265,14 +265,15 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     return fmt::format("{}_{}", value.substr(0, 16), std::string_view{digest_hex.data(), 8});
 }
 
+[[nodiscard]] bool is_module_interface_source(const CollectorOptions &options, const std::filesystem::path &path,
+                                              const std::vector<std::filesystem::path> &include_search_paths = {}) {
+    if (options.module_interface_sources.contains(path.string())) {
+        return true;
+    }
+    return named_module_name_from_source_file(path, include_search_paths).has_value();
+}
+
 [[nodiscard]] std::vector<std::filesystem::path> depfile_targets_for(const CollectorOptions &options) {
-    auto is_module_interface_source = [&](const std::filesystem::path              &path,
-                                          const std::vector<std::filesystem::path> &include_search_paths = {}) {
-        if (options.module_interface_sources.contains(path.string())) {
-            return true;
-        }
-        return named_module_name_from_source_file(path, include_search_paths).has_value();
-    };
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
         std::filesystem::path out  = options.tu_output_dir;
         const std::string     stem = sanitize_and_shorten_generated_stem(std::filesystem::path(options.sources[idx]).stem().string());
@@ -287,14 +288,27 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     } else if (!options.tu_output_dir.empty()) {
         targets.reserve(options.sources.size() * 2 + 2);
         for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
-            if (idx < options.tu_output_headers.size() && !options.tu_output_headers[idx].empty()) {
-                targets.push_back(options.tu_output_headers[idx]);
-            } else {
-                std::filesystem::path header_out = options.tu_output_dir / std::filesystem::path(options.sources[idx]).filename();
-                header_out.replace_extension(".h");
-                targets.push_back(std::move(header_out));
+            if (options.emit_module_wrappers || options.tu_registration_impl_outputs.empty()) {
+                if (idx < options.tu_output_headers.size() && !options.tu_output_headers[idx].empty()) {
+                    targets.push_back(options.tu_output_headers[idx]);
+                } else {
+                    std::filesystem::path header_out = options.tu_output_dir / std::filesystem::path(options.sources[idx]).filename();
+                    header_out.replace_extension(".h");
+                    targets.push_back(std::move(header_out));
+                }
             }
-            if (options.emit_module_wrappers && is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
+            if (!options.emit_module_wrappers || !options.tu_registration_impl_outputs.empty()) {
+                if (idx < options.tu_registration_impl_outputs.size() && !options.tu_registration_impl_outputs[idx].empty()) {
+                    targets.push_back(options.tu_registration_impl_outputs[idx]);
+                } else {
+                    std::filesystem::path out = options.tu_output_dir;
+                    const std::string     stem =
+                        sanitize_and_shorten_generated_stem(std::filesystem::path(options.sources[idx]).stem().string());
+                    out /= fmt::format("tu_{:04d}_{}.registration.gentest.cpp", static_cast<unsigned>(idx), stem);
+                    targets.push_back(std::move(out));
+                }
+            }
+            if (options.emit_module_wrappers && is_module_interface_source(options, std::filesystem::path(options.sources[idx]))) {
                 targets.push_back(resolve_module_wrapper_output(idx));
             }
         }
@@ -2487,6 +2501,11 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> tu_header_output_option{
         "tu-header-output", llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> tu_registration_impl_output_option{
+        "tu-registration-impl-output",
+        llvm::cl::desc("Explicit additive registration implementation-unit output path for a TU-mode input source (repeat once per "
+                       "positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<bool> no_module_wrapper_output_option{
         "no-module-wrapper-output",
         llvm::cl::desc("In TU mode, emit registration headers without generated replacement module wrapper outputs"), llvm::cl::init(false),
@@ -2567,6 +2586,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     }
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
+    opts.tu_registration_impl_outputs.assign(tu_registration_impl_output_option.begin(), tu_registration_impl_output_option.end());
     opts.emit_module_wrappers = !no_module_wrapper_output_option.getValue();
     opts.clang_args           = std::move(clang_args);
     strip_shell_control_tail(opts.clang_args);
@@ -2694,6 +2714,28 @@ int main(int argc, const char **argv) {
         gentest::codegen::log_err("gentest_codegen: expected {} --tu-header-output value(s) for {} input source(s), got {}\n",
                                   options.sources.size(), options.sources.size(), options.tu_output_headers.size());
         return 1;
+    }
+    if (!options.tu_registration_impl_outputs.empty() && options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --tu-registration-impl-output requires --tu-out-dir\n");
+        return 1;
+    }
+    if (!options.tu_registration_impl_outputs.empty() && options.tu_registration_impl_outputs.size() != options.sources.size()) {
+        gentest::codegen::log_err("gentest_codegen: expected {} --tu-registration-impl-output value(s) for {} input source(s), got {}\n",
+                                  options.sources.size(), options.sources.size(), options.tu_registration_impl_outputs.size());
+        return 1;
+    }
+    if (!options.tu_registration_impl_outputs.empty() && options.emit_module_wrappers) {
+        gentest::codegen::log_err_raw("gentest_codegen: --tu-registration-impl-output requires --no-module-wrapper-output\n");
+        return 1;
+    }
+    if (!options.tu_registration_impl_outputs.empty()) {
+        for (const auto &source : options.sources) {
+            if (!is_module_interface_source(options, std::filesystem::path(source))) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: --tu-registration-impl-output only supports named module interface sources, got '{}'\n", source);
+                return 1;
+            }
+        }
     }
     const std::string explicit_host_clang_path = parsed_arguments.explicit_host_clang_path.value_or(std::string{});
     const auto        default_compiler_path    = resolve_default_compiler_path(explicit_host_clang_path);
