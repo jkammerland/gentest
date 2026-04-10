@@ -146,3 +146,160 @@ jobs:
         run: |
           set -euxo pipefail
           ctest --preset=aarch64-qemu --output-on-failure
+
+  linux-riscv64-qemu:
+    name: Linux • riscv64 (QEMU)
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Update and install dependencies (apt)
+        run: |
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git \
+            build-essential \
+            ninja-build \
+            python3 \
+            python3-pip \
+            pkg-config \
+            curl \
+            zip \
+            unzip \
+            tar \
+            ca-certificates \
+            clang-20 \
+            clang-tools-20 \
+            libclang-20-dev \
+            libclang-cpp20-dev \
+            llvm-20-dev \
+            libtinfo6 \
+            qemu-user \
+            libc6-dev-riscv64-cross \
+            libc6-riscv64-cross \
+            gcc-riscv64-linux-gnu \
+            g++-riscv64-linux-gnu
+          python3 -m pip install --break-system-packages --upgrade cmake
+          echo "/usr/lib/llvm-20/bin" >> "$GITHUB_PATH"
+          echo "PATH=/usr/local/bin:$PATH" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure environment variables
+        run: |
+          set -euxo pipefail
+          llvm_root="/usr/lib/llvm-20"
+          host_clang=""
+          host_clangxx=""
+          for candidate in \
+            "$(command -v clang-20 2>/dev/null || true)" \
+            "${llvm_root}/bin/clang" \
+            "$(command -v clang 2>/dev/null || true)"
+          do
+            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+              host_clang="${candidate}"
+              break
+            fi
+          done
+          for candidate in \
+            "$(command -v clang++-20 2>/dev/null || true)" \
+            "${llvm_root}/bin/clang++" \
+            "$(command -v clang++ 2>/dev/null || true)"
+          do
+            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+              host_clangxx="${candidate}"
+              break
+            fi
+          done
+          if [ -z "${host_clang}" ] || [ -z "${host_clangxx}" ]; then
+            echo "Failed to resolve host Clang toolchain from llvm-20 packages." >&2
+            exit 1
+          fi
+          echo "LLVM_DIR=${llvm_root}/lib/cmake/llvm" >> $GITHUB_ENV
+          echo "Clang_DIR=${llvm_root}/lib/cmake/clang" >> $GITHUB_ENV
+          echo "HOST_CLANG=${host_clang}" >> $GITHUB_ENV
+          echo "HOST_CLANGXX=${host_clangxx}" >> $GITHUB_ENV
+          echo "GENTEST_CODEGEN_HOST_CLANG=${host_clangxx}" >> $GITHUB_ENV
+          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
+
+      - name: Show tool versions
+        run: |
+          set -euxo pipefail
+          cmake --version
+          ninja --version
+          ${HOST_CLANG} --version
+          riscv64-linux-gnu-gcc --version | head -n 1
+          qemu-riscv64 --version | head -n 1
+          if command -v llvm-config >/dev/null 2>&1; then llvm-config --version; fi
+
+      - name: Configure host codegen (native)
+        run: |
+          set -euxo pipefail
+          cmake --preset=host-codegen \
+            -DCMAKE_C_COMPILER=${HOST_CLANG} \
+            -DCMAKE_CXX_COMPILER=${HOST_CLANGXX} \
+            -DLLVM_DIR=${LLVM_DIR} \
+            -DClang_DIR=${Clang_DIR} \
+            -DGENTEST_USE_SYSTEM_TERMINFO=ON
+
+      - name: Build host codegen (native)
+        run: |
+          set -euxo pipefail
+          cmake --build --preset=host-codegen --parallel
+
+      - name: Configure cross build (Linux/riscv64)
+        run: |
+          set -euxo pipefail
+          sysroot="$(riscv64-linux-gnu-gcc -print-sysroot)"
+          loader="$(riscv64-linux-gnu-gcc -print-file-name=ld-linux-riscv64-lp64d.so.1)"
+          libc="$(riscv64-linux-gnu-gcc -print-file-name=libc.so.6)"
+          if [ -z "${loader}" ] || [ "${loader}" = "ld-linux-riscv64-lp64d.so.1" ] || [ ! -e "${loader}" ]; then
+            for candidate in \
+              "${sysroot}/lib/ld-linux-riscv64-lp64d.so.1" \
+              "${sysroot}/lib64/ld-linux-riscv64-lp64d.so.1" \
+              "/usr/riscv64-linux-gnu/lib/ld-linux-riscv64-lp64d.so.1" \
+              "/usr/riscv64-linux-gnu/lib64/ld-linux-riscv64-lp64d.so.1"
+            do
+              if [ -e "${candidate}" ]; then
+                loader="${candidate}"
+                break
+              fi
+            done
+          fi
+          if [ -z "${libc}" ] || [ "${libc}" = "libc.so.6" ] || [ ! -e "${libc}" ]; then
+            for candidate in \
+              "${sysroot}/lib/libc.so.6" \
+              "${sysroot}/lib64/libc.so.6" \
+              "/usr/riscv64-linux-gnu/lib/libc.so.6" \
+              "/usr/riscv64-linux-gnu/lib64/libc.so.6"
+            do
+              if [ -e "${candidate}" ]; then
+                libc="${candidate}"
+                break
+              fi
+            done
+          fi
+          echo "riscv64 sysroot: ${sysroot}"
+          echo "riscv64 loader: ${loader}"
+          echo "riscv64 libc: ${libc}"
+          test -d "${sysroot}"
+          test -e "${loader}"
+          test -e "${libc}"
+
+          cmake --preset=riscv64-qemu \
+            -DGENTEST_CODEGEN_HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}
+
+      - name: Build cross target (Linux/riscv64)
+        run: |
+          set -euxo pipefail
+          cmake --build --preset=riscv64-qemu --parallel
+
+      - name: Test (QEMU smoke)
+        run: |
+          set -euxo pipefail
+          ctest --preset=riscv64-qemu --output-on-failure

@@ -191,14 +191,7 @@ else()
     message(FATAL_ERROR "tests: no gentest code generator available (gentest_codegen). Configure with -DGENTEST_BUILD_CODEGEN=ON or -DGENTEST_CODEGEN_EXECUTABLE=<path>.")
 endif()
 
-set(_gentest_codegen_cross_target_arg "")
-if(CMAKE_CROSSCOMPILING)
-    if(CMAKE_CXX_COMPILER_TARGET)
-        set(_gentest_codegen_cross_target_arg "--target=${CMAKE_CXX_COMPILER_TARGET}")
-    elseif(CMAKE_C_COMPILER_TARGET)
-        set(_gentest_codegen_cross_target_arg "--target=${CMAKE_C_COMPILER_TARGET}")
-    endif()
-endif()
+_gentest_collect_cross_codegen_clang_args(_gentest_codegen_cross_target_arg)
 
 function(_gentest_add_proof_test name source)
     add_executable(${name} ${source})
@@ -3187,6 +3180,12 @@ _gentest_add_cmake_helper_test(
     gentest_qemu_workflow_presets
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckQemuWorkflowPresets.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_qemu_toolchain_runtime_root_derivation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckQemuToolchainRuntimeRootDerivation.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(
