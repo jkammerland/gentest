@@ -363,14 +363,17 @@ function(_gentest_escape_module_regex raw_name out_regex)
 endfunction()
 
 function(_gentest_file_imports_named_module input module_name out_contains)
-    _gentest_read_stripped_source("${input}" _gentest_file_content)
-    string(REGEX REPLACE "[ \t\r\n]+" " " _gentest_file_content "${_gentest_file_content}")
     _gentest_escape_module_regex("${module_name}" _gentest_module_regex)
-    if(_gentest_file_content MATCHES "(^|[^A-Za-z0-9_.])(export )?import ${_gentest_module_regex} *;")
-        set(${out_contains} TRUE PARENT_SCOPE)
-    else()
-        set(${out_contains} FALSE PARENT_SCOPE)
-    endif()
+    _gentest_collect_active_module_statements("${input}" _gentest_active_statements ${ARGN})
+    foreach(_gentest_stmt IN LISTS _gentest_active_statements)
+        string(REGEX REPLACE "[ \t\r\n]+" " " _gentest_stmt "${_gentest_stmt}")
+        string(STRIP "${_gentest_stmt}" _gentest_stmt)
+        if(_gentest_stmt MATCHES "^(export )?import ${_gentest_module_regex} *$")
+            set(${out_contains} TRUE PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    set(${out_contains} FALSE PARENT_SCOPE)
 endfunction()
 
 function(_gentest_file_imports_gentest_mock input out_contains)
@@ -379,31 +382,43 @@ function(_gentest_file_imports_gentest_mock input out_contains)
 endfunction()
 
 function(_gentest_file_exports_named_module input module_name out_contains)
-    _gentest_read_stripped_source("${input}" _gentest_file_content)
     _gentest_escape_module_regex("${module_name}" _gentest_module_regex)
-    if(_gentest_file_content MATCHES "(^|[;\n])[ \t]*export[ \t]+module[ \t]+${_gentest_module_regex}[ \t]*;")
-        set(${out_contains} TRUE PARENT_SCOPE)
-    else()
-        set(${out_contains} FALSE PARENT_SCOPE)
-    endif()
+    _gentest_collect_active_module_statements("${input}" _gentest_active_statements ${ARGN})
+    foreach(_gentest_stmt IN LISTS _gentest_active_statements)
+        string(REGEX REPLACE "[ \t\r\n]+" " " _gentest_stmt "${_gentest_stmt}")
+        string(STRIP "${_gentest_stmt}" _gentest_stmt)
+        if(_gentest_stmt MATCHES "^export module ${_gentest_module_regex} *$")
+            set(${out_contains} TRUE PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    set(${out_contains} FALSE PARENT_SCOPE)
 endfunction()
 
 function(_gentest_file_has_module_global_fragment input out_contains)
-    _gentest_read_stripped_source("${input}" _gentest_file_content)
-    if(_gentest_file_content MATCHES "(^|[;\n])[ \t]*module[ \t]*;")
-        set(${out_contains} TRUE PARENT_SCOPE)
-    else()
-        set(${out_contains} FALSE PARENT_SCOPE)
-    endif()
+    _gentest_collect_active_module_statements("${input}" _gentest_active_statements ${ARGN})
+    foreach(_gentest_stmt IN LISTS _gentest_active_statements)
+        string(REGEX REPLACE "[ \t\r\n]+" " " _gentest_stmt "${_gentest_stmt}")
+        string(STRIP "${_gentest_stmt}" _gentest_stmt)
+        if(_gentest_stmt STREQUAL "module")
+            set(${out_contains} TRUE PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    set(${out_contains} FALSE PARENT_SCOPE)
 endfunction()
 
 function(_gentest_file_has_private_module_fragment input out_contains)
-    _gentest_read_stripped_source("${input}" _gentest_file_content)
-    if(_gentest_file_content MATCHES "(^|[;\n])[ \t]*module[ \t]*:[ \t]*private[ \t]*;")
-        set(${out_contains} TRUE PARENT_SCOPE)
-    else()
-        set(${out_contains} FALSE PARENT_SCOPE)
-    endif()
+    _gentest_collect_active_module_statements("${input}" _gentest_active_statements ${ARGN})
+    foreach(_gentest_stmt IN LISTS _gentest_active_statements)
+        string(REGEX REPLACE "[ \t\r\n]+" " " _gentest_stmt "${_gentest_stmt}")
+        string(STRIP "${_gentest_stmt}" _gentest_stmt)
+        if(_gentest_stmt MATCHES "^module *: *private$")
+            set(${out_contains} TRUE PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    set(${out_contains} FALSE PARENT_SCOPE)
 endfunction()
 
 function(_gentest_resolve_codegen_backend)
@@ -1599,13 +1614,12 @@ function(_gentest_extract_module_name input out_name)
     set(${out_name} "${_gentest_module_name}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_try_extract_module_name input out_name)
+function(_gentest_collect_active_module_statements input out_statements)
     file(READ "${input}" _gentest_module_text)
     _gentest_strip_scan_comments("${_gentest_module_text}" _gentest_module_text)
     string(REPLACE "\r\n" "\n" _gentest_module_text "${_gentest_module_text}")
     string(REPLACE "\r" "\n" _gentest_module_text "${_gentest_module_text}")
 
-    set(_gentest_module_name "")
     set(_gentest_idx 0)
     string(LENGTH "${_gentest_module_text}" _gentest_text_len)
     set(_gentest_current_active TRUE)
@@ -1615,10 +1629,11 @@ function(_gentest_try_extract_module_name input out_name)
     set(_gentest_pp_buffer "")
     set(_gentest_pp_continuation FALSE)
     set(_gentest_statement_buffer "")
+    set(_gentest_active_statements "")
     get_filename_component(_gentest_source_dir "${input}" DIRECTORY)
     set(_gentest_include_dirs ${ARGN})
 
-    while(_gentest_idx LESS _gentest_text_len AND _gentest_module_name STREQUAL "")
+    while(_gentest_idx LESS _gentest_text_len)
         math(EXPR _gentest_remaining_len "${_gentest_text_len} - ${_gentest_idx}")
         string(SUBSTRING "${_gentest_module_text}" ${_gentest_idx} ${_gentest_remaining_len} _gentest_remaining_text)
         string(FIND "${_gentest_remaining_text}" "\n" _gentest_line_break)
@@ -1786,7 +1801,7 @@ function(_gentest_try_extract_module_name input out_name)
         string(APPEND _gentest_statement_buffer "${_gentest_trimmed}")
 
         string(FIND "${_gentest_statement_buffer}" ";" _gentest_stmt_end)
-        while(NOT _gentest_stmt_end EQUAL -1 AND _gentest_module_name STREQUAL "")
+        while(NOT _gentest_stmt_end EQUAL -1)
             string(SUBSTRING "${_gentest_statement_buffer}" 0 ${_gentest_stmt_end} _gentest_stmt)
             math(EXPR _gentest_rest_start "${_gentest_stmt_end} + 1")
             string(LENGTH "${_gentest_statement_buffer}" _gentest_stmt_buffer_len)
@@ -1799,21 +1814,32 @@ function(_gentest_try_extract_module_name input out_name)
 
             string(REGEX REPLACE "^[ \t\r\n]+" "" _gentest_stmt "${_gentest_stmt}")
             string(REGEX REPLACE "[ \t\r\n]+$" "" _gentest_stmt "${_gentest_stmt}")
-            if(_gentest_stmt MATCHES "^module[ \t]*$")
-                string(FIND "${_gentest_statement_buffer}" ";" _gentest_stmt_end)
-                continue()
-            endif()
-            if(_gentest_stmt MATCHES "^(export[ \t]+)?module[ \t]+([^;]+)[ \t]*$")
-                _gentest_canonicalize_module_name("${CMAKE_MATCH_2}" FALSE _gentest_canonical_module_name)
-                if(NOT "${_gentest_canonical_module_name}" STREQUAL "")
-                    set(_gentest_module_name "${_gentest_canonical_module_name}")
-                    break()
-                endif()
+            if(NOT _gentest_stmt STREQUAL "")
+                list(APPEND _gentest_active_statements "${_gentest_stmt}")
             endif()
 
             string(FIND "${_gentest_statement_buffer}" ";" _gentest_stmt_end)
         endwhile()
     endwhile()
+
+    set(${out_statements} "${_gentest_active_statements}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_try_extract_module_name input out_name)
+    set(_gentest_module_name "")
+    _gentest_collect_active_module_statements("${input}" _gentest_active_statements ${ARGN})
+    foreach(_gentest_stmt IN LISTS _gentest_active_statements)
+        if(_gentest_stmt MATCHES "^module[ \t]*$")
+            continue()
+        endif()
+        if(_gentest_stmt MATCHES "^(export[ \t]+)?module[ \t]+([^;]+)[ \t]*$")
+            _gentest_canonicalize_module_name("${CMAKE_MATCH_2}" FALSE _gentest_canonical_module_name)
+            if(NOT "${_gentest_canonical_module_name}" STREQUAL "")
+                set(_gentest_module_name "${_gentest_canonical_module_name}")
+                break()
+            endif()
+        endif()
+    endforeach()
 
     set(${out_name} "${_gentest_module_name}" PARENT_SCOPE)
 endfunction()
@@ -2035,41 +2061,6 @@ function(_gentest_prepare_module_registration_mode)
     endforeach()
 
     file(MAKE_DIRECTORY "${_gentest_output_dir}")
-
-    list(LENGTH _gentest_impl_cpp _gentest_impl_count)
-    math(EXPR _gentest_last_impl "${_gentest_impl_count} - 1")
-    foreach(_idx RANGE 0 ${_gentest_last_impl})
-        list(GET GENTEST_MODULE_NAMES ${_idx} _module_name)
-        list(GET _gentest_wrapper_headers ${_idx} _wrap_header)
-        list(GET _gentest_impl_cpp ${_idx} _impl_cpp)
-        get_filename_component(_wrap_header_name "${_wrap_header}" NAME)
-        set(_gentest_registration_impl_content
-"// This file is auto-generated by gentest (CMake module registration shim).\n\
-// Do not edit manually.\n\
-\n\
-module;\n\
-\n\
-#include <array>\n\
-#include <fmt/format.h>\n\
-#include <memory>\n\
-#include <span>\n\
-#include <string>\n\
-#include <string_view>\n\
-#include <type_traits>\n\
-#include <utility>\n\
-#include \"gentest/runner.h\"\n\
-#include \"gentest/fixture.h\"\n\
-\n\
-module ${_module_name};\n\
-\n\
-#if !defined(GENTEST_CODEGEN) && __has_include(\"${_wrap_header_name}\")\n\
-#define GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE 1\n\
-#include \"${_wrap_header_name}\"\n\
-#undef GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE\n\
-#endif\n")
-        file(GENERATE OUTPUT "${_impl_cpp}" CONTENT "${_gentest_registration_impl_content}")
-        set_source_files_properties("${_impl_cpp}" PROPERTIES OBJECT_DEPENDS "${_wrap_header}")
-    endforeach()
 
     set_source_files_properties(${_gentest_impl_cpp} PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION ON CXX_SCAN_FOR_MODULES ON)
     set_source_files_properties(${_gentest_wrapper_headers} PROPERTIES GENERATED TRUE)
@@ -2399,6 +2390,36 @@ function(_gentest_attach_module_registration_sources)
     add_dependencies(${GENTEST_TARGET} gentest_codegen_${GENTEST_TARGET_ID})
 endfunction()
 
+function(_gentest_generate_module_registration_impl_sources)
+    set(one_value_args TARGET)
+    set(multi_value_args TUS WRAPPER_HEADERS IMPL_CPP)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+    set(_gentest_codegen_cmake_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
+
+    list(LENGTH GENTEST_IMPL_CPP _gentest_impl_count)
+    math(EXPR _gentest_last_impl "${_gentest_impl_count} - 1")
+    foreach(_idx RANGE 0 ${_gentest_last_impl})
+        list(GET GENTEST_TUS ${_idx} _gentest_src_abs)
+        list(GET GENTEST_WRAPPER_HEADERS ${_idx} _gentest_wrap_header)
+        list(GET GENTEST_IMPL_CPP ${_idx} _gentest_impl_cpp)
+        get_filename_component(_gentest_wrap_header_name "${_gentest_wrap_header}" NAME)
+        add_custom_command(
+            OUTPUT "${_gentest_impl_cpp}"
+            COMMAND "${CMAKE_COMMAND}"
+                -DINPUT=${_gentest_src_abs}
+                -DOUTPUT=${_gentest_impl_cpp}
+                -DHEADER_NAME=${_gentest_wrap_header_name}
+                -P "${_gentest_codegen_cmake_dir}/WriteModuleRegistrationImpl.cmake"
+            DEPENDS
+                "${_gentest_src_abs}"
+                "${_gentest_codegen_cmake_dir}/WriteModuleRegistrationImpl.cmake"
+                "${_gentest_codegen_cmake_dir}/GentestCodegen.cmake"
+            COMMENT "Generating clean module registration implementation for ${GENTEST_TARGET}:${_idx}"
+            VERBATIM)
+        set_source_files_properties("${_gentest_impl_cpp}" PROPERTIES OBJECT_DEPENDS "${_gentest_wrap_header}")
+    endforeach()
+endfunction()
+
 function(_gentest_collect_scan_include_dirs target source out_dirs)
     set(_gentest_dirs "")
 
@@ -2659,28 +2680,32 @@ function(gentest_register_module_tests target)
                 "'${_gentest_module_name}'. Clean module registration currently supports only primary module interface units.")
         endif()
 
-        _gentest_file_exports_named_module("${_gentest_src_abs}" "${_gentest_module_name}" _gentest_exports_module)
+        _gentest_file_exports_named_module("${_gentest_src_abs}" "${_gentest_module_name}" _gentest_exports_module
+            ${_gentest_scan_include_dirs})
         if(NOT _gentest_exports_module)
             message(FATAL_ERROR
                 "gentest_register_module_tests(${target}): FILE_SET '${GENTEST_FILE_SET}' source '${_gentest_src}' must be a primary "
                 "module interface unit ('export module ${_gentest_module_name};').")
         endif()
 
-        _gentest_file_has_module_global_fragment("${_gentest_src_abs}" _gentest_has_global_fragment)
+        _gentest_file_has_module_global_fragment("${_gentest_src_abs}" _gentest_has_global_fragment
+            ${_gentest_scan_include_dirs})
         if(_gentest_has_global_fragment)
             message(FATAL_ERROR
                 "gentest_register_module_tests(${target}): FILE_SET '${GENTEST_FILE_SET}' source '${_gentest_src}' uses a global "
                 "module fragment ('module;'), which clean module registration does not support.")
         endif()
 
-        _gentest_file_has_private_module_fragment("${_gentest_src_abs}" _gentest_has_private_fragment)
+        _gentest_file_has_private_module_fragment("${_gentest_src_abs}" _gentest_has_private_fragment
+            ${_gentest_scan_include_dirs})
         if(_gentest_has_private_fragment)
             message(FATAL_ERROR
                 "gentest_register_module_tests(${target}): FILE_SET '${GENTEST_FILE_SET}' source '${_gentest_src}' uses a private "
                 "module fragment ('module :private;'), which clean module registration does not support.")
         endif()
 
-        _gentest_file_imports_named_module("${_gentest_src_abs}" "gentest" _gentest_imports_gentest)
+        _gentest_file_imports_named_module("${_gentest_src_abs}" "gentest" _gentest_imports_gentest
+            ${_gentest_scan_include_dirs})
         if(NOT _gentest_imports_gentest)
             message(FATAL_ERROR
                 "gentest_register_module_tests(${target}): FILE_SET '${GENTEST_FILE_SET}' source '${_gentest_src}' must directly "
@@ -2702,38 +2727,16 @@ function(gentest_register_module_tests target)
         OUT_OUTPUT_DIR _gentest_output_dir
         OUT_WRAPPER_HEADERS _gentest_wrapper_headers
         OUT_IMPL_CPP _gentest_impl_cpp)
+    _gentest_generate_module_registration_impl_sources(
+        TARGET ${target}
+        TUS ${_gentest_tus}
+        WRAPPER_HEADERS ${_gentest_wrapper_headers}
+        IMPL_CPP ${_gentest_impl_cpp})
 
     _gentest_resolve_codegen_backend(
         TARGET ${target}
         OUT_CODEGEN_TARGET _gentest_codegen_target
         OUT_CODEGEN_EXECUTABLE _gentest_codegen_executable)
-
-    set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
-    set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
-    set(_gentest_mock_registry_domain_outputs "")
-    set(_gentest_mock_impl_domain_outputs "")
-    _gentest_make_mock_domain_output_path("${_gentest_mock_registry}" 0 "header" _gentest_mock_registry_header_domain)
-    _gentest_make_mock_domain_output_path("${_gentest_mock_impl}" 0 "header" _gentest_mock_impl_header_domain)
-    list(APPEND _gentest_mock_registry_domain_outputs "${_gentest_mock_registry_header_domain}")
-    list(APPEND _gentest_mock_impl_domain_outputs "${_gentest_mock_impl_header_domain}")
-
-    set(_gentest_mock_seen_modules "")
-    set(_gentest_mock_domain_idx 1)
-    foreach(_gentest_module_name IN LISTS _gentest_module_names)
-        list(FIND _gentest_mock_seen_modules "${_gentest_module_name}" _gentest_mock_seen_idx)
-        if(NOT _gentest_mock_seen_idx EQUAL -1)
-            continue()
-        endif()
-        list(APPEND _gentest_mock_seen_modules "${_gentest_module_name}")
-
-        _gentest_make_mock_domain_output_path("${_gentest_mock_registry}" ${_gentest_mock_domain_idx} "${_gentest_module_name}"
-            _gentest_mock_registry_domain)
-        _gentest_make_mock_domain_output_path("${_gentest_mock_impl}" ${_gentest_mock_domain_idx} "${_gentest_module_name}"
-            _gentest_mock_impl_domain)
-        list(APPEND _gentest_mock_registry_domain_outputs "${_gentest_mock_registry_domain}")
-        list(APPEND _gentest_mock_impl_domain_outputs "${_gentest_mock_impl_domain}")
-        math(EXPR _gentest_mock_domain_idx "${_gentest_mock_domain_idx} + 1")
-    endforeach()
     set(_gentest_depfile "${_gentest_output_dir}/${_gentest_target_id}.gentest.d")
 
     set(_gentest_codegen_deps "")
@@ -2766,8 +2769,6 @@ function(gentest_register_module_tests target)
     endif()
 
     set(_command ${_command_launcher}
-        --mock-registry ${_gentest_mock_registry}
-        --mock-impl ${_gentest_mock_impl}
         --depfile ${_gentest_depfile}
         --compdb ${CMAKE_BINARY_DIR}
         --source-root ${CMAKE_SOURCE_DIR}
@@ -2835,11 +2836,7 @@ function(gentest_register_module_tests target)
     endif()
 
     set(_gentest_codegen_outputs
-        ${_gentest_wrapper_headers}
-        ${_gentest_mock_registry}
-        ${_gentest_mock_impl}
-        ${_gentest_mock_registry_domain_outputs}
-        ${_gentest_mock_impl_domain_outputs})
+        ${_gentest_wrapper_headers})
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_OUTPUTS "${_gentest_codegen_outputs}")
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTRA_DEPENDS "")
     set(_gentest_custom_command_args
@@ -2868,7 +2865,7 @@ function(gentest_register_module_tests target)
         TARGET ${target}
         TARGET_ID ${_gentest_target_id}
         IMPL_CPP ${_gentest_impl_cpp}
-        CODEGEN_OUTPUTS ${_gentest_codegen_outputs})
+        CODEGEN_OUTPUTS ${_gentest_codegen_outputs} ${_gentest_impl_cpp})
     set_property(TARGET ${target} PROPERTY GENTEST_REGISTERED_MODULE_TEST_FILE_SET "${GENTEST_FILE_SET}")
 endfunction()
 
