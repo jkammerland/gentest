@@ -61,6 +61,25 @@ void               bench_calibration_assert_should_stop_after_calibration(void *
     (void)std::fputs("regression marker: benchmark continued after calibration failure\n", stderr);
 }
 
+constexpr unsigned kBenchUnknownExceptionShouldFailLine = __LINE__ + 1;
+void               bench_unknown_exception_should_fail(void *) {
+    if (!in_bench_call_phase())
+        return;
+    throw 7;
+}
+
+int                bench_warmup_assert_invocations                   = 0;
+constexpr unsigned kBenchWarmupAssertShouldStopBeforeMeasurementLine = __LINE__ + 1;
+void               bench_warmup_assert_should_stop_before_measurement(void *) {
+    if (!in_bench_call_phase())
+        return;
+    ++bench_warmup_assert_invocations;
+    if (bench_warmup_assert_invocations == 2)
+        EXPECT_TRUE(false, "warmup benchmark assertion failure");
+    if (bench_warmup_assert_invocations > 2)
+        (void)std::fputs("regression marker: benchmark continued after warmup failure\n", stderr);
+}
+
 constexpr unsigned kJitterAssertShouldFailLine = __LINE__ + 1;
 void               jitter_assert_should_fail(void *) {
     if (!in_bench_call_phase())
@@ -111,6 +130,25 @@ void               jitter_calibration_assert_should_stop_after_calibration(void 
     if (++jitter_calibration_assert_invocations == 1)
         EXPECT_TRUE(false, "calibration jitter assertion failure");
     (void)std::fputs("regression marker: jitter continued after calibration failure\n", stderr);
+}
+
+constexpr unsigned kJitterUnknownExceptionShouldFailLine = __LINE__ + 1;
+void               jitter_unknown_exception_should_fail(void *) {
+    if (!in_bench_call_phase())
+        return;
+    throw 7;
+}
+
+int                jitter_warmup_assert_invocations                   = 0;
+constexpr unsigned kJitterWarmupAssertShouldStopBeforeMeasurementLine = __LINE__ + 1;
+void               jitter_warmup_assert_should_stop_before_measurement(void *) {
+    if (!in_bench_call_phase())
+        return;
+    ++jitter_warmup_assert_invocations;
+    if (jitter_warmup_assert_invocations == 2)
+        EXPECT_TRUE(false, "warmup jitter assertion failure");
+    if (jitter_warmup_assert_invocations > 2)
+        (void)std::fputs("regression marker: jitter continued after warmup failure\n", stderr);
 }
 
 gentest::Case kCases[] = {
@@ -227,6 +265,38 @@ gentest::Case kCases[] = {
         .suite            = "regressions",
     },
     {
+        .name             = "regressions/bench_unknown_exception_should_fail",
+        .fn               = &bench_unknown_exception_should_fail,
+        .file             = __FILE__,
+        .line             = kBenchUnknownExceptionShouldFailLine,
+        .is_benchmark     = true,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
+    {
+        .name             = "regressions/bench_warmup_assert_should_stop_before_measurement",
+        .fn               = &bench_warmup_assert_should_stop_before_measurement,
+        .file             = __FILE__,
+        .line             = kBenchWarmupAssertShouldStopBeforeMeasurementLine,
+        .is_benchmark     = true,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
+    {
         .name             = "regressions/jitter_assert_should_fail",
         .fn               = &jitter_assert_should_fail,
         .file             = __FILE__,
@@ -327,6 +397,38 @@ gentest::Case kCases[] = {
         .fn               = &jitter_calibration_assert_should_stop_after_calibration,
         .file             = __FILE__,
         .line             = kJitterCalibrationAssertShouldStopAfterCalibrationLine,
+        .is_benchmark     = false,
+        .is_jitter        = true,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
+    {
+        .name             = "regressions/jitter_unknown_exception_should_fail",
+        .fn               = &jitter_unknown_exception_should_fail,
+        .file             = __FILE__,
+        .line             = kJitterUnknownExceptionShouldFailLine,
+        .is_benchmark     = false,
+        .is_jitter        = true,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
+    {
+        .name             = "regressions/jitter_warmup_assert_should_stop_before_measurement",
+        .fn               = &jitter_warmup_assert_should_stop_before_measurement,
+        .file             = __FILE__,
+        .line             = kJitterWarmupAssertShouldStopBeforeMeasurementLine,
         .is_benchmark     = false,
         .is_jitter        = true,
         .is_baseline      = false,

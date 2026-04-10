@@ -164,7 +164,7 @@ The repository now validates two Bazel shapes:
   [`tests/downstream/bazel_bzlmod_consumer`](../../tests/downstream/bazel_bzlmod_consumer)
 
 The downstream proof in
-[`cmake/CheckBazelBzlmodConsumer.cmake`](../../cmake/CheckBazelBzlmodConsumer.cmake):
+[`tests/cmake/scripts/CheckBazelBzlmodConsumer.cmake`](../../tests/cmake/scripts/CheckBazelBzlmodConsumer.cmake):
 
 - builds textual mock target + textual consumer
 - builds module mock target + module consumer

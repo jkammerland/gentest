@@ -79,7 +79,8 @@ using gentest::codegen::TestCaseInfo;
 #ifndef GENTEST_TEMPLATE_DIR
 #define GENTEST_TEMPLATE_DIR ""
 #endif
-static constexpr std::string_view kTemplateDir = GENTEST_TEMPLATE_DIR;
+static constexpr std::string_view kTemplateDir                         = GENTEST_TEMPLATE_DIR;
+static constexpr std::string_view kMissingCompdbSyntheticCommandMarker = "__gentest_missing_compdb_entry__";
 
 namespace {
 using gentest::codegen::scan::is_preprocessor_directive_scan_line;
@@ -1638,6 +1639,10 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
                             std::string_view forced_compiler_path = {}, bool preserve_module_mapping_args = false) {
     clang::tooling::CommandLineArguments sanitized_command_line = command_line;
     strip_shell_control_tail(sanitized_command_line);
+    if (std::ranges::find(sanitized_command_line, std::string(kMissingCompdbSyntheticCommandMarker)) != sanitized_command_line.end()) {
+        sanitized_command_line.clear();
+    }
+    const bool use_synthetic_fallback = sanitized_command_line.empty();
 
     auto has_explicit_language_mode = [](std::span<const std::string> args) {
         for (const auto &arg : args) {
@@ -1791,6 +1796,9 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
     }
 
     adjusted.insert(adjusted.end(), extra_module_args.begin(), extra_module_args.end());
+    if (use_synthetic_fallback) {
+        adjusted.emplace_back(file.str());
+    }
     return adjusted;
 }
 
@@ -2888,6 +2896,22 @@ int main(int argc, const char **argv) {
         scan_command_lines[i] =
             build_augmented_scan_command_line(source_commands, direct_compile_commands[i], options.sources[i], options.sources[i]);
     }
+    std::vector<std::vector<clang::tooling::CompileCommand>> tool_compile_commands(options.sources.size());
+    for (std::size_t i = 0; i < options.sources.size(); ++i) {
+        if (!compile_commands[i].empty()) {
+            tool_compile_commands[i] = compile_commands[i];
+            continue;
+        }
+
+        // Keep libTooling runnable when the compilation database loads but has
+        // no entry for this source. The normal args_adjuster path still expands
+        // this into the synthetic fallback invocation.
+        clang::tooling::CompileCommand synthetic_command;
+        synthetic_command.Directory = compdb_dir;
+        synthetic_command.Filename  = options.sources[i];
+        synthetic_command.CommandLine.emplace_back(kMissingCompdbSyntheticCommandMarker);
+        tool_compile_commands[i].push_back(std::move(synthetic_command));
+    }
 
     struct NamedModuleSourceInfo {
         std::size_t              source_index = 0;
@@ -3798,7 +3822,7 @@ int main(int argc, const char **argv) {
             }
 
             std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> file_commands;
-            file_commands.emplace(normalize_compdb_lookup_path(options.sources[idx]), compile_commands[idx]);
+            file_commands.emplace(normalize_compdb_lookup_path(options.sources[idx]), tool_compile_commands[idx]);
             const SnapshotCompilationDatabase file_database{std::move(file_commands)};
 
             // Use a per-tool physical filesystem instance. llvm::vfs::getRealFileSystem()
@@ -3817,7 +3841,8 @@ int main(int argc, const char **argv) {
                 std::make_shared<clang::PCHContainerOperations>(),
                 base_fs,
             };
-            const auto overlay_include_paths = scan_include_search_paths_from_compile_commands(compile_commands[idx], options.sources[idx]);
+            const auto overlay_include_paths =
+                scan_include_search_paths_from_compile_commands(tool_compile_commands[idx], options.sources[idx]);
             if (named_module_sources.empty() && !has_any_named_module_imports) {
                 const auto normalized_overlay = build_normalized_module_source_overlay(
                     options.sources[idx], overlay_include_paths,
@@ -3908,14 +3933,15 @@ int main(int argc, const char **argv) {
     } else {
         std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> file_commands;
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
-            file_commands.emplace(normalize_compdb_lookup_path(options.sources[i]), compile_commands[i]);
+            file_commands.emplace(normalize_compdb_lookup_path(options.sources[i]), tool_compile_commands[i]);
         }
         const SnapshotCompilationDatabase file_database{std::move(file_commands)};
         clang::tooling::ClangTool         tool{file_database, options.sources};
         std::vector<std::string>          normalized_overlays;
         normalized_overlays.reserve(options.sources.size());
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
-            const auto overlay_include_paths = scan_include_search_paths_from_compile_commands(compile_commands[i], options.sources[i]);
+            const auto overlay_include_paths =
+                scan_include_search_paths_from_compile_commands(tool_compile_commands[i], options.sources[i]);
             if (named_module_sources.empty() && !has_any_named_module_imports) {
                 if (auto normalized_overlay = build_normalized_module_source_overlay(
                         options.sources[i], overlay_include_paths,

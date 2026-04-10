@@ -1,3 +1,7 @@
+local function die(message)
+    error(message, 0)
+end
+
 function main(...)
     local argv = table.pack(...)
     local mode = argv[1]
@@ -6,7 +10,7 @@ function main(...)
         local output_file = argv[3]
         local text = io.readfile(template_file)
         if not text then
-            raise("failed to read template: " .. tostring(template_file))
+            die("failed to read template: " .. tostring(template_file))
         end
         for index = 4, #argv do
             local entry = tostring(argv[index] or "")
@@ -27,12 +31,12 @@ function main(...)
         local output_file = argv[3]
         local text = io.readfile(source_file)
         if text == nil then
-            raise("failed to read source file: " .. tostring(source_file))
+            die("failed to read source file: " .. tostring(source_file))
         end
         os.mkdir(path.directory(output_file))
         io.writefile(output_file, text)
         return
     end
 
-    raise("unsupported materialize_file mode: " .. tostring(mode))
+    die("unsupported materialize_file mode: " .. tostring(mode))
 end

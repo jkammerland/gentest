@@ -2,7 +2,11 @@ package("gentest")
     set_kind("library")
     set_homepage("https://github.com/jkammerland/gentest")
     set_description("gentest staged xrepo fixture package")
-    add_deps("fmt")
+
+    local function _is_debug_mode(package)
+        local mode = tostring(get_config("mode") or ""):lower()
+        return mode == "debug"
+    end
 
     local function _detect_libdir(installdir)
         local libdir = path.join(installdir, "lib")
@@ -16,17 +20,29 @@ package("gentest")
         return nil, nil
     end
 
-    local function _detect_runtime_link(libdir)
+    local function _detect_library(libdir, package, debug_name, release_name)
         if not libdir then
             return nil
         end
-        for _, candidate in ipairs({"gentest_runtimed", "gentest_runtime"}) do
+        local candidates = {release_name, debug_name}
+        if _is_debug_mode(package) then
+            candidates = {debug_name, release_name}
+        end
+        for _, candidate in ipairs(candidates) do
             local matches = os.files(path.join(libdir, "*" .. candidate .. "*"))
             if matches and #matches > 0 then
                 return candidate
             end
         end
         return nil
+    end
+
+    local function _detect_runtime_link(libdir, package)
+        return _detect_library(libdir, package, "gentest_runtimed", "gentest_runtime")
+    end
+
+    local function _detect_fmt_link(libdir, package)
+        return _detect_library(libdir, package, "fmtd", "fmt")
     end
 
     on_load(function (package)
@@ -39,22 +55,24 @@ package("gentest")
         local libdir, libdir_name = _detect_libdir(installdir)
         if libdir and libdir_name then
             package:add("linkdirs", libdir_name)
-            local runtime_link = _detect_runtime_link(libdir)
+            local runtime_link = _detect_runtime_link(libdir, package)
             if runtime_link then
                 package:add("links", runtime_link)
             end
+            local fmt_link = _detect_fmt_link(libdir, package)
+            if fmt_link then
+                package:add("links", fmt_link)
+            end
         end
-
-        package:add("defines", "FMT_HEADER_ONLY")
     end)
 
     on_install(function (package)
         local staged_prefix = os.getenv("GENTEST_XREPO_STAGED_PREFIX")
         if not staged_prefix or staged_prefix == "" then
-            raise("GENTEST_XREPO_STAGED_PREFIX is required for the gentest xrepo fixture package")
+            error("GENTEST_XREPO_STAGED_PREFIX is required for the gentest xrepo fixture package", 0)
         end
         if not os.isdir(staged_prefix) then
-            raise("staged gentest prefix does not exist: " .. staged_prefix)
+            error("staged gentest prefix does not exist: " .. staged_prefix, 0)
         end
         os.cp(path.join(staged_prefix, "*"), package:installdir())
     end)
@@ -64,13 +82,20 @@ package("gentest")
         local includedir = path.join(install_dir, "include")
         local libdir = nil
         libdir, _ = _detect_libdir(install_dir)
-        local runtime_link = _detect_runtime_link(libdir)
+        local runtime_link = _detect_runtime_link(libdir, package)
+        local fmt_link = _detect_fmt_link(libdir, package)
+        local links = {}
+        if runtime_link then
+            table.insert(links, runtime_link)
+        end
+        if fmt_link then
+            table.insert(links, fmt_link)
+        end
         local codegen = path.join(install_dir, "bin", is_host("windows") and "gentest_codegen.exe" or "gentest_codegen")
         return {
             includedirs = os.isdir(includedir) and {includedir} or {},
             linkdirs = libdir and {libdir} or {},
-            links = runtime_link and {runtime_link} or {},
-            defines = {"FMT_HEADER_ONLY"},
+            links = links,
             extras = {
                 gentest = {
                     root = install_dir,

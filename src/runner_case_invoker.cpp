@@ -1,6 +1,7 @@
 #include "runner_case_invoker.h"
 
 #include <chrono>
+#include <fmt/format.h>
 
 namespace gentest::runner {
 
@@ -26,17 +27,17 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
     } catch (const gentest::failure &e) {
         out.exception = InvokeException::Failure;
         if (policy == UnhandledExceptionPolicy::RecordAsFailure) {
-            gentest::detail::record_failure(std::string("FAIL() :: ") + e.what());
+            gentest::detail::record_failure(fmt::format("FAIL() :: {}", e.what()));
             out.message = e.what();
         } else {
-            out.message = std::string("std::exception: ") + e.what();
+            out.message = fmt::format("std::exception: {}", e.what());
         }
     } catch (const std::exception &e) {
         out.exception = InvokeException::StdException;
         if (policy == UnhandledExceptionPolicy::RecordAsFailure) {
-            gentest::detail::record_failure(std::string("unexpected std::exception: ") + e.what());
+            gentest::detail::record_failure(fmt::format("unexpected std::exception: {}", e.what()));
         }
-        out.message = std::string("std::exception: ") + e.what();
+        out.message = fmt::format("std::exception: {}", e.what());
     } catch (...) {
         out.exception = InvokeException::Unknown;
         if (policy == UnhandledExceptionPolicy::RecordAsFailure) {

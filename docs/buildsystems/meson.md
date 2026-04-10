@@ -108,7 +108,7 @@ only applies to `gentest_codegen`.
 ## Checked-in proofs
 
 The downstream proof in
-[`cmake/CheckMesonWrapConsumer.cmake`](../../cmake/CheckMesonWrapConsumer.cmake):
+[`tests/cmake/scripts/CheckMesonWrapConsumer.cmake`](../../tests/cmake/scripts/CheckMesonWrapConsumer.cmake):
 
 - creates a real downstream workspace with `subprojects/gentest`
 - configures gentest with `build_self_tests=false`

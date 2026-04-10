@@ -121,7 +121,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
             ++c.skipped;
             rr.outcome        = Outcome::XFail;
             rr.skipped        = true;
-            rr.skip_reason    = rr.xfail_reason.empty() ? "xfail" : std::string("xfail: ") + rr.xfail_reason;
+            rr.skip_reason    = rr.xfail_reason.empty() ? "xfail" : fmt::format("xfail: {}", rr.xfail_reason);
             const auto dur_ms = duration_ms(rr.time_s);
             if (state.color_output) {
                 fmt::print(fmt::fg(fmt::color::cyan), "[ XFAIL ]");
@@ -138,7 +138,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
             return rr;
         }
         rr.outcome = Outcome::XPass;
-        rr.failures.push_back(rr.xfail_reason.empty() ? "xpass" : std::string("xpass: ") + rr.xfail_reason);
+        rr.failures.push_back(rr.xfail_reason.empty() ? "xpass" : fmt::format("xpass: {}", rr.xfail_reason));
         ++c.xpass;
         ++c.failed;
         ++c.failures;
@@ -156,7 +156,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
                 fmt::print(stderr, "[ XPASS ] {} ({} ms)\n", test.name, dur_ms);
         }
         fmt::print(stderr, "{}\n\n", rr.failures.front());
-        std::string xpass_issue = rr.xfail_reason.empty() ? "XPASS" : std::string("XPASS: ") + rr.xfail_reason;
+        std::string xpass_issue = rr.xfail_reason.empty() ? "XPASS" : fmt::format("XPASS: {}", rr.xfail_reason);
         rr.summary_issues.push_back(std::move(xpass_issue));
         if (state.acc)
             gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, rr.failures.front());

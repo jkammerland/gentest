@@ -24,9 +24,9 @@ New helper tests were added in `tests/CMakeLists.txt`:
 
 New scripts/fixtures:
 
-- `cmake/CheckPublicMockModuleGccFailure.cmake`
-- `cmake/CheckMixedModuleMockRegistry.cmake`
-- `cmake/CheckModuleAutoDiscovery.cmake`
+- `tests/cmake/scripts/CheckPublicMockModuleGccFailure.cmake`
+- `tests/cmake/scripts/CheckMixedModuleMockRegistry.cmake`
+- `tests/cmake/scripts/CheckModuleAutoDiscovery.cmake`
 - `tests/cmake/mixed_module_mock_registry/`
 - `tests/cmake/module_autodiscovery/`
 
@@ -123,7 +123,7 @@ Reason:
 
 Changes:
 
-- `cmake/CheckPackageConsumer.cmake`
+- `tests/cmake/scripts/CheckPackageConsumer.cmake`
   - supports explicit `PACKAGE_TEST_C_COMPILER` / `PACKAGE_TEST_CXX_COMPILER`
 - `tests/CMakeLists.txt`
   - passes Clang into `gentest_package_consumer` on Unix when available
@@ -196,7 +196,7 @@ Fix:
 Regression:
 
 - `tests/cmake/mixed_module_mock_registry/same_block_cases.cppm`
-- `cmake/CheckMixedModuleMockRegistry.cmake`
+- `tests/cmake/scripts/CheckMixedModuleMockRegistry.cmake`
 
 ### 2. Fixed header-domain mock visibility inside named modules
 
@@ -217,7 +217,7 @@ Fix:
 Regression:
 
 - `tests/cmake/module_mock_additive_visibility/`
-- `cmake/CheckModuleMockAdditiveVisibility.cmake`
+- `tests/cmake/scripts/CheckModuleMockAdditiveVisibility.cmake`
 
 Current scope:
 
@@ -254,7 +254,7 @@ Fix:
 Regression:
 
 - `tests/cmake/module_mock_imported_sibling/`
-- `cmake/CheckModuleMockImportedSibling.cmake`
+- `tests/cmake/scripts/CheckModuleMockImportedSibling.cmake`
 - coverage includes both:
   - a named-module importer (`consumer.cppm`)
   - a classic translation-unit importer (`legacy_consumer.cpp`)
@@ -273,7 +273,7 @@ Fixes:
   - auto-discovers the installed `gentest_codegen` binary from the package prefix
 - `src/CMakeLists.txt`
   - links `gentest_runtime` transitively from `gentest_main`, so module consumers that also want the default main can link `gentest::gentest gentest::gentest_main` without adding `gentest::gentest_runtime` separately
-- `cmake/CheckPackageConsumer.cmake`
+- `tests/cmake/scripts/CheckPackageConsumer.cmake`
   - now tests the installed package without injecting an external codegen path
   - supports link-mode selection so the consumer regression proves the supported `gentest::gentest` + entry/runtime combinations
 - `tests/CMakeLists.txt`
@@ -292,7 +292,7 @@ Fix:
 
 - `src/CMakeLists.txt`
   - constrained `third_party/include` to the producer build with `$<BUILD_INTERFACE:...>`
-- `cmake/CheckPackageConsumer.cmake`
+- `tests/cmake/scripts/CheckPackageConsumer.cmake`
   - consumer project is copied out of the source tree before configure
   - all installed CMake export files under the package config directory are scanned and must not reference `${SOURCE_DIR}`
 

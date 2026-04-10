@@ -217,7 +217,7 @@ bool run_fixture_phase(std::string_view label, const std::function<void(std::str
     } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
         caught_assertion = true;
         error_out        = e.message();
-    } catch (const std::exception &e) { error_out = std::string("std::exception: ") + e.what(); } catch (...) {
+    } catch (const std::exception &e) { error_out = fmt::format("std::exception: {}", e.what()); } catch (...) {
         error_out = "unknown exception";
     }
     gentest::detail::wait_for_adopted_tokens(guard.ctx);
@@ -360,7 +360,7 @@ bool setup_shared_fixtures() {
                 caught_assertion = true;
                 // Fallback only. resolve_fixture_context_issue() prefers the recorded source-backed failure text.
                 error = e.message();
-            } catch (const std::exception &e) { error = std::string("std::exception: ") + e.what(); } catch (...) {
+            } catch (const std::exception &e) { error = fmt::format("std::exception: {}", e.what()); } catch (...) {
                 error = "unknown exception";
             }
             gentest::detail::wait_for_adopted_tokens(guard.ctx);
@@ -598,7 +598,7 @@ bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtur
     try {
         setup_ok = gentest::detail::setup_shared_fixtures();
     } catch (const std::exception &e) {
-        errors.emplace_back(std::string("shared fixture setup threw std::exception: ") + e.what());
+        errors.emplace_back(fmt::format("shared fixture setup threw std::exception: {}", e.what()));
         (void)end_shared_fixture_run(session, nullptr);
         return false;
     } catch (...) {
@@ -646,7 +646,7 @@ bool teardown_shared_fixture_runtime(std::vector<std::string> &errors, SharedFix
     try {
         teardown_ok = gentest::detail::teardown_shared_fixtures(&errors);
     } catch (const std::exception &e) {
-        errors.emplace_back(std::string("shared fixture teardown threw std::exception: ") + e.what());
+        errors.emplace_back(fmt::format("shared fixture teardown threw std::exception: {}", e.what()));
         teardown_ok = false;
     } catch (...) {
         errors.emplace_back("shared fixture teardown threw unknown exception");

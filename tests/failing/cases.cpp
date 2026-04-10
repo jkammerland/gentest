@@ -67,4 +67,19 @@ void expect_no_throw_unknown() {
     EXPECT_NO_THROW(throw 123);
 }
 
+[[using gentest: test("exceptions/assert_throw_location")]]
+void assert_throw_location() {
+    ASSERT_THROW((void)0, std::runtime_error);
+}
+
+[[using gentest: test("exceptions/assert_no_throw_unknown")]]
+void assert_no_throw_unknown() {
+    ASSERT_NO_THROW(throw 123);
+}
+
+[[using gentest: test("comparison/expect_eq_message_values")]]
+void expect_eq_message_values() {
+    EXPECT_EQ(1, 2, "comparison detail");
+}
+
 } // namespace failing

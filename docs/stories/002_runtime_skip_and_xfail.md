@@ -56,7 +56,7 @@ Add to `include/gentest/runner.h`:
   - `xfail_xpass`
   - `skip_overrides_xfail`
   - `skip_after_failure_is_fail`
-- Extend `cmake/CheckTestCounts.cmake` + `cmake/GentestTests.cmake` to optionally validate `XFAIL`/`XPASS` counts without breaking existing tests.
+- Extend `tests/cmake/scripts/CheckTestCounts.cmake` + `cmake/GentestTests.cmake` to optionally validate `XFAIL`/`XPASS` counts without breaking existing tests.
 - Add at least one JUnit check that validates XFAIL/XPASS mapping.
 
 ## Acceptance criteria

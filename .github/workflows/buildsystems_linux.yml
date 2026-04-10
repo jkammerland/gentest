@@ -205,7 +205,7 @@ jobs:
           cmake \
             -DSOURCE_DIR="${GITHUB_WORKSPACE}" \
             -DBUILD_ROOT="${GITHUB_WORKSPACE}/build/buildsystems-linux-bazel-downstream" \
-            -P "${GITHUB_WORKSPACE}/cmake/CheckBazelBzlmodConsumer.cmake"
+            -P "${GITHUB_WORKSPACE}/tests/cmake/scripts/CheckBazelBzlmodConsumer.cmake"
 
   meson:
     name: Meson • ${{ matrix.name }}
@@ -267,7 +267,7 @@ jobs:
             -DSOURCE_DIR="${GITHUB_WORKSPACE}" \
             -DBUILD_ROOT="${GITHUB_WORKSPACE}/build/buildsystems-linux-meson-downstream" \
             -DPROG="${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen" \
-            -P "${GITHUB_WORKSPACE}/cmake/CheckMesonWrapConsumer.cmake"
+            -P "${GITHUB_WORKSPACE}/tests/cmake/scripts/CheckMesonWrapConsumer.cmake"
 
   xmake:
     name: Xmake • ${{ matrix.name }}
@@ -378,4 +378,4 @@ jobs:
             -DSOURCE_DIR=\"${GITHUB_WORKSPACE}\" \
             -DBUILD_ROOT=\"${GITHUB_WORKSPACE}/build/buildsystems-linux-xmake-downstream\" \
             -DPROG=\"${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen\" \
-            -P \"${GITHUB_WORKSPACE}/cmake/CheckXmakeXrepoConsumer.cmake\""
+            -P \"${GITHUB_WORKSPACE}/tests/cmake/scripts/CheckXmakeXrepoConsumer.cmake\""

@@ -2,7 +2,7 @@ local gentest_state = {}
 local fail
 
 fail = function(message)
-    raise("gentest xmake: " .. message)
+    error("gentest xmake: " .. message, 0)
 end
 
 -- Configure the shared Xmake helper context. External consumers can override
@@ -138,8 +138,8 @@ codegen_project_root = function()
     if os.readlink then
         for _, link_name in ipairs({"xmake", "scripts"}) do
             local link_path = path.join(project_root(), link_name)
-            local ok, resolved = pcall(os.readlink, link_path)
-            if ok and resolved and resolved ~= "" then
+            local resolved = os.readlink(link_path)
+            if resolved and resolved ~= "" then
                 return path.directory(resolved)
             end
         end
@@ -205,7 +205,19 @@ local function gentest_public_linkdirs()
     return result
 end
 
-local function detect_installed_library_name(candidates)
+local function current_mode_name()
+    local mode = tostring(get_config("mode") or ""):lower()
+    if mode == "" then
+        return "release"
+    end
+    return mode
+end
+
+local function detect_installed_library_name(debug_name, release_name)
+    local candidates = {release_name, debug_name}
+    if current_mode_name() == "debug" then
+        candidates = {debug_name, release_name}
+    end
     for _, linkdir in ipairs(gentest_public_linkdirs()) do
         for _, candidate in ipairs(candidates) do
             local matches = os.files(path.join(linkdir, "*" .. candidate .. "*"))
@@ -218,11 +230,52 @@ local function detect_installed_library_name(candidates)
 end
 
 local function gentest_runtime_link_name()
-    return detect_installed_library_name({"gentest_runtimed", "gentest_runtime"})
+    return detect_installed_library_name("gentest_runtimed", "gentest_runtime")
 end
 
 local function gentest_module_link_name()
-    return detect_installed_library_name({"gentestd", "gentest"})
+    return detect_installed_library_name("gentestd", "gentest")
+end
+
+local function gentest_fmt_link_name()
+    return detect_installed_library_name("fmtd", "fmt")
+end
+
+local function gentest_uses_installed_libraries()
+    return #gentest_public_linkdirs() > 0
+end
+
+local function default_windows_llvm_contract()
+    return {
+        runtime = current_mode_name() == "debug" and "MTd" or "MT",
+        defines = {"FMT_USE_CONSTEVAL=0", "_ITERATOR_DEBUG_LEVEL=0", "_HAS_ITERATOR_DEBUGGING=0"},
+    }
+end
+
+local function resolved_windows_llvm_contract()
+    local runtime = os.getenv("GENTEST_XMAKE_WINDOWS_RUNTIME")
+    local defines = {}
+    local env_defines = os.getenv("GENTEST_XMAKE_WINDOWS_DEFINES")
+    if env_defines and env_defines ~= "" then
+        for define in env_defines:gmatch("[^;]+") do
+            if define ~= "" then
+                table.insert(defines, define)
+            end
+        end
+    end
+
+    local default_contract = default_windows_llvm_contract()
+    if (runtime and runtime ~= "") or #defines > 0 then
+        return {
+            runtime = runtime,
+            defines = defines,
+        }
+    end
+
+    return {
+        runtime = default_contract.runtime,
+        defines = default_contract.defines,
+    }
 end
 
 local function registered_target_metadata()
@@ -962,13 +1015,26 @@ function gentest_apply_windows_llvm_toolchain()
         return
     end
     local configured_toolchain = configured_toolchain_hint():lower()
+    local contract = resolved_windows_llvm_contract()
     if configured_toolchain == "llvm" then
         set_toolchains("llvm")
+        if contract.runtime and contract.runtime ~= "" then
+            set_runtimes(contract.runtime)
+        end
+        if contract.defines and #contract.defines > 0 then
+            add_defines(table.unpack(contract.defines))
+        end
         return
     end
     local cxx_tool = configured_cxx_tool_hint()
     if cxx_tool ~= "" and is_clang_tool(cxx_tool) then
         set_toolchains("llvm")
+        if contract.runtime and contract.runtime ~= "" then
+            set_runtimes(contract.runtime)
+        end
+        if contract.defines and #contract.defines > 0 then
+            add_defines(table.unpack(contract.defines))
+        end
     end
 end
 
@@ -1300,7 +1366,10 @@ function gentest_add_mocks(opts)
 
     set_policy("build.fence", true)
     set_configdir(project_root())
-    add_packages("fmt")
+    local fmt_link = gentest_fmt_link_name()
+    if not fmt_link then
+        add_packages("fmt")
+    end
     add_includedirs(incdirs())
     add_includedirs(gentest_public_include_dir(), {public = true})
     local public_linkdirs = gentest_public_linkdirs()
@@ -1310,6 +1379,9 @@ function gentest_add_mocks(opts)
     local runtime_link = gentest_runtime_link_name()
     if runtime_link then
         add_links(runtime_link)
+    end
+    if fmt_link then
+        add_links(fmt_link)
     end
     if kind == "modules" then
         local module_link = gentest_module_link_name()
@@ -1472,7 +1544,10 @@ function gentest_attach_codegen(opts)
         config.public_module_entries = materialized_public_module_entries(output_dir)
     end
     set_configdir(project_root())
-    add_packages("fmt")
+    local fmt_link = gentest_fmt_link_name()
+    if not fmt_link then
+        add_packages("fmt")
+    end
     add_includedirs(incdirs())
     add_includedirs(gentest_public_include_dir(), {public = true})
     local public_linkdirs = gentest_public_linkdirs()
@@ -1482,6 +1557,9 @@ function gentest_attach_codegen(opts)
     local runtime_link = gentest_runtime_link_name()
     if runtime_link then
         add_links(runtime_link)
+    end
+    if fmt_link then
+        add_links(fmt_link)
     end
     if kind == "modules" then
         local module_link = gentest_module_link_name()
@@ -1574,7 +1652,9 @@ function gentest_add_public_modules(opts)
 
     set_policy("build.fence", true)
     set_configdir(project_root())
-    add_packages("fmt")
+    if not gentest_fmt_link_name() then
+        add_packages("fmt")
+    end
     add_includedirs(incdirs())
     add_includedirs(gentest_public_include_dir(), {public = true})
     add_includedirs(out_dir_abs, {public = true})

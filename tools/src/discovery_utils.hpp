@@ -6,6 +6,7 @@
 
 #include <cctype>
 #include <clang/AST/Decl.h>
+#include <clang/AST/DeclTemplate.h>
 #include <functional>
 #include <map>
 #include <string>
@@ -84,6 +85,30 @@ inline bool should_enter_char_literal(std::string_view text, std::size_t index) 
     return true;
 }
 
+inline std::string next_identifier_token(std::string_view text, std::size_t index) {
+    while (index < text.size() && std::isspace(static_cast<unsigned char>(text[index])) != 0) {
+        ++index;
+    }
+    if (index >= text.size()) {
+        return {};
+    }
+    const char first = text[index];
+    if (std::isalpha(static_cast<unsigned char>(first)) == 0 && first != '_') {
+        return {};
+    }
+
+    std::size_t end = index + 1;
+    while (end < text.size()) {
+        const char ch = text[end];
+        if (std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_') {
+            ++end;
+            continue;
+        }
+        break;
+    }
+    return std::string(text.substr(index, end - index));
+}
+
 inline bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
     int  depth        = 0;
     int  nested_angle = 0;
@@ -159,7 +184,22 @@ inline bool has_matching_angle_close(std::string_view text, std::size_t open_ind
                 case ';':
                 case '*':
                 case '&': return true;
-                default: return false;
+                default: {
+                    const std::string token = next_identifier_token(text, idx + 1);
+                    if (token == "const" || token == "volatile") {
+                        return true;
+                    }
+                    if (token.empty()) {
+                        return false;
+                    }
+                    std::size_t token_start = idx + 1;
+                    while (token_start < text.size() && std::isspace(static_cast<unsigned char>(text[token_start])) != 0) {
+                        ++token_start;
+                    }
+                    const std::size_t token_end = token_start + token.size();
+                    const char        after     = next_non_space(text, token_end);
+                    return after == '{';
+                }
                 }
             }
             --nested_angle;

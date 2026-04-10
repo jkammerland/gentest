@@ -305,12 +305,12 @@ That includes at least:
 - [`xmake/gentest.lua`](../../xmake/gentest.lua)
 - [`meson.build`](../../meson.build)
 - Bazel CMake smoke checks:
-  - [`cmake/CheckBazelTextualConsumer.cmake`](../../cmake/CheckBazelTextualConsumer.cmake)
-  - [`cmake/CheckBazelModuleConsumer.cmake`](../../cmake/CheckBazelModuleConsumer.cmake)
+  - [`tests/cmake/scripts/CheckBazelTextualConsumer.cmake`](../../tests/cmake/scripts/CheckBazelTextualConsumer.cmake)
+  - [`tests/cmake/scripts/CheckBazelModuleConsumer.cmake`](../../tests/cmake/scripts/CheckBazelModuleConsumer.cmake)
 - Xmake CMake smoke checks:
-  - [`cmake/CheckXmakeTextualConsumer.cmake`](../../cmake/CheckXmakeTextualConsumer.cmake)
-  - [`cmake/CheckXmakeTextualConsumerRegistration.cmake`](../../cmake/CheckXmakeTextualConsumerRegistration.cmake)
-  - [`cmake/CheckXmakeModuleConsumer.cmake`](../../cmake/CheckXmakeModuleConsumer.cmake)
+  - [`tests/cmake/scripts/CheckXmakeTextualConsumer.cmake`](../../tests/cmake/scripts/CheckXmakeTextualConsumer.cmake)
+  - [`tests/cmake/scripts/CheckXmakeTextualConsumerRegistration.cmake`](../../tests/cmake/scripts/CheckXmakeTextualConsumerRegistration.cmake)
+  - [`tests/cmake/scripts/CheckXmakeModuleConsumer.cmake`](../../tests/cmake/scripts/CheckXmakeModuleConsumer.cmake)
   - Use explicit test-only target-toolchain knobs for GCC-target coverage:
     `GENTEST_XMAKE_TEST_TARGET_CC` and `GENTEST_XMAKE_TEST_TARGET_CXX`
 - repo-local buildsystem workflows:
