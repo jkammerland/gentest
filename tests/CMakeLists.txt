@@ -3014,6 +3014,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_registration_same_module_impl APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_registration_compile_definition_import
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_compile_definition_import
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationCompileDefinitionImport.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_compile_definition_import APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_register_requires_import
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_requires_import
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegisterRequiresImport.cmake

@@ -10,7 +10,18 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/GentestCodegen.cmake")
 
-_gentest_extract_module_name("${INPUT}" _gentest_module_name ${INCLUDE_DIRS})
+set(_gentest_include_dirs "")
+if(DEFINED INCLUDE_DIRS_SERIALIZED AND NOT "${INCLUDE_DIRS_SERIALIZED}" STREQUAL "")
+    string(REPLACE "__GENTEST_LISTSEP__" ";" _gentest_include_dirs "${INCLUDE_DIRS_SERIALIZED}")
+endif()
+
+set(_gentest_defines "")
+if(DEFINED DEFINES_SERIALIZED AND NOT "${DEFINES_SERIALIZED}" STREQUAL "")
+    string(REPLACE "__GENTEST_LISTSEP__" ";" _gentest_defines "${DEFINES_SERIALIZED}")
+endif()
+
+_gentest_extract_module_name("${INPUT}" _gentest_module_name
+    ${_gentest_include_dirs} __gentest_defines__ ${_gentest_defines})
 
 get_filename_component(_gentest_output_dir "${OUTPUT}" DIRECTORY)
 file(MAKE_DIRECTORY "${_gentest_output_dir}")

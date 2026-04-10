@@ -1631,7 +1631,30 @@ function(_gentest_collect_active_module_statements input out_statements)
     set(_gentest_statement_buffer "")
     set(_gentest_active_statements "")
     get_filename_component(_gentest_source_dir "${input}" DIRECTORY)
-    set(_gentest_include_dirs ${ARGN})
+    set(_gentest_include_dirs "")
+    set(_gentest_defined_macros "")
+    set(_gentest_collect_mode "include_dirs")
+    foreach(_gentest_arg IN LISTS ARGN)
+        if(_gentest_arg STREQUAL "__gentest_defines__")
+            set(_gentest_collect_mode "defines")
+            continue()
+        endif()
+        if(_gentest_collect_mode STREQUAL "include_dirs")
+            list(APPEND _gentest_include_dirs "${_gentest_arg}")
+        else()
+            list(APPEND _gentest_defined_macros "${_gentest_arg}")
+        endif()
+    endforeach()
+    foreach(_gentest_define IN LISTS _gentest_defined_macros)
+        if(_gentest_define MATCHES "^([A-Za-z_][A-Za-z0-9_]*)(=(.*))?$")
+            set(_gentest_pp_macro_var "_gentest_pp_macro_${CMAKE_MATCH_1}")
+            if(DEFINED CMAKE_MATCH_3 AND NOT "${CMAKE_MATCH_3}" STREQUAL "")
+                set(${_gentest_pp_macro_var} "${CMAKE_MATCH_3}")
+            else()
+                set(${_gentest_pp_macro_var} "1")
+            endif()
+        endif()
+    endforeach()
 
     while(_gentest_idx LESS _gentest_text_len)
         math(EXPR _gentest_remaining_len "${_gentest_text_len} - ${_gentest_idx}")
@@ -2392,7 +2415,7 @@ endfunction()
 
 function(_gentest_generate_module_registration_impl_sources)
     set(one_value_args TARGET)
-    set(multi_value_args TUS WRAPPER_HEADERS IMPL_CPP)
+    set(multi_value_args TUS WRAPPER_HEADERS IMPL_CPP INCLUDE_DIRS_SERIALIZED DEFINES_SERIALIZED)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
     set(_gentest_codegen_cmake_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
 
@@ -2402,6 +2425,8 @@ function(_gentest_generate_module_registration_impl_sources)
         list(GET GENTEST_TUS ${_idx} _gentest_src_abs)
         list(GET GENTEST_WRAPPER_HEADERS ${_idx} _gentest_wrap_header)
         list(GET GENTEST_IMPL_CPP ${_idx} _gentest_impl_cpp)
+        list(GET GENTEST_INCLUDE_DIRS_SERIALIZED ${_idx} _gentest_include_dirs_serialized)
+        list(GET GENTEST_DEFINES_SERIALIZED ${_idx} _gentest_defines_serialized)
         get_filename_component(_gentest_wrap_header_name "${_gentest_wrap_header}" NAME)
         add_custom_command(
             OUTPUT "${_gentest_impl_cpp}"
@@ -2409,6 +2434,8 @@ function(_gentest_generate_module_registration_impl_sources)
                 -DINPUT=${_gentest_src_abs}
                 -DOUTPUT=${_gentest_impl_cpp}
                 -DHEADER_NAME=${_gentest_wrap_header_name}
+                -DINCLUDE_DIRS_SERIALIZED=${_gentest_include_dirs_serialized}
+                -DDEFINES_SERIALIZED=${_gentest_defines_serialized}
                 -P "${_gentest_codegen_cmake_dir}/WriteModuleRegistrationImpl.cmake"
             DEPENDS
                 "${_gentest_src_abs}"
@@ -2477,6 +2504,75 @@ function(_gentest_collect_scan_include_dirs target source out_dirs)
 
     list(REMOVE_DUPLICATES _gentest_dirs)
     set(${out_dirs} "${_gentest_dirs}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_collect_scan_defines target source out_defines)
+    set(_gentest_defines "")
+    set(_gentest_compile_def_props COMPILE_DEFINITIONS)
+    set(_gentest_configs "")
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(_gentest_configs ${CMAKE_CONFIGURATION_TYPES})
+    elseif(CMAKE_BUILD_TYPE)
+        set(_gentest_configs ${CMAKE_BUILD_TYPE})
+    endif()
+    foreach(_cfg IN LISTS _gentest_configs)
+        string(TOUPPER "${_cfg}" _cfg_upper)
+        list(APPEND _gentest_compile_def_props "COMPILE_DEFINITIONS_${_cfg_upper}")
+    endforeach()
+    list(REMOVE_DUPLICATES _gentest_compile_def_props)
+
+    foreach(_gentest_prop IN LISTS _gentest_compile_def_props)
+        get_target_property(_gentest_prop_values ${target} ${_gentest_prop})
+        if(NOT _gentest_prop_values STREQUAL "NOTFOUND")
+            foreach(_gentest_def IN LISTS _gentest_prop_values)
+                if("${_gentest_def}" MATCHES "\\$<")
+                    continue()
+                endif()
+                list(APPEND _gentest_defines "${_gentest_def}")
+            endforeach()
+        endif()
+
+        get_source_file_property(_gentest_source_prop_values "${source}" ${_gentest_prop})
+        if(NOT _gentest_source_prop_values STREQUAL "NOTFOUND")
+            foreach(_gentest_def IN LISTS _gentest_source_prop_values)
+                if("${_gentest_def}" MATCHES "\\$<")
+                    continue()
+                endif()
+                list(APPEND _gentest_defines "${_gentest_def}")
+            endforeach()
+        endif()
+    endforeach()
+
+    set(_gentest_expect_define FALSE)
+    foreach(_gentest_arg IN LISTS ARGN)
+        if(_gentest_expect_define)
+            set(_gentest_expect_define FALSE)
+            if(NOT "${_gentest_arg}" MATCHES "\\$<")
+                list(APPEND _gentest_defines "${_gentest_arg}")
+            endif()
+            continue()
+        endif()
+
+        if(_gentest_arg STREQUAL "-D" OR _gentest_arg STREQUAL "/D")
+            set(_gentest_expect_define TRUE)
+            continue()
+        endif()
+
+        foreach(_gentest_prefix IN ITEMS "-D" "/D")
+            string(LENGTH "${_gentest_prefix}" _gentest_prefix_len)
+            string(SUBSTRING "${_gentest_arg}" 0 ${_gentest_prefix_len} _gentest_arg_prefix)
+            if(_gentest_arg_prefix STREQUAL _gentest_prefix)
+                string(SUBSTRING "${_gentest_arg}" ${_gentest_prefix_len} -1 _gentest_def)
+                if(NOT "${_gentest_def}" STREQUAL "" AND NOT "${_gentest_def}" MATCHES "\\$<")
+                    list(APPEND _gentest_defines "${_gentest_def}")
+                endif()
+                break()
+            endif()
+        endforeach()
+    endforeach()
+
+    list(REMOVE_DUPLICATES _gentest_defines)
+    set(${out_defines} "${_gentest_defines}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets)
@@ -2660,6 +2756,8 @@ function(gentest_register_module_tests target)
     set(_gentest_tus "")
     set(_gentest_tu_source_entries "")
     set(_gentest_module_names "")
+    set(_gentest_scan_include_dirs_serialized "")
+    set(_gentest_scan_defines_serialized "")
     foreach(_gentest_src IN LISTS _gentest_scan_sources)
         if("${_gentest_src}" MATCHES "\\$<")
             message(FATAL_ERROR
@@ -2669,7 +2767,9 @@ function(gentest_register_module_tests target)
 
         _gentest_normalize_path_and_key("${_gentest_src}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_src_abs _gentest_src_key)
         _gentest_collect_scan_include_dirs(${target} "${_gentest_src}" _gentest_scan_include_dirs ${GENTEST_CLANG_ARGS})
-        _gentest_try_extract_module_name("${_gentest_src_abs}" _gentest_module_name ${_gentest_scan_include_dirs})
+        _gentest_collect_scan_defines(${target} "${_gentest_src}" _gentest_scan_defines ${GENTEST_CLANG_ARGS})
+        _gentest_try_extract_module_name("${_gentest_src_abs}" _gentest_module_name
+            ${_gentest_scan_include_dirs} __gentest_defines__ ${_gentest_scan_defines})
         if(_gentest_module_name STREQUAL "")
             message(FATAL_ERROR
                 "gentest_register_module_tests(${target}): FILE_SET '${GENTEST_FILE_SET}' source '${_gentest_src}' is not a named module unit")
@@ -2681,7 +2781,7 @@ function(gentest_register_module_tests target)
         endif()
 
         _gentest_file_exports_named_module("${_gentest_src_abs}" "${_gentest_module_name}" _gentest_exports_module
-            ${_gentest_scan_include_dirs})
+            ${_gentest_scan_include_dirs} __gentest_defines__ ${_gentest_scan_defines})
         if(NOT _gentest_exports_module)
             message(FATAL_ERROR
                 "gentest_register_module_tests(${target}): FILE_SET '${GENTEST_FILE_SET}' source '${_gentest_src}' must be a primary "
@@ -2689,7 +2789,7 @@ function(gentest_register_module_tests target)
         endif()
 
         _gentest_file_has_module_global_fragment("${_gentest_src_abs}" _gentest_has_global_fragment
-            ${_gentest_scan_include_dirs})
+            ${_gentest_scan_include_dirs} __gentest_defines__ ${_gentest_scan_defines})
         if(_gentest_has_global_fragment)
             message(FATAL_ERROR
                 "gentest_register_module_tests(${target}): FILE_SET '${GENTEST_FILE_SET}' source '${_gentest_src}' uses a global "
@@ -2697,7 +2797,7 @@ function(gentest_register_module_tests target)
         endif()
 
         _gentest_file_has_private_module_fragment("${_gentest_src_abs}" _gentest_has_private_fragment
-            ${_gentest_scan_include_dirs})
+            ${_gentest_scan_include_dirs} __gentest_defines__ ${_gentest_scan_defines})
         if(_gentest_has_private_fragment)
             message(FATAL_ERROR
                 "gentest_register_module_tests(${target}): FILE_SET '${GENTEST_FILE_SET}' source '${_gentest_src}' uses a private "
@@ -2705,16 +2805,21 @@ function(gentest_register_module_tests target)
         endif()
 
         _gentest_file_imports_named_module("${_gentest_src_abs}" "gentest" _gentest_imports_gentest
-            ${_gentest_scan_include_dirs})
+            ${_gentest_scan_include_dirs} __gentest_defines__ ${_gentest_scan_defines})
         if(NOT _gentest_imports_gentest)
             message(FATAL_ERROR
                 "gentest_register_module_tests(${target}): FILE_SET '${GENTEST_FILE_SET}' source '${_gentest_src}' must directly "
                 "import gentest ('import gentest;').")
         endif()
 
+        string(JOIN "__GENTEST_LISTSEP__" _gentest_scan_include_dirs_joined ${_gentest_scan_include_dirs})
+        string(JOIN "__GENTEST_LISTSEP__" _gentest_scan_defines_joined ${_gentest_scan_defines})
+
         list(APPEND _gentest_tu_source_entries "${_gentest_src}")
         list(APPEND _gentest_tus "${_gentest_src_abs}")
         list(APPEND _gentest_module_names "${_gentest_module_name}")
+        list(APPEND _gentest_scan_include_dirs_serialized "${_gentest_scan_include_dirs_joined}")
+        list(APPEND _gentest_scan_defines_serialized "${_gentest_scan_defines_joined}")
     endforeach()
 
     _gentest_prepare_module_registration_mode(
@@ -2731,7 +2836,9 @@ function(gentest_register_module_tests target)
         TARGET ${target}
         TUS ${_gentest_tus}
         WRAPPER_HEADERS ${_gentest_wrapper_headers}
-        IMPL_CPP ${_gentest_impl_cpp})
+        IMPL_CPP ${_gentest_impl_cpp}
+        INCLUDE_DIRS_SERIALIZED ${_gentest_scan_include_dirs_serialized}
+        DEFINES_SERIALIZED ${_gentest_scan_defines_serialized})
 
     _gentest_resolve_codegen_backend(
         TARGET ${target}
@@ -2928,7 +3035,9 @@ function(gentest_attach_codegen target)
         endif()
         _gentest_normalize_path_and_key("${_gentest_src}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_src_abs _gentest_src_key)
         _gentest_collect_scan_include_dirs(${target} "${_gentest_src}" _gentest_scan_include_dirs ${GENTEST_CLANG_ARGS})
-        _gentest_try_extract_module_name("${_gentest_src_abs}" _gentest_module_name ${_gentest_scan_include_dirs})
+        _gentest_collect_scan_defines(${target} "${_gentest_src}" _gentest_scan_defines ${GENTEST_CLANG_ARGS})
+        _gentest_try_extract_module_name("${_gentest_src_abs}" _gentest_module_name
+            ${_gentest_scan_include_dirs} __gentest_defines__ ${_gentest_scan_defines})
         set(_gentest_is_module FALSE)
         if(NOT _gentest_module_name STREQUAL "")
             set(_gentest_is_module TRUE)
