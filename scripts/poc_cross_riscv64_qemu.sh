@@ -86,7 +86,6 @@ need_cmd cmake
 need_cmd ninja
 need_cmd "${target_cc}"
 need_cmd "${target_cxx}"
-need_cmd "${qemu_prog}"
 
 sysroot="${SYSROOT:-}"
 explicit_sysroot=0
@@ -112,6 +111,10 @@ if ! has_loader "${sysroot}"; then
   echo "Cross sysroot '${sysroot}' does not contain ${loader_name}." >&2
   echo "Install a riscv64 glibc/sysroot and/or rerun with SYSROOT=/path/to/sysroot." >&2
   exit 1
+fi
+
+if [[ "${run_tests}" -eq 1 ]]; then
+  need_cmd "${qemu_prog}"
 fi
 
 echo "Repo:            ${root}"
@@ -164,6 +167,10 @@ target_args=(
 
 if [[ "${explicit_sysroot}" -eq 1 ]]; then
   target_args+=(-DCMAKE_SYSROOT="${sysroot}")
+fi
+
+if [[ "${run_tests}" -eq 1 ]]; then
+  target_args+=("-DCMAKE_CROSSCOMPILING_EMULATOR=${qemu_prog};-L;${sysroot}")
 fi
 
 if [[ -n "${GENTEST_CODEGEN_HOST_CLANG:-}" ]]; then

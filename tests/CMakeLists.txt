@@ -3183,6 +3183,12 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_qemu_toolchain_runtime_root_derivation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckQemuToolchainRuntimeRootDerivation.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
     gentest_package_workflow_preset
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageWorkflowPreset.cmake
