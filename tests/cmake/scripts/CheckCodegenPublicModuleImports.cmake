@@ -369,3 +369,8 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 
 message(STATUS "Observed public module import consumer success on the real build-time codegen path for scan-deps OFF/ON/AUTO")
+
+# This helper materializes several nested producer/consumer build trees. Remove
+# them after success so long ctest runs do not accumulate module artifacts until
+# the runner disk fills late in the suite.
+gentest_remove_fixture_path("${_work_dir}")

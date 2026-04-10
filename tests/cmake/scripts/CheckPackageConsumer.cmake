@@ -473,3 +473,9 @@ run_or_fail(COMMAND "${_consumer_exe}" --kind=bench --run=consumer/module_bench)
 
 message(STATUS "Run consumer jitter...")
 run_or_fail(COMMAND "${_consumer_exe}" --kind=jitter --run=consumer/module_jitter)
+
+# Nested producer + consumer builds can occupy substantial disk space on
+# module-enabled Debug lanes. Remove the scratch roots after success so later
+# helper tests do not inherit a nearly full workspace.
+gentest_remove_fixture_path("${_work_dir}")
+gentest_remove_fixture_path("${_producer_root}")

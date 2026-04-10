@@ -4,6 +4,39 @@ function(gentest_skip_test reason)
   message(STATUS "${GENTEST_SKIP_TEST_PREFIX} ${reason}")
 endfunction()
 
+function(gentest_remove_fixture_path path)
+  if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
+    message(FATAL_ERROR "gentest_remove_fixture_path requires BUILD_ROOT to be set")
+  endif()
+  if("${path}" STREQUAL "")
+    message(FATAL_ERROR "gentest_remove_fixture_path requires a non-empty path")
+  endif()
+
+  set(_gentest_remove_candidate "${path}")
+  set(_gentest_remove_build_root "${BUILD_ROOT}")
+  cmake_path(ABSOLUTE_PATH _gentest_remove_candidate NORMALIZE OUTPUT_VARIABLE _gentest_remove_candidate_abs)
+  cmake_path(ABSOLUTE_PATH _gentest_remove_build_root NORMALIZE OUTPUT_VARIABLE _gentest_remove_build_root_abs)
+
+  string(TOLOWER "${_gentest_remove_candidate_abs}" _gentest_remove_candidate_abs_cmp)
+  string(TOLOWER "${_gentest_remove_build_root_abs}" _gentest_remove_build_root_abs_cmp)
+
+  if(_gentest_remove_candidate_abs_cmp STREQUAL _gentest_remove_build_root_abs_cmp)
+    message(FATAL_ERROR
+      "gentest_remove_fixture_path refuses to remove BUILD_ROOT directly: '${_gentest_remove_candidate_abs}'")
+  endif()
+
+  set(_gentest_remove_build_root_prefix "${_gentest_remove_build_root_abs_cmp}/")
+  string(FIND "${_gentest_remove_candidate_abs_cmp}/" "${_gentest_remove_build_root_prefix}" _gentest_remove_prefix_pos)
+  if(NOT _gentest_remove_prefix_pos EQUAL 0)
+    message(FATAL_ERROR
+      "gentest_remove_fixture_path refuses to remove a path outside BUILD_ROOT.\n"
+      "BUILD_ROOT: ${_gentest_remove_build_root_abs}\n"
+      "candidate: ${_gentest_remove_candidate_abs}")
+  endif()
+
+  file(REMOVE_RECURSE "${_gentest_remove_candidate_abs}")
+endfunction()
+
 function(_gentest_ninja_version program out_version)
   if(NOT EXISTS "${program}")
     set(${out_version} "" PARENT_SCOPE)
