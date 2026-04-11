@@ -61,6 +61,7 @@ docs/latex/
 *.tmp
 *.temp
 *.log
+build_time_*.txt
 .gentest_codegen_modules_*/
 
 # Ignore local worktree directories
