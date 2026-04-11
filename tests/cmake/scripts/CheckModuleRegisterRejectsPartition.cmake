@@ -1,43 +1,28 @@
-# Requires:
-#  -DSOURCE_DIR=<fixture source dir>
-#  -DBUILD_ROOT=<path to parent build dir>
-#  -DGENTEST_SOURCE_DIR=<path to gentest source tree>
-#  -DGENERATOR=<cmake generator name>
-# Optional:
-#  -DGENERATOR_PLATFORM=<platform>
-#  -DGENERATOR_TOOLSET=<toolset>
-#  -DTOOLCHAIN_FILE=<toolchain.cmake>
-#  -DMAKE_PROGRAM=<path>
-#  -DC_COMPILER=<path>
-#  -DCXX_COMPILER=<path>
-#  -DBUILD_TYPE=<Debug|Release|...>
-
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleRegistrationWithoutImport.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckModuleRegisterRejectsPartition.cmake: SOURCE_DIR not set")
 endif()
 if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleRegistrationWithoutImport.cmake: BUILD_ROOT not set")
+  message(FATAL_ERROR "CheckModuleRegisterRejectsPartition.cmake: BUILD_ROOT not set")
 endif()
 if(NOT DEFINED GENERATOR OR "${GENERATOR}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleRegistrationWithoutImport.cmake: GENERATOR not set")
+  message(FATAL_ERROR "CheckModuleRegisterRejectsPartition.cmake: GENERATOR not set")
 endif()
 if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
-  message(FATAL_ERROR "CheckModuleRegistrationWithoutImport.cmake: GENTEST_SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckModuleRegisterRejectsPartition.cmake: GENTEST_SOURCE_DIR not set")
 endif()
 
-include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-set(_work_dir "${BUILD_ROOT}/module_registration_without_import")
+set(_work_dir "${BUILD_ROOT}/module_registration_rejects_partition")
 set(_src_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
-file(REMOVE_RECURSE "${_work_dir}")
+gentest_remove_fixture_path("${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
-  gentest_skip_test("legacy wrapper-mode module registration without import regression: clang/clang++ not found")
+  gentest_skip_test("clean module registration partition rejection regression: clang/clang++ not found")
   return()
 endif()
 
@@ -56,7 +41,7 @@ set(_cmake_cache_args
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
   gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
   if(NOT _supported_ninja)
-    gentest_skip_test("legacy wrapper-mode module registration without import regression: ${_supported_ninja_reason}")
+    gentest_skip_test("clean module registration partition rejection regression: ${_supported_ninja_reason}")
     return()
   endif()
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
@@ -83,8 +68,7 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
-message(STATUS "Configure module registration-without-import fixture...")
-gentest_check_run_or_fail(
+execute_process(
   COMMAND
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
@@ -92,22 +76,22 @@ gentest_check_run_or_fail(
     -B "${_build_dir}"
     ${_cmake_cache_args}
   WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
+  RESULT_VARIABLE _rc
+  OUTPUT_VARIABLE _out
+  ERROR_VARIABLE _err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
 
-message(STATUS "Build module registration-without-import fixture...")
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target module_registration_without_import
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
-set(_exe "${_build_dir}/module_registration_without_import")
-if(CMAKE_HOST_WIN32)
-  set(_exe "${_exe}.exe")
+if(_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Expected configure to fail for a partition file set passed to gentest_register_module_tests().\n"
+    "--- stdout ---\n${_out}\n--- stderr ---\n${_err}\n")
 endif()
 
-gentest_check_run_or_fail(
-  COMMAND "${_exe}" --run=module/no_import
-  WORKING_DIRECTORY "${_build_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
-message(STATUS "Legacy wrapper-mode module registration without explicit gentest import regression passed")
+set(_combined "${_out}\n${_err}")
+string(FIND "${_combined}" "declares partition" _diagnostic_pos)
+if(_diagnostic_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected clean module registration configure failure to mention partition rejection.\n"
+    "--- stdout ---\n${_out}\n--- stderr ---\n${_err}\n")
+endif()

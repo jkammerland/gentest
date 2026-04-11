@@ -217,6 +217,17 @@ fs::path resolve_tu_header_output(const CollectorOptions &opts, std::size_t idx)
     return header_out;
 }
 
+fs::path resolve_tu_registration_impl_output(const CollectorOptions &opts, std::size_t idx) {
+    if (idx < opts.tu_registration_impl_outputs.size() && !opts.tu_registration_impl_outputs[idx].empty()) {
+        return opts.tu_registration_impl_outputs[idx];
+    }
+
+    fs::path    out  = opts.tu_output_dir;
+    std::string stem = shorten_generated_stem(fs::path(opts.sources[idx]).stem().string());
+    out /= fmt::format("tu_{:04d}_{}.registration.gentest.cpp", static_cast<unsigned>(idx), stem);
+    return out;
+}
+
 bool is_module_interface_source(const CollectorOptions &opts, const fs::path &path) {
     if (opts.module_interface_sources.contains(path.string())) {
         return true;
@@ -866,6 +877,32 @@ void replace_all(std::string &inout, std::string_view needle, std::string_view r
     }
 }
 
+struct ModuleRegistrationImplRenderInputs {
+    std::string_view module_name;
+    std::string_view register_fn;
+    std::string_view wrapper_impls;
+    std::string_view forward_decl_block;
+    std::string_view trait_declarations;
+    std::string_view case_entries;
+    std::string_view fixture_registrations;
+    std::size_t      case_count = 0;
+};
+
+std::string render_module_registration_impl_source(const ModuleRegistrationImplRenderInputs &inputs) {
+    std::string impl_content = std::string(tpl::tu_registration_impl);
+    replace_all(impl_content, "{{MODULE_NAME}}", std::string(inputs.module_name));
+    replace_all(impl_content, "{{WRAPPER_SUPPORT_COMMON}}", std::string(tpl::wrapper_support_common));
+    replace_all(impl_content, "{{REGISTRATION_COMMON}}", std::string(tpl::registration_common));
+    replace_all(impl_content, "{{FORWARD_DECLS}}", std::string(inputs.forward_decl_block));
+    replace_all(impl_content, "{{TRAIT_DECLS}}", std::string(inputs.trait_declarations));
+    replace_all(impl_content, "{{GLOBAL_WRAPPER_IMPLS}}", std::string(inputs.wrapper_impls));
+    replace_all(impl_content, "{{CASE_COUNT}}", std::to_string(inputs.case_count));
+    replace_all(impl_content, "{{CASE_INITS}}", std::string(inputs.case_entries));
+    replace_all(impl_content, "{{FIXTURE_REGISTRATIONS}}", std::string(inputs.fixture_registrations));
+    replace_all(impl_content, "{{REGISTER_FN}}", std::string(inputs.register_fn));
+    return impl_content;
+}
+
 bool requires_global_wrapper_impls_placeholder(const std::string &template_content) {
     if (template_content.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
         return false;
@@ -1060,16 +1097,32 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
 
         // Guard against multiple input sources mapping to the same output header
         // name (would be nondeterministic under parallel emission).
+        const bool emit_registration_headers = opts.emit_module_wrappers || opts.tu_registration_impl_outputs.empty();
         std::unordered_map<std::string, std::string> header_owner;
+        std::unordered_map<std::string, std::string> registration_impl_owner;
         header_owner.reserve(opts.sources.size());
+        registration_impl_owner.reserve(opts.sources.size());
         for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
-            const auto       &src        = opts.sources[idx];
-            fs::path          header_out = resolve_tu_header_output(opts, idx);
-            const std::string key        = casefolded_path_key(header_out);
-            auto [it, inserted]          = header_owner.emplace(key, src);
-            if (!inserted) {
-                log_err("gentest_codegen: multiple sources map to the same TU output header '{}': '{}' and '{}'\n", key, it->second, src);
-                return 1;
+            const auto &src = opts.sources[idx];
+            if (emit_registration_headers) {
+                fs::path          header_out = resolve_tu_header_output(opts, idx);
+                const std::string key        = casefolded_path_key(header_out);
+                auto [it, inserted]          = header_owner.emplace(key, src);
+                if (!inserted) {
+                    log_err("gentest_codegen: multiple sources map to the same TU output header '{}': '{}' and '{}'\n", key, it->second,
+                            src);
+                    return 1;
+                }
+            }
+            if (!opts.emit_module_wrappers || !opts.tu_registration_impl_outputs.empty()) {
+                fs::path          registration_impl_out = resolve_tu_registration_impl_output(opts, idx);
+                const std::string registration_impl_key = casefolded_path_key(registration_impl_out);
+                auto [impl_it, impl_inserted]           = registration_impl_owner.emplace(registration_impl_key, src);
+                if (!impl_inserted) {
+                    log_err("gentest_codegen: multiple sources map to the same registration implementation output '{}': '{}' and '{}'\n",
+                            registration_impl_key, impl_it->second, src);
+                    return 1;
+                }
             }
         }
 
@@ -1086,35 +1139,88 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             const auto              &tu_cases    = source_data ? source_data->cases : empty_cases;
             const auto              &tu_fixtures = source_data ? source_data->fixtures : empty_fixtures;
 
-            fs::path header_out = resolve_tu_header_output(opts, idx);
-            if (!ensure_parent_dir(header_out)) {
-                statuses[idx] = 1;
-                return;
-            }
-
             const auto        parsed_idx = parse_tu_index(source_path.filename().string());
             const std::string register_fn =
                 fmt::format("register_tu_{:04d}", parsed_idx.has_value() ? *parsed_idx : static_cast<std::uint32_t>(idx));
 
-            std::string header_content;
-            if (tu_cases.empty() && tu_fixtures.empty()) {
-                header_content = "// This file is auto-generated by gentest_codegen.\n"
-                                 "// Do not edit manually.\n\n"
-                                 "#pragma once\n\n"
-                                 "// No gentest registrations were discovered for this translation unit.\n";
-            } else {
-                // Registration header (compiled via a CMake-generated shim TU).
-                header_content = std::string(tpl::tu_registration_header);
+            if (emit_registration_headers) {
+                fs::path header_out = resolve_tu_header_output(opts, idx);
+                if (!ensure_parent_dir(header_out)) {
+                    statuses[idx] = 1;
+                    return;
+                }
 
-                // Render test wrappers and cases for this TU.
-                std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
+                std::string header_content;
+                if (tu_cases.empty() && tu_fixtures.empty()) {
+                    header_content = "// This file is auto-generated by gentest_codegen.\n"
+                                     "// Do not edit manually.\n\n"
+                                     "#pragma once\n\n"
+                                     "// No gentest registrations were discovered for this translation unit.\n";
+                } else {
+                    // Registration header (compiled via a CMake-generated shim TU).
+                    header_content = std::string(tpl::tu_registration_header);
 
+                    // Render test wrappers and cases for this TU.
+                    std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
+
+                    auto                     traits = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
+                    std::string              trait_declarations      = std::move(traits.declarations);
+                    std::vector<std::string> tag_array_names         = std::move(traits.tag_names);
+                    std::vector<std::string> requirement_array_names = std::move(traits.req_names);
+
+                    std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
+
+                    std::string case_entries;
+                    if (tu_cases.empty()) {
+                        case_entries = "    // No test cases discovered during code generation.\n";
+                    } else {
+                        case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
+                    }
+                    std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
+
+                    replace_all(header_content, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
+                    replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
+                    replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
+                    replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
+                    replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
+                    if (header_content.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
+                        replace_all(header_content, "{{GLOBAL_WRAPPER_IMPLS}}", wrapper_impls);
+                        replace_all(header_content, "{{WRAPPER_IMPLS}}", "");
+                    } else {
+                        replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
+                    }
+                    replace_all(header_content, "{{CASE_INITS}}", case_entries);
+                    replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
+                    replace_all(header_content, "{{REGISTER_FN}}", register_fn);
+                }
+
+                if (!write_file_atomic_if_changed(header_out, header_content)) {
+                    statuses[idx] = 1;
+                    return;
+                }
+            }
+
+            if (!opts.emit_module_wrappers && is_module_interface_source(opts, source_path)) {
+                std::string module_name;
+                if (const auto module_it = opts.module_interface_names_by_source.find(opts.sources[idx]);
+                    module_it != opts.module_interface_names_by_source.end()) {
+                    module_name = module_it->second;
+                } else if (const auto discovered_module_name = named_module_name_from_source_file(source_path);
+                           discovered_module_name.has_value()) {
+                    module_name = *discovered_module_name;
+                }
+                if (module_name.empty()) {
+                    log_err("gentest_codegen: failed to determine module name for clean registration source '{}'\n", source_path.string());
+                    statuses[idx] = 1;
+                    return;
+                }
+
+                const std::string        forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
                 auto                     traits             = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
                 std::string              trait_declarations = std::move(traits.declarations);
                 std::vector<std::string> tag_array_names    = std::move(traits.tag_names);
                 std::vector<std::string> requirement_array_names = std::move(traits.req_names);
-
-                std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
+                const std::string        wrapper_impls           = render::render_wrappers(tu_cases, wrapper_templates);
 
                 std::string case_entries;
                 if (tu_cases.empty()) {
@@ -1122,32 +1228,33 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
                 } else {
                     case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
                 }
-                std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
+                const std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
+                const std::string impl_content          = render_module_registration_impl_source(ModuleRegistrationImplRenderInputs{
+                             .module_name           = module_name,
+                             .register_fn           = register_fn,
+                             .wrapper_impls         = wrapper_impls,
+                             .forward_decl_block    = forward_decl_block,
+                             .trait_declarations    = trait_declarations,
+                             .case_entries          = case_entries,
+                             .fixture_registrations = fixture_registrations,
+                             .case_count            = tu_cases.size(),
+                });
 
-                replace_all(header_content, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
-                replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
-                replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
-                replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
-                replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
-                if (header_content.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
-                    replace_all(header_content, "{{GLOBAL_WRAPPER_IMPLS}}", wrapper_impls);
-                    replace_all(header_content, "{{WRAPPER_IMPLS}}", "");
-                } else {
-                    replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
+                const fs::path registration_impl_out = resolve_tu_registration_impl_output(opts, idx);
+                if (!ensure_parent_dir(registration_impl_out)) {
+                    statuses[idx] = 1;
+                    return;
                 }
-                replace_all(header_content, "{{CASE_INITS}}", case_entries);
-                replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
-                replace_all(header_content, "{{REGISTER_FN}}", register_fn);
+                if (!write_file_atomic_if_changed(registration_impl_out, impl_content)) {
+                    statuses[idx] = 1;
+                    return;
+                }
             }
 
-            if (!write_file_atomic_if_changed(header_out, header_content)) {
-                statuses[idx] = 1;
-                return;
-            }
-
-            if (is_module_interface_source(opts, source_path)) {
+            if (opts.emit_module_wrappers && is_module_interface_source(opts, source_path)) {
                 const auto       &source_mocks               = source_data ? source_data->direct_module_mocks : empty_mocks;
                 const bool        needs_mock_codegen_include = source_data && source_data->needs_mock_codegen_include;
+                const fs::path    header_out                 = resolve_tu_header_output(opts, idx);
                 const std::string registration_header_name =
                     (!tu_cases.empty() || !tu_fixtures.empty()) ? header_out.filename().string() : "";
                 const auto wrapper_source =

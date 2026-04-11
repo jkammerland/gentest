@@ -2999,12 +2999,74 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_partition_registration_visibility APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_registration_same_module_impl
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_same_module_impl
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationSameModuleImpl.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_same_module_impl APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_registration_compile_definition_import
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_compile_definition_import
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationCompileDefinitionImport.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_compile_definition_import APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_register_requires_import
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_requires_import
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegisterRequiresImport.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_register_requires_import APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_register_rejects_partition
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_rejects_partition
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegisterRejectsPartition.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_register_rejects_partition APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_register_rejects_global_fragment
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_rejects_global_fragment
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegisterRejectsInvalidInput.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DFIXTURE_NAME=module_registration_rejects_global_fragment
+    "-DEXPECTED_DIAGNOSTIC=uses a global module fragment")
+set_property(TEST gentest_module_register_rejects_global_fragment APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_register_rejects_private_fragment
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_rejects_private_fragment
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegisterRejectsInvalidInput.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DFIXTURE_NAME=module_registration_rejects_private_fragment
+    "-DEXPECTED_DIAGNOSTIC=uses a private module fragment")
+set_property(TEST gentest_module_register_rejects_private_fragment APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_register_rejects_non_interface
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_rejects_non_interface
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegisterRejectsInvalidInput.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DFIXTURE_NAME=module_registration_rejects_non_interface
+    "-DEXPECTED_DIAGNOSTIC=must be a primary module interface unit")
+set_property(TEST gentest_module_register_rejects_non_interface APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_module_registration_without_import
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_without_import
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationWithoutImport.cmake
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_module_registration_without_import APPEND PROPERTY LABELS "modules")
+set_property(TEST gentest_module_registration_without_import APPEND PROPERTY LABELS "modules;legacy;codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_cross_compile_emulator_serialization

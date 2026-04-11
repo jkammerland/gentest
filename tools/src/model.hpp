@@ -116,7 +116,11 @@ struct CollectorOptions {
     // Optional explicit per-source TU registration headers. When provided in
     // TU mode, this must stay aligned with `sources` and overrides the legacy
     // `<tu_output_dir>/<source>.h` derivation.
-    std::vector<std::filesystem::path>                                  tu_output_headers;
+    std::vector<std::filesystem::path> tu_output_headers;
+    // Optional explicit per-source additive same-module registration
+    // implementation units. When provided, this must stay aligned with
+    // `sources`.
+    std::vector<std::filesystem::path>                                  tu_registration_impl_outputs;
     std::filesystem::path                                               mock_registry_path;
     std::filesystem::path                                               mock_impl_path;
     std::optional<std::filesystem::path>                                depfile_path;
@@ -132,12 +136,13 @@ struct CollectorOptions {
     std::optional<std::filesystem::path>                                clang_scan_deps_executable;
     // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
     // 0 selects std::thread::hardware_concurrency().
-    std::size_t jobs            = 0;
-    bool        discover_mocks  = false;
-    bool        include_sources = true;
-    bool        strict_fixture  = false;
-    bool        quiet_clang     = false;
-    bool        check_only      = false;
+    std::size_t jobs                 = 0;
+    bool        discover_mocks       = false;
+    bool        emit_module_wrappers = true;
+    bool        include_sources      = true;
+    bool        strict_fixture       = false;
+    bool        quiet_clang          = false;
+    bool        check_only           = false;
 };
 
 // Description of a discovered test function or member function.

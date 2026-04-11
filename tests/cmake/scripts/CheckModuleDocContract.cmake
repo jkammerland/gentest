@@ -57,6 +57,16 @@ if(_readme_module_link STREQUAL "")
     "README.md must show module consumers linking `gentest::gentest` alongside `gentest::gentest_runtime` in the named-module mock example.")
 endif()
 
+foreach(_expected IN ITEMS
+    "raw `gentest::mock<T>` is also valid in the header-based flow"
+    "Named-module explicit mock targets currently require a single-config generator/build directory."
+    "switch that target back to `gentest_attach_codegen(...)`.")
+  string(FIND "${_readme_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "README.md is missing module mock contract token: ${_expected}")
+  endif()
+endforeach()
+
 file(READ "${_modules_file}" _modules_content)
 string(REGEX MATCH
   "target_link_libraries\\(my_tests PRIVATE[ \t\r\n]+gentest::gentest[ \t\r\n]+gentest::gentest_runtime[ \t\r\n]*\\)"
@@ -80,6 +90,42 @@ foreach(_expected IN ITEMS
   string(FIND "${_modules_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "docs/modules.md is missing module-doc contract token: ${_expected}")
+  endif()
+endforeach()
+
+foreach(_expected IN ITEMS
+    "gentest_register_module_tests(my_tests"
+    "There are three module-codegen paths today:"
+    "For multi-config generators, clean additive registration is not supported."
+    "a dedicated single-config build directory, or fall back to manifest mode via"
+    "`gentest_attach_codegen(... OUTPUT ...)`."
+    "the selected file set must contain primary named-module interface units"
+    "partition units are rejected in the clean path"
+    "global module fragments (`module;`) are rejected in the clean path"
+    "private module fragments (`module :private;`) are rejected in the clean path"
+    "each testcase module must directly `import gentest;`"
+    "`gentest_register_module_tests(...)` cannot be combined with `gentest_attach_codegen()` on the same target"
+    "If you do not provide your own `main()`, link `gentest::gentest_main` instead of `gentest::gentest_runtime`."
+    "clean additive registration via `gentest_register_module_tests(...)` does not"
+    "currently compose with explicit mock targets on the same testcase target"
+    "testcase targets that consume those explicit mock targets still use"
+    "`gentest_attach_codegen(...)` today"
+    "explicit module mock targets also require a single-config generator/build"
+    "directory today"
+    "needs explicit mocks, replace that target's clean registration call with"
+    "`gentest_attach_codegen(...)`.")
+  string(FIND "${_modules_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "docs/modules.md is missing clean module contract token: ${_expected}")
+  endif()
+endforeach()
+
+foreach(_forbidden IN ITEMS
+    "authored testcase modules can stay on `gentest_register_module_tests(...)`"
+    "raw `gentest::mock<demo::Service>` is also valid")
+  string(FIND "${_modules_content}" "${_forbidden}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR "docs/modules.md still overstates the module mock contract: ${_forbidden}")
   endif()
 endforeach()
 
