@@ -19,15 +19,18 @@ add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 add_executable(module_registration_compile_definition_import
     main.cpp)
 
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm PROPERTIES
+    COMPILE_OPTIONS "-DGENTEST_ENABLE_IMPORT_FROM_SOURCE_OPTION=1")
+
 target_sources(module_registration_compile_definition_import
     PRIVATE
         FILE_SET module_cases TYPE CXX_MODULES FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
 add_library(module_registration_compile_definition_import_iface_leaf INTERFACE)
-target_compile_definitions(module_registration_compile_definition_import_iface_leaf
+target_compile_options(module_registration_compile_definition_import_iface_leaf
     INTERFACE
-        "$<$<BOOL:1>:GENTEST_ENABLE_IMPORT=1>")
+        "$<$<BOOL:1>:-DGENTEST_ENABLE_IMPORT_FROM_INTERFACE_OPTION=1>")
 
 add_library(module_registration_compile_definition_import_iface INTERFACE)
 target_link_libraries(module_registration_compile_definition_import_iface
@@ -38,6 +41,8 @@ target_link_libraries(module_registration_compile_definition_import PRIVATE
     gentest
     gentest_runtime
     module_registration_compile_definition_import_iface)
+target_compile_options(module_registration_compile_definition_import PRIVATE
+    "$<$<BOOL:1>:-DGENTEST_ENABLE_IMPORT_FROM_TARGET_OPTION=1>")
 target_compile_features(module_registration_compile_definition_import PRIVATE cxx_std_20)
 
 gentest_register_module_tests(module_registration_compile_definition_import

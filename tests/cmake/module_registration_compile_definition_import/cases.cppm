@@ -1,6 +1,6 @@
 export module gentest.module_registration_compile_definition_import;
 
-#if GENTEST_ENABLE_IMPORT
+#if GENTEST_ENABLE_IMPORT_FROM_INTERFACE_OPTION && GENTEST_ENABLE_IMPORT_FROM_TARGET_OPTION && GENTEST_ENABLE_IMPORT_FROM_SOURCE_OPTION
 import gentest;
 #endif
 

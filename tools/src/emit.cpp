@@ -877,21 +877,29 @@ void replace_all(std::string &inout, std::string_view needle, std::string_view r
     }
 }
 
-std::string render_module_registration_impl_source(std::string_view module_name, std::string_view register_fn,
-                                                   std::string_view wrapper_impls, std::string_view forward_decl_block,
-                                                   std::string_view trait_declarations, std::string_view case_entries,
-                                                   std::string_view fixture_registrations, std::size_t case_count) {
+struct ModuleRegistrationImplRenderInputs {
+    std::string_view module_name;
+    std::string_view register_fn;
+    std::string_view wrapper_impls;
+    std::string_view forward_decl_block;
+    std::string_view trait_declarations;
+    std::string_view case_entries;
+    std::string_view fixture_registrations;
+    std::size_t      case_count = 0;
+};
+
+std::string render_module_registration_impl_source(const ModuleRegistrationImplRenderInputs &inputs) {
     std::string impl_content = std::string(tpl::tu_registration_impl);
-    replace_all(impl_content, "{{MODULE_NAME}}", std::string(module_name));
+    replace_all(impl_content, "{{MODULE_NAME}}", std::string(inputs.module_name));
     replace_all(impl_content, "{{WRAPPER_SUPPORT_COMMON}}", std::string(tpl::wrapper_support_common));
     replace_all(impl_content, "{{REGISTRATION_COMMON}}", std::string(tpl::registration_common));
-    replace_all(impl_content, "{{FORWARD_DECLS}}", std::string(forward_decl_block));
-    replace_all(impl_content, "{{TRAIT_DECLS}}", std::string(trait_declarations));
-    replace_all(impl_content, "{{GLOBAL_WRAPPER_IMPLS}}", std::string(wrapper_impls));
-    replace_all(impl_content, "{{CASE_COUNT}}", std::to_string(case_count));
-    replace_all(impl_content, "{{CASE_INITS}}", std::string(case_entries));
-    replace_all(impl_content, "{{FIXTURE_REGISTRATIONS}}", std::string(fixture_registrations));
-    replace_all(impl_content, "{{REGISTER_FN}}", std::string(register_fn));
+    replace_all(impl_content, "{{FORWARD_DECLS}}", std::string(inputs.forward_decl_block));
+    replace_all(impl_content, "{{TRAIT_DECLS}}", std::string(inputs.trait_declarations));
+    replace_all(impl_content, "{{GLOBAL_WRAPPER_IMPLS}}", std::string(inputs.wrapper_impls));
+    replace_all(impl_content, "{{CASE_COUNT}}", std::to_string(inputs.case_count));
+    replace_all(impl_content, "{{CASE_INITS}}", std::string(inputs.case_entries));
+    replace_all(impl_content, "{{FIXTURE_REGISTRATIONS}}", std::string(inputs.fixture_registrations));
+    replace_all(impl_content, "{{REGISTER_FN}}", std::string(inputs.register_fn));
     return impl_content;
 }
 
@@ -1221,9 +1229,16 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
                     case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
                 }
                 const std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
-                const std::string impl_content =
-                    render_module_registration_impl_source(module_name, register_fn, wrapper_impls, forward_decl_block, trait_declarations,
-                                                           case_entries, fixture_registrations, tu_cases.size());
+                const std::string impl_content          = render_module_registration_impl_source(ModuleRegistrationImplRenderInputs{
+                             .module_name           = module_name,
+                             .register_fn           = register_fn,
+                             .wrapper_impls         = wrapper_impls,
+                             .forward_decl_block    = forward_decl_block,
+                             .trait_declarations    = trait_declarations,
+                             .case_entries          = case_entries,
+                             .fixture_registrations = fixture_registrations,
+                             .case_count            = tu_cases.size(),
+                });
 
                 const fs::path registration_impl_out = resolve_tu_registration_impl_output(opts, idx);
                 if (!ensure_parent_dir(registration_impl_out)) {
