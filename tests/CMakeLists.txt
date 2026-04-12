@@ -152,7 +152,7 @@ foreach(_gentest_check IN LISTS _gentest_concurrency_death_checks)
     gentest_add_check_death(
         NAME ${_gentest_name}
         PROG ${PROJECT_NAME}_concurrency_tests
-        EXPECT_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
+        REQUIRED_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
         ARGS --run=${_gentest_run})
 endforeach()
 unset(_gentest_concurrency_death_checks)
@@ -345,7 +345,7 @@ gentest_add_cmake_script_test(
         -I${CMAKE_CURRENT_SOURCE_DIR}
     DEFINES
         "EXPECT_RC=0"
-        "EXPECT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_unknown_condition_warn.cppm:6"
+        "REQUIRED_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_unknown_condition_warn.cppm:6"
         "EXPECT_COUNT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan"
         "EXPECT_COUNT=1")
 
@@ -364,7 +364,7 @@ gentest_add_cmake_script_test(
         -I${CMAKE_CURRENT_SOURCE_DIR}
     DEFINES
         "EXPECT_RC=0"
-        "EXPECT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_active_elif_unknown_warn.cppm:7"
+        "REQUIRED_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_active_elif_unknown_warn.cppm:7"
         "EXPECT_COUNT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan"
         "EXPECT_COUNT=1")
 
@@ -421,7 +421,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mis_scoped_attr_keyword
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "attribute 'death' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
+    REQUIRED_SUBSTRING "attribute 'death' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
     ARGS
         --check
         --compdb
@@ -437,7 +437,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mis_scoped_attr_value_keyword
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "attribute 'req(\"REQ-MIS-SCOPED\")' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
+    REQUIRED_SUBSTRING "attribute 'req(\"REQ-MIS-SCOPED\")' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
     ARGS
         --check
         --compdb
@@ -453,7 +453,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mis_scoped_attr_unqualified_test
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "attribute 'test(\"smoke/mis_scoped/plain\")' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
+    REQUIRED_SUBSTRING "attribute 'test(\"smoke/mis_scoped/plain\")' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
     ARGS
         --check
         --compdb
@@ -483,7 +483,7 @@ gentest_add_cmake_script_test(
         -I${CMAKE_CURRENT_SOURCE_DIR}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_std_first.gentest.cpp"
-        "EXPECT_SUBSTRING=smoke/namespaced/mixed/std_first")
+        "REQUIRED_SUBSTRING=smoke/namespaced/mixed/std_first")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_emit_namespaced_attrs_mixed_scoped_first
@@ -503,7 +503,7 @@ gentest_add_cmake_script_test(
         -I${CMAKE_CURRENT_SOURCE_DIR}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_scoped_first.gentest.cpp"
-        "EXPECT_SUBSTRING=smoke/namespaced/mixed/scoped_first")
+        "REQUIRED_SUBSTRING=smoke/namespaced/mixed/scoped_first")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_emit_namespaced_attrs_gentest_first_foreign_after
@@ -523,7 +523,7 @@ gentest_add_cmake_script_test(
         -I${CMAKE_CURRENT_SOURCE_DIR}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_foreign_after.gentest.cpp"
-        "EXPECT_SUBSTRING=smoke/namespaced/mixed/gentest_first_foreign_after")
+        "REQUIRED_SUBSTRING=smoke/namespaced/mixed/gentest_first_foreign_after")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_emit_namespaced_attrs_gentest_first_unscoped_foreign
@@ -543,7 +543,7 @@ gentest_add_cmake_script_test(
         -I${CMAKE_CURRENT_SOURCE_DIR}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign.gentest.cpp"
-        "EXPECT_SUBSTRING=smoke/namespaced/mixed/gentest_first_unscoped_foreign")
+        "REQUIRED_SUBSTRING=smoke/namespaced/mixed/gentest_first_unscoped_foreign")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_namespace_suite_attr_with_trailing_comment
@@ -563,7 +563,7 @@ gentest_add_cmake_script_test(
         -I${CMAKE_CURRENT_SOURCE_DIR}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment.gentest.cpp"
-        "EXPECT_SUBSTRING=suite_override/comment_backscan/trailing_comment_suite_attr_case")
+        "REQUIRED_SUBSTRING=suite_override/comment_backscan/trailing_comment_suite_attr_case")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_namespace_suite_diag_dedup
@@ -582,7 +582,7 @@ gentest_add_cmake_script_test(
         -I${CMAKE_CURRENT_SOURCE_DIR}
     DEFINES
         "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=duplicate gentest namespace attribute 'suite'"
+        "REQUIRED_SUBSTRING=duplicate gentest namespace attribute 'suite'"
         "EXPECT_COUNT_SUBSTRING=attribute 'suite(\"smoke/namespace_diag/plain\")' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
         "EXPECT_COUNT=1")
 
@@ -590,7 +590,7 @@ gentest_add_check_death(
     NAME gentest_codegen_check_invalid_unknown_attr
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "unknown gentest attribute 'unknown' (will_fail)"
+    REQUIRED_SUBSTRING "unknown gentest attribute 'unknown' (will_fail)"
     ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
@@ -604,7 +604,7 @@ gentest_add_check_death(
     NAME gentest_codegen_check_invalid_duplicate_template_attr
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "duplicate 'template' attribute for the same parameter (duplicate_template_attr)"
+    REQUIRED_SUBSTRING "duplicate 'template' attribute for the same parameter (duplicate_template_attr)"
     ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
@@ -618,7 +618,7 @@ gentest_add_check_death(
     NAME gentest_codegen_check_invalid_template_pack_bare
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "template parameter pack 'Cs' requires parenthesized rows in 'template(Cs, ...)' (template_pack_bare)"
+    REQUIRED_SUBSTRING "template parameter pack 'Cs' requires parenthesized rows in 'template(Cs, ...)' (template_pack_bare)"
     ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
@@ -632,7 +632,7 @@ gentest_add_check_death(
     NAME gentest_codegen_check_invalid_template_nonpack_row
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "non-pack template parameter 'C' does not accept parenthesized rows in 'template(C, ...)' (template_nonpack_row)"
+    REQUIRED_SUBSTRING "non-pack template parameter 'C' does not accept parenthesized rows in 'template(C, ...)' (template_nonpack_row)"
     ARGS
         --check
         --compdb ${CMAKE_BINARY_DIR}
@@ -674,7 +674,7 @@ gentest_add_check_death(
     NAME gentest_codegen_baseline_requires_bench
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "'baseline' requires 'bench' or 'jitter'"
+    REQUIRED_SUBSTRING "'baseline' requires 'bench' or 'jitter'"
     ARGS
         --check
         --compdb
@@ -690,7 +690,7 @@ gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_unknown_parameters_name
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "unknown parameter name 'missing' in parameters(...)"
+    REQUIRED_SUBSTRING "unknown parameter name 'missing' in parameters(...)"
     ARGS
         --check
         --compdb
@@ -706,7 +706,7 @@ gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_unknown_pack_name
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "unknown parameter name 'missing' in parameters_pack(...)"
+    REQUIRED_SUBSTRING "unknown parameter name 'missing' in parameters_pack(...)"
     ARGS
         --check
         --compdb
@@ -722,7 +722,7 @@ gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_duplicate_axis
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "duplicate parameter axis for 'i'"
+    REQUIRED_SUBSTRING "duplicate parameter axis for 'i'"
     ARGS
         --check
         --compdb
@@ -738,7 +738,7 @@ gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_overlap_pack
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "parameter 'i' supplied by multiple parameter sets/packs"
+    REQUIRED_SUBSTRING "parameter 'i' supplied by multiple parameter sets/packs"
     ARGS
         --check
         --compdb
@@ -754,7 +754,7 @@ gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_range_inconsistent
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "parameters_range for 'i' has inconsistent bounds"
+    REQUIRED_SUBSTRING "parameters_range for 'i' has inconsistent bounds"
     ARGS
         --check
         --compdb
@@ -770,7 +770,7 @@ gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_range_unsupported
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "parameters_range not supported for parameter type"
+    REQUIRED_SUBSTRING "parameters_range not supported for parameter type"
     ARGS
         --check
         --compdb
@@ -786,7 +786,7 @@ gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_linspace_unsupported
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "parameters_linspace not supported for parameter type"
+    REQUIRED_SUBSTRING "parameters_linspace not supported for parameter type"
     ARGS
         --check
         --compdb
@@ -802,7 +802,7 @@ gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_geom_unsupported
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "parameters_geom not supported for parameter type"
+    REQUIRED_SUBSTRING "parameters_geom not supported for parameter type"
     ARGS
         --check
         --compdb
@@ -818,7 +818,7 @@ gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_logspace_unsupported
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "logspace not supported for parameter type"
+    REQUIRED_SUBSTRING "logspace not supported for parameter type"
     ARGS
         --check
         --compdb
@@ -837,7 +837,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_incomplete_virtual_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "gentest::mock<T>: target type is incomplete"
+    REQUIRED_SUBSTRING "gentest::mock<T>: target type is incomplete"
     ARGS
         ${_gentest_codegen_discover_mocks_arg}
         --check
@@ -854,7 +854,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_virtual_defined_in_cpp_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    REQUIRED_SUBSTRING "target definition must be in a header or header module"
     ARGS
         ${_gentest_codegen_discover_mocks_arg}
         --check
@@ -871,7 +871,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_cpp_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    REQUIRED_SUBSTRING "target definition must be in a header or header module"
     ARGS
         ${_gentest_codegen_discover_mocks_arg}
         --check
@@ -906,7 +906,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_cu_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    REQUIRED_SUBSTRING "target definition must be in a header or header module"
     ARGS
         ${_gentest_codegen_discover_mocks_arg}
         --check
@@ -925,7 +925,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_included_cpp_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    REQUIRED_SUBSTRING "target definition must be in a header or header module"
     ARGS
         ${_gentest_codegen_discover_mocks_arg}
         --check
@@ -942,7 +942,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_included_cppm_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "target definition must be in a header or header module"
+    REQUIRED_SUBSTRING "target definition must be in a header or header module"
     ARGS
         ${_gentest_codegen_discover_mocks_arg}
         --check
@@ -1097,7 +1097,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_anonymous_namespace_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "cannot mock a type in an anonymous namespace"
+    REQUIRED_SUBSTRING "cannot mock a type in an anonymous namespace"
     ARGS
         ${_gentest_codegen_discover_mocks_arg}
         --check
@@ -1114,7 +1114,7 @@ gentest_add_check_death(
     NAME gentest_codegen_mock_local_class_msg
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "cannot mock a local class"
+    REQUIRED_SUBSTRING "cannot mock a local class"
     ARGS
         ${_gentest_codegen_discover_mocks_arg}
         --check
@@ -1133,7 +1133,7 @@ gentest_add_check_death(
     NAME gentest_codegen_fixture_suite_member_illegal
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "suite fixtures cannot declare member tests"
+    REQUIRED_SUBSTRING "suite fixtures cannot declare member tests"
     ENV_VARS GENTEST_STRICT_FIXTURE=1
     ARGS
         --check
@@ -1150,7 +1150,7 @@ gentest_add_check_death(
     NAME gentest_codegen_fixture_global_member_illegal
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "global fixtures cannot declare member tests"
+    REQUIRED_SUBSTRING "global fixtures cannot declare member tests"
     ENV_VARS GENTEST_STRICT_FIXTURE=1
     ARGS
         --check
@@ -1167,7 +1167,7 @@ gentest_add_check_death(
     NAME gentest_codegen_fixture_namespace_scope
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "fixture 'outer_a::inner::SharedFx' is not in an ancestor namespace"
+    REQUIRED_SUBSTRING "fixture 'outer_a::inner::SharedFx' is not in an ancestor namespace"
     ARGS
         --check
         --compdb
@@ -1183,7 +1183,7 @@ gentest_add_check_death(
     NAME gentest_codegen_top_level_suite_fixture
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "'fixture(suite)' requires an enclosing named namespace to derive a suite path"
+    REQUIRED_SUBSTRING "'fixture(suite)' requires an enclosing named namespace to derive a suite path"
     ARGS
         --check
         --compdb
@@ -1199,7 +1199,7 @@ gentest_add_check_death(
     NAME gentest_codegen_fixture_attr_removed
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    EXPECT_SUBSTRING "'fixtures(...)' was removed; infer fixtures from function parameters instead"
+    REQUIRED_SUBSTRING "'fixtures(...)' was removed; infer fixtures from function parameters instead"
     ARGS
         --check
         --compdb
@@ -1316,19 +1316,19 @@ set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
 gentest_add_check_death(
     NAME failing_free_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
-    EXPECT_SUBSTRING "fixture allocation failed for 'failing::NullFreeFixture': returned null"
+    REQUIRED_SUBSTRING "fixture allocation failed for 'failing::NullFreeFixture': returned null"
     ARGS --run=failing/alloc/free_null)
 
 gentest_add_check_death(
     NAME failing_suite_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
-    EXPECT_SUBSTRING "fixture 'failing::NullSuiteFixture' fixture allocation returned null"
+    REQUIRED_SUBSTRING "fixture 'failing::NullSuiteFixture' fixture allocation returned null"
     ARGS --run=failing/alloc/suite_null)
 
 gentest_add_check_death(
     NAME failing_global_fixture_alloc_message
     PROG $<TARGET_FILE:gentest_failing_tests>
-    EXPECT_SUBSTRING "fixture 'failing::NullGlobalFixture' fixture allocation returned null"
+    REQUIRED_SUBSTRING "fixture 'failing::NullGlobalFixture' fixture allocation returned null"
     ARGS --run=failing/alloc/global_null)
 
 
@@ -1378,21 +1378,21 @@ gentest_add_run_and_check_file(
     NAME outcomes_junit_runtime_skip_prefix_user_text
     PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
     FILE ${CMAKE_BINARY_DIR}/outcomes_junit_runtime_skip_prefix.xml
-    EXPECT_SUBSTRING "failures=\"0\""
+    REQUIRED_SUBSTRING "failures=\"0\""
     ARGS --run=outcomes/runtime_skip_prefix_user_text --junit=${CMAKE_BINARY_DIR}/outcomes_junit_runtime_skip_prefix.xml)
 
 gentest_add_run_and_check_file(
     NAME outcomes_junit_xfail_mapping
     PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
     FILE ${CMAKE_BINARY_DIR}/outcomes_junit_xfail.xml
-    EXPECT_SUBSTRING "message=\"xfail: expected failure\""
+    REQUIRED_SUBSTRING "message=\"xfail: expected failure\""
     ARGS --run=outcomes/xfail_expect_fail --junit=${CMAKE_BINARY_DIR}/outcomes_junit_xfail.xml)
 
 gentest_add_run_and_check_file(
     NAME outcomes_junit_xpass_mapping
     PROG $<TARGET_FILE:${PROJECT_NAME}_outcomes_tests>
     FILE ${CMAKE_BINARY_DIR}/outcomes_junit_xpass.xml
-    EXPECT_SUBSTRING "xpass: unexpected pass"
+    REQUIRED_SUBSTRING "xpass: unexpected pass"
     EXPECT_RC 1
     ARGS --run=outcomes/xfail_xpass --junit=${CMAKE_BINARY_DIR}/outcomes_junit_xpass.xml)
 
@@ -1448,7 +1448,7 @@ if(GENTEST_WITH_LIBASSERT AND GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS)
     gentest_add_check_death(
         NAME libassert_noexc_assert_fail_death
         PROG ${target_name_noexc}
-        EXPECT_SUBSTRING "gentest: exceptions are disabled; terminating after fatal assertion"
+        REQUIRED_SUBSTRING "gentest: exceptions are disabled; terminating after fatal assertion"
         ARGS --run=libassert/assert_fail_simple)
 endif()
 
@@ -1456,14 +1456,14 @@ endif()
 gentest_add_check_death(
     NAME mocking_predicate_mismatch_message
     PROG gentest_failing_tests
-    EXPECT_SUBSTRING "expected == 3"
+    REQUIRED_SUBSTRING "expected == 3"
     ARGS --run=failing/mocking/predicate_mismatch)
 
 if(WIN32 AND (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
     gentest_add_check_death(
         NAME mocking_ambiguous_method_pointer_message
         PROG gentest_failing_tests
-        EXPECT_SUBSTRING "ambiguous mock method pointer for ::mocking::Ticker"
+        REQUIRED_SUBSTRING "ambiguous mock method pointer for ::mocking::Ticker"
         ARGS --run=failing/mocking/ambiguous_template_member_pointer)
 endif()
 
@@ -1471,7 +1471,7 @@ endif()
 gentest_add_check_death(
     NAME github_annotations_smoke
     PROG gentest_failing_tests
-    EXPECT_SUBSTRING "::error file="
+    REQUIRED_SUBSTRING "::error file="
     ARGS
         --run=failing/mocking/predicate_mismatch
         --github-annotations)
@@ -1479,31 +1479,31 @@ gentest_add_check_death(
 gentest_add_check_death(
     NAME expect_throw_location_smoke
     PROG gentest_failing_tests
-    EXPECT_SUBSTRING "EXPECT_THROW failed at tests/failing/cases.cpp:"
+    REQUIRED_SUBSTRING "EXPECT_THROW failed at tests/failing/cases.cpp:"
     ARGS --run=failing/exceptions/expect_throw_location)
 
 gentest_add_check_death(
     NAME expect_no_throw_unknown_smoke
     PROG gentest_failing_tests
-    EXPECT_SUBSTRING "EXPECT_NO_THROW failed at tests/failing/cases.cpp:"
+    REQUIRED_SUBSTRING "EXPECT_NO_THROW failed at tests/failing/cases.cpp:"
     ARGS --run=failing/exceptions/expect_no_throw_unknown)
 
 gentest_add_check_death(
     NAME assert_throw_location_smoke
     PROG gentest_failing_tests
-    EXPECT_SUBSTRING "ASSERT_THROW failed at tests/failing/cases.cpp:"
+    REQUIRED_SUBSTRING "ASSERT_THROW failed at tests/failing/cases.cpp:"
     ARGS --run=failing/exceptions/assert_throw_location)
 
 gentest_add_check_death(
     NAME assert_no_throw_unknown_smoke
     PROG gentest_failing_tests
-    EXPECT_SUBSTRING "ASSERT_NO_THROW failed at tests/failing/cases.cpp:"
+    REQUIRED_SUBSTRING "ASSERT_NO_THROW failed at tests/failing/cases.cpp:"
     ARGS --run=failing/exceptions/assert_no_throw_unknown)
 
 gentest_add_check_death(
     NAME expect_eq_message_values_smoke
     PROG gentest_failing_tests
-    EXPECT_SUBSTRING "comparison detail; lhs=1, rhs=2"
+    REQUIRED_SUBSTRING "comparison detail; lhs=1, rhs=2"
     ARGS --run=failing/comparison/expect_eq_message_values)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Regressions.cmake)
@@ -1518,25 +1518,25 @@ gentest_add_check_exit_code(
     EXPECT_RC 0)
 
 # CLI checks for VSCode integration
-gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING gentest ARGS --help)
-gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "--time-unit=<mode>" ARGS --help)
-gentest_add_check_contains(NAME unit_list_contains_attr_close_marker_name_prefix PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "unit/attributes/close_marker_in_string_" ARGS --list-tests)
-gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> EXPECT_SUBSTRING "tags=fast" ARGS --list)
+gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING gentest ARGS --help)
+gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--time-unit=<mode>" ARGS --help)
+gentest_add_check_contains(NAME unit_list_contains_attr_close_marker_name_prefix PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "unit/attributes/close_marker_in_string_" ARGS --list-tests)
+gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "tags=fast" ARGS --list)
 gentest_add_check_contains(
     NAME unit_list_tags_requires_shape
     PROG $<TARGET_FILE:gentest_unit_tests>
-    EXPECT_SUBSTRING "strings/concatenate [gentest:tags=slow;requires=#42]"
+    REQUIRED_SUBSTRING "strings/concatenate [gentest:tags=slow;requires=#42]"
     ARGS --list)
-gentest_add_check_contains(NAME integration_list_tags_owner PROG $<TARGET_FILE:gentest_integration_tests> EXPECT_SUBSTRING "owner=team-runtime" ARGS --list)
+gentest_add_check_contains(NAME integration_list_tags_owner PROG $<TARGET_FILE:gentest_integration_tests> REQUIRED_SUBSTRING "owner=team-runtime" ARGS --list)
 gentest_add_check_contains(
     NAME integration_list_tags_requires_shape
     PROG $<TARGET_FILE:gentest_integration_tests>
-    EXPECT_SUBSTRING "errors/recover [gentest:tags=owner=team-runtime;requires=BUG-123]"
+    REQUIRED_SUBSTRING "errors/recover [gentest:tags=owner=team-runtime;requires=BUG-123]"
     ARGS --list)
 gentest_add_check_contains(
     NAME integration_list_skip_shape
     PROG $<TARGET_FILE:gentest_integration_tests>
-    EXPECT_SUBSTRING "errors/throw [gentest:tags=windows;skip=unstable]"
+    REQUIRED_SUBSTRING "errors/throw [gentest:tags=windows;skip=unstable]"
     ARGS --list)
 
 gentest_add_check_counts(
@@ -1582,14 +1582,14 @@ gentest_add_check_file_contains(
     NAME junit_smoke_unit
     PROG $<TARGET_FILE:gentest_unit_tests>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/junit_unit.xml
-    EXPECT_SUBSTRING <testsuite
+    REQUIRED_SUBSTRING <testsuite
     ARGS --junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit.xml)
 
 gentest_add_check_file_contains(
     NAME junit_properties_unit
     PROG $<TARGET_FILE:gentest_unit_tests>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml
-    EXPECT_SUBSTRING "<property name=\"requirement\" value=\"#42\""
+    REQUIRED_SUBSTRING "<property name=\"requirement\" value=\"#42\""
     ARGS --junit=${CMAKE_CURRENT_BINARY_DIR}/junit_unit_props.xml)
 
 gentest_add_check_counts(NAME repeat_unit_twice PROG $<TARGET_FILE:gentest_unit_tests> PASS 40 FAIL 0 SKIP 0 ARGS --repeat=2)
@@ -1599,7 +1599,7 @@ gentest_add_check_counts(NAME failing_fail_fast PROG $<TARGET_FILE:gentest_faili
 gentest_add_check_contains(
     NAME shuffle_seed_print
     PROG $<TARGET_FILE:gentest_fixtures_tests>
-    EXPECT_SUBSTRING "Shuffle seed: 42"
+    REQUIRED_SUBSTRING "Shuffle seed: 42"
     ARGS
         --run=fixtures/free/basic
         --shuffle
@@ -1631,7 +1631,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_smoke_single
         PROG $<TARGET_FILE:gentest_unit_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/result-0-result.json
-        EXPECT_SUBSTRING "\"status\":\"passed\""
+        REQUIRED_SUBSTRING "\"status\":\"passed\""
         ARGS
             --run=unit/arithmetic/sum
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single)
@@ -1642,7 +1642,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_logs_attachment
         PROG $<TARGET_FILE:gentest_failing_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs_json/result-0-result.json
-        EXPECT_SUBSTRING "result-0-attachment.txt"
+        REQUIRED_SUBSTRING "result-0-attachment.txt"
         EXPECT_RC 1
         ARGS
             --run=failing/logging/attachment
@@ -1653,7 +1653,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_logs_attachment_has_plain_text_type
         PROG $<TARGET_FILE:gentest_failing_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs_typed/result-0-result.json
-        EXPECT_SUBSTRING "\"name\":\"logs\",\"source\":\"result-0-attachment.txt\",\"type\":\"text/plain\""
+        REQUIRED_SUBSTRING "\"name\":\"logs\",\"source\":\"result-0-attachment.txt\",\"type\":\"text/plain\""
         EXPECT_RC 1
         ARGS
             --run=failing/logging/attachment
@@ -1664,7 +1664,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_logs_attachment_file
         PROG $<TARGET_FILE:gentest_failing_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs_file/result-0-attachment.txt
-        EXPECT_SUBSTRING "hello from log"
+        REQUIRED_SUBSTRING "hello from log"
         EXPECT_RC 1
         ARGS
             --run=failing/logging/attachment
@@ -1675,7 +1675,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_bench_metrics_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_metrics_json/result-0-result.json
-        EXPECT_SUBSTRING "\"name\":\"metrics\",\"source\":\"result-0-metrics.tsv\",\"type\":\"text/tab-separated-values\""
+        REQUIRED_SUBSTRING "\"name\":\"metrics\",\"source\":\"result-0-metrics.tsv\",\"type\":\"text/tab-separated-values\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sqrt
@@ -1691,7 +1691,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_bench_metrics_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_metrics_file/result-0-metrics.tsv
-        EXPECT_SUBSTRING "metric\tvalue\nname\tbenchmarks/math/sqrt"
+        REQUIRED_SUBSTRING "metric\tvalue\nname\tbenchmarks/math/sqrt"
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sqrt
@@ -1707,7 +1707,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_bench_plot_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_plot_json/result-0-result.json
-        EXPECT_SUBSTRING "\"name\":\"summary-plot\",\"source\":\"result-0-summary-plot.svg\",\"type\":\"image/svg+xml\""
+        REQUIRED_SUBSTRING "\"name\":\"summary-plot\",\"source\":\"result-0-summary-plot.svg\",\"type\":\"image/svg+xml\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sqrt
@@ -1723,7 +1723,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_bench_plot_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_plot_file/result-0-summary-plot.svg
-        EXPECT_SUBSTRING "<svg"
+        REQUIRED_SUBSTRING "<svg"
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sqrt
@@ -1739,7 +1739,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_jitter_histogram_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_histogram_json/result-0-result.json
-        EXPECT_SUBSTRING "\"name\":\"histogram\",\"source\":\"result-0-histogram.tsv\",\"type\":\"text/tab-separated-values\""
+        REQUIRED_SUBSTRING "\"name\":\"histogram\",\"source\":\"result-0-histogram.tsv\",\"type\":\"text/tab-separated-values\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -1756,7 +1756,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_jitter_histogram_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_histogram_file/result-0-histogram.tsv
-        EXPECT_SUBSTRING "bin\trange_lo_ns\trange_hi_ns\tinclusive_hi\tcount\tpercent\tcumulative_percent\n1\t"
+        REQUIRED_SUBSTRING "bin\trange_lo_ns\trange_hi_ns\tinclusive_hi\tcount\tpercent\tcumulative_percent\n1\t"
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -1773,7 +1773,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_jitter_plot_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_plot_json/result-0-result.json
-        EXPECT_SUBSTRING "\"name\":\"histogram-plot\",\"source\":\"result-0-histogram-plot.svg\",\"type\":\"image/svg+xml\""
+        REQUIRED_SUBSTRING "\"name\":\"histogram-plot\",\"source\":\"result-0-histogram-plot.svg\",\"type\":\"image/svg+xml\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -1790,7 +1790,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_jitter_plot_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_plot_file/result-0-histogram-plot.svg
-        EXPECT_SUBSTRING "<svg"
+        REQUIRED_SUBSTRING "<svg"
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -1807,7 +1807,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_jitter_samples_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_json/result-0-result.json
-        EXPECT_SUBSTRING "\"name\":\"samples\",\"source\":\"result-0-samples.json\",\"type\":\"application/json\""
+        REQUIRED_SUBSTRING "\"name\":\"samples\",\"source\":\"result-0-samples.json\",\"type\":\"application/json\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -1824,7 +1824,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_jitter_samples_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_file/result-0-samples.json
-        EXPECT_SUBSTRING "\"sample_count\":"
+        REQUIRED_SUBSTRING "\"sample_count\":"
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -1841,7 +1841,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME allure_jitter_samples_attachment_schema
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
         FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_schema/result-0-samples.json
-        EXPECT_SUBSTRING "\"samples_ns\":"
+        REQUIRED_SUBSTRING "\"samples_ns\":"
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -1863,7 +1863,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             --kind=test
         DEFINES
             "OUT_PATH=${CMAKE_CURRENT_BINARY_DIR}/allure_dir_failure/output.json"
-            "EXPECT_SUBSTRING=failed to prepare Allure report directory:")
+            "REQUIRED_SUBSTRING=failed to prepare Allure report directory:")
     set_tests_properties(regression_allure_directory_failure_reports_infra PROPERTIES LABELS "allure")
 
     gentest_add_cmake_script_test(
@@ -1875,7 +1875,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             --kind=test
         DEFINES
             "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_result_write_failure"
-            "EXPECT_SUBSTRING=failed to open Allure result:")
+            "REQUIRED_SUBSTRING=failed to open Allure result:")
     set_tests_properties(regression_allure_result_write_failure_reports_infra PROPERTIES LABELS "allure")
 
     gentest_add_cmake_script_test(
@@ -1888,7 +1888,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         DEFINES
             "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_junit_parity"
             "JUNIT_PATH=${CMAKE_CURRENT_BINARY_DIR}/allure_junit_parity/result.xml"
-            "EXPECT_SUBSTRING=failed to open Allure result:"
+            "REQUIRED_SUBSTRING=failed to open Allure result:"
             "EXPECT_CASE_NAME=regressions/runtime_reporting/pass_for_junit_io_visibility"
             "EXPECT_JUNIT_COUNTS=tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"1\"")
     set_tests_properties(regression_allure_result_write_failure_keeps_junit_in_sync PROPERTIES LABELS "allure")
@@ -1903,7 +1903,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         DEFINES
             "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/junit_allure_parity"
             "JUNIT_PATH=${CMAKE_CURRENT_BINARY_DIR}/junit_allure_parity/junit-as-directory"
-            "EXPECT_SUBSTRING=failed to open JUnit report:"
+            "REQUIRED_SUBSTRING=failed to open JUnit report:"
             "EXPECT_CASE_NAME=regressions/runtime_reporting/pass_for_junit_io_visibility"
             "EXPECT_RESULT_COUNT=2")
     set_tests_properties(regression_junit_open_failure_keeps_allure_in_sync PROPERTIES LABELS "allure")
@@ -1920,7 +1920,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
                 "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/junit_allure_write_parity"
                 "JUNIT_PATH=/dev/full"
                 "PREPARE_JUNIT_AS_DIRECTORY=OFF"
-                "EXPECT_SUBSTRING=failed to write JUnit report:"
+                "REQUIRED_SUBSTRING=failed to write JUnit report:"
                 "EXPECT_CASE_NAME=regressions/runtime_reporting/pass_for_junit_io_visibility"
                 "EXPECT_RESULT_COUNT=2")
         set_tests_properties(regression_junit_write_failure_keeps_allure_in_sync PROPERTIES LABELS "allure")
@@ -1986,32 +1986,32 @@ gentest_add_check_file_contains(
     NAME junit_artifact_example
     PROG $<TARGET_FILE:gentest_integration_tests>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/junit_integration.xml
-    EXPECT_SUBSTRING <testsuite
+    REQUIRED_SUBSTRING <testsuite
     ARGS --junit=${CMAKE_CURRENT_BINARY_DIR}/junit_integration.xml)
 
 # Constructor exception handling across fixture lifetimes
 gentest_add_check_death(
     NAME fixture_ctor_ephemeral_member
     PROG ${PROJECT_NAME}_ctor_tests
-    EXPECT_SUBSTRING "unexpected std::exception: ephemeral-ctor"
+    REQUIRED_SUBSTRING "unexpected std::exception: ephemeral-ctor"
     ARGS --run=ctor/ephemeral_member)
 
 gentest_add_check_death(
     NAME fixture_ctor_free_fixtures
     PROG ${PROJECT_NAME}_ctor_tests
-    EXPECT_SUBSTRING "unexpected std::exception: free-fx-ctor"
+    REQUIRED_SUBSTRING "unexpected std::exception: free-fx-ctor"
     ARGS --run=ctor/free_fixtures)
 
 gentest_add_check_death(
     NAME fixture_ctor_suite_shared
     PROG ${PROJECT_NAME}_ctor_tests
-    EXPECT_SUBSTRING "fixture construction threw std::exception: suite-ctor"
+    REQUIRED_SUBSTRING "fixture construction threw std::exception: suite-ctor"
     ARGS --run=ctor/suite)
 
 gentest_add_check_death(
     NAME fixture_ctor_global_shared
     PROG ${PROJECT_NAME}_ctor_tests
-    EXPECT_SUBSTRING "fixture construction threw std::exception: global-ctor"
+    REQUIRED_SUBSTRING "fixture construction threw std::exception: global-ctor"
     ARGS --run=ctor/global)
 # The 'ctor' suite intentionally contains failing tests; mark its raw run as WILL_FAIL
 set_tests_properties(ctor PROPERTIES WILL_FAIL TRUE)
@@ -2019,13 +2019,13 @@ set_tests_properties(ctor PROPERTIES WILL_FAIL TRUE)
 gentest_add_check_contains(
     NAME benches_list_benches
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING benchmarks/string/concat_small
+    REQUIRED_SUBSTRING benchmarks/string/concat_small
     ARGS --list-benches)
 
 gentest_add_check_contains(
     NAME benches_table_smoke
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING benchmarks/fixture/free_suite_global
+    REQUIRED_SUBSTRING benchmarks/fixture/free_suite_global
     ARGS
         --kind=bench
         --bench-table
@@ -2038,31 +2038,31 @@ gentest_add_check_contains(
 gentest_add_check_contains(
     NAME benches_filter_space
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING "benchmarks/spacing/lock_guard_small<"
+    REQUIRED_SUBSTRING "benchmarks/spacing/lock_guard_small<"
     ARGS --filter benchmarks/spacing/* --kind=bench)
 
 gentest_add_check_death(
     NAME benches_filter_no_match
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING "benchmark filter matched 0 benchmarks"
+    REQUIRED_SUBSTRING "benchmark filter matched 0 benchmarks"
     ARGS --filter=benchmarks/spacing/nope* --kind=bench)
 
 gentest_add_check_death(
     NAME jitter_filter_no_match
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING "jitter filter matched 0 jitter benchmarks"
+    REQUIRED_SUBSTRING "jitter filter matched 0 jitter benchmarks"
     ARGS --filter=benchmarks/spacing/nope* --kind=jitter)
 
 gentest_add_check_death(
     NAME benches_filter_missing_arg
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING "error: --filter requires a value"
+    REQUIRED_SUBSTRING "error: --filter requires a value"
     ARGS --filter)
 
 gentest_add_check_death(
     NAME benches_fixture_alloc_null
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING "shared fixture unavailable for 'benchmarks::NullBenchFixture'"
+    REQUIRED_SUBSTRING "shared fixture unavailable for 'benchmarks::NullBenchFixture'"
     ENV_VARS GENTEST_BENCH_NULL_FIXTURE=1
     ARGS --run=benchmarks/fixture/null --kind=bench)
 
@@ -2075,7 +2075,7 @@ gentest_add_check_exit_code(
 gentest_add_check_death(
     NAME jitter_fixture_alloc_null
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING "shared fixture unavailable for 'benchmarks::NullJitterFixture'"
+    REQUIRED_SUBSTRING "shared fixture unavailable for 'benchmarks::NullJitterFixture'"
     ENV_VARS GENTEST_JITTER_NULL_FIXTURE=1
     ARGS --run=benchmarks/fixture/jitter_null --kind=jitter)
 
@@ -2089,20 +2089,20 @@ gentest_add_check_exit_code(
 gentest_add_check_contains(
     NAME jitter_hist_header
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING benchmarks/math/sin_jitter
+    REQUIRED_SUBSTRING benchmarks/math/sin_jitter
     ARGS --list)
 
 gentest_add_check_contains(
     NAME jitter_suite_table_smoke
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
-    EXPECT_SUBSTRING benchmarks/math/sin_jitter
+    REQUIRED_SUBSTRING benchmarks/math/sin_jitter
     ARGS --list)
 
 gentest_add_run_and_check_file(
     NAME regression_bench_only_junit_generation
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_only_junit.xml
-    EXPECT_SUBSTRING "tests=\"1\""
+    REQUIRED_SUBSTRING "tests=\"1\""
     EXPECT_RC 0
     ARGS --run=benchmarks/fixture/free_suite_global --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_only_junit.xml)
 
@@ -2110,7 +2110,7 @@ gentest_add_run_and_check_file(
     NAME regression_jitter_only_junit_generation
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_only_junit.xml
-    EXPECT_SUBSTRING "tests=\"1\""
+    REQUIRED_SUBSTRING "tests=\"1\""
     EXPECT_RC 0
     ARGS --run=benchmarks/fixture/free_suite_global_jitter --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_only_junit.xml)
 
@@ -2118,7 +2118,7 @@ gentest_add_run_and_check_file(
     NAME regression_bench_failure_junit_generation
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/bench_failure_junit.xml
-    EXPECT_SUBSTRING "failures=\"1\""
+    REQUIRED_SUBSTRING "failures=\"1\""
     EXPECT_RC 1
     ARGS --run=regressions/bench_assert_should_fail --kind=bench --junit=${CMAKE_CURRENT_BINARY_DIR}/bench_failure_junit.xml)
 
@@ -2126,20 +2126,20 @@ gentest_add_run_and_check_file(
     NAME regression_jitter_failure_junit_generation
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/jitter_failure_junit.xml
-    EXPECT_SUBSTRING "failures=\"1\""
+    REQUIRED_SUBSTRING "failures=\"1\""
     EXPECT_RC 1
     ARGS --run=regressions/jitter_assert_should_fail --kind=jitter --junit=${CMAKE_CURRENT_BINARY_DIR}/jitter_failure_junit.xml)
 
 gentest_add_check_death(
     NAME regression_bench_unknown_exception_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    EXPECT_SUBSTRING "benchmark call failed for regressions/bench_unknown_exception_should_fail: unknown exception"
+    REQUIRED_SUBSTRING "benchmark call failed for regressions/bench_unknown_exception_should_fail: unknown exception"
     ARGS --run=regressions/bench_unknown_exception_should_fail --kind=bench)
 
 gentest_add_check_death(
     NAME regression_jitter_unknown_exception_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
-    EXPECT_SUBSTRING "jitter call failed for regressions/jitter_unknown_exception_should_fail: unknown exception"
+    REQUIRED_SUBSTRING "jitter call failed for regressions/jitter_unknown_exception_should_fail: unknown exception"
     ARGS --run=regressions/jitter_unknown_exception_should_fail --kind=jitter)
 
 gentest_add_cmake_script_test(
@@ -2155,7 +2155,7 @@ gentest_add_cmake_script_test(
         --bench-min-epoch-time-s=0
     DEFINES
         "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=warmup benchmark assertion failure"
+        "REQUIRED_SUBSTRING=warmup benchmark assertion failure"
         "FORBID_SUBSTRING=regression marker: benchmark continued after warmup failure")
 
 gentest_add_cmake_script_test(
@@ -2171,7 +2171,7 @@ gentest_add_cmake_script_test(
         --bench-min-epoch-time-s=0
     DEFINES
         "EXPECT_RC=1"
-        "EXPECT_SUBSTRING=warmup jitter assertion failure"
+        "REQUIRED_SUBSTRING=warmup jitter assertion failure"
         "FORBID_SUBSTRING=regression marker: jitter continued after warmup failure")
 
 gentest_add_cmake_script_test(
@@ -2188,55 +2188,55 @@ gentest_add_cmake_script_test(
 gentest_add_check_death(
     NAME cli_unknown_option
     PROG $<TARGET_FILE:gentest_unit_tests>
-    EXPECT_SUBSTRING "error: unknown option"
+    REQUIRED_SUBSTRING "error: unknown option"
     ARGS --this-option-does-not-exist)
 
 gentest_add_check_death(
     NAME cli_unknown_option_hard_fail
     PROG $<TARGET_FILE:gentest_unit_tests>
-    EXPECT_SUBSTRING "error: unknown option '--this-option-does-not-exist'"
+    REQUIRED_SUBSTRING "error: unknown option '--this-option-does-not-exist'"
     ARGS --run=unit/arithmetic/sum --this-option-does-not-exist)
 
 gentest_add_check_death(
     NAME cli_removed_run_test
     PROG $<TARGET_FILE:gentest_unit_tests>
-    EXPECT_SUBSTRING "error: --run-test was removed; use --run"
+    REQUIRED_SUBSTRING "error: --run-test was removed; use --run"
     ARGS --run-test=unit/arithmetic/sum)
 
 gentest_add_check_contains(
     NAME cli_kind_filter_zero_bench
     PROG $<TARGET_FILE:gentest_unit_tests>
-    EXPECT_SUBSTRING "Executed 0 benchmark(s)."
+    REQUIRED_SUBSTRING "Executed 0 benchmark(s)."
     ARGS --kind=bench)
 
 gentest_add_check_death(
     NAME regression_cli_kind_mismatch_diagnostics
     PROG $<TARGET_FILE:gentest_unit_tests>
-    EXPECT_SUBSTRING "Case 'unit/arithmetic/sum' does not match --kind=bench"
+    REQUIRED_SUBSTRING "Case 'unit/arithmetic/sum' does not match --kind=bench"
     ARGS --run=unit/arithmetic/sum --kind=bench)
 
 gentest_add_check_death(
     NAME regression_cli_suffix_ambiguity_diagnostics
     PROG $<TARGET_FILE:gentest_regression_cli_suffix_ambiguity>
-    EXPECT_SUBSTRING "Case name is ambiguous: common_leaf"
+    REQUIRED_SUBSTRING "Case name is ambiguous: common_leaf"
     ARGS --run=common_leaf --kind=test)
 
 gentest_add_check_death(
     NAME regression_cli_suffix_ambiguity_lists_alpha
     PROG $<TARGET_FILE:gentest_regression_cli_suffix_ambiguity>
-    EXPECT_SUBSTRING "regressions/ambiguity/alpha/common_leaf"
+    REQUIRED_SUBSTRING "regressions/ambiguity/alpha/common_leaf"
     ARGS --run=common_leaf --kind=test)
 
 gentest_add_check_death(
     NAME regression_cli_suffix_ambiguity_lists_beta
     PROG $<TARGET_FILE:gentest_regression_cli_suffix_ambiguity>
-    EXPECT_SUBSTRING "regressions/ambiguity/beta/common_leaf"
+    REQUIRED_SUBSTRING "regressions/ambiguity/beta/common_leaf"
     ARGS --run=common_leaf --kind=test)
 
 gentest_add_check_death(
     NAME cli_bench_table_invalid_kind
     PROG $<TARGET_FILE:gentest_unit_tests>
-    EXPECT_SUBSTRING "error: --bench-table requires --kind=bench or --kind=all"
+    REQUIRED_SUBSTRING "error: --bench-table requires --kind=bench or --kind=all"
     ARGS --bench-table --kind=jitter)
 
 function(_gentest_add_cmake_helper_test name source_dir script_path label)
@@ -2281,7 +2281,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_genex_sources
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake
     cmake
-    -DEXPECT_SUBSTRING=generator-expression SOURCES entries are not supported)
+    -DREQUIRED_SUBSTRING=generator-expression SOURCES entries are not supported)
 set_property(TEST gentest_codegen_genex_sources_rejected APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -2289,7 +2289,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_genex
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake
     cmake
-    -DEXPECT_SUBSTRING=OUTPUT with generator expressions is not supported in manifest mode)
+    -DREQUIRED_SUBSTRING=OUTPUT with generator expressions is not supported in manifest mode)
 set_property(TEST gentest_codegen_output_genex_rejected APPEND PROPERTY LABELS "codegen")
 
 set(_gentest_discover_tests_config "")
@@ -2526,7 +2526,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_axis_generators.cpp
     -DEXPECT_CASE_COUNT=45
-    "-DEXPECT_SUBSTRINGS=return range_many(1);;return range_descending_int(5);;return range_descending_int(3);;return range_descending_int(1);;return range_step_zero_int(1);;return range_step_zero_int(2);;return range_step_zero_int(3);;return range_float_many(0);;return range_float_many(0.25);;return range_float_many(0.5);;return range_float_descending(1);;return range_float_descending(0.75);;return range_float_descending(0.5);;return linspace_many(0.25);;return linspace_many_int(1);;return linspace_many_int(3);;return linspace_many_int(5);;return geom_many(8);;return geom_many_float(1.5);;return geom_many_float(3);;return geom_many_float(6);;return logspace_many(1000);;return logspace_many_int(1);;return logspace_many_int(2);;return logspace_many_int(4);;return logspace_many_int(8);;.name = \"smoke/axis_generators/logspace_many(0.10000000000000001)\"")
+    "-DREQUIRED_SUBSTRINGS=return range_many(1);;return range_descending_int(5);;return range_descending_int(3);;return range_descending_int(1);;return range_step_zero_int(1);;return range_step_zero_int(2);;return range_step_zero_int(3);;return range_float_many(0);;return range_float_many(0.25);;return range_float_many(0.5);;return range_float_descending(1);;return range_float_descending(0.75);;return range_float_descending(0.5);;return linspace_many(0.25);;return linspace_many_int(1);;return linspace_many_int(3);;return linspace_many_int(5);;return geom_many(8);;return geom_many_float(1.5);;return geom_many_float(3);;return geom_many_float(6);;return logspace_many(1000);;return logspace_many_int(1);;return logspace_many_int(2);;return logspace_many_int(4);;return logspace_many_int(8);;.name = \"smoke/axis_generators/logspace_many(0.10000000000000001)\"")
 set_property(TEST gentest_codegen_emit_axis_generators APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -2540,7 +2540,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_parameters_pack.cpp
     -DEXPECT_CASE_COUNT=6
-    "-DEXPECT_SUBSTRINGS=return pack_rows(1, 2);;return pack_rows(3, 4);;return pack_mixed(10, 20, 7);;return pack_mixed(30, 40, 8);;.name = \"smoke/parameters_pack/mixed(10, 20, 7)\"")
+    "-DREQUIRED_SUBSTRINGS=return pack_rows(1, 2);;return pack_rows(3, 4);;return pack_mixed(10, 20, 7);;return pack_mixed(30, 40, 8);;.name = \"smoke/parameters_pack/mixed(10, 20, 7)\"")
 set_property(TEST gentest_codegen_emit_parameters_pack APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -2554,7 +2554,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_fixture_resolution.cpp
     -DEXPECT_CASE_COUNT=2
-    "-DEXPECT_SUBSTRINGS=gentest_init_fixture(fx0_, \"smoke::fixture_resolution::LocalFixture\");;gentest_init_shared_fixture(fx0_, ::gentest::detail::SharedFixtureScope::Suite, \"smoke/fixture_resolution\", \"smoke::fixture_resolution::SharedSuiteFixture\")")
+    "-DREQUIRED_SUBSTRINGS=gentest_init_fixture(fx0_, \"smoke::fixture_resolution::LocalFixture\");;gentest_init_shared_fixture(fx0_, ::gentest::detail::SharedFixtureScope::Suite, \"smoke/fixture_resolution\", \"smoke::fixture_resolution::SharedSuiteFixture\")")
 set_property(TEST gentest_codegen_emit_fixture_resolution APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -2583,7 +2583,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_template_parser_edges.cpp
     -DEXPECT_CASE_COUNT=7
-    "-DEXPECT_SUBSTRINGS=return template_parser_template_template<std::list, std::pair<int, std::array<long, 2>>>();;return template_parser_template_template<std::vector, std::pair<int, std::array<long, 2>>>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\''>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\n'>();;return template_parser_syntax_sensitive<decltype(\"a,b\"), decltype(\"\\\"edge\\\"\"), std::integral_constant<int, 1> const>();;return template_parser_char_prefixes<u8'c', u'd', U'e', L'f'>();;.name = \"smoke/template_parser_edges/type_char<std::pair<int, std::array<long, 2>>,'\\\\''>\"")
+    "-DREQUIRED_SUBSTRINGS=return template_parser_template_template<std::list, std::pair<int, std::array<long, 2>>>();;return template_parser_template_template<std::vector, std::pair<int, std::array<long, 2>>>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\''>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\n'>();;return template_parser_syntax_sensitive<decltype(\"a,b\"), decltype(\"\\\"edge\\\"\"), std::integral_constant<int, 1> const>();;return template_parser_char_prefixes<u8'c', u'd', U'e', L'f'>();;.name = \"smoke/template_parser_edges/type_char<std::pair<int, std::array<long, 2>>,'\\\\''>\"")
 set_property(TEST gentest_codegen_emit_template_parser_edges APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -2597,7 +2597,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_type_quoting.cpp
     -DEXPECT_CASE_COUNT=21
-    "-DEXPECT_SUBSTRINGS=return char_params('\\'');;return char_params('\\\\');;return char16_params(u'D');;return char32_params(U'F');;return char8_params(u8'C');;return utf16_cstr(u\"hello\");;return utf32_cstr(U\"Dog\");;return utf8_string_view(u8\"beta\");;return wchar_params(L'Q');;return wide_string_view(L\"Wide\")")
+    "-DREQUIRED_SUBSTRINGS=return char_params('\\'');;return char_params('\\\\');;return char16_params(u'D');;return char32_params(U'F');;return char8_params(u8'C');;return utf16_cstr(u\"hello\");;return utf32_cstr(U\"Dog\");;return utf8_string_view(u8\"beta\");;return wchar_params(L'Q');;return wide_string_view(L\"Wide\")")
 set_property(TEST gentest_codegen_emit_type_quoting APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(

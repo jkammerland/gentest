@@ -15,7 +15,7 @@ execute_process(
     "${CMAKE_COMMAND}"
     "-DPROG=${CMAKE_COMMAND}"
     "-DFILE=${_file}"
-    "-DEXPECT_SUBSTRING=needle"
+    "-DREQUIRED_SUBSTRING=needle"
     "-DARGS=-E\\;true"
     -P "${SOURCE_DIR}/tests/cmake/scripts/CheckFileContains.cmake"
   RESULT_VARIABLE _rc

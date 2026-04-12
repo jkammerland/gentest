@@ -13,4 +13,4 @@ target_compile_features(demo_tests PRIVATE cxx_std_20)
 gentest_discover_tests(demo_tests
   DISCOVERY_MODE PRE_TEST
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  EXPECT_SUBSTRING "fatal path")
+  DEATH_EXPECT_SUBSTRING "fatal path")

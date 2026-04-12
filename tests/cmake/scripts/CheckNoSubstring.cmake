@@ -3,7 +3,7 @@
 # Optional:
 #  -DARGS=<optional CLI args>
 #  -DEXPECT_RC=<expected numeric exit code>
-#  -DEXPECT_SUBSTRING=<substring that must be present in combined output>
+#  -DREQUIRED_SUBSTRING=<substring that must be present in combined output>
 #  -DEXPECT_COUNT_SUBSTRING=<substring whose exact occurrence count is enforced>
 #  -DEXPECT_COUNT=<expected count for EXPECT_COUNT_SUBSTRING>
 #  -DFORBID_SUBSTRING=<substring that must NOT be present in combined output>
@@ -47,10 +47,10 @@ if(DEFINED EXPECT_RC AND NOT "${EXPECT_RC}" STREQUAL "")
   endif()
 endif()
 
-if(DEFINED EXPECT_SUBSTRING AND NOT "${EXPECT_SUBSTRING}" STREQUAL "")
-  string(FIND "${_all}" "${EXPECT_SUBSTRING}" _expect_pos)
+if(DEFINED REQUIRED_SUBSTRING AND NOT "${REQUIRED_SUBSTRING}" STREQUAL "")
+  string(FIND "${_all}" "${REQUIRED_SUBSTRING}" _expect_pos)
   if(_expect_pos EQUAL -1)
-    message(FATAL_ERROR "Expected substring not found: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
+    message(FATAL_ERROR "Expected substring not found: '${REQUIRED_SUBSTRING}'. Output:\n${_all}")
   endif()
 endif()
 

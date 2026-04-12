@@ -1,11 +1,11 @@
 # Usage:
-#   cmake -DPROG=<path> -DEXPECT_SUBSTRING=<text> [-DARGS="--flags ..."] -P tests/cmake/scripts/CheckContains.cmake
+#   cmake -DPROG=<path> -DREQUIRED_SUBSTRING=<text> [-DARGS="--flags ..."] -P tests/cmake/scripts/CheckContains.cmake
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")
 endif()
-if(NOT DEFINED EXPECT_SUBSTRING)
-  message(FATAL_ERROR "EXPECT_SUBSTRING not set")
+if(NOT DEFINED REQUIRED_SUBSTRING)
+  message(FATAL_ERROR "REQUIRED_SUBSTRING not set")
 endif()
 
 set(_emu)
@@ -37,7 +37,7 @@ if(NOT rc EQUAL 0)
   message(FATAL_ERROR "Command failed with code ${rc}. Output:\n${out}\nErrors:\n${err}")
 endif()
 
-string(FIND "${out}" "${EXPECT_SUBSTRING}" _pos)
+string(FIND "${out}" "${REQUIRED_SUBSTRING}" _pos)
 if(_pos EQUAL -1)
-  message(FATAL_ERROR "Expected substring not found: '${EXPECT_SUBSTRING}'. Output:\n${out}")
+  message(FATAL_ERROR "Expected substring not found: '${REQUIRED_SUBSTRING}'. Output:\n${out}")
 endif()

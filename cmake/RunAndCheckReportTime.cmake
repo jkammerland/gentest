@@ -1,9 +1,9 @@
 # Usage:
 #   cmake -DPROG=<path> -DFILE=<path> -DFORMAT=<JUNIT|ALLURE> [-DITEM_NAME=<testcase name>]
-#         [-DEXPECT_SUBSTRING=<text>] [-DEXPECT_RC=<int>] [-DARGS="--flags ..."]
+#         [-DREQUIRED_SUBSTRING=<text>] [-DEXPECT_RC=<int>] [-DARGS="--flags ..."]
 #     -P cmake/RunAndCheckReportTime.cmake
 #
-# Runs the program, then checks that FILE exists, optionally contains EXPECT_SUBSTRING,
+# Runs the program, then checks that FILE exists, optionally contains REQUIRED_SUBSTRING,
 # and reports a positive serialized time for the target item.
 
 if(NOT DEFINED PROG)
@@ -56,10 +56,10 @@ if(NOT EXISTS "${FILE}")
 endif()
 
 file(READ "${FILE}" _content)
-if(DEFINED EXPECT_SUBSTRING AND NOT "${EXPECT_SUBSTRING}" STREQUAL "")
-  string(FIND "${_content}" "${EXPECT_SUBSTRING}" _expect_pos)
+if(DEFINED REQUIRED_SUBSTRING AND NOT "${REQUIRED_SUBSTRING}" STREQUAL "")
+  string(FIND "${_content}" "${REQUIRED_SUBSTRING}" _expect_pos)
   if(_expect_pos EQUAL -1)
-    message(FATAL_ERROR "Expected substring not found in file: '${EXPECT_SUBSTRING}'. File: ${FILE}\nContent:\n${_content}")
+    message(FATAL_ERROR "Expected substring not found in file: '${REQUIRED_SUBSTRING}'. File: ${FILE}\nContent:\n${_content}")
   endif()
 endif()
 

@@ -10,7 +10,7 @@
 #  -DC_COMPILER=<C compiler>
 #  -DCXX_COMPILER=<C++ compiler>
 #  -DBUILD_TYPE=<Debug/Release/...>
-#  -DEXPECT_SUBSTRING=<error substring>
+#  -DREQUIRED_SUBSTRING=<error substring>
 
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckCodegenOutputCollision.cmake: SOURCE_DIR not set")
@@ -21,8 +21,8 @@ endif()
 if(NOT DEFINED GENERATOR)
   message(FATAL_ERROR "CheckCodegenOutputCollision.cmake: GENERATOR not set")
 endif()
-if(NOT DEFINED EXPECT_SUBSTRING)
-  set(EXPECT_SUBSTRING "is already used by")
+if(NOT DEFINED REQUIRED_SUBSTRING)
+  set(REQUIRED_SUBSTRING "is already used by")
 endif()
 
 set(_work_dir "${BUILD_ROOT}/codegen_output_collision")
@@ -71,7 +71,7 @@ execute_process(
 
 set(_all "${_out}\n${_err}")
 set(_all_normalized "${_all}")
-set(_expect_normalized "${EXPECT_SUBSTRING}")
+set(_expect_normalized "${REQUIRED_SUBSTRING}")
 
 string(REGEX REPLACE "[ \t\r\n]+" " " _all_normalized "${_all_normalized}")
 string(REGEX REPLACE "[ \t\r\n]+" " " _expect_normalized "${_expect_normalized}")
@@ -82,7 +82,7 @@ endif()
 
 string(FIND "${_all_normalized}" "${_expect_normalized}" _pos)
 if(_pos EQUAL -1)
-  message(FATAL_ERROR "Expected substring not found in output: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
+  message(FATAL_ERROR "Expected substring not found in output: '${REQUIRED_SUBSTRING}'. Output:\n${_all}")
 endif()
 
 message(STATUS "Codegen output collision check passed (configure failed with expected message)")

@@ -333,12 +333,12 @@ function(gentest_add_check_exit_code)
 endfunction()
 
 function(gentest_add_check_contains)
-    set(one_value_args NAME PROG EXPECT_SUBSTRING)
+    set(one_value_args NAME PROG REQUIRED_SUBSTRING)
     set(multi_value_args ARGS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
-    if(NOT GENTEST_NAME OR NOT GENTEST_PROG OR GENTEST_EXPECT_SUBSTRING STREQUAL "")
-        message(FATAL_ERROR "gentest_add_check_contains: NAME, PROG, and EXPECT_SUBSTRING are required")
+    if(NOT GENTEST_NAME OR NOT GENTEST_PROG OR GENTEST_REQUIRED_SUBSTRING STREQUAL "")
+        message(FATAL_ERROR "gentest_add_check_contains: NAME, PROG, and REQUIRED_SUBSTRING are required")
     endif()
 
     gentest_add_cmake_script_test(
@@ -346,7 +346,7 @@ function(gentest_add_check_contains)
         PROG ${GENTEST_PROG}
         SCRIPT "${_gentest_test_script_dir}/CheckContains.cmake"
         ARGS ${GENTEST_ARGS}
-        DEFINES "EXPECT_SUBSTRING=${GENTEST_EXPECT_SUBSTRING}")
+        DEFINES "REQUIRED_SUBSTRING=${GENTEST_REQUIRED_SUBSTRING}")
 endfunction()
 
 function(gentest_add_check_lines)
@@ -368,7 +368,7 @@ endfunction()
 
 function(gentest_add_check_death)
     set(options NO_EMULATOR)
-    set(one_value_args NAME PROG EXPECT_SUBSTRING)
+    set(one_value_args NAME PROG REQUIRED_SUBSTRING)
     set(multi_value_args ARGS ENV_VARS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -377,8 +377,8 @@ function(gentest_add_check_death)
     endif()
 
     set(_defines)
-    if(NOT GENTEST_EXPECT_SUBSTRING STREQUAL "")
-        list(APPEND _defines "EXPECT_SUBSTRING=${GENTEST_EXPECT_SUBSTRING}")
+    if(NOT GENTEST_REQUIRED_SUBSTRING STREQUAL "")
+        list(APPEND _defines "REQUIRED_SUBSTRING=${GENTEST_REQUIRED_SUBSTRING}")
     endif()
 
     set(_no_emulator_arg "")
@@ -397,12 +397,12 @@ function(gentest_add_check_death)
 endfunction()
 
 function(gentest_add_check_file_contains)
-    set(one_value_args NAME PROG FILE EXPECT_SUBSTRING)
+    set(one_value_args NAME PROG FILE REQUIRED_SUBSTRING)
     set(multi_value_args ARGS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
-    if(NOT GENTEST_NAME OR NOT GENTEST_PROG OR NOT GENTEST_FILE OR GENTEST_EXPECT_SUBSTRING STREQUAL "")
-        message(FATAL_ERROR "gentest_add_check_file_contains: NAME, PROG, FILE, and EXPECT_SUBSTRING are required")
+    if(NOT GENTEST_NAME OR NOT GENTEST_PROG OR NOT GENTEST_FILE OR GENTEST_REQUIRED_SUBSTRING STREQUAL "")
+        message(FATAL_ERROR "gentest_add_check_file_contains: NAME, PROG, FILE, and REQUIRED_SUBSTRING are required")
     endif()
 
     gentest_add_cmake_script_test(
@@ -412,21 +412,21 @@ function(gentest_add_check_file_contains)
         ARGS ${GENTEST_ARGS}
         DEFINES
             "FILE=${GENTEST_FILE}"
-            "EXPECT_SUBSTRING=${GENTEST_EXPECT_SUBSTRING}")
+            "REQUIRED_SUBSTRING=${GENTEST_REQUIRED_SUBSTRING}")
 endfunction()
 
 function(gentest_add_run_and_check_file)
-    set(one_value_args NAME PROG FILE EXPECT_SUBSTRING EXPECT_RC FORBID_SUBSTRING)
+    set(one_value_args NAME PROG FILE REQUIRED_SUBSTRING EXPECT_RC FORBID_SUBSTRING)
     set(multi_value_args ARGS FORBID_SUBSTRINGS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
-    if(NOT GENTEST_NAME OR NOT GENTEST_PROG OR NOT GENTEST_FILE OR GENTEST_EXPECT_SUBSTRING STREQUAL "")
-        message(FATAL_ERROR "gentest_add_run_and_check_file: NAME, PROG, FILE, and EXPECT_SUBSTRING are required")
+    if(NOT GENTEST_NAME OR NOT GENTEST_PROG OR NOT GENTEST_FILE OR GENTEST_REQUIRED_SUBSTRING STREQUAL "")
+        message(FATAL_ERROR "gentest_add_run_and_check_file: NAME, PROG, FILE, and REQUIRED_SUBSTRING are required")
     endif()
 
     set(_defines
         "FILE=${GENTEST_FILE}"
-        "EXPECT_SUBSTRING=${GENTEST_EXPECT_SUBSTRING}")
+        "REQUIRED_SUBSTRING=${GENTEST_REQUIRED_SUBSTRING}")
     if(NOT GENTEST_EXPECT_RC STREQUAL "")
         list(APPEND _defines "EXPECT_RC=${GENTEST_EXPECT_RC}")
     endif()

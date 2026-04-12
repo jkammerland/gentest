@@ -20,14 +20,9 @@ Supported module-authored test flows:
 - CMake >= 3.31
 - C++20 compiler with named-module support
 - LLVM/Clang available for `gentest_codegen`
-- `CMAKE_EXPORT_COMPILE_COMMANDS=ON`
-- installed-package consumers also need the exact matching `fmt` CMake package
-  discoverable, typically through the same `CMAKE_PREFIX_PATH` as `gentest`
 
 For host-toolchain vs target-sysroot setup details, including cross-build
 examples, see [buildsystems/host_toolchain_sysroots.md](buildsystems/host_toolchain_sysroots.md).
-
-Per-TU wrapper mode for module sources requires a single-config generator/build directory. For multi-config generators, use manifest mode with `gentest_attach_codegen(... OUTPUT ...)`.
 
 ## CMake quick start
 
@@ -47,6 +42,9 @@ target_link_libraries(my_tests PRIVATE
 
 gentest_attach_codegen(my_tests)
 gentest_discover_tests(my_tests)
+
+# For multi-config generators, 
+# use manifest mode with `gentest_attach_codegen(... OUTPUT ...)`.
 ```
 
 If you do not provide your own `main()`, link `gentest::gentest_main` instead of `gentest::gentest_runtime`.
@@ -164,7 +162,6 @@ The important rule is simple:
 
 - header defs stay header-based and publish a generated header
 - module defs stay module-based and publish a generated module
-- module test sources do not need `#if defined(GENTEST_CODEGEN)` bootstrap blocks for direct mocks anymore
 
 ## Assertions and exceptions
 

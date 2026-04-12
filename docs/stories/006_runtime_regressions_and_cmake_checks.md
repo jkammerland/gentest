@@ -37,4 +37,4 @@ Capture the recent runtime correctness fixes and the regression harness updates 
   - Optional: `ARGS`, `TIMEOUT_SEC`, `EXPECT_RC`
 - `CheckTuHeaderCaseCollision.cmake`
   - Required: `PROG`, `BUILD_ROOT`
-  - Optional: `TARGET_ARG`, `EXPECT_SUBSTRING`
+  - Optional: `TARGET_ARG`, `REQUIRED_SUBSTRING`

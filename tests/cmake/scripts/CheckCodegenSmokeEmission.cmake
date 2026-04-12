@@ -70,7 +70,7 @@ if(DEFINED EXPECT_CASE_COUNT AND NOT "${EXPECT_CASE_COUNT}" STREQUAL "")
   endif()
 endif()
 
-foreach(_expected IN LISTS EXPECT_SUBSTRINGS)
+foreach(_expected IN LISTS REQUIRED_SUBSTRINGS)
   string(FIND "${_output_text}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR

@@ -66,10 +66,6 @@ Contributor workflows, including lint, static analysis, coverage, and local CI-a
 
 ## Use in your project (CMake)
 
-Installed-package consumers must also make the exact matching `fmt` CMake
-package discoverable. The simplest setup is to install `gentest` and `fmt`
-into the same prefix and point `CMAKE_PREFIX_PATH` at that prefix.
-
 ```cmake
 # Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
@@ -120,8 +116,7 @@ Examples below use the concise `[[gentest::...]]` spelling for single attributes
 Naming:
 - Any gentest function-level attribute marks the declaration as a case.
 - `test("...")` is optional; if omitted, the base name defaults to the C++ function name.
-- Member tests are a legacy path and should be avoided in new code.
-- Use `test("...")` to disambiguate overloads and keep names stable across refactors.
+- Member tests are experimental and support may be removed.
 
 Tags/metadata:
 - Flag attributes are collected as tags: `fast`, `slow`, `linux`, `windows`, `death`.
@@ -130,7 +125,7 @@ Tags/metadata:
 - Requirement IDs are shown in `--list` output as `requires=...` and exported in JUnit as
   `<property name="requirement" value="...">`, so you can build a trace matrix from CI artifacts (example flow: [docs/traceability_standards.md](docs/traceability_standards.md)).
 - `death`-tagged tests are excluded from the default run; pass `--include-death` to execute them.
-- The death-test harness treats non-zero exit as success (and fails on normal test failures); set `EXPECT_SUBSTRING` to assert output.
+- The death-test harness treats non-zero exit as success (and fails on normal test failures); set `DEATH_EXPECT_SUBSTRING` to assert output.
 - Full death-test docs: [docs/death_tests.md](docs/death_tests.md).
 
 ## Feature examples
@@ -233,7 +228,7 @@ void fatal_path();
 ```cmake
 gentest_discover_tests(my_tests
   # Optional: enforce expected output substring for death tests
-  # EXPECT_SUBSTRING "fatal path"
+  # DEATH_EXPECT_SUBSTRING "fatal path"
 )
 ```
 
@@ -244,7 +239,7 @@ Manual run:
 ```
 
 Note: if a death test is compiled out in a configuration (e.g. wrapped in `#ifndef NDEBUG`), it won't
-appear in `--list-death`, so no CTest entry is created for that config.
+appear in discovery output, so no CTest entry is created for that config.
 
 ### Outcomes (skip / xfail)
 

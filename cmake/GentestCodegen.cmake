@@ -3278,7 +3278,7 @@ function(_gentest_ensure_check_death_script out_var)
 #  -DPROG=<path to test binary>
 #  -DARGS=<optional CLI args>
 #  -DENV_VARS=<optional env vars (list of KEY=VALUE)>
-#  -DEXPECT_SUBSTRING=<substring expected in combined output>
+#  -DDEATH_EXPECT_SUBSTRING=<substring expected in combined output>
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "CheckDeath.cmake: PROG not set")
@@ -3371,10 +3371,10 @@ if(_all MATCHES "(^|\n)\\[ FAIL \\]")
   message(FATAL_ERROR "Death test exited non-zero but reported a normal test failure. Output:\n${_all}")
 endif()
 
-if(DEFINED EXPECT_SUBSTRING)
-  string(FIND "${_all}" "${EXPECT_SUBSTRING}" _pos)
+if(DEFINED DEATH_EXPECT_SUBSTRING)
+  string(FIND "${_all}" "${DEATH_EXPECT_SUBSTRING}" _pos)
   if(_pos EQUAL -1)
-    message(FATAL_ERROR "Expected substring not found in output: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
+    message(FATAL_ERROR "Expected substring not found in output: '${DEATH_EXPECT_SUBSTRING}'. Output:\n${_all}")
   endif()
 endif()
 
@@ -3400,7 +3400,7 @@ function(gentest_discover_tests_impl)
     TEST_DISCOVERY_EXTRA_ARGS
     TEST_PROPERTIES
     TEST_EXECUTOR
-    EXPECT_SUBSTRING
+    DEATH_EXPECT_SUBSTRING
   )
   set(multiValueArgs "")
   cmake_parse_arguments(PARSE_ARGV 0 arg "${options}" "${oneValueArgs}" "${multiValueArgs}")
@@ -3610,10 +3610,10 @@ function(gentest_discover_tests_impl)
     endif()
 
     set(expect_def "")
-    if(NOT "${arg_EXPECT_SUBSTRING}" STREQUAL "")
-      set(expect_val "${arg_EXPECT_SUBSTRING}")
+    if(NOT "${arg_DEATH_EXPECT_SUBSTRING}" STREQUAL "")
+      set(expect_val "${arg_DEATH_EXPECT_SUBSTRING}")
       string(REPLACE ";" "\\;" expect_val "${expect_val}")
-      set(expect_def "-DEXPECT_SUBSTRING=${expect_val}")
+      set(expect_def "-DDEATH_EXPECT_SUBSTRING=${expect_val}")
     endif()
 
     string(APPEND script "add_test(${guarded_testname}")
@@ -3674,7 +3674,7 @@ if(CMAKE_SCRIPT_MODE_FILE)
     TEST_EXTRA_ARGS "${TEST_EXTRA_ARGS}"
     TEST_DISCOVERY_EXTRA_ARGS "${TEST_DISCOVERY_EXTRA_ARGS}"
     TEST_PROPERTIES "${TEST_PROPERTIES}"
-    EXPECT_SUBSTRING ${EXPECT_SUBSTRING}
+    DEATH_EXPECT_SUBSTRING ${DEATH_EXPECT_SUBSTRING}
   )
 endif()
 ]====])
@@ -3694,9 +3694,28 @@ function(gentest_discover_tests target)
         TEST_LIST
         DISCOVERY_TIMEOUT
         DISCOVERY_MODE
-        EXPECT_SUBSTRING)
+        DEATH_EXPECT_SUBSTRING)
     set(multi_value_args EXTRA_ARGS DISCOVERY_EXTRA_ARGS PROPERTIES)
-    cmake_parse_arguments(PARSE_ARGV 1 GENTEST "${options}" "${one_value_args}" "${multi_value_args}")
+    list(FIND ARGN "EXPECT_SUBSTRING" _gentest_legacy_expect_idx)
+    list(FIND ARGN "DEATH_EXPECT_SUBSTRING" _gentest_death_expect_idx)
+    if(_gentest_legacy_expect_idx GREATER_EQUAL 0 AND _gentest_death_expect_idx GREATER_EQUAL 0)
+        message(FATAL_ERROR
+            "gentest_discover_tests: do not pass both DEATH_EXPECT_SUBSTRING and deprecated EXPECT_SUBSTRING")
+    endif()
+
+    set(_gentest_discover_args ${ARGN})
+    if(_gentest_legacy_expect_idx GREATER_EQUAL 0)
+        list(REMOVE_AT _gentest_discover_args ${_gentest_legacy_expect_idx})
+        list(INSERT _gentest_discover_args ${_gentest_legacy_expect_idx} DEATH_EXPECT_SUBSTRING)
+    endif()
+
+    cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${_gentest_discover_args})
+
+    if(_gentest_legacy_expect_idx GREATER_EQUAL 0)
+        message(WARNING
+            "gentest_discover_tests: EXPECT_SUBSTRING is deprecated; use DEATH_EXPECT_SUBSTRING instead. "
+            "EXPECT_SUBSTRING only applies to death tests registered by gentest_discover_tests().")
+    endif()
 
     if(NOT TARGET ${target})
         message(FATAL_ERROR "gentest_discover_tests: target '${target}' does not exist")
@@ -3766,7 +3785,7 @@ function(gentest_discover_tests target)
                 -D "CTEST_FILE=${_gentest_ctest_tests_file}"
                 -D "TEST_DISCOVERY_TIMEOUT=${GENTEST_DISCOVERY_TIMEOUT}"
                 -D "TEST_DISCOVERY_EXTRA_ARGS=${GENTEST_DISCOVERY_EXTRA_ARGS}"
-                -D "EXPECT_SUBSTRING=${GENTEST_EXPECT_SUBSTRING}"
+                -D "DEATH_EXPECT_SUBSTRING=${GENTEST_DEATH_EXPECT_SUBSTRING}"
                 -P "${_gentest_add_tests_script}"
             VERBATIM
         )
@@ -3803,7 +3822,7 @@ function(gentest_discover_tests target)
             "      CTEST_FILE [==[${_gentest_ctest_tests_file}]==]" "\n"
             "      TEST_DISCOVERY_TIMEOUT [==[${GENTEST_DISCOVERY_TIMEOUT}]==]" "\n"
             "      TEST_DISCOVERY_EXTRA_ARGS [==[${GENTEST_DISCOVERY_EXTRA_ARGS}]==]" "\n"
-            "      EXPECT_SUBSTRING [==[${GENTEST_EXPECT_SUBSTRING}]==]" "\n"
+            "      DEATH_EXPECT_SUBSTRING [==[${GENTEST_DEATH_EXPECT_SUBSTRING}]==]" "\n"
             "    )" "\n"
             "  endif()" "\n"
             "  include(\"${_gentest_ctest_tests_file}\")" "\n"

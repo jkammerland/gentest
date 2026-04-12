@@ -12,7 +12,7 @@
 #  -DCXX_COMPILER=<C++ compiler>
 #  -DBUILD_TYPE=<Debug/Release/...>
 #  -DTARGET_ARG=<optional --target=... argument>
-#  -DEXPECT_SUBSTRING=<expected build error substring>
+#  -DREQUIRED_SUBSTRING=<expected build error substring>
 
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckTuHeaderCaseCollision.cmake: SOURCE_DIR not set")
@@ -26,8 +26,8 @@ endif()
 if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
   message(FATAL_ERROR "CheckTuHeaderCaseCollision.cmake: PROG not set")
 endif()
-if(NOT DEFINED EXPECT_SUBSTRING)
-  set(EXPECT_SUBSTRING "multiple sources map to the same TU output header")
+if(NOT DEFINED REQUIRED_SUBSTRING)
+  set(REQUIRED_SUBSTRING "multiple sources map to the same TU output header")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
@@ -161,9 +161,9 @@ if(_build_rc EQUAL 0)
   message(FATAL_ERROR "Expected build to fail due to TU header case-collision, but exit code was 0. Output:\n${_all}")
 endif()
 
-string(FIND "${_all}" "${EXPECT_SUBSTRING}" _pos)
+string(FIND "${_all}" "${REQUIRED_SUBSTRING}" _pos)
 if(_pos EQUAL -1)
-  message(FATAL_ERROR "Expected substring not found in build output: '${EXPECT_SUBSTRING}'. Output:\n${_all}")
+  message(FATAL_ERROR "Expected substring not found in build output: '${REQUIRED_SUBSTRING}'. Output:\n${_all}")
 endif()
 
 message(STATUS "TU header case-collision check passed (build failed with expected message)")

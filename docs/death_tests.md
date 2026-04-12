@@ -36,30 +36,54 @@ void fatal_path();
 
 - Death tests are registered with the `death/` prefix by default. If your test names already include `death/`,
   you'll see entries like `death/death/fatal_path` in CTest.
+- Discovery uses `--list` and infers death-tagged cases from the emitted gentest metadata (`tags=death`).
 - The harness runs `--include-death --run=<case>` and expects a non-zero exit code.
 - If the test binary reports a normal test failure (`[ FAIL ]`), the harness marks it as a failure.
 - If the test binary reports "Case not found:" (or legacy "Test not found:"), the harness marks the CTest
   entry as skipped.
-- Discovery requires a test binary that supports `--list-death`; if not, configuration fails with a clear error.
 - Full discovery options live in `docs/discover_tests.md`.
 
 ### Output expectations
 
-`gentest_discover_tests()` supports a generic `EXPECT_SUBSTRING` option:
+`gentest_discover_tests()` supports a `DEATH_EXPECT_SUBSTRING` option:
 
 ```cmake
 gentest_discover_tests(my_tests
-  EXPECT_SUBSTRING "fatal path"
+  DEATH_EXPECT_SUBSTRING "fatal path"
 )
 ```
 
 For death tests, the harness requires this substring in combined stdout/stderr.
+The option is scoped to one `gentest_discover_tests(...)` call, not to one individual case.
+If that call discovers several death tests, they all use the same expected substring.
+
+Use `TEST_FILTER` to scope the expectation:
+
+```cmake
+gentest_discover_tests(my_tests
+  TEST_FILTER "death/network/*"
+  DEATH_EXPECT_SUBSTRING "network fatal"
+)
+```
+
+For a single death test, use an exact filter:
+
+```cmake
+gentest_discover_tests(my_tests
+  TEST_FILTER "death/fatal_path"
+  DEATH_EXPECT_SUBSTRING "fatal path"
+)
+```
+
+If different death tests need different expected output, register them through separate non-overlapping
+`gentest_discover_tests(...)` calls so each death case is discovered exactly once.
+
 For non-death tests, use CTest properties (e.g., `PASS_REGULAR_EXPRESSION`) if you need output matching.
 
 ### Compiled-out death tests
 
 If a death test is compiled out in a given configuration (e.g., wrapped in `#ifndef NDEBUG`), it will not appear
-in `--list-death`, so no CTest entry is created for that configuration.
+in `--list`, so no CTest entry is created for that configuration.
 
 ## Troubleshooting
 
