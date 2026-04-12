@@ -2,6 +2,7 @@
 
 #include "emit.hpp"
 
+#include "generated_output_paths.hpp"
 #include "log.hpp"
 #include "parallel_for.hpp"
 #include "render.hpp"
@@ -18,9 +19,7 @@
 #include <fmt/format.h>
 #include <fstream>
 #include <iterator>
-#include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/StringRef.h>
-#include <llvm/Support/MD5.h>
 #include <map>
 #include <ranges>
 #include <set>
@@ -91,33 +90,6 @@ std::string casefolded_path_key(const fs::path &path) {
     for (auto &ch : key)
         ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
     return key;
-}
-
-std::string sanitize_stem(std::string value) {
-    for (auto &ch : value) {
-        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
-        if (!ok)
-            ch = '_';
-    }
-    if (value.empty())
-        return {"tu"};
-    return value;
-}
-
-std::string shorten_generated_stem(std::string value) {
-    value = sanitize_stem(std::move(value));
-    if (value.size() <= 24) {
-        return value;
-    }
-
-    llvm::MD5 hasher;
-    hasher.update(value);
-    llvm::MD5::MD5Result digest;
-    hasher.final(digest);
-
-    llvm::SmallString<32> digest_hex;
-    llvm::MD5::stringifyResult(digest, digest_hex);
-    return fmt::format("{}_{}", value.substr(0, 16), std::string_view{digest_hex.data(), 8});
 }
 
 bool path_is_under(const fs::path &path, const fs::path &root) {
@@ -225,11 +197,7 @@ bool is_module_interface_source(const CollectorOptions &opts, const fs::path &pa
 }
 
 fs::path resolve_module_wrapper_output(const CollectorOptions &opts, std::size_t idx) {
-    fs::path    out  = opts.tu_output_dir;
-    std::string stem = shorten_generated_stem(fs::path(opts.sources[idx]).stem().string());
-    const auto  ext  = fs::path(opts.sources[idx]).extension().string();
-    out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
-    return out;
+    return gentest::codegen::resolve_module_wrapper_output(opts.tu_output_dir, fs::path(opts.sources[idx]), idx);
 }
 
 bool read_file(const fs::path &path, std::string &out);

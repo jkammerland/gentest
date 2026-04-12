@@ -1,5 +1,6 @@
 #include "discovery.hpp"
 #include "emit.hpp"
+#include "generated_output_paths.hpp"
 #include "log.hpp"
 #include "mock_discovery.hpp"
 #include "mock_domain_plan.hpp"
@@ -41,7 +42,6 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/JSON.h>
-#include <llvm/Support/MD5.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/Process.h>
 #include <llvm/Support/Program.h>
@@ -241,30 +241,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     }
 }
 
-[[nodiscard]] std::string sanitize_and_shorten_generated_stem(std::string value) {
-    for (auto &ch : value) {
-        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
-        if (!ok) {
-            ch = '_';
-        }
-    }
-    if (value.empty()) {
-        value = "tu";
-    }
-    if (value.size() <= 24) {
-        return value;
-    }
-
-    llvm::MD5 hasher;
-    hasher.update(value);
-    llvm::MD5::MD5Result digest;
-    hasher.final(digest);
-
-    llvm::SmallString<32> digest_hex;
-    llvm::MD5::stringifyResult(digest, digest_hex);
-    return fmt::format("{}_{}", value.substr(0, 16), std::string_view{digest_hex.data(), 8});
-}
-
 [[nodiscard]] std::vector<std::filesystem::path> depfile_targets_for(const CollectorOptions &options) {
     auto is_module_interface_source = [&](const std::filesystem::path              &path,
                                           const std::vector<std::filesystem::path> &include_search_paths = {}) {
@@ -274,11 +250,7 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         return named_module_name_from_source_file(path, include_search_paths).has_value();
     };
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
-        std::filesystem::path out  = options.tu_output_dir;
-        const std::string     stem = sanitize_and_shorten_generated_stem(std::filesystem::path(options.sources[idx]).stem().string());
-        const std::string     ext  = std::filesystem::path(options.sources[idx]).extension().string();
-        out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
-        return out;
+        return gentest::codegen::resolve_module_wrapper_output(options.tu_output_dir, std::filesystem::path(options.sources[idx]), idx);
     };
 
     std::vector<std::filesystem::path> targets;
@@ -2764,11 +2736,7 @@ int main(int argc, const char **argv) {
     const bool skip_function_bodies = !options.discover_mocks;
 
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
-        std::filesystem::path out  = options.tu_output_dir;
-        const std::string     stem = sanitize_and_shorten_generated_stem(std::filesystem::path(options.sources[idx]).stem().string());
-        const std::string     ext  = std::filesystem::path(options.sources[idx]).extension().string();
-        out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
-        return out;
+        return gentest::codegen::resolve_module_wrapper_output(options.tu_output_dir, std::filesystem::path(options.sources[idx]), idx);
     };
     const std::string compdb_dir =
         options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();

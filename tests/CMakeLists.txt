@@ -177,19 +177,16 @@ set(GENTEST_TSAN_STRESS_TIMEOUT_SEC "660" CACHE STRING "Timeout in seconds for T
 set(_gentest_is_tsan_build OFF)
 gentest_detect_thread_sanitizer(_gentest_is_tsan_build)
 
-set(_gentest_codegen_prog "")
-if(GENTEST_CODEGEN_EXECUTABLE)
-    set(_gentest_codegen_prog "${GENTEST_CODEGEN_EXECUTABLE}")
-elseif(GENTEST_CODEGEN_TARGET)
-    if(NOT TARGET ${GENTEST_CODEGEN_TARGET})
-        message(FATAL_ERROR "tests: GENTEST_CODEGEN_TARGET='${GENTEST_CODEGEN_TARGET}' does not exist")
-    endif()
-    set(_gentest_codegen_prog "$<TARGET_FILE:${GENTEST_CODEGEN_TARGET}>")
-elseif(TARGET gentest_codegen)
-    set(_gentest_codegen_prog "$<TARGET_FILE:gentest_codegen>")
-else()
-    message(FATAL_ERROR "tests: no gentest code generator available (gentest_codegen). Configure with -DGENTEST_BUILD_CODEGEN=ON or -DGENTEST_CODEGEN_EXECUTABLE=<path>.")
+if(NOT GENTEST_CODEGEN_EXECUTABLE AND NOT GENTEST_CODEGEN_TARGET AND NOT TARGET gentest_codegen)
+    message(FATAL_ERROR
+        "tests: no gentest code generator available (gentest_codegen). "
+        "Configure with -DGENTEST_BUILD_CODEGEN=ON or -DGENTEST_CODEGEN_EXECUTABLE=<path>.")
 endif()
+
+_gentest_resolve_codegen_backend(
+    TARGET tests
+    OUT_CODEGEN_TARGET _gentest_codegen_target
+    OUT_CODEGEN_EXECUTABLE _gentest_codegen_prog)
 
 _gentest_collect_cross_codegen_clang_args(_gentest_codegen_cross_target_arg)
 

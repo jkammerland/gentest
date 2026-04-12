@@ -2,6 +2,7 @@
 
 #include "gentest/detail/bench_stats.h"
 #include "runner_case_invoker.h"
+#include "runner_context_scope.h"
 #include "runner_fixture_runtime.h"
 #include "runner_measured_format.h"
 #include "runner_measured_report.h"
@@ -73,11 +74,6 @@ double percentile_sorted(const std::vector<double> &v, double p) {
     return v[lo] + (v[hi] - v[lo]) * frac;
 }
 
-void wait_and_flush_test_context(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo) {
-    gentest::detail::wait_for_adopted_tokens(ctxinfo);
-    gentest::detail::flush_current_buffer_for(ctxinfo.get());
-}
-
 void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string_view default_reason) {
     std::string runtime_skip_reason;
     {
@@ -95,7 +91,6 @@ void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestC
 
 void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string_view default_skip_reason,
                                  const std::string &assertion_fallback, bool &had_assert_fail) {
-    wait_and_flush_test_context(ctxinfo);
     bool        runtime_skip_requested = false;
     std::string runtime_skip_reason;
     {
@@ -129,42 +124,40 @@ void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestCont
 template <typename BodyFn, typename InterruptedFn>
 double run_call_phase_with_context(const gentest::Case &c, std::string_view default_skip_reason, BodyFn &&body,
                                    InterruptedFn &&on_interrupted, bool &had_assert_fail) {
-    using clock           = std::chrono::steady_clock;
-    auto ctxinfo          = std::make_shared<gentest::detail::TestContextInfo>();
-    ctxinfo->display_name = std::string(c.name);
-    ctxinfo->active       = true;
-    gentest::detail::set_current_test(ctxinfo);
-    gentest::detail::BenchPhaseScope bench_scope(gentest::detail::BenchPhase::Call);
-    auto                             start = clock::now();
-    had_assert_fail                        = false;
+    using clock     = std::chrono::steady_clock;
+    auto ctxinfo    = gentest::runner::detail::make_active_test_context(c.name);
+    auto start      = clock::now();
+    had_assert_fail = false;
     std::string assertion_fallback;
-    try {
-        body();
-    } catch (const gentest::detail::skip_exception &) {
-        on_interrupted();
-        record_runtime_skip_or_default(ctxinfo, default_skip_reason);
-        had_assert_fail = true;
-    } catch (const gentest::assertion &e) {
-        on_interrupted();
-        assertion_fallback = e.message();
-        had_assert_fail    = true;
-    } catch (const gentest::failure &e) {
-        on_interrupted();
-        gentest::detail::record_bench_error(e.what());
-        had_assert_fail = true;
-    } catch (const std::exception &e) {
-        on_interrupted();
-        gentest::detail::record_bench_error(fmt::format("std::exception: {}", e.what()));
-        had_assert_fail = true;
-    } catch (...) {
-        on_interrupted();
-        gentest::detail::record_bench_error("unknown exception");
-        had_assert_fail = true;
+    {
+        gentest::runner::detail::CurrentTestScope test_scope(ctxinfo);
+        gentest::detail::BenchPhaseScope          bench_scope(gentest::detail::BenchPhase::Call);
+        try {
+            body();
+        } catch (const gentest::detail::skip_exception &) {
+            on_interrupted();
+            record_runtime_skip_or_default(ctxinfo, default_skip_reason);
+            had_assert_fail = true;
+        } catch (const gentest::assertion &e) {
+            on_interrupted();
+            assertion_fallback = e.message();
+            had_assert_fail    = true;
+        } catch (const gentest::failure &e) {
+            on_interrupted();
+            gentest::detail::record_bench_error(e.what());
+            had_assert_fail = true;
+        } catch (const std::exception &e) {
+            on_interrupted();
+            gentest::detail::record_bench_error(fmt::format("std::exception: {}", e.what()));
+            had_assert_fail = true;
+        } catch (...) {
+            on_interrupted();
+            gentest::detail::record_bench_error("unknown exception");
+            had_assert_fail = true;
+        }
     }
     finalize_call_phase_failure(ctxinfo, default_skip_reason, assertion_fallback, had_assert_fail);
-    auto end        = clock::now();
-    ctxinfo->active = false;
-    gentest::detail::set_current_test(nullptr);
+    auto end = clock::now();
     return std::chrono::duration<double>(end - start).count();
 }
 
