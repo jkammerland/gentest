@@ -1,0 +1,167 @@
+# Story: Reduce Installed Public API Leakage Of Runtime Internals
+
+## Goal
+
+Shrink the installed public `gentest` surface so consumers get a smaller, more
+stable API and internal runtime plumbing can evolve without dragging package
+compatibility behind it.
+
+This is a deliberate surface-reduction story, not a cosmetic header shuffle.
+
+## Problem
+
+The installed headers currently expose internal runtime and fixture details that
+look like implementation machinery rather than supported extension points.
+
+Examples from the current review:
+
+- shared-fixture registration protocols in `include/gentest/registry.h`
+- `TestContextInfo` ownership and lifecycle surfaces in `include/gentest/context.h`
+- fixture allocation plumbing and related templates in `include/gentest/fixture.h`
+
+That has several costs:
+
+- package consumers see internals as if they were supported API
+- implementation refactors become source-compatibility risks
+- large template-heavy headers increase review and compile noise
+- runtime internals are harder to hide behind narrower contracts
+
+## User stories
+
+As a maintainer, I want runtime and fixture internals to stop leaking through
+installed headers, so I can change implementation details without creating
+accidental API commitments.
+
+As a package consumer, I want the installed headers to present the supported
+testing API rather than internal registration and context machinery, so it is
+clear what is stable to depend on.
+
+As a reviewer, I want public API changes and internal runtime refactors to be
+separated cleanly, so compatibility risk is visible instead of buried in header
+implementation details.
+
+## Scope
+
+In scope:
+
+- public headers under `include/gentest/`
+- installation surface and exported header layout
+- runtime and fixture types that should move to private or explicitly unstable
+  detail headers
+- replacing exposed implementation structs with narrower adapters or opaque
+  handles where appropriate
+
+Out of scope:
+
+- unrelated execution-model redesign
+- changing supported test author APIs without a migration story
+- codegen pipeline simplification outside the public header boundary
+
+## Design direction
+
+Treat the current public surface as an API inventory exercise first.
+
+The authoritative classification artifact for this story should live in
+`023_public_api_internal_surface_inventory.md`.
+
+1. Classify exposed symbols into three groups:
+   - supported public API
+   - unstable `detail` API that should not be encouraged for downstream use
+   - fully private runtime machinery that should not be installed
+
+2. Move lifecycle and registration internals behind narrower entry points:
+   - opaque handles where consumers do not need struct layout
+   - non-template helpers where templates are only carrying internal ownership
+     state
+   - private runtime headers in `src/` or non-installed detail headers
+
+3. Keep any remaining installed `detail` surface intentionally small and
+   explicitly documented as unstable.
+
+## Rollout
+
+1. Inventory every installed symbol currently reachable from
+   `include/gentest/{registry,context,fixture}.h`.
+2. Record the public/detail/private classification in
+   `023_public_api_internal_surface_inventory.md`.
+3. Mark which surfaces are truly downstream-supported today.
+4. Introduce private replacements before deleting or narrowing the old exposed
+   types.
+5. Preserve public behavior with compatibility shims only where the API is
+   intentionally supported.
+6. Re-run package and downstream smoke tests against the reduced install
+   surface, including:
+   - `gentest_runtime_shared_context_exports`
+   - `gentest_public_module_surface`
+   - `gentest_public_module_detail_hidden`
+   - `gentest_install_only_codegen_default`
+   - `gentest_meson_wrap_consumer`
+   - `gentest_xmake_textual_consumer`
+   - `gentest_xmake_module_consumer`
+   - `gentest_xmake_xrepo_consumer`
+   - `gentest_bazel_textual_consumer`
+   - `gentest_bazel_module_consumer`
+   - `gentest_bazel_bzlmod_consumer`
+   - `gentest_package_consumer_workdir_isolation`
+   - `gentest_package_consumer_executable_path`
+7. When `GENTEST_ENABLE_PACKAGE_TESTS=ON`, also re-run:
+   - `gentest_package_consumer_include_only`
+   - `gentest_package_consumer_runtime_only_include_only`
+   - `gentest_package_consumer_double_include_only`
+   - `gentest_package_consumer`
+   - `gentest_package_consumer_native_codegen`
+   - `gentest_package_consumer_include_only_native_codegen`
+   - `gentest_package_consumer_runtime_only`
+   - `gentest_package_consumer_runtime_only_include_only_native_codegen`
+   - `gentest_package_consumer_double`
+   - `gentest_package_consumer_double_include_only_native_codegen`
+   - `gentest_package_consumer_relwithdebinfo_exact_config`
+   - `gentest_package_consumer_minsizerel_exact_config`
+   - `gentest_package_consumer_gcc`
+
+## Acceptance criteria
+
+- `TestContextInfo` and comparable runtime-only ownership machinery are no
+  longer exposed as part of the normal installed API shape unless they are
+  intentionally documented as unstable detail.
+- `023_public_api_internal_surface_inventory.md` exists and records the
+  supported public, unstable detail, and private classifications for the
+  installed surface under review.
+- Shared-fixture registration internals are hidden behind narrower supported
+  entry points or moved out of installed headers.
+- `include/gentest/{registry,context,fixture}.h` no longer expose the same
+  runtime ownership and registration internals they expose today unless those
+  symbols are intentionally downgraded to unstable detail.
+- `gentest_runtime_shared_context_exports` still passes against the installed
+  surface.
+- `gentest_public_module_surface` and `gentest_public_module_detail_hidden`
+  still pass so public module exports do not start leaking new detail surface.
+- `gentest_install_only_codegen_default`, `gentest_meson_wrap_consumer`,
+  `gentest_xmake_textual_consumer`, `gentest_xmake_module_consumer`,
+  `gentest_xmake_xrepo_consumer`, `gentest_bazel_textual_consumer`,
+  `gentest_bazel_module_consumer`, and `gentest_bazel_bzlmod_consumer`
+  still pass so the reduced install surface remains consumable outside the
+  CMake package-only path.
+- `gentest_package_consumer_workdir_isolation` and
+  `gentest_package_consumer_executable_path`
+  still pass so packaging contract details do not regress while headers shrink.
+- When `GENTEST_ENABLE_PACKAGE_TESTS=ON`, the include-only package consumer
+  checks
+  `gentest_package_consumer_include_only`,
+  `gentest_package_consumer_runtime_only_include_only`,
+  `gentest_package_consumer_double_include_only`,
+  `gentest_package_consumer_include_only_native_codegen`,
+  `gentest_package_consumer_runtime_only_include_only_native_codegen`, and
+  `gentest_package_consumer_double_include_only_native_codegen`
+  still pass.
+- When `GENTEST_ENABLE_PACKAGE_TESTS=ON`, the package consumer checks
+  `gentest_package_consumer`,
+  `gentest_package_consumer_native_codegen`,
+  `gentest_package_consumer_runtime_only`,
+  `gentest_package_consumer_double`,
+  `gentest_package_consumer_relwithdebinfo_exact_config`, and
+  `gentest_package_consumer_minsizerel_exact_config`
+  still pass against the supported public API.
+- When the GCC package-consumer lane is enabled,
+  `gentest_package_consumer_gcc`
+  still passes against the supported public API.
