@@ -311,6 +311,39 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return info;
 }
 
+struct CallableTemplateInfo {
+    std::string                    prefix;
+    std::vector<TemplateParamInfo> params;
+};
+
+[[nodiscard]] CallableTemplateInfo capture_callable_template_info(const FunctionDecl &function, const ASTContext &ctx) {
+    CallableTemplateInfo info;
+    const auto          *templ = function.getDescribedFunctionTemplate();
+    if (templ == nullptr) {
+        return info;
+    }
+
+    std::size_t template_index = 0;
+    for (const auto *param : *templ->getTemplateParameters()) {
+        info.params.push_back(build_template_param_info(*param, fmt::format("__gentest_tparam_{}", template_index++)));
+    }
+    info.prefix = print_template_parameter_list(*templ->getTemplateParameters(), info.params, ctx);
+    return info;
+}
+
+[[nodiscard]] std::vector<MockParamInfo> capture_callable_parameters(const FunctionDecl &function, const ASTContext &ctx) {
+    std::vector<MockParamInfo> parameters;
+    parameters.reserve(function.getNumParams());
+
+    const bool is_template = function.getDescribedFunctionTemplate() != nullptr;
+    unsigned   arg_index   = 0;
+    for (const auto *param : function.parameters()) {
+        parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
+        ++arg_index;
+    }
+    return parameters;
+}
+
 [[nodiscard]] bool has_accessible_default_ctor(const CXXRecordDecl &record) {
     if (!record.hasDefinition())
         return false;
@@ -711,23 +744,11 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         // Preserve declared noexcept-ness so the generated forwarding ctors keep
         // matching the target's signature (e.g. std::is_nothrow_constructible).
         // The helper avoids Clang's canThrow() evaluation (see is_noexcept()).
-        ctor_info.is_noexcept = is_noexcept(*ctor);
-
-        if (const auto *ft = ctor->getDescribedFunctionTemplate()) {
-            std::size_t template_index = 0;
-            for (const auto *param : *ft->getTemplateParameters()) {
-                ctor_info.template_params.push_back(
-                    build_template_param_info(*param, fmt::format("__gentest_tparam_{}", template_index++)));
-            }
-            ctor_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), ctor_info.template_params, ctx);
-        }
-
-        const bool is_template = ctor->getDescribedFunctionTemplate() != nullptr;
-        unsigned   arg_index   = 0;
-        for (const auto *param : ctor->parameters()) {
-            ctor_info.parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
-            ++arg_index;
-        }
+        ctor_info.is_noexcept     = is_noexcept(*ctor);
+        auto template_info        = capture_callable_template_info(*ctor, ctx);
+        ctor_info.template_prefix = std::move(template_info.prefix);
+        ctor_info.template_params = std::move(template_info.params);
+        ctor_info.parameters      = capture_callable_parameters(*ctor, ctx);
 
         info.constructors.push_back(std::move(ctor_info));
     };
@@ -777,21 +798,10 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         method_info.is_pure_virtual = method->isPureVirtual();
         method_info.is_noexcept     = is_noexcept(*method);
         method_info.ref_qualifier   = ref_qualifier_string(method->getRefQualifier());
-
-        if (const auto *ft = method->getDescribedFunctionTemplate()) {
-            std::size_t template_index = 0;
-            for (const auto *param : *ft->getTemplateParameters()) {
-                method_info.template_params.push_back(
-                    build_template_param_info(*param, fmt::format("__gentest_tparam_{}", template_index++)));
-            }
-            method_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), method_info.template_params, ctx);
-        }
-
-        unsigned arg_index = 0;
-        for (const auto *param : method->parameters()) {
-            method_info.parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
-            ++arg_index;
-        }
+        auto template_info          = capture_callable_template_info(*method, ctx);
+        method_info.template_prefix = std::move(template_info.prefix);
+        method_info.template_params = std::move(template_info.params);
+        method_info.parameters      = capture_callable_parameters(*method, ctx);
 
         info.methods.push_back(std::move(method_info));
     };
