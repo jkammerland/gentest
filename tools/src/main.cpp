@@ -6,6 +6,7 @@
 #include "model.hpp"
 #include "parallel_for.hpp"
 #include "scan_utils.hpp"
+#include "source_inspection.hpp"
 #include "tooling_support.hpp"
 
 #include <algorithm>
@@ -2460,8 +2461,10 @@ std::string resolve_default_sysroot() {
 }
 
 struct ParsedArguments {
-    CollectorOptions           options;
-    std::optional<std::string> explicit_host_clang_path;
+    CollectorOptions                   options;
+    std::optional<std::string>         explicit_host_clang_path;
+    bool                               inspect_source = false;
+    std::vector<std::filesystem::path> inspect_include_dirs;
 };
 
 ParsedArguments parse_arguments(int argc, const char **argv) {
@@ -2531,6 +2534,12 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
                                                      llvm::cl::cat(category)};
     static llvm::cl::opt<bool> check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"), llvm::cl::init(false),
                                             llvm::cl::cat(category)};
+    static llvm::cl::opt<bool> inspect_source_option{
+        "inspect-source", llvm::cl::desc("Inspect one source and print source-shape facts for CMake integration"), llvm::cl::init(false),
+        llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> inspect_include_dir_option{"inspect-include-dir",
+                                                                  llvm::cl::desc("Additional include search path for --inspect-source"),
+                                                                  llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
 
     // Split tool args from trailing clang args after `--` ourselves because
     // llvm::cl positional parsing is otherwise prone to consuming everything.
@@ -2671,12 +2680,22 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     } else if (!kTemplateDir.empty()) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
-    if (!opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
+    if (!inspect_source_option.getValue() && !opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
     }
     return ParsedArguments{
         .options                  = std::move(opts),
         .explicit_host_clang_path = std::move(explicit_host_clang_path),
+        .inspect_source           = inspect_source_option.getValue(),
+        .inspect_include_dirs =
+            [&]() {
+                std::vector<std::filesystem::path> paths;
+                paths.reserve(inspect_include_dir_option.size());
+                for (const auto &path : inspect_include_dir_option) {
+                    paths.emplace_back(path);
+                }
+                return paths;
+            }(),
     };
 }
 
@@ -2685,6 +2704,27 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
 int main(int argc, const char **argv) {
     const auto  parsed_arguments = parse_arguments(argc, argv);
     const auto &options          = parsed_arguments.options;
+    if (parsed_arguments.inspect_source) {
+        if (options.sources.size() != 1) {
+            gentest::codegen::log_err("gentest_codegen: --inspect-source expects exactly 1 input source, got {}\n", options.sources.size());
+            return 1;
+        }
+
+        const std::filesystem::path source_path{options.sources.front()};
+        if (!std::filesystem::exists(source_path)) {
+            gentest::codegen::log_err("gentest_codegen: source '{}' does not exist\n", source_path.string());
+            return 1;
+        }
+
+        const auto inspection = gentest::codegen::inspect_source(source_path, parsed_arguments.inspect_include_dirs, options.clang_args);
+        llvm::outs() << "module_name=";
+        if (inspection.module_name.has_value()) {
+            llvm::outs() << *inspection.module_name;
+        }
+        llvm::outs() << "\nimports_gentest_mock=" << (inspection.imports_gentest_mock ? "1" : "0") << "\n";
+        return 0;
+    }
+
     if (!options.tu_output_headers.empty() && options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --tu-header-output requires --tu-out-dir\n");
         return 1;

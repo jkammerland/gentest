@@ -38,7 +38,7 @@ For background on why the exact host Clang path matters, see
 
 | Build system | Current downstream status | Module path | What users should configure |
 | --- | --- | --- | --- |
-| CMake | primary / packaged | supported | set `GENTEST_CODEGEN_HOST_CLANG`; in cross builds also set `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` |
+| CMake | primary / packaged | supported | set `GENTEST_CODEGEN_HOST_CLANG`; in cross builds also set `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` to an imported executable target |
 | Bazel | official Bzlmod / source-package support | supported but toolchain-sensitive | set per-target `codegen_host_clang` or export/pass through `GENTEST_CODEGEN_HOST_CLANG`; keep target flags in Bazel/C++ toolchain config |
 | Xmake | official xrepo / installed-helper support | supported but toolchain-sensitive | set `codegen = { exe, clang, scan_deps }` or the matching env fallbacks; keep Xmake `cc` / `cxx` for the final target toolchain |
 | Meson | official wrap/subproject textual support | intentionally unsupported | pass `-Dcodegen_path=...` and `-Dcodegen_host_clang=...`; textual-only today |
@@ -104,8 +104,13 @@ Notes:
   drive `gentest_codegen`.
 - In native packaged CMake use, `gentest_attach_codegen()` can resolve an
   installed `gentest_codegen` automatically from the same prefix.
+- When you set `GENTEST_CODEGEN_EXECUTABLE` explicitly, point it at a current
+  `gentest_codegen` binary from the same feature generation. Configure-time
+  source inspection now uses that executable too, not just the build-time
+  custom command.
 - In cross builds, the host code generator is not inferred; set
-  `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET`.
+  `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` to an imported
+  executable target that resolves to the host-built tool.
 - Extra parsing flags for codegen can be passed through
   `gentest_attach_codegen(... CLANG_ARGS ...)` or
   `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`.
