@@ -2,7 +2,6 @@
 
 #include "emit.hpp"
 
-#include "generated_output_paths.hpp"
 #include "log.hpp"
 #include "parallel_for.hpp"
 #include "render.hpp"
@@ -196,12 +195,7 @@ bool is_module_interface_source(const CollectorOptions &opts, const fs::path &pa
     return named_module_name_from_source_file(path).has_value();
 }
 
-fs::path resolve_module_wrapper_output(const CollectorOptions &opts, std::size_t idx) {
-    if (idx < opts.module_wrapper_outputs.size() && !opts.module_wrapper_outputs[idx].empty()) {
-        return opts.module_wrapper_outputs[idx];
-    }
-    return gentest::codegen::resolve_module_wrapper_output(opts.tu_output_dir, fs::path(opts.sources[idx]), idx);
-}
+fs::path resolve_module_wrapper_output(const CollectorOptions &opts, std::size_t idx) { return opts.module_wrapper_outputs[idx]; }
 
 bool read_file(const fs::path &path, std::string &out);
 

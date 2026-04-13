@@ -22,6 +22,10 @@ set(_generated_off_dir "${_work_dir}/generated_off")
 set(_generated_auto_dir "${_work_dir}/generated_auto")
 set(_generated_on_real_dir "${_work_dir}/generated_on_real")
 set(_generated_on_bad_dir "${_work_dir}/generated_on_bad")
+file(TO_CMAKE_PATH "${_generated_off_dir}/tu_0000_consumer.module.gentest.cppm" _off_wrapper_abs)
+file(TO_CMAKE_PATH "${_generated_auto_dir}/tu_0000_consumer.module.gentest.cppm" _auto_wrapper_abs)
+file(TO_CMAKE_PATH "${_generated_on_real_dir}/tu_0000_consumer.module.gentest.cppm" _on_real_wrapper_abs)
+file(TO_CMAKE_PATH "${_generated_on_bad_dir}/tu_0000_consumer.module.gentest.cppm" _on_bad_wrapper_abs)
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}" "${_generated_off_dir}" "${_generated_auto_dir}" "${_generated_on_real_dir}" "${_generated_on_bad_dir}")
 
@@ -105,6 +109,7 @@ gentest_check_run_or_fail(
     --compdb "${_work_dir}"
     --scan-deps-mode=OFF
     --tu-out-dir "${_generated_off_dir}"
+    --module-wrapper-output "${_off_wrapper_abs}"
     "${_consumer}"
   WORKING_DIRECTORY "${_work_dir}"
   OUTPUT_VARIABLE _off_output
@@ -148,6 +153,7 @@ gentest_check_run_or_fail(
     --scan-deps-mode=AUTO
     --clang-scan-deps "${_bad_scan_deps}"
     --tu-out-dir "${_generated_auto_dir}"
+    --module-wrapper-output "${_auto_wrapper_abs}"
     "${_consumer}"
   WORKING_DIRECTORY "${_work_dir}"
   OUTPUT_VARIABLE _auto_output
@@ -179,6 +185,7 @@ if(_scan_deps)
       --scan-deps-mode=ON
       --clang-scan-deps "${_scan_deps}"
       --tu-out-dir "${_generated_on_real_dir}"
+      --module-wrapper-output "${_on_real_wrapper_abs}"
       "${_consumer}"
     WORKING_DIRECTORY "${_work_dir}"
     OUTPUT_VARIABLE _on_real_output
@@ -211,6 +218,7 @@ execute_process(
     --scan-deps-mode=ON
     --clang-scan-deps "${_bad_scan_deps}"
     --tu-out-dir "${_generated_on_bad_dir}"
+    --module-wrapper-output "${_on_bad_wrapper_abs}"
     "${_consumer}"
   WORKING_DIRECTORY "${_work_dir}"
   RESULT_VARIABLE _scan_deps_on_rc

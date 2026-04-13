@@ -137,13 +137,16 @@ if(NOT APPLE)
     FILE "suite.cppm"
     ARGUMENTS ${_env_fallback_args})
   gentest_fixture_write_compdb("${_env_fallback_dir}/compile_commands.json" "${_env_fallback_entry}")
+  file(TO_CMAKE_PATH "${_env_fallback_generated_dir}/tu_0000_suite.module.gentest.cppm" _env_fallback_wrapper_abs)
 
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
       "--unset=GENTEST_CODEGEN_HOST_CLANG"
       "PATH=${_env_fallback_empty_path}"
       "CXX=${_clangxx_norm}"
-      "${PROG}" --check --compdb "${_env_fallback_dir}" --tu-out-dir "${_env_fallback_generated_dir}" "${_env_fallback_source_abs}"
+      "${PROG}" --check --compdb "${_env_fallback_dir}" --tu-out-dir "${_env_fallback_generated_dir}"
+      --module-wrapper-output "${_env_fallback_wrapper_abs}"
+      "${_env_fallback_source_abs}"
     WORKING_DIRECTORY "${_env_fallback_dir}"
     RESULT_VARIABLE _env_fallback_rc
     OUTPUT_VARIABLE _env_fallback_out
@@ -376,6 +379,8 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
   gentest_fixture_write_compdb("${_clang_cl_dir}/compile_commands.json"
     "${_clang_cl_provider_entry}"
     "${_clang_cl_consumer_entry}")
+  file(TO_CMAKE_PATH "${_clang_cl_dir}/generated/tu_0000_provider.module.gentest.cppm" _clang_cl_provider_wrapper_abs)
+  file(TO_CMAKE_PATH "${_clang_cl_dir}/generated/tu_0001_consumer.module.gentest.cppm" _clang_cl_consumer_wrapper_abs)
 
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
@@ -383,6 +388,8 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
       "CXX=${_fake_clangxx}"
       "GENTEST_CODEGEN_LOG_PRECOMPILE=1"
       "${PROG}" --check --compdb "${_clang_cl_dir}" --tu-out-dir "${_clang_cl_dir}/generated"
+      --module-wrapper-output "${_clang_cl_provider_wrapper_abs}"
+      --module-wrapper-output "${_clang_cl_consumer_wrapper_abs}"
       "${_clang_cl_provider_rel}" "${_clang_cl_consumer_rel}"
     WORKING_DIRECTORY "${_clang_cl_dir}"
     RESULT_VARIABLE _clang_cl_driver_rc

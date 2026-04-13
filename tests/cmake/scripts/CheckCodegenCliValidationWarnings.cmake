@@ -22,6 +22,16 @@ set(_smoke_source "${SOURCE_DIR}/tests/smoke/codegen_axis_generators.cpp")
 if(NOT EXISTS "${_smoke_source}")
   message(FATAL_ERROR "CheckCodegenCliValidationWarnings.cmake: missing smoke source '${_smoke_source}'")
 endif()
+set(_module_smoke_dir "${BUILD_ROOT}/cli_validation_module_fixture")
+set(_module_smoke_source "${_module_smoke_dir}/cases.cppm")
+file(MAKE_DIRECTORY "${_module_smoke_dir}")
+file(WRITE "${_module_smoke_source}" [=[
+export module gentest.cli.validation;
+import gentest;
+
+[[using gentest: test("cli/module_wrapper_output_required")]]
+void module_wrapper_output_required_case() {}
+]=])
 
 set(_clang_args)
 
@@ -102,6 +112,18 @@ _gentest_expect_result(
   --module-wrapper-output "${BUILD_ROOT}/a.module.gentest.cpp"
   --module-wrapper-output "${BUILD_ROOT}/b.module.gentest.cpp"
   ${_common_args})
+
+_gentest_expect_result(
+  "module source requires explicit wrapper output"
+  1
+  "gentest_codegen: named module source '${_module_smoke_source}' requires an explicit --module-wrapper-output path in TU mode"
+  "${PROG}"
+  --check
+  --compdb "${_compdb_root}"
+  --tu-out-dir "${BUILD_ROOT}/missing-module-wrapper"
+  "${_module_smoke_source}"
+  --
+  ${_clang_args})
 
 _gentest_expect_result(
   "mock domain outputs require base outputs"

@@ -1,6 +1,5 @@
 #include "discovery.hpp"
 #include "emit.hpp"
-#include "generated_output_paths.hpp"
 #include "log.hpp"
 #include "mock_discovery.hpp"
 #include "mock_domain_plan.hpp"
@@ -249,12 +248,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         }
         return named_module_name_from_source_file(path, include_search_paths).has_value();
     };
-    auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
-        if (idx < options.module_wrapper_outputs.size() && !options.module_wrapper_outputs[idx].empty()) {
-            return options.module_wrapper_outputs[idx];
-        }
-        return gentest::codegen::resolve_module_wrapper_output(options.tu_output_dir, std::filesystem::path(options.sources[idx]), idx);
-    };
 
     std::vector<std::filesystem::path> targets;
     if (!options.output_path.empty()) {
@@ -270,7 +263,7 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
                 targets.push_back(std::move(header_out));
             }
             if (is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
-                targets.push_back(resolve_module_wrapper_output(idx));
+                targets.push_back(options.module_wrapper_outputs[idx]);
             }
         }
     }
@@ -289,6 +282,28 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         }
     }
     return targets;
+}
+
+[[nodiscard]] bool has_explicit_module_wrapper_output(const CollectorOptions &options, std::size_t idx) {
+    return idx < options.module_wrapper_outputs.size() && !options.module_wrapper_outputs[idx].empty();
+}
+
+[[nodiscard]] bool validate_module_wrapper_outputs(const CollectorOptions &options, std::string &error) {
+    if (options.tu_output_dir.empty() || options.module_interface_sources.empty()) {
+        return true;
+    }
+
+    for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+        if (!options.module_interface_sources.contains(options.sources[idx])) {
+            continue;
+        }
+        if (has_explicit_module_wrapper_output(options, idx)) {
+            continue;
+        }
+        error = fmt::format("named module source '{}' requires an explicit --module-wrapper-output path in TU mode", options.sources[idx]);
+        return false;
+    }
+    return true;
 }
 
 [[nodiscard]] std::optional<std::string_view> forced_serial_parse_reason() {
@@ -2762,12 +2777,6 @@ int main(int argc, const char **argv) {
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
     const bool skip_function_bodies = !options.discover_mocks;
 
-    auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
-        if (idx < options.module_wrapper_outputs.size() && !options.module_wrapper_outputs[idx].empty()) {
-            return options.module_wrapper_outputs[idx];
-        }
-        return gentest::codegen::resolve_module_wrapper_output(options.tu_output_dir, std::filesystem::path(options.sources[idx]), idx);
-    };
     const std::string compdb_dir =
         options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
 
@@ -2864,8 +2873,8 @@ int main(int argc, const char **argv) {
                 std::filesystem::path(options.sources[idx]), direct_include_search_paths,
                 build_augmented_scan_command_line(direct_commands, direct_commands, options.sources[idx], options.sources[idx]))
                 .has_value();
-        if (!options.tu_output_dir.empty() && source_is_module) {
-            const auto wrapper_path = resolve_module_wrapper_output(idx).string();
+        if (!options.tu_output_dir.empty() && source_is_module && has_explicit_module_wrapper_output(options, idx)) {
+            const auto wrapper_path = options.module_wrapper_outputs[idx].string();
             const auto wrapper_key  = normalize_compdb_lookup_path(wrapper_path);
             const auto wrapper_it   = compile_commands_by_file.find(wrapper_key);
             if (wrapper_it != compile_commands_by_file.end()) {
@@ -4010,6 +4019,11 @@ int main(int argc, const char **argv) {
     auto final_options                             = options;
     final_options.module_interface_sources         = std::move(module_interface_sources);
     final_options.module_interface_names_by_source = std::move(module_interface_names_by_source);
+    std::string module_wrapper_error;
+    if (!validate_module_wrapper_outputs(final_options, module_wrapper_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", module_wrapper_error);
+        return 1;
+    }
     std::string mock_domain_error;
     if (!gentest::codegen::validate_mock_output_domains(final_options, mock_domain_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
