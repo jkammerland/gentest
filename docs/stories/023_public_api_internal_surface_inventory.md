@@ -19,8 +19,11 @@ Use it to record which installed symbols or surfaces are:
 - `gentest::ctx::Token`: `public` -> keep as the existing shared-pointer token type for compatibility; current
   reduction work hides the concrete `TestContextInfo` definition and removes the transitive `runtime_context.h`
   exposure from `context.h` without changing the token type
-- `gentest::detail::TestContextInfo` layout and lifecycle machinery in `context.h`: `private` -> remove from the
-  normal installed API shape while the compatible token type remains
+- `gentest/detail/runtime_support.h`: `detail` -> keep installed as the narrow unstable support layer needed by
+  normal assertions/generated wrappers without re-exporting the concrete `TestContextInfo` layout
+- `gentest/detail/runtime_context.h` and `gentest::detail::TestContextInfo`: `detail` -> still installed as an
+  unstable escape hatch for in-repo/runtime users, but no longer exposed through the normal `runner.h` /
+  `context.h` include path while the compatible token type remains
 - `gentest::run_all_tests`, `gentest::Case`, `gentest::FixtureLifetime`, `gentest::registered_cases`: `public`
   -> keep
 - `gentest::detail::register_cases`: `detail` -> keep installed as unstable generated-code surface
