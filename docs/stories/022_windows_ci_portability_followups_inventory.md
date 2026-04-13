@@ -32,7 +32,7 @@ for the previously failing deep-path/path-sensitive Windows set.
 - `gentest_codegen_public_module_imports`:
   public-module scan-deps contract -> `031_public_module_scan_deps_mode_contract.md`
 - `gentest_module_mock_long_domain_outputs`:
-  explicit mock output contract -> `029_codegen_output_naming_contract_unification.md`
+  explicit mock output contract -> `close` (green after story `029` slice)
 
 ## Notes
 
