@@ -109,6 +109,12 @@ if(${PROJECT_NAME}_INSTALL)
 
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/xmake/"
         DESTINATION "share/gentest/xmake")
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/scan_inspector/"
+        DESTINATION "share/cmake/gentest/scan_inspector")
+    install(FILES
+        "${PROJECT_SOURCE_DIR}/tools/src/source_inspection.hpp"
+        "${PROJECT_SOURCE_DIR}/tools/src/scan_utils.hpp"
+        DESTINATION "share/cmake/gentest/scan_inspector/include")
 
     set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
     set(CPACK_PACKAGE_VENDOR "${PROJECT_NAME}")
