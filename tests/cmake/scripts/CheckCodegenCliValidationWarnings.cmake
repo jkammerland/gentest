@@ -104,6 +104,28 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
+  "mock domain outputs require base outputs"
+  1
+  "gentest_codegen: explicit mock domain outputs require both --mock-registry and --mock-impl"
+  "${PROG}"
+  --mock-domain-registry-output "${BUILD_ROOT}/a_mock_registry__domain_0000_header.hpp"
+  --mock-domain-impl-output "${BUILD_ROOT}/a_mock_impl__domain_0000_header.hpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "mock domain output count mismatch"
+  1
+  "gentest_codegen: expected 1 --mock-domain-registry-output/--mock-domain-impl-output value(s) for discovered mock output domains, got 2 and 2"
+  "${PROG}"
+  --mock-registry "${BUILD_ROOT}/mock_registry.hpp"
+  --mock-impl "${BUILD_ROOT}/mock_impl.hpp"
+  --mock-domain-registry-output "${BUILD_ROOT}/mock_registry__domain_0000_header.hpp"
+  --mock-domain-registry-output "${BUILD_ROOT}/mock_registry__domain_0001_extra.hpp"
+  --mock-domain-impl-output "${BUILD_ROOT}/mock_impl__domain_0000_header.hpp"
+  --mock-domain-impl-output "${BUILD_ROOT}/mock_impl__domain_0001_extra.hpp"
+  ${_common_args})
+
+_gentest_expect_result(
   "invalid jobs env warning"
   0
   "gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_JOBS='bogus'"

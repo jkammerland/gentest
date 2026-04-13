@@ -42,7 +42,6 @@ namespace gentest::codegen {
     return hex.substr(0, hex_chars);
 }
 
-// Keep in sync with _gentest_make_mock_domain_output_path() in GentestCodegen.cmake.
 [[nodiscard]] inline std::string abbreviate_mock_domain_label(std::string value) {
     value = sanitize_mock_domain_label(std::move(value));
     if (value == "header" || value.size() <= 32) {

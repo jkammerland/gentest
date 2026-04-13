@@ -2505,7 +2505,15 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
                                                            llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
                                                        llvm::cl::init(""), llvm::cl::cat(category)};
-    static llvm::cl::opt<std::string>  depfile_option{"depfile", llvm::cl::desc("Path to the generated depfile"), llvm::cl::init(""),
+    static llvm::cl::list<std::string> mock_domain_registry_output_option{
+        "mock-domain-registry-output",
+        llvm::cl::desc("Explicit output path for a generated mock registry domain header (repeat in domain order)"), llvm::cl::ZeroOrMore,
+        llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> mock_domain_impl_output_option{
+        "mock-domain-impl-output",
+        llvm::cl::desc("Explicit output path for a generated mock implementation domain header (repeat in domain order)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string> depfile_option{"depfile", llvm::cl::desc("Path to the generated depfile"), llvm::cl::init(""),
                                                      llvm::cl::cat(category)};
     static llvm::cl::opt<bool> check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"), llvm::cl::init(false),
                                             llvm::cl::cat(category)};
@@ -2622,6 +2630,8 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     if (!mock_impl_option.getValue().empty()) {
         opts.mock_impl_path = std::filesystem::path{mock_impl_option.getValue()};
     }
+    opts.mock_domain_registry_outputs.assign(mock_domain_registry_output_option.begin(), mock_domain_registry_output_option.end());
+    opts.mock_domain_impl_outputs.assign(mock_domain_impl_output_option.begin(), mock_domain_impl_output_option.end());
     if (!depfile_option.getValue().empty()) {
         opts.depfile_path = std::filesystem::path{depfile_option.getValue()};
     }
@@ -3988,10 +3998,7 @@ int main(int argc, const char **argv) {
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
 
-    if (options.check_only) {
-        return 0;
-    }
-    if (options.output_path.empty() && options.tu_output_dir.empty()) {
+    if (!options.check_only && options.output_path.empty() && options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
         return 1;
     }
@@ -4003,7 +4010,15 @@ int main(int argc, const char **argv) {
     auto final_options                             = options;
     final_options.module_interface_sources         = std::move(module_interface_sources);
     final_options.module_interface_names_by_source = std::move(module_interface_names_by_source);
-    const int emit_status                          = gentest::codegen::emit(final_options, cases, fixtures, mocks);
+    std::string mock_domain_error;
+    if (!gentest::codegen::validate_mock_output_domains(final_options, mock_domain_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
+        return 1;
+    }
+    if (options.check_only) {
+        return 0;
+    }
+    const int emit_status = gentest::codegen::emit(final_options, cases, fixtures, mocks);
     if (emit_status != 0) {
         return emit_status;
     }
