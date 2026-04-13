@@ -1,12 +1,10 @@
 # Usage:
-#   cmake -DPROG=<path> -DCASES=<n> [-DEXPECTED_LIST_FILE=<path>] [-DPASS=<n> -DFAIL=<n> -DSKIP=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
+#   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> -P tests/cmake/scripts/CheckTestInventory.cmake
+#   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
+#   cmake -DPROG=<path> [-DCASES=<n>] [-DEXPECTED_LIST_FILE=<path>] [-DPASS=<n> -DFAIL=<n> -DSKIP=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")
-endif()
-
-if(NOT DEFINED CASES)
-  message(FATAL_ERROR "CASES not set")
 endif()
 
 set(_emu)
@@ -98,20 +96,50 @@ function(_gentest_check_list_mode mode_name expected_cases)
   endif()
 endfunction()
 
-_gentest_check_list_mode("--list" "${CASES}" --list)
-_gentest_check_list_mode("--list-tests" "${CASES}" --list-tests)
+set(_normalized_expected_list)
+set(_expected_cases)
+set(_have_inventory_expectations OFF)
+set(_check_list_tests ON)
+
+if(DEFINED CHECK_LIST_TESTS AND NOT CHECK_LIST_TESTS)
+  set(_check_list_tests OFF)
+endif()
+
+if(DEFINED CASES AND NOT "${CASES}" STREQUAL "")
+  set(_expected_cases "${CASES}")
+  set(_have_inventory_expectations ON)
+endif()
 
 if(DEFINED EXPECTED_LIST_FILE AND NOT "${EXPECTED_LIST_FILE}" STREQUAL "")
   if(NOT EXISTS "${EXPECTED_LIST_FILE}")
     message(FATAL_ERROR "Expected list file not found: ${EXPECTED_LIST_FILE}")
   endif()
+  file(READ "${EXPECTED_LIST_FILE}" _expected_list_text)
+  _gentest_normalize_text("${_expected_list_text}" _normalized_expected_list_text)
+  _gentest_normalize_sorted_lines("${_expected_list_text}" _normalized_expected_list)
+  if(NOT _have_inventory_expectations)
+    _gentest_count_output_lines("${_normalized_expected_list_text}" _expected_cases)
+    set(_have_inventory_expectations ON)
+  endif()
+endif()
+
+if(_have_inventory_expectations)
+  _gentest_check_list_mode("--list" "${_expected_cases}" --list)
+endif()
+
+if(_have_inventory_expectations AND _check_list_tests)
+  _gentest_check_list_mode("--list-tests" "${_expected_cases}" --list-tests)
+endif()
+
+if(_have_inventory_expectations
+   AND _check_list_tests
+   AND DEFINED EXPECTED_LIST_FILE
+   AND NOT "${EXPECTED_LIST_FILE}" STREQUAL "")
   _gentest_run_and_capture("--list-tests exact" _list_tests_out _list_tests_err _list_tests_rc --list-tests)
   if(NOT _list_tests_rc EQUAL 0)
     message(FATAL_ERROR "--list-tests exact failed with code ${_list_tests_rc}. Output:\n${_list_tests_out}\nErrors:\n${_list_tests_err}")
   endif()
-  file(READ "${EXPECTED_LIST_FILE}" _expected_list_text)
   _gentest_normalize_sorted_lines("${_list_tests_out}" _normalized_actual_list)
-  _gentest_normalize_sorted_lines("${_expected_list_text}" _normalized_expected_list)
   if(NOT _normalized_actual_list STREQUAL _normalized_expected_list)
     string(JOIN "\n" _expected_block ${_normalized_expected_list})
     string(JOIN "\n" _actual_block ${_normalized_actual_list})
@@ -121,7 +149,10 @@ if(DEFINED EXPECTED_LIST_FILE AND NOT "${EXPECTED_LIST_FILE}" STREQUAL "")
 endif()
 
 if(NOT DEFINED PASS AND NOT DEFINED FAIL AND NOT DEFINED SKIP)
-  return()
+  if(_have_inventory_expectations)
+    return()
+  endif()
+  message(FATAL_ERROR "CASES, EXPECTED_LIST_FILE, or PASS/FAIL/SKIP must be set")
 endif()
 
 if(NOT DEFINED PASS OR NOT DEFINED FAIL OR NOT DEFINED SKIP)
