@@ -32,6 +32,8 @@ namespace {
 using gentest::codegen::scan::named_module_name_from_source_file;
 
 using ParamPassStyle = MockParamInfo::PassStyle;
+using MethodCvQual   = MockMethodCvQualifier;
+using MethodRefQual  = MockMethodRefQualifier;
 
 [[nodiscard]] bool is_supported_access(AccessSpecifier access) {
     return access == AS_public || access == AS_protected || access == AS_none;
@@ -264,13 +266,13 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return value;
 }
 
-[[nodiscard]] std::string ref_qualifier_string(RefQualifierKind kind) {
+[[nodiscard]] MethodRefQual ref_qualifier_kind(RefQualifierKind kind) {
     switch (kind) {
-    case RQ_LValue: return "&";
-    case RQ_RValue: return "&&";
+    case RQ_LValue: return MethodRefQual::LValue;
+    case RQ_RValue: return MethodRefQual::RValue;
     case RQ_None: break;
     }
-    return {};
+    return MethodRefQual::None;
 }
 
 [[nodiscard]] ParamPassStyle classify_param_pass_style(const ParmVarDecl &param) {
@@ -298,11 +300,8 @@ using ParamPassStyle = MockParamInfo::PassStyle;
 
 [[nodiscard]] MockParamInfo build_param_info(const ParmVarDecl &param, const ASTContext &ctx, bool is_template, unsigned index) {
     MockParamInfo info;
-    info.type                = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
-    info.pass_style          = classify_param_pass_style(param);
-    const QualType base_type = param.getType().getNonReferenceType();
-    info.is_const            = base_type.isConstQualified();
-    info.is_volatile         = base_type.isVolatileQualified();
+    info.type       = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
+    info.pass_style = classify_param_pass_style(param);
     if (!param.getNameAsString().empty()) {
         info.name = param.getNameAsString();
     } else {
@@ -378,6 +377,27 @@ struct CallableTemplateInfo {
     case EST_NoexceptTrue: return true;
     default: return false;
     }
+}
+
+[[nodiscard]] MethodCvQual cv_qualifier_kind(const CXXMethodDecl &method) {
+    if (method.isConst() && method.isVolatile()) {
+        return MethodCvQual::ConstVolatile;
+    }
+    if (method.isConst()) {
+        return MethodCvQual::Const;
+    }
+    if (method.isVolatile()) {
+        return MethodCvQual::Volatile;
+    }
+    return MethodCvQual::None;
+}
+
+[[nodiscard]] MockMethodQualifiers capture_method_qualifiers(const CXXMethodDecl &method) {
+    return MockMethodQualifiers{
+        .cv          = cv_qualifier_kind(method),
+        .ref         = ref_qualifier_kind(method.getRefQualifier()),
+        .is_noexcept = is_noexcept(method),
+    };
 }
 
 [[nodiscard]] bool has_case_insensitive_suffix(std::string_view path, std::string_view suffix) {
@@ -791,13 +811,10 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         const bool is_template     = method->getDescribedFunctionTemplate() != nullptr;
         method_info.return_type =
             is_template ? print_type_as_written(method->getReturnType(), ctx) : print_type(method->getReturnType(), ctx);
-        method_info.is_const        = method->isConst();
-        method_info.is_volatile     = method->isVolatile();
         method_info.is_static       = method->isStatic();
         method_info.is_virtual      = method->isVirtual();
         method_info.is_pure_virtual = method->isPureVirtual();
-        method_info.is_noexcept     = is_noexcept(*method);
-        method_info.ref_qualifier   = ref_qualifier_string(method->getRefQualifier());
+        method_info.qualifiers      = capture_method_qualifiers(*method);
         auto template_info          = capture_callable_template_info(*method, ctx);
         method_info.template_prefix = std::move(template_info.prefix);
         method_info.template_params = std::move(template_info.params);
