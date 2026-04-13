@@ -86,6 +86,24 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
+  "module wrapper output requires tu out dir"
+  1
+  "gentest_codegen: --module-wrapper-output requires --tu-out-dir"
+  "${PROG}"
+  --module-wrapper-output "${BUILD_ROOT}/unused.module.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "module wrapper output count mismatch"
+  1
+  "gentest_codegen: expected 1 --module-wrapper-output value(s) for 1 input source(s), got 2"
+  "${PROG}"
+  --tu-out-dir "${BUILD_ROOT}/unused-module-wrappers"
+  --module-wrapper-output "${BUILD_ROOT}/a.module.gentest.cpp"
+  --module-wrapper-output "${BUILD_ROOT}/b.module.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
   "invalid jobs env warning"
   0
   "gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_JOBS='bogus'"

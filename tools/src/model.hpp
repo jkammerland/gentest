@@ -116,7 +116,11 @@ struct CollectorOptions {
     // Optional explicit per-source TU registration headers. When provided in
     // TU mode, this must stay aligned with `sources` and overrides the legacy
     // `<tu_output_dir>/<source>.h` derivation.
-    std::vector<std::filesystem::path>                                  tu_output_headers;
+    std::vector<std::filesystem::path> tu_output_headers;
+    // Optional explicit per-source module wrapper outputs. When provided in
+    // TU mode, this must stay aligned with `sources`; module sources use the
+    // explicit path instead of deriving one from `tu_output_dir`.
+    std::vector<std::filesystem::path>                                  module_wrapper_outputs;
     std::filesystem::path                                               mock_registry_path;
     std::filesystem::path                                               mock_impl_path;
     std::optional<std::filesystem::path>                                depfile_path;

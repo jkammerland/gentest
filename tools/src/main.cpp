@@ -250,6 +250,9 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         return named_module_name_from_source_file(path, include_search_paths).has_value();
     };
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
+        if (idx < options.module_wrapper_outputs.size() && !options.module_wrapper_outputs[idx].empty()) {
+            return options.module_wrapper_outputs[idx];
+        }
         return gentest::codegen::resolve_module_wrapper_output(options.tu_output_dir, std::filesystem::path(options.sources[idx]), idx);
     };
 
@@ -2459,6 +2462,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> tu_header_output_option{
         "tu-header-output", llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> module_wrapper_output_option{
+        "module-wrapper-output",
+        llvm::cl::desc("Explicit output module wrapper path for a TU-mode input source (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> source_root_option{
@@ -2535,6 +2542,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     }
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
+    opts.module_wrapper_outputs.assign(module_wrapper_output_option.begin(), module_wrapper_output_option.end());
     opts.clang_args = std::move(clang_args);
     strip_shell_control_tail(opts.clang_args);
     opts.check_only  = check_option.getValue();
@@ -2662,6 +2670,15 @@ int main(int argc, const char **argv) {
                                   options.sources.size(), options.sources.size(), options.tu_output_headers.size());
         return 1;
     }
+    if (!options.module_wrapper_outputs.empty() && options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --module-wrapper-output requires --tu-out-dir\n");
+        return 1;
+    }
+    if (!options.module_wrapper_outputs.empty() && options.module_wrapper_outputs.size() != options.sources.size()) {
+        gentest::codegen::log_err("gentest_codegen: expected {} --module-wrapper-output value(s) for {} input source(s), got {}\n",
+                                  options.sources.size(), options.sources.size(), options.module_wrapper_outputs.size());
+        return 1;
+    }
     const std::string explicit_host_clang_path = parsed_arguments.explicit_host_clang_path.value_or(std::string{});
     const auto        default_compiler_path    = resolve_default_compiler_path(explicit_host_clang_path);
 
@@ -2736,6 +2753,9 @@ int main(int argc, const char **argv) {
     const bool skip_function_bodies = !options.discover_mocks;
 
     auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
+        if (idx < options.module_wrapper_outputs.size() && !options.module_wrapper_outputs[idx].empty()) {
+            return options.module_wrapper_outputs[idx];
+        }
         return gentest::codegen::resolve_module_wrapper_output(options.tu_output_dir, std::filesystem::path(options.sources[idx]), idx);
     };
     const std::string compdb_dir =
