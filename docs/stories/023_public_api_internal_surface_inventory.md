@@ -13,22 +13,31 @@ Use it to record which installed symbols or surfaces are:
 
 ## Inventory
 
-Pending inventory.
-
-Populate this file with the installed surface currently reachable from:
-
-- `include/gentest/registry.h`
-- `include/gentest/context.h`
-- `include/gentest/fixture.h`
-
-Suggested entry shape:
-
-- `<symbol or surface>`: `<public | detail | private>` -> `<planned action>`
-
-Example actions:
-
-- keep
-- move to `detail`
-- hide behind opaque handle
-- move to private header
-- delete from installed surface
+- `gentest::log`, `gentest::set_log_policy`, `gentest::set_default_log_policy`, `gentest::skip`,
+  `gentest::skip_if`, `gentest::xfail`, `gentest::xfail_if`: `public` -> keep
+- `gentest::ctx::current`, `gentest::ctx::Adopt`: `public` -> keep
+- `gentest::ctx::Token`: `public` -> keep as the existing shared-pointer token type for compatibility; current
+  reduction work hides the concrete `TestContextInfo` definition and removes the transitive `runtime_context.h`
+  exposure from `context.h` without changing the token type
+- `gentest::detail::TestContextInfo` layout and lifecycle machinery in `context.h`: `private` -> remove from the
+  normal installed API shape while the compatible token type remains
+- `gentest::run_all_tests`, `gentest::Case`, `gentest::FixtureLifetime`, `gentest::registered_cases`: `public`
+  -> keep
+- `gentest::detail::register_cases`: `detail` -> keep installed as unstable generated-code surface
+- `gentest::detail::snapshot_registered_cases`: `private` -> move toward private runtime header
+- `gentest::detail::SharedFixtureScope`: `detail` -> keep temporarily while generated/runtime code still names it
+- `gentest::detail::SharedFixtureRegistration`: `private` -> replace with narrower registration adapter
+- `gentest::detail::register_shared_fixture(const SharedFixtureRegistration &)`: `private` -> remove from installed
+  surface after tests/codegen stop constructing raw registration records
+- `gentest::detail::setup_shared_fixtures`, `gentest::detail::teardown_shared_fixtures`,
+  `gentest::detail::get_shared_fixture`: `private` -> move toward private runtime header
+- `gentest::detail::register_shared_fixture<Fixture>`: `detail` -> keep temporarily as unstable generated-code
+  helper until a narrower adapter exists
+- `gentest::detail::get_shared_fixture_typed<Fixture>`: `detail` -> keep temporarily as unstable generated-code
+  helper until generated wrappers stop depending on it
+- `gentest::FixtureSetup`, `gentest::FixtureTearDown`: `public` -> keep
+- `gentest::detail::ErasedDeleter`, `gentest::detail::FixtureAllocation`, `gentest::detail::HasGentestAllocate*`,
+  `gentest::detail::IsUniquePtr`, `gentest::detail::adopt_unique`, `gentest::detail::adopt_raw`,
+  `gentest::detail::assign_allocation`, `gentest::detail::allocate_fixture*`, `gentest::detail::FixtureHandle`:
+  `detail` -> move to non-installed detail/private headers once runtime/codegen stop emitting them into installed
+  consumer-facing code paths
