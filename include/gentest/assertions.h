@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gentest/detail/runtime_context.h"
+#include "gentest/detail/runtime_support.h"
 
 #include <source_location>
 #include <string>

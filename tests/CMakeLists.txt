@@ -192,6 +192,7 @@ _gentest_collect_cross_codegen_clang_args(_gentest_codegen_cross_target_arg)
 
 function(_gentest_add_proof_test name source)
     add_executable(${name} ${source})
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(${name} PRIVATE gentest_runtime)
     target_compile_features(${name} PRIVATE cxx_std_20)
     add_test(NAME ${name} COMMAND $<TARGET_FILE:${name}>)
@@ -213,6 +214,9 @@ _gentest_add_proof_test(
 _gentest_add_proof_test(
     gentest_proof_api_context_expect_throw_std_exception
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/expect_throw_std_exception_red.cpp)
+_gentest_add_proof_test(
+    gentest_proof_api_context_header_isolation
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/header_isolation_red.cpp)
 
 # Lint-only checks for generator
 gentest_add_check_exit_code(

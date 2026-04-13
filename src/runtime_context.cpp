@@ -27,4 +27,76 @@ GENTEST_RUNTIME_API auto bench_error_storage() -> std::string & { return g_bench
 
 GENTEST_RUNTIME_API auto noexceptions_fatal_hook_storage() -> NoExceptionsFatalHookState & { return g_noexceptions_fatal_hook; }
 
+void record_failure(std::string msg) {
+    auto  ctx    = current_test_storage();
+    auto &buffer = current_buffer_storage();
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+        (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
+                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         stderr);
+        std::abort();
+    }
+    if (buffer.owner != ctx.get()) {
+        flush_current_buffer_for(buffer.owner);
+        buffer.owner = ctx.get();
+    }
+    buffer.failures.push_back(std::move(msg));
+    ctx->has_failures.store(true, std::memory_order_relaxed);
+    buffer.failure_locations.push_back({std::string{}, 0});
+    buffer.event_lines.push_back(buffer.failures.back());
+    buffer.event_kinds.push_back('F');
+#if GENTEST_EXCEPTIONS_ENABLED
+    if (bench_phase() == BenchPhase::Call) {
+        throw gentest::assertion(buffer.failures.back());
+    }
+#endif
+}
+
+void record_failure(std::string msg, const std::source_location &loc) {
+    auto  ctx    = current_test_storage();
+    auto &buffer = current_buffer_storage();
+    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+        (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
+                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         stderr);
+        std::abort();
+    }
+    if (buffer.owner != ctx.get()) {
+        flush_current_buffer_for(buffer.owner);
+        buffer.owner = ctx.get();
+    }
+    buffer.failures.push_back(std::move(msg));
+    ctx->has_failures.store(true, std::memory_order_relaxed);
+    std::filesystem::path p(std::string(loc.file_name()));
+    p                     = p.lexically_normal();
+    std::string s         = p.generic_string();
+    auto        keep_from = [&](std::string_view marker) -> bool {
+        const std::size_t pos = s.find(marker);
+        if (pos != std::string::npos) {
+            s = s.substr(pos);
+            return true;
+        }
+        return false;
+    };
+    (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
+    buffer.failure_locations.push_back({std::move(s), loc.line()});
+    buffer.event_lines.push_back(buffer.failures.back());
+    buffer.event_kinds.push_back('F');
+#if GENTEST_EXCEPTIONS_ENABLED
+    if (bench_phase() == BenchPhase::Call) {
+        throw gentest::assertion(buffer.failures.back());
+    }
+#endif
+}
+
+[[noreturn]] void skip_shared_fixture_unavailable(std::string_view reason, const std::source_location &loc) {
+    (void)loc;
+    request_runtime_skip(reason, TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
+#if GENTEST_EXCEPTIONS_ENABLED
+    throw skip_exception{};
+#else
+    terminate_no_exceptions_fatal("gentest::detail::skip_shared_fixture_unavailable");
+#endif
+}
+
 } // namespace gentest::detail
