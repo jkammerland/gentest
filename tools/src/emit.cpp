@@ -839,6 +839,88 @@ bool requires_global_wrapper_impls_placeholder(const std::string &template_conte
            template_content.find("{{REGISTRATION_COMMON}}") != std::string::npos;
 }
 
+struct RegistrationRenderTemplates {
+    std::string wrapper_free;
+    std::string wrapper_free_fixtures;
+    std::string wrapper_ephemeral;
+    std::string wrapper_stateful;
+    std::string case_entry;
+    std::string array_decl_empty;
+    std::string array_decl_nonempty;
+    std::string forward_decl_line;
+    std::string forward_decl_ns;
+
+    [[nodiscard]] render::WrapperTemplates wrapper_templates() const {
+        return render::WrapperTemplates{
+            .free          = wrapper_free,
+            .free_fixtures = wrapper_free_fixtures,
+            .ephemeral     = wrapper_ephemeral,
+            .stateful      = wrapper_stateful,
+        };
+    }
+};
+
+struct RenderedRegistrationCore {
+    std::string forward_decls;
+    std::string trait_decls;
+    std::string wrapper_impls;
+    std::string case_inits;
+    std::string fixture_registrations;
+    std::size_t case_count = 0;
+};
+
+[[nodiscard]] RegistrationRenderTemplates load_registration_render_templates() {
+    return RegistrationRenderTemplates{
+        .wrapper_free          = std::string(tpl::wrapper_free),
+        .wrapper_free_fixtures = std::string(tpl::wrapper_free_fixtures),
+        .wrapper_ephemeral     = std::string(tpl::wrapper_ephemeral),
+        .wrapper_stateful      = std::string(tpl::wrapper_stateful),
+        .case_entry            = std::string(tpl::case_entry),
+        .array_decl_empty      = std::string(tpl::array_decl_empty),
+        .array_decl_nonempty   = std::string(tpl::array_decl_nonempty),
+        .forward_decl_line     = std::string(tpl::forward_decl_line),
+        .forward_decl_ns       = std::string(tpl::forward_decl_ns),
+    };
+}
+
+[[nodiscard]] RenderedRegistrationCore render_registration_core(const std::vector<TestCaseInfo>    &cases,
+                                                                const std::vector<FixtureDeclInfo> &fixtures,
+                                                                const RegistrationRenderTemplates  &templates) {
+    RenderedRegistrationCore core;
+    core.case_count    = cases.size();
+    core.forward_decls = render::render_forward_decls(cases, templates.forward_decl_line, templates.forward_decl_ns);
+
+    auto traits      = render::render_trait_arrays(cases, templates.array_decl_empty, templates.array_decl_nonempty);
+    core.trait_decls = std::move(traits.declarations);
+    std::vector<std::string> tag_array_names         = std::move(traits.tag_names);
+    std::vector<std::string> requirement_array_names = std::move(traits.req_names);
+
+    core.wrapper_impls = render::render_wrappers(cases, templates.wrapper_templates());
+    if (cases.empty()) {
+        core.case_inits = "    // No test cases discovered during code generation.\n";
+    } else {
+        core.case_inits = render::render_case_entries(cases, tag_array_names, requirement_array_names, templates.case_entry);
+    }
+    core.fixture_registrations = render::render_fixture_registrations(fixtures);
+    return core;
+}
+
+void apply_registration_core(std::string &output, const RenderedRegistrationCore &core) {
+    replace_all(output, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
+    replace_all(output, "{{REGISTRATION_COMMON}}", tpl::registration_common);
+    replace_all(output, "{{FORWARD_DECLS}}", core.forward_decls);
+    replace_all(output, "{{CASE_COUNT}}", std::to_string(core.case_count));
+    replace_all(output, "{{TRAIT_DECLS}}", core.trait_decls);
+    if (output.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
+        replace_all(output, "{{GLOBAL_WRAPPER_IMPLS}}", core.wrapper_impls);
+        replace_all(output, "{{WRAPPER_IMPLS}}", "");
+    } else {
+        replace_all(output, "{{WRAPPER_IMPLS}}", core.wrapper_impls);
+    }
+    replace_all(output, "{{CASE_INITS}}", core.case_inits);
+    replace_all(output, "{{FIXTURE_REGISTRATIONS}}", core.fixture_registrations);
+}
+
 auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures)
     -> std::optional<std::string> {
     std::string template_content;
@@ -858,55 +940,11 @@ auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInf
         return std::nullopt;
     }
 
-    // Load partials
-    const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
-    const auto tpl_wrapper_free_fix  = std::string(tpl::wrapper_free_fixtures);
-    const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
-    const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
-    const auto tpl_case_entry        = std::string(tpl::case_entry);
-    const auto tpl_array_empty       = std::string(tpl::array_decl_empty);
-    const auto tpl_array_nonempty    = std::string(tpl::array_decl_nonempty);
-    const auto tpl_fwd_line          = std::string(tpl::forward_decl_line);
-    const auto tpl_fwd_ns            = std::string(tpl::forward_decl_ns);
-
-    std::string forward_decl_block = render::render_forward_decls(cases, tpl_fwd_line, tpl_fwd_ns);
-
-    auto                     traits                  = render::render_trait_arrays(cases, tpl_array_empty, tpl_array_nonempty);
-    std::string              trait_declarations      = std::move(traits.declarations);
-    std::vector<std::string> tag_array_names         = std::move(traits.tag_names);
-    std::vector<std::string> requirement_array_names = std::move(traits.req_names);
-
-    const render::WrapperTemplates wrapper_templates{
-        .free          = tpl_wrapper_free,
-        .free_fixtures = tpl_wrapper_free_fix,
-        .ephemeral     = tpl_wrapper_ephemeral,
-        .stateful      = tpl_wrapper_stateful,
-    };
-    std::string wrapper_impls = render::render_wrappers(cases, wrapper_templates);
-
-    std::string case_entries;
-    if (cases.empty()) {
-        case_entries = "    // No test cases discovered during code generation.\n";
-    } else {
-        case_entries = render::render_case_entries(cases, tag_array_names, requirement_array_names, tpl_case_entry);
-    }
-
-    std::string fixture_registrations = render::render_fixture_registrations(fixtures);
+    const auto templates = load_registration_render_templates();
+    const auto core      = render_registration_core(cases, fixtures, templates);
 
     std::string output = template_content;
-    replace_all(output, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
-    replace_all(output, "{{REGISTRATION_COMMON}}", tpl::registration_common);
-    replace_all(output, "{{FORWARD_DECLS}}", forward_decl_block);
-    replace_all(output, "{{CASE_COUNT}}", std::to_string(cases.size()));
-    replace_all(output, "{{TRAIT_DECLS}}", trait_declarations);
-    if (output.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
-        replace_all(output, "{{GLOBAL_WRAPPER_IMPLS}}", wrapper_impls);
-        replace_all(output, "{{WRAPPER_IMPLS}}", "");
-    } else {
-        replace_all(output, "{{WRAPPER_IMPLS}}", wrapper_impls);
-    }
-    replace_all(output, "{{CASE_INITS}}", case_entries);
-    replace_all(output, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
+    apply_registration_core(output, core);
     replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
     // Version for --help
 #if defined(GENTEST_VERSION_STR)
@@ -1006,22 +1044,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             std::ranges::sort(data.cases, {}, &TestCaseInfo::display_name);
         }
 
-        const auto tpl_wrapper_free      = std::string(tpl::wrapper_free);
-        const auto tpl_wrapper_free_fix  = std::string(tpl::wrapper_free_fixtures);
-        const auto tpl_wrapper_ephemeral = std::string(tpl::wrapper_ephemeral);
-        const auto tpl_wrapper_stateful  = std::string(tpl::wrapper_stateful);
-        const auto tpl_case_entry        = std::string(tpl::case_entry);
-        const auto tpl_array_empty       = std::string(tpl::array_decl_empty);
-        const auto tpl_array_nonempty    = std::string(tpl::array_decl_nonempty);
-        const auto tpl_fwd_line          = std::string(tpl::forward_decl_line);
-        const auto tpl_fwd_ns            = std::string(tpl::forward_decl_ns);
-
-        const render::WrapperTemplates wrapper_templates{
-            .free          = tpl_wrapper_free,
-            .free_fixtures = tpl_wrapper_free_fix,
-            .ephemeral     = tpl_wrapper_ephemeral,
-            .stateful      = tpl_wrapper_stateful,
-        };
+        const auto templates = load_registration_render_templates();
 
         // Guard against multiple input sources mapping to the same output header
         // name (would be nondeterministic under parallel emission).
@@ -1069,39 +1092,9 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
                                  "// No gentest registrations were discovered for this translation unit.\n";
             } else {
                 // Registration header (compiled via a CMake-generated shim TU).
-                header_content = std::string(tpl::tu_registration_header);
-
-                // Render test wrappers and cases for this TU.
-                std::string forward_decl_block = render::render_forward_decls(tu_cases, tpl_fwd_line, tpl_fwd_ns);
-
-                auto                     traits             = render::render_trait_arrays(tu_cases, tpl_array_empty, tpl_array_nonempty);
-                std::string              trait_declarations = std::move(traits.declarations);
-                std::vector<std::string> tag_array_names    = std::move(traits.tag_names);
-                std::vector<std::string> requirement_array_names = std::move(traits.req_names);
-
-                std::string wrapper_impls = render::render_wrappers(tu_cases, wrapper_templates);
-
-                std::string case_entries;
-                if (tu_cases.empty()) {
-                    case_entries = "    // No test cases discovered during code generation.\n";
-                } else {
-                    case_entries = render::render_case_entries(tu_cases, tag_array_names, requirement_array_names, tpl_case_entry);
-                }
-                std::string fixture_registrations = render::render_fixture_registrations(tu_fixtures);
-
-                replace_all(header_content, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
-                replace_all(header_content, "{{REGISTRATION_COMMON}}", tpl::registration_common);
-                replace_all(header_content, "{{FORWARD_DECLS}}", forward_decl_block);
-                replace_all(header_content, "{{CASE_COUNT}}", std::to_string(tu_cases.size()));
-                replace_all(header_content, "{{TRAIT_DECLS}}", trait_declarations);
-                if (header_content.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
-                    replace_all(header_content, "{{GLOBAL_WRAPPER_IMPLS}}", wrapper_impls);
-                    replace_all(header_content, "{{WRAPPER_IMPLS}}", "");
-                } else {
-                    replace_all(header_content, "{{WRAPPER_IMPLS}}", wrapper_impls);
-                }
-                replace_all(header_content, "{{CASE_INITS}}", case_entries);
-                replace_all(header_content, "{{FIXTURE_REGISTRATIONS}}", fixture_registrations);
+                header_content  = std::string(tpl::tu_registration_header);
+                const auto core = render_registration_core(tu_cases, tu_fixtures, templates);
+                apply_registration_core(header_content, core);
                 replace_all(header_content, "{{REGISTER_FN}}", register_fn);
             }
 
