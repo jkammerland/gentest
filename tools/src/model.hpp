@@ -120,7 +120,12 @@ struct CollectorOptions {
     // Optional explicit per-source module wrapper outputs. When provided in
     // TU mode, this must stay aligned with `sources`; module sources use the
     // explicit path instead of deriving one from `tu_output_dir`.
-    std::vector<std::filesystem::path>                                  module_wrapper_outputs;
+    std::vector<std::filesystem::path> module_wrapper_outputs;
+    // Optional explicit per-domain mock outputs. When provided, these must
+    // stay aligned with the ordered mock domain plan: header first, then the
+    // first-seen unique named modules in source order.
+    std::vector<std::filesystem::path>                                  mock_domain_registry_outputs;
+    std::vector<std::filesystem::path>                                  mock_domain_impl_outputs;
     std::filesystem::path                                               mock_registry_path;
     std::filesystem::path                                               mock_impl_path;
     std::optional<std::filesystem::path>                                depfile_path;
