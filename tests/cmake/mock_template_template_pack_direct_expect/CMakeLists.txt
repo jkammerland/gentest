@@ -7,19 +7,24 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(WIN32)
+    set(CMAKE_OBJECT_PATH_MAX 128)
+endif()
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 if(DEFINED GENTEST_CODEGEN_EXECUTABLE AND NOT "${GENTEST_CODEGEN_EXECUTABLE}" STREQUAL "")
     set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
 else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
+set(_gentest_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/g")
+set(_gentest_mock_dir "${_gentest_generated_dir}/m")
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
 gentest_add_mocks(template_template_pack_direct_expect_mocks
     DEFS
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.hpp
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+    OUTPUT_DIR "${_gentest_mock_dir}"
     HEADER_NAME public/template_template_pack_direct_expect_mocks.hpp)
 
 add_executable(mock_template_template_pack_direct_expect main.cpp)

@@ -1052,44 +1052,6 @@ gentest_add_cmake_script_test(
         "CODEGEN_STD=${_gentest_codegen_std_flag}"
         "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
 
-gentest_add_cmake_script_test(
-    NAME gentest_codegen_mock_defaulted_template_ctor_builds
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockDefaultedTemplateCtor.cmake"
-    DEFINES
-        "BUILD_ROOT=${CMAKE_BINARY_DIR}"
-        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/mock_defaulted_template_ctor"
-        "GENERATOR=${CMAKE_GENERATOR}"
-        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
-        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-        "C_COMPILER=${CMAKE_C_COMPILER}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-        "LLVM_DIR=${LLVM_DIR}"
-        "Clang_DIR=${Clang_DIR}")
-
-gentest_add_cmake_script_test(
-    NAME gentest_codegen_mock_template_template_pack_direct_expect_runs
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockTemplateTemplatePackDirectExpect.cmake"
-    DEFINES
-        "BUILD_ROOT=${CMAKE_BINARY_DIR}"
-        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/mock_template_template_pack_direct_expect"
-        "GENERATOR=${CMAKE_GENERATOR}"
-        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
-        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-        "C_COMPILER=${CMAKE_C_COMPILER}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-        "LLVM_DIR=${LLVM_DIR}"
-        "Clang_DIR=${Clang_DIR}")
-
 gentest_add_check_death(
     NAME gentest_codegen_mock_anonymous_namespace_msg
     NO_EMULATOR
@@ -1247,8 +1209,6 @@ set_tests_properties(
     gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
     gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
     gentest_codegen_mock_emit_header_main_tu_ok
-    gentest_codegen_mock_defaulted_template_ctor_builds
-    gentest_codegen_mock_template_template_pack_direct_expect_runs
     gentest_codegen_mock_anonymous_namespace_msg
     gentest_codegen_mock_local_class_msg
     gentest_codegen_fixture_suite_member_illegal
@@ -2243,6 +2203,7 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
     add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
             -DSOURCE_DIR=${source_dir}
+            -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
             -DBUILD_ROOT=${_gentest_helper_build_root}
             -DGENERATOR=${CMAKE_GENERATOR}
             -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
@@ -2354,6 +2315,23 @@ _gentest_add_cmake_helper_test(
     -DTARGET_NAME=template_template_scope_bindings
     -DBUILD_CONFIG=${_gentest_fixture_build_config})
 set_property(TEST gentest_codegen_template_template_scope_bindings_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_defaulted_template_ctor_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_defaulted_template_ctor
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DTARGET_NAME=mock_defaulted_template_ctor
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_mock_defaulted_template_ctor_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_template_template_pack_direct_expect_runs
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_template_template_pack_direct_expect
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockTemplateTemplatePackDirectExpect.cmake
+    cmake
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_mock_template_template_pack_direct_expect_runs APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_mock_unnamed_template_template_builds
