@@ -211,9 +211,26 @@ struct MockParamInfo {
         RValueRef,
         ForwardingRef,
     };
-    PassStyle pass_style  = PassStyle::Value;
-    bool      is_const    = false;
-    bool      is_volatile = false;
+    PassStyle pass_style = PassStyle::Value;
+};
+
+enum class MockMethodCvQualifier {
+    None,
+    Const,
+    Volatile,
+    ConstVolatile,
+};
+
+enum class MockMethodRefQualifier {
+    None,
+    LValue,
+    RValue,
+};
+
+struct MockMethodQualifiers {
+    MockMethodCvQualifier  cv          = MockMethodCvQualifier::None;
+    MockMethodRefQualifier ref         = MockMethodRefQualifier::None;
+    bool                   is_noexcept = false;
 };
 
 // Parameter metadata for mocked constructors.
@@ -233,13 +250,10 @@ struct MockMethodInfo {
     std::vector<MockParamInfo>     parameters;
     std::string                    template_prefix; // e.g. "template <typename T, int N>"
     std::vector<TemplateParamInfo> template_params;
-    bool                           is_const        = false;
-    bool                           is_volatile     = false;
     bool                           is_static       = false;
     bool                           is_virtual      = false;
     bool                           is_pure_virtual = false;
-    bool                           is_noexcept     = false;
-    std::string                    ref_qualifier; // "", "&", or "&&"
+    MockMethodQualifiers           qualifiers;
 };
 
 struct MockNamespaceScopeInfo {

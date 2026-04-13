@@ -42,26 +42,32 @@ namespace gentest::codegen::render {
 namespace {
 using ::gentest::codegen::CollectorOptions;
 using ::gentest::codegen::MockClassInfo;
+using ::gentest::codegen::MockMethodCvQualifier;
 using ::gentest::codegen::MockMethodInfo;
+using ::gentest::codegen::MockMethodQualifiers;
+using ::gentest::codegen::MockMethodRefQualifier;
 using ::gentest::codegen::MockParamInfo;
 
-std::string qualifiers_for(const MockMethodInfo &method) {
+std::string qualifiers_for(const MockMethodQualifiers &qualifiers) {
     std::string q;
-    if (method.is_const)
-        q += " const";
-    if (method.is_volatile)
-        q += " volatile";
-    if (!method.ref_qualifier.empty()) {
-        q += ' ';
-        q += method.ref_qualifier;
+    switch (qualifiers.cv) {
+    case MockMethodCvQualifier::Const: q += " const"; break;
+    case MockMethodCvQualifier::Volatile: q += " volatile"; break;
+    case MockMethodCvQualifier::ConstVolatile: q += " const volatile"; break;
+    case MockMethodCvQualifier::None: break;
     }
-    if (method.is_noexcept)
+    switch (qualifiers.ref) {
+    case MockMethodRefQualifier::LValue: q += " &"; break;
+    case MockMethodRefQualifier::RValue: q += " &&"; break;
+    case MockMethodRefQualifier::None: break;
+    }
+    if (qualifiers.is_noexcept)
         q += " noexcept";
     return q;
 }
 
-std::string tidy_exception_escape_suppression(const MockMethodInfo &method) {
-    if (method.is_noexcept) {
+std::string tidy_exception_escape_suppression(const MockMethodQualifiers &qualifiers) {
+    if (qualifiers.is_noexcept) {
         return " // NOLINT(bugprone-exception-escape)";
     }
     return {};
@@ -345,7 +351,7 @@ MethodTypeRenderParts render_method_type_parts(const MockMethodInfo &method) {
     parts.return_type            = ensure_global_qualifiers(method.return_type);
     parts.parameter_list         = join_rendered_parameter_list(method.parameters, true);
     parts.parameter_types        = join_rendered_parameter_list(method.parameters, false);
-    parts.qualifiers             = qualifiers_for(method);
+    parts.qualifiers             = qualifiers_for(method.qualifiers);
     parts.declarator             = fmt::format("{}({}){}", method.method_name, parts.parameter_list, parts.qualifiers);
     parts.signature              = fmt::format("{}({})", parts.return_type, parts.parameter_types);
     parts.expectation_push_types = parts.return_type;
@@ -525,7 +531,7 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
         const std::string fq_type = fmt::format("::{}", cls.qualified_name);
         const std::string tpl_use = template_usage_suffix(method);
         decl.append_raw(" {");
-        decl.append_raw(tidy_exception_escape_suppression(method));
+        decl.append_raw(tidy_exception_escape_suppression(method.qualifiers));
         decl.append_raw("\n");
         decl.append_raw(dispatch_block("        ", cls, method, fq_type, tpl_use));
         decl.append_raw("    }");
@@ -730,7 +736,7 @@ std::string method_definition(const MockClassInfo &cls, const MockMethodInfo &me
         def.append("{}\n", method.template_prefix);
     }
     def.append("{} {{", render_method_declaration(fmt::format("gentest::mock<{}>::", fq_type), type_parts));
-    def.append_raw(tidy_exception_escape_suppression(method));
+    def.append_raw(tidy_exception_escape_suppression(method.qualifiers));
     def.append_raw("\n");
     const std::string tpl_usage = template_usage_suffix(method);
     def.append_raw(dispatch_block("    ", cls, method, fq_type, tpl_usage));
