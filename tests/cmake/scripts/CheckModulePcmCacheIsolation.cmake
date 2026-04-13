@@ -130,6 +130,12 @@ function(_gentest_run_codegen_fixture output_stem)
   set(_output_path "${_generated_dir}/${output_stem}.cpp")
   set(_mock_registry "${_generated_dir}/${output_stem}_mock_registry.hpp")
   set(_mock_impl "${_generated_dir}/${output_stem}_mock_impl.hpp")
+  set(_mock_registry_header_domain "${_generated_dir}/${output_stem}_mock_registry_domain_header.hpp")
+  set(_mock_impl_header_domain "${_generated_dir}/${output_stem}_mock_impl_domain_header.hpp")
+  set(_mock_registry_module_domain_a "${_generated_dir}/${output_stem}_mock_registry_domain_a.hpp")
+  set(_mock_impl_module_domain_a "${_generated_dir}/${output_stem}_mock_impl_domain_a.hpp")
+  set(_mock_registry_module_domain_b "${_generated_dir}/${output_stem}_mock_registry_domain_b.hpp")
+  set(_mock_impl_module_domain_b "${_generated_dir}/${output_stem}_mock_impl_domain_b.hpp")
   set(_depfile "${_generated_dir}/${output_stem}.gentest.d")
 
   gentest_check_run_or_fail(
@@ -138,6 +144,12 @@ function(_gentest_run_codegen_fixture output_stem)
       --output "${_output_path}"
       --mock-registry "${_mock_registry}"
       --mock-impl "${_mock_impl}"
+      --mock-domain-registry-output "${_mock_registry_header_domain}"
+      --mock-domain-registry-output "${_mock_registry_module_domain_a}"
+      --mock-domain-registry-output "${_mock_registry_module_domain_b}"
+      --mock-domain-impl-output "${_mock_impl_header_domain}"
+      --mock-domain-impl-output "${_mock_impl_module_domain_a}"
+      --mock-domain-impl-output "${_mock_impl_module_domain_b}"
       --depfile "${_depfile}"
       --compdb "${_build_dir}"
       --source-root "${_src_dir}"

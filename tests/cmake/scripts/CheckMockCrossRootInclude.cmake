@@ -98,6 +98,7 @@ set(_output_cpp "${_work_dir}/cross_root_output.gentest.cpp")
 set(_mock_registry "${_work_dir}/cross_root_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/cross_root_mock_impl.hpp")
 set(_mock_registry_domain "${_work_dir}/cross_root_mock_registry__domain_0000_header.hpp")
+set(_mock_impl_domain "${_work_dir}/cross_root_mock_impl__domain_0000_header.hpp")
 macro(_gentest_check_cross_root_fail message)
   file(REMOVE_RECURSE "${_external_dir}")
   message(FATAL_ERROR "${message}")
@@ -113,6 +114,8 @@ set(_args
   --output "${_output_cpp}"
   --mock-registry "${_mock_registry}"
   --mock-impl "${_mock_impl}"
+  --mock-domain-registry-output "${_mock_registry_domain}"
+  --mock-domain-impl-output "${_mock_impl_domain}"
   "${_input_cpp}"
   --)
 

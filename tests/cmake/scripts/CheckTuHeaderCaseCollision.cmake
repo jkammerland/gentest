@@ -106,6 +106,8 @@ gentest_check_run_or_fail(
 
 set(_registry "${_work_dir}/mock_registry.hpp")
 set(_impl "${_work_dir}/mock_impl.hpp")
+set(_registry_domain "${_work_dir}/mock_registry__domain_0000_header.hpp")
+set(_impl_domain "${_work_dir}/mock_impl__domain_0000_header.hpp")
 file(READ "${_compdb}" _compdb_json)
 string(JSON _compdb_entries LENGTH "${_compdb_json}")
 if(NOT _compdb_entries EQUAL 2)
@@ -136,6 +138,8 @@ set(_codegen_cmd
   "${PROG}"
   --mock-registry "${_registry}"
   --mock-impl "${_impl}"
+  --mock-domain-registry-output "${_registry_domain}"
+  --mock-domain-impl-output "${_impl_domain}"
   --tu-out-dir "${_generated_dir}"
   --compdb "${_build_dir}"
   --source-root "${_build_dir}"

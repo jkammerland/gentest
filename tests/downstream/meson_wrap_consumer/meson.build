@@ -136,6 +136,8 @@ consumer_mocks = custom_target(
     '--tu-header-output', join_paths(consumer_mock_out_dir, consumer_mock_codegen_h),
     '--mock-registry', join_paths(consumer_mock_out_dir, consumer_mock_registry_h),
     '--mock-impl', join_paths(consumer_mock_out_dir, consumer_mock_impl_h),
+    '--mock-domain-registry-output', join_paths(consumer_mock_out_dir, consumer_mock_domain_registry_h),
+    '--mock-domain-impl-output', join_paths(consumer_mock_out_dir, consumer_mock_domain_impl_h),
     '--discover-mocks',
     gentest_codegen_tool_args,
     '@INPUT0@',

@@ -3,7 +3,6 @@
 #include "log.hpp"
 #include "mock_discovery.hpp"
 #include "mock_domain_plan.hpp"
-#include "mock_output_paths.hpp"
 #include "model.hpp"
 #include "parallel_for.hpp"
 #include "scan_utils.hpp"

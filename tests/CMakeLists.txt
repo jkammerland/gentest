@@ -1016,6 +1016,10 @@ gentest_add_check_exit_code(
         ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_registry.hpp
         --mock-impl
         ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_impl.hpp
+        --mock-domain-registry-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_registry__domain_0000_header.hpp
+        --mock-domain-impl-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_impl__domain_0000_header.hpp
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
