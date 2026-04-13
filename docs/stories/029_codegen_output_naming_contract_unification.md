@@ -106,3 +106,15 @@ they are part of the build contract.
   still pass.
 - Future output-name changes can be made without editing parallel naming logic
   in both CMake and the tool.
+
+## Latest validation
+
+Focused validation on `2026-04-13` confirmed the Windows-specific
+`gentest_module_mock_long_domain_outputs` failure was a launcher-inspection
+contract mismatch, not a missing output:
+
+- local Linux: `ctest --preset=debug-system -R gentest_module_mock_long_domain_outputs --output-on-failure` -> passed
+- native Windows deep path:
+  `ctest --test-dir build/debug-system --output-on-failure -R '^gentest_module_mock_long_domain_outputs$'`
+  -> passed after teaching the regression to inspect the generated `.bat`
+  launcher when Ninja hides the actual `gentest_codegen` flags behind it
