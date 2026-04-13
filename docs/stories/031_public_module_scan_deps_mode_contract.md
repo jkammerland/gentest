@@ -86,3 +86,16 @@ Preferred approach:
   explicitly by the consumer configure step.
 - The regression still verifies `OFF`, `AUTO`, and `ON` semantics instead of
   merely checking that a build succeeds.
+
+## Latest validation
+
+Focused validation on `2026-04-13` showed the Windows failure was a launcher
+inspection mismatch, not a dropped codegen flag:
+
+- local Linux:
+  `ctest --preset=debug-system -R gentest_codegen_public_module_imports --output-on-failure`
+  -> passed
+- native Windows deep path:
+  `ctest --test-dir build/debug-system --output-on-failure -R '^gentest_codegen_public_module_imports$'`
+  -> passed after teaching the regression to inspect the generated `.bat`
+  launcher when Ninja hides the actual `gentest_codegen` command there

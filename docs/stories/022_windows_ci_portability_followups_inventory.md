@@ -30,12 +30,13 @@ for the previously failing deep-path/path-sensitive Windows set.
   helper/path-depth / downstream harness path budget -> `close` (green after
   story `028` slice)
 - `gentest_codegen_public_module_imports`:
-  public-module scan-deps contract -> `031_public_module_scan_deps_mode_contract.md`
+  public-module scan-deps contract -> `close` (green after story `031` slice)
 - `gentest_module_mock_long_domain_outputs`:
   explicit mock output contract -> `close` (green after story `029` slice)
 
 ## Notes
 
+- The focused deep-path/path-sensitive Windows slice is now fully green.
 - Remove already-green tests from the inventory instead of carrying them
   forward as stale backlog.
 - If every surviving failure maps cleanly to an existing story, close
