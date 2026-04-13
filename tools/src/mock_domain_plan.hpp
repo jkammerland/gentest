@@ -1,6 +1,5 @@
 #pragma once
 
-#include "mock_output_paths.hpp"
 #include "model.hpp"
 #include "scan_utils.hpp"
 
@@ -62,16 +61,22 @@ struct MockOutputDomainPlan {
 }
 
 [[nodiscard]] inline bool validate_mock_output_domains(const CollectorOptions &options, std::string &error) {
+    const bool has_base_registry     = !options.mock_registry_path.empty();
+    const bool has_base_impl         = !options.mock_impl_path.empty();
     const bool has_explicit_registry = !options.mock_domain_registry_outputs.empty();
     const bool has_explicit_impl     = !options.mock_domain_impl_outputs.empty();
     if (!has_explicit_registry && !has_explicit_impl) {
+        if (has_base_registry && has_base_impl) {
+            error = "mock outputs require explicit --mock-domain-registry-output/--mock-domain-impl-output paths";
+            return false;
+        }
         return true;
     }
     if (has_explicit_registry != has_explicit_impl) {
         error = "explicit mock domain outputs require matching --mock-domain-registry-output and --mock-domain-impl-output lists";
         return false;
     }
-    if (options.mock_registry_path.empty() || options.mock_impl_path.empty()) {
+    if (!has_base_registry || !has_base_impl) {
         error = "explicit mock domain outputs require both --mock-registry and --mock-impl";
         return false;
     }
@@ -88,27 +93,13 @@ struct MockOutputDomainPlan {
 }
 
 [[nodiscard]] inline std::vector<MockOutputDomainPlan> build_mock_output_domains(const CollectorOptions &options) {
-    auto       domains            = describe_mock_output_domains(options);
-    const bool use_explicit_paths = !options.mock_domain_registry_outputs.empty() && !options.mock_domain_impl_outputs.empty();
+    auto domains = describe_mock_output_domains(options);
     for (std::size_t idx = 0; idx < domains.size(); ++idx) {
         auto &domain = domains[idx];
-        if (use_explicit_paths) {
+        if (idx < options.mock_domain_registry_outputs.size() && idx < options.mock_domain_impl_outputs.size()) {
             domain.registry_path = options.mock_domain_registry_outputs[idx];
             domain.impl_path     = options.mock_domain_impl_outputs[idx];
-            continue;
         }
-
-        if (domain.kind == MockOutputDomainPlan::Kind::Header) {
-            domain.registry_path = options.mock_registry_path.empty()
-                                       ? std::filesystem::path{}
-                                       : make_mock_domain_output_path(options.mock_registry_path, 0, "header");
-            domain.impl_path     = options.mock_impl_path.empty() ? std::filesystem::path{}
-                                                                  : make_mock_domain_output_path(options.mock_impl_path, 0, "header");
-            continue;
-        }
-
-        domain.registry_path = make_mock_domain_output_path(options.mock_registry_path, idx, domain.module_name);
-        domain.impl_path     = make_mock_domain_output_path(options.mock_impl_path, idx, domain.module_name);
     }
     return domains;
 }

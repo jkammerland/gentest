@@ -135,6 +135,15 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
+  "mock outputs require explicit domain outputs"
+  1
+  "gentest_codegen: mock outputs require explicit --mock-domain-registry-output/--mock-domain-impl-output paths"
+  "${PROG}"
+  --mock-registry "${BUILD_ROOT}/mock_registry.hpp"
+  --mock-impl "${BUILD_ROOT}/mock_impl.hpp"
+  ${_common_args})
+
+_gentest_expect_result(
   "mock domain output count mismatch"
   1
   "gentest_codegen: expected 1 --mock-domain-registry-output/--mock-domain-impl-output value(s) for discovered mock output domains, got 2 and 2"

@@ -1,7 +1,6 @@
 #include "render_mocks.hpp"
 
 #include "mock_domain_plan.hpp"
-#include "mock_output_paths.hpp"
 #include "render.hpp"
 #include "scan_utils.hpp"
 #include "templates_mocks.hpp"
