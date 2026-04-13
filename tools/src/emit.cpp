@@ -197,6 +197,9 @@ bool is_module_interface_source(const CollectorOptions &opts, const fs::path &pa
 }
 
 fs::path resolve_module_wrapper_output(const CollectorOptions &opts, std::size_t idx) {
+    if (idx < opts.module_wrapper_outputs.size() && !opts.module_wrapper_outputs[idx].empty()) {
+        return opts.module_wrapper_outputs[idx];
+    }
     return gentest::codegen::resolve_module_wrapper_output(opts.tu_output_dir, fs::path(opts.sources[idx]), idx);
 }
 
