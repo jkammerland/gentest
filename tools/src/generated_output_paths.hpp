@@ -34,6 +34,7 @@ inline auto sanitize_and_shorten_generated_stem(std::string value) -> std::strin
     return fmt::format("{}_{}", value.substr(0, 16), std::string_view{digest_hex.data(), 8});
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 inline auto resolve_module_wrapper_output(const std::filesystem::path &output_dir, const std::filesystem::path &source_path,
                                           std::size_t idx) -> std::filesystem::path {
     std::filesystem::path out  = output_dir;
