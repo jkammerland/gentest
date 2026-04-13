@@ -135,8 +135,8 @@ definitions.
 
 Focused native Windows deep-path validation on `2026-04-13` moved the targeted
 slice from seven failures down to two remaining non-path contract failures.
-After the follow-up story `029` slice the focused set is down to one remaining
-non-path failure:
+After the follow-up story `029` and `031` slices the focused set is fully
+green:
 
 - fixed in this story:
   - `gentest_codegen_mock_template_template_pack_direct_expect_runs`
@@ -146,5 +146,6 @@ non-path failure:
   - `gentest_xmake_xrepo_consumer`
 - fixed later under other stories:
   - `gentest_module_mock_long_domain_outputs` -> story `029`
+  - `gentest_codegen_public_module_imports` -> story `031`
 - still failing, but owned elsewhere:
-  - `gentest_codegen_public_module_imports` -> `031_public_module_scan_deps_mode_contract.md`
+  - none in the focused deep-path slice

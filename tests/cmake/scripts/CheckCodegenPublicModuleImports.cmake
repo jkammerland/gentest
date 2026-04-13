@@ -123,6 +123,36 @@ function(_gentest_configure_consumer build_dir scan_mode)
   gentest_assert_windows_native_llvm_cache_args("${build_dir}" "${_clangxx}" "codegen public module imports consumer (${scan_mode})")
 endfunction()
 
+function(_gentest_extract_codegen_command_text build_ninja_text build_dir expected_output out_var)
+  set(_expected_output_regex "${expected_output}")
+  string(REGEX REPLACE "([][+.*^$(){}|\\\\])" "\\\\\\1" _expected_output_regex "${_expected_output_regex}")
+
+  string(REGEX MATCH
+    "build [^\r\n]*${_expected_output_regex}[^\r\n]*: CUSTOM_COMMAND[^\r\n]*[\r\n]+  COMMAND = ([^\r\n]+)"
+    _command_block
+    "${build_ninja_text}")
+  if(_command_block STREQUAL "")
+    message(FATAL_ERROR
+      "Expected build.ninja to declare a custom command for '${expected_output}'.")
+  endif()
+
+  set(_command_text "${CMAKE_MATCH_1}")
+  if(WIN32 AND _command_text MATCHES "^([^ ]+\\.bat) [A-Za-z0-9]+$")
+    set(_launcher_path "${CMAKE_MATCH_1}")
+    if(NOT IS_ABSOLUTE "${_launcher_path}")
+      set(_launcher_path "${build_dir}/${_launcher_path}")
+    endif()
+    cmake_path(NORMAL_PATH _launcher_path)
+    if(NOT EXISTS "${_launcher_path}")
+      message(FATAL_ERROR
+        "Expected Windows gentest_codegen launcher batch file at '${_launcher_path}'.")
+    endif()
+    file(READ "${_launcher_path}" _command_text)
+  endif()
+
+  set(${out_var} "${_command_text}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_assert_codegen_mode build_dir scan_mode)
   set(_expected_scan_deps "${_scan_deps}")
   if(ARGC GREATER 2)
@@ -133,14 +163,15 @@ function(_gentest_assert_codegen_mode build_dir scan_mode)
     message(FATAL_ERROR "Expected build.ninja at '${_build_ninja}'")
   endif()
   file(READ "${_build_ninja}" _build_ninja_text)
-  if(NOT _build_ninja_text MATCHES "--scan-deps-mode=${scan_mode}")
+  _gentest_extract_codegen_command_text("${_build_ninja_text}" "${build_dir}" "gentest_codegen/tu_0000_main.gentest.h" _codegen_command_text)
+  if(NOT _codegen_command_text MATCHES "--scan-deps-mode=${scan_mode}")
     message(FATAL_ERROR
       "Expected build-time gentest_codegen command in '${_build_ninja}' to propagate --scan-deps-mode=${scan_mode}")
   endif()
   if(_expected_scan_deps)
     set(_expected_scan_deps_regex "${_expected_scan_deps}")
     string(REGEX REPLACE "([][+.*^$(){}|\\\\])" "\\\\\\1" _expected_scan_deps_regex "${_expected_scan_deps_regex}")
-    if(NOT _build_ninja_text MATCHES "--clang-scan-deps(=| )${_expected_scan_deps_regex}")
+    if(NOT _codegen_command_text MATCHES "--clang-scan-deps(=| )${_expected_scan_deps_regex}")
       message(FATAL_ERROR
         "Expected build-time gentest_codegen command in '${_build_ninja}' to propagate --clang-scan-deps=${_expected_scan_deps}")
     endif()
