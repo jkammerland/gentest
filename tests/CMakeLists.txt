@@ -217,6 +217,9 @@ _gentest_add_proof_test(
 _gentest_add_proof_test(
     gentest_proof_api_context_header_isolation
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/header_isolation_red.cpp)
+_gentest_add_proof_test(
+    gentest_proof_api_assertions_header_isolation
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/assertions_header_isolation_red.cpp)
 
 # Lint-only checks for generator
 gentest_add_check_exit_code(

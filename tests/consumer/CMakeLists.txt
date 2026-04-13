@@ -9,6 +9,7 @@ find_package(gentest CONFIG REQUIRED)
 add_executable(gentest_consumer)
 
 target_compile_features(gentest_consumer PRIVATE cxx_std_20)
+target_sources(gentest_consumer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/assertions_header_isolation.cpp)
 
 set(GENTEST_CONSUMER_LINK_MODE "double" CACHE STRING
     "Link mode for the consumer fixture: main_only, runtime_only, or double")
