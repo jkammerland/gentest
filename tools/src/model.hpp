@@ -117,9 +117,9 @@ struct CollectorOptions {
     // TU mode, this must stay aligned with `sources` and overrides the legacy
     // `<tu_output_dir>/<source>.h` derivation.
     std::vector<std::filesystem::path> tu_output_headers;
-    // Optional explicit per-source module wrapper outputs. When provided in
-    // TU mode, this must stay aligned with `sources`; module sources use the
-    // explicit path instead of deriving one from `tu_output_dir`.
+    // Build-owned per-source module wrapper outputs. In TU mode this stays
+    // aligned with `sources`; any discovered named module source requires a
+    // non-empty explicit slot instead of tool-side filename derivation.
     std::vector<std::filesystem::path> module_wrapper_outputs;
     // Optional explicit per-domain mock outputs. When provided, these must
     // stay aligned with the ordered mock domain plan: header first, then the

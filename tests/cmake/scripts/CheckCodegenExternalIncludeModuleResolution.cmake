@@ -60,6 +60,7 @@ function(_gentest_run_external_include_case case_name include_flag scan_mode exp
   set(_case_dir "${_work_dir}/${case_name}")
   set(_generated_dir "${_case_dir}/generated")
   set(_consumer "${_case_dir}/consumer.cppm")
+  set(_consumer_wrapper "${_generated_dir}/tu_0000_consumer.module.gentest.cppm")
   set(_consumer_obj "${_case_dir}/consumer.obj")
   set(_compdb "${_case_dir}/compile_commands.json")
   file(MAKE_DIRECTORY "${_case_dir}" "${_generated_dir}")
@@ -99,6 +100,7 @@ void resolves_public_module_import() {
     --compdb "${_case_dir}"
     --clang-scan-deps "${_clang_scan_deps}"
     --tu-out-dir "${_generated_dir}"
+    --module-wrapper-output "${_consumer_wrapper}"
     --tu-header-output "${_generated_dir}/consumer.gentest.h"
     "${_consumer}")
   if(NOT "${scan_mode}" STREQUAL "AUTO")

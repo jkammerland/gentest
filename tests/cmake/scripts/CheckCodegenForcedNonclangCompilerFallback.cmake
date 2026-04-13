@@ -90,7 +90,9 @@ gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_source_ent
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
     "CXX=${_clangxx_norm}"
-    "${PROG}" --check --compdb "${_work_dir}" --tu-out-dir "${_generated_dir}" "${_suite_source_abs}"
+    "${PROG}" --check --compdb "${_work_dir}" --tu-out-dir "${_generated_dir}"
+    --module-wrapper-output "${_wrapper_abs}"
+    "${_suite_source_abs}"
   WORKING_DIRECTORY "${_work_dir}"
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out

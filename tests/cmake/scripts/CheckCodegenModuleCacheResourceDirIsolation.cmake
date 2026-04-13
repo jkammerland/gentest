@@ -55,6 +55,7 @@ void cache_resource_dir_case() {}
 
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}/suite.cppm" _suite_source_abs)
+file(TO_CMAKE_PATH "${_generated_dir}/tu_0000_suite.module.gentest.cppm" _wrapper_abs)
 gentest_make_public_api_compile_args(
   _suite_compile_args
   COMPILER "${_clangxx_norm}"
@@ -76,7 +77,9 @@ function(_gentest_run_codegen_with_resource_dir resource_dir)
     COMMAND "${CMAKE_COMMAND}" -E env
       "CXX=${_clangxx_norm}"
       "GENTEST_CODEGEN_RESOURCE_DIR=${resource_dir}"
-      "${PROG}" --check --compdb "${_work_dir}" --tu-out-dir "${_generated_dir}" "${_suite_source_abs}"
+      "${PROG}" --check --compdb "${_work_dir}" --tu-out-dir "${_generated_dir}"
+      --module-wrapper-output "${_wrapper_abs}"
+      "${_suite_source_abs}"
     WORKING_DIRECTORY "${_work_dir}"
     RESULT_VARIABLE _rc
     OUTPUT_VARIABLE _out
