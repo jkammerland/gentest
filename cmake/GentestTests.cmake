@@ -243,7 +243,7 @@ function(gentest_add_check_counts)
         if(GENTEST_CASES STREQUAL "")
             message(FATAL_ERROR "gentest_add_check_counts: LIST requires CASES")
         endif()
-        list(APPEND _defines "LIST=ON" "CASES=${GENTEST_CASES}")
+        list(APPEND _defines "CASES=${GENTEST_CASES}" "CHECK_LIST_TESTS=OFF")
     else()
         if(GENTEST_PASS STREQUAL "" OR GENTEST_FAIL STREQUAL "" OR GENTEST_SKIP STREQUAL "")
             message(FATAL_ERROR "gentest_add_check_counts: PASS, FAIL, and SKIP are required")
@@ -263,7 +263,7 @@ function(gentest_add_check_counts)
     gentest_add_cmake_script_test(
         NAME ${GENTEST_NAME}
         PROG ${GENTEST_PROG}
-        SCRIPT "${_gentest_test_script_dir}/CheckTestCounts.cmake"
+        SCRIPT "${_gentest_test_script_dir}/CheckTestInventory.cmake"
         ARGS ${GENTEST_ARGS}
         DEFINES ${_defines})
 endfunction()
@@ -276,11 +276,14 @@ function(gentest_add_check_inventory)
     if(NOT GENTEST_NAME OR NOT GENTEST_PROG)
         message(FATAL_ERROR "gentest_add_check_inventory: NAME and PROG are required")
     endif()
-    if(GENTEST_CASES STREQUAL "")
-        message(FATAL_ERROR "gentest_add_check_inventory: CASES is required")
+    if(GENTEST_CASES STREQUAL "" AND GENTEST_EXPECTED_LIST_FILE STREQUAL "")
+        message(FATAL_ERROR "gentest_add_check_inventory: CASES or EXPECTED_LIST_FILE is required")
     endif()
 
-    set(_defines "CASES=${GENTEST_CASES}")
+    set(_defines)
+    if(NOT "${GENTEST_CASES}" STREQUAL "")
+        list(APPEND _defines "CASES=${GENTEST_CASES}")
+    endif()
     if(NOT "${GENTEST_EXPECTED_LIST_FILE}" STREQUAL "")
         list(APPEND _defines "EXPECTED_LIST_FILE=${GENTEST_EXPECTED_LIST_FILE}")
     endif()
