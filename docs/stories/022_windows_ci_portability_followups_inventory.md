@@ -13,19 +13,26 @@ run before creating or updating non-path Windows follow-up stories.
 
 ## Inventory
 
-Pending refresh.
+Latest checked native-Windows evidence in this repo is the focused deep-path
+slice rerun from `2026-04-13`. This is not yet a refreshed full
+`ctest --preset=debug-system` inventory, but it is the current source of truth
+for the previously failing deep-path/path-sensitive Windows set.
 
-Replace this section with one entry per still-failing native Windows test using
-this shape:
-
-- `<ctest-name>`: `<initial root-cause class>` -> `<destination story or close>`
-
-Example classes:
-
-- helper/path-depth -> `028_windows_helper_path_depth_portability.md`
-- downstream ABI/linkage -> `<new child story>`
-- public-module contract -> `<new child story>`
-- already fixed -> `close`
+- `gentest_codegen_mock_template_template_pack_direct_expect_runs`:
+  helper/path-depth -> `close` (green after story `028` slice)
+- `gentest_codegen_mock_unnamed_template_template_builds`:
+  helper/path-depth -> `close` (green after story `028` slice)
+- `gentest_codegen_mock_defaulted_template_ctor_macro_builds`:
+  helper/path-depth -> `close` (green after story `028` slice)
+- `gentest_codegen_mock_template_template_ctor_traits_builds`:
+  helper/path-depth -> `close` (green after story `028` slice)
+- `gentest_xmake_xrepo_consumer`:
+  helper/path-depth / downstream harness path budget -> `close` (green after
+  story `028` slice)
+- `gentest_codegen_public_module_imports`:
+  public-module scan-deps contract -> `031_public_module_scan_deps_mode_contract.md`
+- `gentest_module_mock_long_domain_outputs`:
+  explicit mock output contract -> `029_codegen_output_naming_contract_unification.md`
 
 ## Notes
 

@@ -130,3 +130,18 @@ definitions.
   no longer require ad hoc short-root workarounds beyond one shared path policy.
 - Helper fixtures and Windows path-sensitive harnesses consume one shared
   short-root/path-shortening policy instead of per-script ad hoc roots.
+
+## Latest validation
+
+Focused native Windows deep-path validation on `2026-04-13` moved the targeted
+slice from seven failures down to two remaining non-path contract failures:
+
+- fixed in this story:
+  - `gentest_codegen_mock_template_template_pack_direct_expect_runs`
+  - `gentest_codegen_mock_unnamed_template_template_builds`
+  - `gentest_codegen_mock_defaulted_template_ctor_macro_builds`
+  - `gentest_codegen_mock_template_template_ctor_traits_builds`
+  - `gentest_xmake_xrepo_consumer`
+- still failing, but owned elsewhere:
+  - `gentest_codegen_public_module_imports` -> `031_public_module_scan_deps_mode_contract.md`
+  - `gentest_module_mock_long_domain_outputs` -> `029_codegen_output_naming_contract_unification.md`

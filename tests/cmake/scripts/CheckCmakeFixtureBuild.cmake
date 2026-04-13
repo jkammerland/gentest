@@ -87,6 +87,10 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 if(CMAKE_HOST_WIN32)
+  # These helper fixtures exercise textual/mock codegen paths. Building
+  # gentest's public modules here only inflates nested module object paths and
+  # does not add coverage beyond the dedicated module fixtures.
+  list(APPEND _cmake_cache_args "-DGENTEST_ENABLE_PUBLIC_MODULES=OFF")
   list(APPEND _cmake_cache_args "-DCMAKE_OBJECT_PATH_MAX=128")
 endif()
 
