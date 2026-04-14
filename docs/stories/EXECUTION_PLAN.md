@@ -12,7 +12,7 @@ It assumes the current branch state, not raw worktree ancestry:
 ## Current branch truth
 
 - `021`, `022`, and `027` are treated as done at the current evidence level
-- `023`, `024`, `026`, `028`, `029`, `030`, and `031` still need
+- `023`, `024`, `026`, `029`, `030`, and `031` still need
   closure work
 - `029` and `030` have more integrated progress than their worktree ancestry
   suggests; their remaining work is now mostly closure audit plus smaller final
@@ -37,11 +37,12 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ### Phase 1: Reopened Windows implementation blockers
 
-1. Top-tier Windows blocker: story `028`.
-   - Story `028`:
-     fix `gentest_module_mock_additive_visibility` and
-     `gentest_module_header_unit_import_preamble`, then rerun those checks from
-     the same normal deep checkout style used in the refreshed `022` inventory.
+1. Top-tier Windows blocker: story `031`.
+   - Story `028` is re-closed by the deep-checkout source-view/path-budget
+     repair slice that revalidated
+     `gentest_module_mock_additive_visibility` and
+     `gentest_module_header_unit_import_preamble` on both Linux and native
+     Windows.
    - Story `025` is re-closed by the nested helper/backend repair slice that
      revalidated `gentest_codegen_incremental_dependencies` and
      `gentest_module_name_literal_false_match` on both Linux and native
@@ -113,14 +114,14 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ## Practical next move
 
-Start with story `028` or `025`, then take the other one, then `031`.
+Start with story `031`, then take the highest-value unfinished simplification
+story from `029`, `030`, `023`, `024`, or `026`.
 
 That ordering follows the current evidence:
 
 - the refreshed `022` inventory already surfaced higher-priority native Windows
-  blockers, so those now come first
-- `028` and `025` each own two concrete failures from the refreshed inventory,
-  so they belong in the same top priority tier
+  blockers, and `031` is the remaining reopened Windows check still in that set
+- `028` and `025` are now re-closed by validated implementation slices
 - `031` is a concrete reopened Windows check failure with one exact failing test
 - `029` and `030` are still close to closure, but they should not move ahead of
   reopened Windows failures

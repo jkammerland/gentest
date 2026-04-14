@@ -155,7 +155,7 @@ green:
   - none in the focused deep-path slice
 
 The refreshed full native Windows matrix from `2026-04-14` reopened additional
-deep-checkout path-budget failures that still belong to this story:
+deep-checkout path-budget failures that still belonged to this story:
 
 - `gentest_module_mock_additive_visibility`
 - `gentest_module_header_unit_import_preamble`
@@ -166,6 +166,27 @@ rename symptom:
 - `clang-scan-deps` wrote `.obj.ddi.tmp`
 - `cmake -E rename` failed with `The system cannot find the path specified`
 
-So this story is only done for the earlier focused slice. At the full-matrix
-Windows evidence level it remains open until those additional deep-checkout
-module/mock shapes are green too.
+That reopened slice is now fixed and revalidated.
+
+What changed:
+
+- the two helper scripts now use a shared compact work-dir policy instead of
+  repeating long fixture names under the hashed helper root
+- the nested fixture `CMakeLists.txt` files cap `CMAKE_OBJECT_PATH_MAX` on
+  Windows
+- the shared module-fixture helper now creates a short Windows source view at
+  `${SYSTEMDRIVE}/gsrc/...` for nested `add_subdirectory("${GENTEST_SOURCE_DIR}")`
+  builds, so the public named-module source paths no longer expand from the
+  deep checkout root during dyndep generation
+
+Revalidation:
+
+- Linux:
+  `ctest --preset=debug-system --output-on-failure -R '^(gentest_module_mock_additive_visibility|gentest_module_header_unit_import_preamble)$'`
+  passed `2/2`
+- Native Windows, normal deep checkout:
+  `gentest_module_mock_additive_visibility` passed
+  `gentest_module_header_unit_import_preamble` passed
+
+At the refreshed Windows evidence level, this story can be treated as closed
+again.
