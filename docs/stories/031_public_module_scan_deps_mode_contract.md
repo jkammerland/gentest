@@ -10,16 +10,19 @@ native Windows.
 ## Problem
 
 Focused native Windows validation on `2026-04-13` showed
-`gentest_codegen_public_module_imports` still fails from a deep checkout after
-the path-budget fixes are applied.
+`gentest_codegen_public_module_imports` could fail from a deep checkout after
+the path-budget fixes are applied, but that focused slice was later repaired by
+teaching the regression to inspect the generated Windows launcher script when
+Ninja hid the actual `gentest_codegen` command there.
 
-The failure is not path-depth. The generated consumer `build.ninja` omits
-`--scan-deps-mode=OFF` even when configure-time cache state sets
-`GENTEST_CODEGEN_SCAN_DEPS_MODE=OFF`, while still propagating
-`--clang-scan-deps=...`.
+The refreshed full native Windows inventory from `2026-04-14` reopened the same
+test from the installed consumer path, but with a different observable symptom:
+the regression could not find the expected
+`gentest_codegen/tu_0000_main.gentest.h` custom command in the generated
+consumer `build.ninja`.
 
-That means the installed-package consumer build graph is not honoring the
-explicit scan-deps-mode contract consistently.
+So the story is reopened as a public-module contract-check failure, not yet as
+a confirmed dropped-flag product bug.
 
 ## User stories
 
@@ -71,8 +74,12 @@ Preferred approach:
 1. reproduce `gentest_codegen_public_module_imports` locally and on native
    Windows.
 2. inspect the generated consumer `build.ninja` and any response files to see
-   exactly where the mode is being dropped.
-3. fix the command assembly or cache propagation layer.
+   whether the command is being launched indirectly, written under a renamed
+   output, or actually missing the explicit mode contract.
+3. fix the responsible layer:
+   - launcher/build-graph inspection if the test is stale
+   - output-contract wiring if the expected command shape moved
+   - command assembly or cache propagation only if the mode is really dropped
 4. rerun the existing public-module import regression on Linux and Windows.
 5. add or tighten assertions so the generated build graph keeps exposing the
    explicit mode contract.
@@ -89,8 +96,8 @@ Preferred approach:
 
 ## Latest validation
 
-Focused validation on `2026-04-13` showed the Windows failure was a launcher
-inspection mismatch, not a dropped codegen flag:
+Focused validation on `2026-04-13` showed the earlier Windows failure was a
+launcher-inspection mismatch, not a dropped codegen flag:
 
 - local Linux:
   `ctest --preset=debug-system -R gentest_codegen_public_module_imports --output-on-failure`
@@ -99,3 +106,13 @@ inspection mismatch, not a dropped codegen flag:
   `ctest --test-dir build/debug-system --output-on-failure -R '^gentest_codegen_public_module_imports$'`
   -> passed after teaching the regression to inspect the generated `.bat`
   launcher when Ninja hides the actual `gentest_codegen` command there
+
+The refreshed full native Windows matrix on `2026-04-14` reopened
+`gentest_codegen_public_module_imports` with a different check failure:
+
+- the generated installed-consumer `build.ninja` no longer matched the current
+  regression's expectation for a custom command producing
+  `gentest_codegen/tu_0000_main.gentest.h`
+- this evidence is enough to reopen the story, but not enough to conclude yet
+  whether the fault is stale test inspection, output-contract drift, or a real
+  lost `--scan-deps-mode=<mode>` propagation bug

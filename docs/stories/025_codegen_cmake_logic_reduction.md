@@ -105,6 +105,7 @@ those surfaces once they exist.
    - `gentest_codegen_compile_command_macro_scan`
    - `gentest_codegen_resource_dir_from_compdb_compiler`
    - `gentest_codegen_incremental_dependencies`
+   - `gentest_module_name_literal_false_match`
    - `gentest_codegen_response_file_expansion`
    - `gentest_codegen_synthetic_compdb_fallback`
    - `gentest_codegen_public_module_imports`
@@ -132,6 +133,7 @@ those surfaces once they exist.
   `gentest_codegen_compile_command_macro_scan`,
   `gentest_codegen_resource_dir_from_compdb_compiler`,
   `gentest_codegen_incremental_dependencies`,
+  `gentest_module_name_literal_false_match`,
   `gentest_codegen_response_file_expansion`,
   `gentest_codegen_synthetic_compdb_fallback`,
   `gentest_codegen_public_module_imports`,
@@ -146,3 +148,21 @@ those surfaces once they exist.
   reduction.
 - Each migrated behavior has one obvious owner: either the buildsystem or the
   tool, not both.
+
+## Latest validation
+
+The main migration slice landed in `1db3854b`, but the refreshed full native
+Windows inventory from `2026-04-14` reopened two source-inspection/helper flows
+that still belong to this story:
+
+- `gentest_codegen_incremental_dependencies`:
+  nested configure-time inspection could not resolve a runnable
+  inspect-capable backend after the fixture only had a build-tree
+  `gentest_codegen` target
+- `gentest_module_name_literal_false_match`:
+  the native source-inspection helper bootstrap tried to configure with
+  `Unix Makefiles` and no runnable make program/compiler during the fallback
+  helper build
+
+That means this story is not closed at the refreshed Windows evidence level
+until both nested helper/backend paths are green again.

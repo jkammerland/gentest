@@ -103,6 +103,8 @@ definitions.
    - a short path
 6. Re-run the Windows path-sensitive downstream checks that already use short
    roots, including:
+   - `gentest_module_mock_additive_visibility`
+   - `gentest_module_header_unit_import_preamble`
    - `gentest_codegen_mock_cross_root_include_windows`
    - `gentest_xmake_textual_consumer_registration`
    - `gentest_codegen_public_module_imports`
@@ -121,6 +123,8 @@ definitions.
 - Helper scripts no longer recreate long fixture-name subdirectories beneath an
   already-shortened helper root.
 - `gentest_codegen_mock_cross_root_include_windows`,
+  `gentest_module_mock_additive_visibility`,
+  `gentest_module_header_unit_import_preamble`,
   `gentest_codegen_public_module_imports`,
   `gentest_module_mock_long_domain_outputs`,
   `gentest_xmake_textual_consumer_registration`,
@@ -149,3 +153,19 @@ green:
   - `gentest_codegen_public_module_imports` -> story `031`
 - still failing, but owned elsewhere:
   - none in the focused deep-path slice
+
+The refreshed full native Windows matrix from `2026-04-14` reopened additional
+deep-checkout path-budget failures that still belong to this story:
+
+- `gentest_module_mock_additive_visibility`
+- `gentest_module_header_unit_import_preamble`
+
+Both failed in nested module/mock helper builds with the same Windows dyndep
+rename symptom:
+
+- `clang-scan-deps` wrote `.obj.ddi.tmp`
+- `cmake -E rename` failed with `The system cannot find the path specified`
+
+So this story is only done for the earlier focused slice. At the full-matrix
+Windows evidence level it remains open until those additional deep-checkout
+module/mock shapes are green too.
