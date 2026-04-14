@@ -29,9 +29,12 @@ Use it to record which installed symbols or surfaces are:
 - `gentest::detail::register_cases`: `detail` -> keep installed as unstable generated-code surface
 - `gentest::detail::snapshot_registered_cases`: `private` -> move toward private runtime header
 - `gentest::detail::SharedFixtureScope`: `detail` -> keep temporarily while generated/runtime code still names it
-- `gentest::detail::SharedFixtureRegistration`: `private` -> replace with narrower registration adapter
-- `gentest::detail::register_shared_fixture(const SharedFixtureRegistration &)`: `private` -> remove from installed
-  surface after tests/codegen stop constructing raw registration records
+- `gentest::detail::SharedFixtureCreateFn`, `gentest::detail::SharedFixturePhaseFn`: `detail` -> keep temporarily as
+  the narrow unstable callback layer for shared-fixture registration
+- `gentest::detail::register_shared_fixture(SharedFixtureScope, suite, fixture_name, create, setup, teardown)`:
+  `detail` -> keep temporarily as the narrower unstable registration adapter
+- `gentest::detail::SharedFixtureRegistration`: `private` -> removed from installed surface by the first story-023
+  registry slice
 - `gentest::detail::setup_shared_fixtures`, `gentest::detail::teardown_shared_fixtures`,
   `gentest::detail::get_shared_fixture`: `private` -> move toward private runtime header
 - `gentest::detail::register_shared_fixture<Fixture>`: `detail` -> keep temporarily as unstable generated-code

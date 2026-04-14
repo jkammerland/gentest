@@ -131,8 +131,9 @@ void reset_shared_fixture_run_state(SharedFixtureRegistry &reg) {
     }
 }
 
-bool shared_fixture_callbacks_match(const SharedFixtureEntry &entry, const gentest::detail::SharedFixtureRegistration &registration) {
-    return entry.create == registration.create && entry.setup == registration.setup && entry.teardown == registration.teardown;
+bool shared_fixture_callbacks_match(const SharedFixtureEntry &entry, gentest::detail::SharedFixtureCreateFn create,
+                                    gentest::detail::SharedFixturePhaseFn setup, gentest::detail::SharedFixturePhaseFn teardown) {
+    return entry.create == create && entry.setup == setup && entry.teardown == teardown;
 }
 
 bool suite_scope_matches(std::string_view fixture_suite, std::string_view requested_suite) {
@@ -235,30 +236,30 @@ std::string format_fixture_error(std::string_view stage, std::string_view detail
 
 namespace gentest::detail {
 
-void register_shared_fixture(const SharedFixtureRegistration &registration) {
+void register_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name, SharedFixtureCreateFn create,
+                             SharedFixturePhaseFn setup, SharedFixturePhaseFn teardown) {
     auto                        &reg  = shared_fixture_registry();
     auto                        &gate = shared_fixture_run_gate();
     std::unique_lock<std::mutex> gate_lk(gate.mtx);
     std::lock_guard<std::mutex>  lk(reg.mtx);
     if (gate.active) {
-        const std::string msg = fmt::format("fixture '{}' cannot be registered while a test run is active", registration.fixture_name);
+        const std::string msg = fmt::format("fixture '{}' cannot be registered while a test run is active", fixture_name);
         fmt::print(stderr, "gentest: {}\n", msg);
         reg.registration_error = true;
         reg.registration_errors.push_back(msg);
         return;
     }
     for (const auto &entry : reg.entries) {
-        if (entry.fixture_name == registration.fixture_name && entry.suite == registration.suite && entry.scope == registration.scope) {
-            if (!shared_fixture_callbacks_match(entry, registration)) {
-                const std::string msg =
-                    fmt::format("fixture '{}' registered multiple times with conflicting callbacks", registration.fixture_name);
+        if (entry.fixture_name == fixture_name && entry.suite == suite && entry.scope == scope) {
+            if (!shared_fixture_callbacks_match(entry, create, setup, teardown)) {
+                const std::string msg = fmt::format("fixture '{}' registered multiple times with conflicting callbacks", fixture_name);
                 fmt::print(stderr, "gentest: {}\n", msg);
                 reg.registration_error = true;
                 reg.registration_errors.push_back(msg);
             }
             return;
         }
-        if (entry.fixture_name == registration.fixture_name && entry.scope != registration.scope) {
+        if (entry.fixture_name == fixture_name && entry.scope != scope) {
             const std::string msg = fmt::format("fixture '{}' registered with conflicting scopes.", entry.fixture_name);
             fmt::print(stderr, "gentest: {}\n", msg);
             reg.registration_error = true;
@@ -267,12 +268,12 @@ void register_shared_fixture(const SharedFixtureRegistration &registration) {
         }
     }
     SharedFixtureEntry entry;
-    entry.fixture_name = std::string(registration.fixture_name);
-    entry.suite        = std::string(registration.suite);
-    entry.scope        = registration.scope;
-    entry.create       = registration.create;
-    entry.setup        = registration.setup;
-    entry.teardown     = registration.teardown;
+    entry.fixture_name = std::string(fixture_name);
+    entry.suite        = std::string(suite);
+    entry.scope        = scope;
+    entry.create       = create;
+    entry.setup        = setup;
+    entry.teardown     = teardown;
     auto it            = std::ranges::lower_bound(reg.entries, entry, shared_fixture_order_less);
     reg.entries.insert(it, std::move(entry));
 }

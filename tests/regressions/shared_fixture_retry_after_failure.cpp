@@ -52,14 +52,8 @@ gentest::Case kCases[] = {
 } // namespace
 
 int main() {
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kFixtureName,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_fixture,
-        .setup        = nullptr,
-        .teardown     = nullptr,
-    });
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureName, &create_fixture,
+                                             nullptr, nullptr);
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
 
     const int first_rc = run_selected_case();

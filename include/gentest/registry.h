@@ -68,18 +68,13 @@ enum class SharedFixtureScope {
     Global,
 };
 
-struct SharedFixtureRegistration {
-    std::string_view   fixture_name;
-    std::string_view   suite;
-    SharedFixtureScope scope;
-    std::shared_ptr<void> (*create)(std::string_view suite, std::string &error);
-    void (*setup)(void *instance, std::string &error);
-    void (*teardown)(void *instance, std::string &error);
-};
+using SharedFixtureCreateFn = std::shared_ptr<void> (*)(std::string_view suite, std::string &error);
+using SharedFixturePhaseFn  = void (*)(void *instance, std::string &error);
 
 // Runtime registry for suite/global fixtures. Generated code calls
 // register_shared_fixture during static initialization.
-GENTEST_RUNTIME_API void register_shared_fixture(const SharedFixtureRegistration &registration);
+GENTEST_RUNTIME_API void register_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name,
+                                                 SharedFixtureCreateFn create, SharedFixturePhaseFn setup, SharedFixturePhaseFn teardown);
 
 // Setup/teardown shared fixtures before/after the test run. setup returns false
 // when shared fixture infrastructure fails (for example conflicting
@@ -161,15 +156,8 @@ template <typename Fixture> inline void shared_fixture_teardown(void *instance, 
 
 template <typename Fixture>
 inline void register_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name) {
-    SharedFixtureRegistration reg{
-        .fixture_name = fixture_name,
-        .suite        = suite,
-        .scope        = scope,
-        .create       = &detail_internal::shared_fixture_create<Fixture>,
-        .setup        = &detail_internal::shared_fixture_setup<Fixture>,
-        .teardown     = &detail_internal::shared_fixture_teardown<Fixture>,
-    };
-    register_shared_fixture(reg);
+    register_shared_fixture(scope, suite, fixture_name, &detail_internal::shared_fixture_create<Fixture>,
+                            &detail_internal::shared_fixture_setup<Fixture>, &detail_internal::shared_fixture_teardown<Fixture>);
 }
 
 template <typename Fixture>

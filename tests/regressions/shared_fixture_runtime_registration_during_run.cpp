@@ -9,14 +9,8 @@ constexpr std::string_view kFixtureName = "regressions::LateRegisteredFixture";
 std::shared_ptr<void> create_fixture(std::string_view, std::string &) { return std::make_shared<int>(1); }
 
 void late_register_case(void *) {
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kFixtureName,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_fixture,
-        .setup        = nullptr,
-        .teardown     = nullptr,
-    });
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureName, &create_fixture,
+                                             nullptr, nullptr);
 
     std::string error;
     auto        fixture =
