@@ -118,3 +118,18 @@ contract mismatch, not a missing output:
   `ctest --test-dir build/debug-system --output-on-failure -R '^gentest_module_mock_long_domain_outputs$'`
   -> passed after teaching the regression to inspect the generated `.bat`
   launcher when Ninja hides the actual `gentest_codegen` flags behind it
+
+Closure audit and acceptance validation on `2026-04-14` confirm the remaining
+cross-layer contract is now explicit rather than duplicated:
+
+- audit result:
+  `results/story029_audit_r1.md`
+  -> no remaining generated filename family that matters to the CMake/tool
+  contract is still independently synthesized in both layers
+- fresh local acceptance slice from a clean `debug-system` worktree build:
+  `ctest --preset=debug-system --output-on-failure -R '^(gentest_codegen_output_collision|gentest_tu_header_case_collision|gentest_codegen_manifest_depfile_aggregation|gentest_codegen_manifest_depfile_escaped_paths|gentest_explicit_mock_target_surface|gentest_explicit_mock_target_validation|gentest_explicit_mock_target_staging|gentest_explicit_mock_target_install_export|gentest_module_mock_long_domain_outputs)$'`
+  -> `9/9` passed
+
+The remaining tool-side TU-header fallback and mirrored mock-domain ordering
+logic are not cross-layer filename synthesis. Story `029` can close on the
+current branch state.
