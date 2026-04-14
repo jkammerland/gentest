@@ -49,23 +49,11 @@ gentest::Case kCases[] = {
 } // namespace
 
 int main(int argc, char **argv) {
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kSuiteFixture,
-        .suite        = "regressions",
-        .scope        = gentest::detail::SharedFixtureScope::Suite,
-        .create       = &create_null_fixture,
-        .setup        = nullptr,
-        .teardown     = nullptr,
-    });
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Suite, "regressions", kSuiteFixture, &create_null_fixture,
+                                             nullptr, nullptr);
 
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kGlobalFixture,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_null_fixture,
-        .setup        = nullptr,
-        .teardown     = nullptr,
-    });
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kGlobalFixture,
+                                             &create_null_fixture, nullptr, nullptr);
 
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     return gentest::run_all_tests(argc, argv);

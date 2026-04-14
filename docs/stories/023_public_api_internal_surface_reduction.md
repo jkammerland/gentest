@@ -165,3 +165,34 @@ The authoritative classification artifact for this story should live in
 - When the GCC package-consumer lane is enabled,
   `gentest_package_consumer_gcc`
   still passes against the supported public API.
+
+## Latest validation
+
+First reduction slice on `2026-04-14` removed the installed raw shared-fixture
+registration record without touching the wider `FixtureHandle` surface:
+
+- `include/gentest/registry.h`
+  - removed installed `gentest::detail::SharedFixtureRegistration`
+  - replaced the raw-record runtime entry point with a narrower callback-form
+    `register_shared_fixture(scope, suite, fixture_name, create, setup, teardown)`
+- repo-internal shared-fixture regressions were rewritten to call the new
+  callback-form API directly
+
+Validation for that slice:
+
+- targeted rebuild:
+  `cmake --build --preset=debug-system --target gentest_regression_shared_fixture_reentry gentest_regression_shared_fixture_teardown_exit gentest_regression_fixture_group_shuffle_invariants gentest_regression_member_shared_fixture_setup_skip gentest_regression_member_shared_fixture_setup_skip_bench_jitter`
+  -> passed
+- shared-fixture regression band:
+  `ctest --preset=debug-system --output-on-failure -R '^(regression_shared_fixture_.*|regression_member_shared_fixture_setup_skip.*|regression_fixture_group_shuffle_invariants)$'`
+  -> `85/85` passed
+- install/public-surface guards:
+  `ctest --preset=debug-system --output-on-failure -R '^(gentest_public_module_surface|gentest_public_module_detail_hidden|gentest_runtime_shared_context_exports|gentest_install_only_codegen_default)$'`
+  -> `4/4` passed
+- minimal package-consumer smoke:
+  `ctest --preset=debug-system --output-on-failure -R '^(gentest_package_consumer_include_only|gentest_package_consumer)$'`
+  -> `2/2` passed
+
+This leaves story `023` still open. The next remaining high-value cut is the
+`fixture.h` / `FixtureHandle` surface, which still leaks through generated
+wrapper code and many in-repo regression helpers.
