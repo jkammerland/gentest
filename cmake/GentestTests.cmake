@@ -352,23 +352,6 @@ function(gentest_add_check_contains)
         DEFINES "REQUIRED_SUBSTRING=${GENTEST_REQUIRED_SUBSTRING}")
 endfunction()
 
-function(gentest_add_check_lines)
-    set(one_value_args NAME PROG LINES)
-    set(multi_value_args ARGS)
-    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
-
-    if(NOT GENTEST_NAME OR NOT GENTEST_PROG OR GENTEST_LINES STREQUAL "")
-        message(FATAL_ERROR "gentest_add_check_lines: NAME, PROG, and LINES are required")
-    endif()
-
-    gentest_add_cmake_script_test(
-        NAME ${GENTEST_NAME}
-        PROG ${GENTEST_PROG}
-        SCRIPT "${_gentest_test_script_dir}/CheckLines.cmake"
-        ARGS ${GENTEST_ARGS}
-        DEFINES "LINES=${GENTEST_LINES}")
-endfunction()
-
 function(gentest_add_check_death)
     set(options NO_EMULATOR)
     set(one_value_args NAME PROG REQUIRED_SUBSTRING)
