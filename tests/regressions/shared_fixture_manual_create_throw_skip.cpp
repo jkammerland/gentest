@@ -1,3 +1,5 @@
+#include "gentest/detail/fixture_runtime.h"
+#include "gentest/detail/registry_runtime.h"
 #include "gentest/runner.h"
 
 #include <stdexcept>

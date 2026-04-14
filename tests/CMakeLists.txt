@@ -220,6 +220,16 @@ _gentest_add_proof_test(
 _gentest_add_proof_test(
     gentest_proof_api_assertions_header_isolation
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/assertions_header_isolation_red.cpp)
+gentest_add_cmake_script_test(
+    NAME gentest_runner_registry_runtime_hidden
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckRunnerRegistryRuntimeHidden.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/runner_registry_runtime_hidden_check"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+set_property(TEST gentest_runner_registry_runtime_hidden APPEND PROPERTY LABELS "proof")
 
 # Lint-only checks for generator
 gentest_add_check_exit_code(
@@ -3247,6 +3257,15 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         -DCONSUMER_LINK_MODE=main_only
         -DPACKAGE_TEST_USE_MODULES=OFF
         -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_legacy_detail_contract
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageConsumerLegacyDetailContract.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
         ${_gentest_package_test_compiler_args})
 
     _gentest_add_cmake_helper_test(

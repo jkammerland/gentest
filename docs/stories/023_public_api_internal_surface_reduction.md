@@ -193,6 +193,50 @@ Validation for that slice:
   `ctest --preset=debug-system --output-on-failure -R '^(gentest_package_consumer_include_only|gentest_package_consumer)$'`
   -> `2/2` passed
 
-This leaves story `023` still open. The next remaining high-value cut is the
-`fixture.h` / `FixtureHandle` surface, which still leaks through generated
-wrapper code and many in-repo regression helpers.
+Second reduction slice on `2026-04-14` narrowed the normal runner include path
+and made the remaining legacy detail surface explicit compatibility shims:
+
+- `include/gentest/runner.h`
+  - now includes only `assertions.h`, `context.h`,
+    `detail/fixture_api.h`, and `detail/registry_api.h`
+  - no longer exposes `gentest::detail::register_cases`,
+    `gentest::detail::snapshot_registered_cases`,
+    `gentest::detail::SharedFixtureScope`, or
+    `gentest::detail::register_shared_fixture(...)` through the normal umbrella
+    path
+- `include/gentest/fixture.h`
+  - now acts as a compatibility shim that layers
+    `detail/fixture_runtime.h` on top of the narrow fixture API
+- `include/gentest/registry.h`
+  - now acts as a compatibility shim that layers
+    `detail/registry_runtime.h` on top of the narrow registry API/runtime split
+- generated/runtime code that still intentionally needs the unstable detail
+  registration helpers now includes `gentest/detail/fixture_runtime.h` and/or
+  `gentest/detail/registry_runtime.h` explicitly instead of receiving them
+  transitively from `runner.h`
+- installed package coverage now includes
+  `gentest_package_consumer_legacy_detail_contract`, which proves the explicit
+  `fixture.h` and `registry.h` compatibility shims still work for legacy detail
+  consumers
+
+Validation for the current slice:
+
+- rebuild of the exact current tree:
+  `cmake --build --preset=debug-system`
+  -> passed
+- final exact-current-tree validation band:
+  `ctest --preset=debug-system --output-on-failure -R '^(gentest_proof_api_context_adopt_copy_contract|gentest_proof_api_context_event_chronology|gentest_proof_api_context_always_log|gentest_proof_api_context_log_policy|gentest_proof_api_context_expect_throw_std_exception|gentest_proof_api_context_header_isolation|gentest_proof_api_assertions_header_isolation|gentest_runner_registry_runtime_hidden|regression_runtime_selection_duplicate_name_summary_first_location|regression_runtime_selection_duplicate_name_summary_second_location|regression_shared_fixture_.*|regression_member_shared_fixture_setup_skip.*|regression_fixture_group_shuffle_invariants|regression_measured_local_fixture_.*|regression_mg_lf_.*|gentest_public_module_detail_hidden|gentest_public_module_surface|gentest_runtime_shared_context_exports|gentest_meson_wrap_consumer|gentest_xmake_textual_consumer|gentest_xmake_module_consumer|gentest_xmake_xrepo_consumer|gentest_bazel_textual_consumer|gentest_bazel_module_consumer|gentest_bazel_bzlmod_consumer|gentest_package_consumer_workdir_isolation|gentest_package_consumer_executable_path|gentest_package_consumer_legacy_detail_contract|gentest_package_consumer|gentest_package_consumer_native_codegen|gentest_package_consumer_runtime_only|gentest_package_consumer_double|gentest_package_consumer_include_only|gentest_package_consumer_runtime_only_include_only|gentest_package_consumer_double_include_only|gentest_package_consumer_include_only_native_codegen|gentest_package_consumer_runtime_only_include_only_native_codegen|gentest_package_consumer_double_include_only_native_codegen|gentest_package_consumer_relwithdebinfo_exact_config|gentest_package_consumer_minsizerel_exact_config|gentest_package_consumer_gcc|gentest_codegen_legacy_wrapper_impls_template_rejected)$'`
+  -> `122/122` passed
+- `clang-tidy` lane:
+  `./scripts/check_clang_tidy.sh build/debug-system`
+  -> passed
+- batch review:
+  `results/story023d_review_final6.md`
+  -> no findings
+
+This still leaves story `023` partial rather than done. The normal
+`gentest/runner.h` path is now narrow, and the legacy detail surface is called
+out explicitly through compatibility headers, but `fixture.h`,
+`detail/fixture_runtime.h`, and `registry.h` still install unstable runtime
+detail for compatibility while generated/runtime code continues to depend on
+that layer.

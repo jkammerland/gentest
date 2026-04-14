@@ -157,8 +157,9 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 #include <span>
 #include <type_traits>
 
+#include "gentest/detail/fixture_runtime.h"
+#include "gentest/detail/registry_runtime.h"
 #include "gentest/runner.h"
-#include "gentest/fixture.h"
 
 // Include test sources so fixture types are visible for wrappers
 {{INCLUDE_SOURCES}}
@@ -203,8 +204,9 @@ inline constexpr std::string_view tu_registration_header = R"CPP(// This file is
 #include <span>
 #include <type_traits>
 
+#include "gentest/detail/fixture_runtime.h"
+#include "gentest/detail/registry_runtime.h"
 #include "gentest/runner.h"
-#include "gentest/fixture.h"
 #endif
 {{WRAPPER_SUPPORT_COMMON}}
 {{GLOBAL_WRAPPER_IMPLS}}
