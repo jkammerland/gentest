@@ -94,7 +94,6 @@ The authoritative classification artifact for this story should live in
    - `gentest_runtime_shared_context_exports`
    - `gentest_public_module_surface`
    - `gentest_public_module_detail_hidden`
-   - `gentest_install_only_codegen_default`
    - `gentest_meson_wrap_consumer`
    - `gentest_xmake_textual_consumer`
    - `gentest_xmake_module_consumer`
@@ -136,12 +135,11 @@ The authoritative classification artifact for this story should live in
   surface.
 - `gentest_public_module_surface` and `gentest_public_module_detail_hidden`
   still pass so public module exports do not start leaking new detail surface.
-- `gentest_install_only_codegen_default`, `gentest_meson_wrap_consumer`,
-  `gentest_xmake_textual_consumer`, `gentest_xmake_module_consumer`,
-  `gentest_xmake_xrepo_consumer`, `gentest_bazel_textual_consumer`,
-  `gentest_bazel_module_consumer`, and `gentest_bazel_bzlmod_consumer`
-  still pass so the reduced install surface remains consumable outside the
-  CMake package-only path.
+- `gentest_meson_wrap_consumer`, `gentest_xmake_textual_consumer`,
+  `gentest_xmake_module_consumer`, `gentest_xmake_xrepo_consumer`,
+  `gentest_bazel_textual_consumer`, `gentest_bazel_module_consumer`, and
+  `gentest_bazel_bzlmod_consumer` still pass so the reduced install surface
+  remains consumable outside the CMake package-only path.
 - `gentest_package_consumer_workdir_isolation` and
   `gentest_package_consumer_executable_path`
   still pass so packaging contract details do not regress while headers shrink.
@@ -218,6 +216,13 @@ and made the remaining legacy detail surface explicit compatibility shims:
   `gentest_package_consumer_legacy_detail_contract`, which proves the explicit
   `fixture.h` and `registry.h` compatibility shims still work for legacy detail
   consumers
+- `023_public_api_internal_surface_inventory.md`
+  - now records the public/detail/private classification for the installed
+    `context.h`, `registry.h`, and `fixture.h` surface under review
+  - explicitly classifies `gentest::ctx::Token` as a compatibility-preserved
+    public token type while `gentest::detail::TestContextInfo` remains an
+    installed unstable detail escape hatch that is no longer exposed through
+    the normal `runner.h` / `context.h` include path
 
 Validation for the current slice:
 
@@ -234,9 +239,16 @@ Validation for the current slice:
   `results/story023d_review_final6.md`
   -> no findings
 
-This still leaves story `023` partial rather than done. The normal
-`gentest/runner.h` path is now narrow, and the legacy detail surface is called
-out explicitly through compatibility headers, but `fixture.h`,
-`detail/fixture_runtime.h`, and `registry.h` still install unstable runtime
-detail for compatibility while generated/runtime code continues to depend on
-that layer.
+This closes story `023` at the current simplified public-surface scope. The
+normal `gentest/runner.h` path is now narrow, and the legacy detail surface is
+called out explicitly through compatibility headers instead of leaking through
+the normal umbrella path. The story inventory artifact is populated, and the
+`context.h` / `TestContextInfo` classification question is resolved at the
+current scope by preserving the compatible public token type while keeping the
+concrete runtime context layout off the normal public include path.
+
+The remaining generated-code/devkit compatibility cleanup is tracked
+separately in `032_generated_runtime_devkit_boundary_cleanup.md`. That deferred
+scope includes the generated-code/devkit install/package checks that still need
+to move with the compatibility boundary, including future revalidation of
+`gentest_install_only_codegen_default` when that boundary changes again.
