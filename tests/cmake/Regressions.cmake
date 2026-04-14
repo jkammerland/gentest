@@ -371,7 +371,7 @@ gentest_add_cmake_script_test(
     ARGS --filter=regressions/runtime_selection/duplicate_name --kind=test
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=runtime_selection_regressions.cpp:16")
+        "REQUIRED_SUBSTRING=runtime_selection_regressions.cpp:17")
 
 gentest_add_cmake_script_test(
     NAME regression_runtime_selection_duplicate_name_summary_second_location
@@ -380,7 +380,7 @@ gentest_add_cmake_script_test(
     ARGS --filter=regressions/runtime_selection/duplicate_name --kind=test
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=runtime_selection_regressions.cpp:19")
+        "REQUIRED_SUBSTRING=runtime_selection_regressions.cpp:20")
 
 gentest_add_check_contains(
     NAME regression_runtime_selection_list_death
@@ -1600,21 +1600,21 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_create_assert_junit_reports_skipped_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skipped_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"fixture allocation failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:8: manual-create-assert\"/>"
+    REQUIRED_SUBSTRING "<skipped message=\"fixture allocation failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:10: manual-create-assert\"/>"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_skipped_tag.xml)
 
 gentest_add_check_death(
     NAME regression_shared_fixture_manual_create_assert_reports_location
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
-    REQUIRED_SUBSTRING "failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:8"
+    REQUIRED_SUBSTRING "failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:10"
     ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test)
 
 gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_create_assert_junit_reports_location
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_location.xml
-    REQUIRED_SUBSTRING "tests/regressions/shared_fixture_manual_create_assert_skip.cpp:8"
+    REQUIRED_SUBSTRING "tests/regressions/shared_fixture_manual_create_assert_skip.cpp:10"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_location.xml)
 
@@ -1638,7 +1638,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_setup_assert_junit_reports_skipped_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skipped_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"fixture setup failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:12: manual-setup-assert\"/>"
+    REQUIRED_SUBSTRING "<skipped message=\"fixture setup failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:14: manual-setup-assert\"/>"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_skipped_tag.xml)
 
@@ -1646,7 +1646,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_setup_assert_junit_reports_location
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_location.xml
-    REQUIRED_SUBSTRING "tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:12"
+    REQUIRED_SUBSTRING "tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:14"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_location.xml)
 

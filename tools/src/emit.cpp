@@ -476,8 +476,9 @@ std::string render_module_registration_support_include_block() {
     out.append("#include <string_view>\n");
     out.append("#include <type_traits>\n");
     out.append("#include <utility>\n");
+    out.append("#include \"gentest/detail/fixture_runtime.h\"\n");
+    out.append("#include \"gentest/detail/registry_runtime.h\"\n");
     out.append("#include \"gentest/runner.h\"\n");
-    out.append("#include \"gentest/fixture.h\"\n");
     return out;
 }
 

@@ -1,3 +1,4 @@
+#include "gentest/detail/registry_runtime.h"
 #include "gentest/runner.h"
 
 #include <span>

@@ -18,6 +18,8 @@
 
 namespace gentest::detail {
 
+inline constexpr bool exceptions_enabled = GENTEST_EXCEPTIONS_ENABLED != 0;
+
 struct skip_exception {};
 
 enum class BenchPhase {

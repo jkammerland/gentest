@@ -233,18 +233,24 @@ elseif(NOT PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
   list(APPEND _cmake_cache_args "-DGENTEST_BUILD_CODEGEN=ON")
 endif()
 
-set(_producer_source_surface_key "")
-foreach(_producer_surface_file IN ITEMS
+set(_producer_surface_files
     "${SOURCE_DIR}/CMakeLists.txt"
     "${SOURCE_DIR}/src/CMakeLists.txt"
-    "${SOURCE_DIR}/include/gentest/mock.h"
-    "${SOURCE_DIR}/include/gentest/gentest.cppm"
-    "${SOURCE_DIR}/include/gentest/gentest.bench_util.cppm"
-    "${SOURCE_DIR}/include/gentest/gentest.mock.cppm"
     "${SOURCE_DIR}/cmake/GentestDependencies.cmake"
     "${SOURCE_DIR}/cmake/GentestFmtDependency.cmake"
     "${SOURCE_DIR}/cmake/GentestCodegen.cmake"
     "${SOURCE_DIR}/third_party/target_install_package/VENDORED_TAG.txt")
+file(GLOB_RECURSE _producer_public_headers
+  LIST_DIRECTORIES FALSE
+  "${SOURCE_DIR}/include/gentest/*.h"
+  "${SOURCE_DIR}/include/gentest/*.hpp"
+  "${SOURCE_DIR}/include/gentest/*.cppm")
+list(APPEND _producer_surface_files ${_producer_public_headers})
+list(REMOVE_DUPLICATES _producer_surface_files)
+list(SORT _producer_surface_files)
+
+set(_producer_source_surface_key "")
+foreach(_producer_surface_file IN LISTS _producer_surface_files)
   if(EXISTS "${_producer_surface_file}")
     file(SHA256 "${_producer_surface_file}" _producer_surface_hash)
     string(APPEND _producer_source_surface_key "|${_producer_surface_file}:${_producer_surface_hash}")

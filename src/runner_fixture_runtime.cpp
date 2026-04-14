@@ -1,5 +1,6 @@
 #include "runner_fixture_runtime.h"
 
+#include "gentest/detail/fixture_runtime.h"
 #include "gentest/runner.h"
 #include "runner_context_scope.h"
 
