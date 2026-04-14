@@ -25,7 +25,6 @@ the original worktree branch tips intentionally remain on separate commit IDs.
 | `026` | simplify test helper infrastructure and derive inventory expectations | `Partial` | `e9d17314` | count/inventory duplication was reduced, but the broader helper-driver consolidation is still open |
 | `027` | separate core reporting from optional Allure and format sinks | `Done` | `14fb3a91` | Allure sink split is integrated |
 | `028` | make Windows path-depth and short-root behavior robust | `Done` | `62301539` | focused deep-path/path-budget slice is green; later contract follow-ups moved to `029` and `031` |
-| `029` | unify tool and CMake codegen output naming contracts | `Partial` | `4818e6c2`, `e9fbeade`, `6c99aa50`, `2580562c` | major output-contract slices landed, but the story still needs an explicit final audit that no logical filename family is derived independently in both layers |
-| `030` | simplify mock codegen model, discovery, and render helpers | `Partial` | `ec0a4e70` | only the first discovery dedup slice is integrated; broader qualifier, dispatch, and render-model simplification remains |
+| `029` | unify tool and CMake codegen output naming contracts | `Partial` | `1530eb71`, `cfaeccd2`, `4818e6c2`, `e9fbeade`, `6c99aa50`, `2580562c` | major output-contract slices landed, but the story still needs an explicit final audit that no logical filename family is derived independently in both layers |
+| `030` | simplify mock codegen model, discovery, and render helpers | `Partial` | `ec0a4e70`, `92982704`, `b8fe671f`, `b2519282` | shared discovery, qualifier normalization, and part of the render cleanup are integrated; the remaining gap is an explicit acceptance audit plus any still-missing normalized parameter-state or shared dispatch cleanup |
 | `031` | preserve explicit scan-deps mode in installed public-module consumers | `Done` | `7bcfc833` | focused contract regression is green on the validated slice |
-
