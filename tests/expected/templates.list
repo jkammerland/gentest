@@ -1,111 +1,111 @@
-enum_value<Color::Blue>
-enum_value<Color::Red>
-local_struct/axis(LocalPoint{1, 2})
-local_struct/axis(LocalPoint{3, 4})
-local_struct/pack(LocalPoint{1, 2}, LocalPoint{3, 4})
-local_struct/pack(LocalPoint{5, 6}, LocalPoint{7, 8})
-multi_blocks/mixed_split<int,7>("Hello")
-multi_blocks/mixed_split<int,7>("World")
-multi_blocks/pack_split(1, 2, 5)
-multi_blocks/pack_split(3, 4, 5)
-multi_blocks/params_split(1, 10)
-multi_blocks/params_split(2, 10)
-templates/bar<int>("x")
-templates/bar<int>("y")
-templates/bar<long>("x")
-templates/bar<long>("y")
-templates/bool_and_str(false, "Hello")
-templates/bool_and_str(false, "World")
-templates/bool_and_str(true, "Hello")
-templates/bool_and_str(true, "World")
-templates/bool_params(false)
-templates/bool_params(true)
-templates/chars('a')
-templates/chars('z')
-templates/cstr_params("baz")
-templates/cstr_params("qux")
-templates/emplace_matrix<int>(false)
-templates/emplace_matrix<int>(true)
-templates/emplace_matrix<long>(false)
-templates/emplace_matrix<long>(true)
-templates/enum_value_scoped<templates::ns_outer::ns_inner::Shade::Dark>
-templates/enum_value_scoped<templates::ns_outer::ns_inner::Shade::Light>
-templates/hello<int,double>
-templates/hello<int,float>
-templates/hello<long,double>
-templates/hello<long,float>
-templates/interleaved2<long,1,3>
-templates/interleaved2<long,1,4>
-templates/interleaved<1,int>
-templates/interleaved<1,long>
-templates/interleaved<2,int>
-templates/interleaved<2,long>
-templates/mix/2x1x2<int,float,5>
-templates/mix/2x1x2<int,float,9>
-templates/mix/2x1x2<long,float,5>
-templates/mix/2x1x2<long,float,9>
-templates/mix/nttp_bool_mix<4,true>
-templates/mix/type_nttp_value<int,16>(3)
-templates/nttp<int,1>
-templates/nttp<int,2>
-templates/nttp_bool<false>
-templates/nttp_bool<true>
-templates/nttp_pair<1,5>
-templates/nttp_pair<2,5>
-templates/pack(42, "a")
-templates/pack(7, "b")
-templates/pack_cstr_bool("Alpha", true)
-templates/pack_cstr_bool("Beta", false)
-templates/pairs(1, 5)
-templates/pairs(1, 6)
-templates/pairs(2, 5)
-templates/pairs(2, 6)
-templates/params(0)
-templates/params(10)
-templates/params(100)
-templates/raw(std::chrono::milliseconds{10})
-templates/size_value<16>
-templates/size_value<32>
-templates/strs("a")
-templates/strs("b")
-templates/sv_params("hello")
-templates/sv_params("world")
-templates/triad<int,float,char>
-templates/triad<long,float,char>
-templates/triad_interleaved<7,int,double>
-templates/triad_interleaved<7,long,double>
-templates/triad_interleaved<8,int,double>
-templates/triad_interleaved<8,long,double>
-templates/tt/basic<std::list>
-templates/tt/basic<std::vector>
-templates/tt/fixed<std::array>
-templates/tt/interleaved<1,std::list>
-templates/tt/interleaved<1,std::vector>
-templates/tt/interleaved<3,std::list>
-templates/tt/interleaved<3,std::vector>
-templates/tt/mixed<std::list,int>
-templates/tt/mixed<std::list,long>
-templates/tt/mixed<std::vector,int>
-templates/tt/mixed<std::vector,long>
-templates/tt/pack<>
-templates/tt/pack<std::vector,std::list>
-templates/tt/pack<std::vector>
-templates/typed_values<int>(2)
-templates/typed_values<int>(4)
-templates/typed_values<long>(2)
-templates/typed_values<long>(4)
-templates/u16cstr_params(u"hello")
-templates/u16cstr_params(u"w")
-templates/u16strs(u"alpha")
-templates/u16strs(u"beta")
-templates/u32cstr_params(U"Cat")
-templates/u32cstr_params(U"Dog")
-templates/u32sv_params(U"One")
-templates/u32sv_params(U"Two")
-templates/u8strs(u8"alpha")
-templates/u8strs(u8"beta")
-templates/wcstr_params(L"Wide")
-templates/wcstr_params(L"X")
-templates/wstrs(L"Alpha")
-templates/wsv_params(L"Alpha")
-templates/wsv_params(L"Beta")
+[PASS] enum_value<Color::Blue>
+[PASS] enum_value<Color::Red>
+[PASS] local_struct/axis(LocalPoint{1, 2})
+[PASS] local_struct/axis(LocalPoint{3, 4})
+[PASS] local_struct/pack(LocalPoint{1, 2}, LocalPoint{3, 4})
+[PASS] local_struct/pack(LocalPoint{5, 6}, LocalPoint{7, 8})
+[PASS] multi_blocks/mixed_split<int,7>("Hello")
+[PASS] multi_blocks/mixed_split<int,7>("World")
+[PASS] multi_blocks/pack_split(1, 2, 5)
+[PASS] multi_blocks/pack_split(3, 4, 5)
+[PASS] multi_blocks/params_split(1, 10)
+[PASS] multi_blocks/params_split(2, 10)
+[PASS] templates/bar<int>("x")
+[PASS] templates/bar<int>("y")
+[PASS] templates/bar<long>("x")
+[PASS] templates/bar<long>("y")
+[PASS] templates/bool_and_str(false, "Hello")
+[PASS] templates/bool_and_str(false, "World")
+[PASS] templates/bool_and_str(true, "Hello")
+[PASS] templates/bool_and_str(true, "World")
+[PASS] templates/bool_params(false)
+[PASS] templates/bool_params(true)
+[PASS] templates/chars('a')
+[PASS] templates/chars('z')
+[PASS] templates/cstr_params("baz")
+[PASS] templates/cstr_params("qux")
+[PASS] templates/emplace_matrix<int>(false)
+[PASS] templates/emplace_matrix<int>(true)
+[PASS] templates/emplace_matrix<long>(false)
+[PASS] templates/emplace_matrix<long>(true)
+[PASS] templates/enum_value_scoped<templates::ns_outer::ns_inner::Shade::Dark>
+[PASS] templates/enum_value_scoped<templates::ns_outer::ns_inner::Shade::Light>
+[PASS] templates/hello<int,double>
+[PASS] templates/hello<int,float>
+[PASS] templates/hello<long,double>
+[PASS] templates/hello<long,float>
+[PASS] templates/interleaved2<long,1,3>
+[PASS] templates/interleaved2<long,1,4>
+[PASS] templates/interleaved<1,int>
+[PASS] templates/interleaved<1,long>
+[PASS] templates/interleaved<2,int>
+[PASS] templates/interleaved<2,long>
+[PASS] templates/mix/2x1x2<int,float,5>
+[PASS] templates/mix/2x1x2<int,float,9>
+[PASS] templates/mix/2x1x2<long,float,5>
+[PASS] templates/mix/2x1x2<long,float,9>
+[PASS] templates/mix/nttp_bool_mix<4,true>
+[PASS] templates/mix/type_nttp_value<int,16>(3)
+[PASS] templates/nttp<int,1>
+[PASS] templates/nttp<int,2>
+[PASS] templates/nttp_bool<false>
+[PASS] templates/nttp_bool<true>
+[PASS] templates/nttp_pair<1,5>
+[PASS] templates/nttp_pair<2,5>
+[PASS] templates/pack(42, "a")
+[PASS] templates/pack(7, "b")
+[PASS] templates/pack_cstr_bool("Alpha", true)
+[PASS] templates/pack_cstr_bool("Beta", false)
+[PASS] templates/pairs(1, 5)
+[PASS] templates/pairs(1, 6)
+[PASS] templates/pairs(2, 5)
+[PASS] templates/pairs(2, 6)
+[PASS] templates/params(0)
+[PASS] templates/params(10)
+[PASS] templates/params(100)
+[PASS] templates/raw(std::chrono::milliseconds{10})
+[PASS] templates/size_value<16>
+[PASS] templates/size_value<32>
+[PASS] templates/strs("a")
+[PASS] templates/strs("b")
+[PASS] templates/sv_params("hello")
+[PASS] templates/sv_params("world")
+[PASS] templates/triad<int,float,char>
+[PASS] templates/triad<long,float,char>
+[PASS] templates/triad_interleaved<7,int,double>
+[PASS] templates/triad_interleaved<7,long,double>
+[PASS] templates/triad_interleaved<8,int,double>
+[PASS] templates/triad_interleaved<8,long,double>
+[PASS] templates/tt/basic<std::list>
+[PASS] templates/tt/basic<std::vector>
+[PASS] templates/tt/fixed<std::array>
+[PASS] templates/tt/interleaved<1,std::list>
+[PASS] templates/tt/interleaved<1,std::vector>
+[PASS] templates/tt/interleaved<3,std::list>
+[PASS] templates/tt/interleaved<3,std::vector>
+[PASS] templates/tt/mixed<std::list,int>
+[PASS] templates/tt/mixed<std::list,long>
+[PASS] templates/tt/mixed<std::vector,int>
+[PASS] templates/tt/mixed<std::vector,long>
+[PASS] templates/tt/pack<>
+[PASS] templates/tt/pack<std::vector,std::list>
+[PASS] templates/tt/pack<std::vector>
+[PASS] templates/typed_values<int>(2)
+[PASS] templates/typed_values<int>(4)
+[PASS] templates/typed_values<long>(2)
+[PASS] templates/typed_values<long>(4)
+[PASS] templates/u16cstr_params(u"hello")
+[PASS] templates/u16cstr_params(u"w")
+[PASS] templates/u16strs(u"alpha")
+[PASS] templates/u16strs(u"beta")
+[PASS] templates/u32cstr_params(U"Cat")
+[PASS] templates/u32cstr_params(U"Dog")
+[PASS] templates/u32sv_params(U"One")
+[PASS] templates/u32sv_params(U"Two")
+[PASS] templates/u8strs(u8"alpha")
+[PASS] templates/u8strs(u8"beta")
+[PASS] templates/wcstr_params(L"Wide")
+[PASS] templates/wcstr_params(L"X")
+[PASS] templates/wstrs(L"Alpha")
+[PASS] templates/wsv_params(L"Alpha")
+[PASS] templates/wsv_params(L"Beta")

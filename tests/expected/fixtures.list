@@ -1,35 +1,35 @@
-fixtures/custom_deleter/a_use
-fixtures/custom_deleter/b_after_first
-fixtures/custom_deleter/c_after_second
-fixtures/ephemeral/alloc_hook
-fixtures/ephemeral/push_pop
-fixtures/ephemeral/size_zero
-fixtures/free/basic
-fixtures/free/default_ptr_passthrough
-fixtures/free/default_shared_ptr_alias_passthrough
-fixtures/free/pointer
-fixtures/free/raw_pointer
-fixtures/free/raw_pointer_polymorphic_a_use
-fixtures/free/raw_pointer_polymorphic_b_after_first
-fixtures/free/shared_ptr
-fixtures/global/increment
-fixtures/global/observe
-fixtures/global_alloc/a_increment
-fixtures/global_alloc/b_observe
-fixtures/global_shared/inner_a/global_shared/inner_a/hit
-fixtures/global_shared/inner_b/global_shared/inner_b/check
-fixtures/global_shared/inner_c/global_shared/inner_c/pointer
-fixtures/mixed_suite/mixed/one
-fixtures/mixed_suite/mixed/two(11)
-fixtures/mixed_suite/mixed/two(13)
-fixtures/mixed_suite/mixed/two(9)
-fixtures/stateful/a_set_flag
-fixtures/stateful/b_check_flag
-fixtures/stateful/c_default_ptr_passthrough
-fixtures/stateful/d_default_shared_ptr_alias_passthrough
-fixtures/stateful_alloc/a_set_value
-fixtures/stateful_alloc/b_check_value
-fixtures/suite_hook/a_allocate
-fixtures/suite_hook/b_shared
-fixtures/suite_shared/inner_a/suite_shared/inner_a/set
-fixtures/suite_shared/inner_b/suite_shared/inner_b/check
+[PASS] fixtures/custom_deleter/a_use
+[PASS] fixtures/custom_deleter/b_after_first
+[PASS] fixtures/custom_deleter/c_after_second
+[PASS] fixtures/ephemeral/alloc_hook
+[PASS] fixtures/ephemeral/push_pop
+[PASS] fixtures/ephemeral/size_zero
+[PASS] fixtures/free/basic
+[PASS] fixtures/free/default_ptr_passthrough
+[PASS] fixtures/free/default_shared_ptr_alias_passthrough
+[PASS] fixtures/free/pointer
+[PASS] fixtures/free/raw_pointer
+[PASS] fixtures/free/raw_pointer_polymorphic_a_use
+[PASS] fixtures/free/raw_pointer_polymorphic_b_after_first
+[PASS] fixtures/free/shared_ptr
+[PASS] fixtures/global/increment
+[PASS] fixtures/global/observe
+[PASS] fixtures/global_alloc/a_increment
+[PASS] fixtures/global_alloc/b_observe
+[PASS] fixtures/global_shared/inner_a/global_shared/inner_a/hit
+[PASS] fixtures/global_shared/inner_b/global_shared/inner_b/check
+[PASS] fixtures/global_shared/inner_c/global_shared/inner_c/pointer
+[PASS] fixtures/mixed_suite/mixed/one
+[PASS] fixtures/mixed_suite/mixed/two(11)
+[PASS] fixtures/mixed_suite/mixed/two(13)
+[PASS] fixtures/mixed_suite/mixed/two(9)
+[PASS] fixtures/stateful/a_set_flag
+[PASS] fixtures/stateful/b_check_flag
+[PASS] fixtures/stateful/c_default_ptr_passthrough
+[PASS] fixtures/stateful/d_default_shared_ptr_alias_passthrough
+[PASS] fixtures/stateful_alloc/a_set_value
+[PASS] fixtures/stateful_alloc/b_check_value
+[PASS] fixtures/suite_hook/a_allocate
+[PASS] fixtures/suite_hook/b_shared
+[PASS] fixtures/suite_shared/inner_a/suite_shared/inner_a/set
+[PASS] fixtures/suite_shared/inner_b/suite_shared/inner_b/check

@@ -2,6 +2,14 @@
 #   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> -P tests/cmake/scripts/CheckTestInventory.cmake
 #   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
 #   cmake -DPROG=<path> [-DCASES=<n>] [-DEXPECTED_LIST_FILE=<path>] [-DPASS=<n> -DFAIL=<n> -DSKIP=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
+#
+# EXPECTED_LIST_FILE may use either plain case names (legacy, implicitly PASS)
+# or explicit status markers:
+#   [PASS] suite/test_name
+#   [SKIP] suite/other_test
+#   [FAIL] suite/failing_test
+#   [XFAIL] suite/expected_failure
+#   [XPASS] suite/unexpected_pass
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")
@@ -47,6 +55,11 @@ function(_gentest_normalize_text text out_var)
   set(${out_var} "${_normalized}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_escape_list_item text out_var)
+  string(REPLACE ";" "\\;" _escaped "${text}")
+  set(${out_var} "${_escaped}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_normalize_sorted_lines text out_var)
   _gentest_normalize_text("${text}" _normalized)
   if("${_normalized}" STREQUAL "")
@@ -54,15 +67,90 @@ function(_gentest_normalize_sorted_lines text out_var)
     return()
   endif()
 
-  string(REPLACE "\n" ";" _lines "${_normalized}")
   set(_filtered)
-  foreach(_line IN LISTS _lines)
+  set(_remaining "${_normalized}")
+  while(NOT "${_remaining}" STREQUAL "")
+    string(REGEX MATCH "^([^\n]*)(\n|$)" _entry "${_remaining}")
+    set(_line "${CMAKE_MATCH_1}")
+    string(LENGTH "${_entry}" _entry_len)
+    string(SUBSTRING "${_remaining}" ${_entry_len} -1 _remaining)
     if(NOT _line STREQUAL "")
-      list(APPEND _filtered "${_line}")
+      _gentest_escape_list_item("${_line}" _escaped_line)
+      list(APPEND _filtered "${_escaped_line}")
     endif()
-  endforeach()
+  endwhile()
   list(SORT _filtered)
   set(${out_var} "${_filtered}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_parse_expected_list_text text_var out_names_var out_cases_var out_pass_var out_fail_var out_skip_var out_xfail_var out_xpass_var)
+  _gentest_normalize_text("${${text_var}}" _remaining)
+  if("${_remaining}" STREQUAL "")
+    set(${out_names_var} "" PARENT_SCOPE)
+    set(${out_cases_var} 0 PARENT_SCOPE)
+    set(${out_pass_var} 0 PARENT_SCOPE)
+    set(${out_fail_var} 0 PARENT_SCOPE)
+    set(${out_skip_var} 0 PARENT_SCOPE)
+    set(${out_xfail_var} 0 PARENT_SCOPE)
+    set(${out_xpass_var} 0 PARENT_SCOPE)
+    return()
+  endif()
+
+  set(_names)
+  set(_cases 0)
+  set(_pass 0)
+  set(_fail 0)
+  set(_skip 0)
+  set(_xfail 0)
+  set(_xpass 0)
+
+  while(NOT "${_remaining}" STREQUAL "")
+    string(REGEX MATCH "^([^\n]*)(\n|$)" _entry "${_remaining}")
+    set(_line "${CMAKE_MATCH_1}")
+    string(LENGTH "${_entry}" _entry_len)
+    string(SUBSTRING "${_remaining}" ${_entry_len} -1 _remaining)
+
+    if(_line STREQUAL "")
+      continue()
+    endif()
+
+    set(_status "PASS")
+    set(_name "${_line}")
+    if(_line MATCHES "^[ \t]*\\[(PASS|FAIL|SKIP|XFAIL|XPASS)\\][ \t]+(.+)$")
+      set(_status "${CMAKE_MATCH_1}")
+      set(_name "${CMAKE_MATCH_2}")
+    endif()
+
+    if(_name STREQUAL "")
+      message(FATAL_ERROR "Expected list entry is missing a case name: '${_line}'")
+    endif()
+
+    _gentest_escape_list_item("${_name}" _escaped_name)
+    list(APPEND _names "${_escaped_name}")
+    math(EXPR _cases "${_cases} + 1")
+    if(_status STREQUAL "PASS")
+      math(EXPR _pass "${_pass} + 1")
+    elseif(_status STREQUAL "FAIL")
+      math(EXPR _fail "${_fail} + 1")
+    elseif(_status STREQUAL "SKIP")
+      math(EXPR _skip "${_skip} + 1")
+    elseif(_status STREQUAL "XFAIL")
+      math(EXPR _xfail "${_xfail} + 1")
+    elseif(_status STREQUAL "XPASS")
+      math(EXPR _xpass "${_xpass} + 1")
+    else()
+      message(FATAL_ERROR "Unsupported expected list status '${_status}' in '${_line}'")
+    endif()
+  endwhile()
+
+  list(SORT _names)
+  set(${out_names_var} "${_names}" PARENT_SCOPE)
+  set(${out_cases_var} "${_cases}" PARENT_SCOPE)
+  set(${out_pass_var} "${_pass}" PARENT_SCOPE)
+  set(${out_fail_var} "${_fail}" PARENT_SCOPE)
+  set(${out_skip_var} "${_skip}" PARENT_SCOPE)
+  set(${out_xfail_var} "${_xfail}" PARENT_SCOPE)
+  set(${out_xpass_var} "${_xpass}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_count_status_lines text status out_var)
@@ -98,6 +186,11 @@ endfunction()
 
 set(_normalized_expected_list)
 set(_expected_cases)
+set(_derived_pass)
+set(_derived_fail)
+set(_derived_skip)
+set(_derived_xfail)
+set(_derived_xpass)
 set(_have_inventory_expectations OFF)
 set(_check_list_tests ON)
 
@@ -115,10 +208,16 @@ if(DEFINED EXPECTED_LIST_FILE AND NOT "${EXPECTED_LIST_FILE}" STREQUAL "")
     message(FATAL_ERROR "Expected list file not found: ${EXPECTED_LIST_FILE}")
   endif()
   file(READ "${EXPECTED_LIST_FILE}" _expected_list_text)
-  _gentest_normalize_text("${_expected_list_text}" _normalized_expected_list_text)
-  _gentest_normalize_sorted_lines("${_expected_list_text}" _normalized_expected_list)
+  _gentest_parse_expected_list_text(_expected_list_text
+    _normalized_expected_list
+    _derived_expected_cases
+    _derived_pass
+    _derived_fail
+    _derived_skip
+    _derived_xfail
+    _derived_xpass)
   if(NOT _have_inventory_expectations)
-    _gentest_count_output_lines("${_normalized_expected_list_text}" _expected_cases)
+    set(_expected_cases "${_derived_expected_cases}")
     set(_have_inventory_expectations ON)
   endif()
 endif()
@@ -145,6 +244,20 @@ if(_have_inventory_expectations
     string(JOIN "\n" _actual_block ${_normalized_actual_list})
     message(FATAL_ERROR
       "Expected --list-tests membership from ${EXPECTED_LIST_FILE}, but it differed.\nExpected:\n${_expected_block}\nActual:\n${_actual_block}")
+  endif()
+endif()
+
+if(NOT DEFINED PASS AND NOT DEFINED FAIL AND NOT DEFINED SKIP)
+  if(DEFINED EXPECTED_LIST_FILE AND NOT "${EXPECTED_LIST_FILE}" STREQUAL "")
+    set(PASS "${_derived_pass}")
+    set(FAIL "${_derived_fail}")
+    set(SKIP "${_derived_skip}")
+    if(NOT _derived_xfail EQUAL 0)
+      set(XFAIL "${_derived_xfail}")
+    endif()
+    if(NOT _derived_xpass EQUAL 0)
+      set(XPASS "${_derived_xpass}")
+    endif()
   endif()
 endif()
 

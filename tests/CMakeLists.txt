@@ -1246,40 +1246,47 @@ set_property(TEST gentest_codegen_mock_symlink_include APPEND PROPERTY LABELS "c
 
 # End-to-end behavioral checks with structured suite inventory
 set(_gentest_suite_inventory_checks
-    "unit|gentest_unit_tests|20|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/unit.list"
-    "integration|gentest_integration_tests|3|0|1|${CMAKE_CURRENT_SOURCE_DIR}/expected/integration.list"
-    "skiponly|gentest_skiponly_tests|0|0|2|${CMAKE_CURRENT_SOURCE_DIR}/expected/skiponly.list"
-    "fixtures|gentest_fixtures_tests|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
-    "readme_fixtures|gentest_readme_fixtures_tests|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
-    "templates|gentest_templates_tests|111|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
-    "mocking|gentest_mocking_tests|36|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
+    "unit|gentest_unit_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/unit.list"
+    "integration|gentest_integration_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/integration.list"
+    "skiponly|gentest_skiponly_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/skiponly.list"
+    "fixtures|gentest_fixtures_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
+    "readme_fixtures|gentest_readme_fixtures_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
+    "templates|gentest_templates_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
+    "mocking|gentest_mocking_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
     list(GET _gentest_inventory_fields 0 _gentest_inventory_name)
     list(GET _gentest_inventory_fields 1 _gentest_inventory_prog)
-    list(GET _gentest_inventory_fields 2 _gentest_inventory_pass)
-    list(GET _gentest_inventory_fields 3 _gentest_inventory_fail)
-    list(GET _gentest_inventory_fields 4 _gentest_inventory_skip)
-    list(GET _gentest_inventory_fields 5 _gentest_inventory_expected_list)
+    list(GET _gentest_inventory_fields 2 _gentest_inventory_expected_list)
 
     gentest_add_check_inventory(
         NAME ${_gentest_inventory_name}_inventory
         PROG ${_gentest_inventory_prog}
-        EXPECTED_LIST_FILE ${_gentest_inventory_expected_list}
-        PASS ${_gentest_inventory_pass}
-        FAIL ${_gentest_inventory_fail}
-        SKIP ${_gentest_inventory_skip})
+        EXPECTED_LIST_FILE ${_gentest_inventory_expected_list})
 endforeach()
 unset(_gentest_suite_inventory_checks)
 unset(_gentest_inventory)
 unset(_gentest_inventory_fields)
 unset(_gentest_inventory_name)
 unset(_gentest_inventory_prog)
-unset(_gentest_inventory_pass)
-unset(_gentest_inventory_fail)
-unset(_gentest_inventory_skip)
 unset(_gentest_inventory_expected_list)
+
+gentest_add_check_inventory(
+    NAME unit_inventory_legacy_expected_list
+    PROG gentest_unit_tests
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/unit_legacy_plain.list)
+
+gentest_add_check_inventory(
+    NAME outcomes_inventory_status_markers
+    PROG gentest_outcomes_tests
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/outcomes_status.list)
+
+gentest_add_check_inventory(
+    NAME inventory_parser_semicolon_case_name
+    PROG ${CMAKE_COMMAND}
+    ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeInventoryProgram.cmake --
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_semicolon_status.list)
 
 gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 10 SKIP 2)
 

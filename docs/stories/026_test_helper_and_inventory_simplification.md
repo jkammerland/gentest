@@ -119,3 +119,46 @@ declared source of truth for every inventory-style assertion.
   `gentest_discover_tests_smoke`, and
   `gentest_tu_wrapper_source_props`
   still pass after the consolidation.
+
+## Latest validation
+
+Inventory source-of-truth slice on `2026-04-14` removed the remaining
+duplicated manual `PASS/FAIL/SKIP` bookkeeping from the audited inventory rows:
+
+- `tests/CMakeLists.txt`
+  - `_gentest_suite_inventory_checks` now points each audited slice at one
+    canonical expected-list file only
+  - the audited inventory rows no longer hard-code parallel `PASS/FAIL/SKIP`
+    counts
+- `tests/cmake/scripts/CheckTestInventory.cmake`
+  - now derives case totals and outcome counts directly from
+    `EXPECTED_LIST_FILE`
+  - supports explicit `[PASS]`, `[FAIL]`, `[SKIP]`, `[XFAIL]`, and `[XPASS]`
+    markers while keeping legacy plain-name lists compatible
+  - compares expected and actual membership through a semicolon-safe parser so
+    test names containing CMake list metacharacters do not collapse
+- focused helper coverage now includes:
+  - `unit_inventory_legacy_expected_list` for legacy plain-name expected lists
+  - `outcomes_inventory_status_markers` for `[SKIP]`, `[FAIL]`, `[XFAIL]`, and
+    `[XPASS]` derivation
+  - `inventory_parser_semicolon_case_name` for semicolon-bearing case names
+
+Validation for the current slice:
+
+- configure/build:
+  - `cmake --preset=debug-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`
+  - `cmake --build --preset=debug-system`
+  - both passed
+- focused helper/inventory slice:
+  `ctest --preset=debug-system --output-on-failure -R '^(unit_inventory|integration_inventory|skiponly_inventory|fixtures_inventory|readme_fixtures_inventory|templates_inventory|mocking_inventory|unit_inventory_legacy_expected_list|outcomes_inventory_status_markers|inventory_parser_semicolon_case_name|helper_check_file_contains_rejects_stale_output|helper_allure_runner_infra_parity_rejects_stale_output|gentest_codegen_output_collision|gentest_discover_tests_smoke|gentest_tu_wrapper_source_props)$'`
+  -> `15/15` passed
+- `clang-tidy` lane:
+  `./scripts/check_clang_tidy.sh build/debug-system`
+  -> passed
+- final batch review:
+  `results/story026_review_inventory_slice_r5.md`
+  -> no findings
+
+This leaves story `026` partial rather than done. The inventory rows now have a
+single canonical source of truth, but the broader helper-driver consolidation
+in `GentestTests.cmake` and `tests/cmake/scripts/` is still open.

@@ -1,4 +1,4 @@
-integration/errors/errors/recover
-integration/errors/errors/throw
-integration/math/math/fibonacci
-integration/registry/registry/map
+[PASS] integration/errors/errors/recover
+[SKIP] integration/errors/errors/throw
+[PASS] integration/math/math/fibonacci
+[PASS] integration/registry/registry/map
