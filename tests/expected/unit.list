@@ -1,20 +1,20 @@
-unit/DefaultNameFixture/default_name_member
-unit/approx/absolute
-unit/approx/relative
-unit/approx/relative_negative
-unit/arithmetic/sum
-unit/attributes/close_marker_after_block_comment_]]_ok
-unit/attributes/close_marker_after_line_comment_]]_ok
-unit/attributes/close_marker_in_string_]]_ok
-unit/bench_stats/hist_bimodal
-unit/bench_stats/hist_skewed
-unit/bench_stats/stats_known
-unit/bench_util/clobber_memory_smoke
-unit/conditions/false_and_relations
-unit/conditions/negate
-unit/default_name_free
-unit/exceptions/assert_no_throw
-unit/exceptions/assert_throw
-unit/exceptions/expect_no_throw
-unit/exceptions/expect_throw
-unit/strings/concatenate
+[PASS] unit/DefaultNameFixture/default_name_member
+[PASS] unit/approx/absolute
+[PASS] unit/approx/relative
+[PASS] unit/approx/relative_negative
+[PASS] unit/arithmetic/sum
+[PASS] unit/attributes/close_marker_after_block_comment_]]_ok
+[PASS] unit/attributes/close_marker_after_line_comment_]]_ok
+[PASS] unit/attributes/close_marker_in_string_]]_ok
+[PASS] unit/bench_stats/hist_bimodal
+[PASS] unit/bench_stats/hist_skewed
+[PASS] unit/bench_stats/stats_known
+[PASS] unit/bench_util/clobber_memory_smoke
+[PASS] unit/conditions/false_and_relations
+[PASS] unit/conditions/negate
+[PASS] unit/default_name_free
+[PASS] unit/exceptions/assert_no_throw
+[PASS] unit/exceptions/assert_throw
+[PASS] unit/exceptions/expect_no_throw
+[PASS] unit/exceptions/expect_throw
+[PASS] unit/strings/concatenate

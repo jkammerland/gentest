@@ -1,36 +1,36 @@
-mocking/mocking/concrete/invokes
-mocking/mocking/concrete/invokes_matches
-mocking/mocking/concrete/non_default_ctor
-mocking/mocking/concrete/predicate_match
-mocking/mocking/concrete/static_member
-mocking/mocking/concrete/template_member_expect_int
-mocking/mocking/concrete/template_member_signature_collision
-mocking/mocking/concrete/template_member_instantiation_split
-mocking/mocking/concrete/direct_expect_signature_collision
-mocking/mocking/concrete/direct_constant_expect_signature_collision
-mocking/mocking/concurrency/adopted_ordered_dispatch
-mocking/mocking/concurrency/late_mutation_ignored_after_runtime_start
-mocking/mocking/crtp/bridge
-mocking/mocking/crtp/bridge_matches
-mocking/mocking/interface/non_default_ctor
-mocking/mocking/interface/reset
-mocking/mocking/interface/returns
-mocking/mocking/interface/returns_matches
-mocking/mocking/interface/returns_ref
-mocking/mocking/matchers/cstr_null_safe
-mocking/mocking/matchers/eq_any
-mocking/mocking/matchers/ge_anyof
-mocking/mocking/matchers/in_range
-mocking/mocking/matchers/near
-mocking/mocking/matchers/not
-mocking/mocking/matchers/starts_ends
-mocking/mocking/matchers/str_contains
-mocking/mocking/matchers/where_call
-mocking/mocking/move_only/refwrap_by_value
-mocking/mocking/move_only/with_eq
-mocking/mocking/nice/unexpected_ok
-mocking/mocking/template/forwarding_alias
-mocking/mocking/template/direct_unique_template_member_expect
-mocking/mocking/template/template_template_ctor
-mocking/mocking/template/template_template_member_expect
-mocking/mocking/template/template_template_pack_direct_expect
+[PASS] mocking/mocking/concrete/invokes
+[PASS] mocking/mocking/concrete/invokes_matches
+[PASS] mocking/mocking/concrete/non_default_ctor
+[PASS] mocking/mocking/concrete/predicate_match
+[PASS] mocking/mocking/concrete/static_member
+[PASS] mocking/mocking/concrete/template_member_expect_int
+[PASS] mocking/mocking/concrete/template_member_signature_collision
+[PASS] mocking/mocking/concrete/template_member_instantiation_split
+[PASS] mocking/mocking/concrete/direct_expect_signature_collision
+[PASS] mocking/mocking/concrete/direct_constant_expect_signature_collision
+[PASS] mocking/mocking/concurrency/adopted_ordered_dispatch
+[PASS] mocking/mocking/concurrency/late_mutation_ignored_after_runtime_start
+[PASS] mocking/mocking/crtp/bridge
+[PASS] mocking/mocking/crtp/bridge_matches
+[PASS] mocking/mocking/interface/non_default_ctor
+[PASS] mocking/mocking/interface/reset
+[PASS] mocking/mocking/interface/returns
+[PASS] mocking/mocking/interface/returns_matches
+[PASS] mocking/mocking/interface/returns_ref
+[PASS] mocking/mocking/matchers/cstr_null_safe
+[PASS] mocking/mocking/matchers/eq_any
+[PASS] mocking/mocking/matchers/ge_anyof
+[PASS] mocking/mocking/matchers/in_range
+[PASS] mocking/mocking/matchers/near
+[PASS] mocking/mocking/matchers/not
+[PASS] mocking/mocking/matchers/starts_ends
+[PASS] mocking/mocking/matchers/str_contains
+[PASS] mocking/mocking/matchers/where_call
+[PASS] mocking/mocking/move_only/refwrap_by_value
+[PASS] mocking/mocking/move_only/with_eq
+[PASS] mocking/mocking/nice/unexpected_ok
+[PASS] mocking/mocking/template/forwarding_alias
+[PASS] mocking/mocking/template/direct_unique_template_member_expect
+[PASS] mocking/mocking/template/template_template_ctor
+[PASS] mocking/mocking/template/template_template_member_expect
+[PASS] mocking/mocking/template/template_template_pack_direct_expect
