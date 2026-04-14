@@ -16,13 +16,19 @@ teaching the regression to inspect the generated Windows launcher script when
 Ninja hid the actual `gentest_codegen` command there.
 
 The refreshed full native Windows inventory from `2026-04-14` reopened the same
-test from the installed consumer path, but with a different observable symptom:
-the regression could not find the expected
-`gentest_codegen/tu_0000_main.gentest.h` custom command in the generated
-consumer `build.ninja`.
+test from the installed consumer path, but the failure turned out to be another
+regression-harness mismatch, not a product bug:
 
-So the story is reopened as a public-module contract-check failure, not yet as
-a confirmed dropped-flag product bug.
+- the script still assumed the generated `main.cpp` wrapper would always be
+  `gentest_codegen/tu_0000_main.gentest.h`
+- the installed consumer now builds additional generated TUs first, so the
+  `main.cpp` wrapper is not guaranteed to stay `tu_0000`
+- the Windows launcher dereference logic was still narrower than the reopened
+  contract check wanted
+
+So the closure condition for this story is: keep proving explicit
+`--scan-deps-mode=<mode>` propagation through the generated build graph without
+depending on one specific TU ordinal or one fragile Windows launcher shape.
 
 ## User stories
 
@@ -96,23 +102,20 @@ Preferred approach:
 
 ## Latest validation
 
-Focused validation on `2026-04-13` showed the earlier Windows failure was a
-launcher-inspection mismatch, not a dropped codegen flag:
+Validation on `2026-04-14` showed the reopened failure was still a
+build-graph-inspection mismatch, not a dropped scan-deps flag:
 
 - local Linux:
-  `ctest --preset=debug-system -R gentest_codegen_public_module_imports --output-on-failure`
-  -> passed
+  `ctest --preset=debug-system -R '^gentest_codegen_public_module_imports$' --output-on-failure`
+  -> passed after updating the regression to:
+  - match any generated per-TU header under `gentest_codegen/tu_<n>_*.gentest.h`
+  - keep dereferencing Windows launcher wrappers before checking the underlying
+    `gentest_codegen` command text
 - native Windows deep path:
-  `ctest --test-dir build/debug-system --output-on-failure -R '^gentest_codegen_public_module_imports$'`
-  -> passed after teaching the regression to inspect the generated `.bat`
-  launcher when Ninja hides the actual `gentest_codegen` command there
+  `ctest --preset=debug-system --output-on-failure -R '^gentest_codegen_public_module_imports$'`
+  from `C:\Users\ai-dev1.DESKTOP-NMRV6E3\repos\gentest-story028-wip`
+  -> passed with the same harness update
 
-The refreshed full native Windows matrix on `2026-04-14` reopened
-`gentest_codegen_public_module_imports` with a different check failure:
-
-- the generated installed-consumer `build.ninja` no longer matched the current
-  regression's expectation for a custom command producing
-  `gentest_codegen/tu_0000_main.gentest.h`
-- this evidence is enough to reopen the story, but not enough to conclude yet
-  whether the fault is stale test inspection, output-contract drift, or a real
-  lost `--scan-deps-mode=<mode>` propagation bug
+The current evidence says the installed public-module consumer path still
+preserves explicit `--scan-deps-mode=<mode>` propagation, and story `031` can
+close as a regression-check alignment fix rather than a product-layer change.

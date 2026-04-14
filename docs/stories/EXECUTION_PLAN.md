@@ -12,8 +12,7 @@ It assumes the current branch state, not raw worktree ancestry:
 ## Current branch truth
 
 - `021`, `022`, and `027` are treated as done at the current evidence level
-- `023`, `024`, `026`, `029`, `030`, and `031` still need
-  closure work
+- `023`, `024`, `026`, `029`, and `030` still need closure work
 - `029` and `030` have more integrated progress than their worktree ancestry
   suggests; their remaining work is now mostly closure audit plus smaller final
   cleanup, not a fresh restart
@@ -35,29 +34,9 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ## Priority order
 
-### Phase 1: Reopened Windows implementation blockers
+### Phase 1: Closure audits after the Windows blockers
 
-1. Top-tier Windows blocker: story `031`.
-   - Story `028` is re-closed by the deep-checkout source-view/path-budget
-     repair slice that revalidated
-     `gentest_module_mock_additive_visibility` and
-     `gentest_module_header_unit_import_preamble` on both Linux and native
-     Windows.
-   - Story `025` is re-closed by the nested helper/backend repair slice that
-     revalidated `gentest_codegen_incremental_dependencies` and
-     `gentest_module_name_literal_false_match` on both Linux and native
-     Windows.
-
-2. Story `031`: reconcile the reopened full-matrix public-module import failure.
-   - Reproduce `gentest_codegen_public_module_imports` from the installed
-     consumer path used by the full Windows matrix.
-   - Decide whether the current failure is a launcher-inspection mismatch, an
-     output-contract mismatch, or a real dropped scan-deps-mode regression.
-   - Re-close the story only after the full-matrix Windows variant is green.
-
-### Phase 2: Closure audits after the Windows blockers
-
-3. Story `029`: perform the final logical filename-family audit.
+1. Story `029`: perform the final logical filename-family audit.
    - Inventory every remaining generated filename family across
      `GentestCodegen.cmake` and tool code.
    - Decide whether the story can close on current integrated state or whether
@@ -65,7 +44,7 @@ It assumes the current branch state, not raw worktree ancestry:
    - Do not declare closure on audit text alone; closure still requires the
      story's output-sensitive validation slice to stay green.
 
-4. Story `030`: perform the final acceptance-criteria audit.
+2. Story `030`: perform the final acceptance-criteria audit.
    - Compare the already integrated mock slices against the story checklist:
      normalized parameter state, shared discovery, qualifier normalization,
      shared dispatch emission.
@@ -74,21 +53,21 @@ It assumes the current branch state, not raw worktree ancestry:
    - Do not declare closure on audit text alone; closure still requires the
      story's mock-sensitive validation slice to stay green.
 
-### Phase 3: Larger remaining implementation after the audits
+### Phase 2: Larger remaining implementation after the audits
 
-5. Story `024`: complete manifest-vs-TU emission unification.
+3. Story `024`: complete manifest-vs-TU emission unification.
    - Finish consolidating the remaining shared fragment assembly in `emit.cpp`.
    - Keep mode differences at the outer shell boundary only.
    - This should happen after the `029` and `030` closure audits so output and
      mock-shape contracts are stable first.
 
-6. Story `023`: reduce the remaining installed runtime/fixture leakage.
+4. Story `023`: reduce the remaining installed runtime/fixture leakage.
    - Refresh and confirm `023_public_api_internal_surface_inventory.md` first.
    - Tackle `registry.h` next, then `fixture.h`.
    - Preserve downstream/package coverage on every slice.
    - Explicitly classify what remains unstable `detail` versus fully private.
 
-7. Story `026`: finish helper-driver consolidation.
+5. Story `026`: finish helper-driver consolidation.
    - Collapse thin helper wrappers only after the higher-risk product refactors
      above have settled.
    - Keep inventory expectations derived from one declared source of truth.
@@ -108,22 +87,17 @@ It assumes the current branch state, not raw worktree ancestry:
   derivation across tool and CMake
 - `030`: explicit audit shows the integrated mock slices satisfy the story
   acceptance criteria, or one final cleanup slice lands and proves it
-- `031`: the full-matrix `gentest_codegen_public_module_imports` Windows
-  consumer path is green again and still proves explicit scan-deps-mode
-  propagation
-
 ## Practical next move
 
-Start with story `031`, then take the highest-value unfinished simplification
-story from `029`, `030`, `023`, `024`, or `026`.
+Take the highest-value unfinished simplification story from `029`, `030`,
+`023`, `024`, or `026`.
 
 That ordering follows the current evidence:
 
-- the refreshed `022` inventory already surfaced higher-priority native Windows
-  blockers, and `031` is the remaining reopened Windows check still in that set
-- `028` and `025` are now re-closed by validated implementation slices
-- `031` is a concrete reopened Windows check failure with one exact failing test
+- the refreshed `022` inventory surfaced the native Windows blockers, and the
+  reopened `025`, `028`, and `031` slices are now re-closed by validated
+  implementation work
 - `029` and `030` are still close to closure, but they should not move ahead of
-  reopened Windows failures
+  larger refactors until their acceptance audits settle the current branch
 - `024`, `023`, and `026` are larger and should be done after the smaller
   closure audits stop moving the ground underneath them
