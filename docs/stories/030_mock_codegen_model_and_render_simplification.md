@@ -106,3 +106,24 @@ Preferred outcomes:
   `gentest_codegen_mock_symlink_include`, and
   `gentest_module_mock_long_domain_outputs`
   still pass.
+
+## Latest validation
+
+Closure audit on `2026-04-14` found no remaining implementation gap inside the
+story scope:
+
+- audit result:
+  `results/story030_audit_r1.md`
+  -> `MockParamInfo` now uses one `PassStyle` enum, constructor and method
+  discovery share `capture_callable_parameters(...)`, and qualifier
+  normalization plus dispatch emission are already centralized in shared render
+  helpers
+
+Fresh acceptance validation from a clean `debug-system` worktree build also
+stayed green:
+
+- `ctest --preset=debug-system --output-on-failure -R '^(gentest_core_discovery|gentest_core_discovery_utils|gentest_core_render|gentest_codegen_mock_template_template_pack_direct_expect_runs|gentest_codegen_mock_unnamed_template_template_builds|gentest_codegen_mock_defaulted_template_ctor_macro_builds|gentest_codegen_mock_template_template_ctor_traits_builds|gentest_explicit_mock_target_surface|gentest_explicit_mock_target_validation|gentest_explicit_mock_target_staging|gentest_explicit_mock_target_install_export|gentest_codegen_mock_symlink_include|gentest_module_mock_long_domain_outputs)$'`
+  -> `13/13` passed
+
+Story `030` can close on the current branch state without another
+implementation slice.

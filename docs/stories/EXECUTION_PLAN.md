@@ -12,7 +12,7 @@ It assumes the current branch state, not raw worktree ancestry:
 ## Current branch truth
 
 - `021`, `022`, and `027` are treated as done at the current evidence level
-- `023`, `024`, `026`, and `030` still need closure work
+- `023`, `024`, and `026` still need closure work
 - `029` and `030` have more integrated progress than their worktree ancestry
   suggests; their remaining work is now mostly closure audit plus smaller final
   cleanup, not a fresh restart
@@ -34,32 +34,20 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ## Priority order
 
-### Phase 1: Closure audits after the Windows blockers
+### Remaining implementation
 
-1. Story `030`: perform the final acceptance-criteria audit.
-   - Compare the already integrated mock slices against the story checklist:
-     normalized parameter state, shared discovery, qualifier normalization,
-     shared dispatch emission.
-   - Decide whether the story can close on current integrated state or whether
-     one final implementation slice is still needed.
-   - Do not declare closure on audit text alone; closure still requires the
-     story's mock-sensitive validation slice to stay green.
-
-### Phase 2: Larger remaining implementation after the audits
-
-2. Story `024`: complete manifest-vs-TU emission unification.
+1. Story `024`: complete manifest-vs-TU emission unification.
    - Finish consolidating the remaining shared fragment assembly in `emit.cpp`.
    - Keep mode differences at the outer shell boundary only.
-   - This should happen after the `030` closure audit so mock-shape contracts
-     are stable first.
+   - This now leads the queue because the smaller closure audits are settled.
 
-3. Story `023`: reduce the remaining installed runtime/fixture leakage.
+2. Story `023`: reduce the remaining installed runtime/fixture leakage.
    - Refresh and confirm `023_public_api_internal_surface_inventory.md` first.
    - Tackle `registry.h` next, then `fixture.h`.
    - Preserve downstream/package coverage on every slice.
    - Explicitly classify what remains unstable `detail` versus fully private.
 
-4. Story `026`: finish helper-driver consolidation.
+3. Story `026`: finish helper-driver consolidation.
    - Collapse thin helper wrappers only after the higher-risk product refactors
      above have settled.
    - Keep inventory expectations derived from one declared source of truth.
@@ -81,15 +69,15 @@ It assumes the current branch state, not raw worktree ancestry:
   acceptance criteria, or one final cleanup slice lands and proves it
 ## Practical next move
 
-Take the highest-value unfinished simplification story from `030`, `023`,
-`024`, or `026`.
+Take the highest-value unfinished simplification story from `024`, `023`, or
+`026`.
 
 That ordering follows the current evidence:
 
 - the refreshed `022` inventory surfaced the native Windows blockers, and the
   reopened `025`, `028`, and `031` slices are now re-closed by validated
   implementation work
-- `030` is still close to closure, and settling it first keeps the mock-side
-  contract stable before the larger refactors
-- `024`, `023`, and `026` are larger and should be done after the smaller
-  closure audits stop moving the ground underneath them
+- `024`, `023`, and `026` are the remaining larger simplification stories
+- `024` comes first because the output and mock-side closure audits are now
+  settled, so the remaining render-pipeline unification can move without
+  reopening those smaller contracts
