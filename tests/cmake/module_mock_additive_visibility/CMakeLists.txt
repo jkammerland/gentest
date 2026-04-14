@@ -7,6 +7,9 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(WIN32)
+    set(CMAKE_OBJECT_PATH_MAX 128)
+endif()
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 if(DEFINED GENTEST_CODEGEN_EXECUTABLE AND NOT "${GENTEST_CODEGEN_EXECUTABLE}" STREQUAL "")
     set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
@@ -16,17 +19,26 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+set(_gentest_generated_root "generated")
+set(_gentest_header_leaf "header_mocks")
+set(_gentest_provider_leaf "provider_mocks")
+if(WIN32)
+    set(_gentest_generated_root "g")
+    set(_gentest_header_leaf "hm")
+    set(_gentest_provider_leaf "pm")
+endif()
+
 gentest_add_mocks(additive_header_mocks
     DEFS
         ${CMAKE_CURRENT_SOURCE_DIR}/header_mock_defs.hpp
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/header_mocks"
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${_gentest_generated_root}/${_gentest_header_leaf}"
     HEADER_NAME public/additive_header_mocks.hpp)
 
 gentest_add_mocks(additive_provider_mocks
     DEFS
         ${CMAKE_CURRENT_SOURCE_DIR}/provider.cppm
         ${CMAKE_CURRENT_SOURCE_DIR}/module_mock_defs.cppm
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/provider_mocks"
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${_gentest_generated_root}/${_gentest_provider_leaf}"
     MODULE_NAME gentest.additive_provider_mocks)
 
 add_executable(additive_tests

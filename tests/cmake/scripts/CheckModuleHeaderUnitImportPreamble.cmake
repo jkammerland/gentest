@@ -24,12 +24,19 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-set(_work_dir "${BUILD_ROOT}/module_header_unit_import_preamble")
-set(_src_dir "${_work_dir}/src")
-set(_build_dir "${_work_dir}/build")
-file(REMOVE_RECURSE "${_work_dir}")
+gentest_make_compact_fixture_work_dir(_work_dir
+  PREFIX mhuip
+  SOURCE_DIR "${SOURCE_DIR}"
+  EXTRA_KEY "header_unit_import_preamble_tests")
+set(_src_dir "${_work_dir}/s")
+set(_build_dir "${_work_dir}/b")
+gentest_remove_fixture_path("${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
+gentest_make_compact_fixture_source_link(_gentest_source_dir
+  WORK_DIR "${_work_dir}"
+  SOURCE_DIR "${GENTEST_SOURCE_DIR}"
+  STEM "g")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
@@ -46,7 +53,7 @@ if(DEFINED GENERATOR_TOOLSET AND NOT "${GENERATOR_TOOLSET}" STREQUAL "")
 endif()
 
 set(_cmake_cache_args
-  "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}"
+  "-DGENTEST_SOURCE_DIR=${_gentest_source_dir}"
   "-DCMAKE_C_COMPILER=${_clang}"
   "-DCMAKE_CXX_COMPILER=${_clangxx}")
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
@@ -78,6 +85,7 @@ endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
+gentest_append_windows_path_budget_cache_args(_cmake_cache_args)
 
 execute_process(
   COMMAND
@@ -119,12 +127,19 @@ if(_header_unit_unavailable)
   return()
 endif()
 
-set(_mock_surface "${_build_dir}/generated/mocks/gentest/header_unit_import_preamble_mocks.cppm")
+set(_generated_root "generated")
+set(_mock_generated_leaf "mocks")
+if(CMAKE_HOST_WIN32)
+  set(_generated_root "g")
+  set(_mock_generated_leaf "m")
+endif()
+
+set(_mock_surface "${_build_dir}/${_generated_root}/${_mock_generated_leaf}/gentest/header_unit_import_preamble_mocks.cppm")
 if(NOT EXISTS "${_mock_surface}")
   message(FATAL_ERROR "Expected explicit mock module surface was not written: ${_mock_surface}")
 endif()
 
-file(GLOB _wrapper_candidates "${_build_dir}/generated/*.module.gentest.cppm")
+file(GLOB _wrapper_candidates "${_build_dir}/${_generated_root}/*.module.gentest.cppm")
 list(LENGTH _wrapper_candidates _wrapper_count)
 if(NOT _wrapper_count EQUAL 1)
   message(FATAL_ERROR "Expected exactly one generated module wrapper, found ${_wrapper_count}: ${_wrapper_candidates}\n${_build_out}\n${_build_err}")
@@ -159,4 +174,5 @@ if(NOT _run_rc EQUAL 0)
   message(FATAL_ERROR "Running explicit header-unit import preamble case failed unexpectedly.\n${_run_out}\n${_run_err}")
 endif()
 
+gentest_cleanup_compact_fixture_source_link("${_gentest_source_dir}")
 message(STATUS "Module header-unit import preamble regression passed")

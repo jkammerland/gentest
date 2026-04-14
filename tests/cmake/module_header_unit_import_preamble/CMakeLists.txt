@@ -7,6 +7,9 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(WIN32)
+    set(CMAKE_OBJECT_PATH_MAX 128)
+endif()
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 if(DEFINED GENTEST_CODEGEN_EXECUTABLE AND NOT "${GENTEST_CODEGEN_EXECUTABLE}" STREQUAL "")
     set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
@@ -16,11 +19,18 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+set(_gentest_generated_root "generated")
+set(_gentest_mock_leaf "mocks")
+if(WIN32)
+    set(_gentest_generated_root "g")
+    set(_gentest_mock_leaf "m")
+endif()
+
 gentest_add_mocks(header_unit_import_preamble_mocks
     DEFS
         ${CMAKE_CURRENT_SOURCE_DIR}/provider.cppm
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.cppm
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${_gentest_generated_root}/${_gentest_mock_leaf}"
     MODULE_NAME gentest.header_unit_import_preamble_mocks)
 
 add_executable(header_unit_import_preamble_tests
@@ -36,4 +46,4 @@ gentest_link_mocks(header_unit_import_preamble_tests PRIVATE header_unit_import_
 target_compile_features(header_unit_import_preamble_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(header_unit_import_preamble_tests
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${_gentest_generated_root}")

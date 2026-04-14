@@ -4,6 +4,111 @@ function(gentest_skip_test reason)
   message(STATUS "${GENTEST_SKIP_TEST_PREFIX} ${reason}")
 endfunction()
 
+function(gentest_make_compact_fixture_work_dir out_var)
+  set(one_value_args PREFIX SOURCE_DIR EXTRA_KEY)
+  cmake_parse_arguments(MAKE "" "${one_value_args}" "" ${ARGN})
+
+  if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
+    message(FATAL_ERROR "gentest_make_compact_fixture_work_dir requires BUILD_ROOT to be set")
+  endif()
+  if(NOT DEFINED MAKE_PREFIX OR "${MAKE_PREFIX}" STREQUAL "")
+    message(FATAL_ERROR "gentest_make_compact_fixture_work_dir requires PREFIX")
+  endif()
+
+  set(_hash_input "${MAKE_PREFIX}|${MAKE_SOURCE_DIR}|${MAKE_EXTRA_KEY}")
+  string(MD5 _work_hash "${_hash_input}")
+  string(SUBSTRING "${_work_hash}" 0 12 _work_suffix)
+  set(${out_var} "${BUILD_ROOT}/${MAKE_PREFIX}_${_work_suffix}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_make_compact_fixture_source_link out_var)
+  set(one_value_args WORK_DIR SOURCE_DIR STEM)
+  cmake_parse_arguments(MAKE "" "${one_value_args}" "" ${ARGN})
+
+  if(NOT DEFINED MAKE_WORK_DIR OR "${MAKE_WORK_DIR}" STREQUAL "")
+    message(FATAL_ERROR "gentest_make_compact_fixture_source_link requires WORK_DIR")
+  endif()
+  if(NOT DEFINED MAKE_SOURCE_DIR OR "${MAKE_SOURCE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "gentest_make_compact_fixture_source_link requires SOURCE_DIR")
+  endif()
+  if(NOT DEFINED MAKE_STEM OR "${MAKE_STEM}" STREQUAL "")
+    message(FATAL_ERROR "gentest_make_compact_fixture_source_link requires STEM")
+  endif()
+
+  if(CMAKE_HOST_WIN32)
+    file(TO_CMAKE_PATH "$ENV{SYSTEMDRIVE}" _gentest_system_drive)
+    if(_gentest_system_drive STREQUAL "")
+      file(TO_CMAKE_PATH "$ENV{USERPROFILE}" _gentest_system_drive)
+    endif()
+    if(_gentest_system_drive STREQUAL "")
+      message(FATAL_ERROR "gentest_make_compact_fixture_source_link requires SYSTEMDRIVE or USERPROFILE on Windows")
+    endif()
+    string(MD5 _gentest_source_link_hash "${MAKE_SOURCE_DIR}|${MAKE_WORK_DIR}|${MAKE_STEM}")
+    string(SUBSTRING "${_gentest_source_link_hash}" 0 12 _gentest_source_link_suffix)
+    set(_gentest_source_link_root "${_gentest_system_drive}/gsrc")
+    file(MAKE_DIRECTORY "${_gentest_source_link_root}")
+    set(_link_path "${_gentest_source_link_root}/${MAKE_STEM}_${_gentest_source_link_suffix}")
+    file(REMOVE_RECURSE "${_link_path}")
+    set(_gentest_python_cmd "${Python3_EXECUTABLE}")
+    if(_gentest_python_cmd STREQUAL "" OR NOT EXISTS "${_gentest_python_cmd}")
+      find_program(_gentest_python_cmd NAMES python python3)
+    endif()
+    if(NOT _gentest_python_cmd)
+      message(FATAL_ERROR "gentest_make_compact_fixture_source_link requires python or python3 on PATH for Windows source-view creation")
+    endif()
+    string(CONCAT _gentest_source_view_script
+      "import pathlib, shutil, sys; "
+      "src = pathlib.Path(sys.argv[1]); "
+      "dst = pathlib.Path(sys.argv[2]); "
+      "ignore = shutil.ignore_patterns('.git', 'build', 'build-*', 'gentest_scan_inspector_*', '.wt', '__pycache__'); "
+      "shutil.copytree(src, dst, ignore=ignore)")
+    execute_process(
+      COMMAND "${_gentest_python_cmd}" -c "${_gentest_source_view_script}" "${MAKE_SOURCE_DIR}" "${_link_path}"
+      RESULT_VARIABLE _link_rc
+      OUTPUT_VARIABLE _link_out
+      ERROR_VARIABLE _link_err
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_STRIP_TRAILING_WHITESPACE)
+    if(NOT _link_rc EQUAL 0)
+      message(FATAL_ERROR
+        "gentest_make_compact_fixture_source_link failed to create the short Windows source view.\n"
+        "source: ${MAKE_SOURCE_DIR}\n"
+        "link: ${_link_path}\n"
+        "stdout:\n${_link_out}\n"
+        "stderr:\n${_link_err}")
+    endif()
+  else()
+    set(_link_path "${MAKE_WORK_DIR}/${MAKE_STEM}")
+    file(CREATE_LINK "${MAKE_SOURCE_DIR}" "${_link_path}" SYMBOLIC)
+  endif()
+
+  set(${out_var} "${_link_path}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_cleanup_compact_fixture_source_link path)
+  if("${path}" STREQUAL "")
+    return()
+  endif()
+
+  file(TO_CMAKE_PATH "$ENV{SYSTEMDRIVE}" _gentest_system_drive)
+  if(_gentest_system_drive STREQUAL "")
+    file(TO_CMAKE_PATH "$ENV{USERPROFILE}" _gentest_system_drive)
+  endif()
+  if(_gentest_system_drive STREQUAL "")
+    return()
+  endif()
+
+  set(_gentest_source_link_root "${_gentest_system_drive}/gsrc")
+  cmake_path(ABSOLUTE_PATH path NORMALIZE OUTPUT_VARIABLE _gentest_candidate_abs)
+  cmake_path(ABSOLUTE_PATH _gentest_source_link_root NORMALIZE OUTPUT_VARIABLE _gentest_source_root_abs)
+  string(TOLOWER "${_gentest_candidate_abs}" _gentest_candidate_cmp)
+  string(TOLOWER "${_gentest_source_root_abs}" _gentest_source_root_cmp)
+  string(FIND "${_gentest_candidate_cmp}/" "${_gentest_source_root_cmp}/" _gentest_prefix_pos)
+  if(_gentest_prefix_pos EQUAL 0)
+    file(REMOVE_RECURSE "${_gentest_candidate_abs}")
+  endif()
+endfunction()
+
 function(gentest_remove_fixture_path path)
   if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
     message(FATAL_ERROR "gentest_remove_fixture_path requires BUILD_ROOT to be set")
@@ -464,6 +569,14 @@ function(gentest_append_windows_native_llvm_cache_args out_var compiler_path)
     list(APPEND _args
       "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>"
       "-DCMAKE_CXX_FLAGS_INIT=-D_ITERATOR_DEBUG_LEVEL=0 -D_HAS_ITERATOR_DEBUGGING=0")
+  endif()
+  set(${out_var} "${_args}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_append_windows_path_budget_cache_args out_var)
+  set(_args ${${out_var}})
+  if(CMAKE_HOST_WIN32)
+    list(APPEND _args "-DCMAKE_OBJECT_PATH_MAX=128")
   endif()
   set(${out_var} "${_args}" PARENT_SCOPE)
 endfunction()
