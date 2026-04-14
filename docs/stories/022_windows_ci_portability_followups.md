@@ -10,8 +10,9 @@ This is an inventory-and-triage story, not a catch-all implementation bucket.
 
 ## Status
 
-Open. This story is complete when the refreshed inventory exists and every
-surviving Windows failure is either:
+Done. The refreshed full native Windows inventory was captured on `2026-04-14`
+from a normal deep checkout root, and every surviving failure was mapped to a
+concrete owner story:
 
 - mapped into a concrete mechanism-specific story
 - already owned by `028_windows_helper_path_depth_portability.md`
@@ -46,10 +47,10 @@ Without that inventory, backlog ownership stays fuzzy:
 The authoritative checked-in inventory for this story lives in
 `022_windows_ci_portability_followups_inventory.md`.
 
-Refresh that file from a fresh native Windows
-`ctest --preset=debug-system --output-on-failure` run, including the exact
-still-failing tests, their initial root-cause classification, and destination
-story.
+The latest inventory is the full native Windows
+`ctest --preset=debug-system --output-on-failure` run from `2026-04-14`,
+including the exact still-failing tests, their first-pass root-cause
+classification, and destination story.
 
 ## User stories
 
