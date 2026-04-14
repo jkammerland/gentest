@@ -126,38 +126,54 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
                                    InterruptedFn &&on_interrupted, bool &had_assert_fail) {
     using clock     = std::chrono::steady_clock;
     auto ctxinfo    = gentest::runner::detail::make_active_test_context(c.name);
-    auto start      = clock::now();
     had_assert_fail = false;
     std::string assertion_fallback;
+    auto        start      = clock::time_point{};
+    auto        end        = clock::time_point{};
+    bool        stopped    = false;
+    const auto  stop_timer = [&] {
+        if (stopped) {
+            return;
+        }
+        end     = clock::now();
+        stopped = true;
+    };
     {
         gentest::runner::detail::CurrentTestScope test_scope(ctxinfo);
         gentest::detail::BenchPhaseScope          bench_scope(gentest::detail::BenchPhase::Call);
         try {
+            // Bench/jitter ns/op should measure only the user call body.
+            start = clock::now();
             body();
+            stop_timer();
         } catch (const gentest::detail::skip_exception &) {
+            stop_timer();
             on_interrupted();
             record_runtime_skip_or_default(ctxinfo, default_skip_reason);
             had_assert_fail = true;
         } catch (const gentest::assertion &e) {
+            stop_timer();
             on_interrupted();
             assertion_fallback = e.message();
             had_assert_fail    = true;
         } catch (const gentest::failure &e) {
+            stop_timer();
             on_interrupted();
             gentest::detail::record_bench_error(e.what());
             had_assert_fail = true;
         } catch (const std::exception &e) {
+            stop_timer();
             on_interrupted();
             gentest::detail::record_bench_error(fmt::format("std::exception: {}", e.what()));
             had_assert_fail = true;
         } catch (...) {
+            stop_timer();
             on_interrupted();
             gentest::detail::record_bench_error("unknown exception");
             had_assert_fail = true;
         }
     }
     finalize_call_phase_failure(ctxinfo, default_skip_reason, assertion_fallback, had_assert_fail);
-    auto end = clock::now();
     return std::chrono::duration<double>(end - start).count();
 }
 

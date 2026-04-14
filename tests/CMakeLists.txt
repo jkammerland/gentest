@@ -220,6 +220,19 @@ _gentest_add_proof_test(
 _gentest_add_proof_test(
     gentest_proof_api_assertions_header_isolation
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/assertions_header_isolation_red.cpp)
+add_executable(
+    gentest_proof_measured_call_phase_body_timing
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/measured/call_phase_body_timing_red.cpp)
+target_include_directories(
+    gentest_proof_measured_call_phase_body_timing
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(gentest_proof_measured_call_phase_body_timing PRIVATE gentest_runtime)
+target_compile_features(gentest_proof_measured_call_phase_body_timing PRIVATE cxx_std_20)
+add_test(NAME gentest_proof_measured_call_phase_body_timing COMMAND $<TARGET_FILE:gentest_proof_measured_call_phase_body_timing>)
+set_property(TEST gentest_proof_measured_call_phase_body_timing APPEND PROPERTY LABELS "proof")
 gentest_add_cmake_script_test(
     NAME gentest_runner_registry_runtime_hidden
     NO_EMULATOR
