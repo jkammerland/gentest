@@ -159,6 +159,37 @@ Validation for the current slice:
   `results/story026_review_inventory_slice_r5.md`
   -> no findings
 
-This leaves story `026` partial rather than done. The inventory rows now have a
-single canonical source of truth, but the broader helper-driver consolidation
-in `GentestTests.cmake` and `tests/cmake/scripts/` is still open.
+Helper-driver consolidation slice on `2026-04-14` then reduced the remaining
+thin run/assert wrappers:
+
+- `tests/cmake/scripts/CheckRunContract.cmake`
+  - now holds the shared run/exit-code/output/file contract for the normal
+    `contains`, `exit-code`, and `file-contains` helpers
+- `tests/cmake/scripts/CheckContains.cmake`,
+  `tests/cmake/scripts/CheckExitCode.cmake`, and
+  `tests/cmake/scripts/CheckFileContains.cmake`
+  - are now thin compatibility wrappers over the shared contract driver
+- `cmake/GentestTests.cmake`
+  - dropped the unused `gentest_add_check_lines()` helper
+- `tests/cmake/scripts/CheckLines.cmake`
+  - removed as dead helper surface
+
+Validation for the helper-driver slice:
+
+- reconfigure:
+  `cmake --preset=debug-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`
+  -> passed
+- focused helper-driver band:
+  `ctest --preset=debug-system --output-on-failure -R '^(regression_measured_report_coverage|unit_help|unit_help_time_unit|run_test_not_found|junit_smoke_unit|junit_properties_unit|helper_check_file_contains_rejects_stale_output|junit_artifact_example|benches_fixture_free_suite_global|jitter_fixture_free_suite_global|gentest_cross_compile_exit_code_no_emulator)$'`
+  -> `11/11` passed
+- `clang-tidy` lane:
+  `./scripts/check_clang_tidy.sh build/debug-system`
+  -> passed
+- final batch review:
+  `results/story026_review_helper_slice_r2.md`
+  -> no findings
+
+At the current story scope, this closes `026`: audited inventory slices now
+have one canonical source of truth, and the generic run/assert helper behavior
+is expressed through a smaller shared driver set instead of several duplicated
+scripts.
