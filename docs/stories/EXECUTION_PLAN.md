@@ -12,7 +12,7 @@ It assumes the current branch state, not raw worktree ancestry:
 ## Current branch truth
 
 - `021`, `022`, and `027` are treated as done at the current evidence level
-- `023`, `024`, and `026` still need closure work
+- `023` and `026` still need closure work
 - `029` and `030` have more integrated progress than their worktree ancestry
   suggests; their remaining work is now mostly closure audit plus smaller final
   cleanup, not a fresh restart
@@ -36,18 +36,13 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ### Remaining implementation
 
-1. Story `024`: complete manifest-vs-TU emission unification.
-   - Finish consolidating the remaining shared fragment assembly in `emit.cpp`.
-   - Keep mode differences at the outer shell boundary only.
-   - This now leads the queue because the smaller closure audits are settled.
-
-2. Story `023`: reduce the remaining installed runtime/fixture leakage.
+1. Story `023`: reduce the remaining installed runtime/fixture leakage.
    - Refresh and confirm `023_public_api_internal_surface_inventory.md` first.
    - Tackle `registry.h` next, then `fixture.h`.
    - Preserve downstream/package coverage on every slice.
    - Explicitly classify what remains unstable `detail` versus fully private.
 
-3. Story `026`: finish helper-driver consolidation.
+2. Story `026`: finish helper-driver consolidation.
    - Collapse thin helper wrappers only after the higher-risk product refactors
      above have settled.
    - Keep inventory expectations derived from one declared source of truth.
@@ -69,15 +64,14 @@ It assumes the current branch state, not raw worktree ancestry:
   acceptance criteria, or one final cleanup slice lands and proves it
 ## Practical next move
 
-Take the highest-value unfinished simplification story from `024`, `023`, or
-`026`.
+Take the highest-value unfinished simplification story from `023` or `026`.
 
 That ordering follows the current evidence:
 
 - the refreshed `022` inventory surfaced the native Windows blockers, and the
   reopened `025`, `028`, and `031` slices are now re-closed by validated
   implementation work
-- `024`, `023`, and `026` are the remaining larger simplification stories
-- `024` comes first because the output and mock-side closure audits are now
-  settled, so the remaining render-pipeline unification can move without
-  reopening those smaller contracts
+- `023` and `026` are the remaining simplification stories
+- `023` stays ahead of `026` because public/runtime surface reduction is the
+  higher-risk product boundary change, while `026` is mostly build-helper
+  consolidation once the public surface is settled

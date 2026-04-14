@@ -127,3 +127,24 @@ reconstructs the same strings twice under different names.
   remain green.
 - New changes to generated output shape can be implemented without editing two
   parallel pipelines.
+
+## Latest validation
+
+Closure audit on `2026-04-14` found the current branch already satisfies the
+story's unification question:
+
+- audit result:
+  `results/story024_audit_r1.md`
+  -> shared registration/body fragment assembly is centralized through
+  `render_registration_core()` / `apply_registration_core()` in `emit.cpp`
+  plus the shared render helpers in `render.cpp`; remaining manifest-vs-TU
+  differences are shell/orchestration level
+
+Fresh acceptance validation from a clean `debug-system` worktree build also
+stayed green:
+
+- `ctest --preset=debug-system --output-on-failure -R '^(gentest_core_render|gentest_core_discovery|gentest_codegen_check_valid|gentest_codegen_emit_namespaced_attrs_mixed_std_first|gentest_codegen_emit_namespaced_attrs_mixed_scoped_first|gentest_codegen_emit_axis_generators|gentest_codegen_emit_parameters_pack|gentest_codegen_emit_fixture_resolution|gentest_codegen_emit_template_fixture_resolution|gentest_codegen_emit_template_parser_edges|gentest_codegen_emit_type_quoting|gentest_codegen_manifest_depfile_aggregation|gentest_codegen_manifest_header_shared_fixture_visibility|gentest_tu_register_symbol_collision|gentest_tu_wrapper_source_props)$'`
+  -> `15/15` passed
+
+Story `024` can close on the current branch state without another
+implementation slice.
