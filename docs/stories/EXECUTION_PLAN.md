@@ -12,7 +12,7 @@ It assumes the current branch state, not raw worktree ancestry:
 ## Current branch truth
 
 - `021`, `022`, and `027` are treated as done at the current evidence level
-- `023`, `024`, `025`, `026`, `028`, `029`, `030`, and `031` still need
+- `023`, `024`, `026`, `028`, `029`, `030`, and `031` still need
   closure work
 - `029` and `030` have more integrated progress than their worktree ancestry
   suggests; their remaining work is now mostly closure audit plus smaller final
@@ -37,19 +37,15 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ### Phase 1: Reopened Windows implementation blockers
 
-1. Top-tier Windows blockers: stories `028` and `025`.
+1. Top-tier Windows blocker: story `028`.
    - Story `028`:
      fix `gentest_module_mock_additive_visibility` and
      `gentest_module_header_unit_import_preamble`, then rerun those checks from
      the same normal deep checkout style used in the refreshed `022` inventory.
-   - Story `025`:
-     repair the nested helper/backend path exercised by
-     `gentest_codegen_incremental_dependencies`, repair the helper configure
-     bootstrap used by `gentest_module_name_literal_false_match`, then rerun
-     the source-inspection-sensitive Windows slice.
-   - The listed order inside this tier is arbitrary. Both stories own two of
-     the five remaining Windows failures from the refreshed inventory, so both
-     should be finished before the Windows blocker set is treated as stable.
+   - Story `025` is re-closed by the nested helper/backend repair slice that
+     revalidated `gentest_codegen_incremental_dependencies` and
+     `gentest_module_name_literal_false_match` on both Linux and native
+     Windows.
 
 2. Story `031`: reconcile the reopened full-matrix public-module import failure.
    - Reproduce `gentest_codegen_public_module_imports` from the installed
