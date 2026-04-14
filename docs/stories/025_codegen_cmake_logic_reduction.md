@@ -151,9 +151,9 @@ those surfaces once they exist.
 
 ## Latest validation
 
-The main migration slice landed in `1db3854b`, but the refreshed full native
-Windows inventory from `2026-04-14` reopened two source-inspection/helper flows
-that still belong to this story:
+The main migration slice landed in `1db3854b`, and the refreshed full native
+Windows inventory from `2026-04-14` briefly reopened two nested
+source-inspection/helper flows that still belonged to this story:
 
 - `gentest_codegen_incremental_dependencies`:
   nested configure-time inspection could not resolve a runnable
@@ -164,5 +164,15 @@ that still belong to this story:
   `Unix Makefiles` and no runnable make program/compiler during the fallback
   helper build
 
-That means this story is not closed at the refreshed Windows evidence level
-until both nested helper/backend paths are green again.
+That reopened slice is now fixed and revalidated:
+
+- Linux:
+  `ctest --preset=debug-system --output-on-failure -R '^(gentest_codegen_incremental_dependencies|gentest_module_name_literal_false_match)$'`
+  passed `2/2`
+- Native Windows, normal deep checkout:
+  the same targeted slice passed `2/2` after hardening helper source-dir
+  discovery, executable suffix handling, generator inference, and host compiler
+  bootstrap for the nested inspection helper path
+
+At the refreshed Windows evidence level, this story can be treated as closed
+again.
