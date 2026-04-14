@@ -62,7 +62,7 @@ set(_consumer_build_dir "${_work_dir}/consumer-build")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_consumer_source_dir}")
 
-gentest_fixture_write_file("${_consumer_source_dir}/CMakeLists.txt" [=[
+set(_consumer_cmakelists [=[
 cmake_minimum_required(VERSION 3.31)
 project(gentest_legacy_detail_fixture_contract_consumer LANGUAGES CXX)
 
@@ -78,9 +78,8 @@ add_executable(legacy_registry_detail_contract legacy_registry_detail_contract.c
 target_compile_features(legacy_registry_detail_contract PRIVATE cxx_std_20)
 target_link_libraries(legacy_registry_detail_contract PRIVATE gentest::gentest_main)
 ]=])
-file(READ "${_consumer_source_dir}/CMakeLists.txt" _consumer_cmakelists)
-string(REPLACE "@PACKAGE_NAME@" "${PACKAGE_NAME}" _consumer_cmakelists "${_consumer_cmakelists}")
-file(WRITE "${_consumer_source_dir}/CMakeLists.txt" "${_consumer_cmakelists}")
+string(CONFIGURE "${_consumer_cmakelists}" _consumer_cmakelists @ONLY)
+gentest_fixture_write_file("${_consumer_source_dir}/CMakeLists.txt" "${_consumer_cmakelists}")
 
 gentest_fixture_write_file("${_consumer_source_dir}/legacy_fixture_detail_contract.cpp" [=[
 #include "gentest/fixture.h"

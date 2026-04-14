@@ -358,6 +358,8 @@ def _gentest_textual_codegen_impl(ctx):
     args.add("--tu-header-output", header_h.path)
     args.add("--mock-registry", registry_h.path)
     args.add("--mock-impl", impl_h.path)
+    args.add("--mock-domain-registry-output", domain_registry_h.path)
+    args.add("--mock-domain-impl-output", domain_impl_h.path)
     args.add("--discover-mocks")
     args.add(wrapper_cpp.path)
     _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
@@ -513,7 +515,9 @@ def _gentest_module_mocks_codegen_impl(ctx):
     anchor_cpp = ctx.actions.declare_file("{}/{}_anchor.cpp".format(out_dir, target_id))
     public_module = ctx.actions.declare_file(_gentest_module_public_relpath(out_dir, ctx.attr.module_name))
     registry_domain_headers, impl_domain_headers = _gentest_module_domain_headers(out_dir, target_id, ctx.attr.defs_modules)
-    domain_outputs = [ctx.actions.declare_file(path) for path in registry_domain_headers + impl_domain_headers]
+    registry_domain_outputs = [ctx.actions.declare_file(path) for path in registry_domain_headers]
+    impl_domain_outputs = [ctx.actions.declare_file(path) for path in impl_domain_headers]
+    domain_outputs = registry_domain_outputs + impl_domain_outputs
 
     ctx.actions.write(
         output = anchor_cpp,
@@ -531,6 +535,10 @@ def _gentest_module_mocks_codegen_impl(ctx):
         args.add("--tu-header-output", header_output.path)
     args.add("--mock-registry", registry_h.path)
     args.add("--mock-impl", impl_h.path)
+    for registry_domain_output in registry_domain_outputs:
+        args.add("--mock-domain-registry-output", registry_domain_output.path)
+    for impl_domain_output in impl_domain_outputs:
+        args.add("--mock-domain-impl-output", impl_domain_output.path)
     args.add("--discover-mocks")
     for module_mapping in default_module_mappings:
         args.add("--external-module-source", module_mapping)
