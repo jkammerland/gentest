@@ -531,6 +531,8 @@ def _gentest_module_mocks_codegen_impl(ctx):
     args = ctx.actions.args()
     args.add("--source-root", ".")
     args.add("--tu-out-dir", anchor_cpp.dirname)
+    for wrapper_output in wrapper_outputs:
+        args.add("--module-wrapper-output", wrapper_output.path)
     for header_output in header_outputs:
         args.add("--tu-header-output", header_output.path)
     args.add("--mock-registry", registry_h.path)
@@ -679,6 +681,7 @@ def _gentest_module_suite_codegen_impl(ctx):
     args.add("--source-root", ".")
     args.add("--compdb", compdb_json.dirname)
     args.add("--tu-out-dir", wrapper_cpp.dirname)
+    args.add("--module-wrapper-output", wrapper_cpp.path)
     args.add("--tu-header-output", wrapper_h.path)
     for module_mapping in module_mappings:
         args.add("--external-module-source", module_mapping)

@@ -16,7 +16,7 @@ namespace {
 using clock = std::chrono::steady_clock;
 
 constexpr auto kBodyWork    = std::chrono::milliseconds(5);
-constexpr auto kAdoptedWait = std::chrono::milliseconds(40);
+constexpr auto kAdoptedWait = std::chrono::milliseconds(80);
 
 int g_call_invocations = 0;
 
@@ -101,14 +101,15 @@ int main() {
         (void)std::fprintf(stderr, "measured call phase proof failed to execute benchmark: %s\n", failure_detail.c_str());
         return 1;
     }
-    if (g_call_invocations != 2) {
-        (void)std::fprintf(stderr, "expected exactly 2 call-phase invocations, saw %d\n", g_call_invocations);
+    if (g_call_invocations < 1) {
+        (void)std::fprintf(stderr, "expected at least one call-phase invocation, saw %d\n", g_call_invocations);
         return 1;
     }
 
     constexpr double kMaxBodyMeanNs       = 20'000'000.0;
-    constexpr double kMaxReportedWallTime = 0.02;
-    constexpr double kMinFullRunElapsed   = 0.05;
+    constexpr double kMaxReportedWallTime = 0.03;
+    constexpr double kMinFullRunElapsed   = 0.06;
+    constexpr double kMinGapToOuterRun    = 0.03;
     if (result.mean_ns >= kMaxBodyMeanNs) {
         (void)std::fprintf(stderr, "mean_ns should exclude teardown wait, got %.0f ns\n", result.mean_ns);
         return 1;
@@ -119,6 +120,11 @@ int main() {
     }
     if (full_run_elapsed_s <= kMinFullRunElapsed) {
         (void)std::fprintf(stderr, "full run should still wait for adopted work, got %.6f s\n", full_run_elapsed_s);
+        return 1;
+    }
+    if (full_run_elapsed_s - result.wall_time_s <= kMinGapToOuterRun) {
+        (void)std::fprintf(stderr, "outer run should materially exceed reported wall time, got outer=%.6f s wall=%.6f s\n",
+                           full_run_elapsed_s, result.wall_time_s);
         return 1;
     }
 

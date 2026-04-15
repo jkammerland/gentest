@@ -12,12 +12,30 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
+set(_cmake_generator_args)
+if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
+  list(APPEND _cmake_generator_args -G "${GENERATOR}")
+  if(DEFINED GENERATOR_PLATFORM AND NOT GENERATOR_PLATFORM STREQUAL "")
+    list(APPEND _cmake_generator_args -A "${GENERATOR_PLATFORM}")
+  endif()
+  if(DEFINED GENERATOR_TOOLSET AND NOT GENERATOR_TOOLSET STREQUAL "")
+    list(APPEND _cmake_generator_args -T "${GENERATOR_TOOLSET}")
+  endif()
+endif()
+
 set(_cmake_cache_args
     "-Dgentest_BUILD_TESTING=OFF"
     "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF"
     "-DGENTEST_BUILD_CODEGEN=OFF"
     "-Dgentest_INSTALL=ON"
     "-DCMAKE_INSTALL_PREFIX=${BUILD_ROOT}/legacy_detail_fixture_contract/install")
+
+if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
+endif()
+if(DEFINED MAKE_PROGRAM AND NOT "${MAKE_PROGRAM}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
+endif()
 
 if(DEFINED PACKAGE_TEST_C_COMPILER AND NOT "${PACKAGE_TEST_C_COMPILER}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${PACKAGE_TEST_C_COMPILER}")
@@ -130,16 +148,39 @@ auto main() -> int {
 ]=])
 
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" -S "${SOURCE_DIR}" -B "${_producer_build_dir}" ${_cmake_cache_args}
+  COMMAND "${CMAKE_COMMAND}" ${_cmake_generator_args} -S "${SOURCE_DIR}" -B "${_producer_build_dir}" ${_cmake_cache_args}
   WORKING_DIRECTORY "${_work_dir}"
   DISPLAY_COMMAND "configure producer install")
 gentest_assert_windows_native_llvm_cache_args(
   "${_producer_build_dir}" "${_effective_cxx_compiler}" "legacy detail contract producer")
 
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install
-  WORKING_DIRECTORY "${_work_dir}"
-  DISPLAY_COMMAND "build and install producer package")
+set(_is_multi_config_generator FALSE)
+set(_effective_build_config "")
+if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
+  if(GENERATOR STREQUAL "Ninja Multi-Config" OR GENERATOR MATCHES "^Visual Studio" OR GENERATOR STREQUAL "Xcode")
+    set(_is_multi_config_generator TRUE)
+    gentest_resolve_fixture_build_type(_effective_build_config "${_effective_cxx_compiler}" "${BUILD_CONFIG}")
+  endif()
+endif()
+
+if(_is_multi_config_generator)
+  set(_install_configs Debug Release)
+  if(NOT "${_effective_build_config}" STREQUAL "")
+    list(APPEND _install_configs "${_effective_build_config}")
+  endif()
+  list(REMOVE_DUPLICATES _install_configs)
+  foreach(_cfg IN LISTS _install_configs)
+    gentest_check_run_or_fail(
+      COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install --config "${_cfg}"
+      WORKING_DIRECTORY "${_work_dir}"
+      DISPLAY_COMMAND "build and install producer package (${_cfg})")
+  endforeach()
+else()
+  gentest_check_run_or_fail(
+    COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install
+    WORKING_DIRECTORY "${_work_dir}"
+    DISPLAY_COMMAND "build and install producer package")
+endif()
 
 file(GLOB_RECURSE _config_candidates
   LIST_DIRECTORIES FALSE
@@ -157,15 +198,15 @@ set(_consumer_cache_args
 list(APPEND _consumer_cache_args ${_cmake_cache_args})
 
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" -S "${_consumer_source_dir}" -B "${_consumer_build_dir}" ${_consumer_cache_args}
+  COMMAND "${CMAKE_COMMAND}" ${_cmake_generator_args} -S "${_consumer_source_dir}" -B "${_consumer_build_dir}" ${_consumer_cache_args}
   WORKING_DIRECTORY "${_work_dir}"
   DISPLAY_COMMAND "configure legacy detail consumer")
 gentest_assert_windows_native_llvm_cache_args(
   "${_consumer_build_dir}" "${_effective_cxx_compiler}" "legacy detail contract consumer")
 
 set(_consumer_build_args --build "${_consumer_build_dir}")
-if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
-  list(APPEND _consumer_build_args --config "${BUILD_CONFIG}")
+if(NOT "${_effective_build_config}" STREQUAL "")
+  list(APPEND _consumer_build_args --config "${_effective_build_config}")
 endif()
 
 execute_process(
@@ -189,12 +230,18 @@ if(CMAKE_HOST_WIN32)
   string(APPEND _fixture_exe ".exe")
   string(APPEND _registry_exe ".exe")
 endif()
-if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
-  set(_fixture_exe "${_consumer_build_dir}/${BUILD_CONFIG}/legacy_fixture_detail_contract")
-  set(_registry_exe "${_consumer_build_dir}/${BUILD_CONFIG}/legacy_registry_detail_contract")
+if(NOT "${_effective_build_config}" STREQUAL "")
+  set(_fixture_exe_with_config "${_consumer_build_dir}/${_effective_build_config}/legacy_fixture_detail_contract")
+  set(_registry_exe_with_config "${_consumer_build_dir}/${_effective_build_config}/legacy_registry_detail_contract")
   if(CMAKE_HOST_WIN32)
-    string(APPEND _fixture_exe ".exe")
-    string(APPEND _registry_exe ".exe")
+    string(APPEND _fixture_exe_with_config ".exe")
+    string(APPEND _registry_exe_with_config ".exe")
+  endif()
+  if(EXISTS "${_fixture_exe_with_config}")
+    set(_fixture_exe "${_fixture_exe_with_config}")
+  endif()
+  if(EXISTS "${_registry_exe_with_config}")
+    set(_registry_exe "${_registry_exe_with_config}")
   endif()
 endif()
 

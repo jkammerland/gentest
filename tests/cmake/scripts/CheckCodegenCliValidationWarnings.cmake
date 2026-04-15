@@ -27,7 +27,6 @@ set(_module_smoke_source "${_module_smoke_dir}/cases.cppm")
 file(MAKE_DIRECTORY "${_module_smoke_dir}")
 file(WRITE "${_module_smoke_source}" [=[
 export module gentest.cli.validation;
-import gentest;
 
 [[using gentest: test("cli/module_wrapper_output_required")]]
 void module_wrapper_output_required_case() {}
