@@ -27,23 +27,19 @@ set(_subproject_build_dir "${_work_dir}/subproject-build")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_source_dir}")
 
-file(WRITE "${_source_dir}/CMakeLists.txt" [=[
+file(TO_CMAKE_PATH "${GENTEST_SOURCE_DIR}" _gentest_source_dir)
+file(CONFIGURE OUTPUT "${_source_dir}/CMakeLists.txt" CONTENT [=[
 cmake_minimum_required(VERSION 3.31)
 project(gentest_subproject_defaults_consumer LANGUAGES CXX)
 
-add_subdirectory("@GENTEST_SOURCE_DIR@" gentest-build)
+add_subdirectory("@_gentest_source_dir@" gentest-build)
 
 add_executable(gentest_subproject_defaults_consumer main.cpp)
 target_link_libraries(gentest_subproject_defaults_consumer PRIVATE gentest::gentest_runtime)
-]=])
+]=] @ONLY)
 file(WRITE "${_source_dir}/main.cpp" [=[
 int main() { return 0; }
 ]=])
-
-file(READ "${_source_dir}/CMakeLists.txt" _consumer_cmake)
-string(REPLACE "@GENTEST_SOURCE_DIR@" "${GENTEST_SOURCE_DIR}" _consumer_cmake "${_consumer_cmake}")
-file(WRITE "${_source_dir}/CMakeLists.txt" "${_consumer_cmake}")
-unset(_consumer_cmake)
 
 set(_cmake_gen_args -G "${GENERATOR}")
 if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
