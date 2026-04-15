@@ -177,24 +177,22 @@ set(GENTEST_TSAN_STRESS_TIMEOUT_SEC "660" CACHE STRING "Timeout in seconds for T
 set(_gentest_is_tsan_build OFF)
 gentest_detect_thread_sanitizer(_gentest_is_tsan_build)
 
-set(_gentest_codegen_prog "")
-if(GENTEST_CODEGEN_EXECUTABLE)
-    set(_gentest_codegen_prog "${GENTEST_CODEGEN_EXECUTABLE}")
-elseif(GENTEST_CODEGEN_TARGET)
-    if(NOT TARGET ${GENTEST_CODEGEN_TARGET})
-        message(FATAL_ERROR "tests: GENTEST_CODEGEN_TARGET='${GENTEST_CODEGEN_TARGET}' does not exist")
-    endif()
-    set(_gentest_codegen_prog "$<TARGET_FILE:${GENTEST_CODEGEN_TARGET}>")
-elseif(TARGET gentest_codegen)
-    set(_gentest_codegen_prog "$<TARGET_FILE:gentest_codegen>")
-else()
-    message(FATAL_ERROR "tests: no gentest code generator available (gentest_codegen). Configure with -DGENTEST_BUILD_CODEGEN=ON or -DGENTEST_CODEGEN_EXECUTABLE=<path>.")
+if(NOT GENTEST_CODEGEN_EXECUTABLE AND NOT GENTEST_CODEGEN_TARGET AND NOT TARGET gentest_codegen)
+    message(FATAL_ERROR
+        "tests: no gentest code generator available (gentest_codegen). "
+        "Configure with -DGENTEST_BUILD_CODEGEN=ON or -DGENTEST_CODEGEN_EXECUTABLE=<path>.")
 endif()
+
+_gentest_resolve_codegen_backend(
+    TARGET tests
+    OUT_CODEGEN_TARGET _gentest_codegen_target
+    OUT_CODEGEN_EXECUTABLE _gentest_codegen_prog)
 
 _gentest_collect_cross_codegen_clang_args(_gentest_codegen_cross_target_arg)
 
 function(_gentest_add_proof_test name source)
     add_executable(${name} ${source})
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(${name} PRIVATE gentest_runtime)
     target_compile_features(${name} PRIVATE cxx_std_20)
     add_test(NAME ${name} COMMAND $<TARGET_FILE:${name}>)
@@ -216,6 +214,35 @@ _gentest_add_proof_test(
 _gentest_add_proof_test(
     gentest_proof_api_context_expect_throw_std_exception
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/expect_throw_std_exception_red.cpp)
+_gentest_add_proof_test(
+    gentest_proof_api_context_header_isolation
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/header_isolation_red.cpp)
+_gentest_add_proof_test(
+    gentest_proof_api_assertions_header_isolation
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/assertions_header_isolation_red.cpp)
+add_executable(
+    gentest_proof_measured_call_phase_body_timing
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/measured/call_phase_body_timing_red.cpp)
+target_include_directories(
+    gentest_proof_measured_call_phase_body_timing
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(gentest_proof_measured_call_phase_body_timing PRIVATE gentest_runtime)
+target_compile_features(gentest_proof_measured_call_phase_body_timing PRIVATE cxx_std_20)
+add_test(NAME gentest_proof_measured_call_phase_body_timing COMMAND $<TARGET_FILE:gentest_proof_measured_call_phase_body_timing>)
+set_property(TEST gentest_proof_measured_call_phase_body_timing APPEND PROPERTY LABELS "proof")
+gentest_add_cmake_script_test(
+    NAME gentest_runner_registry_runtime_hidden
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckRunnerRegistryRuntimeHidden.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/runner_registry_runtime_hidden_check"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+set_property(TEST gentest_runner_registry_runtime_hidden APPEND PROPERTY LABELS "proof")
 
 # Lint-only checks for generator
 gentest_add_check_exit_code(
@@ -1019,6 +1046,10 @@ gentest_add_check_exit_code(
         ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_registry.hpp
         --mock-impl
         ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_impl.hpp
+        --mock-domain-registry-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_registry__domain_0000_header.hpp
+        --mock-domain-impl-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_impl__domain_0000_header.hpp
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
@@ -1054,44 +1085,6 @@ gentest_add_cmake_script_test(
         "PROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
         "CODEGEN_STD=${_gentest_codegen_std_flag}"
         "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
-
-gentest_add_cmake_script_test(
-    NAME gentest_codegen_mock_defaulted_template_ctor_builds
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockDefaultedTemplateCtor.cmake"
-    DEFINES
-        "BUILD_ROOT=${CMAKE_BINARY_DIR}"
-        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/mock_defaulted_template_ctor"
-        "GENERATOR=${CMAKE_GENERATOR}"
-        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
-        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-        "C_COMPILER=${CMAKE_C_COMPILER}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-        "LLVM_DIR=${LLVM_DIR}"
-        "Clang_DIR=${Clang_DIR}")
-
-gentest_add_cmake_script_test(
-    NAME gentest_codegen_mock_template_template_pack_direct_expect_runs
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockTemplateTemplatePackDirectExpect.cmake"
-    DEFINES
-        "BUILD_ROOT=${CMAKE_BINARY_DIR}"
-        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/mock_template_template_pack_direct_expect"
-        "GENERATOR=${CMAKE_GENERATOR}"
-        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
-        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-        "C_COMPILER=${CMAKE_C_COMPILER}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-        "LLVM_DIR=${LLVM_DIR}"
-        "Clang_DIR=${Clang_DIR}")
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_anonymous_namespace_msg
@@ -1250,8 +1243,6 @@ set_tests_properties(
     gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
     gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
     gentest_codegen_mock_emit_header_main_tu_ok
-    gentest_codegen_mock_defaulted_template_ctor_builds
-    gentest_codegen_mock_template_template_pack_direct_expect_runs
     gentest_codegen_mock_anonymous_namespace_msg
     gentest_codegen_mock_local_class_msg
     gentest_codegen_fixture_suite_member_illegal
@@ -1268,43 +1259,47 @@ set_property(TEST gentest_codegen_mock_symlink_include APPEND PROPERTY LABELS "c
 
 # End-to-end behavioral checks with structured suite inventory
 set(_gentest_suite_inventory_checks
-    "unit|gentest_unit_tests|20|20|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/unit.list"
-    "integration|gentest_integration_tests|4|3|0|1|${CMAKE_CURRENT_SOURCE_DIR}/expected/integration.list"
-    "skiponly|gentest_skiponly_tests|2|0|0|2|${CMAKE_CURRENT_SOURCE_DIR}/expected/skiponly.list"
-    "fixtures|gentest_fixtures_tests|35|35|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
-    "readme_fixtures|gentest_readme_fixtures_tests|3|3|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
-    "templates|gentest_templates_tests|111|111|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
-    "mocking|gentest_mocking_tests|36|36|0|0|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
+    "unit|gentest_unit_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/unit.list"
+    "integration|gentest_integration_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/integration.list"
+    "skiponly|gentest_skiponly_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/skiponly.list"
+    "fixtures|gentest_fixtures_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/fixtures.list"
+    "readme_fixtures|gentest_readme_fixtures_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/readme_fixtures.list"
+    "templates|gentest_templates_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/templates.list"
+    "mocking|gentest_mocking_tests|${CMAKE_CURRENT_SOURCE_DIR}/expected/mocking.list")
 
 foreach(_gentest_inventory IN LISTS _gentest_suite_inventory_checks)
     string(REPLACE "|" ";" _gentest_inventory_fields "${_gentest_inventory}")
     list(GET _gentest_inventory_fields 0 _gentest_inventory_name)
     list(GET _gentest_inventory_fields 1 _gentest_inventory_prog)
-    list(GET _gentest_inventory_fields 2 _gentest_inventory_cases)
-    list(GET _gentest_inventory_fields 3 _gentest_inventory_pass)
-    list(GET _gentest_inventory_fields 4 _gentest_inventory_fail)
-    list(GET _gentest_inventory_fields 5 _gentest_inventory_skip)
-    list(GET _gentest_inventory_fields 6 _gentest_inventory_expected_list)
+    list(GET _gentest_inventory_fields 2 _gentest_inventory_expected_list)
 
     gentest_add_check_inventory(
         NAME ${_gentest_inventory_name}_inventory
         PROG ${_gentest_inventory_prog}
-        CASES ${_gentest_inventory_cases}
-        EXPECTED_LIST_FILE ${_gentest_inventory_expected_list}
-        PASS ${_gentest_inventory_pass}
-        FAIL ${_gentest_inventory_fail}
-        SKIP ${_gentest_inventory_skip})
+        EXPECTED_LIST_FILE ${_gentest_inventory_expected_list})
 endforeach()
 unset(_gentest_suite_inventory_checks)
 unset(_gentest_inventory)
 unset(_gentest_inventory_fields)
 unset(_gentest_inventory_name)
 unset(_gentest_inventory_prog)
-unset(_gentest_inventory_cases)
-unset(_gentest_inventory_pass)
-unset(_gentest_inventory_fail)
-unset(_gentest_inventory_skip)
 unset(_gentest_inventory_expected_list)
+
+gentest_add_check_inventory(
+    NAME unit_inventory_legacy_expected_list
+    PROG gentest_unit_tests
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/unit_legacy_plain.list)
+
+gentest_add_check_inventory(
+    NAME outcomes_inventory_status_markers
+    PROG gentest_outcomes_tests
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/outcomes_status.list)
+
+gentest_add_check_inventory(
+    NAME inventory_parser_semicolon_case_name
+    PROG ${CMAKE_COMMAND}
+    ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeInventoryProgram.cmake --
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_semicolon_status.list)
 
 gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 10 SKIP 2)
 
@@ -2249,6 +2244,7 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
     add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
             -DSOURCE_DIR=${source_dir}
+            -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
             -DBUILD_ROOT=${_gentest_helper_build_root}
             -DGENERATOR=${CMAKE_GENERATOR}
             -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
@@ -2360,6 +2356,23 @@ _gentest_add_cmake_helper_test(
     -DTARGET_NAME=template_template_scope_bindings
     -DBUILD_CONFIG=${_gentest_fixture_build_config})
 set_property(TEST gentest_codegen_template_template_scope_bindings_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_defaulted_template_ctor_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_defaulted_template_ctor
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DTARGET_NAME=mock_defaulted_template_ctor
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_mock_defaulted_template_ctor_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_template_template_pack_direct_expect_runs
+    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_template_template_pack_direct_expect
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockTemplateTemplatePackDirectExpect.cmake
+    cmake
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_mock_template_template_pack_direct_expect_runs APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_mock_unnamed_template_template_builds
@@ -3264,6 +3277,15 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         -DCONSUMER_LINK_MODE=main_only
         -DPACKAGE_TEST_USE_MODULES=OFF
         -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_consumer_legacy_detail_contract
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageConsumerLegacyDetailContract.cmake
+        package
+        -DPACKAGE_NAME=${PROJECT_NAME}
+        -DBUILD_CONFIG=${_gentest_package_test_config}
         ${_gentest_package_test_compiler_args})
 
     _gentest_add_cmake_helper_test(

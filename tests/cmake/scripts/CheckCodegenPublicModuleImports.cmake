@@ -123,6 +123,56 @@ function(_gentest_configure_consumer build_dir scan_mode)
   gentest_assert_windows_native_llvm_cache_args("${build_dir}" "${_clangxx}" "codegen public module imports consumer (${scan_mode})")
 endfunction()
 
+function(_gentest_try_read_windows_launcher command_text build_dir out_var)
+  set(_launcher_text "")
+  set(_launcher_path "")
+  if("${command_text}" MATCHES "^\"([^\"]+\\.bat)\"( .*)?$")
+    set(_launcher_path "${CMAKE_MATCH_1}")
+  elseif("${command_text}" MATCHES "^([^\" ]+\\.bat)( .*)?$")
+    set(_launcher_path "${CMAKE_MATCH_1}")
+  elseif("${command_text}" MATCHES "^[Cc][Mm][Dd](\\.exe)? /[Cc] \"([^\"]+\\.bat)( [^\"]*)?\"$")
+    set(_launcher_path "${CMAKE_MATCH_2}")
+  endif()
+
+  if(_launcher_path STREQUAL "")
+    set(${out_var} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  if(NOT IS_ABSOLUTE "${_launcher_path}")
+    set(_launcher_path "${build_dir}/${_launcher_path}")
+  endif()
+  cmake_path(NORMAL_PATH _launcher_path)
+  if(NOT EXISTS "${_launcher_path}")
+    message(FATAL_ERROR
+      "Expected Windows gentest_codegen launcher batch file at '${_launcher_path}'.")
+  endif()
+  file(READ "${_launcher_path}" _launcher_text)
+  set(${out_var} "${_launcher_text}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_extract_codegen_command_text build_ninja_text build_dir expected_output_regex out_var)
+  set(_expected_output_regex "${expected_output_regex}")
+  string(REGEX MATCH
+    "build [^\r\n]*${_expected_output_regex}[^\r\n]*: CUSTOM_COMMAND[^\r\n]*[\r\n]+  COMMAND = ([^\r\n]+)"
+    _command_block
+    "${build_ninja_text}")
+  if(_command_block STREQUAL "")
+    message(FATAL_ERROR
+      "Expected build.ninja to declare a custom command matching '${expected_output_regex}'.")
+  endif()
+
+  set(_command_text "${CMAKE_MATCH_1}")
+  if(WIN32)
+    _gentest_try_read_windows_launcher("${_command_text}" "${build_dir}" _launcher_text)
+    if(NOT _launcher_text STREQUAL "")
+      set(_command_text "${_launcher_text}")
+    endif()
+  endif()
+
+  set(${out_var} "${_command_text}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_assert_codegen_mode build_dir scan_mode)
   set(_expected_scan_deps "${_scan_deps}")
   if(ARGC GREATER 2)
@@ -133,14 +183,19 @@ function(_gentest_assert_codegen_mode build_dir scan_mode)
     message(FATAL_ERROR "Expected build.ninja at '${_build_ninja}'")
   endif()
   file(READ "${_build_ninja}" _build_ninja_text)
-  if(NOT _build_ninja_text MATCHES "--scan-deps-mode=${scan_mode}")
+  _gentest_extract_codegen_command_text(
+    "${_build_ninja_text}"
+    "${build_dir}"
+    "gentest_codegen/tu_[0-9]+_[^ ]+\\.gentest\\.h"
+    _codegen_command_text)
+  if(NOT _codegen_command_text MATCHES "--scan-deps-mode=${scan_mode}")
     message(FATAL_ERROR
       "Expected build-time gentest_codegen command in '${_build_ninja}' to propagate --scan-deps-mode=${scan_mode}")
   endif()
   if(_expected_scan_deps)
     set(_expected_scan_deps_regex "${_expected_scan_deps}")
     string(REGEX REPLACE "([][+.*^$(){}|\\\\])" "\\\\\\1" _expected_scan_deps_regex "${_expected_scan_deps_regex}")
-    if(NOT _build_ninja_text MATCHES "--clang-scan-deps(=| )${_expected_scan_deps_regex}")
+    if(NOT _codegen_command_text MATCHES "--clang-scan-deps(=| )${_expected_scan_deps_regex}")
       message(FATAL_ERROR
         "Expected build-time gentest_codegen command in '${_build_ninja}' to propagate --clang-scan-deps=${_expected_scan_deps}")
     endif()

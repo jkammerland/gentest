@@ -1,0 +1,195 @@
+# Story: Simplify Test Helper Infrastructure And Derive Inventory Expectations
+
+## Goal
+
+Reduce the test-helper layer to a smaller set of reusable drivers and eliminate
+manual duplication in inventory/count expectations where the source of truth can
+be derived mechanically.
+
+This is a maintainability story. Windows path-depth and short-root policy are
+tracked separately in `028_windows_helper_path_depth_portability.md`.
+
+## Problem
+
+The current test harness has too many thin wrappers around generic helper
+behavior, and inventory expectations are maintained in multiple places:
+
+- many helper scripts differ only in a few command arguments
+- `GentestTests.cmake` and `tests/CMakeLists.txt` carry overlapping helper
+  concepts
+- hard-coded count expectations coexist with expected lists that could act as
+  the source of truth
+- helper-specific conventions increase review and maintenance noise
+
+That costs time in several ways:
+
+- small harness changes fan out across multiple scripts
+- list/count updates are easy to miss
+- reviewers have to verify duplicated expectations by hand
+
+## User stories
+
+As a maintainer, I want a smaller helper framework with one obvious way to run a
+fixture-style contract check, so harness changes are local and auditable.
+
+As a contributor, I want inventory expectations to be derived from actual test
+listing or one canonical expected artifact, so I do not have to update counts in
+multiple places for one new test.
+
+As a reviewer, I want helper and inventory changes to show real contract
+movement rather than repeated bookkeeping edits.
+
+## Scope
+
+In scope:
+
+- `cmake/GentestTests.cmake`
+- `tests/CMakeLists.txt`
+- generic helper scripts under `tests/cmake/scripts/`
+- manual count/list duplication where one source of truth can be used
+
+Out of scope:
+
+- Windows helper-root and path-depth policy, which belongs to story `028`
+- replacing CTest
+- removing targeted helper scripts that genuinely encode distinct contracts
+- unrelated codegen/runtime refactors
+
+## Design direction
+
+Collapse the helper layer around a small number of parameterized drivers.
+
+Preferred outcomes:
+
+1. one generic helper path for:
+   - configure/build fixture checks
+   - run-and-assert checks
+   - output/contract inspection
+
+2. derive expectations where possible from:
+   - `--list`
+   - canonical expected-list files
+   - generated inventories checked into one place
+
+This story may simplify helper call shapes, but it must not redefine helper
+work-dir or path-shortening policy. Story `028` owns that behavior.
+
+The current inventory-owner table is `_gentest_suite_inventory_checks` in
+`tests/CMakeLists.txt`; if the design changes, it should still leave one
+declared source of truth for every inventory-style assertion.
+
+## Rollout
+
+1. Inventory helper scripts by behavior rather than filename.
+2. Merge scripts that differ only by a few command parameters.
+3. Pick one canonical source of truth for each inventory-style assertion.
+4. Remove redundant hard-coded counts where they can be derived.
+5. Re-run the helper-heavy inventory slice after each consolidation step,
+   including:
+   - `unit_inventory`
+   - `integration_inventory`
+   - `skiponly_inventory`
+   - `fixtures_inventory`
+   - `readme_fixtures_inventory`
+   - `templates_inventory`
+   - `mocking_inventory`
+   - `helper_check_file_contains_rejects_stale_output`
+   - `helper_allure_runner_infra_parity_rejects_stale_output`
+   - `gentest_codegen_output_collision`
+   - `gentest_discover_tests_smoke`
+   - `gentest_tu_wrapper_source_props`
+
+## Acceptance criteria
+
+- Generic helper behavior in `GentestTests.cmake` and `tests/cmake/scripts/`
+  is expressed through a documented smaller set of parameterized driver paths,
+  not just one isolated consolidation.
+- Every current inventory slice in `_gentest_suite_inventory_checks`
+  (`unit`, `integration`, `skiponly`, `fixtures`, `readme_fixtures`,
+  `templates`, and `mocking`) has one declared source of truth and no
+  redundant manual count-update path remains for that slice.
+- Adding or renaming tests in those inventory slices no longer requires
+  synchronized updates to multiple redundant count locations.
+- `unit_inventory`, `integration_inventory`, `skiponly_inventory`,
+  `fixtures_inventory`, `readme_fixtures_inventory`,
+  `templates_inventory`, `mocking_inventory`,
+  `helper_check_file_contains_rejects_stale_output`, and
+  `helper_allure_runner_infra_parity_rejects_stale_output`,
+  `gentest_codegen_output_collision`,
+  `gentest_discover_tests_smoke`, and
+  `gentest_tu_wrapper_source_props`
+  still pass after the consolidation.
+
+## Latest validation
+
+Inventory source-of-truth slice on `2026-04-14` removed the remaining
+duplicated manual `PASS/FAIL/SKIP` bookkeeping from the audited inventory rows:
+
+- `tests/CMakeLists.txt`
+  - `_gentest_suite_inventory_checks` now points each audited slice at one
+    canonical expected-list file only
+  - the audited inventory rows no longer hard-code parallel `PASS/FAIL/SKIP`
+    counts
+- `tests/cmake/scripts/CheckTestInventory.cmake`
+  - now derives case totals and outcome counts directly from
+    `EXPECTED_LIST_FILE`
+  - supports explicit `[PASS]`, `[FAIL]`, `[SKIP]`, `[XFAIL]`, and `[XPASS]`
+    markers while keeping legacy plain-name lists compatible
+  - compares expected and actual membership through a semicolon-safe parser so
+    test names containing CMake list metacharacters do not collapse
+- focused helper coverage now includes:
+  - `unit_inventory_legacy_expected_list` for legacy plain-name expected lists
+  - `outcomes_inventory_status_markers` for `[SKIP]`, `[FAIL]`, `[XFAIL]`, and
+    `[XPASS]` derivation
+  - `inventory_parser_semicolon_case_name` for semicolon-bearing case names
+
+Validation for the current slice:
+
+- configure/build:
+  - `cmake --preset=debug-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`
+  - `cmake --build --preset=debug-system`
+  - both passed
+- focused helper/inventory slice:
+  `ctest --preset=debug-system --output-on-failure -R '^(unit_inventory|integration_inventory|skiponly_inventory|fixtures_inventory|readme_fixtures_inventory|templates_inventory|mocking_inventory|unit_inventory_legacy_expected_list|outcomes_inventory_status_markers|inventory_parser_semicolon_case_name|helper_check_file_contains_rejects_stale_output|helper_allure_runner_infra_parity_rejects_stale_output|gentest_codegen_output_collision|gentest_discover_tests_smoke|gentest_tu_wrapper_source_props)$'`
+  -> `15/15` passed
+- `clang-tidy` lane:
+  `./scripts/check_clang_tidy.sh build/debug-system`
+  -> passed
+- final batch review:
+  `results/story026_review_inventory_slice_r5.md`
+  -> no findings
+
+Helper-driver consolidation slice on `2026-04-14` then reduced the remaining
+thin run/assert wrappers:
+
+- `tests/cmake/scripts/CheckRunContract.cmake`
+  - now holds the shared run/exit-code/output/file contract for the normal
+    `contains`, `exit-code`, and `file-contains` helpers
+- `tests/cmake/scripts/CheckContains.cmake`,
+  `tests/cmake/scripts/CheckExitCode.cmake`, and
+  `tests/cmake/scripts/CheckFileContains.cmake`
+  - are now thin compatibility wrappers over the shared contract driver
+- `cmake/GentestTests.cmake`
+  - dropped the unused `gentest_add_check_lines()` helper
+- `tests/cmake/scripts/CheckLines.cmake`
+  - removed as dead helper surface
+
+Validation for the helper-driver slice:
+
+- reconfigure:
+  `cmake --preset=debug-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`
+  -> passed
+- focused helper-driver band:
+  `ctest --preset=debug-system --output-on-failure -R '^(regression_measured_report_coverage|unit_help|unit_help_time_unit|run_test_not_found|junit_smoke_unit|junit_properties_unit|helper_check_file_contains_rejects_stale_output|junit_artifact_example|benches_fixture_free_suite_global|jitter_fixture_free_suite_global|gentest_cross_compile_exit_code_no_emulator)$'`
+  -> `11/11` passed
+- `clang-tidy` lane:
+  `./scripts/check_clang_tidy.sh build/debug-system`
+  -> passed
+- final batch review:
+  `results/story026_review_helper_slice_r2.md`
+  -> no findings
+
+At the current story scope, this closes `026`: audited inventory slices now
+have one canonical source of truth, and the generic run/assert helper behavior
+is expressed through a smaller shared driver set instead of several duplicated
+scripts.

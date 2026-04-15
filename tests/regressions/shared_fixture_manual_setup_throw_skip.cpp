@@ -1,3 +1,5 @@
+#include "gentest/detail/fixture_runtime.h"
+#include "gentest/detail/registry_runtime.h"
 #include "gentest/runner.h"
 
 #include <cstdio>
@@ -38,14 +40,8 @@ gentest::Case kCases[] = {
 } // namespace
 
 int main(int argc, char **argv) {
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kFixtureName,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_fixture,
-        .setup        = &setup_throw,
-        .teardown     = &teardown_marker,
-    });
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureName, &create_fixture,
+                                             &setup_throw, &teardown_marker);
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     return gentest::run_all_tests(argc, argv);
 }

@@ -1,3 +1,5 @@
+#include "gentest/detail/fixture_runtime.h"
+#include "gentest/detail/registry_runtime.h"
 #include "gentest/runner.h"
 
 #include <memory>
@@ -74,25 +76,11 @@ gentest::Case kCases[] = {
 } // namespace
 
 int main(int argc, char **argv) {
-    gentest::detail::SharedFixtureRegistration primary_registration{
-        .fixture_name = kPrimaryFixtureName,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_primary_fixture,
-        .setup        = &setup_primary_fixture,
-        .teardown     = &teardown_primary_fixture,
-    };
-    gentest::detail::register_shared_fixture(primary_registration);
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kPrimaryFixtureName,
+                                             &create_primary_fixture, &setup_primary_fixture, &teardown_primary_fixture);
 
-    gentest::detail::SharedFixtureRegistration secondary_registration{
-        .fixture_name = kSecondaryFixtureName,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_secondary_fixture,
-        .setup        = nullptr,
-        .teardown     = &teardown_secondary_fixture,
-    };
-    gentest::detail::register_shared_fixture(secondary_registration);
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kSecondaryFixtureName,
+                                             &create_secondary_fixture, nullptr, &teardown_secondary_fixture);
 
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     return gentest::run_all_tests(argc, argv);

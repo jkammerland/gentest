@@ -32,6 +32,8 @@ namespace {
 using gentest::codegen::scan::named_module_name_from_source_file;
 
 using ParamPassStyle = MockParamInfo::PassStyle;
+using MethodCvQual   = MockMethodCvQualifier;
+using MethodRefQual  = MockMethodRefQualifier;
 
 [[nodiscard]] bool is_supported_access(AccessSpecifier access) {
     return access == AS_public || access == AS_protected || access == AS_none;
@@ -264,13 +266,13 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     return value;
 }
 
-[[nodiscard]] std::string ref_qualifier_string(RefQualifierKind kind) {
+[[nodiscard]] MethodRefQual ref_qualifier_kind(RefQualifierKind kind) {
     switch (kind) {
-    case RQ_LValue: return "&";
-    case RQ_RValue: return "&&";
+    case RQ_LValue: return MethodRefQual::LValue;
+    case RQ_RValue: return MethodRefQual::RValue;
     case RQ_None: break;
     }
-    return {};
+    return MethodRefQual::None;
 }
 
 [[nodiscard]] ParamPassStyle classify_param_pass_style(const ParmVarDecl &param) {
@@ -298,17 +300,47 @@ using ParamPassStyle = MockParamInfo::PassStyle;
 
 [[nodiscard]] MockParamInfo build_param_info(const ParmVarDecl &param, const ASTContext &ctx, bool is_template, unsigned index) {
     MockParamInfo info;
-    info.type                = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
-    info.pass_style          = classify_param_pass_style(param);
-    const QualType base_type = param.getType().getNonReferenceType();
-    info.is_const            = base_type.isConstQualified();
-    info.is_volatile         = base_type.isVolatileQualified();
+    info.type       = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
+    info.pass_style = classify_param_pass_style(param);
     if (!param.getNameAsString().empty()) {
         info.name = param.getNameAsString();
     } else {
         info.name = fmt::format("arg{}", index);
     }
     return info;
+}
+
+struct CallableTemplateInfo {
+    std::string                    prefix;
+    std::vector<TemplateParamInfo> params;
+};
+
+[[nodiscard]] CallableTemplateInfo capture_callable_template_info(const FunctionDecl &function, const ASTContext &ctx) {
+    CallableTemplateInfo info;
+    const auto          *templ = function.getDescribedFunctionTemplate();
+    if (templ == nullptr) {
+        return info;
+    }
+
+    std::size_t template_index = 0;
+    for (const auto *param : *templ->getTemplateParameters()) {
+        info.params.push_back(build_template_param_info(*param, fmt::format("__gentest_tparam_{}", template_index++)));
+    }
+    info.prefix = print_template_parameter_list(*templ->getTemplateParameters(), info.params, ctx);
+    return info;
+}
+
+[[nodiscard]] std::vector<MockParamInfo> capture_callable_parameters(const FunctionDecl &function, const ASTContext &ctx) {
+    std::vector<MockParamInfo> parameters;
+    parameters.reserve(function.getNumParams());
+
+    const bool is_template = function.getDescribedFunctionTemplate() != nullptr;
+    unsigned   arg_index   = 0;
+    for (const auto *param : function.parameters()) {
+        parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
+        ++arg_index;
+    }
+    return parameters;
 }
 
 [[nodiscard]] bool has_accessible_default_ctor(const CXXRecordDecl &record) {
@@ -345,6 +377,27 @@ using ParamPassStyle = MockParamInfo::PassStyle;
     case EST_NoexceptTrue: return true;
     default: return false;
     }
+}
+
+[[nodiscard]] MethodCvQual cv_qualifier_kind(const CXXMethodDecl &method) {
+    if (method.isConst() && method.isVolatile()) {
+        return MethodCvQual::ConstVolatile;
+    }
+    if (method.isConst()) {
+        return MethodCvQual::Const;
+    }
+    if (method.isVolatile()) {
+        return MethodCvQual::Volatile;
+    }
+    return MethodCvQual::None;
+}
+
+[[nodiscard]] MockMethodQualifiers capture_method_qualifiers(const CXXMethodDecl &method) {
+    return MockMethodQualifiers{
+        .cv          = cv_qualifier_kind(method),
+        .ref         = ref_qualifier_kind(method.getRefQualifier()),
+        .is_noexcept = is_noexcept(method),
+    };
 }
 
 [[nodiscard]] bool has_case_insensitive_suffix(std::string_view path, std::string_view suffix) {
@@ -711,23 +764,11 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         // Preserve declared noexcept-ness so the generated forwarding ctors keep
         // matching the target's signature (e.g. std::is_nothrow_constructible).
         // The helper avoids Clang's canThrow() evaluation (see is_noexcept()).
-        ctor_info.is_noexcept = is_noexcept(*ctor);
-
-        if (const auto *ft = ctor->getDescribedFunctionTemplate()) {
-            std::size_t template_index = 0;
-            for (const auto *param : *ft->getTemplateParameters()) {
-                ctor_info.template_params.push_back(
-                    build_template_param_info(*param, fmt::format("__gentest_tparam_{}", template_index++)));
-            }
-            ctor_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), ctor_info.template_params, ctx);
-        }
-
-        const bool is_template = ctor->getDescribedFunctionTemplate() != nullptr;
-        unsigned   arg_index   = 0;
-        for (const auto *param : ctor->parameters()) {
-            ctor_info.parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
-            ++arg_index;
-        }
+        ctor_info.is_noexcept     = is_noexcept(*ctor);
+        auto template_info        = capture_callable_template_info(*ctor, ctx);
+        ctor_info.template_prefix = std::move(template_info.prefix);
+        ctor_info.template_params = std::move(template_info.params);
+        ctor_info.parameters      = capture_callable_parameters(*ctor, ctx);
 
         info.constructors.push_back(std::move(ctor_info));
     };
@@ -770,28 +811,14 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         const bool is_template     = method->getDescribedFunctionTemplate() != nullptr;
         method_info.return_type =
             is_template ? print_type_as_written(method->getReturnType(), ctx) : print_type(method->getReturnType(), ctx);
-        method_info.is_const        = method->isConst();
-        method_info.is_volatile     = method->isVolatile();
         method_info.is_static       = method->isStatic();
         method_info.is_virtual      = method->isVirtual();
         method_info.is_pure_virtual = method->isPureVirtual();
-        method_info.is_noexcept     = is_noexcept(*method);
-        method_info.ref_qualifier   = ref_qualifier_string(method->getRefQualifier());
-
-        if (const auto *ft = method->getDescribedFunctionTemplate()) {
-            std::size_t template_index = 0;
-            for (const auto *param : *ft->getTemplateParameters()) {
-                method_info.template_params.push_back(
-                    build_template_param_info(*param, fmt::format("__gentest_tparam_{}", template_index++)));
-            }
-            method_info.template_prefix = print_template_parameter_list(*ft->getTemplateParameters(), method_info.template_params, ctx);
-        }
-
-        unsigned arg_index = 0;
-        for (const auto *param : method->parameters()) {
-            method_info.parameters.push_back(build_param_info(*param, ctx, is_template, arg_index));
-            ++arg_index;
-        }
+        method_info.qualifiers      = capture_method_qualifiers(*method);
+        auto template_info          = capture_callable_template_info(*method, ctx);
+        method_info.template_prefix = std::move(template_info.prefix);
+        method_info.template_params = std::move(template_info.params);
+        method_info.parameters      = capture_callable_parameters(*method, ctx);
 
         info.methods.push_back(std::move(method_info));
     };

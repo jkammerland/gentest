@@ -116,7 +116,16 @@ struct CollectorOptions {
     // Optional explicit per-source TU registration headers. When provided in
     // TU mode, this must stay aligned with `sources` and overrides the legacy
     // `<tu_output_dir>/<source>.h` derivation.
-    std::vector<std::filesystem::path>                                  tu_output_headers;
+    std::vector<std::filesystem::path> tu_output_headers;
+    // Build-owned per-source module wrapper outputs. In TU mode this stays
+    // aligned with `sources`; any discovered named module source requires a
+    // non-empty explicit slot instead of tool-side filename derivation.
+    std::vector<std::filesystem::path> module_wrapper_outputs;
+    // Build-owned per-domain mock outputs. When mock outputs are requested,
+    // these must stay aligned with the ordered mock domain plan: header first,
+    // then the first-seen unique named modules in source order.
+    std::vector<std::filesystem::path>                                  mock_domain_registry_outputs;
+    std::vector<std::filesystem::path>                                  mock_domain_impl_outputs;
     std::filesystem::path                                               mock_registry_path;
     std::filesystem::path                                               mock_impl_path;
     std::optional<std::filesystem::path>                                depfile_path;
@@ -202,9 +211,26 @@ struct MockParamInfo {
         RValueRef,
         ForwardingRef,
     };
-    PassStyle pass_style  = PassStyle::Value;
-    bool      is_const    = false;
-    bool      is_volatile = false;
+    PassStyle pass_style = PassStyle::Value;
+};
+
+enum class MockMethodCvQualifier {
+    None,
+    Const,
+    Volatile,
+    ConstVolatile,
+};
+
+enum class MockMethodRefQualifier {
+    None,
+    LValue,
+    RValue,
+};
+
+struct MockMethodQualifiers {
+    MockMethodCvQualifier  cv          = MockMethodCvQualifier::None;
+    MockMethodRefQualifier ref         = MockMethodRefQualifier::None;
+    bool                   is_noexcept = false;
 };
 
 // Parameter metadata for mocked constructors.
@@ -224,13 +250,10 @@ struct MockMethodInfo {
     std::vector<MockParamInfo>     parameters;
     std::string                    template_prefix; // e.g. "template <typename T, int N>"
     std::vector<TemplateParamInfo> template_params;
-    bool                           is_const        = false;
-    bool                           is_volatile     = false;
     bool                           is_static       = false;
     bool                           is_virtual      = false;
     bool                           is_pure_virtual = false;
-    bool                           is_noexcept     = false;
-    std::string                    ref_qualifier; // "", "&", or "&&"
+    MockMethodQualifiers           qualifiers;
 };
 
 struct MockNamespaceScopeInfo {

@@ -62,6 +62,15 @@ local function current_gen_root()
     return path.join(builddir, "gen", plat, arch, mode)
 end
 
+local function fixture_output_leaf(long_name, short_name)
+    if is_host("windows") then
+        return short_name
+    end
+    return long_name
+end
+
+local xrepo_public_modules_target = is_host("windows") and "gxpm" or "gentest_xrepo_public_modules"
+
 gentest_configure({
     project_root = os.projectdir(),
     gentest_root = gentest_prefix,
@@ -86,7 +95,7 @@ target("gentest_xrepo_textual_mocks")
         defs = {"tests/header_mock_defs.hpp"},
         headerfiles = {"tests/header_mock_defs.hpp", "tests/service.hpp"},
         header_name = "gentest_xrepo_mocks.hpp",
-        output_dir = path.join(current_gen_root(), "consumer_textual_mocks"),
+        output_dir = path.join(current_gen_root(), fixture_output_leaf("consumer_textual_mocks", "tm")),
         target_id = "xrepo_textual_mocks",
         defines = {"GENTEST_XREPO_TEXTUAL_MOCKS_DEFINE=1"},
         clang_args = {"-DGENTEST_XREPO_TEXTUAL_MOCKS_CODEGEN=1"},
@@ -100,7 +109,7 @@ target("gentest_xrepo_textual")
         kind = "textual",
         source = "tests/cases.cpp",
         main = "tests/main.cpp",
-        output_dir = path.join(current_gen_root(), "consumer_textual"),
+        output_dir = path.join(current_gen_root(), fixture_output_leaf("consumer_textual", "t")),
         deps = {"gentest_xrepo_textual_mocks"},
         defines = {"GENTEST_XREPO_TEXTUAL_CONSUMER_DEFINE=1"},
         clang_args = {"-DGENTEST_XREPO_TEXTUAL_CONSUMER_CODEGEN=1"},
@@ -109,7 +118,7 @@ target("gentest_xrepo_textual")
 target("gentest_xrepo_module_mocks")
     set_kind("static")
     add_downstream_packages()
-    add_deps("gentest_xrepo_public_modules")
+    add_deps(xrepo_public_modules_target)
     gentest_add_mocks({
         name = "gentest_xrepo_module_mocks",
         kind = "modules",
@@ -117,18 +126,18 @@ target("gentest_xrepo_module_mocks")
         defs_modules = {"downstream.xrepo.service", "downstream.xrepo.mock_defs"},
         headerfiles = {"tests/service_module.cppm", "tests/module_mock_defs.cppm"},
         module_name = "downstream.xrepo.consumer_mocks",
-        output_dir = path.join(current_gen_root(), "consumer_module_mocks"),
+        output_dir = path.join(current_gen_root(), fixture_output_leaf("consumer_module_mocks", "mm")),
         target_id = "xrepo_module_mocks",
         public_modules_via_deps = true,
         defines = {"GENTEST_XREPO_MODULE_MOCKS_DEFINE=1"},
         clang_args = {"-DGENTEST_XREPO_MODULE_MOCKS_CODEGEN=1"},
     })
 
-target("gentest_xrepo_public_modules")
+target(xrepo_public_modules_target)
     set_kind("moduleonly")
     add_downstream_packages()
     gentest_add_public_modules({
-        output_dir = path.join(current_gen_root(), "consumer_public_modules"),
+        output_dir = path.join(current_gen_root(), fixture_output_leaf("consumer_public_modules", "pm")),
     })
 
 target("gentest_xrepo_module")
@@ -139,8 +148,8 @@ target("gentest_xrepo_module")
         kind = "modules",
         source = "tests/cases.cppm",
         main = "tests/main.cpp",
-        output_dir = path.join(current_gen_root(), "consumer_module"),
-        deps = {"gentest_xrepo_public_modules", "gentest_xrepo_module_mocks"},
+        output_dir = path.join(current_gen_root(), fixture_output_leaf("consumer_module", "m")),
+        deps = {xrepo_public_modules_target, "gentest_xrepo_module_mocks"},
         public_modules_via_deps = true,
         defines = {"GENTEST_XREPO_USE_MODULES=1", "GENTEST_XREPO_MODULE_CONSUMER_DEFINE=1"},
         clang_args = {"-DGENTEST_XREPO_MODULE_CONSUMER_CODEGEN=1"},

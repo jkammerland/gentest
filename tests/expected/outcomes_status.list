@@ -1,0 +1,8 @@
+[SKIP] outcomes/runtime_skip_simple
+[SKIP] outcomes/runtime_skip_if
+[SKIP] outcomes/runtime_skip_prefix_user_text
+[XFAIL] outcomes/xfail_expect_fail
+[XFAIL] outcomes/xfail_throw
+[XPASS] outcomes/xfail_xpass
+[SKIP] outcomes/skip_overrides_xfail
+[FAIL] outcomes/skip_after_failure_is_fail

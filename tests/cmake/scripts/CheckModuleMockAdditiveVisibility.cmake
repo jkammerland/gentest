@@ -52,12 +52,19 @@ function(_gentest_find_mock_domain_artifact out_var generated_dir stem kind expe
   set(${out_var} "${_match}" PARENT_SCOPE)
 endfunction()
 
-set(_work_dir "${BUILD_ROOT}/module_mock_additive_visibility")
-set(_src_dir "${_work_dir}/src")
-set(_build_dir "${_work_dir}/build")
-file(REMOVE_RECURSE "${_work_dir}")
+gentest_make_compact_fixture_work_dir(_work_dir
+  PREFIX mmav
+  SOURCE_DIR "${SOURCE_DIR}"
+  EXTRA_KEY "additive_tests")
+set(_src_dir "${_work_dir}/s")
+set(_build_dir "${_work_dir}/b")
+gentest_remove_fixture_path("${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
+gentest_make_compact_fixture_source_link(_gentest_source_dir
+  WORK_DIR "${_work_dir}"
+  SOURCE_DIR "${GENTEST_SOURCE_DIR}"
+  STEM "g")
 
 gentest_resolve_clang_fixture_compilers(_effective_c_compiler _effective_cxx_compiler)
 
@@ -75,7 +82,7 @@ if(DEFINED GENERATOR_TOOLSET AND NOT "${GENERATOR_TOOLSET}" STREQUAL "")
 endif()
 
 set(_cmake_cache_args
-  "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}"
+  "-DGENTEST_SOURCE_DIR=${_gentest_source_dir}"
   "-DCMAKE_C_COMPILER=${_effective_c_compiler}"
   "-DCMAKE_CXX_COMPILER=${_effective_cxx_compiler}")
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
@@ -107,6 +114,7 @@ endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
+gentest_append_windows_path_budget_cache_args(_cmake_cache_args)
 
 message(STATUS "Configure additive module mock visibility fixture...")
 gentest_check_run_or_fail(
@@ -125,9 +133,17 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-set(_generated_dir "${_build_dir}/generated")
-set(_header_generated_dir "${_generated_dir}/header_mocks")
-set(_provider_generated_dir "${_generated_dir}/provider_mocks")
+set(_generated_root "generated")
+set(_header_generated_leaf "header_mocks")
+set(_provider_generated_leaf "provider_mocks")
+if(CMAKE_HOST_WIN32)
+  set(_generated_root "g")
+  set(_header_generated_leaf "hm")
+  set(_provider_generated_leaf "pm")
+endif()
+set(_generated_dir "${_build_dir}/${_generated_root}")
+set(_header_generated_dir "${_generated_dir}/${_header_generated_leaf}")
+set(_provider_generated_dir "${_generated_dir}/${_provider_generated_leaf}")
 set(_header_surface "${_header_generated_dir}/public/additive_header_mocks.hpp")
 set(_provider_surface "${_provider_generated_dir}/gentest/additive_provider_mocks.cppm")
 
@@ -148,4 +164,5 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+gentest_cleanup_compact_fixture_source_link("${_gentest_source_dir}")
 message(STATUS "Observed additive module mock visibility success")

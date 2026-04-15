@@ -1,0 +1,20 @@
+set(_mode "")
+if(CMAKE_ARGC GREATER 4)
+  set(_mode "${CMAKE_ARGV4}")
+endif()
+
+set(_pass_case "fake/plain")
+set(_fail_case "fake/with;semicolon")
+set(_skip_case "fake/skip")
+
+if(_mode STREQUAL "--list" OR _mode STREQUAL "--list-tests")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "${_pass_case}")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "${_fail_case}")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "${_skip_case}")
+  return()
+endif()
+
+execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "[ PASS ] ${_pass_case}")
+execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "[ FAIL ] ${_fail_case}")
+execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "[ SKIP ] ${_skip_case}")
+cmake_language(EXIT 1)

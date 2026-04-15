@@ -1,6 +1,8 @@
 #include "runner_fixture_runtime.h"
 
+#include "gentest/detail/fixture_runtime.h"
 #include "gentest/runner.h"
+#include "runner_context_scope.h"
 
 #include <algorithm>
 #include <fmt/format.h>
@@ -130,8 +132,9 @@ void reset_shared_fixture_run_state(SharedFixtureRegistry &reg) {
     }
 }
 
-bool shared_fixture_callbacks_match(const SharedFixtureEntry &entry, const gentest::detail::SharedFixtureRegistration &registration) {
-    return entry.create == registration.create && entry.setup == registration.setup && entry.teardown == registration.teardown;
+bool shared_fixture_callbacks_match(const SharedFixtureEntry &entry, gentest::detail::SharedFixtureCreateFn create,
+                                    gentest::detail::SharedFixturePhaseFn setup, gentest::detail::SharedFixturePhaseFn teardown) {
+    return entry.create == create && entry.setup == setup && entry.teardown == teardown;
 }
 
 bool suite_scope_matches(std::string_view fixture_suite, std::string_view requested_suite) {
@@ -154,22 +157,6 @@ bool suite_scope_matches(std::string_view fixture_suite, std::string_view reques
     }
     return remainder.size() >= 2 && remainder[0] == ':' && remainder[1] == ':';
 }
-
-struct FixtureContextGuard {
-    std::shared_ptr<gentest::detail::TestContextInfo> ctx;
-    explicit FixtureContextGuard(std::string_view name) {
-        ctx               = std::make_shared<gentest::detail::TestContextInfo>();
-        ctx->display_name = std::string(name);
-        ctx->active       = true;
-        gentest::detail::set_current_test(ctx);
-    }
-    ~FixtureContextGuard() {
-        if (ctx) {
-            ctx->active = false;
-            gentest::detail::set_current_test(nullptr);
-        }
-    }
-};
 
 std::string resolve_fixture_context_issue(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx, std::string current_error,
                                           bool caught_assertion, bool caught_runtime_skip) {
@@ -209,20 +196,21 @@ std::string resolve_fixture_context_issue(const std::shared_ptr<gentest::detail:
 bool run_fixture_phase(std::string_view label, const std::function<void(std::string &)> &fn, std::string &error_out) {
     error_out.clear();
     gentest::detail::clear_bench_error();
-    FixtureContextGuard guard(label);
-    bool                caught_assertion    = false;
-    bool                caught_runtime_skip = false;
-    try {
-        fn(error_out);
-    } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
-        caught_assertion = true;
-        error_out        = e.message();
-    } catch (const std::exception &e) { error_out = fmt::format("std::exception: {}", e.what()); } catch (...) {
-        error_out = "unknown exception";
+    auto ctx                 = gentest::runner::detail::make_active_test_context(label);
+    bool caught_assertion    = false;
+    bool caught_runtime_skip = false;
+    {
+        gentest::runner::detail::CurrentTestScope test_scope(ctx);
+        try {
+            fn(error_out);
+        } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
+            caught_assertion = true;
+            error_out        = e.message();
+        } catch (const std::exception &e) { error_out = fmt::format("std::exception: {}", e.what()); } catch (...) {
+            error_out = "unknown exception";
+        }
     }
-    gentest::detail::wait_for_adopted_tokens(guard.ctx);
-    gentest::detail::flush_current_buffer_for(guard.ctx.get());
-    error_out = resolve_fixture_context_issue(guard.ctx, std::move(error_out), caught_assertion, caught_runtime_skip);
+    error_out = resolve_fixture_context_issue(ctx, std::move(error_out), caught_assertion, caught_runtime_skip);
     if (!error_out.empty()) {
         return false;
     }
@@ -249,30 +237,30 @@ std::string format_fixture_error(std::string_view stage, std::string_view detail
 
 namespace gentest::detail {
 
-void register_shared_fixture(const SharedFixtureRegistration &registration) {
+void register_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name, SharedFixtureCreateFn create,
+                             SharedFixturePhaseFn setup, SharedFixturePhaseFn teardown) {
     auto                        &reg  = shared_fixture_registry();
     auto                        &gate = shared_fixture_run_gate();
     std::unique_lock<std::mutex> gate_lk(gate.mtx);
     std::lock_guard<std::mutex>  lk(reg.mtx);
     if (gate.active) {
-        const std::string msg = fmt::format("fixture '{}' cannot be registered while a test run is active", registration.fixture_name);
+        const std::string msg = fmt::format("fixture '{}' cannot be registered while a test run is active", fixture_name);
         fmt::print(stderr, "gentest: {}\n", msg);
         reg.registration_error = true;
         reg.registration_errors.push_back(msg);
         return;
     }
     for (const auto &entry : reg.entries) {
-        if (entry.fixture_name == registration.fixture_name && entry.suite == registration.suite && entry.scope == registration.scope) {
-            if (!shared_fixture_callbacks_match(entry, registration)) {
-                const std::string msg =
-                    fmt::format("fixture '{}' registered multiple times with conflicting callbacks", registration.fixture_name);
+        if (entry.fixture_name == fixture_name && entry.suite == suite && entry.scope == scope) {
+            if (!shared_fixture_callbacks_match(entry, create, setup, teardown)) {
+                const std::string msg = fmt::format("fixture '{}' registered multiple times with conflicting callbacks", fixture_name);
                 fmt::print(stderr, "gentest: {}\n", msg);
                 reg.registration_error = true;
                 reg.registration_errors.push_back(msg);
             }
             return;
         }
-        if (entry.fixture_name == registration.fixture_name && entry.scope != registration.scope) {
+        if (entry.fixture_name == fixture_name && entry.scope != scope) {
             const std::string msg = fmt::format("fixture '{}' registered with conflicting scopes.", entry.fixture_name);
             fmt::print(stderr, "gentest: {}\n", msg);
             reg.registration_error = true;
@@ -281,12 +269,12 @@ void register_shared_fixture(const SharedFixtureRegistration &registration) {
         }
     }
     SharedFixtureEntry entry;
-    entry.fixture_name = std::string(registration.fixture_name);
-    entry.suite        = std::string(registration.suite);
-    entry.scope        = registration.scope;
-    entry.create       = registration.create;
-    entry.setup        = registration.setup;
-    entry.teardown     = registration.teardown;
+    entry.fixture_name = std::string(fixture_name);
+    entry.suite        = std::string(suite);
+    entry.scope        = scope;
+    entry.create       = create;
+    entry.setup        = setup;
+    entry.teardown     = teardown;
     auto it            = std::ranges::lower_bound(reg.entries, entry, shared_fixture_order_less);
     reg.entries.insert(it, std::move(entry));
 }
@@ -351,21 +339,22 @@ bool setup_shared_fixtures() {
             error = "missing factory";
         } else {
             gentest::detail::clear_bench_error();
-            FixtureContextGuard guard(fmt::format("{} create", fixture_name));
-            bool                caught_assertion    = false;
-            bool                caught_runtime_skip = false;
-            try {
-                instance = create_fn(suite_name, error);
-            } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
-                caught_assertion = true;
-                // Fallback only. resolve_fixture_context_issue() prefers the recorded source-backed failure text.
-                error = e.message();
-            } catch (const std::exception &e) { error = fmt::format("std::exception: {}", e.what()); } catch (...) {
-                error = "unknown exception";
+            auto ctx                 = gentest::runner::detail::make_active_test_context(fmt::format("{} create", fixture_name));
+            bool caught_assertion    = false;
+            bool caught_runtime_skip = false;
+            {
+                gentest::runner::detail::CurrentTestScope test_scope(ctx);
+                try {
+                    instance = create_fn(suite_name, error);
+                } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
+                    caught_assertion = true;
+                    // Fallback only. resolve_fixture_context_issue() prefers the recorded source-backed failure text.
+                    error = e.message();
+                } catch (const std::exception &e) { error = fmt::format("std::exception: {}", e.what()); } catch (...) {
+                    error = "unknown exception";
+                }
             }
-            gentest::detail::wait_for_adopted_tokens(guard.ctx);
-            gentest::detail::flush_current_buffer_for(guard.ctx.get());
-            error = resolve_fixture_context_issue(guard.ctx, std::move(error), caught_assertion, caught_runtime_skip);
+            error = resolve_fixture_context_issue(ctx, std::move(error), caught_assertion, caught_runtime_skip);
         }
 
         if (!error.empty()) {

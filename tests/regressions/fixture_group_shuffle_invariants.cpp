@@ -1,3 +1,5 @@
+#include "gentest/detail/fixture_runtime.h"
+#include "gentest/detail/registry_runtime.h"
 #include "gentest/runner.h"
 
 #include <memory>
@@ -326,38 +328,14 @@ gentest::Case kCases[] = {
 } // namespace
 
 int main(int argc, char **argv) {
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kSuiteFixtureA,
-        .suite        = kSuiteName,
-        .scope        = gentest::detail::SharedFixtureScope::Suite,
-        .create       = &create_fixture,
-        .setup        = nullptr,
-        .teardown     = nullptr,
-    });
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kSuiteFixtureB,
-        .suite        = kSuiteName,
-        .scope        = gentest::detail::SharedFixtureScope::Suite,
-        .create       = &create_fixture,
-        .setup        = nullptr,
-        .teardown     = nullptr,
-    });
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kGlobalFixtureA,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_fixture,
-        .setup        = nullptr,
-        .teardown     = nullptr,
-    });
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kGlobalFixtureB,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_fixture,
-        .setup        = nullptr,
-        .teardown     = nullptr,
-    });
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Suite, kSuiteName, kSuiteFixtureA, &create_fixture,
+                                             nullptr, nullptr);
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Suite, kSuiteName, kSuiteFixtureB, &create_fixture,
+                                             nullptr, nullptr);
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kGlobalFixtureA,
+                                             &create_fixture, nullptr, nullptr);
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kGlobalFixtureB,
+                                             &create_fixture, nullptr, nullptr);
 
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     return gentest::run_all_tests(argc, argv);

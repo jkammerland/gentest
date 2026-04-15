@@ -1,3 +1,5 @@
+#include "gentest/detail/fixture_runtime.h"
+#include "gentest/detail/registry_runtime.h"
 #include "gentest/runner.h"
 
 #include <memory>
@@ -68,22 +70,10 @@ gentest::Case kCases[] = {
 
 int main(int argc, char **argv) {
     // Register in reverse dependency order; runtime must still establish a deterministic safe order.
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kFixtureB,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_fixture,
-        .setup        = &setup_b,
-        .teardown     = &teardown_b,
-    });
-    gentest::detail::register_shared_fixture({
-        .fixture_name = kFixtureA,
-        .suite        = std::string_view{},
-        .scope        = gentest::detail::SharedFixtureScope::Global,
-        .create       = &create_fixture,
-        .setup        = &setup_a,
-        .teardown     = &teardown_a,
-    });
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureB, &create_fixture,
+                                             &setup_b, &teardown_b);
+    gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureA, &create_fixture,
+                                             &setup_a, &teardown_a);
 
     gentest::detail::register_cases(std::span<const gentest::Case>(kCases));
     return gentest::run_all_tests(argc, argv);

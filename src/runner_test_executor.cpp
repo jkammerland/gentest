@@ -1,5 +1,6 @@
 #include "runner_test_executor.h"
 
+#include "gentest/detail/runtime_context.h"
 #include "runner_case_invoker.h"
 #include "runner_fixture_runtime.h"
 #include "runner_result_model.h"

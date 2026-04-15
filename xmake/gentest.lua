@@ -538,6 +538,20 @@ local function module_wrapper_output_rel(output_dir, source, index)
     )
 end
 
+local function mock_domain_output_rel(input_path, index, label)
+    local domain_dir = path.directory(input_path)
+    local domain_stem = path.basename(input_path):gsub("%.[^.]+$", "")
+    local domain_ext = path.extension(input_path)
+    local domain_label = tostring(label or ""):gsub("[^%w_]", "_")
+    if domain_label == "" then
+        domain_label = "domain"
+    end
+    if domain_label ~= "header" and #domain_label > 32 then
+        domain_label = domain_label:sub(1, 16) .. "_" .. shorten_stem_digest(domain_label):sub(1, 8)
+    end
+    return path.join(domain_dir, string.format("%s__domain_%04d_%s%s", domain_stem, index, domain_label, domain_ext))
+end
+
 local function module_header_output_rel(output_dir, source, index)
     return path.join(output_dir, string.format("tu_%04d_%s.gentest.h", index, shorten_generated_stem(basename_stem(source))))
 end
@@ -1193,6 +1207,14 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
         "--mock-impl", config.mock_impl,
         "--discover-mocks",
     }
+    for _, domain_output in ipairs(config.mock_domain_registry_outputs or {}) do
+        table.insert(args, "--mock-domain-registry-output")
+        table.insert(args, domain_output)
+    end
+    for _, domain_output in ipairs(config.mock_domain_impl_outputs or {}) do
+        table.insert(args, "--mock-domain-impl-output")
+        table.insert(args, domain_output)
+    end
     if config.kind == "textual" then
         table.insert(args, "--tu-header-output")
         table.insert(args, config.header_output)
@@ -1201,6 +1223,10 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
         for _, header_output in ipairs(config.module_header_outputs or {}) do
             table.insert(args, "--tu-header-output")
             table.insert(args, header_output)
+        end
+        for _, wrapper_output in ipairs(config.module_wrapper_outputs or {}) do
+            table.insert(args, "--module-wrapper-output")
+            table.insert(args, wrapper_output)
         end
         if compdb_dir then
             table.insert(args, "--compdb")
@@ -1245,6 +1271,8 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
         table.insert(args, config.depfile)
     end
     if config.kind == "modules" then
+        table.insert(args, "--module-wrapper-output")
+        table.insert(args, config.wrapper_output)
         if compdb_dir then
             table.insert(args, "--compdb")
             table.insert(args, compdb_dir)
@@ -1311,6 +1339,8 @@ function gentest_add_mocks(opts)
         anchor_output = project_path(anchor_cpp),
         mock_registry = project_path(mock_registry_h),
         mock_impl = project_path(mock_impl_h),
+        mock_domain_registry_outputs = {project_path(mock_domain_output_rel(mock_registry_h, 0, "header"))},
+        mock_domain_impl_outputs = {project_path(mock_domain_output_rel(mock_impl_h, 0, "header"))},
         target_id = target_id,
         extra_includes = {},
         dep_module_sources = {},
@@ -1342,6 +1372,8 @@ function gentest_add_mocks(opts)
         config.module_name = module_name
         config.module_wrapper_outputs = {}
         config.module_header_outputs = {}
+        local seen_mock_modules = {}
+        local mock_domain_index = 1
         if not config.public_modules_via_deps then
             config.public_module_entries = materialized_public_module_entries(output_dir)
         else
@@ -1354,6 +1386,19 @@ function gentest_add_mocks(opts)
             table.insert(config.module_wrapper_outputs, project_path(wrapper_rel))
             table.insert(config.module_header_outputs, project_path(header_rel))
             table.insert(add_public_files, wrapper_rel)
+            local defs_module = defs_modules[index]
+            if defs_module and not seen_mock_modules[defs_module] then
+                seen_mock_modules[defs_module] = true
+                table.insert(
+                    config.mock_domain_registry_outputs,
+                    project_path(mock_domain_output_rel(mock_registry_h, mock_domain_index, defs_module))
+                )
+                table.insert(
+                    config.mock_domain_impl_outputs,
+                    project_path(mock_domain_output_rel(mock_impl_h, mock_domain_index, defs_module))
+                )
+                mock_domain_index = mock_domain_index + 1
+            end
         end
         public_module = module_public_output_rel(output_dir, module_name)
         config.public_module = project_path(public_module)

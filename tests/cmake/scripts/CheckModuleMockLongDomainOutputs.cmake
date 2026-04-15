@@ -25,6 +25,36 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
+function(_gentest_extract_codegen_command_text build_ninja_text build_dir expected_output out_var)
+  set(_expected_output_regex "${expected_output}")
+  string(REGEX REPLACE "([][+.*^$(){}|\\\\])" "\\\\\\1" _expected_output_regex "${_expected_output_regex}")
+
+  string(REGEX MATCH
+    "build [^\r\n]*${_expected_output_regex}[^\r\n]*: CUSTOM_COMMAND[^\r\n]*[\r\n]+  COMMAND = ([^\r\n]+)"
+    _command_block
+    "${build_ninja_text}")
+  if(_command_block STREQUAL "")
+    message(FATAL_ERROR
+      "Expected build.ninja to declare a custom command for '${expected_output}'.")
+  endif()
+
+  set(_command_text "${CMAKE_MATCH_1}")
+  if(WIN32 AND _command_text MATCHES "^([^ ]+\\.bat) [A-Za-z0-9]+$")
+    set(_launcher_path "${CMAKE_MATCH_1}")
+    if(NOT IS_ABSOLUTE "${_launcher_path}")
+      set(_launcher_path "${build_dir}/${_launcher_path}")
+    endif()
+    cmake_path(NORMAL_PATH _launcher_path)
+    if(NOT EXISTS "${_launcher_path}")
+      message(FATAL_ERROR
+        "Expected Windows gentest_codegen launcher batch file at '${_launcher_path}'.")
+    endif()
+    file(READ "${_launcher_path}" _command_text)
+  endif()
+
+  set(${out_var} "${_command_text}" PARENT_SCOPE)
+endfunction()
+
 set(_work_dir "${BUILD_ROOT}/module_mock_long_domain_outputs")
 set(_src_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
@@ -121,6 +151,16 @@ if(_expected_impl_rel STREQUAL "")
 endif()
 if(_expected_impl_rel STREQUAL "")
   message(FATAL_ERROR "Expected build.ninja to declare a long explicit module impl domain output")
+endif()
+_gentest_extract_codegen_command_text("${_build_ninja_text}" "${_build_dir}" "${_expected_registry_rel}" _codegen_command_text)
+
+string(FIND "${_codegen_command_text}" "--mock-domain-registry-output" _registry_arg_pos)
+if(_registry_arg_pos EQUAL -1)
+  message(FATAL_ERROR "Expected gentest_codegen command to pass --mock-domain-registry-output")
+endif()
+string(FIND "${_codegen_command_text}" "--mock-domain-impl-output" _impl_arg_pos)
+if(_impl_arg_pos EQUAL -1)
+  message(FATAL_ERROR "Expected gentest_codegen command to pass --mock-domain-impl-output")
 endif()
 
 set(_expected_registry_output "${_build_dir}/${_expected_registry_rel}")

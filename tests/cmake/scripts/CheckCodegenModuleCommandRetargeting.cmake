@@ -26,7 +26,8 @@ file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 
 function(_gentest_run_codegen_expect_success)
   set(one_value_args NAME COMPDB_DIR TU_OUT_DIR SOURCE_FILE)
-  cmake_parse_arguments(RUN "" "${one_value_args}" "" ${ARGN})
+  set(multi_value_args MODULE_WRAPPER_OUTPUTS)
+  cmake_parse_arguments(RUN "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
   if(NOT RUN_NAME OR NOT RUN_COMPDB_DIR OR NOT RUN_SOURCE_FILE)
     message(FATAL_ERROR "_gentest_run_codegen_expect_success requires NAME, COMPDB_DIR, and SOURCE_FILE")
@@ -36,6 +37,9 @@ function(_gentest_run_codegen_expect_success)
   if(DEFINED RUN_TU_OUT_DIR AND NOT "${RUN_TU_OUT_DIR}" STREQUAL "")
     list(APPEND _cmd --tu-out-dir "${RUN_TU_OUT_DIR}")
   endif()
+  foreach(_module_wrapper_output IN LISTS RUN_MODULE_WRAPPER_OUTPUTS)
+    list(APPEND _cmd --module-wrapper-output "${_module_wrapper_output}")
+  endforeach()
   list(APPEND _cmd "${RUN_SOURCE_FILE}")
 
   execute_process(
@@ -133,13 +137,16 @@ if(NOT APPLE)
     FILE "suite.cppm"
     ARGUMENTS ${_env_fallback_args})
   gentest_fixture_write_compdb("${_env_fallback_dir}/compile_commands.json" "${_env_fallback_entry}")
+  file(TO_CMAKE_PATH "${_env_fallback_generated_dir}/tu_0000_suite.module.gentest.cppm" _env_fallback_wrapper_abs)
 
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
       "--unset=GENTEST_CODEGEN_HOST_CLANG"
       "PATH=${_env_fallback_empty_path}"
       "CXX=${_clangxx_norm}"
-      "${PROG}" --check --compdb "${_env_fallback_dir}" --tu-out-dir "${_env_fallback_generated_dir}" "${_env_fallback_source_abs}"
+      "${PROG}" --check --compdb "${_env_fallback_dir}" --tu-out-dir "${_env_fallback_generated_dir}"
+      --module-wrapper-output "${_env_fallback_wrapper_abs}"
+      "${_env_fallback_source_abs}"
     WORKING_DIRECTORY "${_env_fallback_dir}"
     RESULT_VARIABLE _env_fallback_rc
     OUTPUT_VARIABLE _env_fallback_out
@@ -191,6 +198,7 @@ _gentest_run_codegen_expect_success(
   NAME "response-file wrapper retarget"
   COMPDB_DIR "${_response_dir}"
   TU_OUT_DIR "${_response_generated_dir}"
+  MODULE_WRAPPER_OUTPUTS "${_wrapper_abs}"
   SOURCE_FILE "${_response_source_abs}")
 
 set(_joined_dep_dir "${_work_dir}/joined_depflags")
@@ -371,6 +379,8 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
   gentest_fixture_write_compdb("${_clang_cl_dir}/compile_commands.json"
     "${_clang_cl_provider_entry}"
     "${_clang_cl_consumer_entry}")
+  file(TO_CMAKE_PATH "${_clang_cl_dir}/generated/tu_0000_provider.module.gentest.cppm" _clang_cl_provider_wrapper_abs)
+  file(TO_CMAKE_PATH "${_clang_cl_dir}/generated/tu_0001_consumer.module.gentest.cppm" _clang_cl_consumer_wrapper_abs)
 
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
@@ -378,6 +388,8 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
       "CXX=${_fake_clangxx}"
       "GENTEST_CODEGEN_LOG_PRECOMPILE=1"
       "${PROG}" --check --compdb "${_clang_cl_dir}" --tu-out-dir "${_clang_cl_dir}/generated"
+      --module-wrapper-output "${_clang_cl_provider_wrapper_abs}"
+      --module-wrapper-output "${_clang_cl_consumer_wrapper_abs}"
       "${_clang_cl_provider_rel}" "${_clang_cl_consumer_rel}"
     WORKING_DIRECTORY "${_clang_cl_dir}"
     RESULT_VARIABLE _clang_cl_driver_rc
@@ -477,6 +489,8 @@ file(TO_CMAKE_PATH "${_module_dep_dir}" _module_dep_dir_norm)
 file(TO_CMAKE_PATH "${_module_dep_dir}/provider.cppm" _module_dep_provider_abs)
 file(TO_CMAKE_PATH "${_module_dep_dir}/consumer.cppm" _module_dep_consumer_abs)
 file(TO_CMAKE_PATH "${_module_dep_dir}/include/provider_dep.hpp" _module_dep_header_abs)
+file(TO_CMAKE_PATH "${_module_dep_dir}/generated/tu_0000_provider.module.gentest.cppm" _module_dep_provider_wrapper)
+file(TO_CMAKE_PATH "${_module_dep_dir}/generated/tu_0001_consumer.module.gentest.cppm" _module_dep_consumer_wrapper)
 set(_module_dep_depfile "${_module_dep_dir}/generated/modules.gentest.d")
 gentest_fixture_make_compdb_entry(_module_dep_provider_entry
   DIRECTORY "${_module_dep_dir_norm}"
@@ -494,6 +508,8 @@ execute_process(
   COMMAND "${PROG}"
     --compdb "${_module_dep_dir}"
     --tu-out-dir "${_module_dep_dir}/generated"
+    --module-wrapper-output "${_module_dep_provider_wrapper}"
+    --module-wrapper-output "${_module_dep_consumer_wrapper}"
     --depfile "${_module_dep_depfile}"
     "${_module_dep_provider_abs}" "${_module_dep_consumer_abs}"
   RESULT_VARIABLE _module_dep_rc
@@ -506,6 +522,12 @@ if(NOT _module_dep_rc EQUAL 0)
   message(FATAL_ERROR
     "sibling-module depfile inputs: gentest_codegen failed unexpectedly.\n"
     "Output:\n${_module_dep_out}\nErrors:\n${_module_dep_err}")
+endif()
+if(NOT EXISTS "${_module_dep_provider_wrapper}" OR NOT EXISTS "${_module_dep_consumer_wrapper}")
+  message(FATAL_ERROR
+    "sibling-module depfile inputs: expected explicit module wrapper outputs to be emitted.\n"
+    "Missing provider wrapper: ${_module_dep_provider_wrapper}\n"
+    "Missing consumer wrapper: ${_module_dep_consumer_wrapper}")
 endif()
 file(READ "${_module_dep_depfile}" _module_dep_text)
 file(RELATIVE_PATH _module_dep_header_rel "${_module_dep_dir}" "${_module_dep_header_abs}")

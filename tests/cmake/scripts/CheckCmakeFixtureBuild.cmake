@@ -40,7 +40,11 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
-set(_work_dir "${BUILD_ROOT}/${TARGET_NAME}")
+# Keep nested fixture scratch roots compact so long target names do not get
+# repeated beneath an already-short helper BUILD_ROOT on Windows.
+string(MD5 _fixture_work_hash "${TARGET_NAME}|${SOURCE_DIR}")
+string(SUBSTRING "${_fixture_work_hash}" 0 12 _fixture_work_suffix)
+set(_work_dir "${BUILD_ROOT}/cfb_${_fixture_work_suffix}")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
@@ -81,6 +85,13 @@ if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
 endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+endif()
+if(CMAKE_HOST_WIN32)
+  # These helper fixtures exercise textual/mock codegen paths. Building
+  # gentest's public modules here only inflates nested module object paths and
+  # does not add coverage beyond the dedicated module fixtures.
+  list(APPEND _cmake_cache_args "-DGENTEST_ENABLE_PUBLIC_MODULES=OFF")
+  list(APPEND _cmake_cache_args "-DCMAKE_OBJECT_PATH_MAX=128")
 endif()
 
 message(STATUS "Configure ${TARGET_NAME} fixture...")

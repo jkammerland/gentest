@@ -3,10 +3,10 @@
 #include "log.hpp"
 #include "mock_discovery.hpp"
 #include "mock_domain_plan.hpp"
-#include "mock_output_paths.hpp"
 #include "model.hpp"
 #include "parallel_for.hpp"
 #include "scan_utils.hpp"
+#include "source_inspection.hpp"
 #include "tooling_support.hpp"
 
 #include <algorithm>
@@ -41,7 +41,6 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/JSON.h>
-#include <llvm/Support/MD5.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/Process.h>
 #include <llvm/Support/Program.h>
@@ -241,30 +240,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     }
 }
 
-[[nodiscard]] std::string sanitize_and_shorten_generated_stem(std::string value) {
-    for (auto &ch : value) {
-        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_';
-        if (!ok) {
-            ch = '_';
-        }
-    }
-    if (value.empty()) {
-        value = "tu";
-    }
-    if (value.size() <= 24) {
-        return value;
-    }
-
-    llvm::MD5 hasher;
-    hasher.update(value);
-    llvm::MD5::MD5Result digest;
-    hasher.final(digest);
-
-    llvm::SmallString<32> digest_hex;
-    llvm::MD5::stringifyResult(digest, digest_hex);
-    return fmt::format("{}_{}", value.substr(0, 16), std::string_view{digest_hex.data(), 8});
-}
-
 [[nodiscard]] std::vector<std::filesystem::path> depfile_targets_for(const CollectorOptions &options) {
     auto is_module_interface_source = [&](const std::filesystem::path              &path,
                                           const std::vector<std::filesystem::path> &include_search_paths = {}) {
@@ -272,13 +247,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
             return true;
         }
         return named_module_name_from_source_file(path, include_search_paths).has_value();
-    };
-    auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
-        std::filesystem::path out  = options.tu_output_dir;
-        const std::string     stem = sanitize_and_shorten_generated_stem(std::filesystem::path(options.sources[idx]).stem().string());
-        const std::string     ext  = std::filesystem::path(options.sources[idx]).extension().string();
-        out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
-        return out;
     };
 
     std::vector<std::filesystem::path> targets;
@@ -295,7 +263,7 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
                 targets.push_back(std::move(header_out));
             }
             if (is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
-                targets.push_back(resolve_module_wrapper_output(idx));
+                targets.push_back(options.module_wrapper_outputs[idx]);
             }
         }
     }
@@ -314,6 +282,28 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         }
     }
     return targets;
+}
+
+[[nodiscard]] bool has_explicit_module_wrapper_output(const CollectorOptions &options, std::size_t idx) {
+    return idx < options.module_wrapper_outputs.size() && !options.module_wrapper_outputs[idx].empty();
+}
+
+[[nodiscard]] bool validate_module_wrapper_outputs(const CollectorOptions &options, std::string &error) {
+    if (options.tu_output_dir.empty() || options.module_interface_sources.empty()) {
+        return true;
+    }
+
+    for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+        if (!options.module_interface_sources.contains(options.sources[idx])) {
+            continue;
+        }
+        if (has_explicit_module_wrapper_output(options, idx)) {
+            continue;
+        }
+        error = fmt::format("named module source '{}' requires an explicit --module-wrapper-output path in TU mode", options.sources[idx]);
+        return false;
+    }
+    return true;
 }
 
 [[nodiscard]] std::optional<std::string_view> forced_serial_parse_reason() {
@@ -2471,8 +2461,10 @@ std::string resolve_default_sysroot() {
 }
 
 struct ParsedArguments {
-    CollectorOptions           options;
-    std::optional<std::string> explicit_host_clang_path;
+    CollectorOptions                   options;
+    std::optional<std::string>         explicit_host_clang_path;
+    bool                               inspect_source = false;
+    std::vector<std::filesystem::path> inspect_include_dirs;
 };
 
 ParsedArguments parse_arguments(int argc, const char **argv) {
@@ -2486,6 +2478,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> tu_header_output_option{
         "tu-header-output", llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> module_wrapper_output_option{
+        "module-wrapper-output",
+        llvm::cl::desc("Explicit output module wrapper path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
@@ -2526,10 +2522,24 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
                                                            llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
                                                        llvm::cl::init(""), llvm::cl::cat(category)};
-    static llvm::cl::opt<std::string>  depfile_option{"depfile", llvm::cl::desc("Path to the generated depfile"), llvm::cl::init(""),
+    static llvm::cl::list<std::string> mock_domain_registry_output_option{
+        "mock-domain-registry-output",
+        llvm::cl::desc("Explicit output path for a generated mock registry domain header (repeat in domain order)"), llvm::cl::ZeroOrMore,
+        llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> mock_domain_impl_output_option{
+        "mock-domain-impl-output",
+        llvm::cl::desc("Explicit output path for a generated mock implementation domain header (repeat in domain order)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string> depfile_option{"depfile", llvm::cl::desc("Path to the generated depfile"), llvm::cl::init(""),
                                                      llvm::cl::cat(category)};
     static llvm::cl::opt<bool> check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"), llvm::cl::init(false),
                                             llvm::cl::cat(category)};
+    static llvm::cl::opt<bool> inspect_source_option{
+        "inspect-source", llvm::cl::desc("Inspect one source and print source-shape facts for CMake integration"), llvm::cl::init(false),
+        llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> inspect_include_dir_option{"inspect-include-dir",
+                                                                  llvm::cl::desc("Additional include search path for --inspect-source"),
+                                                                  llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
 
     // Split tool args from trailing clang args after `--` ourselves because
     // llvm::cl positional parsing is otherwise prone to consuming everything.
@@ -2563,6 +2573,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     }
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
+    opts.module_wrapper_outputs.assign(module_wrapper_output_option.begin(), module_wrapper_output_option.end());
     opts.clang_args = std::move(clang_args);
     strip_shell_control_tail(opts.clang_args);
     opts.check_only  = check_option.getValue();
@@ -2642,6 +2653,8 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     if (!mock_impl_option.getValue().empty()) {
         opts.mock_impl_path = std::filesystem::path{mock_impl_option.getValue()};
     }
+    opts.mock_domain_registry_outputs.assign(mock_domain_registry_output_option.begin(), mock_domain_registry_output_option.end());
+    opts.mock_domain_impl_outputs.assign(mock_domain_impl_output_option.begin(), mock_domain_impl_output_option.end());
     if (!depfile_option.getValue().empty()) {
         opts.depfile_path = std::filesystem::path{depfile_option.getValue()};
     }
@@ -2667,12 +2680,22 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     } else if (!kTemplateDir.empty()) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
-    if (!opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
+    if (!inspect_source_option.getValue() && !opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
     }
     return ParsedArguments{
         .options                  = std::move(opts),
         .explicit_host_clang_path = std::move(explicit_host_clang_path),
+        .inspect_source           = inspect_source_option.getValue(),
+        .inspect_include_dirs =
+            [&]() {
+                std::vector<std::filesystem::path> paths;
+                paths.reserve(inspect_include_dir_option.size());
+                for (const auto &path : inspect_include_dir_option) {
+                    paths.emplace_back(path);
+                }
+                return paths;
+            }(),
     };
 }
 
@@ -2681,6 +2704,27 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
 int main(int argc, const char **argv) {
     const auto  parsed_arguments = parse_arguments(argc, argv);
     const auto &options          = parsed_arguments.options;
+    if (parsed_arguments.inspect_source) {
+        if (options.sources.size() != 1) {
+            gentest::codegen::log_err("gentest_codegen: --inspect-source expects exactly 1 input source, got {}\n", options.sources.size());
+            return 1;
+        }
+
+        const std::filesystem::path source_path{options.sources.front()};
+        if (!std::filesystem::exists(source_path)) {
+            gentest::codegen::log_err("gentest_codegen: source '{}' does not exist\n", source_path.string());
+            return 1;
+        }
+
+        const auto inspection = gentest::codegen::inspect_source(source_path, parsed_arguments.inspect_include_dirs, options.clang_args);
+        llvm::outs() << "module_name=";
+        if (inspection.module_name.has_value()) {
+            llvm::outs() << *inspection.module_name;
+        }
+        llvm::outs() << "\nimports_gentest_mock=" << (inspection.imports_gentest_mock ? "1" : "0") << "\n";
+        return 0;
+    }
+
     if (!options.tu_output_headers.empty() && options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --tu-header-output requires --tu-out-dir\n");
         return 1;
@@ -2688,6 +2732,15 @@ int main(int argc, const char **argv) {
     if (!options.tu_output_headers.empty() && options.tu_output_headers.size() != options.sources.size()) {
         gentest::codegen::log_err("gentest_codegen: expected {} --tu-header-output value(s) for {} input source(s), got {}\n",
                                   options.sources.size(), options.sources.size(), options.tu_output_headers.size());
+        return 1;
+    }
+    if (!options.module_wrapper_outputs.empty() && options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --module-wrapper-output requires --tu-out-dir\n");
+        return 1;
+    }
+    if (!options.module_wrapper_outputs.empty() && options.module_wrapper_outputs.size() != options.sources.size()) {
+        gentest::codegen::log_err("gentest_codegen: expected {} --module-wrapper-output value(s) for {} input source(s), got {}\n",
+                                  options.sources.size(), options.sources.size(), options.module_wrapper_outputs.size());
         return 1;
     }
     const std::string explicit_host_clang_path = parsed_arguments.explicit_host_clang_path.value_or(std::string{});
@@ -2763,13 +2816,6 @@ int main(int argc, const char **argv) {
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
     const bool skip_function_bodies = !options.discover_mocks;
 
-    auto resolve_module_wrapper_output = [&](std::size_t idx) -> std::filesystem::path {
-        std::filesystem::path out  = options.tu_output_dir;
-        const std::string     stem = sanitize_and_shorten_generated_stem(std::filesystem::path(options.sources[idx]).stem().string());
-        const std::string     ext  = std::filesystem::path(options.sources[idx]).extension().string();
-        out /= fmt::format("tu_{:04d}_{}.module.gentest{}", static_cast<unsigned>(idx), stem, ext);
-        return out;
-    };
     const std::string compdb_dir =
         options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
 
@@ -2866,8 +2912,8 @@ int main(int argc, const char **argv) {
                 std::filesystem::path(options.sources[idx]), direct_include_search_paths,
                 build_augmented_scan_command_line(direct_commands, direct_commands, options.sources[idx], options.sources[idx]))
                 .has_value();
-        if (!options.tu_output_dir.empty() && source_is_module) {
-            const auto wrapper_path = resolve_module_wrapper_output(idx).string();
+        if (!options.tu_output_dir.empty() && source_is_module && has_explicit_module_wrapper_output(options, idx)) {
+            const auto wrapper_path = options.module_wrapper_outputs[idx].string();
             const auto wrapper_key  = normalize_compdb_lookup_path(wrapper_path);
             const auto wrapper_it   = compile_commands_by_file.find(wrapper_key);
             if (wrapper_it != compile_commands_by_file.end()) {
@@ -4000,10 +4046,7 @@ int main(int argc, const char **argv) {
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
 
-    if (options.check_only) {
-        return 0;
-    }
-    if (options.output_path.empty() && options.tu_output_dir.empty()) {
+    if (!options.check_only && options.output_path.empty() && options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
         return 1;
     }
@@ -4015,7 +4058,20 @@ int main(int argc, const char **argv) {
     auto final_options                             = options;
     final_options.module_interface_sources         = std::move(module_interface_sources);
     final_options.module_interface_names_by_source = std::move(module_interface_names_by_source);
-    const int emit_status                          = gentest::codegen::emit(final_options, cases, fixtures, mocks);
+    std::string module_wrapper_error;
+    if (!validate_module_wrapper_outputs(final_options, module_wrapper_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", module_wrapper_error);
+        return 1;
+    }
+    std::string mock_domain_error;
+    if (!gentest::codegen::validate_mock_output_domains(final_options, mock_domain_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
+        return 1;
+    }
+    if (options.check_only) {
+        return 0;
+    }
+    const int emit_status = gentest::codegen::emit(final_options, cases, fixtures, mocks);
     if (emit_status != 0) {
         return emit_status;
     }

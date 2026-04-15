@@ -1,12 +1,12 @@
 #pragma once
 
-#include "log.hpp"
-
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -373,18 +373,19 @@ struct ScanConditionalFrame {
 };
 
 struct ScanStreamState {
-    bool                                         in_block_comment             = false;
-    bool                                         in_preprocessor_continuation = false;
-    bool                                         current_branch_active        = true;
-    std::string                                  pending_preprocessor;
-    std::filesystem::path                        source_path;
-    std::filesystem::path                        source_directory;
-    std::vector<std::filesystem::path>           include_search_paths;
-    std::unordered_map<std::string, std::string> object_like_macros;
-    std::vector<ScanConditionalFrame>            conditionals;
-    bool                                         warn_on_unknown_conditions      = true;
-    std::size_t                                  current_line                    = 0;
-    std::size_t                                  pending_preprocessor_start_line = 0;
+    bool                                                                                   in_block_comment             = false;
+    bool                                                                                   in_preprocessor_continuation = false;
+    bool                                                                                   current_branch_active        = true;
+    std::string                                                                            pending_preprocessor;
+    std::filesystem::path                                                                  source_path;
+    std::filesystem::path                                                                  source_directory;
+    std::vector<std::filesystem::path>                                                     include_search_paths;
+    std::unordered_map<std::string, std::string>                                           object_like_macros;
+    std::vector<ScanConditionalFrame>                                                      conditionals;
+    bool                                                                                   warn_on_unknown_conditions      = true;
+    std::size_t                                                                            current_line                    = 0;
+    std::size_t                                                                            pending_preprocessor_start_line = 0;
+    std::function<void(std::string_view, std::size_t, std::string_view, std::string_view)> unknown_condition_warning_sink;
 };
 
 struct ProcessedScanLine {
@@ -1156,7 +1157,7 @@ inline void warn_unknown_preprocessor_condition(std::string_view keyword, std::s
     static std::unordered_set<std::string> warned_conditions;
 
     const std::string source = state.source_path.empty() ? std::string{"<unknown>"} : state.source_path.generic_string();
-    const std::string key    = fmt::format("{}:{}:{}:{}", source, line_number, keyword, normalized_expr);
+    const std::string key    = source + ":" + std::to_string(line_number) + ":" + std::string(keyword) + ":" + normalized_expr;
 
     {
         std::lock_guard<std::mutex> lock(warned_mutex);
@@ -1165,9 +1166,18 @@ inline void warn_unknown_preprocessor_condition(std::string_view keyword, std::s
         }
     }
 
-    gentest::codegen::log_err("gentest_codegen: warning: unable to evaluate preprocessor condition during module/import scan at {}:{}; "
-                              "treating #{} branch as inactive: {}\n",
-                              source, line_number, keyword, normalized_expr);
+    if (state.unknown_condition_warning_sink) {
+        state.unknown_condition_warning_sink(source, line_number, keyword, normalized_expr);
+        return;
+    }
+
+    static std::mutex           stderr_mutex;
+    std::lock_guard<std::mutex> lock(stderr_mutex);
+    static_cast<void>(std::fprintf(stderr,
+                                   "gentest_codegen: warning: unable to evaluate preprocessor condition during module/import scan at "
+                                   "%s:%zu; "
+                                   "treating #%.*s branch as inactive: %s\n",
+                                   source.c_str(), line_number, static_cast<int>(keyword.size()), keyword.data(), normalized_expr.c_str()));
 }
 
 inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStreamState &state, std::size_t line_number) {
