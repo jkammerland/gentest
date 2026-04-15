@@ -28,7 +28,7 @@ include(GentestDependencies)
 include(GentestPublicModules)
 
 option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
-option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" ${PROJECT_IS_TOP_LEVEL})
+option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" OFF)
 option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
 option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
 set(GENTEST_ENABLE_PUBLIC_MODULES "AUTO" CACHE STRING "Enable gentest's public C++ module interfaces (AUTO, ON, or OFF)")

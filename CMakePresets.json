@@ -67,7 +67,8 @@
       "cacheVariables": {
         "CMAKE_CXX_EXTENSIONS": "OFF",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "gentest_BUILD_TESTING": "ON"
       }
     },
     {
@@ -245,6 +246,7 @@
       "displayName": "Release (package)",
       "description": "Release build with install/export rules enabled for packaging workflows",
       "cacheVariables": {
+        "gentest_BUILD_TESTING": "ON",
         "gentest_INSTALL": "ON",
         "GENTEST_ENABLE_PACKAGE_TESTS": "ON"
       }

@@ -259,6 +259,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug `
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
+            -Dgentest_BUILD_TESTING=ON `
             -DGENTEST_ENABLE_PACKAGE_TESTS=ON `
             -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON `
             -DLLVM_DIR="$env:LLVM_DIR" `

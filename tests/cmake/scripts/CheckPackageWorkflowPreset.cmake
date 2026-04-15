@@ -134,3 +134,9 @@ if(NOT _package_tests_value STREQUAL "ON")
   message(FATAL_ERROR
     "Configure preset '${_package_configure_preset}' must set cacheVariables.GENTEST_ENABLE_PACKAGE_TESTS=ON so packaging workflows exercise the installed package consumer smoke")
 endif()
+
+_get_json_string(_build_testing_value OPTIONAL PATH configurePresets ${_configure_preset_index} cacheVariables gentest_BUILD_TESTING)
+if(NOT _build_testing_value STREQUAL "ON")
+  message(FATAL_ERROR
+    "Configure preset '${_package_configure_preset}' must set cacheVariables.gentest_BUILD_TESTING=ON so packaging workflows keep the repo test tree enabled explicitly")
+endif()

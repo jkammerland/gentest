@@ -21,8 +21,9 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
 set(_work_dir "${BUILD_ROOT}/subproject_consumer_defaults")
+set(_top_level_build_dir "${_work_dir}/top-level-build")
 set(_source_dir "${_work_dir}/consumer")
-set(_build_dir "${_work_dir}/build")
+set(_subproject_build_dir "${_work_dir}/subproject-build")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_source_dir}")
 
@@ -74,34 +75,50 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
+function(_gentest_assert_defaults _cache_file _context)
+  if(NOT EXISTS "${_cache_file}")
+    message(FATAL_ERROR "Expected configure to produce '${_cache_file}'")
+  endif()
+
+  file(STRINGS "${_cache_file}" _testing_default REGEX "^gentest_BUILD_TESTING:BOOL=" LIMIT_COUNT 1)
+  if(NOT _testing_default STREQUAL "gentest_BUILD_TESTING:BOOL=OFF")
+    message(FATAL_ERROR
+      "${_context} must default gentest_BUILD_TESTING=OFF so builds do not pull in repo-only tests.\n"
+      "Observed cache entry: '${_testing_default}'")
+  endif()
+
+  file(STRINGS "${_cache_file}" _codegen_default REGEX "^GENTEST_BUILD_CODEGEN:BOOL=" LIMIT_COUNT 1)
+  if(NOT _codegen_default STREQUAL "GENTEST_BUILD_CODEGEN:BOOL=OFF")
+    message(FATAL_ERROR
+      "${_context} must default GENTEST_BUILD_CODEGEN=OFF so builds do not depend on host LLVM/Clang tooling or index gentest_codegen by default.\n"
+      "Observed cache entry: '${_codegen_default}'")
+  endif()
+endfunction()
+
+message(STATUS "Configure top-level default-off fixture...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}"
+    ${_cmake_gen_args}
+    -S "${GENTEST_SOURCE_DIR}"
+    -B "${_top_level_build_dir}"
+    ${_cmake_cache_args}
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+_gentest_assert_defaults("${_top_level_build_dir}/CMakeCache.txt" "Top-level configure")
+
 message(STATUS "Configure consumer subproject fixture...")
 gentest_check_run_or_fail(
   COMMAND
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
     -S "${_source_dir}"
-    -B "${_build_dir}"
+    -B "${_subproject_build_dir}"
     ${_cmake_cache_args}
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-set(_cache_file "${_build_dir}/CMakeCache.txt")
-if(NOT EXISTS "${_cache_file}")
-  message(FATAL_ERROR "Expected configure to produce '${_cache_file}'")
-endif()
+_gentest_assert_defaults("${_subproject_build_dir}/CMakeCache.txt" "Subproject consumer configure")
 
-file(STRINGS "${_cache_file}" _testing_default REGEX "^gentest_BUILD_TESTING:BOOL=" LIMIT_COUNT 1)
-if(NOT _testing_default STREQUAL "gentest_BUILD_TESTING:BOOL=OFF")
-  message(FATAL_ERROR
-    "Subproject consumer configure must default gentest_BUILD_TESTING=OFF so dependency builds do not pull in repo-only tests.\n"
-    "Observed cache entry: '${_testing_default}'")
-endif()
-
-file(STRINGS "${_cache_file}" _codegen_default REGEX "^GENTEST_BUILD_CODEGEN:BOOL=" LIMIT_COUNT 1)
-if(NOT _codegen_default STREQUAL "GENTEST_BUILD_CODEGEN:BOOL=OFF")
-  message(FATAL_ERROR
-    "Subproject consumer configure must default GENTEST_BUILD_CODEGEN=OFF so dependency builds do not depend on host LLVM/Clang tooling or index gentest_codegen by default.\n"
-    "Observed cache entry: '${_codegen_default}'")
-endif()
-
-message(STATUS "Subproject consumer configure defaults gentest testing and codegen off")
+message(STATUS "Top-level and subproject consumer configures default gentest testing and codegen off")
