@@ -2367,6 +2367,16 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_mock_defaulted_template_ctor_builds APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_module_cpp_source_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_cpp_source
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=cpp_source_module_tests
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_module_cpp_source_builds APPEND PROPERTY LABELS "codegen;modules")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_mock_template_template_pack_direct_expect_runs
     ${PROJECT_SOURCE_DIR}/tests/cmake/mock_template_template_pack_direct_expect
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockTemplateTemplatePackDirectExpect.cmake

@@ -10,7 +10,7 @@
   - Manifest mode (`gentest_attach_codegen(... OUTPUT ...)`): emits a single generated TU (legacy).
   - Per-TU registration mode (default): emits per-TU registration headers (`tu_*.gentest.h`), and CMake generates shim TUs (`tu_*.gentest.cpp`) that include the original source and the generated header.
 - In per-TU registration mode, `gentest_attach_codegen()` replaces the original test TUs in the target with the generated shim TUs to avoid ODR issues.
-- Public named modules are controlled by `GENTEST_ENABLE_PUBLIC_MODULES=AUTO|ON|OFF` (default `AUTO`); unsupported toolchains fall back to headers/classic APIs automatically.
+- Public named modules are controlled by `GENTEST_ENABLE_PUBLIC_MODULES=AUTO|ON|OFF` (default `OFF`); set `ON` or `AUTO` explicitly when you want the public module surface.
 - Each suite under `tests/<suite>/` provides handwritten `cases.cpp`; shared test entry lives in `tests/support/test_entry.cpp`. Generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).
 
 ## Architecture & Execution Model
@@ -117,7 +117,7 @@
 - Modules:
   - See `docs/modules.md` for the supported named-module flows (`import gentest;`, `import gentest.mock;`, `import gentest.bench_util;`).
   - `import gentest;` consumers should link `gentest::gentest`; test executables typically link both `gentest::gentest` and `gentest::gentest_main` (or `gentest::gentest_runtime` if they provide their own `main()`).
-  - Public named-module export/import support is gated by `GENTEST_ENABLE_PUBLIC_MODULES`; leave it at `AUTO` unless you are explicitly testing enable/disable behavior.
+  - Public named-module export/import support is gated by `GENTEST_ENABLE_PUBLIC_MODULES`; set it to `ON` (or `AUTO` if you want toolchain-driven fallback) when you are explicitly testing public modules.
   - Per-TU wrapper mode for module sources requires a single-config generator/build dir (for example Ninja). Use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) for multi-config generators.
   - Link explicit mock targets before `gentest_attach_codegen()` so codegen sees the generated mock surface during discovery.
 - Per-TU registration mode (default `gentest_attach_codegen()` with no `OUTPUT`) requires a single-config generator/build dir (e.g. Ninja). Multi-config generators (Ninja Multi-Config, VS, Xcode) should use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) or separate build dirs per config.

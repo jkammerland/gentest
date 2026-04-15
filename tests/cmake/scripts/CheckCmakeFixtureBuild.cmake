@@ -86,11 +86,31 @@ endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
-if(CMAKE_HOST_WIN32)
-  # These helper fixtures exercise textual/mock codegen paths. Building
-  # gentest's public modules here only inflates nested module object paths and
-  # does not add coverage beyond the dedicated module fixtures.
+
+set(_fixture_uses_public_modules FALSE)
+file(GLOB_RECURSE _fixture_source_candidates
+  LIST_DIRECTORIES FALSE
+  "${SOURCE_DIR}/*.cpp"
+  "${SOURCE_DIR}/*.cc"
+  "${SOURCE_DIR}/*.cxx"
+  "${SOURCE_DIR}/*.cppm"
+  "${SOURCE_DIR}/*.ixx"
+  "${SOURCE_DIR}/*.mpp")
+foreach(_fixture_source IN LISTS _fixture_source_candidates)
+  file(READ "${_fixture_source}" _fixture_source_text)
+  if(_fixture_source_text MATCHES "(^|[\r\n])[ \t]*(export[ \t]+)?import[ \t]+gentest([.;]|\\.)")
+    set(_fixture_uses_public_modules TRUE)
+    break()
+  endif()
+endforeach()
+if(_fixture_uses_public_modules)
+  list(APPEND _cmake_cache_args "-DGENTEST_ENABLE_PUBLIC_MODULES=ON")
+elseif(CMAKE_HOST_WIN32)
+  # Textual/mock helper fixtures do not need gentest's public modules on
+  # Windows, and disabling them keeps nested object paths shorter.
   list(APPEND _cmake_cache_args "-DGENTEST_ENABLE_PUBLIC_MODULES=OFF")
+endif()
+if(CMAKE_HOST_WIN32)
   list(APPEND _cmake_cache_args "-DCMAKE_OBJECT_PATH_MAX=128")
 endif()
 

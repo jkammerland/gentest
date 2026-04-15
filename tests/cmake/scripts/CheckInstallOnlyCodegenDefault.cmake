@@ -91,6 +91,13 @@ if(NOT _codegen_default STREQUAL "GENTEST_BUILD_CODEGEN:BOOL=OFF")
     "Observed cache entry: '${_codegen_default}'")
 endif()
 
+file(STRINGS "${_cache_file}" _public_modules_default REGEX "^GENTEST_ENABLE_PUBLIC_MODULES:STRING=" LIMIT_COUNT 1)
+if(NOT _public_modules_default STREQUAL "GENTEST_ENABLE_PUBLIC_MODULES:STRING=OFF")
+  message(FATAL_ERROR
+    "Install-only producer configure must default GENTEST_ENABLE_PUBLIC_MODULES=OFF so packaging builds do not publish gentest public module interfaces unless they opt in explicitly.\n"
+    "Observed cache entry: '${_public_modules_default}'")
+endif()
+
 file(STRINGS "${_cache_file}" _tip_dir_line REGEX "^target_install_package_DIR:PATH=" LIMIT_COUNT 1)
 if(NOT _tip_dir_line)
   message(FATAL_ERROR "Expected configure cache to record target_install_package_DIR")
@@ -108,4 +115,4 @@ if(NOT _tip_dir_normalized STREQUAL _expected_tip_dir_normalized)
     "Observed: '${_tip_dir_normalized}'")
 endif()
 
-message(STATUS "Install-only producer configure defaults codegen off and resolves vendored target_install_package")
+message(STATUS "Install-only producer configure defaults codegen and public modules off and resolves vendored target_install_package")

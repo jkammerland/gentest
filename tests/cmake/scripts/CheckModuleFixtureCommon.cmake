@@ -253,6 +253,12 @@ function(gentest_append_host_apple_sysroot_compile_args out_list_var)
   set(${out_list_var} "${_args}" PARENT_SCOPE)
 endfunction()
 
+function(gentest_append_public_modules_cache_arg out_list_var)
+  set(_args ${${out_list_var}})
+  list(APPEND _args "-DGENTEST_ENABLE_PUBLIC_MODULES=ON")
+  set(${out_list_var} "${_args}" PARENT_SCOPE)
+endfunction()
+
 function(gentest_is_clang_like out_var compiler_path)
   if("${compiler_path}" STREQUAL "")
     set(${out_var} FALSE PARENT_SCOPE)

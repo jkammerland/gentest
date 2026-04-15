@@ -20,6 +20,7 @@ Supported module-authored test flows:
 - CMake >= 3.31
 - C++20 compiler with named-module support
 - LLVM/Clang available for `gentest_codegen`
+- Configure the gentest package/provider build with `-DGENTEST_ENABLE_PUBLIC_MODULES=ON` when you want the installed public module surface.
 
 For host-toolchain vs target-sysroot setup details, including cross-build
 examples, see [buildsystems/host_toolchain_sysroots.md](buildsystems/host_toolchain_sysroots.md).
@@ -29,6 +30,10 @@ examples, see [buildsystems/host_toolchain_sysroots.md](buildsystems/host_toolch
 ```cmake
 include(CTest)
 enable_testing()
+
+# Public modules are opt-in on the gentest provider/package build.
+# If you build gentest from source in this project, configure it with:
+#   -DGENTEST_ENABLE_PUBLIC_MODULES=ON
 
 find_package(gentest CONFIG REQUIRED)
 

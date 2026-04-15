@@ -89,6 +89,13 @@ function(_gentest_assert_defaults _cache_file _context)
       "${_context} must default GENTEST_BUILD_CODEGEN=OFF so builds do not depend on host LLVM/Clang tooling or index gentest_codegen by default.\n"
       "Observed cache entry: '${_codegen_default}'")
   endif()
+
+  file(STRINGS "${_cache_file}" _public_modules_default REGEX "^GENTEST_ENABLE_PUBLIC_MODULES:STRING=" LIMIT_COUNT 1)
+  if(NOT _public_modules_default STREQUAL "GENTEST_ENABLE_PUBLIC_MODULES:STRING=OFF")
+    message(FATAL_ERROR
+      "${_context} must default GENTEST_ENABLE_PUBLIC_MODULES=OFF so consumers do not build gentest public module interfaces unless they opt in explicitly.\n"
+      "Observed cache entry: '${_public_modules_default}'")
+  endif()
 endfunction()
 
 message(STATUS "Configure top-level default-off fixture...")

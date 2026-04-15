@@ -232,6 +232,9 @@ if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE AND NOT "${PROG}" STREQUAL "")
 elseif(NOT PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
   list(APPEND _cmake_cache_args "-DGENTEST_BUILD_CODEGEN=ON")
 endif()
+if(PACKAGE_TEST_USE_MODULES)
+  list(APPEND _cmake_cache_args "-DGENTEST_ENABLE_PUBLIC_MODULES=ON")
+endif()
 
 set(_producer_surface_files
     "${SOURCE_DIR}/CMakeLists.txt"
