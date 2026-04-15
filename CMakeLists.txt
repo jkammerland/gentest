@@ -71,12 +71,7 @@ unset(_gentest_public_modules_reason)
 unset(_gentest_public_modules_enabled)
 unset(_gentest_public_modules_status)
 
-set(_gentest_build_codegen_default OFF)
-if(PROJECT_IS_TOP_LEVEL AND NOT CMAKE_CROSSCOMPILING AND ${PROJECT_NAME}_BUILD_TESTING)
-    set(_gentest_build_codegen_default ON)
-endif()
-option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" ${_gentest_build_codegen_default})
-unset(_gentest_build_codegen_default)
+option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" OFF)
 
 if(GENTEST_BUILD_CODEGEN)
     add_subdirectory(tools)

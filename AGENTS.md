@@ -71,7 +71,7 @@
   - From `B:\repos\gentest` in PowerShell (Developer prompt env required):
     - `& "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64`
     - `$msvcBuildDir = 'build\debug-system-msvc'`
-    - `cmake -S . -B $msvcBuildDir -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DGENTEST_ENABLE_PACKAGE_TESTS=ON -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"`
+    - `cmake -S . -B $msvcBuildDir -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -Dgentest_BUILD_TESTING=ON -DGENTEST_BUILD_CODEGEN=ON -DGENTEST_ENABLE_PACKAGE_TESTS=ON -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"`
     - `cmake --build $msvcBuildDir`
     - `ctest --test-dir $msvcBuildDir --output-on-failure`
 - Legacy vcpkg workflow:
@@ -123,7 +123,7 @@
 - Per-TU registration mode (default `gentest_attach_codegen()` with no `OUTPUT`) requires a single-config generator/build dir (e.g. Ninja). Multi-config generators (Ninja Multi-Config, VS, Xcode) should use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) or separate build dirs per config.
 - In per-TU registration mode, `OUTPUT_DIR` must be a concrete path (no generator expressions).
 - Cross-compiling (target = arm/riscv/etc, host runs codegen):
-  - `GENTEST_BUILD_CODEGEN` defaults `OFF` when `CMAKE_CROSSCOMPILING=TRUE` (and also when `gentest_BUILD_TESTING=OFF`).
+  - `GENTEST_BUILD_CODEGEN` defaults `OFF`; turn it on explicitly for native repo/self-test builds and keep it off for cross/packaging builds unless you provide a host tool.
   - Build the host tool separately, then point the target build at it with `GENTEST_CODEGEN_EXECUTABLE`:
     - Host tool (native) build: `cmake -S . -B build/host -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON && cmake --build build/host --target gentest_codegen`
     - Target build: `cmake -S <proj> -B build/target -DCMAKE_TOOLCHAIN_FILE=<toolchain.cmake> -DGENTEST_BUILD_CODEGEN=OFF -DGENTEST_CODEGEN_EXECUTABLE=<path-to-host-gentest_codegen>`

@@ -140,3 +140,9 @@ if(NOT _build_testing_value STREQUAL "ON")
   message(FATAL_ERROR
     "Configure preset '${_package_configure_preset}' must set cacheVariables.gentest_BUILD_TESTING=ON so packaging workflows keep the repo test tree enabled explicitly")
 endif()
+
+_get_json_string(_build_codegen_value OPTIONAL PATH configurePresets ${_configure_preset_index} cacheVariables GENTEST_BUILD_CODEGEN)
+if(NOT _build_codegen_value STREQUAL "ON")
+  message(FATAL_ERROR
+    "Configure preset '${_package_configure_preset}' must set cacheVariables.GENTEST_BUILD_CODEGEN=ON so packaging workflows keep the repo code generator enabled explicitly")
+endif()
