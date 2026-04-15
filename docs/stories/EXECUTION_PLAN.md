@@ -12,7 +12,7 @@ It assumes the current branch state, not raw worktree ancestry:
 ## Current branch truth
 
 - `021` through `031` are now treated as done at the current evidence level
-- the remaining future cleanup is story `032`
+- the remaining future cleanups are stories `032` and `033`
 
 ## Working rules
 
@@ -33,7 +33,14 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ### Remaining implementation
 
-1. Story `032`: split the generated-code/devkit boundary from the installed
+1. Story `033`: split `GentestCodegen.cmake` into focused private modules.
+   - Keep `GentestCodegen.cmake` as the installed/public facade.
+   - Extract self-contained helper families into `cmake/gentest/*.cmake`.
+   - Start with `DiscoverTests.cmake` as the first behavior-preserving slice.
+   - Preserve existing public CMake entry points and regression coverage while
+     the internal file structure changes.
+
+2. Story `032`: split the generated-code/devkit boundary from the installed
    runtime-detail compatibility layer.
    - Keep `gentest/runner.h` and `import gentest;` unchanged.
    - Reduce generated-code and runtime-internal support dependence on broad
@@ -59,10 +66,21 @@ It assumes the current branch state, not raw worktree ancestry:
   `gentest_package_consumer_workdir_isolation`, and
   `gentest_package_consumer_executable_path` remain green.
 - `032`: generated-code package and non-CMake downstream lanes remain green.
+- `033`: all private helper implementations currently living in
+  `GentestCodegen.cmake` move into focused modules under `cmake/gentest/`,
+  leaving `GentestCodegen.cmake` as a facade for config declarations,
+  `include(...)`, and public entry-point export/dispatch.
+- `033`: the installed package surface remains correct after the split,
+  including install/export of any new `cmake/gentest/*.cmake` modules required
+  by `find_package(gentest CONFIG REQUIRED)`.
+- `033`: extraction-specific regression slices stay green as each subsystem is
+  moved, especially discovery, explicit mocks, TU-wrapper/manifest outputs,
+  scan-deps/public-module flows, and package/install/codegen-host-tool flows.
 ## Practical next move
 
-Take story `032` only when the repo is ready for another package/module
-contract cleanup pass.
+Take story `033` first when the repo wants a low-risk structural cleanup.
+Take story `032` only after that, or when the repo is ready for another
+package/module contract cleanup pass.
 
 That ordering follows the current evidence:
 
@@ -70,6 +88,8 @@ That ordering follows the current evidence:
   reopened `025`, `028`, and `031` slices are now re-closed by validated
   implementation work
 - `023` and `026` are now closed at their current scope
+- `033` is a future behavior-preserving internal modularization pass for the
+  remaining large CMake integration layer
 - `032` is a future devkit/generated-code boundary cleanup with a different
   risk profile than the already-closed public-surface and helper-simplification
   stories
