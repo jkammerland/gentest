@@ -192,10 +192,23 @@ endif()
 list(GET _config_candidates 0 _config_file)
 get_filename_component(_config_dir "${_config_file}" DIRECTORY)
 
+set(_producer_fmt_dir "")
+set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
+if(EXISTS "${_producer_cache_file}")
+  file(STRINGS "${_producer_cache_file}" _producer_fmt_dir_line REGEX "^fmt_DIR:PATH=" LIMIT_COUNT 1)
+  if(_producer_fmt_dir_line)
+    list(GET _producer_fmt_dir_line 0 _producer_fmt_dir_line_value)
+    string(REGEX REPLACE "^fmt_DIR:PATH=" "" _producer_fmt_dir "${_producer_fmt_dir_line_value}")
+  endif()
+endif()
+
 set(_consumer_cache_args
     "-DCMAKE_PREFIX_PATH=${_install_prefix}"
     "-D${PACKAGE_NAME}_DIR=${_config_dir}")
 list(APPEND _consumer_cache_args ${_cmake_cache_args})
+if(NOT _producer_fmt_dir STREQUAL "")
+  list(APPEND _consumer_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")
+endif()
 
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" ${_cmake_generator_args} -S "${_consumer_source_dir}" -B "${_consumer_build_dir}" ${_consumer_cache_args}
