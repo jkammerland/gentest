@@ -3,6 +3,8 @@
 #include "gentest/runner.h"
 #include "runner_measured_executor.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <future>
@@ -15,8 +17,8 @@ namespace {
 
 using clock = std::chrono::steady_clock;
 
-constexpr auto kBodyWork    = std::chrono::milliseconds(5);
-constexpr auto kAdoptedWait = std::chrono::milliseconds(80);
+constexpr auto kBodyWork    = std::chrono::milliseconds(10);
+constexpr auto kAdoptedWait = std::chrono::milliseconds(200);
 
 int g_call_invocations = 0;
 
@@ -26,6 +28,17 @@ void busy_wait_for(clock::duration duration) {
 }
 
 bool in_call_phase() { return gentest::detail::bench_phase() == gentest::detail::BenchPhase::Call; }
+
+double measure_body_baseline_s() {
+    std::array<double, 7> samples_s{};
+    for (double &sample_s : samples_s) {
+        const auto start = clock::now();
+        busy_wait_for(kBodyWork);
+        sample_s = std::chrono::duration<double>(clock::now() - start).count();
+    }
+    std::ranges::sort(samples_s);
+    return samples_s[samples_s.size() / 2];
+}
 
 void measured_call_phase_body_timing(void *) {
     if (!in_call_phase()) {
@@ -78,7 +91,8 @@ int main() {
     opt.bench_cfg.warmup_epochs    = 0;
     opt.bench_cfg.measure_epochs   = 1;
 
-    bool                         saw_success = false;
+    const double                 baseline_body_s = measure_body_baseline_s();
+    bool                         saw_success     = false;
     gentest::runner::BenchResult result{};
     std::string                  failure_detail;
     const auto                   run_start = clock::now();
@@ -106,16 +120,21 @@ int main() {
         return 1;
     }
 
-    constexpr double kMaxBodyMeanNs       = 20'000'000.0;
-    constexpr double kMaxReportedWallTime = 0.03;
-    constexpr double kMinFullRunElapsed   = 0.06;
-    constexpr double kMinGapToOuterRun    = 0.03;
-    if (result.mean_ns >= kMaxBodyMeanNs) {
-        (void)std::fprintf(stderr, "mean_ns should exclude teardown wait, got %.0f ns\n", result.mean_ns);
+    constexpr double kMaxMeasuredVsBaseline = 3.0;
+    constexpr double kMaxWallVsBaseline     = 7.0;
+    constexpr double kMinFullRunElapsed     = 0.25;
+    constexpr double kMinGapToOuterRun      = 0.12;
+    constexpr double kMinOuterVsReported    = 2.0;
+
+    if (result.mean_ns >= (baseline_body_s * 1'000'000'000.0 * kMaxMeasuredVsBaseline)) {
+        (void)std::fprintf(stderr, "mean_ns should stay close to the %.6f s direct body baseline, got %.0f ns\n", baseline_body_s,
+                           result.mean_ns);
         return 1;
     }
-    if (result.wall_time_s >= kMaxReportedWallTime) {
-        (void)std::fprintf(stderr, "reported wall_time_s should stay body-only, got %.6f s\n", result.wall_time_s);
+    if (result.wall_time_s >= (baseline_body_s * kMaxWallVsBaseline)) {
+        (void)std::fprintf(
+            stderr, "reported wall_time_s should stay close to body-only calibration+measurement work, baseline=%.6f s wall=%.6f s\n",
+            baseline_body_s, result.wall_time_s);
         return 1;
     }
     if (full_run_elapsed_s <= kMinFullRunElapsed) {
@@ -124,6 +143,11 @@ int main() {
     }
     if (full_run_elapsed_s - result.wall_time_s <= kMinGapToOuterRun) {
         (void)std::fprintf(stderr, "outer run should materially exceed reported wall time, got outer=%.6f s wall=%.6f s\n",
+                           full_run_elapsed_s, result.wall_time_s);
+        return 1;
+    }
+    if (result.wall_time_s * kMinOuterVsReported >= full_run_elapsed_s) {
+        (void)std::fprintf(stderr, "reported wall time should stay materially below the full outer runtime, got outer=%.6f s wall=%.6f s\n",
                            full_run_elapsed_s, result.wall_time_s);
         return 1;
     }
