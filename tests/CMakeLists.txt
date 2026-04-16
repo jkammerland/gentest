@@ -3003,6 +3003,13 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 
 _gentest_add_cmake_helper_test(
+    gentest_plain_tu_wrapper_no_module_scan
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPlainTuWrapperNoModuleScan.cmake
+    codegen
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+
+_gentest_add_cmake_helper_test(
     gentest_fmt_version_metadata_guard
     ${PROJECT_SOURCE_DIR}/tests/cmake/fmt_version_metadata_guard
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFmtVersionMetadataGuard.cmake
