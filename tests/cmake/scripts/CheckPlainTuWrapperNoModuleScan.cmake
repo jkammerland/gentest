@@ -120,4 +120,21 @@ foreach(_forbidden IN ITEMS "-fmodules-ts" "-fdeps-format=" "-fmodule-mapper=")
   endif()
 endforeach()
 
+set(_ninja_file "${_build_dir}/build.ninja")
+if(EXISTS "${_ninja_file}")
+  file(READ "${_ninja_file}" _ninja_content)
+  string(REGEX MATCH "build [^\n]*tu_0000_test_main\\.gentest\\.cpp\\.o:[^\n]*" _wrapper_rule "${_ninja_content}")
+  if(NOT _wrapper_rule)
+    message(FATAL_ERROR "Expected build.ninja to contain the generated wrapper object rule")
+  endif()
+  foreach(_forbidden IN ITEMS "CXX_SCAN" "_scanned" ".ddi" ".modmap")
+    string(FIND "${_wrapper_rule}" "${_forbidden}" _forbidden_pos)
+    if(NOT _forbidden_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Plain gentest TU wrapper must use an unscanned Ninja object rule.\n"
+        "Found '${_forbidden}' in rule:\n${_wrapper_rule}")
+    endif()
+  endforeach()
+endif()
+
 message(STATUS "Plain gentest TU wrapper compile command has no module-scanning flags")

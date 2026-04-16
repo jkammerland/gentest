@@ -653,7 +653,8 @@ function(_gentest_probe_source_inspector_executable executable out_supported out
     set(_gentest_probe_reason "")
     if(_gentest_probe_rc EQUAL 0
        AND _gentest_probe_combined MATCHES "(^|[\n\r])module_name=gentest\\.probe([\n\r]|$)"
-       AND _gentest_probe_combined MATCHES "(^|[\n\r])imports_gentest_mock=1([\n\r]|$)")
+       AND _gentest_probe_combined MATCHES "(^|[\n\r])imports_gentest_mock=1([\n\r]|$)"
+       AND _gentest_probe_combined MATCHES "(^|[\n\r])has_named_module_imports=1([\n\r]|$)")
         set(_gentest_probe_supported TRUE)
     else()
         set(_gentest_probe_reason
@@ -1085,10 +1086,24 @@ endfunction()
 function(_gentest_run_source_inspector input out_module_name out_imports_mock)
     _gentest_resolve_source_inspector_executable(_gentest_source_inspector_executable)
 
+    set(_gentest_out_has_named_module_imports "")
+    set(_gentest_inspector_args ${ARGN})
+    if(_gentest_inspector_args)
+        list(GET _gentest_inspector_args 0 _gentest_first_inspector_arg)
+        if(_gentest_first_inspector_arg STREQUAL "OUT_HAS_NAMED_MODULE_IMPORTS")
+            list(LENGTH _gentest_inspector_args _gentest_inspector_arg_count)
+            if(_gentest_inspector_arg_count LESS 2)
+                message(FATAL_ERROR "OUT_HAS_NAMED_MODULE_IMPORTS requires an output variable name")
+            endif()
+            list(GET _gentest_inspector_args 1 _gentest_out_has_named_module_imports)
+            list(REMOVE_AT _gentest_inspector_args 0 1)
+        endif()
+    endif()
+
     set(_gentest_inspect_include_dirs "")
     set(_gentest_inspect_command_line "")
     set(_gentest_collect_command_line FALSE)
-    foreach(_gentest_arg IN LISTS ARGN)
+    foreach(_gentest_arg IN LISTS _gentest_inspector_args)
         if(_gentest_arg STREQUAL "__GENTEST_SCAN_COMMAND_LINE__")
             set(_gentest_collect_command_line TRUE)
             continue()
@@ -1151,8 +1166,22 @@ function(_gentest_run_source_inspector input out_module_name out_imports_mock)
         set(_gentest_imports_mock TRUE)
     endif()
 
+    set(_gentest_has_named_module_imports FALSE)
+    string(REGEX MATCH "has_named_module_imports=([01])" _gentest_has_imports_match "${_gentest_inspect_out}")
+    if(NOT _gentest_has_imports_match)
+        message(FATAL_ERROR
+            "gentest source inspection returned malformed output for '${input}': missing has_named_module_imports=...\n"
+            "--- stdout ---\n${_gentest_inspect_out}\n--- stderr ---\n${_gentest_inspect_err}")
+    endif()
+    if(CMAKE_MATCH_1 STREQUAL "1")
+        set(_gentest_has_named_module_imports TRUE)
+    endif()
+
     set(${out_module_name} "${_gentest_module_name}" PARENT_SCOPE)
     set(${out_imports_mock} "${_gentest_imports_mock}" PARENT_SCOPE)
+    if(NOT _gentest_out_has_named_module_imports STREQUAL "")
+        set(${_gentest_out_has_named_module_imports} "${_gentest_has_named_module_imports}" PARENT_SCOPE)
+    endif()
 endfunction()
 
 function(_gentest_extract_module_name input out_name)
@@ -1316,7 +1345,7 @@ endfunction()
 
 function(_gentest_prepare_tu_mode)
     set(one_value_args TARGET TARGET_ID OUTPUT_DIR NO_INCLUDE_SOURCES OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP)
-    set(multi_value_args TUS TU_SOURCE_ENTRIES MODULE_NAMES)
+    set(multi_value_args TUS TU_SOURCE_ENTRIES MODULE_NAMES NEEDS_MODULE_SCAN)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     set(_gentest_requires_includes FALSE)
@@ -1401,6 +1430,7 @@ function(_gentest_prepare_tu_mode)
         list(GET _gentest_wrapper_headers ${_idx} _wrap_header)
         list(GET _gentest_registration_cpp ${_idx} _reg_cpp)
         list(GET GENTEST_MODULE_NAMES ${_idx} _module_name)
+        list(GET GENTEST_NEEDS_MODULE_SCAN ${_idx} _needs_module_scan)
         get_filename_component(_wrap_header_name "${_wrap_header}" NAME)
 
         if(_module_name STREQUAL "__gentest_no_module__")
@@ -1423,7 +1453,11 @@ function(_gentest_prepare_tu_mode)
 #endif\n")
 
             file(GENERATE OUTPUT "${_wrap_cpp}" CONTENT "${_shim_content}")
-            set_source_files_properties("${_wrap_cpp}" PROPERTIES OBJECT_DEPENDS "${_wrap_header}" CXX_SCAN_FOR_MODULES OFF)
+            if(_needs_module_scan)
+                set_source_files_properties("${_wrap_cpp}" PROPERTIES OBJECT_DEPENDS "${_wrap_header}" CXX_SCAN_FOR_MODULES ON)
+            else()
+                set_source_files_properties("${_wrap_cpp}" PROPERTIES OBJECT_DEPENDS "${_wrap_header}" CXX_SCAN_FOR_MODULES OFF)
+            endif()
         else()
             set_source_files_properties("${_wrap_cpp}" PROPERTIES OBJECT_DEPENDS "${_wrap_header}")
             list(APPEND _gentest_module_generated_sources "${_wrap_cpp}")
@@ -1438,6 +1472,8 @@ function(_gentest_prepare_tu_mode)
     if(_gentest_module_generated_sources)
         set_source_files_properties(${_gentest_module_generated_sources} PROPERTIES CXX_SCAN_FOR_MODULES ON)
     endif()
+    # Apply original source properties after wrapper defaults so explicit
+    # per-source scan overrides are preserved for generated wrappers.
     _gentest_copy_source_properties_to_wrappers(
         TU_SOURCE_ENTRIES ${GENTEST_TU_SOURCE_ENTRIES}
         TUS ${GENTEST_TUS}
@@ -1971,6 +2007,7 @@ function(gentest_attach_codegen target)
     set(_gentest_tus "")
     set(_gentest_tu_source_entries "")
     set(_gentest_module_names "")
+    set(_gentest_needs_module_scan "")
     set(_gentest_skipped_genex_sources "")
     foreach(_gentest_src IN LISTS _gentest_scan_sources)
         if("${_gentest_src}" MATCHES "\\$<")
@@ -1994,7 +2031,9 @@ function(gentest_attach_codegen target)
                 "macro state in CLANG_ARGS. Use concrete macro arguments for sources that require configure-time module or "
                 "gentest.mock inspection.")
         endif()
-        _gentest_try_extract_module_name("${_gentest_src_abs}" _gentest_module_name
+        set(_gentest_has_named_module_imports FALSE)
+        _gentest_run_source_inspector("${_gentest_src_abs}" _gentest_module_name _gentest_imports_mock
+            OUT_HAS_NAMED_MODULE_IMPORTS _gentest_has_named_module_imports
             ${_gentest_scan_include_dirs}
             __GENTEST_SCAN_COMMAND_LINE__
             ${_gentest_scan_macro_args})
@@ -2006,8 +2045,10 @@ function(gentest_attach_codegen target)
         list(APPEND _gentest_tus "${_gentest_src_abs}")
         if(_gentest_is_module)
             list(APPEND _gentest_module_names "${_gentest_module_name}")
+            list(APPEND _gentest_needs_module_scan TRUE)
         else()
             list(APPEND _gentest_module_names "__gentest_no_module__")
+            list(APPEND _gentest_needs_module_scan "${_gentest_has_named_module_imports}")
         endif()
     endforeach()
 
@@ -2058,6 +2099,7 @@ function(gentest_attach_codegen target)
             TUS ${_gentest_tus}
             TU_SOURCE_ENTRIES ${_gentest_tu_source_entries}
             MODULE_NAMES ${_gentest_module_names}
+            NEEDS_MODULE_SCAN ${_gentest_needs_module_scan}
             OUT_OUTPUT_DIR _gentest_output_dir
             OUT_WRAPPER_CPP _gentest_wrapper_cpp
             OUT_WRAPPER_HEADERS _gentest_wrapper_headers
