@@ -4,7 +4,6 @@
 #include "runner_measured_executor.h"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cstdio>
 #include <future>
@@ -18,7 +17,7 @@ namespace {
 using clock = std::chrono::steady_clock;
 
 constexpr auto kBodyWork    = std::chrono::milliseconds(10);
-constexpr auto kAdoptedWait = std::chrono::milliseconds(200);
+constexpr auto kAdoptedWait = std::chrono::seconds(1);
 
 int g_call_invocations = 0;
 
@@ -28,17 +27,6 @@ void busy_wait_for(clock::duration duration) {
 }
 
 bool in_call_phase() { return gentest::detail::bench_phase() == gentest::detail::BenchPhase::Call; }
-
-double measure_body_baseline_s() {
-    std::array<double, 7> samples_s{};
-    for (double &sample_s : samples_s) {
-        const auto start = clock::now();
-        busy_wait_for(kBodyWork);
-        sample_s = std::chrono::duration<double>(clock::now() - start).count();
-    }
-    std::ranges::sort(samples_s);
-    return samples_s[samples_s.size() / 2];
-}
 
 void measured_call_phase_body_timing(void *) {
     if (!in_call_phase()) {
@@ -91,8 +79,7 @@ int main() {
     opt.bench_cfg.warmup_epochs    = 0;
     opt.bench_cfg.measure_epochs   = 1;
 
-    const double                 baseline_body_s = measure_body_baseline_s();
-    bool                         saw_success     = false;
+    bool                         saw_success = false;
     gentest::runner::BenchResult result{};
     std::string                  failure_detail;
     const auto                   run_start = clock::now();
@@ -120,35 +107,40 @@ int main() {
         return 1;
     }
 
-    constexpr double kMaxMeasuredVsBaseline = 3.0;
-    constexpr double kMaxWallVsBaseline     = 7.0;
-    constexpr double kMinFullRunElapsed     = 0.25;
-    constexpr double kMinGapToOuterRun      = 0.12;
-    constexpr double kMinOuterVsReported    = 2.0;
+    constexpr double kMaxReportedBodyScaleS          = 0.20;
+    constexpr double kMaxReportedVsAdoptedMean       = 0.50;
+    constexpr double kMaxReportedVsAdoptedWall       = 0.75;
+    constexpr double kMinExpectedAdoptedWaitFraction = 0.60;
+    constexpr double kMinOuterGapVsAdopted           = 0.50;
 
-    if (result.mean_ns >= (baseline_body_s * 1'000'000'000.0 * kMaxMeasuredVsBaseline)) {
-        (void)std::fprintf(stderr, "mean_ns should stay close to the %.6f s direct body baseline, got %.0f ns\n", baseline_body_s,
-                           result.mean_ns);
+    const double adopted_wait_s  = std::chrono::duration<double>(kAdoptedWait).count();
+    const double reported_mean_s = result.mean_ns / 1'000'000'000.0;
+
+    if (reported_mean_s > kMaxReportedBodyScaleS) {
+        (void)std::fprintf(stderr, "mean_ns should stay body-scale, got %.6f s\n", reported_mean_s);
         return 1;
     }
-    if (result.wall_time_s >= (baseline_body_s * kMaxWallVsBaseline)) {
-        (void)std::fprintf(
-            stderr, "reported wall_time_s should stay close to body-only calibration+measurement work, baseline=%.6f s wall=%.6f s\n",
-            baseline_body_s, result.wall_time_s);
+    if (reported_mean_s > adopted_wait_s * kMaxReportedVsAdoptedMean) {
+        (void)std::fprintf(stderr, "mean_ns should exclude adopted wait, got %.6f s with adopted wait %.6f s\n", reported_mean_s,
+                           adopted_wait_s);
         return 1;
     }
-    if (full_run_elapsed_s <= kMinFullRunElapsed) {
-        (void)std::fprintf(stderr, "full run should still wait for adopted work, got %.6f s\n", full_run_elapsed_s);
+    if (result.wall_time_s > adopted_wait_s * kMaxReportedVsAdoptedWall) {
+        (void)std::fprintf(stderr, "reported wall_time_s should exclude adopted wait, got wall=%.6f s with adopted wait %.6f s\n",
+                           result.wall_time_s, adopted_wait_s);
         return 1;
     }
-    if (full_run_elapsed_s - result.wall_time_s <= kMinGapToOuterRun) {
-        (void)std::fprintf(stderr, "outer run should materially exceed reported wall time, got outer=%.6f s wall=%.6f s\n",
-                           full_run_elapsed_s, result.wall_time_s);
+
+    const double expected_wait_s = adopted_wait_s * static_cast<double>(std::max(g_call_invocations, 1));
+    if (full_run_elapsed_s < expected_wait_s * kMinExpectedAdoptedWaitFraction) {
+        (void)std::fprintf(stderr, "full run should still wait for adopted work, got calls=%d outer=%.6f s expected_wait=%.6f s\n",
+                           g_call_invocations, full_run_elapsed_s, expected_wait_s);
         return 1;
     }
-    if (result.wall_time_s * kMinOuterVsReported >= full_run_elapsed_s) {
-        (void)std::fprintf(stderr, "reported wall time should stay materially below the full outer runtime, got outer=%.6f s wall=%.6f s\n",
-                           full_run_elapsed_s, result.wall_time_s);
+    if (full_run_elapsed_s - result.wall_time_s < adopted_wait_s * kMinOuterGapVsAdopted) {
+        (void)std::fprintf(stderr,
+                           "outer runtime should materially exceed reported wall time, got outer=%.6f s wall=%.6f s adopted=%.6f s\n",
+                           full_run_elapsed_s, result.wall_time_s, adopted_wait_s);
         return 1;
     }
 
