@@ -15,6 +15,7 @@
 #     [-DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=<path>]
 #     [-DCONSUMER_LINK_MODE=<main_only|runtime_only|double>]
 #     [-DPACKAGE_TEST_USE_MODULES=<ON|OFF>]
+#     [-DPACKAGE_TEST_EXPECT_MODULES=<AUTO|ON|OFF>]
 #     [-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=<ON|OFF>]
 #     [-DPACKAGE_TEST_DRY_RUN_WORK_DIR=<ON|OFF>]
 #     [-DPACKAGE_TEST_DRY_RUN_PRODUCER_DIR=<ON|OFF>]
@@ -40,6 +41,13 @@ if(NOT DEFINED PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE OR "${PACKAGE_TEST_INJECT_
 endif()
 if(NOT DEFINED PACKAGE_TEST_USE_MODULES OR "${PACKAGE_TEST_USE_MODULES}" STREQUAL "")
   set(PACKAGE_TEST_USE_MODULES ON)
+endif()
+if(NOT DEFINED PACKAGE_TEST_EXPECT_MODULES OR "${PACKAGE_TEST_EXPECT_MODULES}" STREQUAL "")
+  set(PACKAGE_TEST_EXPECT_MODULES AUTO)
+endif()
+string(TOUPPER "${PACKAGE_TEST_EXPECT_MODULES}" PACKAGE_TEST_EXPECT_MODULES)
+if(NOT PACKAGE_TEST_EXPECT_MODULES MATCHES "^(AUTO|ON|OFF)$")
+  message(FATAL_ERROR "PACKAGE_TEST_EXPECT_MODULES must be AUTO, ON, or OFF")
 endif()
 if(NOT DEFINED PACKAGE_TEST_DRY_RUN_WORK_DIR OR "${PACKAGE_TEST_DRY_RUN_WORK_DIR}" STREQUAL "")
   set(PACKAGE_TEST_DRY_RUN_WORK_DIR OFF)
@@ -311,12 +319,16 @@ gentest_assert_windows_native_llvm_cache_args(
 
 if(PACKAGE_TEST_USE_MODULES)
   set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
+  set(_effective_expect_modules "${PACKAGE_TEST_EXPECT_MODULES}")
   _gentest_read_configured_cxx_compiler_info("${_producer_build_dir}" _compiler_info_found _compiler_id_value _compiler_version_value)
   if(_compiler_info_found AND _compiler_id_value STREQUAL "GNU")
     string(REGEX MATCH "^[0-9]+" _compiler_major "${_compiler_version_value}")
     if(NOT _compiler_major STREQUAL "" AND _compiler_major LESS 15)
       gentest_skip_test("installed-package module consumer smoke unavailable because configured GNU compiler ${_compiler_version_value} is older than 15")
       return()
+    endif()
+    if(_effective_expect_modules STREQUAL "AUTO")
+      set(_effective_expect_modules ON)
     endif()
   endif()
   gentest_read_cache_value("${_producer_cache_file}" "GENTEST_PUBLIC_MODULES_ENABLED"
@@ -326,6 +338,10 @@ if(PACKAGE_TEST_USE_MODULES)
       _modules_reason_found _modules_disabled_reason)
     if(NOT _modules_reason_found OR "${_modules_disabled_reason}" STREQUAL "")
       set(_modules_disabled_reason "module support was disabled during producer configure")
+    endif()
+    if(_effective_expect_modules STREQUAL "ON")
+      message(FATAL_ERROR
+        "installed-package module consumer smoke expected gentest public named modules for '${_effective_cxx_compiler}', but the producer disabled them: ${_modules_disabled_reason}")
     endif()
     gentest_skip_test("installed-package module consumer smoke unavailable because gentest public named modules are disabled for '${_effective_cxx_compiler}': ${_modules_disabled_reason}")
     return()

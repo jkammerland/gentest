@@ -16,6 +16,7 @@
 #  -DBUILD_TYPE=<Debug/Release/...>
 #  -DBUILD_CONFIG=<Debug/Release/...>  # for multi-config generators
 #  -DBUILD_TIMEOUT_SEC=<seconds>
+#  -DEXPECT_PUBLIC_MODULES=<AUTO|ON|OFF>
 #  -DLLVM_DIR=<llvm cmake dir>
 #  -DClang_DIR=<clang cmake dir>
 
@@ -36,6 +37,13 @@ if(NOT DEFINED TARGET_NAME OR "${TARGET_NAME}" STREQUAL "")
 endif()
 if(NOT DEFINED GENERATOR OR "${GENERATOR}" STREQUAL "")
   message(FATAL_ERROR "CheckCmakeFixtureBuild.cmake: GENERATOR not set")
+endif()
+if(NOT DEFINED EXPECT_PUBLIC_MODULES OR "${EXPECT_PUBLIC_MODULES}" STREQUAL "")
+  set(EXPECT_PUBLIC_MODULES "AUTO")
+endif()
+string(TOUPPER "${EXPECT_PUBLIC_MODULES}" EXPECT_PUBLIC_MODULES)
+if(NOT EXPECT_PUBLIC_MODULES MATCHES "^(AUTO|ON|OFF)$")
+  message(FATAL_ERROR "CheckCmakeFixtureBuild.cmake: EXPECT_PUBLIC_MODULES must be AUTO, ON, or OFF")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
@@ -147,6 +155,10 @@ if(_fixture_uses_public_modules)
     if(NOT _modules_reason_found OR "${_modules_disabled_reason}" STREQUAL "")
       set(_modules_disabled_reason "module support was disabled during fixture configure")
     endif()
+    if(EXPECT_PUBLIC_MODULES STREQUAL "ON")
+      message(FATAL_ERROR
+        "${TARGET_NAME} fixture expected gentest public named modules, but the probe disabled them: ${_modules_disabled_reason}")
+    endif()
     gentest_skip_test("${TARGET_NAME} fixture requires gentest public named modules: ${_modules_disabled_reason}")
     return()
   endif()
@@ -172,6 +184,10 @@ if(_fixture_uses_public_modules)
       _modules_reason_found _modules_disabled_reason)
     if(NOT _modules_reason_found OR "${_modules_disabled_reason}" STREQUAL "")
       set(_modules_disabled_reason "module support was disabled during fixture configure")
+    endif()
+    if(EXPECT_PUBLIC_MODULES STREQUAL "ON")
+      message(FATAL_ERROR
+        "${TARGET_NAME} fixture expected gentest public named modules, but the fixture configure disabled them: ${_modules_disabled_reason}")
     endif()
     gentest_skip_test("${TARGET_NAME} fixture requires gentest public named modules: ${_modules_disabled_reason}")
     return()

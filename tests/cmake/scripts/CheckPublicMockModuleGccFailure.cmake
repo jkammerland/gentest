@@ -41,14 +41,65 @@ function(_gentest_prepare_ccache_env _out_var)
       PARENT_SCOPE)
 endfunction()
 
-find_program(_gcc NAMES gcc)
-find_program(_gxx NAMES g++)
+_gentest_prepare_ccache_env(_compiler_probe_env)
+
+function(_gentest_probe_real_gnu_cxx out_is_gnu out_is_clang compiler_path)
+  set(${out_is_gnu} FALSE PARENT_SCOPE)
+  set(${out_is_clang} FALSE PARENT_SCOPE)
+  if("${compiler_path}" STREQUAL "")
+    return()
+  endif()
+
+  set(_probe_source "${_work_dir}/gxx_probe.cpp")
+  file(WRITE "${_probe_source}" "\n")
+  execute_process(
+    COMMAND ${_compiler_probe_env} "${compiler_path}" -dM -E -x c++ "${_probe_source}"
+    RESULT_VARIABLE _probe_rc
+    OUTPUT_VARIABLE _macros
+    ERROR_VARIABLE _probe_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _probe_rc EQUAL 0)
+    message(FATAL_ERROR "Failed to probe '${compiler_path}' compiler macros.\n${_probe_err}")
+  endif()
+  if(_macros MATCHES "(^|[\r\n])#define __clang__")
+    set(${out_is_clang} TRUE PARENT_SCOPE)
+    return()
+  endif()
+  if(_macros MATCHES "(^|[\r\n])#define __GNUC__")
+    set(${out_is_gnu} TRUE PARENT_SCOPE)
+  endif()
+endfunction()
+
+set(_gcc "")
+set(_gxx "")
+if(DEFINED C_COMPILER AND DEFINED CXX_COMPILER AND NOT "${C_COMPILER}" STREQUAL "" AND NOT "${CXX_COMPILER}" STREQUAL "")
+  _gentest_probe_real_gnu_cxx(_configured_is_gnu _configured_is_clang "${CXX_COMPILER}")
+  if(_configured_is_gnu)
+    set(_gcc "${C_COMPILER}")
+    set(_gxx "${CXX_COMPILER}")
+  endif()
+endif()
+
+if("${_gcc}" STREQUAL "" OR "${_gxx}" STREQUAL "")
+  find_program(_gcc NAMES gcc)
+  find_program(_gxx NAMES g++)
+endif()
 if(NOT _gcc OR NOT _gxx)
   gentest_skip_test("GCC public mock module regression: gcc/g++ not found")
   return()
 endif()
 
-_gentest_prepare_ccache_env(_compiler_probe_env)
+_gentest_probe_real_gnu_cxx(_gxx_is_gnu _gxx_is_clang "${_gxx}")
+if(_gxx_is_clang)
+  gentest_skip_test("GCC public mock module regression: '${_gxx}' is a Clang-compatible driver, not GCC")
+  return()
+endif()
+if(NOT _gxx_is_gnu)
+  gentest_skip_test("GCC public mock module regression: '${_gxx}' is not a GNU C++ compiler")
+  return()
+endif()
+
 execute_process(
   COMMAND ${_compiler_probe_env} "${_gxx}" -dumpfullversion
   OUTPUT_VARIABLE _gxx_version
@@ -69,27 +120,6 @@ if(_gxx_major STREQUAL "")
 endif()
 if(_gxx_major LESS 15)
   gentest_skip_test("GCC public mock module regression: g++ ${_gxx_version} is older than 15")
-  return()
-endif()
-
-set(_gxx_probe "${_work_dir}/gxx_probe.cpp")
-file(WRITE "${_gxx_probe}" "\n")
-execute_process(
-  COMMAND ${_compiler_probe_env} "${_gxx}" -dM -E -x c++ "${_gxx_probe}"
-  RESULT_VARIABLE _gxx_probe_rc
-  OUTPUT_VARIABLE _gxx_macros
-  ERROR_VARIABLE _gxx_probe_err
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_STRIP_TRAILING_WHITESPACE)
-if(NOT _gxx_probe_rc EQUAL 0)
-  message(FATAL_ERROR "Failed to probe '${_gxx}' compiler macros.\n${_gxx_probe_err}")
-endif()
-if(_gxx_macros MATCHES "(^|[\r\n])#define __clang__")
-  gentest_skip_test("GCC public mock module regression: '${_gxx}' is a Clang-compatible driver, not GCC")
-  return()
-endif()
-if(NOT _gxx_macros MATCHES "(^|[\r\n])#define __GNUC__")
-  gentest_skip_test("GCC public mock module regression: '${_gxx}' is not a GNU C++ compiler")
   return()
 endif()
 
