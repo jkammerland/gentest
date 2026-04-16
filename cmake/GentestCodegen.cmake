@@ -653,8 +653,7 @@ function(_gentest_probe_source_inspector_executable executable out_supported out
     set(_gentest_probe_reason "")
     if(_gentest_probe_rc EQUAL 0
        AND _gentest_probe_combined MATCHES "(^|[\n\r])module_name=gentest\\.probe([\n\r]|$)"
-       AND _gentest_probe_combined MATCHES "(^|[\n\r])imports_gentest_mock=1([\n\r]|$)"
-       AND _gentest_probe_combined MATCHES "(^|[\n\r])has_named_module_imports=1([\n\r]|$)")
+       AND _gentest_probe_combined MATCHES "(^|[\n\r])imports_gentest_mock=1([\n\r]|$)")
         set(_gentest_probe_supported TRUE)
     else()
         set(_gentest_probe_reason
@@ -1086,20 +1085,7 @@ endfunction()
 function(_gentest_run_source_inspector input out_module_name out_imports_mock)
     _gentest_resolve_source_inspector_executable(_gentest_source_inspector_executable)
 
-    set(_gentest_out_has_named_module_imports "")
     set(_gentest_inspector_args ${ARGN})
-    if(_gentest_inspector_args)
-        list(GET _gentest_inspector_args 0 _gentest_first_inspector_arg)
-        if(_gentest_first_inspector_arg STREQUAL "OUT_HAS_NAMED_MODULE_IMPORTS")
-            list(LENGTH _gentest_inspector_args _gentest_inspector_arg_count)
-            if(_gentest_inspector_arg_count LESS 2)
-                message(FATAL_ERROR "OUT_HAS_NAMED_MODULE_IMPORTS requires an output variable name")
-            endif()
-            list(GET _gentest_inspector_args 1 _gentest_out_has_named_module_imports)
-            list(REMOVE_AT _gentest_inspector_args 0 1)
-        endif()
-    endif()
-
     set(_gentest_inspect_include_dirs "")
     set(_gentest_inspect_command_line "")
     set(_gentest_collect_command_line FALSE)
@@ -1166,22 +1152,8 @@ function(_gentest_run_source_inspector input out_module_name out_imports_mock)
         set(_gentest_imports_mock TRUE)
     endif()
 
-    set(_gentest_has_named_module_imports FALSE)
-    string(REGEX MATCH "has_named_module_imports=([01])" _gentest_has_imports_match "${_gentest_inspect_out}")
-    if(NOT _gentest_has_imports_match)
-        message(FATAL_ERROR
-            "gentest source inspection returned malformed output for '${input}': missing has_named_module_imports=...\n"
-            "--- stdout ---\n${_gentest_inspect_out}\n--- stderr ---\n${_gentest_inspect_err}")
-    endif()
-    if(CMAKE_MATCH_1 STREQUAL "1")
-        set(_gentest_has_named_module_imports TRUE)
-    endif()
-
     set(${out_module_name} "${_gentest_module_name}" PARENT_SCOPE)
     set(${out_imports_mock} "${_gentest_imports_mock}" PARENT_SCOPE)
-    if(NOT _gentest_out_has_named_module_imports STREQUAL "")
-        set(${_gentest_out_has_named_module_imports} "${_gentest_has_named_module_imports}" PARENT_SCOPE)
-    endif()
 endfunction()
 
 function(_gentest_extract_module_name input out_name)
@@ -1545,6 +1517,7 @@ function(_gentest_attach_tu_wrapper_sources)
     if(_gentest_nonmodule_wrappers)
         list(APPEND _gentest_new_sources ${_gentest_nonmodule_wrappers})
     endif()
+    set_property(TARGET ${GENTEST_TARGET} PROPERTY GENTEST_CODEGEN_NONMODULE_WRAPPERS "${_gentest_nonmodule_wrappers}")
     if(GENTEST_EXTRA_CPP)
         list(APPEND _gentest_new_sources ${GENTEST_EXTRA_CPP})
     endif()
@@ -1870,6 +1843,90 @@ function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets
     endif()
 endfunction()
 
+function(_gentest_target_has_module_metadata target out_has_modules)
+    set(_gentest_has_modules FALSE)
+    if(TARGET "${target}")
+        get_target_property(_gentest_scan_for_modules "${target}" CXX_SCAN_FOR_MODULES)
+        if(_gentest_scan_for_modules AND NOT _gentest_scan_for_modules MATCHES "-NOTFOUND$")
+            set(_gentest_has_modules TRUE)
+        endif()
+        foreach(_gentest_module_prop IN ITEMS
+                CXX_MODULE_SETS
+                INTERFACE_CXX_MODULE_SETS
+                GENTEST_EXPLICIT_MOCK_MODULE_BUILD_SOURCES
+                GENTEST_EXPLICIT_MOCK_MODULE_REL_SOURCES)
+            if(_gentest_has_modules)
+                break()
+            endif()
+            get_target_property(_gentest_module_values "${target}" "${_gentest_module_prop}")
+            if(_gentest_module_values AND NOT _gentest_module_values MATCHES "-NOTFOUND$")
+                set(_gentest_has_modules TRUE)
+                break()
+            endif()
+        endforeach()
+    endif()
+    set(${out_has_modules} "${_gentest_has_modules}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_link_graph_has_explicit_mock_module_context target out_has_modules)
+    set(_gentest_has_modules FALSE)
+    set(_gentest_queue "${target}")
+    set(_gentest_seen "")
+
+    while(_gentest_queue)
+        list(POP_FRONT _gentest_queue _gentest_current)
+        if(NOT TARGET "${_gentest_current}")
+            continue()
+        endif()
+
+        get_target_property(_gentest_alias_target "${_gentest_current}" ALIASED_TARGET)
+        if(_gentest_alias_target AND NOT _gentest_alias_target MATCHES "-NOTFOUND$")
+            set(_gentest_current "${_gentest_alias_target}")
+        endif()
+
+        list(FIND _gentest_seen "${_gentest_current}" _gentest_seen_index)
+        if(NOT _gentest_seen_index EQUAL -1)
+            continue()
+        endif()
+        list(APPEND _gentest_seen "${_gentest_current}")
+
+        if(NOT _gentest_current STREQUAL "${target}")
+            get_target_property(_gentest_is_explicit_mock "${_gentest_current}" GENTEST_EXPLICIT_MOCK_TARGET)
+            if(_gentest_is_explicit_mock)
+                _gentest_target_has_module_metadata("${_gentest_current}" _gentest_current_has_modules)
+                if(_gentest_current_has_modules)
+                    set(_gentest_has_modules TRUE)
+                    break()
+                endif()
+            endif()
+        endif()
+
+        foreach(_gentest_link_prop IN ITEMS LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+            get_target_property(_gentest_link_deps "${_gentest_current}" "${_gentest_link_prop}")
+            if(NOT _gentest_link_deps OR _gentest_link_deps MATCHES "-NOTFOUND$")
+                continue()
+            endif()
+            foreach(_gentest_link_dep IN LISTS _gentest_link_deps)
+                if("${_gentest_link_dep}" STREQUAL "" OR "${_gentest_link_dep}" MATCHES "\\$<")
+                    continue()
+                endif()
+                if(TARGET "${_gentest_link_dep}")
+                    list(APPEND _gentest_queue "${_gentest_link_dep}")
+                endif()
+            endforeach()
+        endforeach()
+    endwhile()
+
+    set(${out_has_modules} "${_gentest_has_modules}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_enable_nonmodule_wrapper_scanning target)
+    get_target_property(_gentest_nonmodule_wrappers "${target}" GENTEST_CODEGEN_NONMODULE_WRAPPERS)
+    if(_gentest_nonmodule_wrappers AND NOT _gentest_nonmodule_wrappers MATCHES "-NOTFOUND$")
+        set_source_files_properties(${_gentest_nonmodule_wrappers} TARGET_DIRECTORY ${target} PROPERTIES CXX_SCAN_FOR_MODULES ON)
+    endif()
+endfunction()
+
 # Internal convenience helper for in-tree consumers that link explicit mock
 # targets after gentest_attach_codegen() has already added the codegen target.
 # The primary public contract remains: link explicit mock targets before
@@ -1917,6 +1974,11 @@ function(gentest_link_mocks target)
         get_target_property(_gentest_is_explicit_mock "${_gentest_mock_target_actual}" GENTEST_EXPLICIT_MOCK_TARGET)
         if(NOT _gentest_is_explicit_mock)
             continue()
+        endif()
+
+        _gentest_target_has_module_metadata("${_gentest_mock_target_actual}" _gentest_mock_has_module_metadata)
+        if(_gentest_mock_has_module_metadata)
+            _gentest_enable_nonmodule_wrapper_scanning(${target})
         endif()
 
         get_target_property(_gentest_mock_codegen_dep "${_gentest_mock_target_actual}" GENTEST_CODEGEN_DEP_TARGET)
@@ -2007,7 +2069,6 @@ function(gentest_attach_codegen target)
     set(_gentest_tus "")
     set(_gentest_tu_source_entries "")
     set(_gentest_module_names "")
-    set(_gentest_needs_module_scan "")
     set(_gentest_skipped_genex_sources "")
     foreach(_gentest_src IN LISTS _gentest_scan_sources)
         if("${_gentest_src}" MATCHES "\\$<")
@@ -2031,9 +2092,7 @@ function(gentest_attach_codegen target)
                 "macro state in CLANG_ARGS. Use concrete macro arguments for sources that require configure-time module or "
                 "gentest.mock inspection.")
         endif()
-        set(_gentest_has_named_module_imports FALSE)
         _gentest_run_source_inspector("${_gentest_src_abs}" _gentest_module_name _gentest_imports_mock
-            OUT_HAS_NAMED_MODULE_IMPORTS _gentest_has_named_module_imports
             ${_gentest_scan_include_dirs}
             __GENTEST_SCAN_COMMAND_LINE__
             ${_gentest_scan_macro_args})
@@ -2045,10 +2104,8 @@ function(gentest_attach_codegen target)
         list(APPEND _gentest_tus "${_gentest_src_abs}")
         if(_gentest_is_module)
             list(APPEND _gentest_module_names "${_gentest_module_name}")
-            list(APPEND _gentest_needs_module_scan TRUE)
         else()
             list(APPEND _gentest_module_names "__gentest_no_module__")
-            list(APPEND _gentest_needs_module_scan "${_gentest_has_named_module_imports}")
         endif()
     endforeach()
 
@@ -2062,6 +2119,28 @@ function(gentest_attach_codegen target)
     if(NOT _gentest_tus)
         message(FATAL_ERROR "gentest_attach_codegen(${target}): no C++ translation units or module units found to scan")
     endif()
+
+    # Do not infer wrapper module scanning from source text: target compile
+    # definitions can make imports active/inactive. CMake target metadata is
+    # the supported signal for module-aware targets.
+    _gentest_target_has_module_metadata(${target} _gentest_target_module_context)
+    if(NOT _gentest_target_module_context)
+        _gentest_link_graph_has_explicit_mock_module_context(${target} _gentest_target_module_context)
+    endif()
+    foreach(_gentest_module_name IN LISTS _gentest_module_names)
+        if(NOT _gentest_module_name STREQUAL "__gentest_no_module__")
+            set(_gentest_target_module_context TRUE)
+            break()
+        endif()
+    endforeach()
+    set(_gentest_needs_module_scan "")
+    foreach(_gentest_module_name IN LISTS _gentest_module_names)
+        if(_gentest_module_name STREQUAL "__gentest_no_module__")
+            list(APPEND _gentest_needs_module_scan "${_gentest_target_module_context}")
+        else()
+            list(APPEND _gentest_needs_module_scan TRUE)
+        endif()
+    endforeach()
 
     # Mode selection:
     # - If OUTPUT is provided, emit a single manifest TU (legacy).

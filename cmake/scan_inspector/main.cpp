@@ -59,7 +59,6 @@ int main(int argc, char **argv) {
     if (inspection.module_name.has_value()) {
         std::cout << *inspection.module_name;
     }
-    std::cout << "\nimports_gentest_mock=" << (inspection.imports_gentest_mock ? "1" : "0")
-              << "\nhas_named_module_imports=" << (inspection.has_named_module_imports ? "1" : "0") << '\n';
+    std::cout << "\nimports_gentest_mock=" << (inspection.imports_gentest_mock ? "1" : "0") << '\n';
     return 0;
 }

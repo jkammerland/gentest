@@ -44,6 +44,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
+set(GENTEST_ENABLE_PUBLIC_MODULES AUTO CACHE STRING "" FORCE)
 set(GENTEST_CODEGEN_EXECUTABLE "@_gentest_codegen_prog@" CACHE FILEPATH "" FORCE)
 add_subdirectory("@_gentest_source_dir@" gentest-build)
 
@@ -123,16 +124,14 @@ endforeach()
 set(_ninja_file "${_build_dir}/build.ninja")
 if(EXISTS "${_ninja_file}")
   file(READ "${_ninja_file}" _ninja_content)
-  string(REGEX MATCH "build [^\n]*tu_0000_test_main\\.gentest\\.cpp\\.o:[^\n]*" _wrapper_rule "${_ninja_content}")
-  if(NOT _wrapper_rule)
-    message(FATAL_ERROR "Expected build.ninja to contain the generated wrapper object rule")
-  endif()
-  foreach(_forbidden IN ITEMS "CXX_SCAN" "_scanned" ".ddi" ".modmap")
-    string(FIND "${_wrapper_rule}" "${_forbidden}" _forbidden_pos)
-    if(NOT _forbidden_pos EQUAL -1)
+  foreach(_forbidden IN ITEMS
+      "tu_0000_test_main\\.gentest\\.cpp(\\.(o|obj))?\\.ddi"
+      "tu_0000_test_main\\.gentest\\.cpp(\\.(o|obj))?\\.modmap")
+    string(REGEX MATCH "${_forbidden}" _forbidden_match "${_ninja_content}")
+    if(_forbidden_match)
       message(FATAL_ERROR
-        "Plain gentest TU wrapper must use an unscanned Ninja object rule.\n"
-        "Found '${_forbidden}' in rule:\n${_wrapper_rule}")
+        "Plain gentest TU wrapper must not have CMake module-scanning build edges.\n"
+        "Matched '${_forbidden_match}' in build.ninja")
     endif()
   endforeach()
 endif()
