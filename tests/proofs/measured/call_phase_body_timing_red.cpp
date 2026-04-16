@@ -107,22 +107,23 @@ int main() {
         return 1;
     }
 
+    constexpr double kMinReportedBodyFraction        = 0.25;
     constexpr double kMaxReportedBodyScaleS          = 0.20;
-    constexpr double kMaxReportedVsAdoptedMean       = 0.50;
     constexpr double kMaxReportedVsAdoptedWall       = 0.75;
     constexpr double kMinExpectedAdoptedWaitFraction = 0.60;
     constexpr double kMinOuterGapVsAdopted           = 0.50;
 
     const double adopted_wait_s  = std::chrono::duration<double>(kAdoptedWait).count();
+    const double body_work_s     = std::chrono::duration<double>(kBodyWork).count();
     const double reported_mean_s = result.mean_ns / 1'000'000'000.0;
 
-    if (reported_mean_s > kMaxReportedBodyScaleS) {
-        (void)std::fprintf(stderr, "mean_ns should stay body-scale, got %.6f s\n", reported_mean_s);
+    if (reported_mean_s < body_work_s * kMinReportedBodyFraction) {
+        (void)std::fprintf(stderr, "mean_ns should include call body work, got %.6f s with body work %.6f s\n", reported_mean_s,
+                           body_work_s);
         return 1;
     }
-    if (reported_mean_s > adopted_wait_s * kMaxReportedVsAdoptedMean) {
-        (void)std::fprintf(stderr, "mean_ns should exclude adopted wait, got %.6f s with adopted wait %.6f s\n", reported_mean_s,
-                           adopted_wait_s);
+    if (reported_mean_s > kMaxReportedBodyScaleS) {
+        (void)std::fprintf(stderr, "mean_ns should stay body-scale, got %.6f s\n", reported_mean_s);
         return 1;
     }
     if (result.wall_time_s > adopted_wait_s * kMaxReportedVsAdoptedWall) {
