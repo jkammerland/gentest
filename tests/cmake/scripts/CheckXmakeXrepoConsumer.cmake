@@ -145,6 +145,7 @@ set(_producer_cache_args
   "-Dgentest_INSTALL=ON"
   "-Dgentest_BUILD_TESTING=OFF"
   "-DGENTEST_BUILD_CODEGEN=ON"
+  "-DGENTEST_ENABLE_PUBLIC_MODULES=ON"
   "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
 if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
   list(APPEND _producer_cache_args "-DLLVM_DIR=${LLVM_DIR}")

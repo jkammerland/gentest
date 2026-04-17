@@ -23,36 +23,6 @@ set(_build_dir "${_work_dir}/build")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
-find_program(_gcc NAMES gcc)
-find_program(_gxx NAMES g++)
-if(NOT _gcc OR NOT _gxx)
-  gentest_skip_test("GCC public mock module regression: gcc/g++ not found")
-  return()
-endif()
-
-execute_process(
-  COMMAND "${_gxx}" -dumpfullversion
-  OUTPUT_VARIABLE _gxx_version
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_QUIET)
-if(_gxx_version STREQUAL "")
-  execute_process(
-    COMMAND "${_gxx}" -dumpversion
-    OUTPUT_VARIABLE _gxx_version
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET)
-endif()
-
-string(REGEX MATCH "^[0-9]+" _gxx_major "${_gxx_version}")
-if(_gxx_major STREQUAL "")
-  gentest_skip_test("GCC public mock module regression: unable to parse g++ version '${_gxx_version}'")
-  return()
-endif()
-if(_gxx_major LESS 15)
-  gentest_skip_test("GCC public mock module regression: g++ ${_gxx_version} is older than 15")
-  return()
-endif()
-
 function(_gentest_prepare_ccache_env _out_var)
   set(_ccache_dir "$ENV{CCACHE_DIR}")
   set(_ccache_tmp "$ENV{CCACHE_TEMPDIR}")
@@ -70,6 +40,98 @@ function(_gentest_prepare_ccache_env _out_var)
       "CCACHE_TEMPDIR=${_ccache_tmp}"
       PARENT_SCOPE)
 endfunction()
+
+_gentest_prepare_ccache_env(_compiler_probe_env)
+
+function(_gentest_probe_real_gnu_cxx out_is_gnu out_is_clang compiler_path)
+  set(${out_is_gnu} FALSE PARENT_SCOPE)
+  set(${out_is_clang} FALSE PARENT_SCOPE)
+  if("${compiler_path}" STREQUAL "")
+    return()
+  endif()
+
+  get_filename_component(_compiler_name_we "${compiler_path}" NAME_WE)
+  string(TOLOWER "${_compiler_name_we}" _compiler_name_lower)
+  if(_compiler_name_lower STREQUAL "cl")
+    return()
+  endif()
+  if(_compiler_name_lower STREQUAL "clang-cl")
+    set(${out_is_clang} TRUE PARENT_SCOPE)
+    return()
+  endif()
+
+  set(_probe_source "${_work_dir}/gxx_probe.cpp")
+  file(WRITE "${_probe_source}" "\n")
+  execute_process(
+    COMMAND ${_compiler_probe_env} "${compiler_path}" -dM -E -x c++ "${_probe_source}"
+    RESULT_VARIABLE _probe_rc
+    OUTPUT_VARIABLE _macros
+    ERROR_VARIABLE _probe_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _probe_rc EQUAL 0)
+    return()
+  endif()
+  if(_macros MATCHES "(^|[\r\n])#define __clang__")
+    set(${out_is_clang} TRUE PARENT_SCOPE)
+    return()
+  endif()
+  if(_macros MATCHES "(^|[\r\n])#define __GNUC__")
+    set(${out_is_gnu} TRUE PARENT_SCOPE)
+  endif()
+endfunction()
+
+set(_gcc "")
+set(_gxx "")
+if(DEFINED C_COMPILER AND DEFINED CXX_COMPILER AND NOT "${C_COMPILER}" STREQUAL "" AND NOT "${CXX_COMPILER}" STREQUAL "")
+  _gentest_probe_real_gnu_cxx(_configured_is_gnu _configured_is_clang "${CXX_COMPILER}")
+  if(_configured_is_gnu)
+    set(_gcc "${C_COMPILER}")
+    set(_gxx "${CXX_COMPILER}")
+  endif()
+endif()
+
+if("${_gcc}" STREQUAL "" OR "${_gxx}" STREQUAL "")
+  find_program(_gcc NAMES gcc)
+  find_program(_gxx NAMES g++)
+endif()
+if(NOT _gcc OR NOT _gxx)
+  gentest_skip_test("GCC public mock module regression: gcc/g++ not found")
+  return()
+endif()
+
+_gentest_probe_real_gnu_cxx(_gxx_is_gnu _gxx_is_clang "${_gxx}")
+if(_gxx_is_clang)
+  gentest_skip_test("GCC public mock module regression: '${_gxx}' is a Clang-compatible driver, not GCC")
+  return()
+endif()
+if(NOT _gxx_is_gnu)
+  gentest_skip_test("GCC public mock module regression: '${_gxx}' is not a GNU C++ compiler")
+  return()
+endif()
+
+execute_process(
+  COMMAND ${_compiler_probe_env} "${_gxx}" -dumpfullversion
+  OUTPUT_VARIABLE _gxx_version
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET)
+if(_gxx_version STREQUAL "")
+  execute_process(
+    COMMAND ${_compiler_probe_env} "${_gxx}" -dumpversion
+    OUTPUT_VARIABLE _gxx_version
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+endif()
+
+string(REGEX MATCH "^[0-9]+" _gxx_major "${_gxx_version}")
+if(_gxx_major STREQUAL "")
+  gentest_skip_test("GCC public mock module regression: unable to parse g++ version '${_gxx_version}'")
+  return()
+endif()
+if(_gxx_major LESS 15)
+  gentest_skip_test("GCC public mock module regression: g++ ${_gxx_version} is older than 15")
+  return()
+endif()
 
 function(_gentest_run_capture _result_var _output_var)
   set(one_value_args WORKING_DIRECTORY)
@@ -125,6 +187,7 @@ endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
+gentest_append_public_modules_cache_arg(_cmake_cache_args)
 
 message(STATUS "Configure GCC producer build for public mock module regression...")
 _gentest_run_capture(

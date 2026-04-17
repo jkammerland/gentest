@@ -83,6 +83,7 @@ endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
+gentest_append_public_modules_cache_arg(_cmake_cache_args)
 gentest_append_host_apple_sysroot(_cmake_cache_args)
 
 message(STATUS "Configure multi imported sibling module mock fixture...")

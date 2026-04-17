@@ -2346,6 +2346,10 @@ set(_gentest_fixture_build_config "")
 if(CMAKE_CONFIGURATION_TYPES)
     set(_gentest_fixture_build_config "Debug")
 endif()
+set(_gentest_expect_public_modules OFF)
+if(GENTEST_PUBLIC_MODULES_TOOLCHAIN_SUPPORTED)
+    set(_gentest_expect_public_modules ON)
+endif()
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_template_template_scope_bindings_builds
@@ -2365,6 +2369,17 @@ _gentest_add_cmake_helper_test(
     -DTARGET_NAME=mock_defaulted_template_ctor
     -DBUILD_CONFIG=${_gentest_fixture_build_config})
 set_property(TEST gentest_codegen_mock_defaulted_template_ctor_builds APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_module_cpp_source_builds
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_cpp_source
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTARGET_NAME=cpp_source_module_tests
+    -DEXPECT_PUBLIC_MODULES=${_gentest_expect_public_modules}
+    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+set_property(TEST gentest_codegen_module_cpp_source_builds APPEND PROPERTY LABELS "codegen;modules")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_mock_template_template_pack_direct_expect_runs
@@ -2981,6 +2996,20 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 
 _gentest_add_cmake_helper_test(
+    gentest_subproject_consumer_defaults
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckSubprojectConsumerDefaults.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+
+_gentest_add_cmake_helper_test(
+    gentest_plain_tu_wrapper_no_module_scan
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPlainTuWrapperNoModuleScan.cmake
+    codegen
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+
+_gentest_add_cmake_helper_test(
     gentest_fmt_version_metadata_guard
     ${PROJECT_SOURCE_DIR}/tests/cmake/fmt_version_metadata_guard
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFmtVersionMetadataGuard.cmake
@@ -3258,7 +3287,8 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         if(NOT "${_gentest_package_test_module_c}" STREQUAL "" AND NOT "${_gentest_package_test_module_cxx}" STREQUAL "")
             set(_gentest_package_test_module_compiler_args
                 -DPACKAGE_TEST_C_COMPILER=${_gentest_package_test_module_c}
-                -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_module_cxx})
+                -DPACKAGE_TEST_CXX_COMPILER=${_gentest_package_test_module_cxx}
+                -DPACKAGE_TEST_EXPECT_MODULES=ON)
             gentest_find_clang_scan_deps(_gentest_package_test_module_scan_deps "${_gentest_package_test_module_cxx}")
             if(NOT "${_gentest_package_test_module_scan_deps}" STREQUAL "")
                 list(APPEND _gentest_package_test_module_compiler_args

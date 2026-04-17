@@ -512,6 +512,9 @@ gentest::expect(raw_clock, &Clock::now).times(1).returns(456);
 Named-module mock usage is the same idea, but the public surface is a generated module:
 
 ```cmake
+# Build/install gentest with -DGENTEST_ENABLE_PUBLIC_MODULES=ON
+# before consuming `import gentest;` or `import gentest.mock;`.
+
 gentest_add_mocks(service_mocks
   DEFS
     ${CMAKE_CURRENT_SOURCE_DIR}/service.cppm

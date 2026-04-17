@@ -259,6 +259,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug `
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
+            -Dgentest_BUILD_TESTING=ON `
             -DGENTEST_ENABLE_PACKAGE_TESTS=ON `
             -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON `
             -DLLVM_DIR="$env:LLVM_DIR" `
@@ -345,8 +346,8 @@ jobs:
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: release
-          - name: Ubuntu 25.04 • Clang 20
-            container: ubuntu:25.04
+          - name: Ubuntu 25.10 • Clang 20
+            container: ubuntu:25.10
             pkg_manager: apt
             compiler: clang
             cc: clang-20
@@ -355,8 +356,8 @@ jobs:
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: debug
-          - name: Ubuntu 25.04 • Clang 20
-            container: ubuntu:25.04
+          - name: Ubuntu 25.10 • Clang 20
+            container: ubuntu:25.10
             pkg_manager: apt
             compiler: clang
             cc: clang-20
@@ -367,8 +368,8 @@ jobs:
             build_type: ASan+UBSan
             preset: alusan-system
             ctest_parallel: 2
-          - name: Ubuntu 25.04 • Clang 20
-            container: ubuntu:25.04
+          - name: Ubuntu 25.10 • Clang 20
+            container: ubuntu:25.10
             pkg_manager: apt
             compiler: clang
             cc: clang-20
@@ -377,8 +378,8 @@ jobs:
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: release
-          - name: Ubuntu 25.04 • GCC
-            container: ubuntu:25.04
+          - name: Ubuntu 25.10 • GCC
+            container: ubuntu:25.10
             pkg_manager: apt
             compiler: gcc
             cc: gcc
@@ -387,8 +388,8 @@ jobs:
             llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-20/lib/cmake/clang
             build_type: debug
-          - name: Ubuntu 25.04 • GCC
-            container: ubuntu:25.04
+          - name: Ubuntu 25.10 • GCC
+            container: ubuntu:25.10
             pkg_manager: apt
             compiler: gcc
             cc: gcc
@@ -616,8 +617,29 @@ jobs:
         run: |
           set -euxo pipefail
           export DEBIAN_FRONTEND=noninteractive
-          apt-get update
-          apt-get install -y --no-install-recommends \
+          apt_common_opts=(-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          apt_update_opts=("${apt_common_opts[@]}" -o APT::Update::Error-Mode=any)
+          apt_update() {
+            for attempt in 1 2 3 4 5; do
+              apt-get "${apt_update_opts[@]}" update && return 0
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+              sleep $((attempt * 10))
+            done
+            apt-get "${apt_update_opts[@]}" update
+          }
+          apt_install() {
+            for attempt in 1 2 3 4 5; do
+              apt-get "${apt_common_opts[@]}" install -y --no-install-recommends "$@" && return 0
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+              sleep $((attempt * 10))
+              apt_update
+            done
+            apt-get "${apt_common_opts[@]}" install -y --no-install-recommends "$@"
+          }
+          apt_update
+          apt_install \
             git \
             build-essential \
             ccache \
@@ -647,9 +669,9 @@ jobs:
               'Components: main' \
               'Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc' \
               >/etc/apt/sources.list.d/apt-llvm-22.sources
-            apt-get update
+            apt_update
           fi
-          apt-get install -y --no-install-recommends \
+          apt_install \
             clang-${{ matrix.clang_version }} \
             clang-tools-${{ matrix.clang_version }} \
             libclang-${{ matrix.clang_version }}-dev \
@@ -880,8 +902,29 @@ jobs:
         run: |
           set -euxo pipefail
           export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt_common_opts=(-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          apt_update_opts=("${apt_common_opts[@]}" -o APT::Update::Error-Mode=any)
+          apt_update() {
+            for attempt in 1 2 3 4 5; do
+              sudo apt-get "${apt_update_opts[@]}" update && return 0
+              sudo apt-get clean
+              sudo rm -rf /var/lib/apt/lists/*
+              sleep $((attempt * 10))
+            done
+            sudo apt-get "${apt_update_opts[@]}" update
+          }
+          apt_install() {
+            for attempt in 1 2 3 4 5; do
+              sudo apt-get "${apt_common_opts[@]}" install -y --no-install-recommends "$@" && return 0
+              sudo apt-get clean
+              sudo rm -rf /var/lib/apt/lists/*
+              sleep $((attempt * 10))
+              apt_update
+            done
+            sudo apt-get "${apt_common_opts[@]}" install -y --no-install-recommends "$@"
+          }
+          apt_update
+          apt_install \
             git \
             build-essential \
             ninja-build \
@@ -909,8 +952,8 @@ jobs:
             'Components: main' \
             'Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc' \
             | sudo tee /etc/apt/sources.list.d/apt-llvm-20.sources >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt_update
+          apt_install \
             clang-20 \
             clang-tools-20 \
             libclang-20-dev \

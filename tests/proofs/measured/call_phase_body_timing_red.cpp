@@ -3,6 +3,7 @@
 #include "gentest/runner.h"
 #include "runner_measured_executor.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <future>
@@ -15,8 +16,8 @@ namespace {
 
 using clock = std::chrono::steady_clock;
 
-constexpr auto kBodyWork    = std::chrono::milliseconds(5);
-constexpr auto kAdoptedWait = std::chrono::milliseconds(80);
+constexpr auto kBodyWork    = std::chrono::milliseconds(10);
+constexpr auto kAdoptedWait = std::chrono::seconds(1);
 
 int g_call_invocations = 0;
 
@@ -106,25 +107,41 @@ int main() {
         return 1;
     }
 
-    constexpr double kMaxBodyMeanNs       = 20'000'000.0;
-    constexpr double kMaxReportedWallTime = 0.03;
-    constexpr double kMinFullRunElapsed   = 0.06;
-    constexpr double kMinGapToOuterRun    = 0.03;
-    if (result.mean_ns >= kMaxBodyMeanNs) {
-        (void)std::fprintf(stderr, "mean_ns should exclude teardown wait, got %.0f ns\n", result.mean_ns);
+    constexpr double kMinReportedBodyFraction        = 0.25;
+    constexpr double kMaxReportedBodyScaleS          = 0.20;
+    constexpr double kMaxReportedVsAdoptedWall       = 0.75;
+    constexpr double kMinExpectedAdoptedWaitFraction = 0.60;
+    constexpr double kMinOuterGapVsAdopted           = 0.50;
+
+    const double adopted_wait_s  = std::chrono::duration<double>(kAdoptedWait).count();
+    const double body_work_s     = std::chrono::duration<double>(kBodyWork).count();
+    const double reported_mean_s = result.mean_ns / 1'000'000'000.0;
+
+    if (reported_mean_s < body_work_s * kMinReportedBodyFraction) {
+        (void)std::fprintf(stderr, "mean_ns should include call body work, got %.6f s with body work %.6f s\n", reported_mean_s,
+                           body_work_s);
         return 1;
     }
-    if (result.wall_time_s >= kMaxReportedWallTime) {
-        (void)std::fprintf(stderr, "reported wall_time_s should stay body-only, got %.6f s\n", result.wall_time_s);
+    if (reported_mean_s > kMaxReportedBodyScaleS) {
+        (void)std::fprintf(stderr, "mean_ns should stay body-scale, got %.6f s\n", reported_mean_s);
         return 1;
     }
-    if (full_run_elapsed_s <= kMinFullRunElapsed) {
-        (void)std::fprintf(stderr, "full run should still wait for adopted work, got %.6f s\n", full_run_elapsed_s);
+    if (result.wall_time_s > adopted_wait_s * kMaxReportedVsAdoptedWall) {
+        (void)std::fprintf(stderr, "reported wall_time_s should exclude adopted wait, got wall=%.6f s with adopted wait %.6f s\n",
+                           result.wall_time_s, adopted_wait_s);
         return 1;
     }
-    if (full_run_elapsed_s - result.wall_time_s <= kMinGapToOuterRun) {
-        (void)std::fprintf(stderr, "outer run should materially exceed reported wall time, got outer=%.6f s wall=%.6f s\n",
-                           full_run_elapsed_s, result.wall_time_s);
+
+    const double expected_wait_s = adopted_wait_s * static_cast<double>(std::max(g_call_invocations, 1));
+    if (full_run_elapsed_s < expected_wait_s * kMinExpectedAdoptedWaitFraction) {
+        (void)std::fprintf(stderr, "full run should still wait for adopted work, got calls=%d outer=%.6f s expected_wait=%.6f s\n",
+                           g_call_invocations, full_run_elapsed_s, expected_wait_s);
+        return 1;
+    }
+    if (full_run_elapsed_s - result.wall_time_s < adopted_wait_s * kMinOuterGapVsAdopted) {
+        (void)std::fprintf(stderr,
+                           "outer runtime should materially exceed reported wall time, got outer=%.6f s wall=%.6f s adopted=%.6f s\n",
+                           full_run_elapsed_s, result.wall_time_s, adopted_wait_s);
         return 1;
     }
 

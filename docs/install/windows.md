@@ -37,6 +37,7 @@ ctest --preset=debug-system --output-on-failure
 $msvcBuildDir = 'build\debug-system-msvc'
 cmake -S . -B $msvcBuildDir -G Ninja -DCMAKE_BUILD_TYPE=Debug `
   -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
+  -Dgentest_BUILD_TESTING=ON `
   -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"
 cmake --build $msvcBuildDir
 ctest --test-dir $msvcBuildDir --output-on-failure

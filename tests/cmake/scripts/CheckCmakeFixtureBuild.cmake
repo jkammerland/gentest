@@ -16,6 +16,7 @@
 #  -DBUILD_TYPE=<Debug/Release/...>
 #  -DBUILD_CONFIG=<Debug/Release/...>  # for multi-config generators
 #  -DBUILD_TIMEOUT_SEC=<seconds>
+#  -DEXPECT_PUBLIC_MODULES=<AUTO|ON|OFF>
 #  -DLLVM_DIR=<llvm cmake dir>
 #  -DClang_DIR=<clang cmake dir>
 
@@ -37,8 +38,16 @@ endif()
 if(NOT DEFINED GENERATOR OR "${GENERATOR}" STREQUAL "")
   message(FATAL_ERROR "CheckCmakeFixtureBuild.cmake: GENERATOR not set")
 endif()
+if(NOT DEFINED EXPECT_PUBLIC_MODULES OR "${EXPECT_PUBLIC_MODULES}" STREQUAL "")
+  set(EXPECT_PUBLIC_MODULES "AUTO")
+endif()
+string(TOUPPER "${EXPECT_PUBLIC_MODULES}" EXPECT_PUBLIC_MODULES)
+if(NOT EXPECT_PUBLIC_MODULES MATCHES "^(AUTO|ON|OFF)$")
+  message(FATAL_ERROR "CheckCmakeFixtureBuild.cmake: EXPECT_PUBLIC_MODULES must be AUTO, ON, or OFF")
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 # Keep nested fixture scratch roots compact so long target names do not get
 # repeated beneath an already-short helper BUILD_ROOT on Windows.
@@ -86,12 +95,73 @@ endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
-if(CMAKE_HOST_WIN32)
-  # These helper fixtures exercise textual/mock codegen paths. Building
-  # gentest's public modules here only inflates nested module object paths and
-  # does not add coverage beyond the dedicated module fixtures.
+
+set(_fixture_uses_public_modules FALSE)
+file(GLOB_RECURSE _fixture_source_candidates
+  LIST_DIRECTORIES FALSE
+  "${SOURCE_DIR}/*.cpp"
+  "${SOURCE_DIR}/*.cc"
+  "${SOURCE_DIR}/*.cxx"
+  "${SOURCE_DIR}/*.cppm"
+  "${SOURCE_DIR}/*.ixx"
+  "${SOURCE_DIR}/*.mpp")
+foreach(_fixture_source IN LISTS _fixture_source_candidates)
+  file(READ "${_fixture_source}" _fixture_source_text)
+  if(_fixture_source_text MATCHES "(^|[\r\n])[ \t]*(export[ \t]+)?import[ \t]+gentest([.;]|\\.)")
+    set(_fixture_uses_public_modules TRUE)
+    break()
+  endif()
+endforeach()
+if(_fixture_uses_public_modules)
+  list(APPEND _cmake_cache_args "-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO")
+elseif(CMAKE_HOST_WIN32)
+  # Textual/mock helper fixtures do not need gentest's public modules on
+  # Windows, and disabling them keeps nested object paths shorter.
   list(APPEND _cmake_cache_args "-DGENTEST_ENABLE_PUBLIC_MODULES=OFF")
+endif()
+if(CMAKE_HOST_WIN32)
   list(APPEND _cmake_cache_args "-DCMAKE_OBJECT_PATH_MAX=128")
+endif()
+
+if(_fixture_uses_public_modules)
+  set(_module_probe_source_dir "${_work_dir}/module_probe_src")
+  set(_module_probe_build_dir "${_work_dir}/module_probe_build")
+  file(MAKE_DIRECTORY "${_module_probe_source_dir}")
+  file(TO_CMAKE_PATH "${GENTEST_SOURCE_DIR}" _module_probe_gentest_source_dir)
+  file(WRITE "${_module_probe_source_dir}/CMakeLists.txt"
+    "cmake_minimum_required(VERSION 3.31)\n"
+    "project(gentest_public_module_probe LANGUAGES C CXX)\n"
+    "set(gentest_BUILD_TESTING OFF CACHE BOOL \"\" FORCE)\n"
+    "set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL \"\" FORCE)\n"
+    "add_subdirectory(\"${_module_probe_gentest_source_dir}\" gentest)\n")
+
+  message(STATUS "Probe gentest public module support for ${TARGET_NAME} fixture...")
+  gentest_check_run_or_fail(
+    COMMAND
+      "${CMAKE_COMMAND}"
+      ${_cmake_gen_args}
+      -S "${_module_probe_source_dir}"
+      -B "${_module_probe_build_dir}"
+      ${_cmake_cache_args}
+    STRIP_TRAILING_WHITESPACE
+    WORKING_DIRECTORY "${_work_dir}")
+
+  set(_module_probe_cache_file "${_module_probe_build_dir}/CMakeCache.txt")
+  gentest_read_cache_value("${_module_probe_cache_file}" "GENTEST_PUBLIC_MODULES_ENABLED"
+    _modules_enabled_found _modules_enabled_value)
+  if(_modules_enabled_found AND NOT _modules_enabled_value)
+    gentest_read_cache_value("${_module_probe_cache_file}" "GENTEST_PUBLIC_MODULES_DISABLED_REASON"
+      _modules_reason_found _modules_disabled_reason)
+    if(NOT _modules_reason_found OR "${_modules_disabled_reason}" STREQUAL "")
+      set(_modules_disabled_reason "module support was disabled during fixture configure")
+    endif()
+    if(EXPECT_PUBLIC_MODULES STREQUAL "ON")
+      message(FATAL_ERROR
+        "${TARGET_NAME} fixture expected gentest public named modules, but the probe disabled them: ${_modules_disabled_reason}")
+    endif()
+    gentest_skip_test("${TARGET_NAME} fixture requires gentest public named modules: ${_modules_disabled_reason}")
+    return()
+  endif()
 endif()
 
 message(STATUS "Configure ${TARGET_NAME} fixture...")
@@ -104,6 +174,25 @@ gentest_check_run_or_fail(
     ${_cmake_cache_args}
   STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_work_dir}")
+
+if(_fixture_uses_public_modules)
+  set(_fixture_cache_file "${_build_dir}/CMakeCache.txt")
+  gentest_read_cache_value("${_fixture_cache_file}" "GENTEST_PUBLIC_MODULES_ENABLED"
+    _modules_enabled_found _modules_enabled_value)
+  if(_modules_enabled_found AND NOT _modules_enabled_value)
+    gentest_read_cache_value("${_fixture_cache_file}" "GENTEST_PUBLIC_MODULES_DISABLED_REASON"
+      _modules_reason_found _modules_disabled_reason)
+    if(NOT _modules_reason_found OR "${_modules_disabled_reason}" STREQUAL "")
+      set(_modules_disabled_reason "module support was disabled during fixture configure")
+    endif()
+    if(EXPECT_PUBLIC_MODULES STREQUAL "ON")
+      message(FATAL_ERROR
+        "${TARGET_NAME} fixture expected gentest public named modules, but the fixture configure disabled them: ${_modules_disabled_reason}")
+    endif()
+    gentest_skip_test("${TARGET_NAME} fixture requires gentest public named modules: ${_modules_disabled_reason}")
+    return()
+  endif()
+endif()
 
 set(_build_cmd
   "${CMAKE_COMMAND}"

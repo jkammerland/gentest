@@ -254,7 +254,7 @@ _assert_workflow_contains("GENTEST_CODEGEN_JOBS=\${{ matrix.codegen_jobs }}" "ex
 foreach(_asan_lane IN ITEMS
     "Ubuntu 24.04 • Clang 20"
     "Ubuntu 24.04 • LLVM 22"
-    "Ubuntu 25.04 • Clang 20"
+    "Ubuntu 25.10 • Clang 20"
     "Fedora 43 • Clang 21"
     "Fedora 43 • LLVM 22")
   _assert_named_row_contains("${_asan_lane}" "ASan+UBSan" "preset: alusan-system"

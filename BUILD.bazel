@@ -68,7 +68,7 @@ genrule(
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen'],
     cmd = "set -e; " +
-          "GENTEST_CMAKE_ARGS='-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'; " +
+          "GENTEST_CMAKE_ARGS='-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON'; " +
           "GENTEST_SOURCE_ROOT=$$(dirname \"$(location CMakeLists.txt)\"); " +
           "if [ -x /opt/homebrew/bin/cmake ]; then GENTEST_CMAKE_BIN=/opt/homebrew/bin/cmake; " +
           "else GENTEST_CMAKE_BIN=$$(command -v cmake); fi && " +
@@ -106,7 +106,7 @@ genrule(
     name = 'gentest_codegen_build_windows',
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen.exe'],
-    cmd_bat = "setlocal EnableDelayedExpansion && set GENTEST_CMAKE_ARGS=-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && " +
+    cmd_bat = "setlocal EnableDelayedExpansion && set GENTEST_CMAKE_ARGS=-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON && " +
               "for %%I in (\"$(location CMakeLists.txt)\") do set GENTEST_SOURCE_ROOT=%%~dpI && " +
               "if not defined CC for %%I in (C:\\Tools\\llvm-22.1.0\\bin\\clang.exe C:\\Tools\\llvm-21.1.4\\bin\\clang.exe C:\\Tools\\llvm-20.1.8\\bin\\clang.exe) do if not defined CC if exist %%I set CC=%%I && " +
               "if not defined CXX for %%I in (C:\\Tools\\llvm-22.1.0\\bin\\clang++.exe C:\\Tools\\llvm-21.1.4\\bin\\clang++.exe C:\\Tools\\llvm-20.1.8\\bin\\clang++.exe) do if not defined CXX if exist %%I set CXX=%%I && " +
