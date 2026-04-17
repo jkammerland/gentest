@@ -24,12 +24,28 @@ if(NOT EXISTS "${_smoke_source}")
 endif()
 set(_module_smoke_dir "${BUILD_ROOT}/cli_validation_module_fixture")
 set(_module_smoke_source "${_module_smoke_dir}/cases.cppm")
+set(_module_partition_source "${_module_smoke_dir}/partition.cppm")
+set(_module_pmf_source "${_module_smoke_dir}/pmf.cppm")
 file(MAKE_DIRECTORY "${_module_smoke_dir}")
 file(WRITE "${_module_smoke_source}" [=[
 export module gentest.cli.validation;
 
 [[using gentest: test("cli/module_wrapper_output_required")]]
 void module_wrapper_output_required_case() {}
+]=])
+file(WRITE "${_module_partition_source}" [=[
+export module gentest.cli.validation:partition;
+
+[[using gentest: test("cli/module_registration_partition_rejected")]]
+void module_registration_partition_rejected_case() {}
+]=])
+file(WRITE "${_module_pmf_source}" [=[
+export module gentest.cli.validation.pmf;
+
+[[using gentest: test("cli/module_registration_pmf_rejected")]]
+void module_registration_pmf_rejected_case() {}
+
+module :private;
 ]=])
 
 set(_clang_args)
@@ -85,6 +101,15 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
+  "output cannot combine with tu out dir"
+  1
+  "gentest_codegen: --output cannot be combined with --tu-out-dir"
+  "${PROG}"
+  --output "${BUILD_ROOT}/manifest.cpp"
+  --tu-out-dir "${BUILD_ROOT}/tu-mode"
+  ${_common_args})
+
+_gentest_expect_result(
   "tu header output count mismatch"
   1
   "gentest_codegen: expected 1 --tu-header-output value(s) for 1 input source(s), got 2"
@@ -121,6 +146,69 @@ _gentest_expect_result(
   --compdb "${_compdb_root}"
   --tu-out-dir "${BUILD_ROOT}/missing-module-wrapper"
   "${_module_smoke_source}"
+  --
+  ${_clang_args})
+
+_gentest_expect_result(
+  "module registration output requires tu out dir"
+  1
+  "gentest_codegen: --module-registration-output requires --tu-out-dir"
+  "${PROG}"
+  --module-registration-output "${BUILD_ROOT}/unused.registration.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "module registration output count mismatch"
+  1
+  "gentest_codegen: expected 1 --module-registration-output value(s) for 1 input source(s), got 2"
+  "${PROG}"
+  --tu-out-dir "${BUILD_ROOT}/unused-module-registrations"
+  --module-registration-output "${BUILD_ROOT}/a.registration.gentest.cpp"
+  --module-registration-output "${BUILD_ROOT}/b.registration.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "module registration output cannot combine with wrapper output"
+  1
+  "gentest_codegen: --module-registration-output cannot be combined with --module-wrapper-output"
+  "${PROG}"
+  --tu-out-dir "${BUILD_ROOT}/mixed-module-outputs"
+  --module-wrapper-output "${BUILD_ROOT}/a.module.gentest.cpp"
+  --module-registration-output "${BUILD_ROOT}/a.registration.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "compile context id count mismatch"
+  1
+  "gentest_codegen: expected 1 --compile-context-id value(s) for 1 input source(s), got 2"
+  "${PROG}"
+  --compile-context-id a
+  --compile-context-id b
+  ${_common_args})
+
+_gentest_expect_result(
+  "module registration rejects partitions"
+  1
+  "gentest_codegen: module registration input '${_module_partition_source}' declares module partition 'gentest.cli.validation:partition'"
+  "${PROG}"
+  --check
+  --compdb "${_compdb_root}"
+  --tu-out-dir "${BUILD_ROOT}/partition-module-registration"
+  --module-registration-output "${BUILD_ROOT}/partition-module-registration/partition.registration.gentest.cpp"
+  "${_module_partition_source}"
+  --
+  ${_clang_args})
+
+_gentest_expect_result(
+  "module registration rejects private module fragments"
+  1
+  "gentest_codegen: module registration input '${_module_pmf_source}' contains a private module fragment"
+  "${PROG}"
+  --check
+  --compdb "${_compdb_root}"
+  --tu-out-dir "${BUILD_ROOT}/pmf-module-registration"
+  --module-registration-output "${BUILD_ROOT}/pmf-module-registration/pmf.registration.gentest.cpp"
+  "${_module_pmf_source}"
   --
   ${_clang_args})
 

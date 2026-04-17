@@ -2763,6 +2763,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_auto_discovery APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_registration_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationManifest.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_manifest APPEND PROPERTY LABELS "modules;codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMultilineDirectiveFailure.cmake

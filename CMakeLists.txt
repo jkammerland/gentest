@@ -105,6 +105,10 @@ if(${PROJECT_NAME}_INSTALL)
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/scan_inspector/"
         DESTINATION "share/cmake/gentest/scan_inspector")
     install(FILES
+        "${PROJECT_SOURCE_DIR}/cmake/GentestValidateArtifactManifest.cmake"
+        DESTINATION "share/cmake/gentest"
+        COMPONENT Development)
+    install(FILES
         "${PROJECT_SOURCE_DIR}/tools/src/source_inspection.hpp"
         "${PROJECT_SOURCE_DIR}/tools/src/scan_utils.hpp"
         DESTINATION "share/cmake/gentest/scan_inspector/include")
