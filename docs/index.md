@@ -48,3 +48,4 @@
 - Runner modularization execution design: [`docs/stories/008_runner_impl_modularization_design.md`](stories/008_runner_impl_modularization_design.md)
 - Module mock bootstrap options (historical context): [`docs/stories/013_module_mock_bootstrap_options.md`](stories/013_module_mock_bootstrap_options.md)
 - Explicit mock target codegen: [`docs/stories/014_explicit_mock_target_codegen.md`](stories/014_explicit_mock_target_codegen.md)
+- Codegen-owned artifact manifest and same-module registration: [`docs/stories/034_codegen_owned_artifact_manifest_and_module_registration.md`](stories/034_codegen_owned_artifact_manifest_and_module_registration.md)
