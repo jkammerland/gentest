@@ -88,6 +88,7 @@ consumer_mock_out_dir = meson.current_build_dir()
 consumer_mock_defs_cpp = 'downstream_textual_mocks_defs.cpp'
 consumer_mock_anchor_cpp = 'downstream_textual_mocks_anchor.cpp'
 consumer_mock_codegen_h = 'tu_0000_downstream_textual_mocks_defs.gentest.h'
+consumer_mock_depfile = '@0@.d'.format(consumer_mock_codegen_h)
 consumer_mock_registry_h = 'downstream_textual_mocks_mock_registry.hpp'
 consumer_mock_impl_h = 'downstream_textual_mocks_mock_impl.hpp'
 consumer_mock_domain_registry_h = 'downstream_textual_mocks_mock_registry__domain_0000_header.hpp'
@@ -139,11 +140,13 @@ consumer_mocks = custom_target(
     '--mock-domain-registry-output', join_paths(consumer_mock_out_dir, consumer_mock_domain_registry_h),
     '--mock-domain-impl-output', join_paths(consumer_mock_out_dir, consumer_mock_domain_impl_h),
     '--discover-mocks',
+    '--depfile', join_paths(consumer_mock_out_dir, consumer_mock_depfile),
     gentest_codegen_tool_args,
     '@INPUT0@',
     '--',
     clang_args,
   ],
+  depfile: consumer_mock_depfile,
   build_by_default: true
 )
 
@@ -157,6 +160,7 @@ consumer_mock_lib = static_library(
 
 consumer_wrapper_cpp = 'tu_0000_downstream_textual_cases.gentest.cpp'
 consumer_wrapper_h = 'tu_0000_downstream_textual_cases.gentest.h'
+consumer_wrapper_depfile = '@0@.d'.format(consumer_wrapper_h)
 consumer_wrapper_cfg = configuration_data()
 consumer_wrapper_cfg.set('SOURCE_FILE', join_paths(meson.project_source_root(), 'tests', 'cases.cpp'))
 consumer_wrapper_cfg.set('HEADER_FILE', consumer_wrapper_h)
@@ -174,12 +178,14 @@ consumer_codegen = custom_target(
     '--source-root', meson.project_source_root(),
     '--tu-out-dir', meson.current_build_dir(),
     '--tu-header-output', join_paths(meson.current_build_dir(), consumer_wrapper_h),
+    '--depfile', join_paths(meson.current_build_dir(), consumer_wrapper_depfile),
     gentest_codegen_tool_args,
     '@INPUT0@',
     '--',
     '-I@0@'.format(meson.current_build_dir()),
     clang_args,
   ],
+  depfile: consumer_wrapper_depfile,
   build_by_default: true
 )
 

@@ -267,7 +267,8 @@ foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/${_module_mock_leaf}/downstream/xrepo/consumer_mocks.cppm"
     "${_generated_glob_root}/${_module_mock_leaf}/tu_0000_service_module.module.gentest.cppm"
     "${_generated_glob_root}/${_module_mock_leaf}/tu_0001_module_mock_defs.module.gentest.cppm"
-    "${_generated_glob_root}/${_module_leaf}/tu_0000_cases.module.gentest.cppm"
+    "${_generated_glob_root}/${_module_leaf}/tu_0000_cases.registration.gentest.cpp"
+    "${_generated_glob_root}/${_module_leaf}/gentest_xrepo_module.artifact_manifest.json"
     "${_generated_glob_root}/${_module_leaf}/tu_0000_cases.gentest.h")
   file(GLOB _expected_matches LIST_DIRECTORIES FALSE "${_expected_glob}")
   list(LENGTH _expected_matches _expected_match_count)

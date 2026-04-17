@@ -39,7 +39,9 @@ foreach(_expected IN ITEMS
     "Meson named-module support is"
     "'gentest_consumer_textual_meson'"
     "'gen_consumer_textual_mocks'"
-    "'--tu-out-dir'")
+    "'--tu-out-dir'"
+    "'--depfile'"
+    "depfile:")
   string(FIND "${_meson_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "meson.build is missing expected native-textual token: ${_expected}")
@@ -61,6 +63,9 @@ foreach(_expected IN ITEMS
     "registered_target_metadata()"
     "collect_mock_metadata_inputs"
     "module_public_output_rel"
+    "module_registration_output_rel"
+    "\"--module-registration-output\""
+    "\"--artifact-manifest\""
     "requires `defs_modules` with one explicit module name per defs file"
     "kind == \"modules\"")
   string(FIND "${_xmake_helper_content}" "${_expected}" _expected_pos)
@@ -85,6 +90,9 @@ foreach(_expected IN ITEMS
     "use_default_shell_env = True"
     "defs_modules"
     "export import gentest.mock;"
+    "_gentest_module_registration_relpath"
+    "\"--module-registration-output\""
+    "\"--artifact-manifest\""
     "_gentest_codegen_target("
     "output_group = \"module_interfaces\"")
   string(FIND "${_bazel_rules_content}" "${_expected}" _expected_pos)

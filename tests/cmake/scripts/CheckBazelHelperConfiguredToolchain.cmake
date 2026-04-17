@@ -266,6 +266,10 @@ foreach ($Arg in $RemainingArgs) {
     Touch-File (Join-Path $env:MARKER_DIR 'textual.ok')
   } elseif (@('//:gentest_consumer_module_bazel', '//:gentest_consumer_module_mocks') -contains $Arg) {
     foreach ($File in @(
+        'gen/gentest_consumer_module_bazel/suite_0000.cppm',
+        'gen/gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp',
+        'gen/gentest_consumer_module_bazel/tu_0000_suite_0000.gentest.h',
+        'gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json',
         'gen/gentest_consumer_module_mocks/gentest/consumer_mocks.cppm',
         'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry.hpp',
         'gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl.hpp',
@@ -295,7 +299,10 @@ foreach ($Arg in $RemainingArgs) {
         'gen/gentest_downstream_module_mocks/downstream/bazel/consumer_mocks.cppm',
         'gen/gentest_downstream_module_mocks/gentest_downstream_module_mocks_mock_registry.hpp',
         'gen/gentest_downstream_module_mocks/gentest_downstream_module_mocks_mock_impl.hpp',
-        'gen/gentest_downstream_module/tu_0000_suite_0000.gentest.h')) {
+        'gen/gentest_downstream_module/suite_0000.cppm',
+        'gen/gentest_downstream_module/tu_0000_suite_0000.registration.gentest.cpp',
+        'gen/gentest_downstream_module/tu_0000_suite_0000.gentest.h',
+        'gen/gentest_downstream_module/gentest_downstream_module.artifact_manifest.json')) {
       Touch-File (Join-Path $BazelBin $File)
     }
     New-Runner (Join-Path $BazelBin 'gentest_downstream_textual.cmd')
@@ -436,9 +443,14 @@ for arg in "$@"; do
       touch "${MARKER_DIR}/textual.ok"
       ;;
     //:gentest_consumer_module_bazel|//:gentest_consumer_module_mocks)
+      mkdir -p "$bazel_bin/gen/gentest_consumer_module_bazel"
       mkdir -p "$bazel_bin/gen/gentest_consumer_module_mocks"
       mkdir -p "$bazel_bin/gen/gentest_consumer_module_mocks/gentest"
       touch \
+        "$bazel_bin/gen/gentest_consumer_module_bazel/suite_0000.cppm" \
+        "$bazel_bin/gen/gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp" \
+        "$bazel_bin/gen/gentest_consumer_module_bazel/tu_0000_suite_0000.gentest.h" \
+        "$bazel_bin/gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json" \
         "$bazel_bin/gen/gentest_consumer_module_mocks/gentest/consumer_mocks.cppm" \
         "$bazel_bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_registry.hpp" \
         "$bazel_bin/gen/gentest_consumer_module_mocks/gentest_consumer_module_mocks_mock_impl.hpp" \
@@ -466,7 +478,10 @@ for arg in "$@"; do
         "$bazel_bin/gen/gentest_downstream_module_mocks/downstream/bazel/consumer_mocks.cppm" \
         "$bazel_bin/gen/gentest_downstream_module_mocks/gentest_downstream_module_mocks_mock_registry.hpp" \
         "$bazel_bin/gen/gentest_downstream_module_mocks/gentest_downstream_module_mocks_mock_impl.hpp" \
-        "$bazel_bin/gen/gentest_downstream_module/tu_0000_suite_0000.gentest.h"
+        "$bazel_bin/gen/gentest_downstream_module/suite_0000.cppm" \
+        "$bazel_bin/gen/gentest_downstream_module/tu_0000_suite_0000.registration.gentest.cpp" \
+        "$bazel_bin/gen/gentest_downstream_module/tu_0000_suite_0000.gentest.h" \
+        "$bazel_bin/gen/gentest_downstream_module/gentest_downstream_module.artifact_manifest.json"
       make_runner "$bazel_bin/gentest_downstream_textual"
       make_runner "$bazel_bin/gentest_downstream_module"
       touch "${MARKER_DIR}/bzlmod.ok"

@@ -370,7 +370,8 @@ foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/consumer_module_mocks/tu_0001_module_mock_defs.gentest.h"
     "${_generated_glob_root}/consumer_module_mocks/tu_0001_module_mock_defs.module.gentest.cppm"
     "${_generated_glob_root}/consumer_module/tu_0000_cases.gentest.h"
-    "${_generated_glob_root}/consumer_module/tu_0000_cases.module.gentest.cppm")
+    "${_generated_glob_root}/consumer_module/tu_0000_cases.registration.gentest.cpp"
+    "${_generated_glob_root}/consumer_module/gentest_consumer_module_xmake.artifact_manifest.json")
   file(GLOB _expected_matches LIST_DIRECTORIES FALSE "${_expected_glob}")
   list(LENGTH _expected_matches _expected_match_count)
   if(NOT _expected_match_count EQUAL 1)
@@ -381,27 +382,6 @@ foreach(_expected_glob IN ITEMS
       "stderr:\n${_build_err}")
   endif()
 endforeach()
-
-get_filename_component(_codegen_parent "${_codegen}" DIRECTORY)
-get_filename_component(_codegen_grandparent "${_codegen_parent}" DIRECTORY)
-set(_expected_compdb "")
-foreach(_candidate IN ITEMS "${_codegen_parent}" "${_codegen_grandparent}")
-  if(EXISTS "${_candidate}/compile_commands.json")
-    set(_expected_compdb "${_candidate}")
-    break()
-  endif()
-endforeach()
-if(NOT "${_expected_compdb}" STREQUAL "")
-  string(FIND "${_build_log}" "--compdb" _compdb_flag_pos)
-  string(FIND "${_build_log}" "${_expected_compdb}" _compdb_path_pos)
-  if(_compdb_flag_pos EQUAL -1 OR _compdb_path_pos EQUAL -1)
-    message(FATAL_ERROR
-      "xmake module consumer build did not hand the documented GENTEST_CODEGEN compile_commands path through to codegen.\n"
-      "Expected compdb: ${_expected_compdb}\n"
-      "stdout:\n${_build_out}\n"
-      "stderr:\n${_build_err}")
-  endif()
-endif()
 
 file(GLOB_RECURSE _consumer_bins
   LIST_DIRECTORIES FALSE

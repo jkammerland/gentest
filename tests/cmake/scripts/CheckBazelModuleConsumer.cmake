@@ -428,7 +428,11 @@ foreach(_expected_file IN ITEMS
     "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.module.gentest.cppm"
     "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.gentest.h"
     "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.module.gentest.cppm"
-    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h")
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/suite_0000.cppm"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/tu_0000_suite_0000.gentest.h"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
       "Bazel module mock target build did not produce expected mockgen artifact '${_expected_file}'.\n"

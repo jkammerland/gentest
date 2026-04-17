@@ -207,6 +207,19 @@ foreach(_expected_file IN ITEMS
   endif()
 endforeach()
 
+foreach(_expected_depfile_flag IN ITEMS
+    "--depfile"
+    "tu_0000_downstream_textual_mocks_defs.gentest.h.d"
+    "tu_0000_downstream_textual_cases.gentest.h.d")
+  string(FIND "${_build_out}\n${_build_err}" "${_expected_depfile_flag}" _depfile_flag_pos)
+  if(_depfile_flag_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson wrap consumer build did not pass expected depfile argument '${_expected_depfile_flag}'.\n"
+      "stdout:\n${_build_out}\n"
+      "stderr:\n${_build_err}")
+  endif()
+endforeach()
+
 set(_consumer_bin "${_out_dir}/gentest_downstream_textual")
 if(NOT EXISTS "${_consumer_bin}")
   message(FATAL_ERROR "Expected built Meson wrap consumer binary was not found: ${_consumer_bin}")
