@@ -40,6 +40,8 @@ gentest_wrapper_template = gentest_sp.get_variable('gentest_wrapper_template')
 gentest_textual_mock_template = gentest_sp.get_variable('gentest_textual_mock_template')
 gentest_anchor_template = gentest_sp.get_variable('gentest_anchor_template')
 gentest_textual_public_header_template = gentest_sp.get_variable('gentest_textual_public_header_template')
+gentest_fmt_pkgconfig_include_dirs = gentest_sp.get_variable('fmt_pkgconfig_include_dirs')
+gentest_fmt_fallback_include_dir = gentest_sp.get_variable('fmt_fallback_include_dir')
 
 fixture_inc = include_directories('tests')
 project_includes = [fixture_inc]
@@ -55,6 +57,12 @@ clang_args = [
   '-I@0@'.format(gentest_public_include_path),
   '-I@0@'.format(gentest_third_party_include_path),
 ]
+foreach fmt_include_dir : gentest_fmt_pkgconfig_include_dirs
+  clang_args += ['-I@0@'.format(fmt_include_dir)]
+endforeach
+if gentest_fmt_fallback_include_dir != ''
+  clang_args += ['-I@0@'.format(gentest_fmt_fallback_include_dir)]
+endif
 
 support_inputs_cmd = run_command(
   py,
