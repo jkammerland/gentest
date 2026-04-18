@@ -4527,8 +4527,8 @@ int main(int argc, const char **argv) {
     }
     if (!options.mock_manifest_output_path.empty()) {
         std::string manifest_error;
-        if (!gentest::codegen::mock_manifest::write(options.mock_manifest_output_path, mocks,
-                                                    mock_domain_modules_from_context(final_options), manifest_error)) {
+        const auto  mock_output_domain_modules = mock_domain_modules_from_context(final_options);
+        if (!gentest::codegen::mock_manifest::write(options.mock_manifest_output_path, mocks, mock_output_domain_modules, manifest_error)) {
             gentest::codegen::log_err("gentest_codegen: {}\n", manifest_error);
             return 1;
         }

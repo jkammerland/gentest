@@ -12,6 +12,7 @@
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/raw_ostream.h>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -155,10 +156,10 @@ json::Array string_array(const std::vector<std::string> &values) {
 
 json::Object template_param_object(const TemplateParamInfo &param) {
     return json::Object{
-        {"kind", to_string(param.kind)},
-        {"name", param.name},
-        {"is_pack", param.is_pack},
-        {"usage_spelling", param.usage_spelling},
+        {.K = "kind", .V = to_string(param.kind)},
+        {.K = "name", .V = param.name},
+        {.K = "is_pack", .V = param.is_pack},
+        {.K = "usage_spelling", .V = param.usage_spelling},
     };
 }
 
@@ -172,9 +173,9 @@ json::Array template_param_array(const std::vector<TemplateParamInfo> &params) {
 
 json::Object param_object(const MockParamInfo &param) {
     return json::Object{
-        {"type", param.type},
-        {"name", param.name},
-        {"pass_style", to_string(param.pass_style)},
+        {.K = "type", .V = param.type},
+        {.K = "name", .V = param.name},
+        {.K = "pass_style", .V = to_string(param.pass_style)},
     };
 }
 
@@ -188,11 +189,11 @@ json::Array param_array(const std::vector<MockParamInfo> &params) {
 
 json::Object ctor_object(const MockCtorInfo &ctor) {
     return json::Object{
-        {"parameters", param_array(ctor.parameters)},
-        {"template_prefix", ctor.template_prefix},
-        {"template_params", template_param_array(ctor.template_params)},
-        {"is_explicit", ctor.is_explicit},
-        {"is_noexcept", ctor.is_noexcept},
+        {.K = "parameters", .V = param_array(ctor.parameters)},
+        {.K = "template_prefix", .V = ctor.template_prefix},
+        {.K = "template_params", .V = template_param_array(ctor.template_params)},
+        {.K = "is_explicit", .V = ctor.is_explicit},
+        {.K = "is_noexcept", .V = ctor.is_noexcept},
     };
 }
 
@@ -206,24 +207,24 @@ json::Array ctor_array(const std::vector<MockCtorInfo> &ctors) {
 
 json::Object qualifiers_object(const MockMethodQualifiers &qualifiers) {
     return json::Object{
-        {"cv", to_string(qualifiers.cv)},
-        {"ref", to_string(qualifiers.ref)},
-        {"is_noexcept", qualifiers.is_noexcept},
+        {.K = "cv", .V = to_string(qualifiers.cv)},
+        {.K = "ref", .V = to_string(qualifiers.ref)},
+        {.K = "is_noexcept", .V = qualifiers.is_noexcept},
     };
 }
 
 json::Object method_object(const MockMethodInfo &method) {
     return json::Object{
-        {"qualified_name", method.qualified_name},
-        {"method_name", method.method_name},
-        {"return_type", method.return_type},
-        {"parameters", param_array(method.parameters)},
-        {"template_prefix", method.template_prefix},
-        {"template_params", template_param_array(method.template_params)},
-        {"is_static", method.is_static},
-        {"is_virtual", method.is_virtual},
-        {"is_pure_virtual", method.is_pure_virtual},
-        {"qualifiers", qualifiers_object(method.qualifiers)},
+        {.K = "qualified_name", .V = method.qualified_name},
+        {.K = "method_name", .V = method.method_name},
+        {.K = "return_type", .V = method.return_type},
+        {.K = "parameters", .V = param_array(method.parameters)},
+        {.K = "template_prefix", .V = method.template_prefix},
+        {.K = "template_params", .V = template_param_array(method.template_params)},
+        {.K = "is_static", .V = method.is_static},
+        {.K = "is_virtual", .V = method.is_virtual},
+        {.K = "is_pure_virtual", .V = method.is_pure_virtual},
+        {.K = "qualifiers", .V = qualifiers_object(method.qualifiers)},
     };
 }
 
@@ -237,11 +238,11 @@ json::Array method_array(const std::vector<MockMethodInfo> &methods) {
 
 json::Object namespace_scope_object(const MockNamespaceScopeInfo &scope) {
     return json::Object{
-        {"name", scope.name},
-        {"is_inline", scope.is_inline},
-        {"is_exported", scope.is_exported},
-        {"lexical_close_group", static_cast<std::int64_t>(scope.lexical_close_group)},
-        {"reopen_prefix", scope.reopen_prefix},
+        {.K = "name", .V = scope.name},
+        {.K = "is_inline", .V = scope.is_inline},
+        {.K = "is_exported", .V = scope.is_exported},
+        {.K = "lexical_close_group", .V = static_cast<std::int64_t>(scope.lexical_close_group)},
+        {.K = "reopen_prefix", .V = scope.reopen_prefix},
     };
 }
 
@@ -255,18 +256,18 @@ json::Array namespace_scope_array(const std::vector<MockNamespaceScopeInfo> &sco
 
 json::Object mock_object(const MockClassInfo &mock) {
     json::Object out{
-        {"qualified_name", mock.qualified_name},
-        {"display_name", mock.display_name},
-        {"definition_file", mock.definition_file},
-        {"definition_kind", to_string(mock.definition_kind)},
-        {"use_files", string_array(mock.use_files)},
-        {"definition_module_name", mock.definition_module_name},
-        {"attachment_namespace_chain", namespace_scope_array(mock.attachment_namespace_chain)},
-        {"derive_for_virtual", mock.derive_for_virtual},
-        {"has_accessible_default_ctor", mock.has_accessible_default_ctor},
-        {"has_virtual_destructor", mock.has_virtual_destructor},
-        {"constructors", ctor_array(mock.constructors)},
-        {"methods", method_array(mock.methods)},
+        {.K = "qualified_name", .V = mock.qualified_name},
+        {.K = "display_name", .V = mock.display_name},
+        {.K = "definition_file", .V = mock.definition_file},
+        {.K = "definition_kind", .V = to_string(mock.definition_kind)},
+        {.K = "use_files", .V = string_array(mock.use_files)},
+        {.K = "definition_module_name", .V = mock.definition_module_name},
+        {.K = "attachment_namespace_chain", .V = namespace_scope_array(mock.attachment_namespace_chain)},
+        {.K = "derive_for_virtual", .V = mock.derive_for_virtual},
+        {.K = "has_accessible_default_ctor", .V = mock.has_accessible_default_ctor},
+        {.K = "has_virtual_destructor", .V = mock.has_virtual_destructor},
+        {.K = "constructors", .V = ctor_array(mock.constructors)},
+        {.K = "methods", .V = method_array(mock.methods)},
     };
     if (mock.attachment_insertion_offset.has_value()) {
         out["attachment_insertion_offset"] = static_cast<std::int64_t>(*mock.attachment_insertion_offset);
@@ -274,6 +275,7 @@ json::Object mock_object(const MockClassInfo &mock) {
     return out;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool require_string(const json::Object &obj, llvm::StringRef key, std::string &out, std::string &error) {
     const auto value = obj.getString(key);
     if (!value.has_value()) {
@@ -284,6 +286,7 @@ bool require_string(const json::Object &obj, llvm::StringRef key, std::string &o
     return true;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool optional_string(const json::Object &obj, llvm::StringRef key, std::string &out, std::string &error) {
     const auto *value = obj.get(key);
     if (value == nullptr) {
@@ -560,7 +563,7 @@ bool ensure_parent_dir(const std::filesystem::path &path, std::string &error) {
 
 } // namespace
 
-std::string serialize(std::vector<MockClassInfo> mocks, std::vector<std::string> mock_output_domain_modules) {
+std::string serialize(std::vector<MockClassInfo> mocks, std::span<const std::string> mock_output_domain_modules) {
     std::ranges::sort(mocks, {}, [](const MockClassInfo &mock) {
         return std::tie(mock.qualified_name, mock.definition_file, mock.definition_module_name, mock.definition_kind);
     });
@@ -576,9 +579,9 @@ std::string serialize(std::vector<MockClassInfo> mocks, std::vector<std::string>
     }
 
     json::Object root{
-        {"schema", std::string(kSchema)},
-        {"mock_output_domain_modules", std::move(domain_modules)},
-        {"mocks", std::move(mock_values)},
+        {.K = "schema", .V = std::string(kSchema)},
+        {.K = "mock_output_domain_modules", .V = std::move(domain_modules)},
+        {.K = "mocks", .V = std::move(mock_values)},
     };
 
     std::string              text;
@@ -589,12 +592,12 @@ std::string serialize(std::vector<MockClassInfo> mocks, std::vector<std::string>
     return text;
 }
 
-bool write(const std::filesystem::path &path, const std::vector<MockClassInfo> &mocks, std::vector<std::string> mock_output_domain_modules,
-           std::string &error) {
+bool write(const std::filesystem::path &path, const std::vector<MockClassInfo> &mocks,
+           std::span<const std::string> mock_output_domain_modules, std::string &error) {
     if (!ensure_parent_dir(path, error)) {
         return false;
     }
-    const std::string content = serialize(mocks, std::move(mock_output_domain_modules));
+    const std::string content = serialize(mocks, mock_output_domain_modules);
     {
         std::ifstream existing(path, std::ios::binary);
         if (existing) {

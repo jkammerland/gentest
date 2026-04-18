@@ -206,6 +206,50 @@ function Write-ModuleArtifactManifest(
   Write-AsciiFile $Path $Manifest
 }
 
+function Write-TextualArtifactManifest(
+  [string]$Path,
+  [string]$OwnerSource,
+  [string]$WrapperSource,
+  [string]$RegistrationHeader,
+  [string]$CompileContext) {
+  $NormalizedWrapper = $WrapperSource -replace '\\', '/'
+  $NormalizedHeader = $RegistrationHeader -replace '\\', '/'
+  $GeneratedIncludeDir = [System.IO.Path]::GetDirectoryName($RegistrationHeader) -replace '\\', '/'
+  $Manifest = @"
+{
+  "schema": "gentest.artifact_manifest.v1",
+  "sources": [
+    {
+      "source": "$NormalizedWrapper",
+      "kind": "textual-wrapper",
+      "owner_source": "$OwnerSource",
+      "generated_wrapper_source": "$NormalizedWrapper",
+      "registration_header": "$NormalizedHeader",
+      "compile_context_id": "$CompileContext"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "$NormalizedWrapper",
+      "role": "registration",
+      "compile_as": "cxx-textual-wrapper",
+      "owner_source": "$OwnerSource",
+      "generated_wrapper_source": "$NormalizedWrapper",
+      "target_attachment": "replace-owner-source",
+      "compile_context_id": "$CompileContext",
+      "requires_module_scan": false,
+      "includes_owner_source": true,
+      "replaces_owner_source": true,
+      "generated_include_dirs": ["$GeneratedIncludeDir"],
+      "generated_headers": ["$NormalizedHeader"],
+      "depfile": ""
+    }
+  ]
+}
+"@
+  Write-AsciiFile $Path $Manifest
+}
+
 function New-Runner([string]$Path) {
   $Runner = @'
 @echo off
@@ -296,6 +340,17 @@ foreach ($Arg in $RemainingArgs) {
         'gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl__domain_0000_header.hpp')) {
       Touch-File (Join-Path $BazelBin $File)
     }
+    $TextualManifestPath = Join-Path $BazelBin 'gen/gentest_consumer_textual_bazel/gentest_consumer_textual_bazel.artifact_manifest.json'
+    $TextualWrapperPath = Join-Path $BazelBin 'gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.cpp'
+    $TextualHeaderPath = Join-Path $BazelBin 'gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.h'
+    Touch-File $TextualWrapperPath
+    Touch-File $TextualHeaderPath
+    Write-TextualArtifactManifest `
+      $TextualManifestPath `
+      'tests/consumer/cases.cpp' `
+      $TextualWrapperPath `
+      $TextualHeaderPath `
+      'gentest_consumer_textual_bazel:tests/consumer/cases.cpp'
     New-Runner (Join-Path $BazelBin 'gentest_consumer_textual_bazel.cmd')
     Touch-File (Join-Path $env:MARKER_DIR 'textual.ok')
   } elseif (@('//:gentest_consumer_module_bazel', '//:gentest_consumer_module_mocks') -contains $Arg) {
@@ -502,6 +557,50 @@ write_module_artifact_manifest() {
 EOF
 }
 
+write_textual_artifact_manifest() {
+  manifest="$1"
+  owner_source="$2"
+  wrapper_source="$3"
+  registration_header="$4"
+  compile_context="$5"
+  wrapper_path=$(printf '%s' "$wrapper_source" | tr '\\' '/')
+  header_path=$(printf '%s' "$registration_header" | tr '\\' '/')
+  include_dir=$(dirname "$registration_header" | tr '\\' '/')
+  mkdir -p "$(dirname "$manifest")"
+  cat > "$manifest" <<EOF
+{
+  "schema": "gentest.artifact_manifest.v1",
+  "sources": [
+    {
+      "source": "$wrapper_path",
+      "kind": "textual-wrapper",
+      "owner_source": "$owner_source",
+      "generated_wrapper_source": "$wrapper_path",
+      "registration_header": "$header_path",
+      "compile_context_id": "$compile_context"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "$wrapper_path",
+      "role": "registration",
+      "compile_as": "cxx-textual-wrapper",
+      "owner_source": "$owner_source",
+      "generated_wrapper_source": "$wrapper_path",
+      "target_attachment": "replace-owner-source",
+      "compile_context_id": "$compile_context",
+      "requires_module_scan": false,
+      "includes_owner_source": true,
+      "replaces_owner_source": true,
+      "generated_include_dirs": ["$include_dir"],
+      "generated_headers": ["$header_path"],
+      "depfile": ""
+    }
+  ]
+}
+EOF
+}
+
 for arg in "$@"; do
   case "$arg" in
     //:gentest_consumer_textual_bazel|//:gentest_consumer_textual_mocks)
@@ -513,6 +612,16 @@ for arg in "$@"; do
         "$bazel_bin/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl.hpp" \
         "$bazel_bin/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_registry__domain_0000_header.hpp" \
         "$bazel_bin/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl__domain_0000_header.hpp"
+      mkdir -p "$bazel_bin/gen/gentest_consumer_textual_bazel"
+      touch \
+        "$bazel_bin/gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.cpp" \
+        "$bazel_bin/gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.h"
+      write_textual_artifact_manifest \
+        "$bazel_bin/gen/gentest_consumer_textual_bazel/gentest_consumer_textual_bazel.artifact_manifest.json" \
+        "tests/consumer/cases.cpp" \
+        "$bazel_bin/gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.cpp" \
+        "$bazel_bin/gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.h" \
+        "gentest_consumer_textual_bazel:tests/consumer/cases.cpp"
       make_runner "$bazel_bin/gentest_consumer_textual_bazel"
       touch "${MARKER_DIR}/textual.ok"
       ;;
