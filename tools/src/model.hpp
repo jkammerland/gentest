@@ -121,11 +121,21 @@ struct CollectorOptions {
     // aligned with `sources`; any discovered named module source requires a
     // non-empty explicit slot instead of tool-side filename derivation.
     std::vector<std::filesystem::path> module_wrapper_outputs;
+    // Build-owned per-source same-module registration implementation outputs.
+    // This first-slice mode stays aligned with `sources` and is validated by
+    // gentest_codegen after it has classified each module source.
+    std::vector<std::filesystem::path> module_registration_outputs;
+    std::vector<std::string>           compile_context_ids;
+    std::filesystem::path              artifact_manifest_path;
+    std::vector<std::filesystem::path> artifact_owner_sources;
     // Build-owned per-domain mock outputs. When mock outputs are requested,
     // these must stay aligned with the ordered mock domain plan: header first,
     // then the first-seen unique named modules in source order.
     std::vector<std::filesystem::path>                                  mock_domain_registry_outputs;
     std::vector<std::filesystem::path>                                  mock_domain_impl_outputs;
+    std::vector<std::string>                                            mock_output_domain_modules;
+    std::filesystem::path                                               mock_manifest_output_path;
+    std::filesystem::path                                               mock_manifest_input_path;
     std::filesystem::path                                               mock_registry_path;
     std::filesystem::path                                               mock_impl_path;
     std::optional<std::filesystem::path>                                depfile_path;

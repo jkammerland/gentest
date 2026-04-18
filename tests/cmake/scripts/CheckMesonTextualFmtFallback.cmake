@@ -200,6 +200,19 @@ foreach(_expected_file IN ITEMS
   endif()
 endforeach()
 
+foreach(_expected_depfile_flag IN ITEMS
+    "--depfile"
+    "tu_0000_consumer_textual_mocks_defs.gentest.h.d"
+    "tu_0000_consumer_textual_cases.gentest.h.d")
+  string(FIND "${_build_log}" "${_expected_depfile_flag}" _depfile_flag_pos)
+  if(_depfile_flag_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson textual consumer build did not pass expected depfile argument '${_expected_depfile_flag}'.\n"
+      "stdout:\n${_build_out}\n"
+      "stderr:\n${_build_err}")
+  endif()
+endforeach()
+
 execute_process(
   COMMAND "${_consumer_bin}" --list
   RESULT_VARIABLE _list_rc

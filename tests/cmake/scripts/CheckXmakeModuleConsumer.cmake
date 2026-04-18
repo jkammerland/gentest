@@ -4,6 +4,7 @@ endif()
 if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
   message(FATAL_ERROR "CheckXmakeModuleConsumer.cmake: PROG not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
 set(_codegen "${PROG}")
 if(NOT IS_ABSOLUTE "${_codegen}")
@@ -335,6 +336,22 @@ if(_clang_scan_deps)
       "stderr:\n${_build_err}")
   endif()
 endif()
+set(_mock_build_log "${_mock_build_out}\n${_mock_build_err}")
+set(_suite_build_log "${_build_out}\n${_build_err}")
+string(FIND "${_mock_build_log}" "--compdb" _mock_compdb_flag_pos)
+if(_mock_compdb_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "xmake module mock codegen did not forward --compdb.\n"
+    "stdout:\n${_mock_build_out}\n"
+    "stderr:\n${_mock_build_err}")
+endif()
+string(FIND "${_suite_build_log}" "--compdb" _suite_compdb_flag_pos)
+if(_suite_compdb_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "xmake module suite codegen did not forward --compdb.\n"
+    "stdout:\n${_build_out}\n"
+    "stderr:\n${_build_err}")
+endif()
 foreach(_expected IN ITEMS
     "-DGENTEST_CONSUMER_USE_MODULES=1"
     "-DGENTEST_XMAKE_MODULE_MOCKS_DEFINE=1"
@@ -370,7 +387,8 @@ foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/consumer_module_mocks/tu_0001_module_mock_defs.gentest.h"
     "${_generated_glob_root}/consumer_module_mocks/tu_0001_module_mock_defs.module.gentest.cppm"
     "${_generated_glob_root}/consumer_module/tu_0000_cases.gentest.h"
-    "${_generated_glob_root}/consumer_module/tu_0000_cases.module.gentest.cppm")
+    "${_generated_glob_root}/consumer_module/tu_0000_cases.registration.gentest.cpp"
+    "${_generated_glob_root}/consumer_module/gentest_consumer_module_xmake.artifact_manifest.json")
   file(GLOB _expected_matches LIST_DIRECTORIES FALSE "${_expected_glob}")
   list(LENGTH _expected_matches _expected_match_count)
   if(NOT _expected_match_count EQUAL 1)
@@ -382,26 +400,22 @@ foreach(_expected_glob IN ITEMS
   endif()
 endforeach()
 
-get_filename_component(_codegen_parent "${_codegen}" DIRECTORY)
-get_filename_component(_codegen_grandparent "${_codegen_parent}" DIRECTORY)
-set(_expected_compdb "")
-foreach(_candidate IN ITEMS "${_codegen_parent}" "${_codegen_grandparent}")
-  if(EXISTS "${_candidate}/compile_commands.json")
-    set(_expected_compdb "${_candidate}")
-    break()
-  endif()
-endforeach()
-if(NOT "${_expected_compdb}" STREQUAL "")
-  string(FIND "${_build_log}" "--compdb" _compdb_flag_pos)
-  string(FIND "${_build_log}" "${_expected_compdb}" _compdb_path_pos)
-  if(_compdb_flag_pos EQUAL -1 OR _compdb_path_pos EQUAL -1)
-    message(FATAL_ERROR
-      "xmake module consumer build did not hand the documented GENTEST_CODEGEN compile_commands path through to codegen.\n"
-      "Expected compdb: ${_expected_compdb}\n"
-      "stdout:\n${_build_out}\n"
-      "stderr:\n${_build_err}")
-  endif()
+file(GLOB _module_manifest_matches
+  LIST_DIRECTORIES FALSE
+  "${_generated_glob_root}/consumer_module/gentest_consumer_module_xmake.artifact_manifest.json")
+list(LENGTH _module_manifest_matches _module_manifest_count)
+if(NOT _module_manifest_count EQUAL 1)
+  message(FATAL_ERROR
+    "Expected exactly one Xmake module artifact manifest, found ${_module_manifest_count}.\n"
+    "Matches:\n${_module_manifest_matches}")
 endif()
+list(GET _module_manifest_matches 0 _module_manifest)
+gentest_expect_module_artifact_manifest(
+  "${_module_manifest}"
+  "gentest.consumer_cases"
+  "gentest_consumer_module_xmake:"
+  "cases.cppm"
+  "consumer_module/tu_0000_cases.registration.gentest.cpp")
 
 file(GLOB_RECURSE _consumer_bins
   LIST_DIRECTORIES FALSE

@@ -285,22 +285,25 @@ c_args = ['--sysroot=/opt/sdk/targets/aarch64-sysroot']
 cpp_args = ['--sysroot=/opt/sdk/targets/aarch64-sysroot']
 ```
 
-Setup:
+Downstream setup:
 
 ```bash
-meson setup build/meson \
+meson setup build/meson path/to/downstream \
   --native-file clang.ini \
-  -Dcodegen_path=/opt/sdk/host-tools/bin/gentest_codegen \
-  -Dcodegen_host_clang=/opt/sdk/host-llvm/bin/clang++ \
-  -Dcodegen_clang_scan_deps=/opt/sdk/host-llvm/bin/clang-scan-deps
+  -Dgentest_codegen_path=/opt/sdk/host-tools/bin/gentest_codegen \
+  -Dgentest_codegen_host_clang=/opt/sdk/host-llvm/bin/clang++ \
+  -Dgentest_codegen_clang_scan_deps=/opt/sdk/host-llvm/bin/clang-scan-deps
 meson compile -C build/meson
 meson test -C build/meson --print-errorlogs
 ```
 
 Notes:
 
-- `-Dcodegen_path=...` and `-Dcodegen_host_clang=...` are the explicit Meson
-  host-tool hooks.
+- `-Dgentest_codegen_path=...` and `-Dgentest_codegen_host_clang=...` are the
+  downstream fixture hooks that pass `codegen_path` and `codegen_host_clang`
+  into the gentest subproject.
+- If you configure the gentest Meson subproject directly, use the lower-level
+  `-Dcodegen_path=...` and `-Dcodegen_host_clang=...` option names.
 - Keep target `c` / `cpp` compiler selection in the Meson native file or
   cross file. Do not use it as a substitute for the codegen-host contract.
 - The checked-in downstream proof consumes `gentest` as a subproject with

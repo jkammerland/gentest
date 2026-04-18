@@ -198,12 +198,47 @@ foreach(_expected_file IN ITEMS
     "${_out_dir}/downstream_textual_mocks_mock_registry.hpp"
     "${_out_dir}/downstream_textual_mocks_mock_impl.hpp"
     "${_out_dir}/gentest_downstream_mocks.hpp"
-    "${_out_dir}/tu_0000_downstream_textual_cases.gentest.h")
+    "${_out_dir}/tu_0000_downstream_textual_cases.gentest.h"
+    "${_out_dir}/gentest_downstream_textual.artifact_manifest.json")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
       "Meson wrap consumer build did not produce expected artifact '${_expected_file}'.\n"
       "stdout:\n${_build_out}\n"
       "stderr:\n${_build_err}")
+  endif()
+endforeach()
+
+foreach(_expected_depfile_flag IN ITEMS
+    "--depfile"
+    "--artifact-manifest"
+    "--artifact-owner-source"
+    "--compile-context-id"
+    "tu_0000_downstream_textual_mocks_defs.gentest.h.d"
+    "tu_0000_downstream_textual_cases.gentest.h.d")
+  string(FIND "${_build_out}\n${_build_err}" "${_expected_depfile_flag}" _depfile_flag_pos)
+  if(_depfile_flag_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson wrap consumer build did not pass expected depfile argument '${_expected_depfile_flag}'.\n"
+      "stdout:\n${_build_out}\n"
+      "stderr:\n${_build_err}")
+  endif()
+endforeach()
+
+set(_textual_manifest "${_out_dir}/gentest_downstream_textual.artifact_manifest.json")
+file(READ "${_textual_manifest}" _textual_manifest_json)
+foreach(_expected_manifest_token IN ITEMS
+    "\"kind\": \"textual-wrapper\""
+    "\"role\": \"registration\""
+    "\"compile_as\": \"cxx-textual-wrapper\""
+    "\"target_attachment\": \"replace-owner-source\""
+    "\"includes_owner_source\": true"
+    "\"replaces_owner_source\": true"
+    "\"requires_module_scan\": false")
+  string(FIND "${_textual_manifest_json}" "${_expected_manifest_token}" _manifest_token_pos)
+  if(_manifest_token_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson wrap consumer textual artifact manifest is missing '${_expected_manifest_token}'.\n"
+      "${_textual_manifest_json}")
   endif()
 endforeach()
 

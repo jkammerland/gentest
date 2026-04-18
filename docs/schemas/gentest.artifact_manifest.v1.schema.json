@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gentest.dev/schemas/gentest.artifact_manifest.v1.schema.json",
+  "title": "gentest artifact manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "sources", "artifacts"],
+  "properties": {
+    "schema": {
+      "const": "gentest.artifact_manifest.v1"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "kind",
+              "owner_source",
+              "generated_wrapper_source",
+              "registration_header",
+              "compile_context_id"
+            ],
+            "properties": {
+              "source": { "type": "string" },
+              "kind": { "const": "textual-wrapper" },
+              "owner_source": { "type": "string" },
+              "generated_wrapper_source": { "type": "string" },
+              "registration_header": { "type": "string" },
+              "compile_context_id": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "kind",
+              "module",
+              "partition",
+              "compile_context_id",
+              "registration_output"
+            ],
+            "properties": {
+              "source": { "type": "string" },
+              "kind": {
+                "enum": ["module-primary-interface", "module-partition-interface"]
+              },
+              "module": { "type": "string" },
+              "partition": {
+                "type": ["string", "null"]
+              },
+              "compile_context_id": { "type": "string" },
+              "registration_output": { "type": "string" }
+            }
+          }
+        ]
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "role",
+              "compile_as",
+              "owner_source",
+              "generated_wrapper_source",
+              "target_attachment",
+              "compile_context_id",
+              "requires_module_scan",
+              "includes_owner_source",
+              "replaces_owner_source",
+              "generated_include_dirs",
+              "generated_headers",
+              "depfile"
+            ],
+            "properties": {
+              "path": { "type": "string" },
+              "role": { "const": "registration" },
+              "compile_as": { "const": "cxx-textual-wrapper" },
+              "owner_source": { "type": "string" },
+              "generated_wrapper_source": { "type": "string" },
+              "target_attachment": { "const": "replace-owner-source" },
+              "compile_context_id": { "type": "string" },
+              "requires_module_scan": { "const": false },
+              "includes_owner_source": { "const": true },
+              "replaces_owner_source": { "const": true },
+              "generated_include_dirs": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "generated_headers": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "depfile": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "role",
+              "compile_as",
+              "module",
+              "owner_source",
+              "target_attachment",
+              "compile_context_id",
+              "requires_module_scan",
+              "generated_include_dirs",
+              "generated_headers",
+              "depfile"
+            ],
+            "properties": {
+              "path": { "type": "string" },
+              "role": { "const": "registration" },
+              "compile_as": { "const": "cxx-module-implementation" },
+              "module": { "type": "string" },
+              "owner_source": { "type": "string" },
+              "target_attachment": { "const": "private-generated-source" },
+              "compile_context_id": { "type": "string" },
+              "requires_module_scan": { "const": true },
+              "generated_include_dirs": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "generated_headers": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "depfile": { "type": "string" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

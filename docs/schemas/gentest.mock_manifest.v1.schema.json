@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gentest.dev/schemas/gentest.mock_manifest.v1.schema.json",
+  "title": "gentest mock manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "mock_output_domain_modules", "mocks"],
+  "properties": {
+    "schema": {
+      "const": "gentest.mock_manifest.v1"
+    },
+    "mock_output_domain_modules": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "mocks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mock" }
+    }
+  },
+  "$defs": {
+    "template_param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["type", "value", "template"] },
+        "name": { "type": "string" },
+        "is_pack": { "type": "boolean" },
+        "usage_spelling": { "type": "string" }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "pass_style"],
+      "properties": {
+        "type": { "type": "string" },
+        "name": { "type": "string" },
+        "pass_style": {
+          "enum": ["value", "lvalue_ref", "rvalue_ref", "forwarding_ref"]
+        }
+      }
+    },
+    "constructor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/parameter" }
+        },
+        "template_prefix": { "type": "string" },
+        "template_params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/template_param" }
+        },
+        "is_explicit": { "type": "boolean" },
+        "is_noexcept": { "type": "boolean" }
+      }
+    },
+    "qualifiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cv", "ref"],
+      "properties": {
+        "cv": {
+          "enum": ["none", "const", "volatile", "const_volatile"]
+        },
+        "ref": {
+          "enum": ["none", "lvalue", "rvalue"]
+        },
+        "is_noexcept": { "type": "boolean" }
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qualified_name",
+        "method_name",
+        "return_type",
+        "qualifiers"
+      ],
+      "properties": {
+        "qualified_name": { "type": "string" },
+        "method_name": { "type": "string" },
+        "return_type": { "type": "string" },
+        "parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/parameter" }
+        },
+        "template_prefix": { "type": "string" },
+        "template_params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/template_param" }
+        },
+        "is_static": { "type": "boolean" },
+        "is_virtual": { "type": "boolean" },
+        "is_pure_virtual": { "type": "boolean" },
+        "qualifiers": { "$ref": "#/$defs/qualifiers" }
+      }
+    },
+    "namespace_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "is_inline": { "type": "boolean" },
+        "is_exported": { "type": "boolean" },
+        "lexical_close_group": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reopen_prefix": { "type": "string" }
+      }
+    },
+    "mock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qualified_name",
+        "definition_file",
+        "definition_kind"
+      ],
+      "properties": {
+        "qualified_name": { "type": "string" },
+        "display_name": { "type": "string" },
+        "definition_file": { "type": "string" },
+        "definition_kind": {
+          "enum": ["header_like", "named_module"]
+        },
+        "use_files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "definition_module_name": { "type": "string" },
+        "attachment_namespace_chain": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/namespace_scope" }
+        },
+        "derive_for_virtual": { "type": "boolean" },
+        "has_accessible_default_ctor": { "type": "boolean" },
+        "has_virtual_destructor": { "type": "boolean" },
+        "constructors": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/constructor" }
+        },
+        "methods": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/method" }
+        },
+        "attachment_insertion_offset": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

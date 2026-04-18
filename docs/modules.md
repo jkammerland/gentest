@@ -37,22 +37,31 @@ enable_testing()
 
 find_package(gentest CONFIG REQUIRED)
 
-add_executable(my_tests
-  main.cpp
-  cases.cppm)
+add_executable(my_tests main.cpp)
+
+target_sources(my_tests PRIVATE
+  FILE_SET module_cases TYPE CXX_MODULES FILES
+    cases.cppm)
 
 target_link_libraries(my_tests PRIVATE
   gentest::gentest
   gentest::gentest_runtime)
 
-gentest_attach_codegen(my_tests)
+gentest_attach_codegen(my_tests
+  MODULE_REGISTRATION
+  FILE_SET module_cases
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen")
 gentest_discover_tests(my_tests)
 
-# For multi-config generators, 
-# use manifest mode with `gentest_attach_codegen(... OUTPUT ...)`.
+# MODULE_REGISTRATION mode requires a single-config generator such as Ninja.
 ```
 
 If you do not provide your own `main()`, link `gentest::gentest_main` instead of `gentest::gentest_runtime`.
+
+Plain `gentest_attach_codegen(my_tests)` remains the default CMake wrapper mode.
+For module-authored tests, prefer `MODULE_REGISTRATION`: it adds generated
+same-module implementation units without replacing the authored `.cppm` module
+interface in the target or compile database.
 
 ## Minimal layout
 
