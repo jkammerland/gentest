@@ -19,9 +19,14 @@ tagged release.
   generated headers, depfile, include roots, and module-scan requirements.
 - Added CMake-side artifact manifest validation through
   `cmake/GentestValidateArtifactManifest.cmake`.
+- Added textual per-TU wrapper artifact manifests with explicit owner source,
+  generated wrapper/header, depfile, include root, attachment, and wrapper
+  compatibility semantics.
 - Added `gentest_codegen` CLI options for module registration artifacts:
   `--module-registration-output`, `--artifact-manifest`, and
   `--compile-context-id`.
+- Added `gentest_codegen --artifact-owner-source` for textual TU artifact
+  manifests.
 - Added diagnostics for unsupported first-slice module registration inputs,
   including module partitions and private module fragments.
 - Added regression coverage for module registration manifests, same-module
@@ -36,7 +41,9 @@ tagged release.
 - Updated Xmake module integration to use explicit module names and generated
   registration-output artifacts.
 - Updated Meson textual codegen paths to emit depfiles for generated
-  registration and mock outputs.
+  registration and mock outputs, and to request textual artifact manifests.
+- Updated Bazel and Xmake textual codegen wiring to request artifact manifests
+  from `gentest_codegen`.
 - Aligned non-CMake module registration artifacts with the new codegen-owned
   artifact contract.
 

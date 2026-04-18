@@ -127,6 +127,7 @@ struct CollectorOptions {
     std::vector<std::filesystem::path> module_registration_outputs;
     std::vector<std::string>           compile_context_ids;
     std::filesystem::path              artifact_manifest_path;
+    std::vector<std::filesystem::path> artifact_owner_sources;
     // Build-owned per-domain mock outputs. When mock outputs are requested,
     // these must stay aligned with the ordered mock domain plan: header first,
     // then the first-seen unique named modules in source order.

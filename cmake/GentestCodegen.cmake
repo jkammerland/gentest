@@ -1337,7 +1337,10 @@ function(_gentest_copy_source_properties_to_wrappers)
 endfunction()
 
 function(_gentest_prepare_tu_mode)
-    set(one_value_args TARGET TARGET_ID OUTPUT_DIR NO_INCLUDE_SOURCES OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP)
+    set(one_value_args
+        TARGET TARGET_ID OUTPUT_DIR NO_INCLUDE_SOURCES
+        OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP
+        OUT_ARTIFACT_MANIFEST OUT_COMPILE_CONTEXT_IDS OUT_ARTIFACT_OWNER_SOURCES)
     set(multi_value_args TUS TU_SOURCE_ENTRIES MODULE_NAMES NEEDS_MODULE_SCAN)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -1382,6 +1385,8 @@ function(_gentest_prepare_tu_mode)
     set(_gentest_wrapper_cpp "")
     set(_gentest_wrapper_headers "")
     set(_gentest_registration_cpp "")
+    set(_gentest_compile_context_ids "")
+    set(_gentest_artifact_owner_sources "")
     list(LENGTH GENTEST_TUS _gentest_tu_count)
     math(EXPR _gentest_last_tu "${_gentest_tu_count} - 1")
     foreach(_gentest_idx RANGE 0 ${_gentest_last_tu})
@@ -1409,6 +1414,8 @@ function(_gentest_prepare_tu_mode)
             list(APPEND _gentest_wrapper_cpp "${_gentest_module_wrap_cpp}")
             list(APPEND _gentest_registration_cpp "__gentest_no_registration__")
         endif()
+        list(APPEND _gentest_compile_context_ids "${GENTEST_TARGET_ID}:${_tu}")
+        list(APPEND _gentest_artifact_owner_sources "${_tu}")
     endforeach()
 
     file(MAKE_DIRECTORY "${_gentest_output_dir}")
@@ -1477,6 +1484,9 @@ function(_gentest_prepare_tu_mode)
     set(${GENTEST_OUT_WRAPPER_CPP} "${_gentest_wrapper_cpp}" PARENT_SCOPE)
     set(${GENTEST_OUT_WRAPPER_HEADERS} "${_gentest_wrapper_headers}" PARENT_SCOPE)
     set(${GENTEST_OUT_EXTRA_CPP} "${_gentest_extra_cpp}" PARENT_SCOPE)
+    set(${GENTEST_OUT_ARTIFACT_MANIFEST} "${_gentest_output_dir}/${GENTEST_TARGET_ID}.artifact_manifest.json" PARENT_SCOPE)
+    set(${GENTEST_OUT_COMPILE_CONTEXT_IDS} "${_gentest_compile_context_ids}" PARENT_SCOPE)
+    set(${GENTEST_OUT_ARTIFACT_OWNER_SOURCES} "${_gentest_artifact_owner_sources}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_prepare_module_registration_mode)
@@ -1562,8 +1572,10 @@ function(_gentest_append_manifest_validation_values content_var list_name)
 endfunction()
 
 function(_gentest_write_module_registration_manifest_validation_config)
-    set(one_value_args MANIFEST STAMP INCLUDE_DIR DEPFILE OUT_SCRIPT OUT_VALIDATOR)
-    set(multi_value_args SOURCES REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS)
+    set(one_value_args
+        MANIFEST STAMP INCLUDE_DIR DEPFILE TARGET_ATTACHMENT ARTIFACT_ROLE COMPILE_AS REQUIRES_MODULE_SCAN
+        INCLUDES_OWNER_SOURCE REPLACES_OWNER_SOURCE OUT_SCRIPT OUT_VALIDATOR)
+    set(multi_value_args SOURCES REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS OWNER_SOURCES SOURCE_REGISTRATION_OUTPUTS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     set(_gentest_script "${GENTEST_STAMP}.cmake")
@@ -1574,11 +1586,26 @@ function(_gentest_write_module_registration_manifest_validation_config)
     string(APPEND _gentest_content "set(GENTEST_STAMP [==[${GENTEST_STAMP}]==])\n")
     string(APPEND _gentest_content "set(GENTEST_EXPECTED_INCLUDE_DIR [==[${GENTEST_INCLUDE_DIR}]==])\n")
     string(APPEND _gentest_content "set(GENTEST_EXPECTED_DEPFILE [==[${GENTEST_DEPFILE}]==])\n")
-    string(APPEND _gentest_content "set(GENTEST_EXPECTED_TARGET_ATTACHMENT [==[private-generated-source]==])\n")
+    string(APPEND _gentest_content "set(GENTEST_EXPECTED_TARGET_ATTACHMENT [==[${GENTEST_TARGET_ATTACHMENT}]==])\n")
+    string(APPEND _gentest_content "set(GENTEST_EXPECTED_ARTIFACT_ROLE [==[${GENTEST_ARTIFACT_ROLE}]==])\n")
+    string(APPEND _gentest_content "set(GENTEST_EXPECTED_COMPILE_AS [==[${GENTEST_COMPILE_AS}]==])\n")
+    string(APPEND _gentest_content "set(GENTEST_EXPECTED_REQUIRES_MODULE_SCAN [==[${GENTEST_REQUIRES_MODULE_SCAN}]==])\n")
+    if(DEFINED GENTEST_INCLUDES_OWNER_SOURCE)
+        string(APPEND _gentest_content "set(GENTEST_EXPECTED_INCLUDES_OWNER_SOURCE [==[${GENTEST_INCLUDES_OWNER_SOURCE}]==])\n")
+    endif()
+    if(DEFINED GENTEST_REPLACES_OWNER_SOURCE)
+        string(APPEND _gentest_content "set(GENTEST_EXPECTED_REPLACES_OWNER_SOURCE [==[${GENTEST_REPLACES_OWNER_SOURCE}]==])\n")
+    endif()
     _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_SOURCES" ${GENTEST_SOURCES})
     _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_REGISTRATION_OUTPUTS" ${GENTEST_REGISTRATION_OUTPUTS})
     _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_HEADERS" ${GENTEST_HEADERS})
     _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_COMPILE_CONTEXT_IDS" ${GENTEST_COMPILE_CONTEXT_IDS})
+    if(GENTEST_OWNER_SOURCES)
+        _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_OWNER_SOURCES" ${GENTEST_OWNER_SOURCES})
+    endif()
+    if(GENTEST_SOURCE_REGISTRATION_OUTPUTS)
+        _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_SOURCE_REGISTRATION_OUTPUTS" ${GENTEST_SOURCE_REGISTRATION_OUTPUTS})
+    endif()
     string(APPEND _gentest_content "include([==[${_gentest_validation_impl}]==])\n")
     file(WRITE "${_gentest_script}" "${_gentest_content}")
 
@@ -2339,12 +2366,22 @@ function(gentest_attach_codegen target)
             "Use a single-config generator/build directory for generated per-source outputs.")
     endif()
 
+    set(_gentest_has_module_sources FALSE)
+    foreach(_gentest_module_name IN LISTS _gentest_module_names)
+        if(NOT _gentest_module_name STREQUAL "__gentest_no_module__")
+            set(_gentest_has_module_sources TRUE)
+            break()
+        endif()
+    endforeach()
+
     set(_gentest_manifest_output "")
     set(_gentest_wrapper_cpp "")
     set(_gentest_wrapper_headers "")
     set(_gentest_extra_cpp "")
     set(_gentest_artifact_manifest "")
     set(_gentest_compile_context_ids "")
+    set(_gentest_artifact_owner_sources "")
+    set(_gentest_tu_manifest_enabled FALSE)
     if(_gentest_mode STREQUAL "manifest")
         _gentest_configure_manifest_mode(
             TARGET ${target}
@@ -2379,7 +2416,13 @@ function(gentest_attach_codegen target)
             OUT_OUTPUT_DIR _gentest_output_dir
             OUT_WRAPPER_CPP _gentest_wrapper_cpp
             OUT_WRAPPER_HEADERS _gentest_wrapper_headers
-            OUT_EXTRA_CPP _gentest_extra_cpp)
+            OUT_EXTRA_CPP _gentest_extra_cpp
+            OUT_ARTIFACT_MANIFEST _gentest_artifact_manifest
+            OUT_COMPILE_CONTEXT_IDS _gentest_compile_context_ids
+            OUT_ARTIFACT_OWNER_SOURCES _gentest_artifact_owner_sources)
+        if(NOT _gentest_has_module_sources)
+            set(_gentest_tu_manifest_enabled TRUE)
+        endif()
     endif()
 
     set(_gentest_module_wrapper_outputs "")
@@ -2510,12 +2553,23 @@ function(gentest_attach_codegen target)
         endforeach()
     else()
         list(APPEND _command --tu-out-dir ${_gentest_output_dir})
+        if(_gentest_tu_manifest_enabled)
+            list(APPEND _command --artifact-manifest ${_gentest_artifact_manifest})
+        endif()
         foreach(_gentest_wrap_header IN LISTS _gentest_wrapper_headers)
             list(APPEND _command --tu-header-output ${_gentest_wrap_header})
         endforeach()
         foreach(_gentest_wrap_cpp IN LISTS _gentest_wrapper_cpp)
             list(APPEND _command --module-wrapper-output ${_gentest_wrap_cpp})
         endforeach()
+        if(_gentest_tu_manifest_enabled)
+            foreach(_gentest_owner_source IN LISTS _gentest_artifact_owner_sources)
+                list(APPEND _command --artifact-owner-source "${_gentest_owner_source}")
+            endforeach()
+            foreach(_gentest_context_id IN LISTS _gentest_compile_context_ids)
+                list(APPEND _command --compile-context-id "${_gentest_context_id}")
+            endforeach()
+        endif()
     endif()
     foreach(_gentest_mock_registry_domain_output IN LISTS _gentest_mock_registry_domain_outputs)
         list(APPEND _command --mock-domain-registry-output ${_gentest_mock_registry_domain_output})
@@ -2591,6 +2645,9 @@ function(gentest_attach_codegen target)
             ${_gentest_mock_impl}
             ${_gentest_mock_registry_domain_outputs}
             ${_gentest_mock_impl_domain_outputs})
+        if(_gentest_tu_manifest_enabled)
+            list(APPEND _gentest_codegen_outputs ${_gentest_artifact_manifest})
+        endif()
     endif()
     set(_gentest_codegen_target_depends ${_gentest_codegen_outputs})
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_OUTPUTS "${_gentest_codegen_outputs}")
@@ -2622,10 +2679,15 @@ function(gentest_attach_codegen target)
             STAMP "${_gentest_manifest_validation_stamp}"
             INCLUDE_DIR "${_gentest_output_dir}"
             DEPFILE "${_gentest_depfile}"
+            TARGET_ATTACHMENT "private-generated-source"
+            ARTIFACT_ROLE "registration"
+            COMPILE_AS "cxx-module-implementation"
+            REQUIRES_MODULE_SCAN "ON"
             SOURCES ${_gentest_tus}
             REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
             HEADERS ${_gentest_wrapper_headers}
             COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
+            SOURCE_REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
             OUT_SCRIPT _gentest_manifest_validation_script
             OUT_VALIDATOR _gentest_manifest_validator)
         add_custom_command(
@@ -2636,6 +2698,36 @@ function(gentest_attach_codegen target)
                 "${_gentest_manifest_validation_script}"
                 "${_gentest_manifest_validator}"
             COMMENT "Validating gentest_codegen artifact manifest for target ${target}"
+            VERBATIM)
+        list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")
+    elseif(_gentest_tu_manifest_enabled)
+        set(_gentest_manifest_validation_stamp "${_gentest_output_dir}/${_gentest_target_id}.artifact_manifest.validated")
+        _gentest_write_module_registration_manifest_validation_config(
+            MANIFEST "${_gentest_artifact_manifest}"
+            STAMP "${_gentest_manifest_validation_stamp}"
+            INCLUDE_DIR "${_gentest_output_dir}"
+            DEPFILE "${_gentest_depfile}"
+            TARGET_ATTACHMENT "replace-owner-source"
+            ARTIFACT_ROLE "registration"
+            COMPILE_AS "cxx-textual-wrapper"
+            REQUIRES_MODULE_SCAN "OFF"
+            INCLUDES_OWNER_SOURCE "ON"
+            REPLACES_OWNER_SOURCE "ON"
+            SOURCES ${_gentest_codegen_scan_inputs}
+            REGISTRATION_OUTPUTS ${_gentest_codegen_scan_inputs}
+            HEADERS ${_gentest_wrapper_headers}
+            COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
+            OWNER_SOURCES ${_gentest_artifact_owner_sources}
+            OUT_SCRIPT _gentest_manifest_validation_script
+            OUT_VALIDATOR _gentest_manifest_validator)
+        add_custom_command(
+            OUTPUT "${_gentest_manifest_validation_stamp}"
+            COMMAND "${CMAKE_COMMAND}" -P "${_gentest_manifest_validation_script}"
+            DEPENDS
+                ${_gentest_codegen_outputs}
+                "${_gentest_manifest_validation_script}"
+                "${_gentest_manifest_validator}"
+            COMMENT "Validating gentest_codegen textual artifact manifest for target ${target}"
             VERBATIM)
         list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")
     endif()
@@ -2659,7 +2751,7 @@ function(gentest_attach_codegen target)
             WRAPPER_CPP ${_gentest_wrapper_cpp}
             MODULE_NAMES ${_gentest_module_names}
             EXTRA_CPP ${_gentest_extra_cpp}
-            CODEGEN_OUTPUTS ${_gentest_codegen_outputs})
+            CODEGEN_OUTPUTS ${_gentest_codegen_target_depends})
     endif()
 
     if(_gentest_attach_discovers_mocks AND _gentest_module_wrapper_outputs)

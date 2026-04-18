@@ -2771,6 +2771,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_registration_manifest APPEND PROPERTY LABELS "modules;codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_textual_wrapper_artifact_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/textual_wrapper_artifact_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTextualWrapperArtifactManifest.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_textual_wrapper_artifact_manifest APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMultilineDirectiveFailure.cmake

@@ -32,6 +32,9 @@ foreach(_expected IN ITEMS
     "Meson named-module support is"
     "wrapper_template = files('meson/tu_wrapper.cpp.in')"
     "'--depfile'"
+    "'--artifact-manifest'"
+    "'--artifact-owner-source'"
+    "'--compile-context-id'"
     "depfile:")
   string(FIND "${_meson_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
@@ -68,6 +71,8 @@ foreach(_expected IN ITEMS
     "module_registration_output_rel"
     "\"--module-registration-output\""
     "\"--artifact-manifest\""
+    "\"--artifact-owner-source\""
+    "\"--compile-context-id\""
     "registered_target_metadata()"
     "collect_mock_metadata_inputs")
   string(FIND "${_xmake_helper_content}" "${_expected}" _expected_pos)
@@ -92,7 +97,10 @@ foreach(_expected IN ITEMS
     "_gentest_module_registration_relpath"
     "\"--module-registration-output\""
     "\"--artifact-manifest\""
+    "\"--artifact-owner-source\""
+    "\"--compile-context-id\""
     "defs_modules"
+    "output_group = \"artifact_manifests\""
     "features = [\"cpp_modules\"]")
   string(FIND "${_bazel_rules_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)

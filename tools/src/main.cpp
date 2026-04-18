@@ -384,6 +384,40 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     return true;
 }
 
+[[nodiscard]] bool validate_artifact_owner_sources(const CollectorOptions &options, std::string &error) {
+    if (options.artifact_owner_sources.empty()) {
+        return true;
+    }
+    if (options.tu_output_dir.empty()) {
+        error = "--artifact-owner-source requires --tu-out-dir";
+        return false;
+    }
+    if (options.artifact_manifest_path.empty()) {
+        error = "--artifact-owner-source requires --artifact-manifest";
+        return false;
+    }
+    if (options.artifact_owner_sources.size() != options.sources.size()) {
+        error = fmt::format("expected {} --artifact-owner-source value(s) for {} input source(s), got {}", options.sources.size(),
+                            options.sources.size(), options.artifact_owner_sources.size());
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_textual_artifact_manifest_sources(const CollectorOptions &options, std::string &error) {
+    if (options.artifact_owner_sources.empty() || !options.module_registration_outputs.empty()) {
+        return true;
+    }
+    for (const auto &source : options.sources) {
+        if (options.module_interface_sources.contains(source)) {
+            error = fmt::format("textual artifact manifests cannot describe named module source '{}'; use --module-registration-output",
+                                source);
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool validate_module_wrapper_outputs(const CollectorOptions &options, std::string &error) {
     if (options.tu_output_dir.empty() || options.module_interface_sources.empty() || !options.module_registration_outputs.empty()) {
         return true;
@@ -2606,6 +2640,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string>  artifact_manifest_option{"artifact-manifest",
                                                                llvm::cl::desc("Path to a generated artifact manifest JSON file"),
                                                                llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> artifact_owner_source_option{
+        "artifact-owner-source",
+        llvm::cl::desc("Original owner source for a TU-mode artifact-manifest input (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::list<std::string> compile_context_id_option{
         "compile-context-id",
         llvm::cl::desc("Build-system compile context identity for an input source (repeat once per positional source)"),
@@ -2706,6 +2744,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     if (!artifact_manifest_option.getValue().empty()) {
         opts.artifact_manifest_path = std::filesystem::path{artifact_manifest_option.getValue()};
     }
+    opts.artifact_owner_sources.assign(artifact_owner_source_option.begin(), artifact_owner_source_option.end());
     opts.clang_args = std::move(clang_args);
     strip_shell_control_tail(opts.clang_args);
     opts.check_only  = check_option.getValue();
@@ -2895,6 +2934,11 @@ int main(int argc, const char **argv) {
     std::string compile_context_error;
     if (!validate_compile_context_ids(options, compile_context_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", compile_context_error);
+        return 1;
+    }
+    std::string artifact_owner_error;
+    if (!validate_artifact_owner_sources(options, artifact_owner_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", artifact_owner_error);
         return 1;
     }
     const std::string explicit_host_clang_path = parsed_arguments.explicit_host_clang_path.value_or(std::string{});
@@ -4258,6 +4302,11 @@ int main(int argc, const char **argv) {
     std::string module_wrapper_error;
     if (!validate_module_wrapper_outputs(final_options, module_wrapper_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", module_wrapper_error);
+        return 1;
+    }
+    std::string textual_artifact_manifest_error;
+    if (!validate_textual_artifact_manifest_sources(final_options, textual_artifact_manifest_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", textual_artifact_manifest_error);
         return 1;
     }
     std::string module_registration_error;

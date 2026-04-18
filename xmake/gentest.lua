@@ -1282,7 +1282,13 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
             table.insert(args, "--compdb")
             table.insert(args, compdb_dir)
         end
+        table.insert(args, "--artifact-manifest")
+        table.insert(args, config.artifact_manifest)
+        table.insert(args, "--artifact-owner-source")
         table.insert(args, config.source_file)
+        table.insert(args, "--compile-context-id")
+        table.insert(args, config.compile_context_id)
+        table.insert(args, config.wrapper_output)
     end
     if host_clang and host_clang ~= "" then
         table.insert(args, "--host-clang")

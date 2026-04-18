@@ -420,12 +420,33 @@ foreach(_expected_file IN ITEMS
     "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_registry.hpp"
     "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl.hpp"
     "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_registry__domain_0000_header.hpp"
-    "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl__domain_0000_header.hpp")
+    "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl__domain_0000_header.hpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_textual_bazel/gentest_consumer_textual_bazel.artifact_manifest.json")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
       "Bazel textual mock target build did not produce expected mockgen artifact '${_expected_file}'.\n"
       "stdout:\n${_build_out}\n"
       "stderr:\n${_build_err}")
+  endif()
+endforeach()
+
+set(_bazel_textual_manifest
+  "${_bazel_bin_dir}/gen/gentest_consumer_textual_bazel/gentest_consumer_textual_bazel.artifact_manifest.json")
+file(READ "${_bazel_textual_manifest}" _bazel_textual_manifest_json)
+foreach(_expected IN ITEMS
+    "\"kind\": \"textual-wrapper\""
+    "\"role\": \"registration\""
+    "\"compile_as\": \"cxx-textual-wrapper\""
+    "\"target_attachment\": \"replace-owner-source\""
+    "\"includes_owner_source\": true"
+    "\"replaces_owner_source\": true"
+    "\"requires_module_scan\": false"
+    "\"compile_context_id\": \"gentest_consumer_textual_bazel:tests/consumer/cases.cpp\"")
+  string(FIND "${_bazel_textual_manifest_json}" "${_expected}" _manifest_pos)
+  if(_manifest_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Bazel textual artifact manifest is missing '${_expected}'.\n"
+      "${_bazel_textual_manifest_json}")
   endif()
 endforeach()
 

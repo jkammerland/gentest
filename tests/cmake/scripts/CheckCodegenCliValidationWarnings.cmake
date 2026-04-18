@@ -187,6 +187,73 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
+  "artifact owner source requires tu out dir"
+  1
+  "gentest_codegen: --artifact-owner-source requires --tu-out-dir"
+  "${PROG}"
+  --artifact-manifest "${BUILD_ROOT}/unused.artifact_manifest.json"
+  --artifact-owner-source "${_smoke_source}"
+  ${_common_args})
+
+set(_empty_textual_manifest "${BUILD_ROOT}/empty-textual-artifact-manifest-dir/manifest.json")
+execute_process(
+  COMMAND "${PROG}"
+    --compdb "${_compdb_root}"
+    --tu-out-dir "${BUILD_ROOT}/empty-textual-artifact-owner"
+    --artifact-manifest "${_empty_textual_manifest}"
+    "${_smoke_source}"
+    --
+    ${_clang_args}
+  RESULT_VARIABLE _empty_textual_manifest_rc
+  OUTPUT_VARIABLE _empty_textual_manifest_out
+  ERROR_VARIABLE _empty_textual_manifest_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _empty_textual_manifest_rc EQUAL 0)
+  message(FATAL_ERROR
+    "textual artifact manifest without owner source should preserve the old empty-manifest behavior.\n"
+    "--- stdout ---\n${_empty_textual_manifest_out}\n--- stderr ---\n${_empty_textual_manifest_err}")
+endif()
+if(NOT EXISTS "${_empty_textual_manifest}")
+  message(FATAL_ERROR "Expected empty textual artifact manifest '${_empty_textual_manifest}'")
+endif()
+file(READ "${_empty_textual_manifest}" _empty_textual_manifest_json)
+foreach(_expected_empty_manifest_token IN ITEMS "\"sources\": []" "\"artifacts\": []")
+  string(FIND "${_empty_textual_manifest_json}" "${_expected_empty_manifest_token}" _empty_manifest_pos)
+  if(_empty_manifest_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected empty textual manifest token '${_expected_empty_manifest_token}'.\n"
+      "${_empty_textual_manifest_json}")
+  endif()
+endforeach()
+
+_gentest_expect_result(
+  "artifact owner source count mismatch"
+  1
+  "gentest_codegen: expected 1 --artifact-owner-source value(s) for 1 input source(s), got 2"
+  "${PROG}"
+  --tu-out-dir "${BUILD_ROOT}/artifact-owner-count"
+  --artifact-manifest "${BUILD_ROOT}/artifact-owner-count.json"
+  --artifact-owner-source "${_smoke_source}"
+  --artifact-owner-source "${_module_smoke_source}"
+  ${_common_args})
+
+_gentest_expect_result(
+  "textual artifact manifest rejects named module wrapper source"
+  1
+  "gentest_codegen: textual artifact manifests cannot describe named module source '${_module_smoke_source}'; use --module-registration-output"
+  "${PROG}"
+  --check
+  --compdb "${_compdb_root}"
+  --tu-out-dir "${BUILD_ROOT}/artifact-owner-module-wrapper"
+  --module-wrapper-output "${BUILD_ROOT}/artifact-owner-module-wrapper/a.module.gentest.cpp"
+  --artifact-manifest "${BUILD_ROOT}/artifact-owner-module-wrapper.json"
+  --artifact-owner-source "${_module_smoke_source}"
+  "${_module_smoke_source}"
+  --
+  ${_clang_args})
+
+_gentest_expect_result(
   "module registration rejects partitions"
   1
   "gentest_codegen: module registration input '${_module_partition_source}' declares module partition 'gentest.cli.validation:partition'"

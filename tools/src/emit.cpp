@@ -856,7 +856,7 @@ bool write_module_registration_manifest(const CollectorOptions &opts) {
         return true;
     }
     if (opts.module_registration_outputs.empty()) {
-        return write_file_atomic_if_changed(opts.artifact_manifest_path, "{\n  \"sources\": [],\n  \"artifacts\": []\n}\n");
+        return true;
     }
     if (!ensure_parent_dir(opts.artifact_manifest_path)) {
         return false;
@@ -917,6 +917,82 @@ bool write_module_registration_manifest(const CollectorOptions &opts) {
     }
     manifest.append("  ]\n}\n");
     return write_file_atomic_if_changed(opts.artifact_manifest_path, manifest);
+}
+
+bool write_textual_wrapper_manifest(const CollectorOptions &opts) {
+    if (opts.artifact_manifest_path.empty()) {
+        return true;
+    }
+    if (!opts.module_registration_outputs.empty()) {
+        return true;
+    }
+    if (!ensure_parent_dir(opts.artifact_manifest_path)) {
+        return false;
+    }
+    if (opts.artifact_owner_sources.empty()) {
+        return write_file_atomic_if_changed(opts.artifact_manifest_path, "{\n  \"sources\": [],\n  \"artifacts\": []\n}\n");
+    }
+
+    std::string manifest;
+    manifest.reserve(opts.sources.size() * 850 + 80);
+    manifest.append("{\n  \"sources\": [\n");
+    for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+        const fs::path    wrapper_path{opts.sources[idx]};
+        const fs::path    owner_path    = opts.artifact_owner_sources[idx];
+        const fs::path    header_output = resolve_tu_header_output(opts, idx);
+        const std::string context_id    = compile_context_id_for(opts, idx);
+        const std::string comma         = idx + 1 == opts.sources.size() ? "" : ",";
+        fmt::format_to(std::back_inserter(manifest),
+                       "    {{\n"
+                       "      \"source\": \"{}\",\n"
+                       "      \"kind\": \"textual-wrapper\",\n"
+                       "      \"owner_source\": \"{}\",\n"
+                       "      \"generated_wrapper_source\": \"{}\",\n"
+                       "      \"registration_header\": \"{}\",\n"
+                       "      \"compile_context_id\": \"{}\"\n"
+                       "    }}{}\n",
+                       render::escape_string(wrapper_path.generic_string()), render::escape_string(owner_path.generic_string()),
+                       render::escape_string(wrapper_path.generic_string()), render::escape_string(header_output.generic_string()),
+                       render::escape_string(context_id), comma);
+    }
+    manifest.append("  ],\n  \"artifacts\": [\n");
+    for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+        const fs::path    wrapper_path{opts.sources[idx]};
+        const fs::path    owner_path    = opts.artifact_owner_sources[idx];
+        const fs::path    header_output = resolve_tu_header_output(opts, idx);
+        const std::string include_dir   = header_output.has_parent_path() ? header_output.parent_path().generic_string() : std::string{"."};
+        const std::string context_id    = compile_context_id_for(opts, idx);
+        const std::string comma         = idx + 1 == opts.sources.size() ? "" : ",";
+        fmt::format_to(std::back_inserter(manifest),
+                       "    {{\n"
+                       "      \"path\": \"{}\",\n"
+                       "      \"role\": \"registration\",\n"
+                       "      \"compile_as\": \"cxx-textual-wrapper\",\n"
+                       "      \"owner_source\": \"{}\",\n"
+                       "      \"generated_wrapper_source\": \"{}\",\n"
+                       "      \"target_attachment\": \"replace-owner-source\",\n"
+                       "      \"compile_context_id\": \"{}\",\n"
+                       "      \"requires_module_scan\": false,\n"
+                       "      \"includes_owner_source\": true,\n"
+                       "      \"replaces_owner_source\": true,\n"
+                       "      \"generated_include_dirs\": [\"{}\"],\n"
+                       "      \"generated_headers\": [\"{}\"],\n"
+                       "      \"depfile\": \"{}\"\n"
+                       "    }}{}\n",
+                       render::escape_string(wrapper_path.generic_string()), render::escape_string(owner_path.generic_string()),
+                       render::escape_string(wrapper_path.generic_string()), render::escape_string(context_id),
+                       render::escape_string(include_dir), render::escape_string(header_output.generic_string()),
+                       opts.depfile_path ? render::escape_string(opts.depfile_path->generic_string()) : std::string{}, comma);
+    }
+    manifest.append("  ]\n}\n");
+    return write_file_atomic_if_changed(opts.artifact_manifest_path, manifest);
+}
+
+bool write_artifact_manifest(const CollectorOptions &opts) {
+    if (!write_module_registration_manifest(opts)) {
+        return false;
+    }
+    return write_textual_wrapper_manifest(opts);
 }
 
 } // namespace
@@ -1256,7 +1332,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         }
     }
 
-    if (!write_module_registration_manifest(opts)) {
+    if (!write_artifact_manifest(opts)) {
         return 1;
     }
 

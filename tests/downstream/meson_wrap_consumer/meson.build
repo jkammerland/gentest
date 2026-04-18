@@ -169,8 +169,10 @@ consumer_mock_lib = static_library(
 consumer_wrapper_cpp = 'tu_0000_downstream_textual_cases.gentest.cpp'
 consumer_wrapper_h = 'tu_0000_downstream_textual_cases.gentest.h'
 consumer_wrapper_depfile = '@0@.d'.format(consumer_wrapper_h)
+consumer_wrapper_manifest = 'gentest_downstream_textual.artifact_manifest.json'
+consumer_owner_source = join_paths(meson.project_source_root(), 'tests', 'cases.cpp')
 consumer_wrapper_cfg = configuration_data()
-consumer_wrapper_cfg.set('SOURCE_FILE', join_paths(meson.project_source_root(), 'tests', 'cases.cpp'))
+consumer_wrapper_cfg.set('SOURCE_FILE', consumer_owner_source)
 consumer_wrapper_cfg.set('HEADER_FILE', consumer_wrapper_h)
 consumer_wrapper_src = configure_file(
   input: gentest_wrapper_template,
@@ -179,7 +181,7 @@ consumer_wrapper_src = configure_file(
 )
 consumer_codegen = custom_target(
   'gen_downstream_textual_cases',
-  output: [consumer_wrapper_h],
+  output: [consumer_wrapper_h, consumer_wrapper_manifest],
   input: [consumer_wrapper_src, consumer_mocks] + support_inputs,
   command: [
     gentest_codegen,
@@ -187,6 +189,9 @@ consumer_codegen = custom_target(
     '--tu-out-dir', meson.current_build_dir(),
     '--tu-header-output', join_paths(meson.current_build_dir(), consumer_wrapper_h),
     '--depfile', join_paths(meson.current_build_dir(), consumer_wrapper_depfile),
+    '--artifact-manifest', join_paths(meson.current_build_dir(), consumer_wrapper_manifest),
+    '--artifact-owner-source', consumer_owner_source,
+    '--compile-context-id', 'gentest_downstream_textual:@0@'.format(consumer_owner_source),
     gentest_codegen_tool_args,
     '@INPUT0@',
     '--',

@@ -390,6 +390,7 @@ def _gentest_textual_codegen_impl(ctx):
             srcs = depset([wrapper_cpp, anchor_cpp]),
             hdrs = depset([public_header] + codegen_outputs + [staged_defs] + staged_support_hdrs),
             public_headers = depset([public_header]),
+            artifact_manifests = depset([]),
         ),
         GentestGeneratedInfo(
             include_dirs = public_include_roots + [wrapper_cpp.dirname],
@@ -429,6 +430,7 @@ def _gentest_textual_suite_codegen_impl(ctx):
     source_stem = _gentest_sanitize_identifier(_gentest_basename_stem(ctx.file.src.basename))
     wrapper_cpp = ctx.actions.declare_file("{}/tu_0000_{}.gentest.cpp".format(out_dir, source_stem))
     wrapper_h = ctx.actions.declare_file("{}/tu_0000_{}.gentest.h".format(out_dir, source_stem))
+    artifact_manifest = ctx.actions.declare_file("{}/{}.artifact_manifest.json".format(out_dir, ctx.attr.target_id))
     ctx.actions.write(
         output = wrapper_cpp,
         content = _gentest_textual_wrapper_source(ctx.file.src.basename, wrapper_h.basename),
@@ -448,6 +450,9 @@ def _gentest_textual_suite_codegen_impl(ctx):
     args.add("--source-root", ".")
     args.add("--tu-out-dir", wrapper_cpp.dirname)
     args.add("--tu-header-output", wrapper_h.path)
+    args.add("--artifact-manifest", artifact_manifest.path)
+    args.add("--artifact-owner-source", ctx.file.src.path)
+    args.add("--compile-context-id", "{}:{}".format(ctx.attr.target_id, ctx.file.src.path))
     args.add(wrapper_cpp.path)
     _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
     args.add("--")
@@ -456,17 +461,18 @@ def _gentest_textual_suite_codegen_impl(ctx):
     ctx.actions.run(
         executable = ctx.file._codegen,
         inputs = depset(codegen_inputs),
-        outputs = [wrapper_h],
+        outputs = [wrapper_h, artifact_manifest],
         arguments = [args],
         mnemonic = "GentestTextualSuiteCodegen",
         use_default_shell_env = True,
     )
 
     return [
-        DefaultInfo(files = depset([wrapper_cpp, wrapper_h])),
+        DefaultInfo(files = depset([wrapper_cpp, wrapper_h, artifact_manifest])),
         OutputGroupInfo(
             srcs = depset([wrapper_cpp]),
             hdrs = depset([wrapper_h]),
+            artifact_manifests = depset([artifact_manifest]),
         ),
     ]
 
@@ -476,6 +482,7 @@ _gentest_textual_suite_codegen = rule(
         "src": attr.label(allow_single_file = True, mandatory = True),
         "mocks": attr.label_list(providers = [GentestGeneratedInfo]),
         "out_dir": attr.string(mandatory = True),
+        "target_id": attr.string(mandatory = True),
         "extra_include_dirs": attr.string_list(),
         "defines": attr.string_list(),
         "clang_args": attr.string_list(),
@@ -579,6 +586,7 @@ def _gentest_module_mocks_codegen_impl(ctx):
             srcs = depset([anchor_cpp]),
             hdrs = depset(header_outputs + [registry_h, impl_h] + domain_outputs),
             module_interfaces = depset(wrapper_outputs + [public_module]),
+            artifact_manifests = depset([]),
         ),
         GentestGeneratedInfo(
             include_dirs = public_include_roots + [public_module.dirname, anchor_cpp.dirname],
@@ -712,6 +720,7 @@ def _gentest_module_suite_codegen_impl(ctx):
             srcs = depset([registration_cpp]),
             hdrs = depset([wrapper_h]),
             module_interfaces = depset([staged_source]),
+            artifact_manifests = depset([artifact_manifest]),
         ),
     ]
 
@@ -749,6 +758,7 @@ def _gentest_output_groups(name):
         "hdrs": ":{}__hdrs".format(name),
         "public_headers": ":{}__public_headers".format(name),
         "module_interfaces": ":{}__module_interfaces".format(name),
+        "artifact_manifests": ":{}__artifact_manifests".format(name),
     }
 
 def _gentest_define_output_groups(name, target):
@@ -756,6 +766,7 @@ def _gentest_define_output_groups(name, target):
     native.filegroup(name = "{}__hdrs".format(name), srcs = [target], output_group = "hdrs")
     native.filegroup(name = "{}__public_headers".format(name), srcs = [target], output_group = "public_headers")
     native.filegroup(name = "{}__module_interfaces".format(name), srcs = [target], output_group = "module_interfaces")
+    native.filegroup(name = "{}__artifact_manifests".format(name), srcs = [target], output_group = "artifact_manifests")
 
 def gentest_suite(name, codegen_host_clang = None):
     src = "tests/{}/cases.cpp".format(name)
@@ -765,6 +776,7 @@ def gentest_suite(name, codegen_host_clang = None):
         name = gen_name,
         src = src,
         out_dir = out_dir,
+        target_id = name,
         codegen_host_clang = codegen_host_clang,
     )
     _gentest_define_output_groups(gen_name, ":" + gen_name)
@@ -847,6 +859,7 @@ def gentest_attach_codegen_textual(
         src = src,
         mocks = codegen_mock_targets,
         out_dir = out_dir,
+        target_id = name,
         extra_include_dirs = source_includes,
         defines = defines,
         clang_args = clang_args,

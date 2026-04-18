@@ -166,6 +166,9 @@ foreach(_expected IN ITEMS
     "wrapper_template = files('meson/tu_wrapper.cpp.in')"
     "'--tu-out-dir'"
     "'--depfile'"
+    "'--artifact-manifest'"
+    "'--artifact-owner-source'"
+    "'--compile-context-id'"
     "depfile:")
   string(FIND "${_meson_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
@@ -198,6 +201,8 @@ foreach(_expected IN ITEMS
     "module_registration_output_rel"
     "\"--module-registration-output\""
     "\"--artifact-manifest\""
+    "\"--artifact-owner-source\""
+    "\"--compile-context-id\""
     "registered_target_metadata()"
     "collect_mock_metadata_inputs")
   string(FIND "${_xmake_helper_content}" "${_expected}" _expected_pos)
@@ -270,7 +275,10 @@ foreach(_expected IN ITEMS
     "_gentest_module_registration_relpath"
     "\"--module-registration-output\""
     "\"--artifact-manifest\""
-    "output_group = \"module_interfaces\"")
+    "\"--artifact-owner-source\""
+    "\"--compile-context-id\""
+    "output_group = \"module_interfaces\""
+    "output_group = \"artifact_manifests\"")
   string(FIND "${_bazel_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "build_defs/gentest.bzl is missing expected native Bazel token: ${_expected}")

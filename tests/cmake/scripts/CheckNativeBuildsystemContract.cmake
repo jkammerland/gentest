@@ -41,6 +41,7 @@ foreach(_expected IN ITEMS
     "'gen_consumer_textual_mocks'"
     "'--tu-out-dir'"
     "'--depfile'"
+    "'--artifact-manifest'"
     "depfile:")
   string(FIND "${_meson_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
