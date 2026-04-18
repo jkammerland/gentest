@@ -3,6 +3,7 @@
 #include "log.hpp"
 #include "mock_discovery.hpp"
 #include "mock_domain_plan.hpp"
+#include "mock_manifest.hpp"
 #include "model.hpp"
 #include "parallel_for.hpp"
 #include "scan_utils.hpp"
@@ -346,6 +347,9 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     }
     if (!options.artifact_manifest_path.empty()) {
         targets.push_back(options.artifact_manifest_path);
+    }
+    if (!options.mock_manifest_output_path.empty()) {
+        targets.push_back(options.mock_manifest_output_path);
     }
     if (!options.mock_registry_path.empty()) {
         targets.push_back(options.mock_registry_path);
@@ -2679,7 +2683,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<bool>         discover_mocks_option{
         "discover-mocks", llvm::cl::desc("Enable explicit gentest::mock<T> discovery and generated mock outputs"), llvm::cl::init(false),
         llvm::cl::cat(category)};
-    static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::OneOrMore,
+    static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::ZeroOrMore,
                                                      llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  template_option{"template", llvm::cl::desc("Path to the template file used for code generation"),
                                                       llvm::cl::init(""), llvm::cl::cat(category)};
@@ -2687,6 +2691,12 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
                                                            llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
                                                        llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_manifest_output_option{"mock-manifest-output",
+                                                                  llvm::cl::desc("Path to a generated mock discovery manifest JSON file"),
+                                                                  llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_manifest_input_option{"mock-manifest-input",
+                                                                 llvm::cl::desc("Read mock discovery data from a mock manifest JSON file"),
+                                                                 llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> mock_domain_registry_output_option{
         "mock-domain-registry-output",
         llvm::cl::desc("Explicit output path for a generated mock registry domain header (repeat in domain order)"), llvm::cl::ZeroOrMore,
@@ -2824,6 +2834,12 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     if (!mock_impl_option.getValue().empty()) {
         opts.mock_impl_path = std::filesystem::path{mock_impl_option.getValue()};
     }
+    if (!mock_manifest_output_option.getValue().empty()) {
+        opts.mock_manifest_output_path = std::filesystem::path{mock_manifest_output_option.getValue()};
+    }
+    if (!mock_manifest_input_option.getValue().empty()) {
+        opts.mock_manifest_input_path = std::filesystem::path{mock_manifest_input_option.getValue()};
+    }
     opts.mock_domain_registry_outputs.assign(mock_domain_registry_output_option.begin(), mock_domain_registry_output_option.end());
     opts.mock_domain_impl_outputs.assign(mock_domain_impl_output_option.begin(), mock_domain_impl_output_option.end());
     if (!depfile_option.getValue().empty()) {
@@ -2851,7 +2867,8 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     } else if (!kTemplateDir.empty()) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
-    if (!inspect_source_option.getValue() && !opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
+    if (!inspect_source_option.getValue() && !opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty() &&
+        opts.mock_manifest_output_path.empty() && opts.mock_manifest_input_path.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
     }
     return ParsedArguments{
@@ -2894,6 +2911,88 @@ int main(int argc, const char **argv) {
         }
         llvm::outs() << "\nimports_gentest_mock=" << (inspection.imports_gentest_mock ? "1" : "0") << "\n";
         return 0;
+    }
+
+    const bool mock_manifest_emit_mode      = !options.mock_manifest_input_path.empty();
+    const bool mock_manifest_discovery_only = !options.mock_manifest_output_path.empty() && options.output_path.empty() &&
+                                              options.tu_output_dir.empty() && !mock_manifest_emit_mode;
+
+    if (mock_manifest_emit_mode) {
+        if (!options.sources.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input does not accept positional source files\n");
+            return 1;
+        }
+        if (options.discover_mocks) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with --discover-mocks\n");
+            return 1;
+        }
+        if (!options.mock_manifest_output_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with --mock-manifest-output\n");
+            return 1;
+        }
+        if (!options.output_path.empty() || !options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input only emits mock outputs\n");
+            return 1;
+        }
+        if (!options.tu_output_headers.empty() || !options.module_wrapper_outputs.empty() || !options.module_registration_outputs.empty() ||
+            !options.compile_context_ids.empty() || !options.artifact_owner_sources.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with source/TU planning options\n");
+            return 1;
+        }
+
+        auto manifest = gentest::codegen::mock_manifest::read(options.mock_manifest_input_path);
+        if (!manifest.error.empty()) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest.error);
+            return 1;
+        }
+        if (std::ranges::any_of(manifest.mocks, [](const gentest::codegen::MockClassInfo &mock) {
+                return mock.definition_kind == gentest::codegen::MockClassInfo::DefinitionKind::NamedModule;
+            })) {
+            gentest::codegen::log_err_raw(
+                "gentest_codegen: --mock-manifest-input does not yet support named-module mock emission; use the integrated "
+                "--discover-mocks path for module mocks\n");
+            return 1;
+        }
+
+        std::string mock_domain_error;
+        if (!gentest::codegen::validate_mock_output_domains(options, mock_domain_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
+            return 1;
+        }
+        if (options.check_only) {
+            return 0;
+        }
+        const std::vector<TestCaseInfo>    empty_cases;
+        const std::vector<FixtureDeclInfo> empty_fixtures;
+        const int                          emit_status = gentest::codegen::emit(options, empty_cases, empty_fixtures, manifest.mocks);
+        if (emit_status != 0) {
+            return emit_status;
+        }
+        std::vector<std::string> depfile_dependencies{options.mock_manifest_input_path.generic_string()};
+        if (!write_depfile(options, depfile_dependencies)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    if (options.sources.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: at least one input source file is required\n");
+        return 1;
+    }
+    if (!options.mock_manifest_output_path.empty() && !options.discover_mocks) {
+        gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-output requires --discover-mocks\n");
+        return 1;
+    }
+    if (mock_manifest_discovery_only && (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() ||
+                                         !options.mock_domain_registry_outputs.empty() || !options.mock_domain_impl_outputs.empty())) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --mock-manifest-output without --output/--tu-out-dir cannot be combined with final mock output paths\n");
+        return 1;
+    }
+    if (mock_manifest_discovery_only && !options.artifact_manifest_path.empty()) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --mock-manifest-output without --output/--tu-out-dir cannot emit artifact manifests\n");
+        return 1;
     }
 
     if (!options.tu_output_headers.empty() && options.tu_output_dir.empty()) {
@@ -4154,12 +4253,14 @@ int main(int argc, const char **argv) {
             std::vector<std::string> local_dependencies;
 
             MatchFinder finder;
-            finder.addMatcher(
-                traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
-                &collector);
-            finder.addMatcher(
-                traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
-                &fixture_collector);
+            if (!mock_manifest_discovery_only) {
+                finder.addMatcher(
+                    traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
+                    &collector);
+                finder.addMatcher(
+                    traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
+                    &fixture_collector);
+            }
             if (mock_collector.has_value()) {
                 register_mock_matchers(finder, *mock_collector);
             }
@@ -4168,8 +4269,8 @@ int main(int argc, const char **argv) {
 
             ParseResult result;
             result.status             = tool.run(&action_factory);
-            result.had_test_errors    = collector.has_errors();
-            result.had_fixture_errors = fixture_collector.has_errors();
+            result.had_test_errors    = !mock_manifest_discovery_only && collector.has_errors();
+            result.had_fixture_errors = !mock_manifest_discovery_only && fixture_collector.has_errors();
             result.had_mock_errors    = mock_collector.has_value() && mock_collector->has_errors();
             result.cases              = std::move(local_cases);
             result.fixtures           = std::move(local_fixtures);
@@ -4252,11 +4353,14 @@ int main(int argc, const char **argv) {
         std::vector<std::string> depfile_dependencies_local;
 
         MatchFinder finder;
-        finder.addMatcher(traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
-                          &collector);
-        finder.addMatcher(
-            traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
-            &fixture_collector);
+        if (!mock_manifest_discovery_only) {
+            finder.addMatcher(
+                traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
+                &collector);
+            finder.addMatcher(
+                traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
+                &fixture_collector);
+        }
         if (mock_collector.has_value()) {
             register_mock_matchers(finder, *mock_collector);
         }
@@ -4267,7 +4371,8 @@ int main(int argc, const char **argv) {
         if (status != 0) {
             return status;
         }
-        if (collector.has_errors() || fixture_collector.has_errors() || (mock_collector.has_value() && mock_collector->has_errors())) {
+        if ((!mock_manifest_discovery_only && (collector.has_errors() || fixture_collector.has_errors())) ||
+            (mock_collector.has_value() && mock_collector->has_errors())) {
             return 1;
         }
         depfile_dependencies = std::move(depfile_dependencies_local);
@@ -4275,19 +4380,19 @@ int main(int argc, const char **argv) {
 
     merge_duplicate_mocks(mocks);
 
-    if (allow_includes) {
+    if (!mock_manifest_discovery_only && allow_includes) {
         if (!enforce_unique_base_names(cases)) {
             return 1;
         }
     }
 
-    if (!resolve_free_fixtures(cases, fixtures)) {
+    if (!mock_manifest_discovery_only && !resolve_free_fixtures(cases, fixtures)) {
         return 1;
     }
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
 
-    if (!options.check_only && options.output_path.empty() && options.tu_output_dir.empty()) {
+    if (!options.check_only && options.output_path.empty() && options.tu_output_dir.empty() && options.mock_manifest_output_path.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
         return 1;
     }
@@ -4321,6 +4426,19 @@ int main(int argc, const char **argv) {
     }
     if (options.check_only) {
         return 0;
+    }
+    if (!options.mock_manifest_output_path.empty()) {
+        std::string manifest_error;
+        if (!gentest::codegen::mock_manifest::write(options.mock_manifest_output_path, mocks, manifest_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest_error);
+            return 1;
+        }
+        if (mock_manifest_discovery_only) {
+            if (!write_depfile(final_options, depfile_dependencies)) {
+                return 1;
+            }
+            return 0;
+        }
     }
     const int emit_status = gentest::codegen::emit(final_options, cases, fixtures, mocks);
     if (emit_status != 0) {

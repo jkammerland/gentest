@@ -1173,7 +1173,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         }
     }
 
-    if (opts.tu_output_dir.empty()) {
+    if (!opts.output_path.empty()) {
         fs::path out_path = opts.output_path;
         if (!ensure_parent_dir(out_path)) {
             return 1;
@@ -1189,7 +1189,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         if (!write_file_atomic_if_changed(out_path, *content)) {
             return 1;
         }
-    } else {
+    } else if (!opts.tu_output_dir.empty()) {
         if (!ensure_dir(opts.tu_output_dir)) {
             return 1;
         }

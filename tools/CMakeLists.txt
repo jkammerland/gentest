@@ -313,6 +313,7 @@ add_executable(gentest_codegen
     src/parse.cpp
     src/discovery.cpp
     src/mock_discovery.cpp
+    src/mock_manifest.cpp
     src/validate.cpp
     src/emit.cpp
     src/render_mocks.cpp

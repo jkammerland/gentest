@@ -519,3 +519,17 @@ but those modules are transitional build-system adapters. `TuMode.cmake`,
 of artifact planning, module semantics, or mock semantics. This story owns the
 future boundary: CMake composes artifacts; `gentest_codegen` decides what those
 artifacts mean.
+
+## Status
+
+Partial.
+
+- Mock extraction now has a tool-owned JSON manifest for the existing
+  `MockClassInfo` model via `--mock-manifest-output`.
+- Header-like/textual mock emission can consume that manifest via
+  `--mock-manifest-input` without reparsing the original mock definition source.
+- The public CLI still uses explicit legacy-style flags rather than separate
+  `inspect-mocks` / `emit-mocks` subcommands.
+- Named-module mock manifest-input emission is still not implemented; keep
+  using the integrated `--discover-mocks` path for module-owned mock injection
+  and module mock domains.
