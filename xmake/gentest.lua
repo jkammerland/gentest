@@ -1243,7 +1243,7 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
         table.insert(args, "--clang-scan-deps")
         table.insert(args, scan_deps)
     end
-    if config.kind == "textual" and compdb_dir then
+    if compdb_dir then
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
     end
@@ -1260,6 +1260,10 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
     if config.depfile and config.depfile ~= "" then
         table.insert(args, "--depfile")
         table.insert(args, config.depfile)
+    end
+    if compdb_dir then
+        table.insert(args, "--compdb")
+        table.insert(args, compdb_dir)
     end
     if config.kind == "modules" then
         table.insert(args, "--module-registration-output")
@@ -1278,10 +1282,6 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
         end
         table.insert(args, config.source_file)
     else
-        if compdb_dir then
-            table.insert(args, "--compdb")
-            table.insert(args, compdb_dir)
-        end
         table.insert(args, "--artifact-manifest")
         table.insert(args, config.artifact_manifest)
         table.insert(args, "--artifact-owner-source")

@@ -226,6 +226,11 @@ foreach(_target IN ITEMS
     ENV ${_xmake_env}
     COMMAND "${_xmake}" ${_xmake_build_args} ${_target})
   string(APPEND _build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}\n")
+  if(_target STREQUAL "gentest_xrepo_module_mocks")
+    set(_module_mocks_build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}")
+  elseif(_target STREQUAL "gentest_xrepo_module")
+    set(_module_suite_build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}")
+  endif()
 endforeach()
 
 set(_generated_glob_root "${_out_dir}/gen/*/*/*")
@@ -257,6 +262,18 @@ if(_clang_scan_deps)
       "Expected clang-scan-deps: ${_clang_scan_deps}\n"
       "log:\n${_build_log}")
   endif()
+endif()
+string(FIND "${_module_mocks_build_log}" "--compdb" _module_mocks_compdb_flag_pos)
+if(_module_mocks_compdb_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Xmake xrepo module mock codegen did not forward --compdb.\n"
+    "log:\n${_module_mocks_build_log}")
+endif()
+string(FIND "${_module_suite_build_log}" "--compdb" _module_suite_compdb_flag_pos)
+if(_module_suite_compdb_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Xmake xrepo module suite codegen did not forward --compdb.\n"
+    "log:\n${_module_suite_build_log}")
 endif()
 
 foreach(_expected_glob IN ITEMS

@@ -336,6 +336,22 @@ if(_clang_scan_deps)
       "stderr:\n${_build_err}")
   endif()
 endif()
+set(_mock_build_log "${_mock_build_out}\n${_mock_build_err}")
+set(_suite_build_log "${_build_out}\n${_build_err}")
+string(FIND "${_mock_build_log}" "--compdb" _mock_compdb_flag_pos)
+if(_mock_compdb_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "xmake module mock codegen did not forward --compdb.\n"
+    "stdout:\n${_mock_build_out}\n"
+    "stderr:\n${_mock_build_err}")
+endif()
+string(FIND "${_suite_build_log}" "--compdb" _suite_compdb_flag_pos)
+if(_suite_compdb_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "xmake module suite codegen did not forward --compdb.\n"
+    "stdout:\n${_build_out}\n"
+    "stderr:\n${_build_err}")
+endif()
 foreach(_expected IN ITEMS
     "-DGENTEST_CONSUMER_USE_MODULES=1"
     "-DGENTEST_XMAKE_MODULE_MOCKS_DEFINE=1"
