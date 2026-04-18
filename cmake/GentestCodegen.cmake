@@ -1562,55 +1562,51 @@ function(_gentest_prepare_module_registration_mode)
     set(${GENTEST_OUT_COMPILE_CONTEXT_IDS} "${_gentest_compile_context_ids}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_append_manifest_validation_values content_var list_name)
-    set(_gentest_content "${${content_var}}")
-    string(APPEND _gentest_content "set(${list_name})\n")
+function(_gentest_append_artifact_manifest_validation_values args_var option)
+    set(_gentest_args "${${args_var}}")
     foreach(_gentest_value IN LISTS ARGN)
-        string(APPEND _gentest_content "list(APPEND ${list_name} [==[${_gentest_value}]==])\n")
+        list(APPEND _gentest_args "${option}" "${_gentest_value}")
     endforeach()
-    set(${content_var} "${_gentest_content}" PARENT_SCOPE)
+    set(${args_var} "${_gentest_args}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_write_module_registration_manifest_validation_config)
+function(_gentest_make_artifact_manifest_validation_args)
     set(one_value_args
         MANIFEST STAMP INCLUDE_DIR DEPFILE TARGET_ATTACHMENT ARTIFACT_ROLE COMPILE_AS REQUIRES_MODULE_SCAN
-        INCLUDES_OWNER_SOURCE REPLACES_OWNER_SOURCE OUT_SCRIPT OUT_VALIDATOR)
-    set(multi_value_args SOURCES REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS OWNER_SOURCES SOURCE_REGISTRATION_OUTPUTS)
+        INCLUDES_OWNER_SOURCE REPLACES_OWNER_SOURCE OUT_ARGS)
+    set(multi_value_args SOURCES SOURCE_KINDS REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS OWNER_SOURCES SOURCE_REGISTRATION_OUTPUTS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
-    set(_gentest_script "${GENTEST_STAMP}.cmake")
-    _gentest_get_codegen_cmake_dir(_gentest_codegen_cmake_dir)
-    set(_gentest_validation_impl "${_gentest_codegen_cmake_dir}/GentestValidateArtifactManifest.cmake")
-    set(_gentest_content "")
-    string(APPEND _gentest_content "set(GENTEST_MANIFEST [==[${GENTEST_MANIFEST}]==])\n")
-    string(APPEND _gentest_content "set(GENTEST_STAMP [==[${GENTEST_STAMP}]==])\n")
-    string(APPEND _gentest_content "set(GENTEST_EXPECTED_INCLUDE_DIR [==[${GENTEST_INCLUDE_DIR}]==])\n")
-    string(APPEND _gentest_content "set(GENTEST_EXPECTED_DEPFILE [==[${GENTEST_DEPFILE}]==])\n")
-    string(APPEND _gentest_content "set(GENTEST_EXPECTED_TARGET_ATTACHMENT [==[${GENTEST_TARGET_ATTACHMENT}]==])\n")
-    string(APPEND _gentest_content "set(GENTEST_EXPECTED_ARTIFACT_ROLE [==[${GENTEST_ARTIFACT_ROLE}]==])\n")
-    string(APPEND _gentest_content "set(GENTEST_EXPECTED_COMPILE_AS [==[${GENTEST_COMPILE_AS}]==])\n")
-    string(APPEND _gentest_content "set(GENTEST_EXPECTED_REQUIRES_MODULE_SCAN [==[${GENTEST_REQUIRES_MODULE_SCAN}]==])\n")
+    set(_gentest_args
+        validate-artifact-manifest
+        --manifest "${GENTEST_MANIFEST}"
+        --stamp "${GENTEST_STAMP}"
+        --expected-include-dir "${GENTEST_INCLUDE_DIR}"
+        --expected-depfile "${GENTEST_DEPFILE}"
+        --expected-target-attachment "${GENTEST_TARGET_ATTACHMENT}"
+        --expected-artifact-role "${GENTEST_ARTIFACT_ROLE}"
+        --expected-compile-as "${GENTEST_COMPILE_AS}"
+        --expected-requires-module-scan "${GENTEST_REQUIRES_MODULE_SCAN}")
     if(DEFINED GENTEST_INCLUDES_OWNER_SOURCE)
-        string(APPEND _gentest_content "set(GENTEST_EXPECTED_INCLUDES_OWNER_SOURCE [==[${GENTEST_INCLUDES_OWNER_SOURCE}]==])\n")
+        list(APPEND _gentest_args --expected-includes-owner-source "${GENTEST_INCLUDES_OWNER_SOURCE}")
     endif()
     if(DEFINED GENTEST_REPLACES_OWNER_SOURCE)
-        string(APPEND _gentest_content "set(GENTEST_EXPECTED_REPLACES_OWNER_SOURCE [==[${GENTEST_REPLACES_OWNER_SOURCE}]==])\n")
+        list(APPEND _gentest_args --expected-replaces-owner-source "${GENTEST_REPLACES_OWNER_SOURCE}")
     endif()
-    _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_SOURCES" ${GENTEST_SOURCES})
-    _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_REGISTRATION_OUTPUTS" ${GENTEST_REGISTRATION_OUTPUTS})
-    _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_HEADERS" ${GENTEST_HEADERS})
-    _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_COMPILE_CONTEXT_IDS" ${GENTEST_COMPILE_CONTEXT_IDS})
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source" ${GENTEST_SOURCES})
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source-kind" ${GENTEST_SOURCE_KINDS})
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-registration-output" ${GENTEST_REGISTRATION_OUTPUTS})
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-header" ${GENTEST_HEADERS})
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-compile-context-id" ${GENTEST_COMPILE_CONTEXT_IDS})
     if(GENTEST_OWNER_SOURCES)
-        _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_OWNER_SOURCES" ${GENTEST_OWNER_SOURCES})
+        _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-owner-source" ${GENTEST_OWNER_SOURCES})
     endif()
     if(GENTEST_SOURCE_REGISTRATION_OUTPUTS)
-        _gentest_append_manifest_validation_values(_gentest_content "GENTEST_EXPECTED_SOURCE_REGISTRATION_OUTPUTS" ${GENTEST_SOURCE_REGISTRATION_OUTPUTS})
+        _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source-registration-output"
+            ${GENTEST_SOURCE_REGISTRATION_OUTPUTS})
     endif()
-    string(APPEND _gentest_content "include([==[${_gentest_validation_impl}]==])\n")
-    file(WRITE "${_gentest_script}" "${_gentest_content}")
 
-    set(${GENTEST_OUT_SCRIPT} "${_gentest_script}" PARENT_SCOPE)
-    set(${GENTEST_OUT_VALIDATOR} "${_gentest_validation_impl}" PARENT_SCOPE)
+    set(${GENTEST_OUT_ARGS} "${_gentest_args}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_attach_manifest_codegen)
@@ -2522,6 +2518,12 @@ function(gentest_attach_codegen target)
     endif()
 
     _gentest_make_codegen_command_launcher("${_gentest_codegen_executable}" _command_launcher)
+    set(_gentest_codegen_tool_depends "")
+    if(_gentest_codegen_target)
+        list(APPEND _gentest_codegen_tool_depends "${_gentest_codegen_target}")
+    elseif(NOT "${_gentest_codegen_executable}" MATCHES "\\$<")
+        list(APPEND _gentest_codegen_tool_depends "${_gentest_codegen_executable}")
+    endif()
 
     set(_command ${_command_launcher}
         --depfile ${_gentest_depfile}
@@ -2674,7 +2676,11 @@ function(gentest_attach_codegen target)
 
     if(_gentest_mode STREQUAL "module_registration")
         set(_gentest_manifest_validation_stamp "${_gentest_output_dir}/${_gentest_target_id}.artifact_manifest.validated")
-        _gentest_write_module_registration_manifest_validation_config(
+        set(_gentest_manifest_source_kinds "")
+        foreach(_gentest_unused IN LISTS _gentest_tus)
+            list(APPEND _gentest_manifest_source_kinds "module-primary-interface")
+        endforeach()
+        _gentest_make_artifact_manifest_validation_args(
             MANIFEST "${_gentest_artifact_manifest}"
             STAMP "${_gentest_manifest_validation_stamp}"
             INCLUDE_DIR "${_gentest_output_dir}"
@@ -2684,25 +2690,29 @@ function(gentest_attach_codegen target)
             COMPILE_AS "cxx-module-implementation"
             REQUIRES_MODULE_SCAN "ON"
             SOURCES ${_gentest_tus}
+            SOURCE_KINDS ${_gentest_manifest_source_kinds}
             REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
             HEADERS ${_gentest_wrapper_headers}
             COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
             SOURCE_REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
-            OUT_SCRIPT _gentest_manifest_validation_script
-            OUT_VALIDATOR _gentest_manifest_validator)
+            OUT_ARGS _gentest_manifest_validation_args)
         add_custom_command(
             OUTPUT "${_gentest_manifest_validation_stamp}"
-            COMMAND "${CMAKE_COMMAND}" -P "${_gentest_manifest_validation_script}"
+            COMMAND ${_command_launcher} ${_gentest_manifest_validation_args}
+            COMMAND_EXPAND_LISTS
             DEPENDS
                 ${_gentest_codegen_outputs}
-                "${_gentest_manifest_validation_script}"
-                "${_gentest_manifest_validator}"
+                ${_gentest_codegen_tool_depends}
             COMMENT "Validating gentest_codegen artifact manifest for target ${target}"
             VERBATIM)
         list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")
     elseif(_gentest_tu_manifest_enabled)
         set(_gentest_manifest_validation_stamp "${_gentest_output_dir}/${_gentest_target_id}.artifact_manifest.validated")
-        _gentest_write_module_registration_manifest_validation_config(
+        set(_gentest_manifest_source_kinds "")
+        foreach(_gentest_unused IN LISTS _gentest_codegen_scan_inputs)
+            list(APPEND _gentest_manifest_source_kinds "textual-wrapper")
+        endforeach()
+        _gentest_make_artifact_manifest_validation_args(
             MANIFEST "${_gentest_artifact_manifest}"
             STAMP "${_gentest_manifest_validation_stamp}"
             INCLUDE_DIR "${_gentest_output_dir}"
@@ -2714,19 +2724,19 @@ function(gentest_attach_codegen target)
             INCLUDES_OWNER_SOURCE "ON"
             REPLACES_OWNER_SOURCE "ON"
             SOURCES ${_gentest_codegen_scan_inputs}
+            SOURCE_KINDS ${_gentest_manifest_source_kinds}
             REGISTRATION_OUTPUTS ${_gentest_codegen_scan_inputs}
             HEADERS ${_gentest_wrapper_headers}
             COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
             OWNER_SOURCES ${_gentest_artifact_owner_sources}
-            OUT_SCRIPT _gentest_manifest_validation_script
-            OUT_VALIDATOR _gentest_manifest_validator)
+            OUT_ARGS _gentest_manifest_validation_args)
         add_custom_command(
             OUTPUT "${_gentest_manifest_validation_stamp}"
-            COMMAND "${CMAKE_COMMAND}" -P "${_gentest_manifest_validation_script}"
+            COMMAND ${_command_launcher} ${_gentest_manifest_validation_args}
+            COMMAND_EXPAND_LISTS
             DEPENDS
                 ${_gentest_codegen_outputs}
-                "${_gentest_manifest_validation_script}"
-                "${_gentest_manifest_validator}"
+                ${_gentest_codegen_tool_depends}
             COMMENT "Validating gentest_codegen textual artifact manifest for target ${target}"
             VERBATIM)
         list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")

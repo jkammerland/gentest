@@ -47,6 +47,7 @@ set(_wrapper_source "${_generated_dir}/tu_0000_cases.gentest.cpp")
 set(_header "${_generated_dir}/tu_0000_cases.gentest.h")
 set(_manifest "${_generated_dir}/direct_textual.artifact_manifest.json")
 set(_depfile "${_generated_dir}/direct_textual.d")
+set(_validation_stamp "${_generated_dir}/direct_textual.artifact_manifest.validated")
 file(TO_CMAKE_PATH "${_owner_source}" _owner_source_include)
 file(WRITE "${_wrapper_source}" [=[
 // This file is written by the buildsystem adapter before gentest_codegen runs.
@@ -144,24 +145,29 @@ foreach(_actual_expected IN ITEMS
 endforeach()
 
 set(_validator_args
-  "-DGENTEST_MANIFEST=${_manifest}"
-  "-DGENTEST_EXPECTED_SOURCES=${_wrapper_source}"
-  "-DGENTEST_EXPECTED_REGISTRATION_OUTPUTS=${_wrapper_source}"
-  "-DGENTEST_EXPECTED_HEADERS=${_header}"
-  "-DGENTEST_EXPECTED_COMPILE_CONTEXT_IDS=direct_textual:${_owner_source}"
-  "-DGENTEST_EXPECTED_OWNER_SOURCES=${_owner_source}"
-  "-DGENTEST_EXPECTED_INCLUDE_DIR=${_generated_dir}"
-  "-DGENTEST_EXPECTED_DEPFILE=${_depfile}"
-  "-DGENTEST_EXPECTED_TARGET_ATTACHMENT=replace-owner-source"
-  "-DGENTEST_EXPECTED_ARTIFACT_ROLE=registration"
-  "-DGENTEST_EXPECTED_COMPILE_AS=cxx-textual-wrapper"
-  "-DGENTEST_EXPECTED_REQUIRES_MODULE_SCAN=OFF"
-  "-DGENTEST_EXPECTED_INCLUDES_OWNER_SOURCE=ON"
-  "-DGENTEST_EXPECTED_REPLACES_OWNER_SOURCE=ON"
-  -P "${SOURCE_DIR}/cmake/GentestValidateArtifactManifest.cmake")
+  "${PROG}" validate-artifact-manifest
+  --manifest "${_manifest}"
+  --stamp "${_validation_stamp}"
+  --expected-source "${_wrapper_source}"
+  --expected-source-kind textual-wrapper
+  --expected-registration-output "${_wrapper_source}"
+  --expected-header "${_header}"
+  --expected-compile-context-id "direct_textual:${_owner_source}"
+  --expected-owner-source "${_owner_source}"
+  --expected-include-dir "${_generated_dir}"
+  --expected-depfile "${_depfile}"
+  --expected-target-attachment replace-owner-source
+  --expected-artifact-role registration
+  --expected-compile-as cxx-textual-wrapper
+  --expected-requires-module-scan OFF
+  --expected-includes-owner-source ON
+  --expected-replaces-owner-source ON)
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" ${_validator_args}
+  COMMAND ${_validator_args}
   STRIP_TRAILING_WHITESPACE)
+if(NOT EXISTS "${_validation_stamp}")
+  message(FATAL_ERROR "Expected artifact manifest validator to touch '${_validation_stamp}'")
+endif()
 
 set(_consumer_dir "${_work_dir}/consumer")
 set(_consumer_build_dir "${_work_dir}/consumer-build")
@@ -248,11 +254,27 @@ endif()
 set(_bad_manifest "${_generated_dir}/direct_textual.bad_schema.artifact_manifest.json")
 string(JSON _bad_manifest_json SET "${_manifest_json}" schema "\"gentest.artifact_manifest.v0\"")
 file(WRITE "${_bad_manifest}" "${_bad_manifest_json}")
-set(_bad_validator_args ${_validator_args})
-list(REMOVE_AT _bad_validator_args 0)
-list(INSERT _bad_validator_args 0 "-DGENTEST_MANIFEST=${_bad_manifest}")
+set(_bad_validation_stamp "${_generated_dir}/direct_textual.bad_schema.artifact_manifest.validated")
+set(_bad_validator_args
+  "${PROG}" validate-artifact-manifest
+  --manifest "${_bad_manifest}"
+  --stamp "${_bad_validation_stamp}"
+  --expected-source "${_wrapper_source}"
+  --expected-source-kind textual-wrapper
+  --expected-registration-output "${_wrapper_source}"
+  --expected-header "${_header}"
+  --expected-compile-context-id "direct_textual:${_owner_source}"
+  --expected-owner-source "${_owner_source}"
+  --expected-include-dir "${_generated_dir}"
+  --expected-depfile "${_depfile}"
+  --expected-target-attachment replace-owner-source
+  --expected-artifact-role registration
+  --expected-compile-as cxx-textual-wrapper
+  --expected-requires-module-scan false
+  --expected-includes-owner-source true
+  --expected-replaces-owner-source 1)
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" ${_bad_validator_args}
+  COMMAND ${_bad_validator_args}
   RESULT_VARIABLE _bad_schema_rc
   OUTPUT_VARIABLE _bad_schema_out
   ERROR_VARIABLE _bad_schema_err
@@ -262,6 +284,9 @@ if(NOT _bad_schema_rc EQUAL 1)
   message(FATAL_ERROR
     "Artifact manifest validator should reject unsupported schemas.\n"
     "--- stdout ---\n${_bad_schema_out}\n--- stderr ---\n${_bad_schema_err}")
+endif()
+if(EXISTS "${_bad_validation_stamp}")
+  message(FATAL_ERROR "Artifact manifest validator touched '${_bad_validation_stamp}' despite rejecting the schema")
 endif()
 string(FIND "${_bad_schema_out}\n${_bad_schema_err}" "unsupported artifact manifest schema" _bad_schema_msg_pos)
 if(_bad_schema_msg_pos EQUAL -1)

@@ -17,8 +17,8 @@ tagged release.
 - Added artifact manifest generation for module registration outputs, including
   source kind, module name, registration output path, compile context ID,
   generated headers, depfile, include roots, and module-scan requirements.
-- Added CMake-side artifact manifest validation through
-  `cmake/GentestValidateArtifactManifest.cmake`.
+- Added `gentest_codegen validate-artifact-manifest` for buildsystem-owned
+  artifact manifest contract checks.
 - Added textual per-TU wrapper artifact manifests with explicit owner source,
   generated wrapper/header, depfile, include root, attachment, and wrapper
   compatibility semantics.

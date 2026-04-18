@@ -1,3 +1,4 @@
+#include "artifact_manifest.hpp"
 #include "discovery.hpp"
 #include "emit.hpp"
 #include "log.hpp"
@@ -504,6 +505,608 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         }
     }
     return true;
+}
+
+struct ArtifactManifestValidationOptions {
+    std::filesystem::path    manifest;
+    std::filesystem::path    stamp;
+    std::vector<std::string> expected_sources;
+    std::vector<std::string> expected_source_kinds;
+    std::vector<std::string> expected_registration_outputs;
+    std::vector<std::string> expected_headers;
+    std::vector<std::string> expected_compile_context_ids;
+    std::vector<std::string> expected_owner_sources;
+    std::vector<std::string> expected_source_registration_outputs;
+    std::vector<std::string> expected_modules;
+    std::string              expected_include_dir;
+    std::string              expected_depfile;
+    std::string              expected_target_attachment;
+    std::string              expected_artifact_role;
+    std::string              expected_compile_as;
+    std::optional<bool>      expected_requires_module_scan;
+    std::optional<bool>      expected_includes_owner_source;
+    std::optional<bool>      expected_replaces_owner_source;
+};
+
+[[nodiscard]] std::string lower_ascii_copy(std::string_view value) {
+    std::string out;
+    out.reserve(value.size());
+    for (const unsigned char ch : value) {
+        out.push_back(static_cast<char>(std::tolower(ch)));
+    }
+    return out;
+}
+
+[[nodiscard]] std::optional<bool> parse_cmake_bool(std::string_view value) {
+    const std::string normalized = lower_ascii_copy(value);
+    if (normalized == "on" || normalized == "true" || normalized == "1") {
+        return true;
+    }
+    if (normalized == "off" || normalized == "false" || normalized == "0") {
+        return false;
+    }
+    return std::nullopt;
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+[[nodiscard]] bool take_cli_value(int argc, const char **argv, int &idx, std::string &out, std::string &error) {
+    const std::string_view arg = argv[idx] ? std::string_view{argv[idx]} : std::string_view{};
+    if (const auto eq = arg.find('='); eq != std::string_view::npos) {
+        out = std::string{arg.substr(eq + 1)};
+        return true;
+    }
+    if (idx + 1 >= argc) {
+        error = fmt::format("option '{}' requires a value", arg);
+        return false;
+    }
+    ++idx;
+    out = argv[idx] ? std::string{argv[idx]} : std::string{};
+    return true;
+}
+
+[[nodiscard]] bool parse_artifact_manifest_validation_args(int argc, const char **argv, ArtifactManifestValidationOptions &options,
+                                                           std::string &error) {
+    auto parse_string_option = [&](std::string &target, int &idx) -> bool {
+        std::string value;
+        if (!take_cli_value(argc, argv, idx, value, error)) {
+            return false;
+        }
+        target = std::move(value);
+        return true;
+    };
+    auto parse_path_option = [&](std::filesystem::path &target, int &idx) -> bool {
+        std::string value;
+        if (!take_cli_value(argc, argv, idx, value, error)) {
+            return false;
+        }
+        target = std::filesystem::path{value};
+        return true;
+    };
+    auto parse_list_option = [&](std::vector<std::string> &target, int &idx) -> bool {
+        std::string value;
+        if (!take_cli_value(argc, argv, idx, value, error)) {
+            return false;
+        }
+        target.push_back(std::move(value));
+        return true;
+    };
+    auto parse_bool_option = [&](std::optional<bool> &target, int &idx) -> bool {
+        std::string value;
+        if (!take_cli_value(argc, argv, idx, value, error)) {
+            return false;
+        }
+        target = parse_cmake_bool(value);
+        if (!target.has_value()) {
+            error = fmt::format("invalid CMake boolean spelling '{}'; expected ON/OFF/TRUE/FALSE/1/0", value);
+            return false;
+        }
+        return true;
+    };
+
+    for (int idx = 1; idx < argc; ++idx) {
+        const std::string_view raw_arg = argv[idx] ? std::string_view{argv[idx]} : std::string_view{};
+        const std::string_view arg     = raw_arg.substr(0, raw_arg.find('='));
+        if (arg == "--manifest") {
+            if (!parse_path_option(options.manifest, idx)) {
+                return false;
+            }
+        } else if (arg == "--stamp") {
+            if (!parse_path_option(options.stamp, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-source") {
+            if (!parse_list_option(options.expected_sources, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-source-kind") {
+            if (!parse_list_option(options.expected_source_kinds, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-registration-output") {
+            if (!parse_list_option(options.expected_registration_outputs, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-header") {
+            if (!parse_list_option(options.expected_headers, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-compile-context-id") {
+            if (!parse_list_option(options.expected_compile_context_ids, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-owner-source") {
+            if (!parse_list_option(options.expected_owner_sources, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-source-registration-output") {
+            if (!parse_list_option(options.expected_source_registration_outputs, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-module") {
+            if (!parse_list_option(options.expected_modules, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-include-dir") {
+            if (!parse_string_option(options.expected_include_dir, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-depfile") {
+            if (!parse_string_option(options.expected_depfile, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-target-attachment") {
+            if (!parse_string_option(options.expected_target_attachment, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-artifact-role") {
+            if (!parse_string_option(options.expected_artifact_role, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-compile-as") {
+            if (!parse_string_option(options.expected_compile_as, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-requires-module-scan") {
+            if (!parse_bool_option(options.expected_requires_module_scan, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-includes-owner-source") {
+            if (!parse_bool_option(options.expected_includes_owner_source, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-replaces-owner-source") {
+            if (!parse_bool_option(options.expected_replaces_owner_source, idx)) {
+                return false;
+            }
+        } else {
+            error = fmt::format("unknown validate-artifact-manifest option '{}'", raw_arg);
+            return false;
+        }
+    }
+
+    if (options.manifest.empty()) {
+        error = "--manifest is required";
+        return false;
+    }
+    for (const auto &[name, value] : {
+             std::pair{"--expected-include-dir", std::string_view{options.expected_include_dir}},
+             std::pair{"--expected-depfile", std::string_view{options.expected_depfile}},
+             std::pair{"--expected-target-attachment", std::string_view{options.expected_target_attachment}},
+             std::pair{"--expected-artifact-role", std::string_view{options.expected_artifact_role}},
+             std::pair{"--expected-compile-as", std::string_view{options.expected_compile_as}},
+         }) {
+        if (value.empty()) {
+            error = fmt::format("{} is required", name);
+            return false;
+        }
+    }
+    if (!options.expected_requires_module_scan.has_value()) {
+        error = "--expected-requires-module-scan is required";
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_expected_list_count(std::string_view name, std::span<const std::string> values, std::size_t expected_count,
+                                                std::string &error) {
+    if (values.size() != expected_count) {
+        error = fmt::format("{} has {} entries, expected {}", name, values.size(), expected_count);
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] std::optional<std::string> json_string_field(const llvm::json::Object &object, std::string_view field,
+                                                           std::string_view location, std::string &error) {
+    const llvm::StringRef field_ref{field.data(), field.size()};
+    const auto           *value = object.get(field_ref);
+    if (value == nullptr) {
+        error = fmt::format("gentest artifact manifest {} is missing required string field '{}'", location, field);
+        return std::nullopt;
+    }
+    if (const auto string_value = value->getAsString()) {
+        return string_value->str();
+    }
+    error = fmt::format("gentest artifact manifest {} field '{}' must be a string", location, field);
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<bool> json_bool_field(const llvm::json::Object &object, std::string_view field, std::string_view location,
+                                                  std::string &error) {
+    const llvm::StringRef field_ref{field.data(), field.size()};
+    const auto           *value = object.get(field_ref);
+    if (value == nullptr) {
+        error = fmt::format("gentest artifact manifest {} is missing required boolean field '{}'", location, field);
+        return std::nullopt;
+    }
+    if (const auto bool_value = value->getAsBoolean()) {
+        return bool_value;
+    }
+    error = fmt::format("gentest artifact manifest {} field '{}' must be a boolean", location, field);
+    return std::nullopt;
+}
+
+[[nodiscard]] bool json_null_field(const llvm::json::Object &object, std::string_view field, std::string_view location,
+                                   std::string &error) {
+    const llvm::StringRef field_ref{field.data(), field.size()};
+    const auto           *value = object.get(field_ref);
+    if (value == nullptr) {
+        error = fmt::format("gentest artifact manifest {} is missing required null field '{}'", location, field);
+        return false;
+    }
+    if (value->getAsNull().has_value()) {
+        return true;
+    }
+    error = fmt::format("gentest artifact manifest {} field '{}' must be null", location, field);
+    return false;
+}
+
+[[nodiscard]] std::optional<std::string> json_single_string_array_field(const llvm::json::Object &object, std::string_view field,
+                                                                        std::string_view location, std::string &error) {
+    const llvm::StringRef field_ref{field.data(), field.size()};
+    const auto           *array = object.getArray(field_ref);
+    if (array == nullptr) {
+        error = fmt::format("gentest artifact manifest {} field '{}' must be an array", location, field);
+        return std::nullopt;
+    }
+    if (array->size() != 1) {
+        error = fmt::format("gentest artifact manifest {}.{} has {} entries, expected 1", location, field, array->size());
+        return std::nullopt;
+    }
+    if (const auto value = (*array)[0].getAsString()) {
+        return value->str();
+    }
+    error = fmt::format("gentest artifact manifest {}.{}[0] must be a string", location, field);
+    return std::nullopt;
+}
+
+[[nodiscard]] bool expect_equal(std::string_view location, std::string_view expected, std::string_view actual, std::string &error) {
+    if (actual == expected) {
+        return true;
+    }
+    error = fmt::format("gentest artifact manifest {} mismatch: expected '{}', got '{}'", location, expected, actual);
+    return false;
+}
+
+[[nodiscard]] bool expect_equal(std::string_view location, bool expected, bool actual, std::string &error) {
+    if (actual == expected) {
+        return true;
+    }
+    error = fmt::format("gentest artifact manifest {} mismatch: expected '{}', got '{}'", location, expected ? "true" : "false",
+                        actual ? "true" : "false");
+    return false;
+}
+
+[[nodiscard]] bool validate_source_manifest_entry(const llvm::json::Object &source, const ArtifactManifestValidationOptions &options,
+                                                  std::size_t idx, std::string &error) {
+    const std::string location    = fmt::format("sources[{}]", idx);
+    const auto        source_path = json_string_field(source, "source", location, error);
+    if (!source_path || !expect_equal(fmt::format("{}.source", location), options.expected_sources[idx], *source_path, error)) {
+        return false;
+    }
+    const auto source_kind = json_string_field(source, "kind", location, error);
+    if (!source_kind || !expect_equal(fmt::format("{}.kind", location), options.expected_source_kinds[idx], *source_kind, error)) {
+        return false;
+    }
+    const auto context_id = json_string_field(source, "compile_context_id", location, error);
+    if (!context_id ||
+        !expect_equal(fmt::format("{}.compile_context_id", location), options.expected_compile_context_ids[idx], *context_id, error)) {
+        return false;
+    }
+    if (!options.expected_owner_sources.empty()) {
+        const auto owner_source = json_string_field(source, "owner_source", location, error);
+        if (!owner_source ||
+            !expect_equal(fmt::format("{}.owner_source", location), options.expected_owner_sources[idx], *owner_source, error)) {
+            return false;
+        }
+        const auto generated_wrapper = json_string_field(source, "generated_wrapper_source", location, error);
+        if (!generated_wrapper || !expect_equal(fmt::format("{}.generated_wrapper_source", location),
+                                                options.expected_registration_outputs[idx], *generated_wrapper, error)) {
+            return false;
+        }
+        const auto registration_header = json_string_field(source, "registration_header", location, error);
+        if (!registration_header ||
+            !expect_equal(fmt::format("{}.registration_header", location), options.expected_headers[idx], *registration_header, error)) {
+            return false;
+        }
+    }
+    if (!options.expected_source_registration_outputs.empty()) {
+        const auto registration_output = json_string_field(source, "registration_output", location, error);
+        if (!registration_output || !expect_equal(fmt::format("{}.registration_output", location),
+                                                  options.expected_source_registration_outputs[idx], *registration_output, error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_artifact_manifest_entry(const llvm::json::Object &artifact, const ArtifactManifestValidationOptions &options,
+                                                    std::size_t idx, std::string &error) {
+    const std::string location = fmt::format("artifacts[{}]", idx);
+    const auto        path     = json_string_field(artifact, "path", location, error);
+    if (!path || !expect_equal(fmt::format("{}.path", location), options.expected_registration_outputs[idx], *path, error)) {
+        return false;
+    }
+    const auto role = json_string_field(artifact, "role", location, error);
+    if (!role || !expect_equal(fmt::format("{}.role", location), options.expected_artifact_role, *role, error)) {
+        return false;
+    }
+    const auto compile_as = json_string_field(artifact, "compile_as", location, error);
+    if (!compile_as || !expect_equal(fmt::format("{}.compile_as", location), options.expected_compile_as, *compile_as, error)) {
+        return false;
+    }
+
+    const std::string expected_owner_source =
+        options.expected_owner_sources.empty() ? options.expected_sources[idx] : options.expected_owner_sources[idx];
+    const auto owner_source = json_string_field(artifact, "owner_source", location, error);
+    if (!owner_source || !expect_equal(fmt::format("{}.owner_source", location), expected_owner_source, *owner_source, error)) {
+        return false;
+    }
+    if (!options.expected_owner_sources.empty()) {
+        const auto generated_wrapper = json_string_field(artifact, "generated_wrapper_source", location, error);
+        if (!generated_wrapper || !expect_equal(fmt::format("{}.generated_wrapper_source", location),
+                                                options.expected_registration_outputs[idx], *generated_wrapper, error)) {
+            return false;
+        }
+    }
+
+    const auto target_attachment = json_string_field(artifact, "target_attachment", location, error);
+    if (!target_attachment ||
+        !expect_equal(fmt::format("{}.target_attachment", location), options.expected_target_attachment, *target_attachment, error)) {
+        return false;
+    }
+    const auto context_id = json_string_field(artifact, "compile_context_id", location, error);
+    if (!context_id ||
+        !expect_equal(fmt::format("{}.compile_context_id", location), options.expected_compile_context_ids[idx], *context_id, error)) {
+        return false;
+    }
+    if (!options.expected_requires_module_scan.has_value()) {
+        error = "--expected-requires-module-scan is required";
+        return false;
+    }
+    const bool expected_requires_module_scan = options.expected_requires_module_scan.value_or(false);
+    const auto requires_module_scan          = json_bool_field(artifact, "requires_module_scan", location, error);
+    if (!requires_module_scan ||
+        !expect_equal(fmt::format("{}.requires_module_scan", location), expected_requires_module_scan, *requires_module_scan, error)) {
+        return false;
+    }
+    if (options.expected_includes_owner_source.has_value()) {
+        const bool expected_includes_owner_source = options.expected_includes_owner_source.value_or(false);
+        const auto includes_owner_source          = json_bool_field(artifact, "includes_owner_source", location, error);
+        if (!includes_owner_source || !expect_equal(fmt::format("{}.includes_owner_source", location), expected_includes_owner_source,
+                                                    *includes_owner_source, error)) {
+            return false;
+        }
+    }
+    if (options.expected_replaces_owner_source.has_value()) {
+        const bool expected_replaces_owner_source = options.expected_replaces_owner_source.value_or(false);
+        const auto replaces_owner_source          = json_bool_field(artifact, "replaces_owner_source", location, error);
+        if (!replaces_owner_source || !expect_equal(fmt::format("{}.replaces_owner_source", location), expected_replaces_owner_source,
+                                                    *replaces_owner_source, error)) {
+            return false;
+        }
+    }
+
+    const auto generated_header = json_single_string_array_field(artifact, "generated_headers", location, error);
+    if (!generated_header ||
+        !expect_equal(fmt::format("{}.generated_headers[0]", location), options.expected_headers[idx], *generated_header, error)) {
+        return false;
+    }
+    const auto generated_include_dir = json_single_string_array_field(artifact, "generated_include_dirs", location, error);
+    if (!generated_include_dir ||
+        !expect_equal(fmt::format("{}.generated_include_dirs[0]", location), options.expected_include_dir, *generated_include_dir, error)) {
+        return false;
+    }
+    const auto depfile = json_string_field(artifact, "depfile", location, error);
+    if (!depfile || !expect_equal(fmt::format("{}.depfile", location), options.expected_depfile, *depfile, error)) {
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_module_manifest_entry_pair(const llvm::json::Object &source, const llvm::json::Object &artifact,
+                                                       const ArtifactManifestValidationOptions &options, std::size_t idx,
+                                                       std::string &error) {
+    if (options.expected_source_kinds[idx] == "textual-wrapper") {
+        return true;
+    }
+
+    const std::string source_location   = fmt::format("sources[{}]", idx);
+    const std::string artifact_location = fmt::format("artifacts[{}]", idx);
+    const auto        source_module     = json_string_field(source, "module", source_location, error);
+    if (!source_module) {
+        return false;
+    }
+    if (source_module->empty()) {
+        error = fmt::format("gentest artifact manifest {}.module must not be empty", source_location);
+        return false;
+    }
+    const auto discovered_module = named_module_name_from_source_file(std::filesystem::path{options.expected_sources[idx]});
+    if (!discovered_module.has_value()) {
+        error = fmt::format("gentest artifact manifest {}.module could not be checked because source '{}' has no named module declaration",
+                            source_location, options.expected_sources[idx]);
+        return false;
+    }
+    if (!expect_equal(fmt::format("{}.module", source_location), *discovered_module, *source_module, error)) {
+        return false;
+    }
+    if (!json_null_field(source, "partition", source_location, error)) {
+        return false;
+    }
+
+    std::string_view expected_module = *discovered_module;
+    if (!options.expected_modules.empty()) {
+        expected_module = options.expected_modules[idx];
+        if (!expect_equal(fmt::format("{}.expected_module", source_location), expected_module, *discovered_module, error)) {
+            return false;
+        }
+    }
+
+    const auto artifact_module = json_string_field(artifact, "module", artifact_location, error);
+    if (!artifact_module || !expect_equal(fmt::format("{}.module", artifact_location), expected_module, *artifact_module, error)) {
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool touch_validation_stamp(const std::filesystem::path &stamp, std::string &error) {
+    if (stamp.empty()) {
+        return true;
+    }
+    std::error_code ec;
+    if (stamp.has_parent_path()) {
+        std::filesystem::create_directories(stamp.parent_path(), ec);
+        if (ec) {
+            error = fmt::format("failed to create artifact manifest validation stamp directory '{}': {}", stamp.parent_path().string(),
+                                ec.message());
+            return false;
+        }
+    }
+    {
+        std::ofstream out{stamp, std::ios::app};
+        if (!out) {
+            error = fmt::format("failed to touch gentest artifact manifest validation stamp '{}'", stamp.string());
+            return false;
+        }
+    }
+    std::filesystem::last_write_time(stamp, std::filesystem::file_time_type::clock::now(), ec);
+    if (ec) {
+        error = fmt::format("failed to update gentest artifact manifest validation stamp '{}': {}", stamp.string(), ec.message());
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_artifact_manifest(const ArtifactManifestValidationOptions &options, std::string &error) {
+    const std::size_t expected_count = options.expected_sources.size();
+    for (const auto &[name, values] : {
+             std::pair{std::string_view{"--expected-source-kind"}, std::span<const std::string>{options.expected_source_kinds}},
+             std::pair{std::string_view{"--expected-registration-output"},
+                       std::span<const std::string>{options.expected_registration_outputs}},
+             std::pair{std::string_view{"--expected-header"}, std::span<const std::string>{options.expected_headers}},
+             std::pair{std::string_view{"--expected-compile-context-id"},
+                       std::span<const std::string>{options.expected_compile_context_ids}},
+         }) {
+        if (!validate_expected_list_count(name, values, expected_count, error)) {
+            return false;
+        }
+    }
+    if (!options.expected_owner_sources.empty() &&
+        !validate_expected_list_count("--expected-owner-source", options.expected_owner_sources, expected_count, error)) {
+        return false;
+    }
+    if (!options.expected_source_registration_outputs.empty() &&
+        !validate_expected_list_count("--expected-source-registration-output", options.expected_source_registration_outputs, expected_count,
+                                      error)) {
+        return false;
+    }
+    if (!options.expected_modules.empty() &&
+        !validate_expected_list_count("--expected-module", options.expected_modules, expected_count, error)) {
+        return false;
+    }
+
+    auto buffer_or_error = llvm::MemoryBuffer::getFile(options.manifest.string());
+    if (!buffer_or_error) {
+        error = fmt::format("gentest artifact manifest '{}' does not exist or cannot be read: {}", options.manifest.string(),
+                            buffer_or_error.getError().message());
+        return false;
+    }
+    auto json_or_error = llvm::json::parse((*buffer_or_error)->getBuffer());
+    if (!json_or_error) {
+        error = fmt::format("failed to parse gentest artifact manifest '{}': {}", options.manifest.string(),
+                            llvm::toString(json_or_error.takeError()));
+        return false;
+    }
+    const auto *manifest = json_or_error->getAsObject();
+    if (manifest == nullptr) {
+        error = fmt::format("gentest artifact manifest '{}' must be a JSON object", options.manifest.string());
+        return false;
+    }
+    const auto schema = json_string_field(*manifest, "schema", "<root>", error);
+    if (!schema) {
+        error = fmt::format("gentest artifact manifest '{}' is missing or has invalid schema: {}", options.manifest.string(), error);
+        return false;
+    }
+    if (*schema != gentest::codegen::artifact_manifest::kSchema) {
+        error = fmt::format("unsupported artifact manifest schema '{}' in '{}' (expected '{}')", *schema, options.manifest.string(),
+                            gentest::codegen::artifact_manifest::kSchema);
+        return false;
+    }
+
+    const auto *sources = manifest->getArray("sources");
+    if (sources == nullptr) {
+        error = fmt::format("gentest artifact manifest '{}' is missing array field 'sources'", options.manifest.string());
+        return false;
+    }
+    const auto *artifacts = manifest->getArray("artifacts");
+    if (artifacts == nullptr) {
+        error = fmt::format("gentest artifact manifest '{}' is missing array field 'artifacts'", options.manifest.string());
+        return false;
+    }
+    if (sources->size() != expected_count) {
+        error = fmt::format("gentest artifact manifest '{}' has {} source entries, expected {}", options.manifest.string(), sources->size(),
+                            expected_count);
+        return false;
+    }
+    if (artifacts->size() != expected_count) {
+        error = fmt::format("gentest artifact manifest '{}' has {} artifact entries, expected {}", options.manifest.string(),
+                            artifacts->size(), expected_count);
+        return false;
+    }
+
+    for (std::size_t idx = 0; idx < expected_count; ++idx) {
+        const auto *source = (*sources)[idx].getAsObject();
+        if (source == nullptr) {
+            error = fmt::format("gentest artifact manifest sources[{}] must be an object", idx);
+            return false;
+        }
+        if (!validate_source_manifest_entry(*source, options, idx, error)) {
+            return false;
+        }
+
+        const auto *artifact = (*artifacts)[idx].getAsObject();
+        if (artifact == nullptr) {
+            error = fmt::format("gentest artifact manifest artifacts[{}] must be an object", idx);
+            return false;
+        }
+        if (!validate_artifact_manifest_entry(*artifact, options, idx, error)) {
+            return false;
+        }
+        if (!validate_module_manifest_entry_pair(*source, *artifact, options, idx, error)) {
+            return false;
+        }
+    }
+    return touch_validation_stamp(options.stamp, error);
+}
+
+int run_artifact_manifest_validator(int argc, const char **argv) {
+    ArtifactManifestValidationOptions options;
+    std::string                       error;
+    if (!parse_artifact_manifest_validation_args(argc, argv, options, error) || !validate_artifact_manifest(options, error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", error);
+        return 1;
+    }
+    return 0;
 }
 
 [[nodiscard]] std::optional<std::string_view> forced_serial_parse_reason() {
@@ -2956,6 +3559,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
 } // namespace
 
 int main(int argc, const char **argv) {
+    if (argc >= 2 && argv[1] != nullptr && std::string_view{argv[1]} == "validate-artifact-manifest") {
+        return run_artifact_manifest_validator(argc - 1, argv + 1);
+    }
+
     const auto  parsed_arguments = parse_arguments(argc, argv);
     const auto &options          = parsed_arguments.options;
     if (parsed_arguments.inspect_source) {

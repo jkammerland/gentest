@@ -231,4 +231,10 @@ file(WRITE "${_manifest}" "${_bad_manifest_json}\n")
 file(REMOVE "${_validation_stamp}")
 _gentest_expect_manifest_validation_failure("artifacts[0].path mismatch")
 
+string(JSON _bad_manifest_json SET "${_manifest_json}" sources 0 module "\"gentest.story034.wrong_module\"")
+string(JSON _bad_manifest_json SET "${_bad_manifest_json}" artifacts 0 module "\"gentest.story034.wrong_module\"")
+file(WRITE "${_manifest}" "${_bad_manifest_json}\n")
+file(REMOVE "${_validation_stamp}")
+_gentest_expect_manifest_validation_failure("sources[0].module mismatch")
+
 message(STATUS "Module registration manifest regression passed")
