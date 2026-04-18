@@ -172,6 +172,40 @@ function Write-AsciiFile([string]$Path, [string]$Content) {
   [System.IO.File]::WriteAllText($NormalizedPath, $Content, [System.Text.Encoding]::ASCII)
 }
 
+function Write-ModuleArtifactManifest(
+  [string]$Path,
+  [string]$ModuleName,
+  [string]$Source,
+  [string]$CompileContext,
+  [string]$RegistrationPath) {
+  $NormalizedRegistration = $RegistrationPath -replace '\\', '/'
+  $Manifest = @"
+{
+  "sources": [
+    {
+      "source": "$Source",
+      "kind": "module-primary-interface",
+      "module": "$ModuleName",
+      "compile_context_id": "$CompileContext",
+      "registration_output": "$NormalizedRegistration"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "$NormalizedRegistration",
+      "role": "registration",
+      "compile_as": "cxx-module-implementation",
+      "module": "$ModuleName",
+      "owner_source": "$Source",
+      "compile_context_id": "$CompileContext",
+      "requires_module_scan": true
+    }
+  ]
+}
+"@
+  Write-AsciiFile $Path $Manifest
+}
+
 function New-Runner([string]$Path) {
   $Runner = @'
 @echo off
@@ -285,6 +319,9 @@ foreach ($Arg in $RemainingArgs) {
         'gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h')) {
       Touch-File (Join-Path $BazelBin $File)
     }
+    $RegistrationPath = Join-Path $BazelBin 'gen/gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp'
+    $ManifestPath = Join-Path $BazelBin 'gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json'
+    Write-ModuleArtifactManifest $ManifestPath 'gentest.consumer_cases' 'suite_0000.cppm' 'gentest_consumer_module_bazel:suite_0000.cppm' $RegistrationPath
     New-Runner (Join-Path $BazelBin 'gentest_consumer_module_bazel.cmd')
     Touch-File (Join-Path $env:MARKER_DIR 'module.ok')
   } elseif (@(
@@ -305,6 +342,9 @@ foreach ($Arg in $RemainingArgs) {
         'gen/gentest_downstream_module/gentest_downstream_module.artifact_manifest.json')) {
       Touch-File (Join-Path $BazelBin $File)
     }
+    $RegistrationPath = Join-Path $BazelBin 'gen/gentest_downstream_module/tu_0000_suite_0000.registration.gentest.cpp'
+    $ManifestPath = Join-Path $BazelBin 'gen/gentest_downstream_module/gentest_downstream_module.artifact_manifest.json'
+    Write-ModuleArtifactManifest $ManifestPath 'downstream.bazel.consumer_cases' 'suite_0000.cppm' 'gentest_downstream_module:suite_0000.cppm' $RegistrationPath
     New-Runner (Join-Path $BazelBin 'gentest_downstream_textual.cmd')
     New-Runner (Join-Path $BazelBin 'gentest_downstream_module.cmd')
     Touch-File (Join-Path $env:MARKER_DIR 'bzlmod.ok')
@@ -428,6 +468,40 @@ EOF
   chmod +x "$runner"
 }
 
+write_module_artifact_manifest() {
+  manifest="$1"
+  module_name="$2"
+  source="$3"
+  compile_context="$4"
+  registration="$5"
+  registration_path=$(printf '%s' "$registration" | tr '\\' '/')
+  mkdir -p "$(dirname "$manifest")"
+  cat > "$manifest" <<EOF
+{
+  "sources": [
+    {
+      "source": "$source",
+      "kind": "module-primary-interface",
+      "module": "$module_name",
+      "compile_context_id": "$compile_context",
+      "registration_output": "$registration_path"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "$registration_path",
+      "role": "registration",
+      "compile_as": "cxx-module-implementation",
+      "module": "$module_name",
+      "owner_source": "$source",
+      "compile_context_id": "$compile_context",
+      "requires_module_scan": true
+    }
+  ]
+}
+EOF
+}
+
 for arg in "$@"; do
   case "$arg" in
     //:gentest_consumer_textual_bazel|//:gentest_consumer_textual_mocks)
@@ -464,6 +538,12 @@ for arg in "$@"; do
         "$bazel_bin/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.gentest.h" \
         "$bazel_bin/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.module.gentest.cppm" \
         "$bazel_bin/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h"
+      write_module_artifact_manifest \
+        "$bazel_bin/gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json" \
+        "gentest.consumer_cases" \
+        "suite_0000.cppm" \
+        "gentest_consumer_module_bazel:suite_0000.cppm" \
+        "$bazel_bin/gen/gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp"
       make_runner "$bazel_bin/gentest_consumer_module_bazel"
       touch "${MARKER_DIR}/module.ok"
       ;;
@@ -482,6 +562,12 @@ for arg in "$@"; do
         "$bazel_bin/gen/gentest_downstream_module/tu_0000_suite_0000.registration.gentest.cpp" \
         "$bazel_bin/gen/gentest_downstream_module/tu_0000_suite_0000.gentest.h" \
         "$bazel_bin/gen/gentest_downstream_module/gentest_downstream_module.artifact_manifest.json"
+      write_module_artifact_manifest \
+        "$bazel_bin/gen/gentest_downstream_module/gentest_downstream_module.artifact_manifest.json" \
+        "downstream.bazel.consumer_cases" \
+        "suite_0000.cppm" \
+        "gentest_downstream_module:suite_0000.cppm" \
+        "$bazel_bin/gen/gentest_downstream_module/tu_0000_suite_0000.registration.gentest.cpp"
       make_runner "$bazel_bin/gentest_downstream_textual"
       make_runner "$bazel_bin/gentest_downstream_module"
       touch "${MARKER_DIR}/bzlmod.ok"
