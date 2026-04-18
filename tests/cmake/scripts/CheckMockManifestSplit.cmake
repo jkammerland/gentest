@@ -55,11 +55,16 @@ set(_clang_args)
 if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
   list(APPEND _clang_args "${TARGET_ARG}")
 endif()
+set(_codegen_host_compiler "clang++")
+if(DEFINED ENV{GENTEST_CODEGEN_HOST_CLANG} AND NOT "$ENV{GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
+  set(_codegen_host_compiler "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
+endif()
+gentest_normalize_std_flag_for_compiler(_codegen_std "${_codegen_host_compiler}" "${CODEGEN_STD}")
 gentest_make_public_api_include_args(
   _public_include_args
   SOURCE_ROOT "${SOURCE_DIR}"
   APPLE_SYSROOT)
-list(APPEND _clang_args "${CODEGEN_STD}" ${_public_include_args} "-I${_work_dir}")
+list(APPEND _clang_args "${_codegen_std}" ${_public_include_args} "-I${_work_dir}")
 
 execute_process(
   COMMAND "${PROG}"
