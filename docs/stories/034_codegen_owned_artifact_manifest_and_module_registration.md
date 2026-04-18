@@ -24,6 +24,13 @@ This keeps authored module interfaces in the normal build graph, avoids
 `#include "cases.cppm"` hacks, and does not require users to export test
 functions or fixture types just so registration code can call them.
 
+Modules and textual sources share the artifact-manifest boundary, not the same
+generated C++ shape. Named-module tests use additive same-module implementation
+units. Textual tests use manifest-declared wrapper/include artifacts by default
+because that is the only compatibility-preserving way to keep `.cpp`-local
+declarations, anonymous namespaces, static functions, and fixture definitions
+visible to generated registration code.
+
 ## Problem
 
 Current and proposed shortcuts keep pushing C++ decisions into CMake:
@@ -71,7 +78,7 @@ gentest_codegen emit
   inputs:
     - artifact manifest
   outputs:
-    - textual registration sources
+    - textual wrapper/registration sources
     - same-module registration implementation units
     - depfiles for generated outputs
 ```
@@ -128,8 +135,9 @@ At minimum, the manifest must represent:
 - owning source
 - source unit kind, including primary interface vs partition
 - module name and partition name when applicable
-- compile treatment, such as textual TU or same-module implementation unit
+- compile treatment, such as textual wrapper or same-module implementation unit
 - target attachment mode
+- whether the artifact includes and replaces the owning source
 - compile-context identity or explicit compile command identity
 - required generated include roots
 - generated header dependencies
@@ -207,15 +215,32 @@ interface as module-internal implementation code.
 
 ## Textual Example
 
-Textual test sources should follow the same artifact-plan model. The build
-system should not replace original sources because it guessed which files have
-gentest attributes.
+Textual test sources follow the same artifact-plan model, but they do not use
+the same generated C++ strategy as modules. For textual `.cpp` sources,
+wrapper/include mode is the default compatibility model. The build-system
+simplification is that the wrapper becomes a declared codegen artifact described
+by the manifest, not that textual tests stop using same-translation-unit
+inclusion.
 
 Authored source:
 
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
+
+namespace {
+
+struct LocalFixture : gentest::FixtureSetup {
+    int value = 0;
+    void setUp() override { value = 7; }
+};
+
+[[using gentest: test("textual/local")]]
+static void local_case(LocalFixture& fixture) {
+    gentest::asserts::EXPECT_EQ(fixture.value, 7);
+}
+
+} // namespace
 
 namespace textual_tests {
 
@@ -225,31 +250,58 @@ void case_a() {}
 } // namespace textual_tests
 ```
 
-Generated registration source:
+Generated compatibility wrapper source:
 
 ```cpp
-#include "gentest/runner.h"
-#include "gentest/fixture.h"
+// generated wrapper
+// NOLINTNEXTLINE(bugprone-suspicious-include)
+#include "cases.cpp"
 
+#if !defined(GENTEST_CODEGEN) && __has_include("tu_0000_cases.gentest.h")
+#include "tu_0000_cases.gentest.h"
+#endif
+```
+
+The generated header included by the wrapper contains wrappers, case tables, and
+the static registrar. Because that header is compiled in the same translation
+unit after the owning `.cpp`, it can reference source-local tests, fixture
+types, `static` functions, anonymous namespaces, benchmarks, jitters, and mock
+uses without forcing users to move declarations into headers.
+
+The corresponding manifest entry should describe the wrapper semantics rather
+than hiding them in a build-system-specific helper:
+
+```json
+{
+  "artifacts": [
+    {
+      "path": "build/gentest/tu_0000_cases.gentest.cpp",
+      "role": "registration",
+      "compile_as": "cxx-textual-wrapper",
+      "owner_source": "tests/cases.cpp",
+      "includes_owner_source": true,
+      "replaces_owner_source": true,
+      "requires_module_scan": false
+    }
+  ]
+}
+```
+
+Textual declaration-only registration is a possible future opt-in mode, not the
+default. It can only work for sources that make test functions and all required
+fixture/signature types visible to another translation unit:
+
+```cpp
 namespace textual_tests {
 void case_a();
 }
 
-namespace gentest::generated::tu_0000 {
-
-static void case_a_wrapper(void*) {
-    textual_tests::case_a();
-}
-
-// generated case table and registrar
-
-} // namespace gentest::generated::tu_0000
+// generated standalone registration can call textual_tests::case_a(),
+// but it cannot call anonymous-namespace or static tests in cases.cpp.
 ```
 
-This textual mode may require users to make test declarations visible through
-normal C++ declarations when the generated TU does not include the original
-source. That tradeoff should be explicit, and any compatibility include-shim
-mode should be treated as legacy or transitional.
+This stricter mode should have a separate source-style contract and diagnostics.
+It must not become the default for existing textual tests.
 
 ## Build-System Contract
 
@@ -271,6 +323,11 @@ Build systems must not:
 - infer module names from file names
 - decide mock extraction semantics
 - replace authored module interface units as a registration mechanism
+
+For textual sources, replacing the owning source with a generated wrapper is
+allowed only when the codegen manifest declares textual wrapper compile
+treatment and `replaces_owner_source: true`. That replacement is a textual
+compatibility mechanism, not a build-system guess.
 
 CMake wiring should become a thin composition layer, for example:
 
@@ -339,7 +396,7 @@ In scope:
 - codegen-owned validation of module names, source kinds, and imports
 - build-system composition of generated artifacts without source parsing
 - separation of mock extraction and mock emission phases
-- textual registration path alignment with the same artifact protocol
+- textual wrapper registration alignment with the same artifact-manifest protocol
 - first-slice rejection of private module fragments and partitions with clear
   `gentest_codegen` diagnostics
 
@@ -349,6 +406,7 @@ Out of scope for the first implementation slice:
 - private module fragment support
 - public API redesign for fixture/runtime internals
 - making every non-CMake backend feature-complete in the first commit
+- making declaration-only standalone textual registration the default
 - preserving CMake configure-time source parsers as a compatibility mechanism
 
 ## Tradeoffs
@@ -372,6 +430,15 @@ It does not give up the important module behavior:
 - generated registration compiles as normal C++ code
 - build systems do not need to understand C++ semantics
 - compile databases can keep the original user translation units visible
+
+It also does not give up the important textual behavior:
+
+- textual `.cpp` tests can keep source-local fixtures and helper types
+- anonymous-namespace and `static` tests remain valid in wrapper mode
+- fixture, bench, jitter, and mock bodies do not need to move declarations into
+  headers just to satisfy generated registration code
+- include-wrapper behavior is explicit in the manifest instead of hidden in
+  CMake, Bazel, Xmake, or Meson glue
 
 Private module fragments are not just deferred convenience. A primary module
 interface unit with `module :private;` must be the only unit of that module, so
@@ -402,8 +469,12 @@ have codegen emit any generated-unit preamble it needs explicitly.
   `import <name>;` and not `#include "<source>.cppm"`.
 - Private module fragments and module partitions are rejected by
   `gentest_codegen` in the first slice.
-- Textual registration either uses manifest-declared standalone registration
-  TUs or keeps include-shim behavior clearly marked as legacy compatibility.
+- Textual registration keeps manifest-declared wrapper/include mode as the
+  default compatibility path, with explicit `includes_owner_source` and
+  `replaces_owner_source` semantics.
+- Declaration-only standalone textual registration is treated as a separate
+  opt-in mode with stricter source-style constraints, not as a default
+  acceptance criterion.
 - Mock extraction can run independently from test registration and emits a
   reusable manifest.
 - Existing `gentest_attach_codegen(...)`, package-consumer, public-module, and
@@ -427,7 +498,9 @@ Minimum first-slice validation:
   execution and the emitted manifest matches those declared outputs.
 - Xmake module proof with predeclared generated same-module registration source
   and manifest validation.
-- Meson textual proof for declared outputs plus depfile wiring.
+- Meson textual proof for declared wrapper outputs plus depfile wiring.
+- Textual wrapper regression proving anonymous namespaces, `static` tests, and
+  `.cpp`-local fixture definitions remain supported by the default path.
 
 ## Relationship to PR `75`
 
