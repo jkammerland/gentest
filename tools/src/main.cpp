@@ -198,6 +198,53 @@ void merge_duplicate_mocks(std::vector<gentest::codegen::MockClassInfo> &mocks) 
     mocks = std::move(merged);
 }
 
+std::vector<std::string> mock_domain_modules_from_context(const gentest::codegen::CollectorOptions &options) {
+    std::vector<std::string> modules;
+    std::set<std::string>    seen_modules;
+    for (const auto &source : options.sources) {
+        std::optional<std::string> module_name;
+        if (const auto it = options.module_interface_names_by_source.find(source); it != options.module_interface_names_by_source.end()) {
+            module_name = it->second;
+        } else {
+            module_name = gentest::codegen::scan::named_module_name_from_source_file(std::filesystem::path(source));
+        }
+        if (module_name.has_value() && !module_name->empty() && seen_modules.insert(*module_name).second) {
+            modules.push_back(std::move(*module_name));
+        }
+    }
+    return modules;
+}
+
+bool validate_manifest_mock_domain_modules(std::span<const gentest::codegen::MockClassInfo> mocks,
+                                           std::span<const std::string> manifest_modules, std::string &error) {
+    std::set<std::string> seen_modules;
+    for (const auto &module_name : manifest_modules) {
+        if (module_name.empty()) {
+            error = "mock manifest contains an empty mock_output_domain_modules entry";
+            return false;
+        }
+        if (!seen_modules.insert(module_name).second) {
+            error = fmt::format("mock manifest contains duplicate mock output domain module '{}'", module_name);
+            return false;
+        }
+    }
+    for (const auto &mock : mocks) {
+        if (mock.definition_kind != gentest::codegen::MockClassInfo::DefinitionKind::NamedModule) {
+            continue;
+        }
+        if (mock.definition_module_name.empty()) {
+            error = fmt::format("mock manifest entry '{}' is named_module but has no definition_module_name", mock.qualified_name);
+            return false;
+        }
+        if (!seen_modules.contains(mock.definition_module_name)) {
+            error = fmt::format("mock manifest entry '{}' belongs to module '{}' but mock_output_domain_modules does not list it",
+                                mock.qualified_name, mock.definition_module_name);
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] std::string normalize_dependency_path(std::string_view raw_path) {
     if (raw_path.empty()) {
         return {};
@@ -2613,9 +2660,16 @@ std::string resolve_default_sysroot() {
 #endif
 }
 
+enum class MockPhaseCommand {
+    None,
+    InspectMocks,
+    EmitMocks,
+};
+
 struct ParsedArguments {
     CollectorOptions                   options;
     std::optional<std::string>         explicit_host_clang_path;
+    MockPhaseCommand                   mock_phase     = MockPhaseCommand::None;
     bool                               inspect_source = false;
     std::vector<std::filesystem::path> inspect_include_dirs;
 };
@@ -2724,6 +2778,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
 
     std::vector<std::string> clang_args;
     bool                     clang_mode = false;
+    MockPhaseCommand         mock_phase = MockPhaseCommand::None;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i] ? std::string_view(argv[i]) : std::string_view{};
         if (!clang_mode && arg == "--") {
@@ -2732,6 +2787,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         }
         if (clang_mode) {
             clang_args.emplace_back(arg);
+        } else if (i == 1 && arg == "inspect-mocks") {
+            mock_phase = MockPhaseCommand::InspectMocks;
+        } else if (i == 1 && arg == "emit-mocks") {
+            mock_phase = MockPhaseCommand::EmitMocks;
         } else {
             tool_argv.push_back(argv[i]);
         }
@@ -2795,7 +2854,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         return !skip_env;
     }();
     opts.jobs           = static_cast<std::size_t>(jobs_option.getValue());
-    opts.discover_mocks = discover_mocks_option.getValue();
+    opts.discover_mocks = discover_mocks_option.getValue() || mock_phase == MockPhaseCommand::InspectMocks;
     if (jobs_option.getNumOccurrences() == 0) {
         const auto jobs_env = get_env_value("GENTEST_CODEGEN_JOBS");
         if (jobs_env) {
@@ -2867,13 +2926,20 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     } else if (!kTemplateDir.empty()) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
-    if (!inspect_source_option.getValue() && !opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty() &&
-        opts.mock_manifest_output_path.empty() && opts.mock_manifest_input_path.empty()) {
+    if (mock_phase == MockPhaseCommand::InspectMocks && opts.mock_manifest_output_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks requires --mock-manifest-output\n");
+    }
+    if (mock_phase == MockPhaseCommand::EmitMocks && opts.mock_manifest_input_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: emit-mocks requires --mock-manifest-input\n");
+    }
+    if (!inspect_source_option.getValue() && mock_phase == MockPhaseCommand::None && !opts.check_only && opts.output_path.empty() &&
+        opts.tu_output_dir.empty() && opts.mock_manifest_output_path.empty() && opts.mock_manifest_input_path.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
     }
     return ParsedArguments{
         .options                  = std::move(opts),
         .explicit_host_clang_path = std::move(explicit_host_clang_path),
+        .mock_phase               = mock_phase,
         .inspect_source           = inspect_source_option.getValue(),
         .inspect_include_dirs =
             [&]() {
@@ -2913,6 +2979,38 @@ int main(int argc, const char **argv) {
         return 0;
     }
 
+    if (parsed_arguments.mock_phase == MockPhaseCommand::InspectMocks) {
+        if (options.mock_manifest_output_path.empty()) {
+            return 1;
+        }
+        if (!options.mock_manifest_input_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --mock-manifest-input\n");
+            return 1;
+        }
+        if (options.check_only) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --check\n");
+            return 1;
+        }
+        if (!options.output_path.empty() || !options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks only writes a mock manifest\n");
+            return 1;
+        }
+        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_domain_registry_outputs.empty() ||
+            !options.mock_domain_impl_outputs.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with final mock output paths\n");
+            return 1;
+        }
+    }
+    if (parsed_arguments.mock_phase == MockPhaseCommand::EmitMocks) {
+        if (options.mock_manifest_input_path.empty()) {
+            return 1;
+        }
+        if (!options.mock_manifest_output_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: emit-mocks cannot be combined with --mock-manifest-output\n");
+            return 1;
+        }
+    }
+
     const bool mock_manifest_emit_mode      = !options.mock_manifest_input_path.empty();
     const bool mock_manifest_discovery_only = !options.mock_manifest_output_path.empty() && options.output_path.empty() &&
                                               options.tu_output_dir.empty() && !mock_manifest_emit_mode;
@@ -2945,17 +3043,17 @@ int main(int argc, const char **argv) {
             gentest::codegen::log_err("gentest_codegen: {}\n", manifest.error);
             return 1;
         }
-        if (std::ranges::any_of(manifest.mocks, [](const gentest::codegen::MockClassInfo &mock) {
-                return mock.definition_kind == gentest::codegen::MockClassInfo::DefinitionKind::NamedModule;
-            })) {
-            gentest::codegen::log_err_raw(
-                "gentest_codegen: --mock-manifest-input does not yet support named-module mock emission; use the integrated "
-                "--discover-mocks path for module mocks\n");
+
+        auto        emit_options = options;
+        std::string manifest_domain_error;
+        emit_options.mock_output_domain_modules = manifest.mock_output_domain_modules;
+        if (!validate_manifest_mock_domain_modules(manifest.mocks, emit_options.mock_output_domain_modules, manifest_domain_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest_domain_error);
             return 1;
         }
 
         std::string mock_domain_error;
-        if (!gentest::codegen::validate_mock_output_domains(options, mock_domain_error)) {
+        if (!gentest::codegen::validate_mock_output_domains(emit_options, mock_domain_error)) {
             gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
             return 1;
         }
@@ -2964,12 +3062,12 @@ int main(int argc, const char **argv) {
         }
         const std::vector<TestCaseInfo>    empty_cases;
         const std::vector<FixtureDeclInfo> empty_fixtures;
-        const int                          emit_status = gentest::codegen::emit(options, empty_cases, empty_fixtures, manifest.mocks);
+        const int                          emit_status = gentest::codegen::emit(emit_options, empty_cases, empty_fixtures, manifest.mocks);
         if (emit_status != 0) {
             return emit_status;
         }
         std::vector<std::string> depfile_dependencies{options.mock_manifest_input_path.generic_string()};
-        if (!write_depfile(options, depfile_dependencies)) {
+        if (!write_depfile(emit_options, depfile_dependencies)) {
             return 1;
         }
         return 0;
@@ -4429,7 +4527,8 @@ int main(int argc, const char **argv) {
     }
     if (!options.mock_manifest_output_path.empty()) {
         std::string manifest_error;
-        if (!gentest::codegen::mock_manifest::write(options.mock_manifest_output_path, mocks, manifest_error)) {
+        if (!gentest::codegen::mock_manifest::write(options.mock_manifest_output_path, mocks,
+                                                    mock_domain_modules_from_context(final_options), manifest_error)) {
             gentest::codegen::log_err("gentest_codegen: {}\n", manifest_error);
             return 1;
         }

@@ -560,10 +560,15 @@ bool ensure_parent_dir(const std::filesystem::path &path, std::string &error) {
 
 } // namespace
 
-std::string serialize(std::vector<MockClassInfo> mocks) {
+std::string serialize(std::vector<MockClassInfo> mocks, std::vector<std::string> mock_output_domain_modules) {
     std::ranges::sort(mocks, {}, [](const MockClassInfo &mock) {
         return std::tie(mock.qualified_name, mock.definition_file, mock.definition_module_name, mock.definition_kind);
     });
+
+    json::Array domain_modules;
+    for (const auto &module_name : mock_output_domain_modules) {
+        domain_modules.push_back(module_name);
+    }
 
     json::Array mock_values;
     for (const auto &mock : mocks) {
@@ -572,6 +577,7 @@ std::string serialize(std::vector<MockClassInfo> mocks) {
 
     json::Object root{
         {"schema", std::string(kSchema)},
+        {"mock_output_domain_modules", std::move(domain_modules)},
         {"mocks", std::move(mock_values)},
     };
 
@@ -583,11 +589,12 @@ std::string serialize(std::vector<MockClassInfo> mocks) {
     return text;
 }
 
-bool write(const std::filesystem::path &path, const std::vector<MockClassInfo> &mocks, std::string &error) {
+bool write(const std::filesystem::path &path, const std::vector<MockClassInfo> &mocks, std::vector<std::string> mock_output_domain_modules,
+           std::string &error) {
     if (!ensure_parent_dir(path, error)) {
         return false;
     }
-    const std::string content = serialize(mocks);
+    const std::string content = serialize(mocks, std::move(mock_output_domain_modules));
     {
         std::ifstream existing(path, std::ios::binary);
         if (existing) {
@@ -634,6 +641,10 @@ ReadResult read(const std::filesystem::path &path) {
     const auto schema = root->getString("schema");
     if (!schema.has_value() || *schema != llvm::StringRef{kSchema.data(), kSchema.size()}) {
         result.error = "unsupported mock manifest schema";
+        return result;
+    }
+
+    if (!string_vector(*root, "mock_output_domain_modules", result.mock_output_domain_modules, result.error)) {
         return result;
     }
 

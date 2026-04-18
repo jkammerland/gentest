@@ -528,8 +528,15 @@ Partial.
   `MockClassInfo` model via `--mock-manifest-output`.
 - Header-like/textual mock emission can consume that manifest via
   `--mock-manifest-input` without reparsing the original mock definition source.
-- The public CLI still uses explicit legacy-style flags rather than separate
-  `inspect-mocks` / `emit-mocks` subcommands.
-- Named-module mock manifest-input emission is still not implemented; keep
-  using the integrated `--discover-mocks` path for module-owned mock injection
-  and module mock domains.
+- The public CLI now has explicit `inspect-mocks` and `emit-mocks` phase entry
+  points, with `--mock-manifest-output` / `--mock-manifest-input` preserved as
+  backward-compatible aliases.
+- `inspect-mocks` is a manifest-only phase; legacy `--discover-mocks` one-shot
+  codegen remains available through the existing flags.
+- Named-module mock manifest-input emission now uses manifest-declared
+  `mock_output_domain_modules` order and rejects named-module mocks omitted
+  from that domain list, so output path mapping does not depend on mock sort
+  order or reparsing source text.
+- The split mock protocol still does not replace the integrated
+  `--discover-mocks` path for module-wrapper source transformation and
+  module-owned mock attachment injection.

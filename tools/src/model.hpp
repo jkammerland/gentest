@@ -133,6 +133,7 @@ struct CollectorOptions {
     // then the first-seen unique named modules in source order.
     std::vector<std::filesystem::path>                                  mock_domain_registry_outputs;
     std::vector<std::filesystem::path>                                  mock_domain_impl_outputs;
+    std::vector<std::string>                                            mock_output_domain_modules;
     std::filesystem::path                                               mock_manifest_output_path;
     std::filesystem::path                                               mock_manifest_input_path;
     std::filesystem::path                                               mock_registry_path;
