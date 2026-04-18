@@ -43,7 +43,8 @@ Features currently include:
 - Unified APIs for other test kinds (for example, benchmark, jitter, and coroutine cases)
 
 >[!NOTE]
-> Start at [`docs/index.md`](docs/index.md) for the rest of the docs.
+> Start at [`docs/index.md`](docs/index.md) for the rest of the docs. See
+> [`CHANGELOG.md`](CHANGELOG.md) for user-facing changes.
 
 ## Requirements
 
@@ -522,11 +523,12 @@ gentest_add_mocks(service_mocks
   OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
   MODULE_NAME mytests.service_mocks)
 
-add_executable(module_tests
-  main.cpp
-  cases.cppm)
+add_executable(module_tests main.cpp)
+target_sources(module_tests PRIVATE
+  FILE_SET module_cases TYPE CXX_MODULES FILES
+    cases.cppm)
 target_link_libraries(module_tests PRIVATE gentest::gentest gentest::gentest_runtime service_mocks)
-gentest_attach_codegen(module_tests)
+gentest_attach_codegen(module_tests MODULE_REGISTRATION FILE_SET module_cases)
 gentest_discover_tests(module_tests)
 ```
 

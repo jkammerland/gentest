@@ -4,6 +4,7 @@ endif()
 if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
   message(FATAL_ERROR "CheckXmakeModuleConsumer.cmake: PROG not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
 set(_codegen "${PROG}")
 if(NOT IS_ABSOLUTE "${_codegen}")
@@ -382,6 +383,23 @@ foreach(_expected_glob IN ITEMS
       "stderr:\n${_build_err}")
   endif()
 endforeach()
+
+file(GLOB _module_manifest_matches
+  LIST_DIRECTORIES FALSE
+  "${_generated_glob_root}/consumer_module/gentest_consumer_module_xmake.artifact_manifest.json")
+list(LENGTH _module_manifest_matches _module_manifest_count)
+if(NOT _module_manifest_count EQUAL 1)
+  message(FATAL_ERROR
+    "Expected exactly one Xmake module artifact manifest, found ${_module_manifest_count}.\n"
+    "Matches:\n${_module_manifest_matches}")
+endif()
+list(GET _module_manifest_matches 0 _module_manifest)
+gentest_expect_module_artifact_manifest(
+  "${_module_manifest}"
+  "gentest.consumer_cases"
+  "gentest_consumer_module_xmake:"
+  "cases.cppm"
+  "consumer_module/tu_0000_cases.registration.gentest.cpp")
 
 file(GLOB_RECURSE _consumer_bins
   LIST_DIRECTORIES FALSE

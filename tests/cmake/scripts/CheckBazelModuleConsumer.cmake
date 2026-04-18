@@ -1,6 +1,7 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelModuleConsumer.cmake: SOURCE_DIR not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
 set(_bazel "")
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
@@ -440,6 +441,13 @@ foreach(_expected_file IN ITEMS
       "stderr:\n${_build_err}")
   endif()
 endforeach()
+
+gentest_expect_module_artifact_manifest(
+  "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json"
+  "gentest.consumer_cases"
+  "gentest_consumer_module_bazel:"
+  "suite_0000.cppm"
+  "gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp")
 
 execute_process(
   COMMAND "${_consumer_binary}" --list

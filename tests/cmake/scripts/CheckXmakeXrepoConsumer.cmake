@@ -7,6 +7,7 @@ endif()
 if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
   message(FATAL_ERROR "CheckXmakeXrepoConsumer.cmake: PROG not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
 function(_gentest_run_or_fail)
   set(options "")
@@ -279,6 +280,23 @@ foreach(_expected_glob IN ITEMS
       "log:\n${_build_log}")
   endif()
 endforeach()
+
+file(GLOB _module_manifest_matches
+  LIST_DIRECTORIES FALSE
+  "${_generated_glob_root}/${_module_leaf}/gentest_xrepo_module.artifact_manifest.json")
+list(LENGTH _module_manifest_matches _module_manifest_count)
+if(NOT _module_manifest_count EQUAL 1)
+  message(FATAL_ERROR
+    "Expected exactly one Xmake xrepo module artifact manifest, found ${_module_manifest_count}.\n"
+    "Matches:\n${_module_manifest_matches}")
+endif()
+list(GET _module_manifest_matches 0 _module_manifest)
+gentest_expect_module_artifact_manifest(
+  "${_module_manifest}"
+  "downstream.xrepo.consumer_cases"
+  "gentest_xrepo_module:"
+  "cases.cppm"
+  "${_module_leaf}/tu_0000_cases.registration.gentest.cpp")
 
 function(_gentest_find_single_binary out_var glob_a glob_b label)
   file(GLOB_RECURSE _binary_matches LIST_DIRECTORIES FALSE "${glob_a}" "${glob_b}")

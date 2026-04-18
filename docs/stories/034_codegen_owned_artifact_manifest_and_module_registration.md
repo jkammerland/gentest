@@ -427,7 +427,7 @@ Minimum first-slice validation:
   execution and the emitted manifest matches those declared outputs.
 - Xmake module proof with predeclared generated same-module registration source
   and manifest validation.
-- Meson textual proof for declared outputs plus depfile rebuild behavior.
+- Meson textual proof for declared outputs plus depfile wiring.
 
 ## Relationship to PR `75`
 

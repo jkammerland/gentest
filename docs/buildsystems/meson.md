@@ -36,6 +36,8 @@ The gentest subproject now exports:
 This is a lower-level wrap contract than CMake or Xmake. There is still no
 high-level `gentest_add_mocks()` Meson function, but downstream textual
 consumption no longer depends on copying repo-private files by hand.
+The textual custom targets emit depfiles for generated mock and registration
+outputs so Meson/Ninja can rebuild when codegen inputs change.
 
 ## Downstream wrap example
 
@@ -113,8 +115,13 @@ The downstream proof in
 - creates a real downstream workspace with `subprojects/gentest`
 - configures gentest with `build_self_tests=false`
 - builds the textual mock target + textual consumer
-- verifies generated mock/codegen artifacts
+- verifies generated mock/codegen artifacts and their declared depfile outputs
 - runs the consumer test/mock/bench/jitter surface
+
+## Validated platforms
+
+CI validates the Meson downstream wrap path on Ubuntu 24.04 and Fedora 43. The
+checked-in wrap proof intentionally skips Windows today.
 
 ## Limitations
 

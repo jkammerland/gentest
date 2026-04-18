@@ -6,6 +6,7 @@
 ## Getting started
 
 - Quick start: [`README.md`](../README.md)
+- Changelog: [`CHANGELOG.md`](../CHANGELOG.md)
 - Modules guide: [`docs/modules.md`](modules.md)
 - Previous (full) README snapshot: [`docs/archive/README_2026-01-03.md`](archive/README_2026-01-03.md)
 
