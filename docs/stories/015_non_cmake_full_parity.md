@@ -13,6 +13,15 @@ supported non-CMake backends to parity with the current CMake product model for:
 Classic per-TU suite support is now a precondition for this story, not part of
 the unfinished deliverable.
 
+## Status
+
+Open.
+
+This is the named follow-up for story `034`'s full non-CMake parity gap. The
+checked-in repo-local backend slices are useful evidence, but this story remains
+open until the documented helper surfaces and downstream/package-quality
+coverage reach the acceptance criteria below.
+
 ## Current state
 
 Implemented already:
@@ -287,8 +296,8 @@ Full parity is reached when:
 
 ## Current rough edges
 
-The agreed-scope implementation is complete, but a few ugly details remain and
-are intentionally documented here rather than treated as invisible debt.
+The checked-in repo-local implementation is useful, but several details remain
+and are intentionally documented here rather than treated as invisible debt.
 
 ### Bazel
 

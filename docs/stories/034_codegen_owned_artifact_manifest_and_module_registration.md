@@ -525,6 +525,18 @@ Minimum first-slice validation:
 - Textual wrapper regression proving anonymous namespaces, `static` tests, and
   `.cpp`-local fixture definitions remain supported by the default path.
 
+Closure note: this story closes only the implemented first slice of the
+artifact-manifest and same-module registration boundary. Three larger goals from
+the original long-term direction are intentionally not claimed here:
+
+- replacing integrated module-wrapper mock attachment injection with the split
+  mock protocol is tracked by
+  [`035_module_mock_split_protocol_registration.md`](035_module_mock_split_protocol_registration.md)
+- declaration-only textual registration is tracked by
+  [`036_textual_declaration_only_registration.md`](036_textual_declaration_only_registration.md)
+- full non-CMake parity is tracked by
+  [`015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md)
+
 ## Relationship to PR `75`
 
 PR `75` proved that same-module additive registration is promising, but it also
@@ -545,7 +557,7 @@ artifacts mean.
 
 ## Status
 
-Partial.
+Done for the first implementation slice described above.
 
 - Mock extraction now has a tool-owned JSON manifest for the existing
   `MockClassInfo` model via `--mock-manifest-output`.
@@ -571,11 +583,12 @@ Partial.
 - Regression coverage now includes direct codegen invocation for textual
   wrapper artifact manifests plus schema rejection checks for artifact and mock
   manifests.
+- Same-module registration without module-owned mock injection, textual wrapper
+  artifacts, and split mock manifests are the completed scope for this story.
 - The split mock protocol still does not replace the integrated
   `--discover-mocks` path for module-wrapper source transformation and
-  module-owned mock attachment injection.
-- Story `034` therefore remains `Partial`: same-module registration without
-  module-owned mock injection, textual wrapper artifacts, and split mock
-  manifests are supported; replacing integrated module-wrapper mock attachment
-  injection, designing declaration-only textual registration, and proving full
-  non-CMake parity remain future work.
+  module-owned mock attachment injection; that is moved to story `035`.
+- Optional declaration-only textual registration is not implemented; that is
+  moved to story `036`.
+- Full non-CMake parity is not completed by this story; that remains tracked by
+  story `015`.

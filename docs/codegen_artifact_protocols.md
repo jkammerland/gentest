@@ -113,7 +113,14 @@ module domain and rejects unsupported `schema` values.
 The split mock protocol does not yet replace the integrated module-wrapper
 mock injection path used by legacy module-wrapper registration. Same-module
 registration mode currently rejects module-owned mock injection instead of
-rewiring it through `inspect-mocks` / `emit-mocks`.
+rewiring it through `inspect-mocks` / `emit-mocks`. That remaining work is
+tracked by
+[`docs/stories/035_module_mock_split_protocol_registration.md`](stories/035_module_mock_split_protocol_registration.md).
 
 Standalone declaration-only textual registration is not part of this protocol.
-It remains a future opt-in mode with stricter source visibility rules.
+It remains a future opt-in mode with stricter source visibility rules, tracked
+by
+[`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md).
+
+Full non-CMake parity across supported backends is tracked separately by
+[`docs/stories/015_non_cmake_full_parity.md`](stories/015_non_cmake_full_parity.md).
