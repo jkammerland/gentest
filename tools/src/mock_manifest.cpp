@@ -640,10 +640,18 @@ ReadResult read(const std::filesystem::path &path) {
 
     const auto schema = root->getString("schema");
     if (!schema.has_value() || *schema != llvm::StringRef{kSchema.data(), kSchema.size()}) {
-        result.error = "unsupported mock manifest schema";
+        if (schema.has_value()) {
+            result.error = "unsupported mock manifest schema '" + schema->str() + "' (expected '" + std::string{kSchema} + "')";
+        } else {
+            result.error = "mock manifest is missing or invalid 'schema' (expected '" + std::string{kSchema} + "')";
+        }
         return result;
     }
 
+    if (root->getArray("mock_output_domain_modules") == nullptr) {
+        result.error = "mock manifest is missing 'mock_output_domain_modules'";
+        return result;
+    }
     if (!string_vector(*root, "mock_output_domain_modules", result.mock_output_domain_modules, result.error)) {
         return result;
     }

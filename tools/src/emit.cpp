@@ -2,6 +2,7 @@
 
 #include "emit.hpp"
 
+#include "artifact_manifest.hpp"
 #include "log.hpp"
 #include "parallel_for.hpp"
 #include "render.hpp"
@@ -863,8 +864,8 @@ bool write_module_registration_manifest(const CollectorOptions &opts) {
     }
 
     std::string manifest;
-    manifest.reserve(opts.sources.size() * 700 + 80);
-    manifest.append("{\n  \"sources\": [\n");
+    manifest.reserve(opts.sources.size() * 700 + 140);
+    fmt::format_to(std::back_inserter(manifest), "{{\n  \"schema\": \"{}\",\n  \"sources\": [\n", artifact_manifest::kSchema);
     for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
         const fs::path    source_path{opts.sources[idx]};
         const fs::path    registration_output = resolve_module_registration_output(opts, idx);
@@ -930,12 +931,14 @@ bool write_textual_wrapper_manifest(const CollectorOptions &opts) {
         return false;
     }
     if (opts.artifact_owner_sources.empty()) {
-        return write_file_atomic_if_changed(opts.artifact_manifest_path, "{\n  \"sources\": [],\n  \"artifacts\": []\n}\n");
+        return write_file_atomic_if_changed(
+            opts.artifact_manifest_path,
+            fmt::format("{{\n  \"schema\": \"{}\",\n  \"sources\": [],\n  \"artifacts\": []\n}}\n", artifact_manifest::kSchema));
     }
 
     std::string manifest;
-    manifest.reserve(opts.sources.size() * 850 + 80);
-    manifest.append("{\n  \"sources\": [\n");
+    manifest.reserve(opts.sources.size() * 850 + 140);
+    fmt::format_to(std::back_inserter(manifest), "{{\n  \"schema\": \"{}\",\n  \"sources\": [\n", artifact_manifest::kSchema);
     for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
         const fs::path    wrapper_path{opts.sources[idx]};
         const fs::path    owner_path    = opts.artifact_owner_sources[idx];

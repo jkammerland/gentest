@@ -142,8 +142,12 @@ _gentest_expect_wrapper("${_wrapper_source_0}" "../../src/cases.cpp" "tu_0000_ca
 _gentest_expect_wrapper("${_wrapper_source_1}" "../../src/more_cases.cpp" "tu_0001_more_cases.gentest.h")
 
 file(READ "${_manifest}" _manifest_json)
+string(JSON _manifest_schema GET "${_manifest_json}" schema)
 string(JSON _source_count LENGTH "${_manifest_json}" sources)
 string(JSON _artifact_count LENGTH "${_manifest_json}" artifacts)
+if(NOT "${_manifest_schema}" STREQUAL "gentest.artifact_manifest.v1")
+  message(FATAL_ERROR "Expected textual artifact manifest schema gentest.artifact_manifest.v1, got '${_manifest_schema}'.\n${_manifest_json}")
+endif()
 if(NOT _source_count EQUAL 2 OR NOT _artifact_count EQUAL 2)
   message(FATAL_ERROR "Expected two textual manifest sources/artifacts, got sources=${_source_count}, artifacts=${_artifact_count}.\n${_manifest_json}")
 endif()

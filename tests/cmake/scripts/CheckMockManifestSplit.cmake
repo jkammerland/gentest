@@ -269,6 +269,37 @@ foreach(_actual_expected IN ITEMS
   endif()
 endforeach()
 
+set(_bad_schema_manifest "${_work_dir}/service.bad_schema.mock_manifest.json")
+string(JSON _bad_schema_manifest_json SET "${_manifest_json}" schema "\"gentest.mock_manifest.v0\"")
+file(WRITE "${_bad_schema_manifest}" "${_bad_schema_manifest_json}")
+
+execute_process(
+  COMMAND "${PROG}"
+    emit-mocks
+    --mock-manifest-input "${_bad_schema_manifest}"
+    --mock-registry "${_work_dir}/bad_schema_mock_registry.hpp"
+    --mock-impl "${_work_dir}/bad_schema_mock_impl.hpp"
+    --mock-domain-registry-output "${_work_dir}/bad_schema_mock_registry__domain_0000_header.hpp"
+    --mock-domain-impl-output "${_work_dir}/bad_schema_mock_impl__domain_0000_header.hpp"
+  RESULT_VARIABLE _bad_schema_emit_rc
+  OUTPUT_VARIABLE _bad_schema_emit_out
+  ERROR_VARIABLE _bad_schema_emit_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _bad_schema_emit_rc EQUAL 1)
+  message(FATAL_ERROR
+    "emit-mocks should reject unsupported mock manifest schemas.\n"
+    "--- stdout ---\n${_bad_schema_emit_out}\n--- stderr ---\n${_bad_schema_emit_err}")
+endif()
+string(FIND "${_bad_schema_emit_out}\n${_bad_schema_emit_err}"
+  "unsupported mock manifest schema"
+  _bad_schema_emit_msg_pos)
+if(_bad_schema_emit_msg_pos EQUAL -1)
+  message(FATAL_ERROR
+    "emit-mocks emitted the wrong schema diagnostic.\n"
+    "--- stdout ---\n${_bad_schema_emit_out}\n--- stderr ---\n${_bad_schema_emit_err}")
+endif()
+
 set(_registry "${_work_dir}/split_mock_registry.hpp")
 set(_impl "${_work_dir}/split_mock_impl.hpp")
 set(_domain_registry "${_work_dir}/split_mock_registry__domain_0000_header.hpp")
@@ -501,7 +532,7 @@ if(NOT _missing_domain_module_emit_rc EQUAL 1)
     "--- stdout ---\n${_missing_domain_module_emit_out}\n--- stderr ---\n${_missing_domain_module_emit_err}")
 endif()
 string(FIND "${_missing_domain_module_emit_out}\n${_missing_domain_module_emit_err}"
-  "mock_output_domain_modules does not list it"
+  "mock manifest is missing 'mock_output_domain_modules'"
   _missing_domain_module_emit_msg_pos)
 if(_missing_domain_module_emit_msg_pos EQUAL -1)
   message(FATAL_ERROR

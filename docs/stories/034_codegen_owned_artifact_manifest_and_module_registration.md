@@ -62,7 +62,7 @@ command mode.
 
 ## Target Model
 
-Split codegen into explicit phases:
+The long-term registration target is to split codegen into explicit phases:
 
 ```text
 gentest_codegen inspect
@@ -83,22 +83,24 @@ gentest_codegen emit
     - depfiles for generated outputs
 ```
 
-The first implementation must avoid a graph cycle: most build systems need the
-generated output paths before the build graph is finalized, but `inspect` often
-needs compile-command data produced by that graph. Therefore output paths are
-predeclared by the build-system adapter and passed to `gentest_codegen`; the
-manifest validates and classifies those concrete outputs instead of inventing
-new paths that the build system did not know about.
+The current implementation has this split for mocks (`inspect-mocks` /
+`emit-mocks`). Registration artifacts still use one direct `gentest_codegen`
+invocation with `--artifact-manifest`; that command emits generated outputs and
+the manifest in the same phase. The important boundary is already the same:
+output paths are predeclared by the build-system adapter and passed to
+`gentest_codegen`; the manifest validates and classifies those concrete outputs
+instead of inventing new paths that the build system did not know about.
 
 This does not contradict story `029`: build systems may still choose concrete
 roots or output paths for graph construction, while `gentest_codegen` owns the
 semantic artifact roles, module/source classification, and manifest validation.
 
 The manifest is the build-system contract. A minimal module entry should look
-conceptually like:
+like:
 
 ```json
 {
+  "schema": "gentest.artifact_manifest.v1",
   "sources": [
     {
       "source": "tests/cases.cppm",
@@ -116,9 +118,12 @@ conceptually like:
       "compile_as": "cxx-module-implementation",
       "module": "my.tests",
       "owner_source": "tests/cases.cppm",
+      "target_attachment": "private-generated-source",
       "compile_context_id": "my_tests:tests/cases.cppm",
       "requires_module_scan": true,
-      "generated_include_dirs": ["build/gentest"]
+      "generated_include_dirs": ["build/gentest"],
+      "generated_headers": [],
+      "depfile": "build/gentest/my_tests.gentest.d"
     }
   ]
 }
@@ -273,15 +278,32 @@ than hiding them in a build-system-specific helper:
 
 ```json
 {
+  "schema": "gentest.artifact_manifest.v1",
+  "sources": [
+    {
+      "source": "build/gentest/tu_0000_cases.gentest.cpp",
+      "kind": "textual-wrapper",
+      "owner_source": "tests/cases.cpp",
+      "generated_wrapper_source": "build/gentest/tu_0000_cases.gentest.cpp",
+      "registration_header": "build/gentest/tu_0000_cases.gentest.h",
+      "compile_context_id": "textual_tests:tests/cases.cpp"
+    }
+  ],
   "artifacts": [
     {
       "path": "build/gentest/tu_0000_cases.gentest.cpp",
       "role": "registration",
       "compile_as": "cxx-textual-wrapper",
       "owner_source": "tests/cases.cpp",
+      "generated_wrapper_source": "build/gentest/tu_0000_cases.gentest.cpp",
+      "target_attachment": "replace-owner-source",
+      "compile_context_id": "textual_tests:tests/cases.cpp",
+      "requires_module_scan": false,
       "includes_owner_source": true,
       "replaces_owner_source": true,
-      "requires_module_scan": false
+      "generated_include_dirs": ["build/gentest"],
+      "generated_headers": ["build/gentest/tu_0000_cases.gentest.h"],
+      "depfile": "build/gentest/textual_tests.gentest.d"
     }
   ]
 }
@@ -309,7 +331,8 @@ Build systems may:
 
 - choose input sources
 - choose output directories
-- invoke `gentest_codegen inspect`
+- invoke the current `gentest_codegen --artifact-manifest` registration command
+  and the split `inspect-mocks` / `emit-mocks` mock commands
 - read the artifact manifest
 - add generated artifacts to native targets
 - attach generated depfiles
@@ -537,6 +560,22 @@ Partial.
   `mock_output_domain_modules` order and rejects named-module mocks omitted
   from that domain list, so output path mapping does not depend on mock sort
   order or reparsing source text.
+- Artifact manifests now carry the stable schema identifier
+  `gentest.artifact_manifest.v1`; mock manifests continue to use
+  `gentest.mock_manifest.v1`, and both protocols have machine-readable schema
+  files under `docs/schemas/`.
+- `docs/codegen_artifact_protocols.md` documents the supported direct
+  `gentest_codegen` invocation sequences for textual wrapper registration and
+  split mock discovery/emission, including named-module mock domains, without
+  requiring CMake to parse generated JSON for planning.
+- Regression coverage now includes direct codegen invocation for textual
+  wrapper artifact manifests plus schema rejection checks for artifact and mock
+  manifests.
 - The split mock protocol still does not replace the integrated
   `--discover-mocks` path for module-wrapper source transformation and
   module-owned mock attachment injection.
+- Story `034` therefore remains `Partial`: same-module registration without
+  module-owned mock injection, textual wrapper artifacts, and split mock
+  manifests are supported; replacing integrated module-wrapper mock attachment
+  injection, designing declaration-only textual registration, and proving full
+  non-CMake parity remain future work.

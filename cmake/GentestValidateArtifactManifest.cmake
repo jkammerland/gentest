@@ -40,6 +40,16 @@ foreach(_gentest_expected_list IN ITEMS
 endforeach()
 
 file(READ "${GENTEST_MANIFEST}" _gentest_manifest_json)
+string(JSON _gentest_manifest_schema ERROR_VARIABLE _gentest_manifest_schema_error GET "${_gentest_manifest_json}" schema)
+if(NOT _gentest_manifest_schema_error STREQUAL "NOTFOUND")
+    message(FATAL_ERROR
+        "gentest artifact manifest '${GENTEST_MANIFEST}' is missing or has invalid schema: ${_gentest_manifest_schema_error}")
+endif()
+if(NOT "${_gentest_manifest_schema}" STREQUAL "gentest.artifact_manifest.v1")
+    message(FATAL_ERROR
+        "unsupported artifact manifest schema '${_gentest_manifest_schema}' in '${GENTEST_MANIFEST}' "
+        "(expected 'gentest.artifact_manifest.v1')")
+endif()
 string(JSON _gentest_source_count LENGTH "${_gentest_manifest_json}" sources)
 string(JSON _gentest_artifact_count LENGTH "${_gentest_manifest_json}" artifacts)
 if(NOT _gentest_source_count EQUAL _gentest_expected_count)

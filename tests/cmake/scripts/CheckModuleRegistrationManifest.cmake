@@ -150,6 +150,7 @@ if(NOT EXISTS "${_manifest}")
   message(FATAL_ERROR "Expected generated artifact manifest '${_manifest}'")
 endif()
 file(READ "${_manifest}" _manifest_json)
+string(JSON _manifest_schema GET "${_manifest_json}" schema)
 string(JSON _source_kind GET "${_manifest_json}" sources 0 kind)
 string(JSON _source_module GET "${_manifest_json}" sources 0 module)
 string(JSON _source_context GET "${_manifest_json}" sources 0 compile_context_id)
@@ -162,6 +163,7 @@ string(JSON _artifact_scan GET "${_manifest_json}" artifacts 0 requires_module_s
 set(_expected_context "module_registration_manifest_tests:${_src_dir}/cases.cppm")
 
 foreach(_actual_expected IN ITEMS
+    "_manifest_schema=gentest.artifact_manifest.v1"
     "_source_kind=module-primary-interface"
     "_source_module=gentest.story034.module_registration"
     "_source_context=${_expected_context}"
