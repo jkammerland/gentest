@@ -3697,12 +3697,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     } else if (!kTemplateDir.empty()) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
-    if (mock_phase == MockPhaseCommand::InspectMocks && opts.mock_manifest_output_path.empty()) {
-        gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks requires --mock-manifest-output\n");
-    }
-    if (mock_phase == MockPhaseCommand::EmitMocks && opts.mock_manifest_input_path.empty()) {
-        gentest::codegen::log_err_raw("gentest_codegen: emit-mocks requires --mock-manifest-input\n");
-    }
     if (!inspect_source_option.getValue() && mock_phase == MockPhaseCommand::None && !opts.check_only && opts.output_path.empty() &&
         opts.tu_output_dir.empty() && opts.mock_manifest_output_path.empty() && opts.mock_manifest_input_path.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
@@ -3724,6 +3718,58 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     };
 }
 
+void diagnose_missing_mock_phase_manifest(MockPhaseCommand mock_phase, const CollectorOptions &options) {
+    if (mock_phase == MockPhaseCommand::InspectMocks && options.mock_manifest_output_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks requires --mock-manifest-output\n");
+    }
+    if (mock_phase == MockPhaseCommand::EmitMocks && options.mock_manifest_input_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: emit-mocks requires --mock-manifest-input\n");
+    }
+}
+
+[[nodiscard]] bool validate_mock_phase_command(MockPhaseCommand mock_phase, const CollectorOptions &options) {
+    if (mock_phase == MockPhaseCommand::InspectMocks) {
+        if (options.mock_manifest_output_path.empty()) {
+            return false;
+        }
+        if (!options.mock_registration_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --mock-registration-manifest\n");
+            return false;
+        }
+        if (!options.mock_manifest_input_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --mock-manifest-input\n");
+            return false;
+        }
+        if (options.check_only) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --check\n");
+            return false;
+        }
+        if (!options.output_path.empty() || !options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks only writes a mock manifest\n");
+            return false;
+        }
+        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_domain_registry_outputs.empty() ||
+            !options.mock_domain_impl_outputs.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with final mock output paths\n");
+            return false;
+        }
+    }
+    if (mock_phase == MockPhaseCommand::EmitMocks) {
+        if (options.mock_manifest_input_path.empty()) {
+            return false;
+        }
+        if (!options.mock_registration_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: emit-mocks cannot be combined with --mock-registration-manifest\n");
+            return false;
+        }
+        if (!options.mock_manifest_output_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: emit-mocks cannot be combined with --mock-manifest-output\n");
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, const char **argv) {
@@ -3733,6 +3779,7 @@ int main(int argc, const char **argv) {
 
     const auto  parsed_arguments = parse_arguments(argc, argv);
     const auto &options          = parsed_arguments.options;
+    diagnose_missing_mock_phase_manifest(parsed_arguments.mock_phase, options);
     if (parsed_arguments.inspect_source) {
         if (options.sources.size() != 1) {
             gentest::codegen::log_err("gentest_codegen: --inspect-source expects exactly 1 input source, got {}\n", options.sources.size());
@@ -3754,44 +3801,8 @@ int main(int argc, const char **argv) {
         return 0;
     }
 
-    if (parsed_arguments.mock_phase == MockPhaseCommand::InspectMocks) {
-        if (options.mock_manifest_output_path.empty()) {
-            return 1;
-        }
-        if (!options.mock_registration_manifest_path.empty()) {
-            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --mock-registration-manifest\n");
-            return 1;
-        }
-        if (!options.mock_manifest_input_path.empty()) {
-            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --mock-manifest-input\n");
-            return 1;
-        }
-        if (options.check_only) {
-            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --check\n");
-            return 1;
-        }
-        if (!options.output_path.empty() || !options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
-            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks only writes a mock manifest\n");
-            return 1;
-        }
-        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_domain_registry_outputs.empty() ||
-            !options.mock_domain_impl_outputs.empty()) {
-            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with final mock output paths\n");
-            return 1;
-        }
-    }
-    if (parsed_arguments.mock_phase == MockPhaseCommand::EmitMocks) {
-        if (options.mock_manifest_input_path.empty()) {
-            return 1;
-        }
-        if (!options.mock_registration_manifest_path.empty()) {
-            gentest::codegen::log_err_raw("gentest_codegen: emit-mocks cannot be combined with --mock-registration-manifest\n");
-            return 1;
-        }
-        if (!options.mock_manifest_output_path.empty()) {
-            gentest::codegen::log_err_raw("gentest_codegen: emit-mocks cannot be combined with --mock-manifest-output\n");
-            return 1;
-        }
+    if (!validate_mock_phase_command(parsed_arguments.mock_phase, options)) {
+        return 1;
     }
 
     const bool mock_manifest_emit_mode      = !options.mock_manifest_input_path.empty();
