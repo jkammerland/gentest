@@ -24,6 +24,15 @@ The contract is explicit 2-step codegen:
 1. add mocks
 2. attach suite codegen
 
+For module suites, `gentest_attach_codegen_modules(...)` now keeps the authored
+`.cppm` as a module interface and adds a generated same-module registration
+implementation source. The rule also materializes a
+`<target>.artifact_manifest.json` product that records the generated
+registration source, generated header, owning source, module name, and compile
+context. Bazel still predeclares those outputs during analysis; the manifest is
+a validation/product artifact rather than a way to create new outputs at action
+execution time.
+
 Host-tool selection is explicit:
 
 - per target: `codegen_host_clang = "/path/to/clang++"`
@@ -169,8 +178,15 @@ The downstream proof in
 - builds textual mock target + textual consumer
 - builds module mock target + module consumer
 - resolves `bazel-bin` with `bazel info bazel-bin`
-- verifies generated mock/codegen artifacts
+- verifies generated mock/codegen artifacts, including module registration
+  sources and artifact manifests
 - runs the consumer test/mock/bench/jitter surface
+
+## Validated platforms
+
+CI validates the Bazel downstream path on Ubuntu 24.04 and Fedora 43. Other
+platforms are expected to follow the same source-package contract, but require
+an explicitly configured module-capable Clang toolchain.
 
 ## Limitations
 
@@ -180,3 +196,5 @@ The downstream proof in
 - The repo still bootstraps `gentest_codegen` via CMake inside Bazel.
 - The module path remains toolchain-sensitive and expects explicit host-tool
   configuration.
+- The artifact manifest is generated and validated as a product file; Bazel
+  rules must still predeclare concrete outputs before actions run.

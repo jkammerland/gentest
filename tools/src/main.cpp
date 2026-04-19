@@ -1,8 +1,10 @@
+#include "artifact_manifest.hpp"
 #include "discovery.hpp"
 #include "emit.hpp"
 #include "log.hpp"
 #include "mock_discovery.hpp"
 #include "mock_domain_plan.hpp"
+#include "mock_manifest.hpp"
 #include "model.hpp"
 #include "parallel_for.hpp"
 #include "scan_utils.hpp"
@@ -82,9 +84,13 @@ static constexpr std::string_view kTemplateDir                         = GENTEST
 static constexpr std::string_view kMissingCompdbSyntheticCommandMarker = "__gentest_missing_compdb_entry__";
 
 namespace {
+using gentest::codegen::scan::is_global_module_fragment_scan_line;
 using gentest::codegen::scan::is_preprocessor_directive_scan_line;
+using gentest::codegen::scan::is_private_module_fragment_scan_line;
 using gentest::codegen::scan::looks_like_import_scan_prefix;
+using gentest::codegen::scan::looks_like_named_module_scan_prefix;
 using gentest::codegen::scan::named_module_name_from_source_file;
+using gentest::codegen::scan::normalize_scan_directive_line;
 using gentest::codegen::scan::normalize_scan_module_preamble_source;
 using gentest::codegen::scan::parse_imported_module_name_from_scan_line;
 using gentest::codegen::scan::parse_include_directive_from_scan_line;
@@ -96,7 +102,20 @@ using gentest::codegen::scan::split_scan_statements;
 using gentest::codegen::scan::strip_comments_for_line_scan;
 using gentest::codegen::scan::trim_ascii_copy;
 
-std::optional<std::string> get_env_value(std::string_view name);
+struct ModuleSourceShape {
+    std::optional<std::string> module_name;
+    bool                       exported_module_declaration = false;
+    bool                       has_private_module_fragment = false;
+};
+
+std::optional<std::string>           get_env_value(std::string_view name);
+std::string                          normalize_compdb_lookup_path(std::string_view path, std::string_view directory);
+clang::tooling::CommandLineArguments expand_compile_command_response_files(const clang::tooling::CommandLineArguments &command_line,
+                                                                           std::string_view                            working_directory,
+                                                                           bool skip_module_map_response_files);
+std::vector<std::filesystem::path>
+scan_include_search_paths_from_compile_commands(const std::vector<clang::tooling::CompileCommand> &commands,
+                                                const std::filesystem::path                       &source_path);
 
 template <typename T> void ignore_cleanup_result([[maybe_unused]] T &&result) {}
 
@@ -187,6 +206,53 @@ void merge_duplicate_mocks(std::vector<gentest::codegen::MockClassInfo> &mocks) 
     mocks = std::move(merged);
 }
 
+std::vector<std::string> mock_domain_modules_from_context(const gentest::codegen::CollectorOptions &options) {
+    std::vector<std::string> modules;
+    std::set<std::string>    seen_modules;
+    for (const auto &source : options.sources) {
+        std::optional<std::string> module_name;
+        if (const auto it = options.module_interface_names_by_source.find(source); it != options.module_interface_names_by_source.end()) {
+            module_name = it->second;
+        } else {
+            module_name = gentest::codegen::scan::named_module_name_from_source_file(std::filesystem::path(source));
+        }
+        if (module_name.has_value() && !module_name->empty() && seen_modules.insert(*module_name).second) {
+            modules.push_back(std::move(*module_name));
+        }
+    }
+    return modules;
+}
+
+bool validate_manifest_mock_domain_modules(std::span<const gentest::codegen::MockClassInfo> mocks,
+                                           std::span<const std::string> manifest_modules, std::string &error) {
+    std::set<std::string> seen_modules;
+    for (const auto &module_name : manifest_modules) {
+        if (module_name.empty()) {
+            error = "mock manifest contains an empty mock_output_domain_modules entry";
+            return false;
+        }
+        if (!seen_modules.insert(module_name).second) {
+            error = fmt::format("mock manifest contains duplicate mock output domain module '{}'", module_name);
+            return false;
+        }
+    }
+    for (const auto &mock : mocks) {
+        if (mock.definition_kind != gentest::codegen::MockClassInfo::DefinitionKind::NamedModule) {
+            continue;
+        }
+        if (mock.definition_module_name.empty()) {
+            error = fmt::format("mock manifest entry '{}' is named_module but has no definition_module_name", mock.qualified_name);
+            return false;
+        }
+        if (!seen_modules.contains(mock.definition_module_name)) {
+            error = fmt::format("mock manifest entry '{}' belongs to module '{}' but mock_output_domain_modules does not list it",
+                                mock.qualified_name, mock.definition_module_name);
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] std::string normalize_dependency_path(std::string_view raw_path) {
     if (raw_path.empty()) {
         return {};
@@ -201,6 +267,69 @@ void merge_duplicate_mocks(std::vector<gentest::codegen::MockClassInfo> &mocks) 
         }
     }
     return path.lexically_normal().generic_string();
+}
+
+ModuleSourceShape inspect_module_source_shape(const std::filesystem::path              &path,
+                                              const std::vector<std::filesystem::path> &include_search_paths = {},
+                                              std::span<const std::string>              command_line         = {}) {
+    ModuleSourceShape shape;
+    std::ifstream     in(path);
+    if (!in) {
+        return shape;
+    }
+
+    gentest::codegen::scan::ScanStreamState state;
+    state.source_path          = path;
+    state.source_directory     = path.parent_path();
+    state.include_search_paths = gentest::codegen::scan::default_scan_include_search_paths(state.source_directory, include_search_paths);
+    populate_scan_macros_from_command_line(state, command_line);
+
+    std::string line;
+    std::string pending;
+    bool        pending_active = false;
+    while (std::getline(in, line)) {
+        const auto processed = process_scan_physical_line(line, state);
+        if (!processed.is_active_code) {
+            continue;
+        }
+
+        for (const auto &statement : split_scan_statements(processed.stripped)) {
+            if (!pending_active) {
+                if (!looks_like_named_module_scan_prefix(statement) && !is_global_module_fragment_scan_line(statement)) {
+                    continue;
+                }
+                pending        = statement;
+                pending_active = true;
+            } else {
+                pending.push_back(' ');
+                pending.append(statement);
+            }
+
+            if (statement.find(';') == std::string::npos) {
+                if (!looks_like_named_module_scan_prefix(pending) && !is_global_module_fragment_scan_line(pending)) {
+                    pending.clear();
+                    pending_active = false;
+                }
+                continue;
+            }
+
+            if (is_private_module_fragment_scan_line(pending)) {
+                shape.has_private_module_fragment = true;
+            }
+
+            if (!shape.module_name.has_value()) {
+                if (auto module_name = parse_named_module_name_from_scan_line(pending); module_name.has_value()) {
+                    const std::string normalized      = normalize_scan_directive_line(pending);
+                    shape.exported_module_declaration = llvm::StringRef{normalized}.starts_with("export module ");
+                    shape.module_name                 = std::move(module_name);
+                }
+            }
+
+            pending.clear();
+            pending_active = false;
+        }
+    }
+    return shape;
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -263,9 +392,19 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
                 targets.push_back(std::move(header_out));
             }
             if (is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
-                targets.push_back(options.module_wrapper_outputs[idx]);
+                if (!options.module_registration_outputs.empty()) {
+                    targets.push_back(options.module_registration_outputs[idx]);
+                } else {
+                    targets.push_back(options.module_wrapper_outputs[idx]);
+                }
             }
         }
+    }
+    if (!options.artifact_manifest_path.empty()) {
+        targets.push_back(options.artifact_manifest_path);
+    }
+    if (!options.mock_manifest_output_path.empty()) {
+        targets.push_back(options.mock_manifest_output_path);
     }
     if (!options.mock_registry_path.empty()) {
         targets.push_back(options.mock_registry_path);
@@ -288,8 +427,58 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     return idx < options.module_wrapper_outputs.size() && !options.module_wrapper_outputs[idx].empty();
 }
 
+[[nodiscard]] bool has_explicit_module_registration_output(const CollectorOptions &options, std::size_t idx) {
+    return idx < options.module_registration_outputs.size() && !options.module_registration_outputs[idx].empty();
+}
+
+[[nodiscard]] bool validate_compile_context_ids(const CollectorOptions &options, std::string &error) {
+    if (options.compile_context_ids.empty()) {
+        return true;
+    }
+    if (options.compile_context_ids.size() != options.sources.size()) {
+        error = fmt::format("expected {} --compile-context-id value(s) for {} input source(s), got {}", options.sources.size(),
+                            options.sources.size(), options.compile_context_ids.size());
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_artifact_owner_sources(const CollectorOptions &options, std::string &error) {
+    if (options.artifact_owner_sources.empty()) {
+        return true;
+    }
+    if (options.tu_output_dir.empty()) {
+        error = "--artifact-owner-source requires --tu-out-dir";
+        return false;
+    }
+    if (options.artifact_manifest_path.empty()) {
+        error = "--artifact-owner-source requires --artifact-manifest";
+        return false;
+    }
+    if (options.artifact_owner_sources.size() != options.sources.size()) {
+        error = fmt::format("expected {} --artifact-owner-source value(s) for {} input source(s), got {}", options.sources.size(),
+                            options.sources.size(), options.artifact_owner_sources.size());
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_textual_artifact_manifest_sources(const CollectorOptions &options, std::string &error) {
+    if (options.artifact_owner_sources.empty() || !options.module_registration_outputs.empty()) {
+        return true;
+    }
+    for (const auto &source : options.sources) {
+        if (options.module_interface_sources.contains(source)) {
+            error = fmt::format("textual artifact manifests cannot describe named module source '{}'; use --module-registration-output",
+                                source);
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool validate_module_wrapper_outputs(const CollectorOptions &options, std::string &error) {
-    if (options.tu_output_dir.empty() || options.module_interface_sources.empty()) {
+    if (options.tu_output_dir.empty() || options.module_interface_sources.empty() || !options.module_registration_outputs.empty()) {
         return true;
     }
 
@@ -304,6 +493,781 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         return false;
     }
     return true;
+}
+
+[[nodiscard]] bool validate_module_registration_outputs(const CollectorOptions &options, std::string &error) {
+    if (options.module_registration_outputs.empty()) {
+        return true;
+    }
+
+    for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+        const auto module_it = options.module_interface_names_by_source.find(options.sources[idx]);
+        if (module_it == options.module_interface_names_by_source.end() || module_it->second.empty()) {
+            error = fmt::format("module registration input '{}' is not a named module source", options.sources[idx]);
+            return false;
+        }
+        if (!has_explicit_module_registration_output(options, idx)) {
+            error = fmt::format("named module source '{}' requires an explicit --module-registration-output path", options.sources[idx]);
+            return false;
+        }
+    }
+    return true;
+}
+
+struct ArtifactManifestValidationOptions {
+    std::filesystem::path                                               manifest;
+    std::filesystem::path                                               stamp;
+    std::filesystem::path                                               compilation_database;
+    std::vector<std::string>                                            expected_sources;
+    std::vector<std::string>                                            expected_source_kinds;
+    std::vector<std::string>                                            expected_registration_outputs;
+    std::vector<std::string>                                            expected_headers;
+    std::vector<std::string>                                            expected_compile_context_ids;
+    std::vector<std::string>                                            expected_owner_sources;
+    std::vector<std::string>                                            expected_source_registration_outputs;
+    std::vector<std::string>                                            expected_modules;
+    std::unordered_map<std::string, std::vector<std::filesystem::path>> expected_source_scan_include_dirs;
+    std::unordered_map<std::string, std::vector<std::string>>           expected_source_scan_args;
+    std::string                                                         expected_include_dir;
+    std::string                                                         expected_depfile;
+    std::string                                                         expected_target_attachment;
+    std::string                                                         expected_artifact_role;
+    std::string                                                         expected_compile_as;
+    std::optional<bool>                                                 expected_requires_module_scan;
+    std::optional<bool>                                                 expected_includes_owner_source;
+    std::optional<bool>                                                 expected_replaces_owner_source;
+};
+
+struct ArtifactManifestSourceScanContext {
+    std::vector<std::filesystem::path> include_dirs;
+    std::vector<std::string>           command_line;
+};
+
+using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, ArtifactManifestSourceScanContext>;
+
+[[nodiscard]] std::string lower_ascii_copy(std::string_view value) {
+    std::string out;
+    out.reserve(value.size());
+    for (const unsigned char ch : value) {
+        out.push_back(static_cast<char>(std::tolower(ch)));
+    }
+    return out;
+}
+
+[[nodiscard]] std::optional<bool> parse_cmake_bool(std::string_view value) {
+    const std::string normalized = lower_ascii_copy(value);
+    if (normalized == "on" || normalized == "true" || normalized == "1") {
+        return true;
+    }
+    if (normalized == "off" || normalized == "false" || normalized == "0") {
+        return false;
+    }
+    return std::nullopt;
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+[[nodiscard]] bool take_cli_value(int argc, const char **argv, int &idx, std::string &out, std::string &error) {
+    const std::string_view arg = argv[idx] ? std::string_view{argv[idx]} : std::string_view{};
+    if (const auto eq = arg.find('='); eq != std::string_view::npos) {
+        out = std::string{arg.substr(eq + 1)};
+        return true;
+    }
+    if (idx + 1 >= argc) {
+        error = fmt::format("option '{}' requires a value", arg);
+        return false;
+    }
+    ++idx;
+    out = argv[idx] ? std::string{argv[idx]} : std::string{};
+    return true;
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+[[nodiscard]] bool take_separate_cli_value(int argc, const char **argv, int &idx, std::string_view option, std::string &out,
+                                           std::string &error) {
+    if (idx + 1 >= argc) {
+        error = fmt::format("option '{}' requires a value", option);
+        return false;
+    }
+    ++idx;
+    out = argv[idx] ? std::string{argv[idx]} : std::string{};
+    return true;
+}
+
+[[nodiscard]] bool parse_artifact_manifest_validation_args(int argc, const char **argv, ArtifactManifestValidationOptions &options,
+                                                           std::string &error) {
+    auto parse_string_option = [&](std::string &target, int &idx) -> bool {
+        std::string value;
+        if (!take_cli_value(argc, argv, idx, value, error)) {
+            return false;
+        }
+        target = std::move(value);
+        return true;
+    };
+    auto parse_path_option = [&](std::filesystem::path &target, int &idx) -> bool {
+        std::string value;
+        if (!take_cli_value(argc, argv, idx, value, error)) {
+            return false;
+        }
+        target = std::filesystem::path{value};
+        return true;
+    };
+    auto parse_list_option = [&](std::vector<std::string> &target, int &idx) -> bool {
+        std::string value;
+        if (!take_cli_value(argc, argv, idx, value, error)) {
+            return false;
+        }
+        target.push_back(std::move(value));
+        return true;
+    };
+    auto parse_bool_option = [&](std::optional<bool> &target, int &idx) -> bool {
+        std::string value;
+        if (!take_cli_value(argc, argv, idx, value, error)) {
+            return false;
+        }
+        target = parse_cmake_bool(value);
+        if (!target.has_value()) {
+            error = fmt::format("invalid CMake boolean spelling '{}'; expected ON/OFF/TRUE/FALSE/1/0", value);
+            return false;
+        }
+        return true;
+    };
+    auto parse_source_scan_include_dir_option = [&](int &idx, std::string_view raw_arg) -> bool {
+        std::string source;
+        std::string include_dir;
+        if (const auto eq = raw_arg.find('='); eq != std::string_view::npos) {
+            source = std::string{raw_arg.substr(eq + 1)};
+        } else if (!take_separate_cli_value(argc, argv, idx, "--expected-source-scan-include-dir", source, error)) {
+            return false;
+        }
+        if (!take_separate_cli_value(argc, argv, idx, "--expected-source-scan-include-dir", include_dir, error)) {
+            return false;
+        }
+        options.expected_source_scan_include_dirs[source].emplace_back(include_dir);
+        return true;
+    };
+    auto parse_source_scan_arg_option = [&](int &idx, std::string_view raw_arg) -> bool {
+        std::string source;
+        std::string scan_arg;
+        if (const auto eq = raw_arg.find('='); eq != std::string_view::npos) {
+            source = std::string{raw_arg.substr(eq + 1)};
+        } else if (!take_separate_cli_value(argc, argv, idx, "--expected-source-scan-arg", source, error)) {
+            return false;
+        }
+        if (!take_separate_cli_value(argc, argv, idx, "--expected-source-scan-arg", scan_arg, error)) {
+            return false;
+        }
+        options.expected_source_scan_args[source].push_back(std::move(scan_arg));
+        return true;
+    };
+
+    for (int idx = 1; idx < argc; ++idx) {
+        const std::string_view raw_arg = argv[idx] ? std::string_view{argv[idx]} : std::string_view{};
+        const std::string_view arg     = raw_arg.substr(0, raw_arg.find('='));
+        if (arg == "--manifest") {
+            if (!parse_path_option(options.manifest, idx)) {
+                return false;
+            }
+        } else if (arg == "--stamp") {
+            if (!parse_path_option(options.stamp, idx)) {
+                return false;
+            }
+        } else if (arg == "--compdb") {
+            if (!parse_path_option(options.compilation_database, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-source") {
+            if (!parse_list_option(options.expected_sources, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-source-kind") {
+            if (!parse_list_option(options.expected_source_kinds, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-registration-output") {
+            if (!parse_list_option(options.expected_registration_outputs, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-header") {
+            if (!parse_list_option(options.expected_headers, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-compile-context-id") {
+            if (!parse_list_option(options.expected_compile_context_ids, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-owner-source") {
+            if (!parse_list_option(options.expected_owner_sources, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-source-registration-output") {
+            if (!parse_list_option(options.expected_source_registration_outputs, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-module") {
+            if (!parse_list_option(options.expected_modules, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-source-scan-include-dir") {
+            if (!parse_source_scan_include_dir_option(idx, raw_arg)) {
+                return false;
+            }
+        } else if (arg == "--expected-source-scan-arg") {
+            if (!parse_source_scan_arg_option(idx, raw_arg)) {
+                return false;
+            }
+        } else if (arg == "--expected-include-dir") {
+            if (!parse_string_option(options.expected_include_dir, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-depfile") {
+            if (!parse_string_option(options.expected_depfile, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-target-attachment") {
+            if (!parse_string_option(options.expected_target_attachment, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-artifact-role") {
+            if (!parse_string_option(options.expected_artifact_role, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-compile-as") {
+            if (!parse_string_option(options.expected_compile_as, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-requires-module-scan") {
+            if (!parse_bool_option(options.expected_requires_module_scan, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-includes-owner-source") {
+            if (!parse_bool_option(options.expected_includes_owner_source, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-replaces-owner-source") {
+            if (!parse_bool_option(options.expected_replaces_owner_source, idx)) {
+                return false;
+            }
+        } else {
+            error = fmt::format("unknown validate-artifact-manifest option '{}'", raw_arg);
+            return false;
+        }
+    }
+
+    if (options.manifest.empty()) {
+        error = "--manifest is required";
+        return false;
+    }
+    for (const auto &[name, value] : {
+             std::pair{"--expected-include-dir", std::string_view{options.expected_include_dir}},
+             std::pair{"--expected-depfile", std::string_view{options.expected_depfile}},
+             std::pair{"--expected-target-attachment", std::string_view{options.expected_target_attachment}},
+             std::pair{"--expected-artifact-role", std::string_view{options.expected_artifact_role}},
+             std::pair{"--expected-compile-as", std::string_view{options.expected_compile_as}},
+         }) {
+        if (value.empty()) {
+            error = fmt::format("{} is required", name);
+            return false;
+        }
+    }
+    if (!options.expected_requires_module_scan.has_value()) {
+        error = "--expected-requires-module-scan is required";
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_expected_list_count(std::string_view name, std::span<const std::string> values, std::size_t expected_count,
+                                                std::string &error) {
+    if (values.size() != expected_count) {
+        error = fmt::format("{} has {} entries, expected {}", name, values.size(), expected_count);
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] std::optional<std::string> json_string_field(const llvm::json::Object &object, std::string_view field,
+                                                           std::string_view location, std::string &error) {
+    const llvm::StringRef field_ref{field.data(), field.size()};
+    const auto           *value = object.get(field_ref);
+    if (value == nullptr) {
+        error = fmt::format("gentest artifact manifest {} is missing required string field '{}'", location, field);
+        return std::nullopt;
+    }
+    if (const auto string_value = value->getAsString()) {
+        return string_value->str();
+    }
+    error = fmt::format("gentest artifact manifest {} field '{}' must be a string", location, field);
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<bool> json_bool_field(const llvm::json::Object &object, std::string_view field, std::string_view location,
+                                                  std::string &error) {
+    const llvm::StringRef field_ref{field.data(), field.size()};
+    const auto           *value = object.get(field_ref);
+    if (value == nullptr) {
+        error = fmt::format("gentest artifact manifest {} is missing required boolean field '{}'", location, field);
+        return std::nullopt;
+    }
+    if (const auto bool_value = value->getAsBoolean()) {
+        return bool_value;
+    }
+    error = fmt::format("gentest artifact manifest {} field '{}' must be a boolean", location, field);
+    return std::nullopt;
+}
+
+[[nodiscard]] bool json_null_field(const llvm::json::Object &object, std::string_view field, std::string_view location,
+                                   std::string &error) {
+    const llvm::StringRef field_ref{field.data(), field.size()};
+    const auto           *value = object.get(field_ref);
+    if (value == nullptr) {
+        error = fmt::format("gentest artifact manifest {} is missing required null field '{}'", location, field);
+        return false;
+    }
+    if (value->getAsNull().has_value()) {
+        return true;
+    }
+    error = fmt::format("gentest artifact manifest {} field '{}' must be null", location, field);
+    return false;
+}
+
+[[nodiscard]] std::optional<std::string> json_single_string_array_field(const llvm::json::Object &object, std::string_view field,
+                                                                        std::string_view location, std::string &error) {
+    const llvm::StringRef field_ref{field.data(), field.size()};
+    const auto           *array = object.getArray(field_ref);
+    if (array == nullptr) {
+        error = fmt::format("gentest artifact manifest {} field '{}' must be an array", location, field);
+        return std::nullopt;
+    }
+    if (array->size() != 1) {
+        error = fmt::format("gentest artifact manifest {}.{} has {} entries, expected 1", location, field, array->size());
+        return std::nullopt;
+    }
+    if (const auto value = (*array)[0].getAsString()) {
+        return value->str();
+    }
+    error = fmt::format("gentest artifact manifest {}.{}[0] must be a string", location, field);
+    return std::nullopt;
+}
+
+[[nodiscard]] bool expect_equal(std::string_view location, std::string_view expected, std::string_view actual, std::string &error) {
+    if (actual == expected) {
+        return true;
+    }
+    error = fmt::format("gentest artifact manifest {} mismatch: expected '{}', got '{}'", location, expected, actual);
+    return false;
+}
+
+[[nodiscard]] bool expect_equal(std::string_view location, bool expected, bool actual, std::string &error) {
+    if (actual == expected) {
+        return true;
+    }
+    error = fmt::format("gentest artifact manifest {} mismatch: expected '{}', got '{}'", location, expected ? "true" : "false",
+                        actual ? "true" : "false");
+    return false;
+}
+
+[[nodiscard]] bool validate_source_manifest_entry(const llvm::json::Object &source, const ArtifactManifestValidationOptions &options,
+                                                  std::size_t idx, std::string &error) {
+    const std::string location    = fmt::format("sources[{}]", idx);
+    const auto        source_path = json_string_field(source, "source", location, error);
+    if (!source_path || !expect_equal(fmt::format("{}.source", location), options.expected_sources[idx], *source_path, error)) {
+        return false;
+    }
+    const auto source_kind = json_string_field(source, "kind", location, error);
+    if (!source_kind || !expect_equal(fmt::format("{}.kind", location), options.expected_source_kinds[idx], *source_kind, error)) {
+        return false;
+    }
+    const auto context_id = json_string_field(source, "compile_context_id", location, error);
+    if (!context_id ||
+        !expect_equal(fmt::format("{}.compile_context_id", location), options.expected_compile_context_ids[idx], *context_id, error)) {
+        return false;
+    }
+    if (!options.expected_owner_sources.empty()) {
+        const auto owner_source = json_string_field(source, "owner_source", location, error);
+        if (!owner_source ||
+            !expect_equal(fmt::format("{}.owner_source", location), options.expected_owner_sources[idx], *owner_source, error)) {
+            return false;
+        }
+        const auto generated_wrapper = json_string_field(source, "generated_wrapper_source", location, error);
+        if (!generated_wrapper || !expect_equal(fmt::format("{}.generated_wrapper_source", location),
+                                                options.expected_registration_outputs[idx], *generated_wrapper, error)) {
+            return false;
+        }
+        const auto registration_header = json_string_field(source, "registration_header", location, error);
+        if (!registration_header ||
+            !expect_equal(fmt::format("{}.registration_header", location), options.expected_headers[idx], *registration_header, error)) {
+            return false;
+        }
+    }
+    if (!options.expected_source_registration_outputs.empty()) {
+        const auto registration_output = json_string_field(source, "registration_output", location, error);
+        if (!registration_output || !expect_equal(fmt::format("{}.registration_output", location),
+                                                  options.expected_source_registration_outputs[idx], *registration_output, error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_artifact_manifest_entry(const llvm::json::Object &artifact, const ArtifactManifestValidationOptions &options,
+                                                    std::size_t idx, std::string &error) {
+    const std::string location = fmt::format("artifacts[{}]", idx);
+    const auto        path     = json_string_field(artifact, "path", location, error);
+    if (!path || !expect_equal(fmt::format("{}.path", location), options.expected_registration_outputs[idx], *path, error)) {
+        return false;
+    }
+    const auto role = json_string_field(artifact, "role", location, error);
+    if (!role || !expect_equal(fmt::format("{}.role", location), options.expected_artifact_role, *role, error)) {
+        return false;
+    }
+    const auto compile_as = json_string_field(artifact, "compile_as", location, error);
+    if (!compile_as || !expect_equal(fmt::format("{}.compile_as", location), options.expected_compile_as, *compile_as, error)) {
+        return false;
+    }
+
+    const std::string expected_owner_source =
+        options.expected_owner_sources.empty() ? options.expected_sources[idx] : options.expected_owner_sources[idx];
+    const auto owner_source = json_string_field(artifact, "owner_source", location, error);
+    if (!owner_source || !expect_equal(fmt::format("{}.owner_source", location), expected_owner_source, *owner_source, error)) {
+        return false;
+    }
+    if (!options.expected_owner_sources.empty()) {
+        const auto generated_wrapper = json_string_field(artifact, "generated_wrapper_source", location, error);
+        if (!generated_wrapper || !expect_equal(fmt::format("{}.generated_wrapper_source", location),
+                                                options.expected_registration_outputs[idx], *generated_wrapper, error)) {
+            return false;
+        }
+    }
+
+    const auto target_attachment = json_string_field(artifact, "target_attachment", location, error);
+    if (!target_attachment ||
+        !expect_equal(fmt::format("{}.target_attachment", location), options.expected_target_attachment, *target_attachment, error)) {
+        return false;
+    }
+    const auto context_id = json_string_field(artifact, "compile_context_id", location, error);
+    if (!context_id ||
+        !expect_equal(fmt::format("{}.compile_context_id", location), options.expected_compile_context_ids[idx], *context_id, error)) {
+        return false;
+    }
+    if (!options.expected_requires_module_scan.has_value()) {
+        error = "--expected-requires-module-scan is required";
+        return false;
+    }
+    const bool expected_requires_module_scan = options.expected_requires_module_scan.value_or(false);
+    const auto requires_module_scan          = json_bool_field(artifact, "requires_module_scan", location, error);
+    if (!requires_module_scan ||
+        !expect_equal(fmt::format("{}.requires_module_scan", location), expected_requires_module_scan, *requires_module_scan, error)) {
+        return false;
+    }
+    if (options.expected_includes_owner_source.has_value()) {
+        const bool expected_includes_owner_source = options.expected_includes_owner_source.value_or(false);
+        const auto includes_owner_source          = json_bool_field(artifact, "includes_owner_source", location, error);
+        if (!includes_owner_source || !expect_equal(fmt::format("{}.includes_owner_source", location), expected_includes_owner_source,
+                                                    *includes_owner_source, error)) {
+            return false;
+        }
+    }
+    if (options.expected_replaces_owner_source.has_value()) {
+        const bool expected_replaces_owner_source = options.expected_replaces_owner_source.value_or(false);
+        const auto replaces_owner_source          = json_bool_field(artifact, "replaces_owner_source", location, error);
+        if (!replaces_owner_source || !expect_equal(fmt::format("{}.replaces_owner_source", location), expected_replaces_owner_source,
+                                                    *replaces_owner_source, error)) {
+            return false;
+        }
+    }
+
+    const auto generated_header = json_single_string_array_field(artifact, "generated_headers", location, error);
+    if (!generated_header ||
+        !expect_equal(fmt::format("{}.generated_headers[0]", location), options.expected_headers[idx], *generated_header, error)) {
+        return false;
+    }
+    const auto generated_include_dir = json_single_string_array_field(artifact, "generated_include_dirs", location, error);
+    if (!generated_include_dir ||
+        !expect_equal(fmt::format("{}.generated_include_dirs[0]", location), options.expected_include_dir, *generated_include_dir, error)) {
+        return false;
+    }
+    const auto depfile = json_string_field(artifact, "depfile", location, error);
+    if (!depfile || !expect_equal(fmt::format("{}.depfile", location), options.expected_depfile, *depfile, error)) {
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool build_artifact_manifest_source_scan_contexts(const ArtifactManifestValidationOptions &options,
+                                                                ArtifactManifestSourceScanContexts &contexts, std::string &error) {
+    if (options.compilation_database.empty()) {
+        return true;
+    }
+
+    std::string db_error;
+    auto        database = clang::tooling::CompilationDatabase::loadFromDirectory(options.compilation_database.string(), db_error);
+    if (!database) {
+        error = fmt::format("failed to load compilation database at '{}': {}", options.compilation_database.string(), db_error);
+        return false;
+    }
+
+    std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> commands_by_file;
+    for (const auto &command : database->getAllCompileCommands()) {
+        const std::string key = normalize_compdb_lookup_path(command.Filename, command.Directory);
+        if (!key.empty()) {
+            commands_by_file[key].push_back(command);
+        }
+    }
+
+    for (std::size_t idx = 0; idx < options.expected_sources.size(); ++idx) {
+        const auto                                 &source = options.expected_sources[idx];
+        std::vector<clang::tooling::CompileCommand> commands;
+        const auto                                  source_key = normalize_compdb_lookup_path(source, {});
+        if (const auto direct_it = commands_by_file.find(source_key); direct_it != commands_by_file.end()) {
+            commands = direct_it->second;
+        }
+        if (commands.empty()) {
+            commands = database->getCompileCommands(source);
+        }
+        if (commands.empty()) {
+            if (options.expected_source_kinds[idx] != "textual-wrapper") {
+                error = fmt::format("compilation database '{}' has no command for expected source '{}'",
+                                    options.compilation_database.string(), source);
+                return false;
+            }
+            continue;
+        }
+
+        for (auto &command : commands) {
+            command.CommandLine = expand_compile_command_response_files(command.CommandLine, command.Directory, true);
+        }
+
+        ArtifactManifestSourceScanContext context;
+        context.include_dirs = scan_include_search_paths_from_compile_commands(commands, std::filesystem::path{source});
+        context.command_line = commands.front().CommandLine;
+
+        const auto insert_scan_arg = [&] {
+            if (context.command_line.empty()) {
+                return context.command_line.begin();
+            }
+            return std::next(context.command_line.begin());
+        };
+        if (const auto include_dirs_it = options.expected_source_scan_include_dirs.find(source);
+            include_dirs_it != options.expected_source_scan_include_dirs.end()) {
+            for (const auto &include_dir : include_dirs_it->second) {
+                gentest::codegen::scan::append_unique_scan_path(context.include_dirs, include_dir);
+            }
+        }
+        if (const auto scan_args_it = options.expected_source_scan_args.find(source);
+            scan_args_it != options.expected_source_scan_args.end()) {
+            context.command_line.insert(insert_scan_arg(), scan_args_it->second.begin(), scan_args_it->second.end());
+        }
+
+        contexts[source] = std::move(context);
+    }
+
+    return true;
+}
+
+[[nodiscard]] bool validate_module_manifest_entry_pair(const llvm::json::Object &source, const llvm::json::Object &artifact,
+                                                       const ArtifactManifestValidationOptions &options, std::size_t idx,
+                                                       const ArtifactManifestSourceScanContexts &source_scan_contexts, std::string &error) {
+    if (options.expected_source_kinds[idx] == "textual-wrapper") {
+        return true;
+    }
+
+    const std::string source_location   = fmt::format("sources[{}]", idx);
+    const std::string artifact_location = fmt::format("artifacts[{}]", idx);
+    const auto        source_module     = json_string_field(source, "module", source_location, error);
+    if (!source_module) {
+        return false;
+    }
+    if (source_module->empty()) {
+        error = fmt::format("gentest artifact manifest {}.module must not be empty", source_location);
+        return false;
+    }
+    std::vector<std::filesystem::path> include_dirs;
+    std::vector<std::string>           scan_args;
+    if (const auto context_it = source_scan_contexts.find(options.expected_sources[idx]); context_it != source_scan_contexts.end()) {
+        include_dirs = context_it->second.include_dirs;
+        scan_args    = context_it->second.command_line;
+    } else {
+        if (const auto include_dirs_it = options.expected_source_scan_include_dirs.find(options.expected_sources[idx]);
+            include_dirs_it != options.expected_source_scan_include_dirs.end()) {
+            include_dirs = include_dirs_it->second;
+        }
+        if (const auto scan_args_it = options.expected_source_scan_args.find(options.expected_sources[idx]);
+            scan_args_it != options.expected_source_scan_args.end()) {
+            scan_args = scan_args_it->second;
+        }
+    }
+    const auto discovered_module =
+        named_module_name_from_source_file(std::filesystem::path{options.expected_sources[idx]}, include_dirs, scan_args);
+    if (!discovered_module.has_value()) {
+        error = fmt::format("gentest artifact manifest {}.module could not be checked because source '{}' has no named module declaration",
+                            source_location, options.expected_sources[idx]);
+        return false;
+    }
+    if (!expect_equal(fmt::format("{}.module", source_location), *discovered_module, *source_module, error)) {
+        return false;
+    }
+    if (!json_null_field(source, "partition", source_location, error)) {
+        return false;
+    }
+
+    std::string_view expected_module = *discovered_module;
+    if (!options.expected_modules.empty()) {
+        expected_module = options.expected_modules[idx];
+        if (!expect_equal(fmt::format("{}.expected_module", source_location), expected_module, *discovered_module, error)) {
+            return false;
+        }
+    }
+
+    const auto artifact_module = json_string_field(artifact, "module", artifact_location, error);
+    if (!artifact_module || !expect_equal(fmt::format("{}.module", artifact_location), expected_module, *artifact_module, error)) {
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool touch_validation_stamp(const std::filesystem::path &stamp, std::string &error) {
+    if (stamp.empty()) {
+        return true;
+    }
+    std::error_code ec;
+    if (stamp.has_parent_path()) {
+        std::filesystem::create_directories(stamp.parent_path(), ec);
+        if (ec) {
+            error = fmt::format("failed to create artifact manifest validation stamp directory '{}': {}", stamp.parent_path().string(),
+                                ec.message());
+            return false;
+        }
+    }
+    {
+        std::ofstream out{stamp, std::ios::app};
+        if (!out) {
+            error = fmt::format("failed to touch gentest artifact manifest validation stamp '{}'", stamp.string());
+            return false;
+        }
+    }
+    std::filesystem::last_write_time(stamp, std::filesystem::file_time_type::clock::now(), ec);
+    if (ec) {
+        error = fmt::format("failed to update gentest artifact manifest validation stamp '{}': {}", stamp.string(), ec.message());
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_artifact_manifest(const ArtifactManifestValidationOptions &options, std::string &error) {
+    const std::size_t expected_count = options.expected_sources.size();
+    for (const auto &[name, values] : {
+             std::pair{std::string_view{"--expected-source-kind"}, std::span<const std::string>{options.expected_source_kinds}},
+             std::pair{std::string_view{"--expected-registration-output"},
+                       std::span<const std::string>{options.expected_registration_outputs}},
+             std::pair{std::string_view{"--expected-header"}, std::span<const std::string>{options.expected_headers}},
+             std::pair{std::string_view{"--expected-compile-context-id"},
+                       std::span<const std::string>{options.expected_compile_context_ids}},
+         }) {
+        if (!validate_expected_list_count(name, values, expected_count, error)) {
+            return false;
+        }
+    }
+    if (!options.expected_owner_sources.empty() &&
+        !validate_expected_list_count("--expected-owner-source", options.expected_owner_sources, expected_count, error)) {
+        return false;
+    }
+    if (!options.expected_source_registration_outputs.empty() &&
+        !validate_expected_list_count("--expected-source-registration-output", options.expected_source_registration_outputs, expected_count,
+                                      error)) {
+        return false;
+    }
+    if (!options.expected_modules.empty() &&
+        !validate_expected_list_count("--expected-module", options.expected_modules, expected_count, error)) {
+        return false;
+    }
+
+    auto buffer_or_error = llvm::MemoryBuffer::getFile(options.manifest.string());
+    if (!buffer_or_error) {
+        error = fmt::format("gentest artifact manifest '{}' does not exist or cannot be read: {}", options.manifest.string(),
+                            buffer_or_error.getError().message());
+        return false;
+    }
+    auto json_or_error = llvm::json::parse((*buffer_or_error)->getBuffer());
+    if (!json_or_error) {
+        error = fmt::format("failed to parse gentest artifact manifest '{}': {}", options.manifest.string(),
+                            llvm::toString(json_or_error.takeError()));
+        return false;
+    }
+    const auto *manifest = json_or_error->getAsObject();
+    if (manifest == nullptr) {
+        error = fmt::format("gentest artifact manifest '{}' must be a JSON object", options.manifest.string());
+        return false;
+    }
+    const auto schema = json_string_field(*manifest, "schema", "<root>", error);
+    if (!schema) {
+        error = fmt::format("gentest artifact manifest '{}' is missing or has invalid schema: {}", options.manifest.string(), error);
+        return false;
+    }
+    if (*schema != gentest::codegen::artifact_manifest::kSchema) {
+        error = fmt::format("unsupported artifact manifest schema '{}' in '{}' (expected '{}')", *schema, options.manifest.string(),
+                            gentest::codegen::artifact_manifest::kSchema);
+        return false;
+    }
+
+    const auto *sources = manifest->getArray("sources");
+    if (sources == nullptr) {
+        error = fmt::format("gentest artifact manifest '{}' is missing array field 'sources'", options.manifest.string());
+        return false;
+    }
+    const auto *artifacts = manifest->getArray("artifacts");
+    if (artifacts == nullptr) {
+        error = fmt::format("gentest artifact manifest '{}' is missing array field 'artifacts'", options.manifest.string());
+        return false;
+    }
+    if (sources->size() != expected_count) {
+        error = fmt::format("gentest artifact manifest '{}' has {} source entries, expected {}", options.manifest.string(), sources->size(),
+                            expected_count);
+        return false;
+    }
+    if (artifacts->size() != expected_count) {
+        error = fmt::format("gentest artifact manifest '{}' has {} artifact entries, expected {}", options.manifest.string(),
+                            artifacts->size(), expected_count);
+        return false;
+    }
+
+    ArtifactManifestSourceScanContexts source_scan_contexts;
+    if (!build_artifact_manifest_source_scan_contexts(options, source_scan_contexts, error)) {
+        return false;
+    }
+
+    for (std::size_t idx = 0; idx < expected_count; ++idx) {
+        const auto *source = (*sources)[idx].getAsObject();
+        if (source == nullptr) {
+            error = fmt::format("gentest artifact manifest sources[{}] must be an object", idx);
+            return false;
+        }
+        if (!validate_source_manifest_entry(*source, options, idx, error)) {
+            return false;
+        }
+
+        const auto *artifact = (*artifacts)[idx].getAsObject();
+        if (artifact == nullptr) {
+            error = fmt::format("gentest artifact manifest artifacts[{}] must be an object", idx);
+            return false;
+        }
+        if (!validate_artifact_manifest_entry(*artifact, options, idx, error)) {
+            return false;
+        }
+        if (!validate_module_manifest_entry_pair(*source, *artifact, options, idx, source_scan_contexts, error)) {
+            return false;
+        }
+    }
+    return touch_validation_stamp(options.stamp, error);
+}
+
+int run_artifact_manifest_validator(int argc, const char **argv) {
+    ArtifactManifestValidationOptions options;
+    std::string                       error;
+    if (!parse_artifact_manifest_validation_args(argc, argv, options, error) || !validate_artifact_manifest(options, error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", error);
+        return 1;
+    }
+    return 0;
 }
 
 [[nodiscard]] std::optional<std::string_view> forced_serial_parse_reason() {
@@ -2460,17 +3424,24 @@ std::string resolve_default_sysroot() {
 #endif
 }
 
+enum class MockPhaseCommand {
+    None,
+    InspectMocks,
+    EmitMocks,
+};
+
 struct ParsedArguments {
     CollectorOptions                   options;
     std::optional<std::string>         explicit_host_clang_path;
+    MockPhaseCommand                   mock_phase     = MockPhaseCommand::None;
     bool                               inspect_source = false;
     std::vector<std::filesystem::path> inspect_include_dirs;
 };
 
 ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory   category{"gentest codegen"};
-    static llvm::cl::opt<std::string> output_option{"output", llvm::cl::desc("Path to the output source file"), llvm::cl::init(""),
-                                                    llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string> output_option{"output", llvm::cl::desc("Path to a legacy manifest/single-TU output source file"),
+                                                    llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> tu_out_dir_option{
@@ -2482,6 +3453,22 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> module_wrapper_output_option{
         "module-wrapper-output",
         llvm::cl::desc("Explicit output module wrapper path for a TU-mode input source (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> module_registration_output_option{
+        "module-registration-output",
+        llvm::cl::desc(
+            "Explicit same-module registration implementation path for a TU-mode input source (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  artifact_manifest_option{"artifact-manifest",
+                                                               llvm::cl::desc("Path to a generated artifact manifest JSON file"),
+                                                               llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> artifact_owner_source_option{
+        "artifact-owner-source",
+        llvm::cl::desc("Original owner source for a TU-mode artifact-manifest input (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> compile_context_id_option{
+        "compile-context-id",
+        llvm::cl::desc("Build-system compile context identity for an input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
@@ -2514,7 +3501,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<bool>         discover_mocks_option{
         "discover-mocks", llvm::cl::desc("Enable explicit gentest::mock<T> discovery and generated mock outputs"), llvm::cl::init(false),
         llvm::cl::cat(category)};
-    static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::OneOrMore,
+    static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::ZeroOrMore,
                                                      llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  template_option{"template", llvm::cl::desc("Path to the template file used for code generation"),
                                                       llvm::cl::init(""), llvm::cl::cat(category)};
@@ -2522,6 +3509,16 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
                                                            llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
                                                        llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_manifest_output_option{"mock-manifest-output",
+                                                                  llvm::cl::desc("Path to a generated mock discovery manifest JSON file"),
+                                                                  llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_manifest_input_option{"mock-manifest-input",
+                                                                 llvm::cl::desc("Read mock discovery data from a mock manifest JSON file"),
+                                                                 llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_registration_manifest_option{
+        "mock-registration-manifest",
+        llvm::cl::desc("Read mock discovery data for same-module registration attachment from a mock manifest JSON file"),
+        llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> mock_domain_registry_output_option{
         "mock-domain-registry-output",
         llvm::cl::desc("Explicit output path for a generated mock registry domain header (repeat in domain order)"), llvm::cl::ZeroOrMore,
@@ -2549,6 +3546,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
 
     std::vector<std::string> clang_args;
     bool                     clang_mode = false;
+    MockPhaseCommand         mock_phase = MockPhaseCommand::None;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i] ? std::string_view(argv[i]) : std::string_view{};
         if (!clang_mode && arg == "--") {
@@ -2557,6 +3555,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         }
         if (clang_mode) {
             clang_args.emplace_back(arg);
+        } else if (i == 1 && arg == "inspect-mocks") {
+            mock_phase = MockPhaseCommand::InspectMocks;
+        } else if (i == 1 && arg == "emit-mocks") {
+            mock_phase = MockPhaseCommand::EmitMocks;
         } else {
             tool_argv.push_back(argv[i]);
         }
@@ -2574,6 +3576,12 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
     opts.module_wrapper_outputs.assign(module_wrapper_output_option.begin(), module_wrapper_output_option.end());
+    opts.module_registration_outputs.assign(module_registration_output_option.begin(), module_registration_output_option.end());
+    opts.compile_context_ids.assign(compile_context_id_option.begin(), compile_context_id_option.end());
+    if (!artifact_manifest_option.getValue().empty()) {
+        opts.artifact_manifest_path = std::filesystem::path{artifact_manifest_option.getValue()};
+    }
+    opts.artifact_owner_sources.assign(artifact_owner_source_option.begin(), artifact_owner_source_option.end());
     opts.clang_args = std::move(clang_args);
     strip_shell_control_tail(opts.clang_args);
     opts.check_only  = check_option.getValue();
@@ -2614,7 +3622,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         return !skip_env;
     }();
     opts.jobs           = static_cast<std::size_t>(jobs_option.getValue());
-    opts.discover_mocks = discover_mocks_option.getValue();
+    opts.discover_mocks = discover_mocks_option.getValue() || mock_phase == MockPhaseCommand::InspectMocks;
     if (jobs_option.getNumOccurrences() == 0) {
         const auto jobs_env = get_env_value("GENTEST_CODEGEN_JOBS");
         if (jobs_env) {
@@ -2653,6 +3661,15 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     if (!mock_impl_option.getValue().empty()) {
         opts.mock_impl_path = std::filesystem::path{mock_impl_option.getValue()};
     }
+    if (!mock_manifest_output_option.getValue().empty()) {
+        opts.mock_manifest_output_path = std::filesystem::path{mock_manifest_output_option.getValue()};
+    }
+    if (!mock_manifest_input_option.getValue().empty()) {
+        opts.mock_manifest_input_path = std::filesystem::path{mock_manifest_input_option.getValue()};
+    }
+    if (!mock_registration_manifest_option.getValue().empty()) {
+        opts.mock_registration_manifest_path = std::filesystem::path{mock_registration_manifest_option.getValue()};
+    }
     opts.mock_domain_registry_outputs.assign(mock_domain_registry_output_option.begin(), mock_domain_registry_output_option.end());
     opts.mock_domain_impl_outputs.assign(mock_domain_impl_output_option.begin(), mock_domain_impl_output_option.end());
     if (!depfile_option.getValue().empty()) {
@@ -2680,12 +3697,14 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     } else if (!kTemplateDir.empty()) {
         opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
     }
-    if (!inspect_source_option.getValue() && !opts.check_only && opts.output_path.empty() && opts.tu_output_dir.empty()) {
+    if (!inspect_source_option.getValue() && mock_phase == MockPhaseCommand::None && !opts.check_only && opts.output_path.empty() &&
+        opts.tu_output_dir.empty() && opts.mock_manifest_output_path.empty() && opts.mock_manifest_input_path.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
     }
     return ParsedArguments{
         .options                  = std::move(opts),
         .explicit_host_clang_path = std::move(explicit_host_clang_path),
+        .mock_phase               = mock_phase,
         .inspect_source           = inspect_source_option.getValue(),
         .inspect_include_dirs =
             [&]() {
@@ -2699,11 +3718,68 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     };
 }
 
+void diagnose_missing_mock_phase_manifest(MockPhaseCommand mock_phase, const CollectorOptions &options) {
+    if (mock_phase == MockPhaseCommand::InspectMocks && options.mock_manifest_output_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks requires --mock-manifest-output\n");
+    }
+    if (mock_phase == MockPhaseCommand::EmitMocks && options.mock_manifest_input_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: emit-mocks requires --mock-manifest-input\n");
+    }
+}
+
+[[nodiscard]] bool validate_mock_phase_command(MockPhaseCommand mock_phase, const CollectorOptions &options) {
+    if (mock_phase == MockPhaseCommand::InspectMocks) {
+        if (options.mock_manifest_output_path.empty()) {
+            return false;
+        }
+        if (!options.mock_registration_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --mock-registration-manifest\n");
+            return false;
+        }
+        if (!options.mock_manifest_input_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --mock-manifest-input\n");
+            return false;
+        }
+        if (options.check_only) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --check\n");
+            return false;
+        }
+        if (!options.output_path.empty() || !options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks only writes a mock manifest\n");
+            return false;
+        }
+        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_domain_registry_outputs.empty() ||
+            !options.mock_domain_impl_outputs.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with final mock output paths\n");
+            return false;
+        }
+    }
+    if (mock_phase == MockPhaseCommand::EmitMocks) {
+        if (options.mock_manifest_input_path.empty()) {
+            return false;
+        }
+        if (!options.mock_registration_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: emit-mocks cannot be combined with --mock-registration-manifest\n");
+            return false;
+        }
+        if (!options.mock_manifest_output_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: emit-mocks cannot be combined with --mock-manifest-output\n");
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, const char **argv) {
+    if (argc >= 2 && argv[1] != nullptr && std::string_view{argv[1]} == "validate-artifact-manifest") {
+        return run_artifact_manifest_validator(argc - 1, argv + 1);
+    }
+
     const auto  parsed_arguments = parse_arguments(argc, argv);
     const auto &options          = parsed_arguments.options;
+    diagnose_missing_mock_phase_manifest(parsed_arguments.mock_phase, options);
     if (parsed_arguments.inspect_source) {
         if (options.sources.size() != 1) {
             gentest::codegen::log_err("gentest_codegen: --inspect-source expects exactly 1 input source, got {}\n", options.sources.size());
@@ -2725,9 +3801,135 @@ int main(int argc, const char **argv) {
         return 0;
     }
 
+    if (!validate_mock_phase_command(parsed_arguments.mock_phase, options)) {
+        return 1;
+    }
+
+    const bool mock_manifest_emit_mode      = !options.mock_manifest_input_path.empty();
+    const bool mock_manifest_discovery_only = !options.mock_manifest_output_path.empty() && options.output_path.empty() &&
+                                              options.tu_output_dir.empty() && !mock_manifest_emit_mode;
+
+    if (mock_manifest_emit_mode) {
+        if (!options.sources.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input does not accept positional source files\n");
+            return 1;
+        }
+        if (options.discover_mocks) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with --discover-mocks\n");
+            return 1;
+        }
+        if (!options.mock_manifest_output_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with --mock-manifest-output\n");
+            return 1;
+        }
+        if (!options.output_path.empty() || !options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input only emits mock outputs\n");
+            return 1;
+        }
+        if (!options.tu_output_headers.empty() || !options.module_wrapper_outputs.empty() || !options.module_registration_outputs.empty() ||
+            !options.compile_context_ids.empty() || !options.artifact_owner_sources.empty() ||
+            !options.mock_registration_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with source/TU planning options\n");
+            return 1;
+        }
+
+        auto manifest = gentest::codegen::mock_manifest::read(options.mock_manifest_input_path);
+        if (!manifest.error.empty()) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest.error);
+            return 1;
+        }
+
+        auto        emit_options = options;
+        std::string manifest_domain_error;
+        emit_options.mock_output_domain_modules = manifest.mock_output_domain_modules;
+        if (!validate_manifest_mock_domain_modules(manifest.mocks, emit_options.mock_output_domain_modules, manifest_domain_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest_domain_error);
+            return 1;
+        }
+
+        std::string mock_domain_error;
+        if (!gentest::codegen::validate_mock_output_domains(emit_options, mock_domain_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
+            return 1;
+        }
+        if (options.check_only) {
+            return 0;
+        }
+        const std::vector<TestCaseInfo>    empty_cases;
+        const std::vector<FixtureDeclInfo> empty_fixtures;
+        const int                          emit_status = gentest::codegen::emit(emit_options, empty_cases, empty_fixtures, manifest.mocks);
+        if (emit_status != 0) {
+            return emit_status;
+        }
+        std::vector<std::string> depfile_dependencies{options.mock_manifest_input_path.generic_string()};
+        if (!write_depfile(emit_options, depfile_dependencies)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    if (options.sources.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: at least one input source file is required\n");
+        return 1;
+    }
+    if (!options.mock_manifest_output_path.empty() && !options.discover_mocks) {
+        gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-output requires --discover-mocks\n");
+        return 1;
+    }
+    if (!options.mock_registration_manifest_path.empty()) {
+        if (options.discover_mocks) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-registration-manifest cannot be combined with --discover-mocks\n");
+            return 1;
+        }
+        if (!options.mock_manifest_output_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-registration-manifest cannot be combined with --mock-manifest-output\n");
+            return 1;
+        }
+        if (!options.mock_manifest_input_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-registration-manifest cannot be combined with --mock-manifest-input\n");
+            return 1;
+        }
+        if (options.tu_output_dir.empty() || options.module_registration_outputs.empty()) {
+            gentest::codegen::log_err_raw(
+                "gentest_codegen: --mock-registration-manifest requires --tu-out-dir and --module-registration-output\n");
+            return 1;
+        }
+        if (!options.output_path.empty() || !options.module_wrapper_outputs.empty()) {
+            gentest::codegen::log_err_raw(
+                "gentest_codegen: --mock-registration-manifest is only supported with same-module registration outputs\n");
+            return 1;
+        }
+        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_domain_registry_outputs.empty() ||
+            !options.mock_domain_impl_outputs.empty()) {
+            gentest::codegen::log_err_raw(
+                "gentest_codegen: --mock-registration-manifest cannot be combined with final mock output paths\n");
+            return 1;
+        }
+    }
+    if (mock_manifest_discovery_only && (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() ||
+                                         !options.mock_domain_registry_outputs.empty() || !options.mock_domain_impl_outputs.empty())) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --mock-manifest-output without --output/--tu-out-dir cannot be combined with final mock output paths\n");
+        return 1;
+    }
+    if (mock_manifest_discovery_only && !options.artifact_manifest_path.empty()) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --mock-manifest-output without --output/--tu-out-dir cannot emit artifact manifests\n");
+        return 1;
+    }
+
     if (!options.tu_output_headers.empty() && options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --tu-header-output requires --tu-out-dir\n");
         return 1;
+    }
+    if (!options.output_path.empty() && !options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --output cannot be combined with --tu-out-dir\n");
+        return 1;
+    }
+    if (!options.output_path.empty() && options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: warning: --output selects legacy manifest/single-TU mode; prefer --tu-out-dir per-TU wrapper mode when "
+            "supported. Manifest mode remains fallback-only.\n");
     }
     if (!options.tu_output_headers.empty() && options.tu_output_headers.size() != options.sources.size()) {
         gentest::codegen::log_err("gentest_codegen: expected {} --tu-header-output value(s) for {} input source(s), got {}\n",
@@ -2741,6 +3943,29 @@ int main(int argc, const char **argv) {
     if (!options.module_wrapper_outputs.empty() && options.module_wrapper_outputs.size() != options.sources.size()) {
         gentest::codegen::log_err("gentest_codegen: expected {} --module-wrapper-output value(s) for {} input source(s), got {}\n",
                                   options.sources.size(), options.sources.size(), options.module_wrapper_outputs.size());
+        return 1;
+    }
+    if (!options.module_registration_outputs.empty() && options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --module-registration-output requires --tu-out-dir\n");
+        return 1;
+    }
+    if (!options.module_registration_outputs.empty() && options.module_registration_outputs.size() != options.sources.size()) {
+        gentest::codegen::log_err("gentest_codegen: expected {} --module-registration-output value(s) for {} input source(s), got {}\n",
+                                  options.sources.size(), options.sources.size(), options.module_registration_outputs.size());
+        return 1;
+    }
+    if (!options.module_registration_outputs.empty() && !options.module_wrapper_outputs.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --module-registration-output cannot be combined with --module-wrapper-output\n");
+        return 1;
+    }
+    std::string compile_context_error;
+    if (!validate_compile_context_ids(options, compile_context_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", compile_context_error);
+        return 1;
+    }
+    std::string artifact_owner_error;
+    if (!validate_artifact_owner_sources(options, artifact_owner_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", artifact_owner_error);
         return 1;
     }
     const std::string explicit_host_clang_path = parsed_arguments.explicit_host_clang_path.value_or(std::string{});
@@ -3206,6 +4431,49 @@ int main(int argc, const char **argv) {
     for (const auto &module_source : named_module_sources) {
         module_interface_sources.insert(options.sources[module_source.source_index]);
         module_interface_names_by_source.emplace(options.sources[module_source.source_index], module_source.module_name);
+    }
+    if (!options.module_registration_outputs.empty()) {
+        for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+            const std::filesystem::path source_path{options.sources[idx]};
+            const auto                  shape =
+                inspect_module_source_shape(source_path, scan_include_search_paths[idx],
+                                            std::span<const std::string>(scan_command_lines[idx].data(), scan_command_lines[idx].size()));
+            if (!shape.module_name.has_value()) {
+                gentest::codegen::log_err("gentest_codegen: module registration input '{}' is not a named module source\n",
+                                          options.sources[idx]);
+                return 1;
+            }
+            if (!shape.exported_module_declaration) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: module registration input '{}' is a module implementation unit; first-slice module registration "
+                    "requires a primary module interface unit\n",
+                    options.sources[idx]);
+                return 1;
+            }
+            if (shape.module_name->find(':') != std::string::npos) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: module registration input '{}' declares module partition '{}'; partitions are not supported by "
+                    "same-module registration in this first slice\n",
+                    options.sources[idx], *shape.module_name);
+                return 1;
+            }
+            if (shape.has_private_module_fragment) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: module registration input '{}' contains a private module fragment; private module fragments cannot "
+                    "have an additive same-module registration implementation unit\n",
+                    options.sources[idx]);
+                return 1;
+            }
+            const auto module_it = module_interface_names_by_source.find(options.sources[idx]);
+            if (module_it != module_interface_names_by_source.end() && module_it->second != *shape.module_name) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: inconsistent module classification for '{}': scan-deps reported '{}', source scan reported '{}'\n",
+                    options.sources[idx], module_it->second, *shape.module_name);
+                return 1;
+            }
+            module_interface_sources.insert(options.sources[idx]);
+            module_interface_names_by_source[options.sources[idx]] = *shape.module_name;
+        }
     }
 
     std::unordered_map<std::string, std::vector<std::string>> extra_module_args_by_source;
@@ -3913,12 +5181,14 @@ int main(int argc, const char **argv) {
             std::vector<std::string> local_dependencies;
 
             MatchFinder finder;
-            finder.addMatcher(
-                traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
-                &collector);
-            finder.addMatcher(
-                traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
-                &fixture_collector);
+            if (!mock_manifest_discovery_only) {
+                finder.addMatcher(
+                    traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
+                    &collector);
+                finder.addMatcher(
+                    traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
+                    &fixture_collector);
+            }
             if (mock_collector.has_value()) {
                 register_mock_matchers(finder, *mock_collector);
             }
@@ -3927,8 +5197,8 @@ int main(int argc, const char **argv) {
 
             ParseResult result;
             result.status             = tool.run(&action_factory);
-            result.had_test_errors    = collector.has_errors();
-            result.had_fixture_errors = fixture_collector.has_errors();
+            result.had_test_errors    = !mock_manifest_discovery_only && collector.has_errors();
+            result.had_fixture_errors = !mock_manifest_discovery_only && fixture_collector.has_errors();
             result.had_mock_errors    = mock_collector.has_value() && mock_collector->has_errors();
             result.cases              = std::move(local_cases);
             result.fixtures           = std::move(local_fixtures);
@@ -4011,11 +5281,14 @@ int main(int argc, const char **argv) {
         std::vector<std::string> depfile_dependencies_local;
 
         MatchFinder finder;
-        finder.addMatcher(traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
-                          &collector);
-        finder.addMatcher(
-            traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
-            &fixture_collector);
+        if (!mock_manifest_discovery_only) {
+            finder.addMatcher(
+                traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
+                &collector);
+            finder.addMatcher(
+                traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
+                &fixture_collector);
+        }
         if (mock_collector.has_value()) {
             register_mock_matchers(finder, *mock_collector);
         }
@@ -4026,7 +5299,8 @@ int main(int argc, const char **argv) {
         if (status != 0) {
             return status;
         }
-        if (collector.has_errors() || fixture_collector.has_errors() || (mock_collector.has_value() && mock_collector->has_errors())) {
+        if ((!mock_manifest_discovery_only && (collector.has_errors() || fixture_collector.has_errors())) ||
+            (mock_collector.has_value() && mock_collector->has_errors())) {
             return 1;
         }
         depfile_dependencies = std::move(depfile_dependencies_local);
@@ -4034,19 +5308,19 @@ int main(int argc, const char **argv) {
 
     merge_duplicate_mocks(mocks);
 
-    if (allow_includes) {
+    if (!mock_manifest_discovery_only && allow_includes) {
         if (!enforce_unique_base_names(cases)) {
             return 1;
         }
     }
 
-    if (!resolve_free_fixtures(cases, fixtures)) {
+    if (!mock_manifest_discovery_only && !resolve_free_fixtures(cases, fixtures)) {
         return 1;
     }
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
 
-    if (!options.check_only && options.output_path.empty() && options.tu_output_dir.empty()) {
+    if (!options.check_only && options.output_path.empty() && options.tu_output_dir.empty() && options.mock_manifest_output_path.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
         return 1;
     }
@@ -4063,13 +5337,91 @@ int main(int argc, const char **argv) {
         gentest::codegen::log_err("gentest_codegen: {}\n", module_wrapper_error);
         return 1;
     }
+    std::string textual_artifact_manifest_error;
+    if (!validate_textual_artifact_manifest_sources(final_options, textual_artifact_manifest_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", textual_artifact_manifest_error);
+        return 1;
+    }
+    std::string module_registration_error;
+    if (!validate_module_registration_outputs(final_options, module_registration_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", module_registration_error);
+        return 1;
+    }
     std::string mock_domain_error;
     if (!gentest::codegen::validate_mock_output_domains(final_options, mock_domain_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
         return 1;
     }
+    if (!options.mock_registration_manifest_path.empty()) {
+        auto manifest = gentest::codegen::mock_manifest::read(options.mock_registration_manifest_path);
+        if (!manifest.error.empty()) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest.error);
+            return 1;
+        }
+
+        std::string manifest_domain_error;
+        if (!validate_manifest_mock_domain_modules(manifest.mocks, manifest.mock_output_domain_modules, manifest_domain_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest_domain_error);
+            return 1;
+        }
+
+        std::map<std::string, std::size_t> registration_module_counts;
+        for (const auto &source : final_options.sources) {
+            const auto module_it = final_options.module_interface_names_by_source.find(source);
+            if (module_it != final_options.module_interface_names_by_source.end() && !module_it->second.empty()) {
+                ++registration_module_counts[module_it->second];
+            }
+        }
+
+        for (const auto &mock : manifest.mocks) {
+            if (mock.definition_kind == gentest::codegen::MockClassInfo::DefinitionKind::HeaderLike) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: --mock-registration-manifest does not support header-like mock '{}' in module registration mode\n",
+                    mock.qualified_name);
+                return 1;
+            }
+            const auto module_count_it = registration_module_counts.find(mock.definition_module_name);
+            if (module_count_it == registration_module_counts.end()) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: mock registration manifest references module '{}' but no module registration input provides it\n",
+                    mock.definition_module_name);
+                return 1;
+            }
+            if (module_count_it->second > 1) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: multiple module registration inputs provide module '{}' for mock registration manifest\n",
+                    mock.definition_module_name);
+                return 1;
+            }
+        }
+        depfile_dependencies.push_back(options.mock_registration_manifest_path.generic_string());
+
+        std::vector<gentest::codegen::MockClassInfo> registration_mocks;
+        registration_mocks.reserve(manifest.mocks.size());
+        for (auto &mock : manifest.mocks) {
+            if (mock.definition_kind == gentest::codegen::MockClassInfo::DefinitionKind::NamedModule) {
+                registration_mocks.push_back(std::move(mock));
+            }
+        }
+        merge_duplicate_mocks(registration_mocks);
+        mocks = std::move(registration_mocks);
+    }
     if (options.check_only) {
         return 0;
+    }
+    if (!options.mock_manifest_output_path.empty()) {
+        std::string manifest_error;
+        const auto  mock_output_domain_modules = mock_domain_modules_from_context(final_options);
+        if (!gentest::codegen::mock_manifest::write(options.mock_manifest_output_path, mocks, mock_output_domain_modules, manifest_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest_error);
+            return 1;
+        }
+        if (mock_manifest_discovery_only) {
+            if (!write_depfile(final_options, depfile_dependencies)) {
+                return 1;
+            }
+            return 0;
+        }
     }
     const int emit_status = gentest::codegen::emit(final_options, cases, fixtures, mocks);
     if (emit_status != 0) {

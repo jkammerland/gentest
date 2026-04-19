@@ -166,6 +166,7 @@ if enable_module_targets then
         gentest_attach_codegen({
             name = "gentest_consumer_module_xmake",
             kind = "modules",
+            module_name = "gentest.consumer_cases",
             source = "tests/consumer/cases.cppm",
             main = "tests/consumer/main.cpp",
             output_dir = path.join(current_gen_root(), "consumer_module"),

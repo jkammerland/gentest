@@ -65,7 +65,7 @@ gentest_check_run_or_fail(
     ${_common_cache_args}
     "-Dgentest_INSTALL=ON"
     "-Dgentest_BUILD_TESTING=OFF"
-    "-DGENTEST_BUILD_CODEGEN=OFF"
+    "-DGENTEST_BUILD_CODEGEN=ON"
     "-DGENTEST_ENABLE_PUBLIC_MODULES=ON"
     "-DCMAKE_INSTALL_PREFIX=${_install_prefix}"
   WORKING_DIRECTORY "${_work_dir}"

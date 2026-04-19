@@ -1,6 +1,7 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelModuleConsumer.cmake: SOURCE_DIR not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
 set(_bazel "")
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
@@ -428,7 +429,11 @@ foreach(_expected_file IN ITEMS
     "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.module.gentest.cppm"
     "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.gentest.h"
     "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.module.gentest.cppm"
-    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h")
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/suite_0000.cppm"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/tu_0000_suite_0000.gentest.h"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
       "Bazel module mock target build did not produce expected mockgen artifact '${_expected_file}'.\n"
@@ -436,6 +441,13 @@ foreach(_expected_file IN ITEMS
       "stderr:\n${_build_err}")
   endif()
 endforeach()
+
+gentest_expect_module_artifact_manifest(
+  "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json"
+  "gentest.consumer_cases"
+  "gentest_consumer_module_bazel:"
+  "suite_0000.cppm"
+  "gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp")
 
 execute_process(
   COMMAND "${_consumer_binary}" --list

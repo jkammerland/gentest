@@ -2469,6 +2469,62 @@ gentest_add_cmake_script_test(
 set_property(TEST gentest_codegen_check_cmake_fixture_build_build_config APPEND PROPERTY LABELS "cmake;codegen")
 
 gentest_add_cmake_script_test(
+    NAME gentest_codegen_genex_compile_definitions
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/genex_compile_definitions_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/genex_compile_definitions"
+        "TARGET_NAME=genex_compile_definitions"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "BUILD_CONFIG=${_gentest_fixture_build_config}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+set_property(TEST gentest_codegen_genex_compile_definitions APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_scan_macro_args
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckScanMacroArgs.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/scan_macro_args_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+set_property(TEST gentest_scan_macro_args APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_genex_compile_definitions_multiconfig
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/genex_compile_definitions_multiconfig_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/genex_compile_definitions"
+        "TARGET_NAME=genex_compile_definitions"
+        "GENERATOR=Ninja Multi-Config"
+        "BUILD_CONFIG=Release"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+set_property(TEST gentest_codegen_genex_compile_definitions_multiconfig APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
     NAME gentest_codegen_legacy_wrapper_impls_template_rejected
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
@@ -2524,6 +2580,43 @@ _gentest_add_cmake_helper_test(
     -DCODEGEN_STD=${_gentest_codegen_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_cli_validation_warnings APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_legacy_manifest_mode_warnings
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckLegacyManifestModeWarnings.cmake
+    cmake
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_legacy_manifest_mode_warnings APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_manifest_split
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockManifestSplit.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_mock_manifest_split APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_module_mock_registration_manifest
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMockRegistrationManifest.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_module_mock_registration_manifest APPEND PROPERTY LABELS "codegen;modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_artifact_protocol_direct_invocation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckArtifactProtocolDirectInvocation.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_artifact_protocol_direct_invocation APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_response_file_expansion
@@ -2763,6 +2856,30 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_auto_discovery APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_registration_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationManifest.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_manifest APPEND PROPERTY LABELS "modules;codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_registration_mock_split
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_mock_split
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationMockSplit.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_mock_split APPEND PROPERTY LABELS "modules;codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_textual_wrapper_artifact_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/textual_wrapper_artifact_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTextualWrapperArtifactManifest.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_textual_wrapper_artifact_manifest APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMultilineDirectiveFailure.cmake
@@ -2785,6 +2902,15 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_module_cpp_source APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_cpp_source_in_tree_codegen
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_cpp_source
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleCppSource.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DNO_EXPLICIT_CODEGEN=ON)
+set_property(TEST gentest_module_cpp_source_in_tree_codegen APPEND PROPERTY LABELS "modules;codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_module_first_classic_order

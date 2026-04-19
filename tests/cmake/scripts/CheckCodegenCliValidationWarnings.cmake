@@ -24,12 +24,28 @@ if(NOT EXISTS "${_smoke_source}")
 endif()
 set(_module_smoke_dir "${BUILD_ROOT}/cli_validation_module_fixture")
 set(_module_smoke_source "${_module_smoke_dir}/cases.cppm")
+set(_module_partition_source "${_module_smoke_dir}/partition.cppm")
+set(_module_pmf_source "${_module_smoke_dir}/pmf.cppm")
 file(MAKE_DIRECTORY "${_module_smoke_dir}")
 file(WRITE "${_module_smoke_source}" [=[
 export module gentest.cli.validation;
 
 [[using gentest: test("cli/module_wrapper_output_required")]]
 void module_wrapper_output_required_case() {}
+]=])
+file(WRITE "${_module_partition_source}" [=[
+export module gentest.cli.validation:partition;
+
+[[using gentest: test("cli/module_registration_partition_rejected")]]
+void module_registration_partition_rejected_case() {}
+]=])
+file(WRITE "${_module_pmf_source}" [=[
+export module gentest.cli.validation.pmf;
+
+[[using gentest: test("cli/module_registration_pmf_rejected")]]
+void module_registration_pmf_rejected_case() {}
+
+module :private;
 ]=])
 
 set(_clang_args)
@@ -85,6 +101,15 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
+  "output cannot combine with tu out dir"
+  1
+  "gentest_codegen: --output cannot be combined with --tu-out-dir"
+  "${PROG}"
+  --output "${BUILD_ROOT}/manifest.cpp"
+  --tu-out-dir "${BUILD_ROOT}/tu-mode"
+  ${_common_args})
+
+_gentest_expect_result(
   "tu header output count mismatch"
   1
   "gentest_codegen: expected 1 --tu-header-output value(s) for 1 input source(s), got 2"
@@ -121,6 +146,136 @@ _gentest_expect_result(
   --compdb "${_compdb_root}"
   --tu-out-dir "${BUILD_ROOT}/missing-module-wrapper"
   "${_module_smoke_source}"
+  --
+  ${_clang_args})
+
+_gentest_expect_result(
+  "module registration output requires tu out dir"
+  1
+  "gentest_codegen: --module-registration-output requires --tu-out-dir"
+  "${PROG}"
+  --module-registration-output "${BUILD_ROOT}/unused.registration.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "module registration output count mismatch"
+  1
+  "gentest_codegen: expected 1 --module-registration-output value(s) for 1 input source(s), got 2"
+  "${PROG}"
+  --tu-out-dir "${BUILD_ROOT}/unused-module-registrations"
+  --module-registration-output "${BUILD_ROOT}/a.registration.gentest.cpp"
+  --module-registration-output "${BUILD_ROOT}/b.registration.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "module registration output cannot combine with wrapper output"
+  1
+  "gentest_codegen: --module-registration-output cannot be combined with --module-wrapper-output"
+  "${PROG}"
+  --tu-out-dir "${BUILD_ROOT}/mixed-module-outputs"
+  --module-wrapper-output "${BUILD_ROOT}/a.module.gentest.cpp"
+  --module-registration-output "${BUILD_ROOT}/a.registration.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "compile context id count mismatch"
+  1
+  "gentest_codegen: expected 1 --compile-context-id value(s) for 1 input source(s), got 2"
+  "${PROG}"
+  --compile-context-id a
+  --compile-context-id b
+  ${_common_args})
+
+_gentest_expect_result(
+  "artifact owner source requires tu out dir"
+  1
+  "gentest_codegen: --artifact-owner-source requires --tu-out-dir"
+  "${PROG}"
+  --artifact-manifest "${BUILD_ROOT}/unused.artifact_manifest.json"
+  --artifact-owner-source "${_smoke_source}"
+  ${_common_args})
+
+set(_empty_textual_manifest "${BUILD_ROOT}/empty-textual-artifact-manifest-dir/manifest.json")
+execute_process(
+  COMMAND "${PROG}"
+    --compdb "${_compdb_root}"
+    --tu-out-dir "${BUILD_ROOT}/empty-textual-artifact-owner"
+    --artifact-manifest "${_empty_textual_manifest}"
+    "${_smoke_source}"
+    --
+    ${_clang_args}
+  RESULT_VARIABLE _empty_textual_manifest_rc
+  OUTPUT_VARIABLE _empty_textual_manifest_out
+  ERROR_VARIABLE _empty_textual_manifest_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _empty_textual_manifest_rc EQUAL 0)
+  message(FATAL_ERROR
+    "textual artifact manifest without owner source should preserve the old empty-manifest behavior.\n"
+    "--- stdout ---\n${_empty_textual_manifest_out}\n--- stderr ---\n${_empty_textual_manifest_err}")
+endif()
+if(NOT EXISTS "${_empty_textual_manifest}")
+  message(FATAL_ERROR "Expected empty textual artifact manifest '${_empty_textual_manifest}'")
+endif()
+file(READ "${_empty_textual_manifest}" _empty_textual_manifest_json)
+foreach(_expected_empty_manifest_token IN ITEMS "\"sources\": []" "\"artifacts\": []")
+  string(FIND "${_empty_textual_manifest_json}" "${_expected_empty_manifest_token}" _empty_manifest_pos)
+  if(_empty_manifest_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected empty textual manifest token '${_expected_empty_manifest_token}'.\n"
+      "${_empty_textual_manifest_json}")
+  endif()
+endforeach()
+
+_gentest_expect_result(
+  "artifact owner source count mismatch"
+  1
+  "gentest_codegen: expected 1 --artifact-owner-source value(s) for 1 input source(s), got 2"
+  "${PROG}"
+  --tu-out-dir "${BUILD_ROOT}/artifact-owner-count"
+  --artifact-manifest "${BUILD_ROOT}/artifact-owner-count.json"
+  --artifact-owner-source "${_smoke_source}"
+  --artifact-owner-source "${_module_smoke_source}"
+  ${_common_args})
+
+_gentest_expect_result(
+  "textual artifact manifest rejects named module wrapper source"
+  1
+  "gentest_codegen: textual artifact manifests cannot describe named module source '${_module_smoke_source}'; use --module-registration-output"
+  "${PROG}"
+  --check
+  --compdb "${_compdb_root}"
+  --tu-out-dir "${BUILD_ROOT}/artifact-owner-module-wrapper"
+  --module-wrapper-output "${BUILD_ROOT}/artifact-owner-module-wrapper/a.module.gentest.cpp"
+  --artifact-manifest "${BUILD_ROOT}/artifact-owner-module-wrapper.json"
+  --artifact-owner-source "${_module_smoke_source}"
+  "${_module_smoke_source}"
+  --
+  ${_clang_args})
+
+_gentest_expect_result(
+  "module registration rejects partitions"
+  1
+  "gentest_codegen: module registration input '${_module_partition_source}' declares module partition 'gentest.cli.validation:partition'"
+  "${PROG}"
+  --check
+  --compdb "${_compdb_root}"
+  --tu-out-dir "${BUILD_ROOT}/partition-module-registration"
+  --module-registration-output "${BUILD_ROOT}/partition-module-registration/partition.registration.gentest.cpp"
+  "${_module_partition_source}"
+  --
+  ${_clang_args})
+
+_gentest_expect_result(
+  "module registration rejects private module fragments"
+  1
+  "gentest_codegen: module registration input '${_module_pmf_source}' contains a private module fragment"
+  "${PROG}"
+  --check
+  --compdb "${_compdb_root}"
+  --tu-out-dir "${BUILD_ROOT}/pmf-module-registration"
+  --module-registration-output "${BUILD_ROOT}/pmf-module-registration/pmf.registration.gentest.cpp"
+  "${_module_pmf_source}"
   --
   ${_clang_args})
 

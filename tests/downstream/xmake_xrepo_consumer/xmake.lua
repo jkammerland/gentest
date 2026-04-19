@@ -146,6 +146,7 @@ target("gentest_xrepo_module")
     gentest_attach_codegen({
         name = "gentest_xrepo_module",
         kind = "modules",
+        module_name = "downstream.xrepo.consumer_cases",
         source = "tests/cases.cppm",
         main = "tests/main.cpp",
         output_dir = path.join(current_gen_root(), fixture_output_leaf("consumer_module", "m")),

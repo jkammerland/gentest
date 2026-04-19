@@ -1353,6 +1353,27 @@ inline bool is_preprocessor_directive_scan_line(std::string_view line) { return 
 
 inline bool is_global_module_fragment_scan_line(std::string_view line) { return normalize_scan_directive_line(line) == "module;"; }
 
+inline bool is_private_module_fragment_scan_line(std::string_view line) {
+    const std::string normalized = normalize_scan_directive_line(line);
+    std::string_view  cursor     = normalized;
+    if (!consume_scan_keyword(cursor, "module")) {
+        return false;
+    }
+
+    cursor = ltrim_ascii_view(cursor);
+    if (cursor.empty() || cursor.front() != ':') {
+        return false;
+    }
+
+    const auto semi = cursor.find(';');
+    if (semi == std::string_view::npos) {
+        return false;
+    }
+
+    const auto module_name = canonicalize_scan_module_name(cursor.substr(0, semi), true);
+    return module_name.has_value() && *module_name == ":private";
+}
+
 inline bool looks_like_named_module_scan_prefix(std::string_view line) {
     const std::string normalized = normalize_scan_directive_line(line);
     std::string_view  cursor     = normalized;

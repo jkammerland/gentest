@@ -30,7 +30,12 @@ file(READ "${_meson_file}" _meson_content)
 foreach(_expected IN ITEMS
     "gentest_consumer_textual_meson"
     "Meson named-module support is"
-    "wrapper_template = files('meson/tu_wrapper.cpp.in')")
+    "wrapper_template = files('meson/tu_wrapper.cpp.in')"
+    "'--depfile'"
+    "'--artifact-manifest'"
+    "'--artifact-owner-source'"
+    "'--compile-context-id'"
+    "depfile:")
   string(FIND "${_meson_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "meson.build is missing expected repo-local textual wiring token: ${_expected}")
@@ -48,6 +53,7 @@ foreach(_expected IN ITEMS
     "kind = \"modules\""
     "defs_modules = {\"gentest.consumer_service\", \"gentest.consumer_mock_defs\"}"
     "module_name = \"gentest.consumer_mocks\""
+    "module_name = \"gentest.consumer_cases\""
     "GENTEST_CONSUMER_USE_MODULES=1")
   string(FIND "${_xmake_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
@@ -62,6 +68,11 @@ foreach(_expected IN ITEMS
     "kind == \"modules\""
     "requires `defs_modules` with one explicit module name per defs file"
     "module_public_output_rel"
+    "module_registration_output_rel"
+    "\"--module-registration-output\""
+    "\"--artifact-manifest\""
+    "\"--artifact-owner-source\""
+    "\"--compile-context-id\""
     "registered_target_metadata()"
     "collect_mock_metadata_inputs")
   string(FIND "${_xmake_helper_content}" "${_expected}" _expected_pos)
@@ -83,7 +94,13 @@ foreach(_expected IN ITEMS
     "ctx.actions.expand_template("
     "ctx.actions.write("
     "use_default_shell_env = True"
+    "_gentest_module_registration_relpath"
+    "\"--module-registration-output\""
+    "\"--artifact-manifest\""
+    "\"--artifact-owner-source\""
+    "\"--compile-context-id\""
     "defs_modules"
+    "output_group = \"artifact_manifests\""
     "features = [\"cpp_modules\"]")
   string(FIND "${_bazel_rules_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)

@@ -255,7 +255,8 @@ foreach(_expected IN ITEMS
     "gentest"
     "GENTEST_CONSUMER_USE_MODULES=1"
     "tests/consumer/main.cpp"
-    "tu_0000_cases.module.gentest.cppm")
+    "tests/consumer/cases.cppm"
+    "tu_0000_cases.registration.gentest.cpp")
   string(FIND "${_module_target_out_norm}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR

@@ -21,6 +21,12 @@ The contract is still explicit 2-step codegen:
 1. add mocks
 2. attach suite codegen
 
+For module suites, `gentest_attach_codegen({ kind = "modules", ... })` requires
+an explicit `module_name`. Xmake keeps the authored `.cppm` in the module build
+and adds a generated same-module registration implementation source plus a
+`<target>.artifact_manifest.json` product. The helper predeclares those files
+for Xmake, then `gentest_codegen` fills and classifies them.
+
 For module consumers, `gentest_add_public_modules({...})` is the shared owner of
 the installed `gentest`, `gentest.mock`, and `gentest.bench_util` module files.
 Downstream module mock and suite targets can then set
@@ -136,6 +142,7 @@ target("gentest_xrepo_module")
     gentest_attach_codegen({
         name = "gentest_xrepo_module",
         kind = "modules",
+        module_name = "downstream.xrepo.consumer_cases",
         source = "tests/cases.cppm",
         main = "tests/main.cpp",
         output_dir = path.join(current_gen_root(), "consumer_module"),
@@ -192,12 +199,21 @@ The downstream proof in
 - configures a fixture-local xrepo repository that consumes that staged prefix
 - builds textual mock target + textual consumer
 - builds module public-module provider + module mocks + module consumer
-- verifies generated mock/codegen artifacts
+- verifies generated mock/codegen artifacts, including module registration
+  sources and artifact manifests
 - runs the consumer test/mock/bench/jitter surface
+
+## Validated platforms
+
+CI validates the Xmake downstream path on Ubuntu 24.04 and Fedora 43. Windows
+and macOS commands in this guide document the intended native setup; they are
+not yet separate non-CMake CI lanes.
 
 ## Limitations
 
 - Module consumers still require a Clang target toolchain in Xmake.
+- Module suite helpers require callers to provide the authored module name
+  explicitly.
 - The public-module provider step is required for installed-prefix module users;
   that ownership is not inferred automatically.
 - The current package shape is validated through the checked-in fixture-local

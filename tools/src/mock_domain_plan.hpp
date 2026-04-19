@@ -7,6 +7,7 @@
 #include <fmt/format.h>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace gentest::codegen {
@@ -37,8 +38,24 @@ struct MockOutputDomainPlan {
         return domains;
     }
 
+    auto append_module_domain = [&](std::set<std::string> &seen_modules, std::string module_name) {
+        if (module_name.empty() || !seen_modules.insert(module_name).second) {
+            return;
+        }
+        domains.push_back(MockOutputDomainPlan{
+            .kind        = MockOutputDomainPlan::Kind::NamedModule,
+            .module_name = std::move(module_name),
+        });
+    };
+
     std::set<std::string> seen_modules;
-    std::size_t           idx = 1;
+    if (!options.mock_output_domain_modules.empty()) {
+        for (const auto &module_name : options.mock_output_domain_modules) {
+            append_module_domain(seen_modules, module_name);
+        }
+        return domains;
+    }
+
     for (const auto &source : options.sources) {
         std::optional<std::string> module_name;
         if (const auto it = options.module_interface_names_by_source.find(source); it != options.module_interface_names_by_source.end()) {
@@ -46,15 +63,9 @@ struct MockOutputDomainPlan {
         } else {
             module_name = scan::named_module_name_from_source_file(std::filesystem::path(source));
         }
-        if (!module_name.has_value() || !seen_modules.insert(*module_name).second) {
-            continue;
+        if (module_name.has_value()) {
+            append_module_domain(seen_modules, std::move(*module_name));
         }
-
-        domains.push_back(MockOutputDomainPlan{
-            .kind        = MockOutputDomainPlan::Kind::NamedModule,
-            .module_name = *module_name,
-        });
-        ++idx;
     }
 
     return domains;
