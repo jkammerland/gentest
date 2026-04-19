@@ -108,7 +108,14 @@ struct ModuleSourceShape {
     bool                       has_private_module_fragment = false;
 };
 
-std::optional<std::string> get_env_value(std::string_view name);
+std::optional<std::string>           get_env_value(std::string_view name);
+std::string                          normalize_compdb_lookup_path(std::string_view path, std::string_view directory);
+clang::tooling::CommandLineArguments expand_compile_command_response_files(const clang::tooling::CommandLineArguments &command_line,
+                                                                           std::string_view                            working_directory,
+                                                                           bool skip_module_map_response_files);
+std::vector<std::filesystem::path>
+scan_include_search_paths_from_compile_commands(const std::vector<clang::tooling::CompileCommand> &commands,
+                                                const std::filesystem::path                       &source_path);
 
 template <typename T> void ignore_cleanup_result([[maybe_unused]] T &&result) {}
 
@@ -508,25 +515,35 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
 }
 
 struct ArtifactManifestValidationOptions {
-    std::filesystem::path    manifest;
-    std::filesystem::path    stamp;
-    std::vector<std::string> expected_sources;
-    std::vector<std::string> expected_source_kinds;
-    std::vector<std::string> expected_registration_outputs;
-    std::vector<std::string> expected_headers;
-    std::vector<std::string> expected_compile_context_ids;
-    std::vector<std::string> expected_owner_sources;
-    std::vector<std::string> expected_source_registration_outputs;
-    std::vector<std::string> expected_modules;
-    std::string              expected_include_dir;
-    std::string              expected_depfile;
-    std::string              expected_target_attachment;
-    std::string              expected_artifact_role;
-    std::string              expected_compile_as;
-    std::optional<bool>      expected_requires_module_scan;
-    std::optional<bool>      expected_includes_owner_source;
-    std::optional<bool>      expected_replaces_owner_source;
+    std::filesystem::path                                               manifest;
+    std::filesystem::path                                               stamp;
+    std::filesystem::path                                               compilation_database;
+    std::vector<std::string>                                            expected_sources;
+    std::vector<std::string>                                            expected_source_kinds;
+    std::vector<std::string>                                            expected_registration_outputs;
+    std::vector<std::string>                                            expected_headers;
+    std::vector<std::string>                                            expected_compile_context_ids;
+    std::vector<std::string>                                            expected_owner_sources;
+    std::vector<std::string>                                            expected_source_registration_outputs;
+    std::vector<std::string>                                            expected_modules;
+    std::unordered_map<std::string, std::vector<std::filesystem::path>> expected_source_scan_include_dirs;
+    std::unordered_map<std::string, std::vector<std::string>>           expected_source_scan_args;
+    std::string                                                         expected_include_dir;
+    std::string                                                         expected_depfile;
+    std::string                                                         expected_target_attachment;
+    std::string                                                         expected_artifact_role;
+    std::string                                                         expected_compile_as;
+    std::optional<bool>                                                 expected_requires_module_scan;
+    std::optional<bool>                                                 expected_includes_owner_source;
+    std::optional<bool>                                                 expected_replaces_owner_source;
 };
+
+struct ArtifactManifestSourceScanContext {
+    std::vector<std::filesystem::path> include_dirs;
+    std::vector<std::string>           command_line;
+};
+
+using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, ArtifactManifestSourceScanContext>;
 
 [[nodiscard]] std::string lower_ascii_copy(std::string_view value) {
     std::string out;
@@ -557,6 +574,18 @@ struct ArtifactManifestValidationOptions {
     }
     if (idx + 1 >= argc) {
         error = fmt::format("option '{}' requires a value", arg);
+        return false;
+    }
+    ++idx;
+    out = argv[idx] ? std::string{argv[idx]} : std::string{};
+    return true;
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+[[nodiscard]] bool take_separate_cli_value(int argc, const char **argv, int &idx, std::string_view option, std::string &out,
+                                           std::string &error) {
+    if (idx + 1 >= argc) {
+        error = fmt::format("option '{}' requires a value", option);
         return false;
     }
     ++idx;
@@ -602,6 +631,34 @@ struct ArtifactManifestValidationOptions {
         }
         return true;
     };
+    auto parse_source_scan_include_dir_option = [&](int &idx, std::string_view raw_arg) -> bool {
+        std::string source;
+        std::string include_dir;
+        if (const auto eq = raw_arg.find('='); eq != std::string_view::npos) {
+            source = std::string{raw_arg.substr(eq + 1)};
+        } else if (!take_separate_cli_value(argc, argv, idx, "--expected-source-scan-include-dir", source, error)) {
+            return false;
+        }
+        if (!take_separate_cli_value(argc, argv, idx, "--expected-source-scan-include-dir", include_dir, error)) {
+            return false;
+        }
+        options.expected_source_scan_include_dirs[source].emplace_back(include_dir);
+        return true;
+    };
+    auto parse_source_scan_arg_option = [&](int &idx, std::string_view raw_arg) -> bool {
+        std::string source;
+        std::string scan_arg;
+        if (const auto eq = raw_arg.find('='); eq != std::string_view::npos) {
+            source = std::string{raw_arg.substr(eq + 1)};
+        } else if (!take_separate_cli_value(argc, argv, idx, "--expected-source-scan-arg", source, error)) {
+            return false;
+        }
+        if (!take_separate_cli_value(argc, argv, idx, "--expected-source-scan-arg", scan_arg, error)) {
+            return false;
+        }
+        options.expected_source_scan_args[source].push_back(std::move(scan_arg));
+        return true;
+    };
 
     for (int idx = 1; idx < argc; ++idx) {
         const std::string_view raw_arg = argv[idx] ? std::string_view{argv[idx]} : std::string_view{};
@@ -612,6 +669,10 @@ struct ArtifactManifestValidationOptions {
             }
         } else if (arg == "--stamp") {
             if (!parse_path_option(options.stamp, idx)) {
+                return false;
+            }
+        } else if (arg == "--compdb") {
+            if (!parse_path_option(options.compilation_database, idx)) {
                 return false;
             }
         } else if (arg == "--expected-source") {
@@ -644,6 +705,14 @@ struct ArtifactManifestValidationOptions {
             }
         } else if (arg == "--expected-module") {
             if (!parse_list_option(options.expected_modules, idx)) {
+                return false;
+            }
+        } else if (arg == "--expected-source-scan-include-dir") {
+            if (!parse_source_scan_include_dir_option(idx, raw_arg)) {
+                return false;
+            }
+        } else if (arg == "--expected-source-scan-arg") {
+            if (!parse_source_scan_arg_option(idx, raw_arg)) {
                 return false;
             }
         } else if (arg == "--expected-include-dir") {
@@ -924,9 +993,80 @@ struct ArtifactManifestValidationOptions {
     return true;
 }
 
+[[nodiscard]] bool build_artifact_manifest_source_scan_contexts(const ArtifactManifestValidationOptions &options,
+                                                                ArtifactManifestSourceScanContexts &contexts, std::string &error) {
+    if (options.compilation_database.empty()) {
+        return true;
+    }
+
+    std::string db_error;
+    auto        database = clang::tooling::CompilationDatabase::loadFromDirectory(options.compilation_database.string(), db_error);
+    if (!database) {
+        error = fmt::format("failed to load compilation database at '{}': {}", options.compilation_database.string(), db_error);
+        return false;
+    }
+
+    std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> commands_by_file;
+    for (const auto &command : database->getAllCompileCommands()) {
+        const std::string key = normalize_compdb_lookup_path(command.Filename, command.Directory);
+        if (!key.empty()) {
+            commands_by_file[key].push_back(command);
+        }
+    }
+
+    for (std::size_t idx = 0; idx < options.expected_sources.size(); ++idx) {
+        const auto                                 &source = options.expected_sources[idx];
+        std::vector<clang::tooling::CompileCommand> commands;
+        const auto                                  source_key = normalize_compdb_lookup_path(source, {});
+        if (const auto direct_it = commands_by_file.find(source_key); direct_it != commands_by_file.end()) {
+            commands = direct_it->second;
+        }
+        if (commands.empty()) {
+            commands = database->getCompileCommands(source);
+        }
+        if (commands.empty()) {
+            if (options.expected_source_kinds[idx] != "textual-wrapper") {
+                error = fmt::format("compilation database '{}' has no command for expected source '{}'",
+                                    options.compilation_database.string(), source);
+                return false;
+            }
+            continue;
+        }
+
+        for (auto &command : commands) {
+            command.CommandLine = expand_compile_command_response_files(command.CommandLine, command.Directory, true);
+        }
+
+        ArtifactManifestSourceScanContext context;
+        context.include_dirs = scan_include_search_paths_from_compile_commands(commands, std::filesystem::path{source});
+        context.command_line = commands.front().CommandLine;
+
+        const auto insert_scan_arg = [&] {
+            if (context.command_line.empty()) {
+                return context.command_line.begin();
+            }
+            return std::next(context.command_line.begin());
+        };
+        if (const auto include_dirs_it = options.expected_source_scan_include_dirs.find(source);
+            include_dirs_it != options.expected_source_scan_include_dirs.end()) {
+            for (const auto &include_dir : include_dirs_it->second) {
+                gentest::codegen::scan::append_unique_scan_path(context.include_dirs, include_dir);
+            }
+        }
+        if (const auto scan_args_it = options.expected_source_scan_args.find(source);
+            scan_args_it != options.expected_source_scan_args.end()) {
+            context.command_line.insert(insert_scan_arg(), scan_args_it->second.begin(), scan_args_it->second.end());
+        }
+
+        contexts[source] = std::move(context);
+    }
+
+    return true;
+}
+
 [[nodiscard]] bool validate_module_manifest_entry_pair(const llvm::json::Object &source, const llvm::json::Object &artifact,
                                                        const ArtifactManifestValidationOptions &options, std::size_t idx,
-                                                       std::string &error) {
+                                                       const ArtifactManifestSourceScanContexts &source_scan_contexts, std::string &error) {
     if (options.expected_source_kinds[idx] == "textual-wrapper") {
         return true;
     }
@@ -941,7 +1081,23 @@ struct ArtifactManifestValidationOptions {
         error = fmt::format("gentest artifact manifest {}.module must not be empty", source_location);
         return false;
     }
-    const auto discovered_module = named_module_name_from_source_file(std::filesystem::path{options.expected_sources[idx]});
+    std::vector<std::filesystem::path> include_dirs;
+    std::vector<std::string>           scan_args;
+    if (const auto context_it = source_scan_contexts.find(options.expected_sources[idx]); context_it != source_scan_contexts.end()) {
+        include_dirs = context_it->second.include_dirs;
+        scan_args    = context_it->second.command_line;
+    } else {
+        if (const auto include_dirs_it = options.expected_source_scan_include_dirs.find(options.expected_sources[idx]);
+            include_dirs_it != options.expected_source_scan_include_dirs.end()) {
+            include_dirs = include_dirs_it->second;
+        }
+        if (const auto scan_args_it = options.expected_source_scan_args.find(options.expected_sources[idx]);
+            scan_args_it != options.expected_source_scan_args.end()) {
+            scan_args = scan_args_it->second;
+        }
+    }
+    const auto discovered_module =
+        named_module_name_from_source_file(std::filesystem::path{options.expected_sources[idx]}, include_dirs, scan_args);
     if (!discovered_module.has_value()) {
         error = fmt::format("gentest artifact manifest {}.module could not be checked because source '{}' has no named module declaration",
                             source_location, options.expected_sources[idx]);
@@ -1074,6 +1230,11 @@ struct ArtifactManifestValidationOptions {
         return false;
     }
 
+    ArtifactManifestSourceScanContexts source_scan_contexts;
+    if (!build_artifact_manifest_source_scan_contexts(options, source_scan_contexts, error)) {
+        return false;
+    }
+
     for (std::size_t idx = 0; idx < expected_count; ++idx) {
         const auto *source = (*sources)[idx].getAsObject();
         if (source == nullptr) {
@@ -1092,7 +1253,7 @@ struct ArtifactManifestValidationOptions {
         if (!validate_artifact_manifest_entry(*artifact, options, idx, error)) {
             return false;
         }
-        if (!validate_module_manifest_entry_pair(*source, *artifact, options, idx, error)) {
+        if (!validate_module_manifest_entry_pair(*source, *artifact, options, idx, source_scan_contexts, error)) {
             return false;
         }
     }

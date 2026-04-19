@@ -1573,8 +1573,10 @@ endfunction()
 function(_gentest_make_artifact_manifest_validation_args)
     set(one_value_args
         MANIFEST STAMP INCLUDE_DIR DEPFILE TARGET_ATTACHMENT ARTIFACT_ROLE COMPILE_AS REQUIRES_MODULE_SCAN
-        INCLUDES_OWNER_SOURCE REPLACES_OWNER_SOURCE OUT_ARGS)
-    set(multi_value_args SOURCES SOURCE_KINDS REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS OWNER_SOURCES SOURCE_REGISTRATION_OUTPUTS)
+        INCLUDES_OWNER_SOURCE REPLACES_OWNER_SOURCE COMPDB OUT_ARGS)
+    set(multi_value_args
+        SOURCES SOURCE_KINDS REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS OWNER_SOURCES SOURCE_REGISTRATION_OUTPUTS
+        SCAN_CONTEXT_ARGS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     set(_gentest_args
@@ -1587,6 +1589,9 @@ function(_gentest_make_artifact_manifest_validation_args)
         --expected-artifact-role "${GENTEST_ARTIFACT_ROLE}"
         --expected-compile-as "${GENTEST_COMPILE_AS}"
         --expected-requires-module-scan "${GENTEST_REQUIRES_MODULE_SCAN}")
+    if(GENTEST_COMPDB)
+        list(APPEND _gentest_args --compdb "${GENTEST_COMPDB}")
+    endif()
     if(DEFINED GENTEST_INCLUDES_OWNER_SOURCE)
         list(APPEND _gentest_args --expected-includes-owner-source "${GENTEST_INCLUDES_OWNER_SOURCE}")
     endif()
@@ -1604,6 +1609,9 @@ function(_gentest_make_artifact_manifest_validation_args)
     if(GENTEST_SOURCE_REGISTRATION_OUTPUTS)
         _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source-registration-output"
             ${GENTEST_SOURCE_REGISTRATION_OUTPUTS})
+    endif()
+    if(GENTEST_SCAN_CONTEXT_ARGS)
+        list(APPEND _gentest_args ${GENTEST_SCAN_CONTEXT_ARGS})
     endif()
 
     set(${GENTEST_OUT_ARGS} "${_gentest_args}" PARENT_SCOPE)
@@ -1795,7 +1803,7 @@ function(_gentest_collect_scan_include_dirs target source out_dirs)
 
     foreach(_gentest_prop IN ITEMS INCLUDE_DIRECTORIES SYSTEM_INCLUDE_DIRECTORIES)
         get_target_property(_gentest_prop_values ${target} ${_gentest_prop})
-        if(NOT _gentest_prop_values STREQUAL "NOTFOUND")
+        if(NOT _gentest_prop_values STREQUAL "NOTFOUND" AND NOT _gentest_prop_values MATCHES "-NOTFOUND$")
             foreach(_gentest_dir IN LISTS _gentest_prop_values)
                 if("${_gentest_dir}" MATCHES "\\$<")
                     continue()
@@ -1807,7 +1815,7 @@ function(_gentest_collect_scan_include_dirs target source out_dirs)
     endforeach()
 
     get_source_file_property(_gentest_source_include_dirs "${source}" INCLUDE_DIRECTORIES)
-    if(NOT _gentest_source_include_dirs STREQUAL "NOTFOUND")
+    if(NOT _gentest_source_include_dirs STREQUAL "NOTFOUND" AND NOT _gentest_source_include_dirs MATCHES "-NOTFOUND$")
         foreach(_gentest_dir IN LISTS _gentest_source_include_dirs)
             if("${_gentest_dir}" MATCHES "\\$<")
                 continue()
@@ -1948,9 +1956,52 @@ function(_gentest_collect_scan_macro_args_from_sequence out_args out_has_genex)
 endfunction()
 
 function(_gentest_collect_scan_macro_args target source out_args out_has_genex)
+    set(_gentest_definition_props COMPILE_DEFINITIONS)
+    set(_gentest_configs "")
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(_gentest_configs ${CMAKE_CONFIGURATION_TYPES})
+    elseif(CMAKE_BUILD_TYPE)
+        set(_gentest_configs ${CMAKE_BUILD_TYPE})
+    endif()
+    foreach(_cfg IN LISTS _gentest_configs)
+        string(TOUPPER "${_cfg}" _cfg_upper)
+        list(APPEND _gentest_definition_props "COMPILE_DEFINITIONS_${_cfg_upper}")
+    endforeach()
+    list(REMOVE_DUPLICATES _gentest_definition_props)
+
+    set(_gentest_args "")
+    set(_gentest_has_genex FALSE)
+    foreach(_gentest_prop IN LISTS _gentest_definition_props)
+        get_target_property(_gentest_target_defs ${target} ${_gentest_prop})
+        if(NOT _gentest_target_defs STREQUAL "NOTFOUND" AND NOT _gentest_target_defs MATCHES "-NOTFOUND$")
+            foreach(_gentest_def IN LISTS _gentest_target_defs)
+                if("${_gentest_def}" MATCHES "\\$<")
+                    set(_gentest_has_genex TRUE)
+                    continue()
+                endif()
+                list(APPEND _gentest_args "-D${_gentest_def}")
+            endforeach()
+        endif()
+
+        get_source_file_property(_gentest_source_defs "${source}" ${_gentest_prop})
+        if(NOT _gentest_source_defs STREQUAL "NOTFOUND" AND NOT _gentest_source_defs MATCHES "-NOTFOUND$")
+            foreach(_gentest_def IN LISTS _gentest_source_defs)
+                if("${_gentest_def}" MATCHES "\\$<")
+                    set(_gentest_has_genex TRUE)
+                    continue()
+                endif()
+                list(APPEND _gentest_args "-D${_gentest_def}")
+            endforeach()
+        endif()
+    endforeach()
+
     _gentest_collect_scan_macro_args_from_sequence(_gentest_argn_args _gentest_argn_has_genex ${ARGN})
-    set(${out_args} "${_gentest_argn_args}" PARENT_SCOPE)
-    set(${out_has_genex} "${_gentest_argn_has_genex}" PARENT_SCOPE)
+    list(APPEND _gentest_args ${_gentest_argn_args})
+    if(_gentest_argn_has_genex)
+        set(_gentest_has_genex TRUE)
+    endif()
+    set(${out_args} "${_gentest_args}" PARENT_SCOPE)
+    set(${out_has_genex} "${_gentest_has_genex}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets)
@@ -2263,6 +2314,7 @@ function(gentest_attach_codegen target)
     set(_gentest_tus "")
     set(_gentest_tu_source_entries "")
     set(_gentest_module_names "")
+    set(_gentest_manifest_validation_scan_context_args "")
     set(_gentest_skipped_genex_sources "")
     foreach(_gentest_src IN LISTS _gentest_scan_sources)
         if("${_gentest_src}" MATCHES "\\$<")
@@ -2279,6 +2331,16 @@ function(gentest_attach_codegen target)
             ${_gentest_source_inspection_system_include_args})
         _gentest_collect_scan_macro_args(${target} "${_gentest_src}" _gentest_scan_macro_args _gentest_scan_macro_has_genex
             ${_gentest_source_inspection_clang_args})
+        if(GENTEST_MODULE_REGISTRATION)
+            foreach(_gentest_scan_include_dir IN LISTS _gentest_scan_include_dirs)
+                list(APPEND _gentest_manifest_validation_scan_context_args
+                    --expected-source-scan-include-dir "${_gentest_src_abs}" "${_gentest_scan_include_dir}")
+            endforeach()
+            foreach(_gentest_scan_arg IN LISTS _gentest_scan_macro_args)
+                list(APPEND _gentest_manifest_validation_scan_context_args
+                    --expected-source-scan-arg "${_gentest_src_abs}" "${_gentest_scan_arg}")
+            endforeach()
+        endif()
         set(_gentest_module_name "")
         if(NOT GENTEST_MODULE_REGISTRATION AND _gentest_scan_macro_has_genex)
             message(FATAL_ERROR
@@ -2689,12 +2751,14 @@ function(gentest_attach_codegen target)
             ARTIFACT_ROLE "registration"
             COMPILE_AS "cxx-module-implementation"
             REQUIRES_MODULE_SCAN "ON"
+            COMPDB "${CMAKE_BINARY_DIR}"
             SOURCES ${_gentest_tus}
             SOURCE_KINDS ${_gentest_manifest_source_kinds}
             REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
             HEADERS ${_gentest_wrapper_headers}
             COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
             SOURCE_REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
+            SCAN_CONTEXT_ARGS ${_gentest_manifest_validation_scan_context_args}
             OUT_ARGS _gentest_manifest_validation_args)
         add_custom_command(
             OUTPUT "${_gentest_manifest_validation_stamp}"

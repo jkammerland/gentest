@@ -16,6 +16,9 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+add_library(module_registration_manifest_context INTERFACE)
+target_compile_definitions(module_registration_manifest_context INTERFACE GENTEST_STORY034_MODULE_CONTEXT=1)
+
 add_executable(module_registration_manifest_tests)
 
 target_sources(module_registration_manifest_tests
@@ -23,7 +26,7 @@ target_sources(module_registration_manifest_tests
         FILE_SET module_cases TYPE CXX_MODULES FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
-target_link_libraries(module_registration_manifest_tests PRIVATE gentest gentest_main)
+target_link_libraries(module_registration_manifest_tests PRIVATE module_registration_manifest_context gentest gentest_main)
 target_compile_features(module_registration_manifest_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(module_registration_manifest_tests
