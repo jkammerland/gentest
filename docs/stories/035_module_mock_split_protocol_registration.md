@@ -2,7 +2,20 @@
 
 ## Status
 
-Open.
+Done for the module-registration split handoff slice.
+
+- `gentest_codegen` now accepts `--mock-registration-manifest` in same-module
+  registration mode and consumes named-module mock metadata without reparsing
+  mock definition sources during registration emission.
+- CMake `MODULE_REGISTRATION` targets now run a tool-owned `inspect-mocks`
+  phase, pass the resulting manifest into the registration phase, and keep
+  CMake out of mock JSON/source semantics.
+- Direct-tool and CMake regressions cover generated same-module mock
+  attachment without including the owning `.cppm` source or importing the
+  owning module.
+- Remaining cleanup for the broader cleanup target: remove the legacy
+  module-wrapper source-transformation path and related non-registration
+  compatibility plumbing after downstream wrapper-mode mock users are migrated.
 
 ## Goal
 

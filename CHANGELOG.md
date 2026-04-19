@@ -17,8 +17,8 @@ tagged release.
 - Added artifact manifest generation for module registration outputs, including
   source kind, module name, registration output path, compile context ID,
   generated headers, depfile, include roots, and module-scan requirements.
-- Added CMake-side artifact manifest validation through
-  `cmake/GentestValidateArtifactManifest.cmake`.
+- Added `gentest_codegen validate-artifact-manifest` for buildsystem-owned
+  artifact manifest contract checks.
 - Added textual per-TU wrapper artifact manifests with explicit owner source,
   generated wrapper/header, depfile, include root, attachment, and wrapper
   compatibility semantics.
@@ -46,6 +46,15 @@ tagged release.
   from `gentest_codegen`.
 - Aligned non-CMake module registration artifacts with the new codegen-owned
   artifact contract.
+- Removed the standalone packaged `cmake/scan_inspector` helper. CMake
+  `gentest_attach_codegen()` now classifies module inputs from buildsystem
+  metadata and leaves source parsing to build-time `gentest_codegen`; explicit
+  module mock definitions still use a runnable `gentest_codegen` for their
+  configure-time module-surface checks.
+- Native `gentest_INSTALL=ON` configurations now require and default
+  `GENTEST_BUILD_CODEGEN=ON` so installed CMake packages include the
+  `gentest_codegen` host tool that `GentestCodegen.cmake` resolves from the
+  package prefix.
 
 ### Fixed
 
