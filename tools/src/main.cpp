@@ -3440,8 +3440,8 @@ struct ParsedArguments {
 
 ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory   category{"gentest codegen"};
-    static llvm::cl::opt<std::string> output_option{"output", llvm::cl::desc("Path to the output source file"), llvm::cl::init(""),
-                                                    llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string> output_option{"output", llvm::cl::desc("Path to a legacy manifest/single-TU output source file"),
+                                                    llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> tu_out_dir_option{
@@ -3868,6 +3868,11 @@ int main(int argc, const char **argv) {
     if (!options.output_path.empty() && !options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --output cannot be combined with --tu-out-dir\n");
         return 1;
+    }
+    if (!options.output_path.empty() && options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: warning: --output selects legacy manifest/single-TU mode; prefer --tu-out-dir per-TU wrapper mode when "
+            "supported. Manifest mode remains fallback-only.\n");
     }
     if (!options.tu_output_headers.empty() && options.tu_output_headers.size() != options.sources.size()) {
         gentest::codegen::log_err("gentest_codegen: expected {} --tu-header-output value(s) for {} input source(s), got {}\n",

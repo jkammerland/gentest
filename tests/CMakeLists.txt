@@ -2566,6 +2566,16 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_cli_validation_warnings APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_legacy_manifest_mode_warnings
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckLegacyManifestModeWarnings.cmake
+    cmake
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_legacy_manifest_mode_warnings APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_mock_manifest_split
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockManifestSplit.cmake

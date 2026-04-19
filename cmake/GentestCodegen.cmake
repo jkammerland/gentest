@@ -2222,6 +2222,9 @@ function(gentest_attach_codegen target)
             TUS ${_gentest_tus}
             OUT_OUTPUT _gentest_manifest_output
             OUT_OUTPUT_DIR _gentest_output_dir)
+        message(WARNING
+            "gentest_attach_codegen(${target}): OUTPUT selects legacy manifest/single-TU mode; "
+            "omit OUTPUT or use OUTPUT_DIR for per-TU wrapper mode when supported. Manifest mode remains fallback-only.")
     elseif(_gentest_mode STREQUAL "module_registration")
         _gentest_prepare_module_registration_mode(
             TARGET ${target}
