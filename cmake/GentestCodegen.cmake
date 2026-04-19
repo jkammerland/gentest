@@ -1380,6 +1380,20 @@ function(_gentest_make_artifact_manifest_validation_args)
     set(${GENTEST_OUT_ARGS} "${_gentest_args}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_add_artifact_manifest_validation_command)
+    set(one_value_args STAMP COMMENT)
+    set(multi_value_args COMMAND_LAUNCHER VALIDATION_ARGS DEPENDS)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    add_custom_command(
+        OUTPUT "${GENTEST_STAMP}"
+        COMMAND ${GENTEST_COMMAND_LAUNCHER} ${GENTEST_VALIDATION_ARGS}
+        COMMAND_EXPAND_LISTS
+        DEPENDS ${GENTEST_DEPENDS}
+        COMMENT "${GENTEST_COMMENT}"
+        VERBATIM)
+endfunction()
+
 function(_gentest_attach_manifest_codegen)
     set(one_value_args TARGET OUTPUT)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "" ${ARGN})
@@ -2595,15 +2609,14 @@ function(gentest_attach_codegen target)
             SOURCE_REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
             SCAN_CONTEXT_ARGS ${_gentest_manifest_validation_scan_context_args}
             OUT_ARGS _gentest_manifest_validation_args)
-        add_custom_command(
-            OUTPUT "${_gentest_manifest_validation_stamp}"
-            COMMAND ${_command_launcher} ${_gentest_manifest_validation_args}
-            COMMAND_EXPAND_LISTS
+        _gentest_add_artifact_manifest_validation_command(
+            STAMP "${_gentest_manifest_validation_stamp}"
+            COMMAND_LAUNCHER ${_command_launcher}
+            VALIDATION_ARGS ${_gentest_manifest_validation_args}
             DEPENDS
                 ${_gentest_codegen_outputs}
                 ${_gentest_codegen_tool_depends}
-            COMMENT "Validating gentest_codegen artifact manifest for target ${target}"
-            VERBATIM)
+            COMMENT "Validating gentest_codegen artifact manifest for target ${target}")
         list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")
     elseif(_gentest_tu_manifest_enabled)
         set(_gentest_manifest_validation_stamp "${_gentest_output_dir}/${_gentest_target_id}.artifact_manifest.validated")
@@ -2629,15 +2642,14 @@ function(gentest_attach_codegen target)
             COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
             OWNER_SOURCES ${_gentest_artifact_owner_sources}
             OUT_ARGS _gentest_manifest_validation_args)
-        add_custom_command(
-            OUTPUT "${_gentest_manifest_validation_stamp}"
-            COMMAND ${_command_launcher} ${_gentest_manifest_validation_args}
-            COMMAND_EXPAND_LISTS
+        _gentest_add_artifact_manifest_validation_command(
+            STAMP "${_gentest_manifest_validation_stamp}"
+            COMMAND_LAUNCHER ${_command_launcher}
+            VALIDATION_ARGS ${_gentest_manifest_validation_args}
             DEPENDS
                 ${_gentest_codegen_outputs}
                 ${_gentest_codegen_tool_depends}
-            COMMENT "Validating gentest_codegen textual artifact manifest for target ${target}"
-            VERBATIM)
+            COMMENT "Validating gentest_codegen textual artifact manifest for target ${target}")
         list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")
     endif()
 
