@@ -26,7 +26,7 @@ endif()
 set(_cmake_cache_args
     "-Dgentest_BUILD_TESTING=OFF"
     "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF"
-    "-DGENTEST_BUILD_CODEGEN=OFF"
+    "-DGENTEST_BUILD_CODEGEN=ON"
     "-Dgentest_INSTALL=ON"
     "-DCMAKE_INSTALL_PREFIX=${BUILD_ROOT}/legacy_detail_fixture_contract/install")
 

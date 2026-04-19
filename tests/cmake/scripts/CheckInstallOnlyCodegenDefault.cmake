@@ -43,14 +43,10 @@ if(DEFINED GENERATOR_TOOLSET AND NOT "${GENERATOR_TOOLSET}" STREQUAL "")
   list(APPEND _cmake_gen_args -T "${GENERATOR_TOOLSET}")
 endif()
 
-set(_missing_llvm_dir "${_work_dir}/missing-llvm")
-set(_missing_clang_dir "${_work_dir}/missing-clang")
 set(_cmake_cache_args
   "-Dgentest_BUILD_TESTING=OFF"
   "-Dgentest_INSTALL=ON"
-  "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF"
-  "-DLLVM_DIR=${_missing_llvm_dir}"
-  "-DClang_DIR=${_missing_clang_dir}")
+  "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF")
 
 if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${C_COMPILER}")
@@ -85,9 +81,9 @@ if(NOT EXISTS "${_cache_file}")
 endif()
 
 file(STRINGS "${_cache_file}" _codegen_default REGEX "^GENTEST_BUILD_CODEGEN:BOOL=")
-if(NOT _codegen_default STREQUAL "GENTEST_BUILD_CODEGEN:BOOL=OFF")
+if(NOT _codegen_default STREQUAL "GENTEST_BUILD_CODEGEN:BOOL=ON")
   message(FATAL_ERROR
-    "Install-only producer configure must default GENTEST_BUILD_CODEGEN=OFF so packaging builds do not depend on host LLVM/Clang tooling.\n"
+    "Install-only producer configure must default GENTEST_BUILD_CODEGEN=ON so the installed CMake package includes gentest_codegen.\n"
     "Observed cache entry: '${_codegen_default}'")
 endif()
 
@@ -115,4 +111,4 @@ if(NOT _tip_dir_normalized STREQUAL _expected_tip_dir_normalized)
     "Observed: '${_tip_dir_normalized}'")
 endif()
 
-message(STATUS "Install-only producer configure defaults codegen and public modules off and resolves vendored target_install_package")
+message(STATUS "Install-only producer configure defaults codegen on, public modules off, and resolves vendored target_install_package")

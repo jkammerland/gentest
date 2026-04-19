@@ -46,6 +46,15 @@ tagged release.
   from `gentest_codegen`.
 - Aligned non-CMake module registration artifacts with the new codegen-owned
   artifact contract.
+- Removed the standalone packaged `cmake/scan_inspector` helper. CMake
+  `gentest_attach_codegen()` now classifies module inputs from buildsystem
+  metadata and leaves source parsing to build-time `gentest_codegen`; explicit
+  module mock definitions still use a runnable `gentest_codegen` for their
+  configure-time module-surface checks.
+- Native `gentest_INSTALL=ON` configurations now require and default
+  `GENTEST_BUILD_CODEGEN=ON` so installed CMake packages include the
+  `gentest_codegen` host tool that `GentestCodegen.cmake` resolves from the
+  package prefix.
 
 ### Fixed
 

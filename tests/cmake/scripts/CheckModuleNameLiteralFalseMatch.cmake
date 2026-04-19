@@ -1,6 +1,7 @@
 # Requires:
 #  -DGENTEST_SOURCE_DIR=<path to gentest source tree>
 #  -DBUILD_ROOT=<path to parent build dir>
+#  -DPROG=<path to gentest_codegen>
 
 if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckModuleNameLiteralFalseMatch.cmake: GENTEST_SOURCE_DIR not set")
@@ -10,6 +11,9 @@ if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
 endif()
 if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
   message(FATAL_ERROR "CheckModuleNameLiteralFalseMatch.cmake: BUILD_ROOT not set")
+endif()
+if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
+  message(FATAL_ERROR "CheckModuleNameLiteralFalseMatch.cmake: PROG not set")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
@@ -42,56 +46,30 @@ set(_digit_sep_source "${_work_dir}/digit_separated_expression.cppm")
 set(_include_dir_source "${_work_dir}/has_include_include_dir.cppm")
 set(_source "${_work_dir}/literal_false_match.cppm")
 
-include("${GENTEST_SOURCE_DIR}/cmake/GentestCodegen.cmake")
+function(_expect_codegen_module_name source expected)
+  set(_inspect_args --inspect-source)
+  foreach(_include_dir IN LISTS ARGN)
+    list(APPEND _inspect_args --inspect-include-dir "${_include_dir}")
+  endforeach()
+  list(APPEND _inspect_args "${source}")
+  gentest_check_run_or_fail(
+    COMMAND "${PROG}" ${_inspect_args}
+    STRIP_TRAILING_WHITESPACE
+    OUTPUT_VARIABLE _inspect_out)
+  if(NOT _inspect_out MATCHES "(^|[\r\n])module_name=${expected}([\r\n]|$)")
+    message(FATAL_ERROR
+      "Expected module name '${expected}' from gentest_codegen --inspect-source for '${source}'.\n${_inspect_out}")
+  endif()
+endfunction()
 
-_gentest_extract_module_name("${_source}" _module_name)
-
-if(NOT _module_name STREQUAL "real.module")
-  message(FATAL_ERROR
-    "Expected module name 'real.module', got '${_module_name}'")
-endif()
-
-_gentest_extract_module_name("${_shift_source}" _shift_module_name)
-if(NOT _shift_module_name STREQUAL "shift.module")
-  message(FATAL_ERROR
-    "Expected module name 'shift.module', got '${_shift_module_name}'")
-endif()
-
-_gentest_extract_module_name("${_has_include_source}" _has_include_module_name)
-if(NOT _has_include_module_name STREQUAL "include.module")
-  message(FATAL_ERROR
-    "Expected module name 'include.module', got '${_has_include_module_name}'")
-endif()
-
-_gentest_extract_module_name("${_macro_has_include_source}" _macro_has_include_module_name)
-if(NOT _macro_has_include_module_name STREQUAL "macro.include")
-  message(FATAL_ERROR
-    "Expected module name 'macro.include', got '${_macro_has_include_module_name}'")
-endif()
-
-_gentest_extract_module_name("${_octal_source}" _octal_module_name)
-if(NOT _octal_module_name STREQUAL "octal.module")
-  message(FATAL_ERROR
-    "Expected module name 'octal.module', got '${_octal_module_name}'")
-endif()
-
-_gentest_extract_module_name("${_binary_source}" _binary_module_name)
-if(NOT _binary_module_name STREQUAL "binary.module")
-  message(FATAL_ERROR
-    "Expected module name 'binary.module', got '${_binary_module_name}'")
-endif()
-
-_gentest_extract_module_name("${_digit_sep_source}" _digit_sep_module_name)
-if(NOT _digit_sep_module_name STREQUAL "digitsep.module")
-  message(FATAL_ERROR
-    "Expected module name 'digitsep.module', got '${_digit_sep_module_name}'")
-endif()
-
-_gentest_extract_module_name("${_include_dir_source}" _include_dir_module_name "${_work_dir}/inc")
-if(NOT _include_dir_module_name STREQUAL "include_dir.module")
-  message(FATAL_ERROR
-    "Expected module name 'include_dir.module', got '${_include_dir_module_name}'")
-endif()
+_expect_codegen_module_name("${_source}" "real.module")
+_expect_codegen_module_name("${_shift_source}" "shift.module")
+_expect_codegen_module_name("${_has_include_source}" "include.module")
+_expect_codegen_module_name("${_macro_has_include_source}" "macro.include")
+_expect_codegen_module_name("${_octal_source}" "octal.module")
+_expect_codegen_module_name("${_binary_source}" "binary.module")
+_expect_codegen_module_name("${_digit_sep_source}" "digitsep.module")
+_expect_codegen_module_name("${_include_dir_source}" "include_dir.module" "${_work_dir}/inc")
 
 if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   gentest_resolve_clang_fixture_compilers(_clang _clangxx)

@@ -2821,6 +2821,15 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_cpp_source APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_cpp_source_in_tree_codegen
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_cpp_source
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleCppSource.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DNO_EXPLICIT_CODEGEN=ON)
+set_property(TEST gentest_module_cpp_source_in_tree_codegen APPEND PROPERTY LABELS "modules;codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_module_first_classic_order
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_first_classic_order
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFirstClassicOrder.cmake
