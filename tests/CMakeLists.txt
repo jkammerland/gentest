@@ -2469,6 +2469,46 @@ gentest_add_cmake_script_test(
 set_property(TEST gentest_codegen_check_cmake_fixture_build_build_config APPEND PROPERTY LABELS "cmake;codegen")
 
 gentest_add_cmake_script_test(
+    NAME gentest_codegen_genex_compile_definitions
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/genex_compile_definitions_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/genex_compile_definitions"
+        "TARGET_NAME=genex_compile_definitions"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "BUILD_CONFIG=${_gentest_fixture_build_config}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+set_property(TEST gentest_codegen_genex_compile_definitions APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_genex_compile_definitions_multiconfig
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/genex_compile_definitions_multiconfig_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/genex_compile_definitions"
+        "TARGET_NAME=genex_compile_definitions"
+        "GENERATOR=Ninja Multi-Config"
+        "BUILD_CONFIG=Release"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+set_property(TEST gentest_codegen_genex_compile_definitions_multiconfig APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
     NAME gentest_codegen_legacy_wrapper_impls_template_rejected
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
