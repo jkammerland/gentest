@@ -1720,11 +1720,10 @@ endfunction()
 
 function(_gentest_collect_scan_macro_args target source out_args out_has_genex)
     set(_gentest_definition_props COMPILE_DEFINITIONS)
-    set(_gentest_configs "")
-    if(CMAKE_CONFIGURATION_TYPES)
-        set(_gentest_configs ${CMAKE_CONFIGURATION_TYPES})
-    elseif(CMAKE_BUILD_TYPE)
+    if(NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE)
         set(_gentest_configs ${CMAKE_BUILD_TYPE})
+    else()
+        set(_gentest_configs "")
     endif()
     foreach(_cfg IN LISTS _gentest_configs)
         string(TOUPPER "${_cfg}" _cfg_upper)
@@ -1739,7 +1738,6 @@ function(_gentest_collect_scan_macro_args target source out_args out_has_genex)
         if(NOT _gentest_target_defs STREQUAL "NOTFOUND" AND NOT _gentest_target_defs MATCHES "-NOTFOUND$")
             foreach(_gentest_def IN LISTS _gentest_target_defs)
                 if("${_gentest_def}" MATCHES "\\$<")
-                    set(_gentest_has_genex TRUE)
                     continue()
                 endif()
                 list(APPEND _gentest_args "-D${_gentest_def}")
@@ -1750,7 +1748,6 @@ function(_gentest_collect_scan_macro_args target source out_args out_has_genex)
         if(NOT _gentest_source_defs STREQUAL "NOTFOUND" AND NOT _gentest_source_defs MATCHES "-NOTFOUND$")
             foreach(_gentest_def IN LISTS _gentest_source_defs)
                 if("${_gentest_def}" MATCHES "\\$<")
-                    set(_gentest_has_genex TRUE)
                     continue()
                 endif()
                 list(APPEND _gentest_args "-D${_gentest_def}")
@@ -2315,6 +2312,12 @@ function(gentest_attach_codegen target)
         endforeach()
     endif()
     set(_gentest_depfile "${_gentest_output_dir}/${_gentest_target_id}.gentest.d")
+    set(_gentest_mock_registration_manifest "")
+    set(_gentest_mock_registration_manifest_depfile "")
+    if(_gentest_mode STREQUAL "module_registration")
+        set(_gentest_mock_registration_manifest "${_gentest_output_dir}/${_gentest_target_id}.mock_manifest.json")
+        set(_gentest_mock_registration_manifest_depfile "${_gentest_output_dir}/${_gentest_target_id}.mock_manifest.d")
+    endif()
 
     set(_gentest_codegen_scan_inputs "")
     list(LENGTH _gentest_tus _gentest_tu_count)
@@ -2383,6 +2386,7 @@ function(gentest_attach_codegen target)
     elseif(_gentest_mode STREQUAL "module_registration")
         list(APPEND _command --tu-out-dir ${_gentest_output_dir})
         list(APPEND _command --artifact-manifest ${_gentest_artifact_manifest})
+        list(APPEND _command --mock-registration-manifest ${_gentest_mock_registration_manifest})
         foreach(_gentest_wrap_header IN LISTS _gentest_wrapper_headers)
             list(APPEND _command --tu-header-output ${_gentest_wrap_header})
         endforeach()
@@ -2466,6 +2470,54 @@ function(gentest_attach_codegen target)
         cmake_policy(SET CMP0171 NEW)
     endif()
 
+    if(_gentest_mock_registration_manifest)
+        set(_gentest_mock_inspect_command ${_command_launcher}
+            inspect-mocks
+            --mock-manifest-output ${_gentest_mock_registration_manifest}
+            --depfile ${_gentest_mock_registration_manifest_depfile}
+            --compdb ${CMAKE_BINARY_DIR}
+            --source-root ${CMAKE_SOURCE_DIR})
+        if(GENTEST_QUIET_CLANG)
+            list(APPEND _gentest_mock_inspect_command --quiet-clang)
+        endif()
+        if(NOT "${GENTEST_CODEGEN_SCAN_DEPS_MODE}" STREQUAL "")
+            list(APPEND _gentest_mock_inspect_command "--scan-deps-mode=${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
+        endif()
+        if(NOT "${_gentest_clang_scan_deps}" STREQUAL "")
+            list(APPEND _gentest_mock_inspect_command --clang-scan-deps "${_gentest_clang_scan_deps}")
+        endif()
+        if(NOT "${GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
+            list(APPEND _gentest_mock_inspect_command --host-clang "${GENTEST_CODEGEN_HOST_CLANG}")
+        endif()
+        list(APPEND _gentest_mock_inspect_command
+            "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>")
+        list(APPEND _gentest_mock_inspect_command ${_gentest_tus})
+        list(APPEND _gentest_mock_inspect_command --)
+        list(APPEND _gentest_mock_inspect_command ${_gentest_source_inspection_clang_args})
+        list(APPEND _gentest_mock_inspect_command ${_gentest_source_inspection_system_include_args})
+
+        set(_gentest_mock_inspect_command_args
+            OUTPUT ${_gentest_mock_registration_manifest}
+            COMMAND ${_gentest_mock_inspect_command}
+            COMMAND_EXPAND_LISTS
+            DEPENDS
+                ${_gentest_codegen_deps}
+                ${_gentest_codegen_tool_depends}
+                ${_gentest_tus}
+                ${GENTEST_DEPENDS}
+                "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>"
+            COMMENT "Inspecting gentest mocks for target ${target}"
+            VERBATIM)
+        if(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+            list(APPEND _gentest_mock_inspect_command_args DEPFILE ${_gentest_mock_registration_manifest_depfile})
+        endif()
+        if(POLICY CMP0171)
+            list(APPEND _gentest_mock_inspect_command_args CODEGEN)
+        endif()
+        add_custom_command(${_gentest_mock_inspect_command_args})
+        unset(_gentest_mock_inspect_command_args)
+    endif()
+
     if(_gentest_mode STREQUAL "manifest")
         set(_gentest_codegen_outputs
             ${_gentest_manifest_output}
@@ -2490,8 +2542,12 @@ function(gentest_attach_codegen target)
             list(APPEND _gentest_codegen_outputs ${_gentest_artifact_manifest})
         endif()
     endif()
-    set(_gentest_codegen_target_depends ${_gentest_codegen_outputs})
-    set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_OUTPUTS "${_gentest_codegen_outputs}")
+    set(_gentest_all_codegen_outputs ${_gentest_codegen_outputs})
+    if(_gentest_mock_registration_manifest)
+        list(APPEND _gentest_all_codegen_outputs ${_gentest_mock_registration_manifest})
+    endif()
+    set(_gentest_codegen_target_depends ${_gentest_all_codegen_outputs})
+    set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_OUTPUTS "${_gentest_all_codegen_outputs}")
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTRA_DEPENDS "")
     set(_gentest_custom_command_args
         OUTPUT ${_gentest_codegen_outputs}
@@ -2499,7 +2555,9 @@ function(gentest_attach_codegen target)
         COMMAND_EXPAND_LISTS
         DEPENDS
             ${_gentest_codegen_deps}
+            ${_gentest_codegen_tool_depends}
             ${_gentest_tus}
+            ${_gentest_mock_registration_manifest}
             ${GENTEST_DEPENDS}
             "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>"
         COMMENT "Running gentest_codegen for target ${target}"

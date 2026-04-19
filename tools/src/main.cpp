@@ -3515,6 +3515,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string>  mock_manifest_input_option{"mock-manifest-input",
                                                                  llvm::cl::desc("Read mock discovery data from a mock manifest JSON file"),
                                                                  llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_registration_manifest_option{
+        "mock-registration-manifest",
+        llvm::cl::desc("Read mock discovery data for same-module registration attachment from a mock manifest JSON file"),
+        llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> mock_domain_registry_output_option{
         "mock-domain-registry-output",
         llvm::cl::desc("Explicit output path for a generated mock registry domain header (repeat in domain order)"), llvm::cl::ZeroOrMore,
@@ -3663,6 +3667,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     if (!mock_manifest_input_option.getValue().empty()) {
         opts.mock_manifest_input_path = std::filesystem::path{mock_manifest_input_option.getValue()};
     }
+    if (!mock_registration_manifest_option.getValue().empty()) {
+        opts.mock_registration_manifest_path = std::filesystem::path{mock_registration_manifest_option.getValue()};
+    }
     opts.mock_domain_registry_outputs.assign(mock_domain_registry_output_option.begin(), mock_domain_registry_output_option.end());
     opts.mock_domain_impl_outputs.assign(mock_domain_impl_output_option.begin(), mock_domain_impl_output_option.end());
     if (!depfile_option.getValue().empty()) {
@@ -3751,6 +3758,10 @@ int main(int argc, const char **argv) {
         if (options.mock_manifest_output_path.empty()) {
             return 1;
         }
+        if (!options.mock_registration_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --mock-registration-manifest\n");
+            return 1;
+        }
         if (!options.mock_manifest_input_path.empty()) {
             gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --mock-manifest-input\n");
             return 1;
@@ -3771,6 +3782,10 @@ int main(int argc, const char **argv) {
     }
     if (parsed_arguments.mock_phase == MockPhaseCommand::EmitMocks) {
         if (options.mock_manifest_input_path.empty()) {
+            return 1;
+        }
+        if (!options.mock_registration_manifest_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: emit-mocks cannot be combined with --mock-registration-manifest\n");
             return 1;
         }
         if (!options.mock_manifest_output_path.empty()) {
@@ -3801,7 +3816,8 @@ int main(int argc, const char **argv) {
             return 1;
         }
         if (!options.tu_output_headers.empty() || !options.module_wrapper_outputs.empty() || !options.module_registration_outputs.empty() ||
-            !options.compile_context_ids.empty() || !options.artifact_owner_sources.empty()) {
+            !options.compile_context_ids.empty() || !options.artifact_owner_sources.empty() ||
+            !options.mock_registration_manifest_path.empty()) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with source/TU planning options\n");
             return 1;
         }
@@ -3848,6 +3864,36 @@ int main(int argc, const char **argv) {
     if (!options.mock_manifest_output_path.empty() && !options.discover_mocks) {
         gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-output requires --discover-mocks\n");
         return 1;
+    }
+    if (!options.mock_registration_manifest_path.empty()) {
+        if (options.discover_mocks) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-registration-manifest cannot be combined with --discover-mocks\n");
+            return 1;
+        }
+        if (!options.mock_manifest_output_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-registration-manifest cannot be combined with --mock-manifest-output\n");
+            return 1;
+        }
+        if (!options.mock_manifest_input_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-registration-manifest cannot be combined with --mock-manifest-input\n");
+            return 1;
+        }
+        if (options.tu_output_dir.empty() || options.module_registration_outputs.empty()) {
+            gentest::codegen::log_err_raw(
+                "gentest_codegen: --mock-registration-manifest requires --tu-out-dir and --module-registration-output\n");
+            return 1;
+        }
+        if (!options.output_path.empty() || !options.module_wrapper_outputs.empty()) {
+            gentest::codegen::log_err_raw(
+                "gentest_codegen: --mock-registration-manifest is only supported with same-module registration outputs\n");
+            return 1;
+        }
+        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_domain_registry_outputs.empty() ||
+            !options.mock_domain_impl_outputs.empty()) {
+            gentest::codegen::log_err_raw(
+                "gentest_codegen: --mock-registration-manifest cannot be combined with final mock output paths\n");
+            return 1;
+        }
     }
     if (mock_manifest_discovery_only && (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() ||
                                          !options.mock_domain_registry_outputs.empty() || !options.mock_domain_impl_outputs.empty())) {
@@ -5294,6 +5340,60 @@ int main(int argc, const char **argv) {
     if (!gentest::codegen::validate_mock_output_domains(final_options, mock_domain_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
         return 1;
+    }
+    if (!options.mock_registration_manifest_path.empty()) {
+        auto manifest = gentest::codegen::mock_manifest::read(options.mock_registration_manifest_path);
+        if (!manifest.error.empty()) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest.error);
+            return 1;
+        }
+
+        std::string manifest_domain_error;
+        if (!validate_manifest_mock_domain_modules(manifest.mocks, manifest.mock_output_domain_modules, manifest_domain_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", manifest_domain_error);
+            return 1;
+        }
+
+        std::map<std::string, std::size_t> registration_module_counts;
+        for (const auto &source : final_options.sources) {
+            const auto module_it = final_options.module_interface_names_by_source.find(source);
+            if (module_it != final_options.module_interface_names_by_source.end() && !module_it->second.empty()) {
+                ++registration_module_counts[module_it->second];
+            }
+        }
+
+        for (const auto &mock : manifest.mocks) {
+            if (mock.definition_kind == gentest::codegen::MockClassInfo::DefinitionKind::HeaderLike) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: --mock-registration-manifest does not support header-like mock '{}' in module registration mode\n",
+                    mock.qualified_name);
+                return 1;
+            }
+            const auto module_count_it = registration_module_counts.find(mock.definition_module_name);
+            if (module_count_it == registration_module_counts.end()) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: mock registration manifest references module '{}' but no module registration input provides it\n",
+                    mock.definition_module_name);
+                return 1;
+            }
+            if (module_count_it->second > 1) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: multiple module registration inputs provide module '{}' for mock registration manifest\n",
+                    mock.definition_module_name);
+                return 1;
+            }
+        }
+        depfile_dependencies.push_back(options.mock_registration_manifest_path.generic_string());
+
+        std::vector<gentest::codegen::MockClassInfo> registration_mocks;
+        registration_mocks.reserve(manifest.mocks.size());
+        for (auto &mock : manifest.mocks) {
+            if (mock.definition_kind == gentest::codegen::MockClassInfo::DefinitionKind::NamedModule) {
+                registration_mocks.push_back(std::move(mock));
+            }
+        }
+        merge_duplicate_mocks(registration_mocks);
+        mocks = std::move(registration_mocks);
     }
     if (options.check_only) {
         return 0;

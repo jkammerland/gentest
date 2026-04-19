@@ -2490,6 +2490,22 @@ gentest_add_cmake_script_test(
 set_property(TEST gentest_codegen_genex_compile_definitions APPEND PROPERTY LABELS "cmake;codegen")
 
 gentest_add_cmake_script_test(
+    NAME gentest_scan_macro_args
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckScanMacroArgs.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/scan_macro_args_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+set_property(TEST gentest_scan_macro_args APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
     NAME gentest_codegen_genex_compile_definitions_multiconfig
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
@@ -2583,6 +2599,15 @@ _gentest_add_cmake_helper_test(
     -DCODEGEN_STD=${_gentest_codegen_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_mock_manifest_split APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_module_mock_registration_manifest
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMockRegistrationManifest.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_module_mock_registration_manifest APPEND PROPERTY LABELS "codegen;modules")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_artifact_protocol_direct_invocation
@@ -2837,6 +2862,14 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_module_registration_manifest APPEND PROPERTY LABELS "modules;codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_registration_mock_split
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_mock_split
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationMockSplit.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_mock_split APPEND PROPERTY LABELS "modules;codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_textual_wrapper_artifact_manifest
