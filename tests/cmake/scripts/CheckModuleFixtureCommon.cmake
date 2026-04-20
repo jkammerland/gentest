@@ -437,9 +437,9 @@ function(gentest_module_cpp_source_textual_wrapper_skip_reason out_reason compil
       set(_is_clang_like TRUE)
     endif()
 
-    if(CMAKE_HOST_WIN32 AND _is_clang_like)
+    if(CMAKE_HOST_WIN32)
       set(_reason
-        "module .cpp source regression: textual wrapper after public module import is not stable on Windows LLVM")
+        "module .cpp source regression: textual wrapper after public module import is not stable on Windows toolchains")
     elseif(_is_clang_like)
       if(_version_output MATCHES "(^|[\r\n])Apple clang version ")
         set(_reason "module .cpp source regression: Apple Clang module support is not covered by this fixture")

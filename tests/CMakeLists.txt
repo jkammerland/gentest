@@ -9,6 +9,7 @@ add_subdirectory(tool_core)
 
 gentest_resolve_test_std(_gentest_test_std_feature _gentest_codegen_std_flag)
 unset(_gentest_test_std_feature)
+gentest_normalize_std_flag_for_compiler(_gentest_codegen_scan_std_flag "clang++" "${_gentest_codegen_std_flag}")
 
 set(_gentest_default_suites
     unit
@@ -196,14 +197,14 @@ gentest_append_public_dependency_include_args(_gentest_codegen_public_include_ar
 _gentest_collect_common_codegen_system_include_args(_gentest_codegen_system_include_args)
 set(_gentest_codegen_direct_clang_args
     ${_gentest_codegen_cross_target_arg}
-    ${_gentest_codegen_std_flag}
+    ${_gentest_codegen_scan_std_flag}
     ${_gentest_codegen_public_include_args}
     ${_gentest_codegen_system_include_args})
 set(_gentest_codegen_direct_cxx_language_clang_args
     ${_gentest_codegen_cross_target_arg}
     -x
     c++
-    ${_gentest_codegen_std_flag}
+    ${_gentest_codegen_scan_std_flag}
     ${_gentest_codegen_public_include_args}
     ${_gentest_codegen_system_include_args})
 
@@ -938,7 +939,7 @@ if(WIN32)
             "BUILD_ROOT=${CMAKE_BINARY_DIR}"
             "PROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
             "TESTS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
-            "CODEGEN_STD=${_gentest_codegen_std_flag}"
+            "CODEGEN_STD=${_gentest_codegen_scan_std_flag}"
             "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
 endif()
 
@@ -950,7 +951,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "BUILD_ROOT=${CMAKE_BINARY_DIR}"
         "PROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "CODEGEN_STD=${_gentest_codegen_std_flag}"
+        "CODEGEN_STD=${_gentest_codegen_scan_std_flag}"
         "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
 
 gentest_add_check_death(
@@ -2374,7 +2375,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenManifestDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_manifest_depfile_aggregation APPEND PROPERTY LABELS "codegen")
 
@@ -2384,7 +2385,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenManifestDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DMODE=write_failure)
 set_property(TEST gentest_codegen_depfile_write_failure APPEND PROPERTY LABELS "codegen")
@@ -2395,7 +2396,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenManifestDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DMODE=escaped_paths)
 set_property(TEST gentest_codegen_manifest_depfile_escaped_paths APPEND PROPERTY LABELS "codegen")
@@ -2407,7 +2408,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_cli_validation_warnings APPEND PROPERTY LABELS "codegen")
 
@@ -2417,7 +2418,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckLegacyManifestModeWarnings.cmake
     cmake
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_legacy_manifest_mode_warnings APPEND PROPERTY LABELS "codegen")
 
@@ -2426,7 +2427,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockManifestSplit.cmake
     cmake
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_mock_manifest_split APPEND PROPERTY LABELS "codegen")
 
@@ -2435,7 +2436,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMockRegistrationManifest.cmake
     cmake
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_module_mock_registration_manifest APPEND PROPERTY LABELS "codegen;modules")
 
@@ -2444,7 +2445,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckArtifactProtocolDirectInvocation.cmake
     cmake
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_artifact_protocol_direct_invocation APPEND PROPERTY LABELS "codegen")
 
@@ -2453,7 +2454,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenResponseFileExpansion.cmake
     cmake
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_response_file_expansion APPEND PROPERTY LABELS "codegen")
 
@@ -2462,7 +2463,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenSyntheticFallback.cmake
     cmake
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_synthetic_compdb_fallback APPEND PROPERTY LABELS "codegen")
 
@@ -2473,7 +2474,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_axis_generators.cpp
     -DEXPECT_CASE_COUNT=45
@@ -2487,7 +2488,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_parameters_pack.cpp
     -DEXPECT_CASE_COUNT=6
@@ -2501,7 +2502,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_fixture_resolution.cpp
     -DEXPECT_CASE_COUNT=2
@@ -2515,7 +2516,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
     -DEXPECT_COMPILE=ON
@@ -2530,7 +2531,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_template_parser_edges.cpp
     -DEXPECT_CASE_COUNT=7
@@ -2544,7 +2545,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_type_quoting.cpp
     -DEXPECT_CASE_COUNT=21

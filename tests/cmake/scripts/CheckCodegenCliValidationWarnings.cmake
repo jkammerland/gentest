@@ -59,7 +59,21 @@ gentest_make_public_api_include_args(
   SOURCE_ROOT "${SOURCE_DIR}"
   INCLUDE_TESTS
   APPLE_SYSROOT)
-list(APPEND _clang_args "${CODEGEN_STD}" ${_public_include_args})
+gentest_normalize_std_flag_for_compiler(_codegen_std "clang++" "${CODEGEN_STD}")
+list(APPEND _clang_args "${_codegen_std}" ${_public_include_args})
+
+set(_module_clang_args)
+if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+  list(APPEND _module_clang_args "${TARGET_ARG}")
+endif()
+set(_module_compiler "clang++")
+set(_compdb_cache_file "${_compdb_root}/CMakeCache.txt")
+gentest_read_cache_value("${_compdb_cache_file}" "CMAKE_CXX_COMPILER" _module_compiler_found _module_compiler_from_cache)
+if(_module_compiler_found AND NOT "${_module_compiler_from_cache}" STREQUAL "")
+  set(_module_compiler "${_module_compiler_from_cache}")
+endif()
+gentest_normalize_std_flag_for_compiler(_module_codegen_std "${_module_compiler}" "${CODEGEN_STD}")
+list(APPEND _module_clang_args "${_module_codegen_std}" ${_public_include_args})
 
 set(_common_args
   --check
@@ -147,7 +161,7 @@ _gentest_expect_result(
   --tu-out-dir "${BUILD_ROOT}/missing-module-wrapper"
   "${_module_smoke_source}"
   --
-  ${_clang_args})
+  ${_module_clang_args})
 
 _gentest_expect_result(
   "module registration output requires tu out dir"
@@ -251,7 +265,7 @@ _gentest_expect_result(
   --artifact-owner-source "${_module_smoke_source}"
   "${_module_smoke_source}"
   --
-  ${_clang_args})
+  ${_module_clang_args})
 
 _gentest_expect_result(
   "module registration rejects partitions"
@@ -264,7 +278,7 @@ _gentest_expect_result(
   --module-registration-output "${BUILD_ROOT}/partition-module-registration/partition.registration.gentest.cpp"
   "${_module_partition_source}"
   --
-  ${_clang_args})
+  ${_module_clang_args})
 
 _gentest_expect_result(
   "module registration rejects private module fragments"
@@ -277,7 +291,7 @@ _gentest_expect_result(
   --module-registration-output "${BUILD_ROOT}/pmf-module-registration/pmf.registration.gentest.cpp"
   "${_module_pmf_source}"
   --
-  ${_clang_args})
+  ${_module_clang_args})
 
 _gentest_expect_result(
   "mock domain outputs require base outputs"

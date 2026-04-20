@@ -81,7 +81,8 @@ gentest_make_public_api_include_args(
   SOURCE_ROOT "${SOURCE_DIR}"
   INCLUDE_TESTS
   APPLE_SYSROOT)
-list(APPEND _clang_args "${CODEGEN_STD}" ${_public_include_args})
+gentest_normalize_std_flag_for_compiler(_codegen_std "clang++" "${CODEGEN_STD}")
+list(APPEND _clang_args "${_codegen_std}" ${_public_include_args})
 
 _gentest_expect_success(
   "cli legacy manifest output warning"
