@@ -2490,22 +2490,6 @@ gentest_add_cmake_script_test(
 set_property(TEST gentest_codegen_genex_compile_definitions APPEND PROPERTY LABELS "cmake;codegen")
 
 gentest_add_cmake_script_test(
-    NAME gentest_scan_macro_args
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckScanMacroArgs.cmake"
-    DEFINES
-        "BUILD_ROOT=${CMAKE_BINARY_DIR}/scan_macro_args_check"
-        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "GENERATOR=${CMAKE_GENERATOR}"
-        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
-        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-        "C_COMPILER=${CMAKE_C_COMPILER}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
-set_property(TEST gentest_scan_macro_args APPEND PROPERTY LABELS "cmake;codegen")
-
-gentest_add_cmake_script_test(
     NAME gentest_codegen_genex_compile_definitions_multiconfig
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}

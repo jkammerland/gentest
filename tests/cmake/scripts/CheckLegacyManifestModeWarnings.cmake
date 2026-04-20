@@ -20,9 +20,16 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 set(_legacy_warning "--output selects legacy manifest/single-TU mode")
 set(_cmake_legacy_warning "OUTPUT selects legacy")
 
-function(_gentest_expect_success_contains label required_substring)
+function(_gentest_expect_success label)
+  set(one_value_args CONTAINS FORBIDS)
+  set(multi_value_args COMMAND)
+  cmake_parse_arguments(EXPECT "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+  if(NOT EXPECT_COMMAND)
+    message(FATAL_ERROR "_gentest_expect_success requires COMMAND")
+  endif()
+
   execute_process(
-    COMMAND ${ARGN}
+    COMMAND ${EXPECT_COMMAND}
     RESULT_VARIABLE _rc
     OUTPUT_VARIABLE _out
     ERROR_VARIABLE _err
@@ -36,35 +43,22 @@ function(_gentest_expect_success_contains label required_substring)
       "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
   endif()
 
-  string(FIND "${_combined}" "${required_substring}" _required_pos)
-  if(_required_pos EQUAL -1)
-    message(FATAL_ERROR
-      "${label}: expected to find '${required_substring}'.\n"
-      "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
-  endif()
-endfunction()
-
-function(_gentest_expect_success_forbids label forbidden_substring)
-  execute_process(
-    COMMAND ${ARGN}
-    RESULT_VARIABLE _rc
-    OUTPUT_VARIABLE _out
-    ERROR_VARIABLE _err
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_STRIP_TRAILING_WHITESPACE)
-
-  set(_combined "${_out}\n${_err}")
-  if(NOT _rc EQUAL 0)
-    message(FATAL_ERROR
-      "${label}: expected success, got ${_rc}.\n"
-      "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
+  if(DEFINED EXPECT_CONTAINS)
+    string(FIND "${_combined}" "${EXPECT_CONTAINS}" _required_pos)
+    if(_required_pos EQUAL -1)
+      message(FATAL_ERROR
+        "${label}: expected to find '${EXPECT_CONTAINS}'.\n"
+        "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
+    endif()
   endif()
 
-  string(FIND "${_combined}" "${forbidden_substring}" _forbidden_pos)
-  if(NOT _forbidden_pos EQUAL -1)
-    message(FATAL_ERROR
-      "${label}: did not expect to find '${forbidden_substring}'.\n"
-      "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
+  if(DEFINED EXPECT_FORBIDS)
+    string(FIND "${_combined}" "${EXPECT_FORBIDS}" _forbidden_pos)
+    if(NOT _forbidden_pos EQUAL -1)
+      message(FATAL_ERROR
+        "${label}: did not expect to find '${EXPECT_FORBIDS}'.\n"
+        "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
+    endif()
   endif()
 endfunction()
 
@@ -89,60 +83,95 @@ gentest_make_public_api_include_args(
   APPLE_SYSROOT)
 list(APPEND _clang_args "${CODEGEN_STD}" ${_public_include_args})
 
-_gentest_expect_success_contains(
+_gentest_expect_success(
   "cli legacy manifest output warning"
-  "${_legacy_warning}"
-  "${PROG}"
-  --output "${BUILD_ROOT}/cli_legacy_manifest.cpp"
-  --compdb "${_compdb_root}"
-  "${_smoke_source}"
-  --
-  ${_clang_args})
+  CONTAINS "${_legacy_warning}"
+  COMMAND
+    "${PROG}"
+    --output "${BUILD_ROOT}/cli_legacy_manifest.cpp"
+    --compdb "${_compdb_root}"
+    "${_smoke_source}"
+    --
+    ${_clang_args})
 
-_gentest_expect_success_forbids(
+_gentest_expect_success(
   "cli per-tu output has no legacy manifest warning"
-  "${_legacy_warning}"
-  "${PROG}"
-  --check
-  --tu-out-dir "${BUILD_ROOT}/tu-mode"
-  --compdb "${_compdb_root}"
-  "${_smoke_source}"
-  --
-  ${_clang_args})
+  FORBIDS "${_legacy_warning}"
+  COMMAND
+    "${PROG}"
+    --check
+    --tu-out-dir "${BUILD_ROOT}/tu-mode"
+    --compdb "${_compdb_root}"
+    "${_smoke_source}"
+    --
+    ${_clang_args})
+
+function(_gentest_write_manifest_warning_fixture source_dir target_name test_name mode)
+  file(REMOVE_RECURSE "${source_dir}")
+  file(MAKE_DIRECTORY "${source_dir}")
+  file(WRITE "${source_dir}/cases.cpp"
+    "#include \"gentest/assertions.h\"\n"
+    "\n"
+    "[[using gentest: test(\"${test_name}/builds\")]]\n"
+    "void ${target_name}_builds() {\n"
+    "    gentest::asserts::EXPECT_TRUE(true);\n"
+    "}\n")
+
+  if("${mode}" STREQUAL "LEGACY_OUTPUT")
+    string(CONCAT _fixture_codegen_call
+      "gentest_attach_codegen(${target_name}\n"
+      "    OUTPUT \"\${CMAKE_CURRENT_BINARY_DIR}/${target_name}.gentest.cpp\"\n"
+      "    SOURCES \"\${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp\")\n")
+  elseif("${mode}" STREQUAL "PER_TU_OUTPUT_DIR")
+    string(CONCAT _fixture_codegen_call
+      "gentest_attach_codegen(${target_name}\n"
+      "    OUTPUT_DIR \"\${CMAKE_CURRENT_BINARY_DIR}/generated\"\n"
+      "    SOURCES \"\${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp\")\n")
+  else()
+    message(FATAL_ERROR "Unknown manifest warning fixture mode '${mode}'")
+  endif()
+
+  file(TO_CMAKE_PATH "${GENTEST_SOURCE_DIR}" _gentest_source_dir_for_cmake)
+  file(WRITE "${source_dir}/CMakeLists.txt"
+    "cmake_minimum_required(VERSION 3.31)\n"
+    "project(gentest_${target_name} LANGUAGES CXX)\n"
+    "\n"
+    "set(CMAKE_CXX_EXTENSIONS OFF)\n"
+    "set(gentest_BUILD_TESTING OFF CACHE BOOL \"\" FORCE)\n"
+    "set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL \"\" FORCE)\n"
+    "set(GENTEST_ENABLE_PUBLIC_MODULES OFF CACHE STRING \"\" FORCE)\n"
+    "\n"
+    "add_subdirectory(\"${_gentest_source_dir_for_cmake}\" gentest)\n"
+    "\n"
+    "add_executable(${target_name})\n"
+    "target_link_libraries(${target_name} PRIVATE gentest::gentest_main)\n"
+    "target_compile_features(${target_name} PRIVATE cxx_std_20)\n"
+    "\n"
+    "${_fixture_codegen_call}")
+endfunction()
+
+function(_gentest_build_manifest_warning_fixture build_dir target_name)
+  set(_build_args --build "${build_dir}" --target "${target_name}")
+  if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
+    list(APPEND _build_args --config "${BUILD_CONFIG}")
+  elseif(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
+    list(APPEND _build_args --config "${BUILD_TYPE}")
+  endif()
+
+  gentest_check_run_or_fail(
+    COMMAND "${CMAKE_COMMAND}" ${_build_args}
+    STRIP_TRAILING_WHITESPACE
+    WORKING_DIRECTORY "${BUILD_ROOT}")
+endfunction()
 
 set(_fixture_source_dir "${BUILD_ROOT}/cmake_legacy_manifest_warning_src")
 set(_fixture_build_dir "${BUILD_ROOT}/cmake_legacy_manifest_warning_build")
-file(REMOVE_RECURSE "${_fixture_source_dir}" "${_fixture_build_dir}")
-file(MAKE_DIRECTORY "${_fixture_source_dir}")
-file(WRITE "${_fixture_source_dir}/cases.cpp" [=[
-#include "gentest/assertions.h"
-
-[[using gentest: test("legacy_manifest_warning/builds")]]
-void legacyManifestWarningBuilds() {
-    gentest::asserts::EXPECT_TRUE(true);
-}
-]=])
-file(TO_CMAKE_PATH "${GENTEST_SOURCE_DIR}" _gentest_source_dir_for_cmake)
-file(WRITE "${_fixture_source_dir}/CMakeLists.txt.in" [=[
-cmake_minimum_required(VERSION 3.31)
-project(gentest_legacy_manifest_warning LANGUAGES CXX)
-
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
-set(GENTEST_ENABLE_PUBLIC_MODULES OFF CACHE STRING "" FORCE)
-
-add_subdirectory("@_gentest_source_dir_for_cmake@" gentest)
-
-add_executable(legacy_manifest_warning)
-target_link_libraries(legacy_manifest_warning PRIVATE gentest::gentest_main)
-target_compile_features(legacy_manifest_warning PRIVATE cxx_std_20)
-
-gentest_attach_codegen(legacy_manifest_warning
-    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/legacy_manifest_warning.gentest.cpp"
-    SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp")
-]=])
-configure_file("${_fixture_source_dir}/CMakeLists.txt.in" "${_fixture_source_dir}/CMakeLists.txt" @ONLY)
+file(REMOVE_RECURSE "${_fixture_build_dir}")
+_gentest_write_manifest_warning_fixture(
+  "${_fixture_source_dir}"
+  legacy_manifest_warning
+  legacy_manifest_warning
+  LEGACY_OUTPUT)
 
 set(_cmake_gen_args -G "${GENERATOR}")
 if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
@@ -177,77 +206,33 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
-_gentest_expect_success_contains(
+_gentest_expect_success(
   "cmake legacy manifest output warning"
-  "${_cmake_legacy_warning}"
-  "${CMAKE_COMMAND}"
-  ${_cmake_gen_args}
-  -S "${_fixture_source_dir}"
-  -B "${_fixture_build_dir}"
-  ${_cmake_cache_args})
-
-set(_build_args --build "${_fixture_build_dir}" --target legacy_manifest_warning)
-if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
-  list(APPEND _build_args --config "${BUILD_CONFIG}")
-elseif(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
-  list(APPEND _build_args --config "${BUILD_TYPE}")
-endif()
-
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" ${_build_args}
-  STRIP_TRAILING_WHITESPACE
-  WORKING_DIRECTORY "${BUILD_ROOT}")
+  CONTAINS "${_cmake_legacy_warning}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    ${_cmake_gen_args}
+    -S "${_fixture_source_dir}"
+    -B "${_fixture_build_dir}"
+    ${_cmake_cache_args})
+_gentest_build_manifest_warning_fixture("${_fixture_build_dir}" legacy_manifest_warning)
 
 set(_per_tu_source_dir "${BUILD_ROOT}/cmake_per_tu_warning_probe_src")
 set(_per_tu_build_dir "${BUILD_ROOT}/cmake_per_tu_warning_probe_build")
-file(REMOVE_RECURSE "${_per_tu_source_dir}" "${_per_tu_build_dir}")
-file(MAKE_DIRECTORY "${_per_tu_source_dir}")
-file(WRITE "${_per_tu_source_dir}/cases.cpp" [=[
-#include "gentest/assertions.h"
+file(REMOVE_RECURSE "${_per_tu_build_dir}")
+_gentest_write_manifest_warning_fixture(
+  "${_per_tu_source_dir}"
+  per_tu_warning_probe
+  per_tu_warning_probe
+  PER_TU_OUTPUT_DIR)
 
-[[using gentest: test("per_tu_warning_probe/builds")]]
-void perTuWarningProbeBuilds() {
-    gentest::asserts::EXPECT_TRUE(true);
-}
-]=])
-file(WRITE "${_per_tu_source_dir}/CMakeLists.txt.in" [=[
-cmake_minimum_required(VERSION 3.31)
-project(gentest_per_tu_warning_probe LANGUAGES CXX)
-
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
-set(GENTEST_ENABLE_PUBLIC_MODULES OFF CACHE STRING "" FORCE)
-
-add_subdirectory("@_gentest_source_dir_for_cmake@" gentest)
-
-add_executable(per_tu_warning_probe)
-target_link_libraries(per_tu_warning_probe PRIVATE gentest::gentest_main)
-target_compile_features(per_tu_warning_probe PRIVATE cxx_std_20)
-
-gentest_attach_codegen(per_tu_warning_probe
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
-    SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp")
-]=])
-configure_file("${_per_tu_source_dir}/CMakeLists.txt.in" "${_per_tu_source_dir}/CMakeLists.txt" @ONLY)
-
-_gentest_expect_success_forbids(
+_gentest_expect_success(
   "cmake per-tu output has no legacy manifest warning"
-  "${_cmake_legacy_warning}"
-  "${CMAKE_COMMAND}"
-  ${_cmake_gen_args}
-  -S "${_per_tu_source_dir}"
-  -B "${_per_tu_build_dir}"
-  ${_cmake_cache_args})
-
-set(_per_tu_build_args --build "${_per_tu_build_dir}" --target per_tu_warning_probe)
-if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
-  list(APPEND _per_tu_build_args --config "${BUILD_CONFIG}")
-elseif(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
-  list(APPEND _per_tu_build_args --config "${BUILD_TYPE}")
-endif()
-
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" ${_per_tu_build_args}
-  STRIP_TRAILING_WHITESPACE
-  WORKING_DIRECTORY "${BUILD_ROOT}")
+  FORBIDS "${_cmake_legacy_warning}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    ${_cmake_gen_args}
+    -S "${_per_tu_source_dir}"
+    -B "${_per_tu_build_dir}"
+    ${_cmake_cache_args})
+_gentest_build_manifest_warning_fixture("${_per_tu_build_dir}" per_tu_warning_probe)

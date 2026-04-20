@@ -72,9 +72,8 @@ tagged release.
 
 ### Known Limitations
 
-- Story `034` is only partially implemented. Mock phase splitting, textual
-  standalone registration alignment, and a stable manifest schema remain future
-  work.
+- Declaration-only textual registration remains future work; textual `.cpp`
+  sources still use wrapper/include registration.
 - Private module fragments and module partitions are explicitly unsupported in
   the current module registration slice.
 - Meson support remains textual-only; named-module registration is not
