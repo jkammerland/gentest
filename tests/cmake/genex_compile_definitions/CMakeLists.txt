@@ -26,12 +26,28 @@ target_compile_definitions(genex_compile_definitions PRIVATE
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp PROPERTIES
     COMPILE_DEFINITIONS "$<$<CONFIG:Debug>:GENTEST_SOURCE_DEBUG=1>;$<$<CONFIG:Release>:GENTEST_SOURCE_RELEASE=1>")
 
+set(_gentest_genex_codegen_clang_args -std=c++20 "-I${GENTEST_SOURCE_DIR}/include")
+if(TARGET fmt::fmt)
+    get_target_property(_gentest_genex_fmt_includes fmt::fmt INTERFACE_INCLUDE_DIRECTORIES)
+    if(_gentest_genex_fmt_includes AND NOT _gentest_genex_fmt_includes MATCHES "-NOTFOUND$")
+        foreach(_gentest_genex_fmt_include IN LISTS _gentest_genex_fmt_includes)
+            if(_gentest_genex_fmt_include MATCHES "^\\$<BUILD_INTERFACE:(.*)>$")
+                list(APPEND _gentest_genex_codegen_clang_args -isystem "${CMAKE_MATCH_1}")
+            elseif(NOT _gentest_genex_fmt_include MATCHES "\\$<")
+                list(APPEND _gentest_genex_codegen_clang_args -isystem "${_gentest_genex_fmt_include}")
+            endif()
+        endforeach()
+    endif()
+endif()
+
 if(CMAKE_CONFIGURATION_TYPES)
     gentest_attach_codegen(genex_compile_definitions
         OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/genex_compile_definitions.cpp"
-        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp)
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp
+        CLANG_ARGS ${_gentest_genex_codegen_clang_args})
 else()
     gentest_attach_codegen(genex_compile_definitions
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
-        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp)
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp
+        CLANG_ARGS ${_gentest_genex_codegen_clang_args})
 endif()

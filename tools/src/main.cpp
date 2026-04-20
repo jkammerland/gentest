@@ -4090,7 +4090,7 @@ int main(int argc, const char **argv) {
         if (const auto direct_it = compile_commands_by_file.find(source_key); direct_it != compile_commands_by_file.end()) {
             direct_commands = direct_it->second;
         }
-        if (direct_commands.empty()) {
+        if (direct_commands.empty() && !options.tu_output_dir.empty()) {
             direct_commands = database->getCompileCommands(std::string(file_path));
         }
         for (auto &command : direct_commands) {
