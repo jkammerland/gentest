@@ -509,6 +509,15 @@ llvm_map_components_to_libnames(_gentest_llvm_support Support)
 # Prefer monolithic clang-cpp when available (more stable across LLVM versions),
 # otherwise fall back to per-component linking.
 if(TARGET clang-cpp)
+    get_target_property(_gentest_clang_cpp_release_loc clang-cpp IMPORTED_LOCATION_RELEASE)
+    get_target_property(_gentest_clang_cpp_release_implib clang-cpp IMPORTED_IMPLIB_RELEASE)
+    if(_gentest_clang_cpp_release_loc OR _gentest_clang_cpp_release_implib)
+        set_property(TARGET clang-cpp PROPERTY MAP_IMPORTED_CONFIG_RELWITHDEBINFO RelWithDebInfo Release)
+        set_property(TARGET clang-cpp PROPERTY MAP_IMPORTED_CONFIG_MINSIZEREL MinSizeRel Release)
+    endif()
+    unset(_gentest_clang_cpp_release_loc)
+    unset(_gentest_clang_cpp_release_implib)
+
     # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
     # Link it when the imported target exists; otherwise fall back to LLVMSupport.
     # Link the monolithic clang-cpp; avoid mixing in static LLVM components.

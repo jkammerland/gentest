@@ -374,6 +374,43 @@ function(gentest_is_supported_module_fixture_clang out_var compiler_path)
   set(${out_var} TRUE PARENT_SCOPE)
 endfunction()
 
+function(gentest_module_cpp_source_textual_wrapper_skip_reason out_reason compiler_path)
+  set(_reason "")
+
+  if("${compiler_path}" STREQUAL "" OR NOT EXISTS "${compiler_path}")
+    set(_reason "module .cpp source regression: no usable C++ compiler was provided")
+  else()
+    gentest_is_clang_like(_is_clang_like "${compiler_path}")
+    gentest_compiler_version_output(_version_output "${compiler_path}")
+
+    if(CMAKE_HOST_WIN32 AND _is_clang_like)
+      set(_reason
+        "module .cpp source regression: textual wrapper after public module import is not stable on Windows LLVM")
+    elseif(_is_clang_like)
+      if(_version_output MATCHES "(^|[\r\n])Apple clang version ")
+        set(_reason "module .cpp source regression: Apple Clang module support is not covered by this fixture")
+      elseif(_version_output MATCHES "clang version ([0-9]+)")
+        set(_clang_major "${CMAKE_MATCH_1}")
+        if(_clang_major VERSION_LESS 21)
+          set(_reason
+            "module .cpp source regression: textual wrapper after public module import requires Clang 21+; '${compiler_path}' reports Clang ${_clang_major}")
+        endif()
+      else()
+        set(_reason
+          "module .cpp source regression: unable to confirm Clang 21+ support for '${compiler_path}'")
+      endif()
+    elseif(_version_output MATCHES "(^|[\r\n])(g\\+\\+|c\\+\\+)[^\\r\\n]*\\) ([0-9]+)")
+      set(_gcc_major "${CMAKE_MATCH_3}")
+      if(_gcc_major VERSION_LESS 16)
+        set(_reason
+          "module .cpp source regression: textual wrapper after public module import is not stable on GNU C++ before GCC 16; '${compiler_path}' reports GCC ${_gcc_major}")
+      endif()
+    endif()
+  endif()
+
+  set(${out_reason} "${_reason}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_append_candidate_dir_unique list_var dir_path)
   if("${dir_path}" STREQUAL "" OR NOT EXISTS "${dir_path}" OR NOT IS_DIRECTORY "${dir_path}")
     set(${list_var} "${${list_var}}" PARENT_SCOPE)
