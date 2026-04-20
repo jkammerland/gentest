@@ -2,7 +2,7 @@
 
 ## Status
 
-Done for the module-registration split handoff slice.
+Done.
 
 - `gentest_codegen` now accepts `--mock-registration-manifest` in same-module
   registration mode and consumes named-module mock metadata without reparsing
@@ -13,32 +13,29 @@ Done for the module-registration split handoff slice.
 - Direct-tool and CMake regressions cover generated same-module mock
   attachment without including the owning `.cppm` source or importing the
   owning module.
-- Remaining cleanup for the broader cleanup target: remove the legacy
-  module-wrapper source-transformation path and related non-registration
-  compatibility plumbing after downstream wrapper-mode mock users are migrated.
+- The broader cleanup campaign still tracks removal of legacy module-wrapper
+  source transformation and related non-registration compatibility plumbing
+  after downstream wrapper-mode users are migrated.
 
 ## Goal
 
-Retire the integrated module-wrapper mock attachment path by making
-module-aware test registration consume the split `inspect-mocks` / `emit-mocks`
-protocol. `gentest_codegen` must continue to own mock semantics, module-domain
+Retire same-module `MODULE_REGISTRATION`'s dependency on the integrated
+module-wrapper mock attachment path by making registration consume the split
+`inspect-mocks` manifest through `--mock-registration-manifest`.
+`gentest_codegen` must continue to own mock semantics, module-domain
 classification, and generated attachment shape. Build-system adapters may
 predeclare paths and pass manifests, but must not parse C++ or generated JSON
-for planning.
+for planning. `emit-mocks` remains an independent phase for final mock outputs;
+it is not the registration handoff.
 
 ## Problem
 
-Today the legacy module-wrapper path can transform module sources and inject
+The legacy module-wrapper path can transform module sources and inject
 module-owned mock attachment code while running the monolithic
-`--discover-mocks` flow. Same-module registration mode deliberately rejects
-module-owned mock injection instead:
-
-```text
-gentest_codegen: module registration mode does not support module-owned mock injection
-```
-
-That rejection keeps story `034` honest, but it leaves module-owned mock
-registration split from the new manifest protocol.
+`--discover-mocks` flow. Story `035` replaced that path for same-module
+registration: `MODULE_REGISTRATION` now runs split `inspect-mocks` discovery and
+passes the generated manifest back to `gentest_codegen` with
+`--mock-registration-manifest`.
 
 ## Scope
 
@@ -83,12 +80,9 @@ gentest_codegen
   --tu-out-dir gen
   --module-registration-output gen/tu_0000_cases.registration.gentest.cpp
   --artifact-manifest gen/tests.artifact_manifest.json
-  <mock-registration-handoff> gen/tests.mock_manifest.json
+  --mock-registration-manifest gen/tests.mock_manifest.json
   tests/cases.cppm -- -std=c++20 ...
 ```
-
-The final handoff flag/name is intentionally not specified by this story file;
-the implementation should choose the smallest coherent protocol.
 
 ## Acceptance Criteria
 

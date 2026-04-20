@@ -122,14 +122,41 @@ gentest_codegen emit-mocks \
 `emit-mocks` validates that every named-module mock belongs to a manifest
 module domain and rejects unsupported `schema` values.
 
-## Current Limits
+## Same-Module Mock Registration
 
-The split mock protocol does not yet replace the integrated module-wrapper
-mock injection path used by legacy module-wrapper registration. Same-module
-registration mode currently rejects module-owned mock injection instead of
-rewiring it through `inspect-mocks` / `emit-mocks`. That remaining work is
-tracked by
-[`docs/stories/035_module_mock_split_protocol_registration.md`](stories/035_module_mock_split_protocol_registration.md).
+`MODULE_REGISTRATION` composes module-owned mocks by consuming the mock manifest
+directly during registration emission. Build systems should predeclare the mock
+manifest, run `inspect-mocks`, then pass that manifest to the registration
+phase:
+
+```bash
+gentest_codegen inspect-mocks \
+  --mock-manifest-output gen/tests.mock_manifest.json \
+  --depfile gen/tests.mock_manifest.d \
+  tests/provider.cppm tests/cases.cppm \
+  -- -std=c++20 -I/path/to/gentest/include
+
+gentest_codegen \
+  --tu-out-dir gen \
+  --tu-header-output gen/tu_0000_provider.gentest.h \
+  --tu-header-output gen/tu_0001_cases.gentest.h \
+  --module-registration-output gen/tu_0000_provider.registration.gentest.cpp \
+  --module-registration-output gen/tu_0001_cases.registration.gentest.cpp \
+  --artifact-manifest gen/tests.artifact_manifest.json \
+  --mock-registration-manifest gen/tests.mock_manifest.json \
+  --depfile gen/tests.gentest.d \
+  tests/provider.cppm tests/cases.cppm \
+  -- -std=c++20 -I/path/to/gentest/include
+```
+
+The registration phase validates the mock manifest schema, named-module output
+domains, and owning module coverage. It emits same-module registration
+implementation units that attach module-owned mocks without including the owning
+`.cppm` source or importing the owning module. `emit-mocks` remains the
+independent phase for final mock registry/implementation outputs; same-module
+registration uses `--mock-registration-manifest` instead.
+
+## Current Limits
 
 Standalone declaration-only textual registration is not part of this protocol.
 It remains a future opt-in mode with stricter source visibility rules, tracked

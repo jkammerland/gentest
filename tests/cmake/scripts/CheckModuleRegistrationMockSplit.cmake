@@ -143,12 +143,61 @@ foreach(_token IN ITEMS
   endif()
 endforeach()
 
+get_filename_component(_provider_registration_name "${_provider_registration}" NAME)
+string(REPLACE ".registration.gentest.cpp" ".gentest.h" _provider_header_name "${_provider_registration_name}")
+set(_provider_header "${_generated_dir}/${_provider_header_name}")
+if(NOT EXISTS "${_provider_header}")
+  message(FATAL_ERROR "Expected provider registration header '${_provider_header}'")
+endif()
+file(READ "${_provider_header}" _provider_header_text)
+foreach(_token IN ITEMS
+    "module_owned_mock"
+    "gentest::mock<story035_mock_split::Service>"
+    "FixtureHandle<")
+  string(FIND "${_provider_header_text}" "${_token}" _header_token_pos)
+  if(_header_token_pos EQUAL -1)
+    message(FATAL_ERROR "Expected provider registration header token '${_token}'.\n${_provider_header_text}")
+  endif()
+endforeach()
+
 foreach(_forbidden IN ITEMS
     "provider.cppm"
     "import gentest.story035.mock_split_provider")
   string(FIND "${_provider_registration_text}" "${_forbidden}" _forbidden_pos)
   if(NOT _forbidden_pos EQUAL -1)
     message(FATAL_ERROR "Provider registration unexpectedly contains '${_forbidden}'.\n${_provider_registration_text}")
+  endif()
+endforeach()
+
+file(RELATIVE_PATH _provider_registration_rel "${_build_dir}" "${_provider_registration}")
+gentest_check_run_or_fail(
+  COMMAND "${_supported_ninja}" -C "${_build_dir}" -t query "${_provider_registration_rel}"
+  OUTPUT_VARIABLE _provider_registration_query
+  STRIP_TRAILING_WHITESPACE)
+string(FIND "${_provider_registration_query}" "module_registration_mock_split_tests.mock_manifest.json" _query_manifest_pos)
+if(_query_manifest_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected provider registration Ninja query to depend on the split mock manifest.\n${_provider_registration_query}")
+endif()
+
+gentest_check_run_or_fail(
+  COMMAND "${_supported_ninja}" -C "${_build_dir}" -t commands module_registration_mock_split_tests
+  OUTPUT_VARIABLE _ninja_commands
+  STRIP_TRAILING_WHITESPACE)
+foreach(_token IN ITEMS
+    "inspect-mocks"
+    "--mock-manifest-output"
+    "module_registration_mock_split_tests.mock_manifest.json"
+    "--mock-registration-manifest")
+  string(FIND "${_ninja_commands}" "${_token}" _commands_token_pos)
+  if(_commands_token_pos EQUAL -1)
+    message(FATAL_ERROR "Expected build command token '${_token}'.\n${_ninja_commands}")
+  endif()
+endforeach()
+foreach(_forbidden IN ITEMS "--module-wrapper-output" "--discover-mocks")
+  string(FIND "${_ninja_commands}" "${_forbidden}" _commands_forbidden_pos)
+  if(NOT _commands_forbidden_pos EQUAL -1)
+    message(FATAL_ERROR "Did not expect build command token '${_forbidden}'.\n${_ninja_commands}")
   endif()
 endforeach()
 
