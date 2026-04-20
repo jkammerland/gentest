@@ -3162,6 +3162,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_doc_contract APPEND PROPERTY LABELS "modules" "docs")
 
 _gentest_add_cmake_helper_test(
+    gentest_examples_doc_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExamplesContract.cmake
+    contract)
+set_property(TEST gentest_examples_doc_contract APPEND PROPERTY LABELS "docs" "examples" "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_syntax_sensitive_regression_fixtures
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckSyntaxSensitiveRegressionFixtures.cmake

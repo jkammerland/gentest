@@ -2050,6 +2050,20 @@ bool source_requires_explicit_module_language_mode(std::string_view path) {
     return ext == ".ixx" || ext == ".mxx" || ext == ".cppm" || ext == ".ccm" || ext == ".cxxm";
 }
 
+bool is_cxx_source_input_path(std::string_view path) {
+    if (path.empty() || path.starts_with("-") || path.starts_with("@")) {
+        return false;
+    }
+    if (path.starts_with("/") && path.find('/', 1) == std::string_view::npos && path.find('\\', 1) == std::string_view::npos) {
+        return false;
+    }
+    std::string ext = std::filesystem::path{std::string(path)}.extension().string();
+    std::ranges::transform(ext, ext.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    static constexpr std::array<std::string_view, 15> source_extensions = {".c",  ".cc",   ".cp",  ".cpp",  ".cxx",  ".c++", ".m",  ".mm",
+                                                                           ".cu", ".cppm", ".ccm", ".cxxm", ".c++m", ".ixx", ".mxx"};
+    return std::ranges::find(source_extensions, ext) != source_extensions.end();
+}
+
 std::string resolve_program_invocation_path(std::string_view program) {
     if (program.empty()) {
         return {};
@@ -2875,7 +2889,7 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
             arg.starts_with("-MT") || arg.starts_with("-MQ") || arg.starts_with("-MJ")) {
             continue;
         }
-        if (is_source_arg(arg)) {
+        if (is_source_arg(arg) || is_cxx_source_input_path(arg)) {
             continue;
         }
         command.push_back(arg);
@@ -4760,10 +4774,11 @@ int main(int argc, const char **argv) {
                 for (const auto &candidate_path : explicit_it->second) {
                     const std::filesystem::path &candidate                 = candidate_path;
                     auto                         candidate_direct_commands = get_expanded_compile_commands_for_file(candidate.string());
-                    const auto                  &candidate_driver_commands =
+                    std::vector<clang::tooling::CompileCommand> empty_candidate_source_commands;
+                    const auto                                 &candidate_driver_commands =
                         candidate_direct_commands.empty() ? context_commands : candidate_direct_commands;
                     const auto &candidate_source_commands =
-                        candidate_direct_commands.empty() ? context_commands : candidate_direct_commands;
+                        candidate_direct_commands.empty() ? empty_candidate_source_commands : candidate_direct_commands;
                     const auto candidate_include_search_paths =
                         candidate_direct_commands.empty()
                             ? context.include_search_paths
@@ -4800,13 +4815,14 @@ int main(int argc, const char **argv) {
                 for (const auto &candidate : candidate_external_module_interface_paths(include_dir, module_name)) {
                     auto candidate_direct_commands = get_expanded_compile_commands_for_file(candidate.string());
                     std::vector<clang::tooling::CompileCommand> context_commands;
+                    std::vector<clang::tooling::CompileCommand> empty_candidate_source_commands;
                     if (!context.command_line.empty()) {
                         context_commands.emplace_back(context.working_directory, candidate.string(), context.command_line, std::string{});
                     }
                     const auto &candidate_driver_commands =
                         candidate_direct_commands.empty() ? context_commands : candidate_direct_commands;
                     const auto &candidate_source_commands =
-                        candidate_direct_commands.empty() ? context_commands : candidate_direct_commands;
+                        candidate_direct_commands.empty() ? empty_candidate_source_commands : candidate_direct_commands;
                     const auto candidate_include_search_paths =
                         candidate_direct_commands.empty()
                             ? context.include_search_paths

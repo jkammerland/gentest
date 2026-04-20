@@ -67,6 +67,9 @@ Contributor workflows, including lint, static analysis, coverage, and local CI-a
 
 ## Use in your project (CMake)
 
+Complete copy-paste projects live in [`examples/hello`](examples/hello) and
+[`examples/hello_modules`](examples/hello_modules).
+
 ```cmake
 # Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
@@ -83,6 +86,30 @@ gentest_discover_tests(my_tests)
 
 # Alternative: run everything in a single process.
 # add_test(NAME my_tests COMMAND my_tests)
+```
+
+`cases.cpp`:
+
+```cpp
+#include "gentest/attributes.h"
+#include "gentest/runner.h"
+
+using namespace gentest::asserts;
+
+[[using gentest: test("demo/addition")]]
+void addition() {
+    const auto value = 2 + 2;
+    gentest::expect_true(value == 4);
+    EXPECT_EQ(value, 4);
+}
+```
+
+Configure and run the consumer project after installing gentest:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 Docs: [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).

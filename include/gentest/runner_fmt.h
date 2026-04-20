@@ -17,6 +17,13 @@ inline void expect(bool condition, fmt::format_string<A...> fmt_str, A &&...a,
         expect(condition, std::string_view(fmt::format(fmt_str, std::forward<A>(a)...)), loc);
 }
 
+template <class... A>
+inline void expect_true(bool condition, fmt::format_string<A...> fmt_str, A &&...a,
+                        const std::source_location &loc = std::source_location::current()) {
+    if (!condition)
+        expect_true(condition, std::string_view(fmt::format(fmt_str, std::forward<A>(a)...)), loc);
+}
+
 template <class L, class R, class... A>
 inline void expect_eq(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a,
                       const std::source_location &loc = std::source_location::current()) {
@@ -54,7 +61,7 @@ inline void require_ne(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&.
 
 namespace asserts {
 template <class... A> inline void EXPECT_TRUE(bool condition, fmt::format_string<A...> fmt_str, A &&...a) {
-    ::gentest::expect(condition, fmt_str, std::forward<A>(a)...);
+    ::gentest::expect_true(condition, fmt_str, std::forward<A>(a)...);
 }
 template <class L, class R, class... A> inline void EXPECT_EQ(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a) {
     ::gentest::expect_eq(std::forward<L>(lhs), std::forward<R>(rhs), fmt_str, std::forward<A>(a)...);

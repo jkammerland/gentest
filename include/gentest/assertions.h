@@ -62,6 +62,12 @@ inline void expect(bool condition, std::string_view message = {}, const std::sou
     }
 }
 
+// Record a non-fatal failure if `condition` is false; execution continues.
+// Alias for `expect` that keeps true/false expectation names symmetric.
+inline void expect_true(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
+    expect(condition, message, loc);
+}
+
 // Record a non-fatal failure if `condition` is true; execution continues.
 inline void expect_false(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
     if (condition) {
@@ -274,7 +280,7 @@ template <class Expected> inline std::string_view expected_exception_name() {
 } // namespace detail_internal
 
 inline void EXPECT_TRUE(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
-    expect(condition, message, loc);
+    expect_true(condition, message, loc);
 }
 
 inline void EXPECT_FALSE(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {

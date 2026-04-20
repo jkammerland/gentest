@@ -32,6 +32,7 @@ using ::gentest::expect_gt;
 using ::gentest::expect_le;
 using ::gentest::expect_lt;
 using ::gentest::expect_ne;
+using ::gentest::expect_true;
 using ::gentest::fail;
 using ::gentest::failure;
 using ::gentest::FixtureLifetime;
