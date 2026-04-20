@@ -189,6 +189,16 @@ _gentest_resolve_codegen_backend(
     OUT_CODEGEN_EXECUTABLE _gentest_codegen_prog)
 
 _gentest_collect_cross_codegen_clang_args(_gentest_codegen_cross_target_arg)
+set(_gentest_codegen_public_include_args
+    -I${PROJECT_SOURCE_DIR}/include
+    -I${CMAKE_CURRENT_SOURCE_DIR})
+gentest_append_public_dependency_include_args(_gentest_codegen_public_include_args "${CMAKE_BINARY_DIR}")
+_gentest_collect_common_codegen_system_include_args(_gentest_codegen_system_include_args)
+set(_gentest_codegen_check_valid_clang_args
+    ${_gentest_codegen_cross_target_arg}
+    ${_gentest_codegen_std_flag}
+    ${_gentest_codegen_public_include_args}
+    ${_gentest_codegen_system_include_args})
 
 function(_gentest_add_proof_test name source)
     add_executable(${name} ${source})
@@ -254,10 +264,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_check_valid_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_namespaced_attrs
