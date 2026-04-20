@@ -170,52 +170,117 @@ def clean_build_sample(
     return elapsed
 
 
-def classify_ninja_output(output: str) -> str:
+def classify_ninja_outputs(outputs: list[str]) -> str:
     if (
-        "artifact_manifest" in output
-        or output.endswith(".gentest.h")
+        any(output.endswith(".artifact_manifest.validated") for output in outputs)
+    ):
+        return "manifest_validation_json"
+    if any(
+        output.endswith(".gentest.h")
         or output.endswith(".gentest.cpp")
         or output.endswith("_mock_registry.hpp")
         or output.endswith("_mock_impl.hpp")
         or "_mock_registry__domain_" in output
         or "_mock_impl__domain_" in output
+        or output.endswith(".artifact_manifest.json")
+        for output in outputs
     ):
-        return "codegen_custom"
-    if "/tests/" in output or output.startswith("tests/"):
-        return "test_compile_link"
-    if "/src/" in output or output.startswith("src/"):
-        return "runtime_lib"
-    if "tools/CMakeFiles/gentest_codegen.dir" in output or output.endswith("/tools/gentest_codegen"):
+        return "codegen_execution_emit"
+    if any(output.startswith("src/CMakeFiles/") and output.endswith(".o") for output in outputs):
+        return "runtime_compile"
+    if any(output.startswith("src/libgentest") for output in outputs):
+        return "runtime_archive"
+    if any("/tu_" in output and output.endswith(".gentest.cpp.o") for output in outputs):
+        return "generated_test_tu_compile"
+    if any(output.startswith("tests/CMakeFiles/") and output.endswith(".o") for output in outputs):
+        return "test_support_compile"
+    if any(output.startswith("tests/lib") and output.endswith(".a") for output in outputs):
+        return "test_helper_archive"
+    if any(output.startswith("tests/gentest_") and not output.endswith(".a") for output in outputs):
+        return "final_test_binary_link"
+    if any("CTestTestfile" in output for output in outputs):
+        return "test_discovery_or_ctest_metadata"
+    if any("tools/CMakeFiles/gentest_codegen.dir" in output or output.endswith("/tools/gentest_codegen") for output in outputs):
         return "generator_tool"
+    return "other"
+
+
+def infer_target(outputs: list[str]) -> str:
+    for output in outputs:
+        parts = output.split("/")
+        if output.startswith("tests/CMakeFiles/") and len(parts) > 2:
+            return parts[2].removesuffix(".dir")
+        if output.startswith("tests/gentest_") and len(parts) == 2:
+            return parts[1]
+        if output.startswith("tests/") and len(parts) > 2:
+            suite = parts[1]
+            if suite == "generated":
+                return "gentest_textual_suite_mocks"
+            return f"gentest_{suite}_tests"
+        if output.startswith("src/"):
+            return "runtime"
     return "other"
 
 
 def summarize_ninja_log(build_dir: Path) -> dict[str, object]:
     ninja_log = build_dir / ".ninja_log"
-    summary: dict[str, object] = {"entries": 0, "categories": {}}
+    summary: dict[str, object] = {"output_entries": 0, "unique_edges": 0, "wall_s": 0.0, "categories": {}, "targets": {}, "top_edges": []}
     if not ninja_log.exists():
         return summary
 
-    categories: dict[str, dict[str, float | int]] = {}
-    entries = 0
+    edges: dict[tuple[int, int, str], list[str]] = {}
     for line in ninja_log.read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#"):
             continue
         fields = line.split("\t")
-        if len(fields) < 4:
+        if len(fields) < 5:
             continue
         try:
             start_ms = int(fields[0])
             end_ms = int(fields[1])
         except ValueError:
             continue
-        category = classify_ninja_output(fields[3])
-        item = categories.setdefault(category, {"count": 0, "summed_edge_s": 0.0})
+        edges.setdefault((start_ms, end_ms, fields[4]), []).append(fields[3])
+
+    categories: dict[str, dict[str, float | int]] = {}
+    targets: dict[str, dict[str, float | int]] = {}
+    top_edges: list[dict[str, object]] = []
+    output_entries = 0
+    wall_ms = 0
+    for key, outputs in edges.items():
+        start_ms, end_ms, _ = key
+        wall_ms = max(wall_ms, end_ms)
+        output_entries += len(outputs)
+        duration_s = (end_ms - start_ms) / 1000.0
+        category = classify_ninja_outputs(outputs)
+        target = infer_target(outputs)
+
+        item = categories.setdefault(category, {"count": 0, "summed_edge_s": 0.0, "max_edge_s": 0.0})
         item["count"] = int(item["count"]) + 1
-        item["summed_edge_s"] = float(item["summed_edge_s"]) + ((end_ms - start_ms) / 1000.0)
-        entries += 1
-    summary["entries"] = entries
+        item["summed_edge_s"] = float(item["summed_edge_s"]) + duration_s
+        item["max_edge_s"] = max(float(item["max_edge_s"]), duration_s)
+
+        target_item = targets.setdefault(target, {"summed_edge_s": 0.0, "count": 0})
+        target_item["count"] = int(target_item["count"]) + 1
+        target_item["summed_edge_s"] = float(target_item["summed_edge_s"]) + duration_s
+
+        top_edges.append(
+            {
+                "category": category,
+                "target": target,
+                "duration_s": duration_s,
+                "start_s": start_ms / 1000.0,
+                "end_s": end_ms / 1000.0,
+                "output": outputs[0],
+            }
+        )
+
+    summary["output_entries"] = output_entries
+    summary["unique_edges"] = len(edges)
+    summary["wall_s"] = wall_ms / 1000.0
     summary["categories"] = categories
+    summary["targets"] = targets
+    summary["top_edges"] = sorted(top_edges, key=lambda edge: float(edge["duration_s"]), reverse=True)[:20]
     return summary
 
 
@@ -258,6 +323,20 @@ def print_summary(result: dict[str, object]) -> None:
     print(f"{'base':<10} | {base['median_s']:>10.3f} | {base['mean_s']:>10.3f} | {', '.join(f'{v:.3f}' for v in base['samples_s'])}")
     print()
     print(f"Delta (current - base): {delta['median_s']:+.3f}s ({delta['median_pct']:+.2f}%)")
+    ninja_log = current.get("ninja_log")
+    if isinstance(ninja_log, dict) and ninja_log.get("categories"):
+        print("\nCurrent Timed Build Profile")
+        print(f"Wall from Ninja log: {float(ninja_log.get('wall_s', 0.0)):.3f}s")
+        print(f"{'Category':<32} | {'Edges':>5} | {'Sum edge-s':>10} | {'Max edge-s':>10}")
+        print("-" * 68)
+        categories = ninja_log.get("categories", {})
+        assert isinstance(categories, dict)
+        for name, data in sorted(categories.items(), key=lambda item: float(item[1].get("summed_edge_s", 0.0)), reverse=True):
+            assert isinstance(data, dict)
+            print(
+                f"{name:<32} | {int(data.get('count', 0)):>5} | "
+                f"{float(data.get('summed_edge_s', 0.0)):>10.3f} | {float(data.get('max_edge_s', 0.0)):>10.3f}"
+            )
 
 
 def main() -> int:
