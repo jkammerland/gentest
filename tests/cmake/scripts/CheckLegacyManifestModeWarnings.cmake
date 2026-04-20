@@ -121,17 +121,22 @@ function(_gentest_write_manifest_warning_fixture source_dir target_name test_nam
     string(CONCAT _fixture_codegen_call
       "gentest_attach_codegen(${target_name}\n"
       "    OUTPUT \"\${CMAKE_CURRENT_BINARY_DIR}/${target_name}.gentest.cpp\"\n"
-      "    SOURCES \"\${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp\")\n")
+      "    SOURCES \"\${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp\"\n"
+      "    CLANG_ARGS \${_gentest_fixture_clang_args})\n")
   elseif("${mode}" STREQUAL "PER_TU_OUTPUT_DIR")
     string(CONCAT _fixture_codegen_call
       "gentest_attach_codegen(${target_name}\n"
       "    OUTPUT_DIR \"\${CMAKE_CURRENT_BINARY_DIR}/generated\"\n"
-      "    SOURCES \"\${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp\")\n")
+      "    SOURCES \"\${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp\"\n"
+      "    CLANG_ARGS \${_gentest_fixture_clang_args})\n")
   else()
     message(FATAL_ERROR "Unknown manifest warning fixture mode '${mode}'")
   endif()
 
   file(TO_CMAKE_PATH "${GENTEST_SOURCE_DIR}" _gentest_source_dir_for_cmake)
+  set(_fixture_clang_args_text "${_clang_args}")
+  string(REPLACE "\\" "\\\\" _fixture_clang_args_text "${_fixture_clang_args_text}")
+  string(REPLACE "\"" "\\\"" _fixture_clang_args_text "${_fixture_clang_args_text}")
   file(WRITE "${source_dir}/CMakeLists.txt"
     "cmake_minimum_required(VERSION 3.31)\n"
     "project(gentest_${target_name} LANGUAGES CXX)\n"
@@ -142,6 +147,8 @@ function(_gentest_write_manifest_warning_fixture source_dir target_name test_nam
     "set(GENTEST_ENABLE_PUBLIC_MODULES OFF CACHE STRING \"\" FORCE)\n"
     "\n"
     "add_subdirectory(\"${_gentest_source_dir_for_cmake}\" gentest)\n"
+    "\n"
+    "set(_gentest_fixture_clang_args \"${_fixture_clang_args_text}\")\n"
     "\n"
     "add_executable(${target_name})\n"
     "target_link_libraries(${target_name} PRIVATE gentest::gentest_main)\n"
