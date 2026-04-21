@@ -54,16 +54,8 @@ template <typename... Args> inline void append_format_runtime(std::string &out, 
 }
 } // namespace
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-static std::string format_sv_array(const std::string &name, const std::vector<std::string> &values, const std::string &tpl_empty,
-                                   const std::string &tpl_nonempty) {
-    if (values.empty()) {
-        std::string out;
-        out.reserve(tpl_empty.size() + name.size() + 4);
-        append_format_runtime(out, tpl_empty, fmt::arg("name", name));
-        out.push_back('\n');
-        return out;
-    }
+static std::string format_nonempty_sv_array(const std::string &name, const std::vector<std::string> &values,
+                                            const std::string &tpl_nonempty) {
     std::string body;
     body.reserve(values.size() * 16);
     for (const auto &v : values)
@@ -75,17 +67,25 @@ static std::string format_sv_array(const std::string &name, const std::vector<st
     return out;
 }
 
-TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const std::string &tpl_array_empty,
-                                const std::string &tpl_array_nonempty) {
+TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const std::string & /*tpl_array_empty*/,
+                                const std::string               &tpl_array_nonempty) {
     TraitArrays out;
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test     = cases[idx];
         std::string tag_name = "kTags_" + std::to_string(idx);
         std::string req_name = "kReqs_" + std::to_string(idx);
-        out.tag_names.emplace_back(tag_name);
-        out.req_names.emplace_back(req_name);
-        out.declarations += format_sv_array(tag_name, test.tags, tpl_array_empty, tpl_array_nonempty);
-        out.declarations += format_sv_array(req_name, test.requirements, tpl_array_empty, tpl_array_nonempty);
+        if (test.tags.empty()) {
+            out.tag_names.emplace_back("{}");
+        } else {
+            out.tag_names.emplace_back("std::span{" + tag_name + "}");
+            out.declarations += format_nonempty_sv_array(tag_name, test.tags, tpl_array_nonempty);
+        }
+        if (test.requirements.empty()) {
+            out.req_names.emplace_back("{}");
+        } else {
+            out.req_names.emplace_back("std::span{" + req_name + "}");
+            out.declarations += format_nonempty_sv_array(req_name, test.requirements, tpl_array_nonempty);
+        }
     }
     return out;
 }
