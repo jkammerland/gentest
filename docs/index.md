@@ -55,5 +55,5 @@
 - Split `GentestCodegen.cmake`: [`docs/stories/033_gentest_codegen_cmake_modularization.md`](stories/033_gentest_codegen_cmake_modularization.md)
 - Codegen-owned artifact manifest and same-module registration: [`docs/stories/034_codegen_owned_artifact_manifest_and_module_registration.md`](stories/034_codegen_owned_artifact_manifest_and_module_registration.md)
 - Module mock split protocol registration: [`docs/stories/035_module_mock_split_protocol_registration.md`](stories/035_module_mock_split_protocol_registration.md)
-- Declaration-only textual registration: [`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md)
+- Rejected declaration-only textual registration: [`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md)
 - Codegen contract cleanup campaign: [`docs/stories/037_codegen_contract_cleanup_campaign.md`](stories/037_codegen_contract_cleanup_campaign.md)

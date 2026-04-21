@@ -160,9 +160,10 @@ registration uses `--mock-registration-manifest` instead.
 ## Current Limits
 
 Standalone declaration-only textual registration is not part of this protocol.
-It remains a future opt-in mode with stricter source visibility rules, tracked
-by
-[`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md).
+It was rejected in
+[`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md);
+textual `.cpp` sources keep manifest-declared wrapper/include semantics, and
+named modules remain the declaration-free registration path.
 
 Full non-CMake parity across supported backends is tracked separately by
 [`docs/stories/015_non_cmake_full_parity.md`](stories/015_non_cmake_full_parity.md).

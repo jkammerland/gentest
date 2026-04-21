@@ -1,34 +1,63 @@
-# Story: optional declaration-only textual registration
+# Story: rejected declaration-only textual registration
 
 ## Status
 
-Open.
+Rejected on 2026-04-21.
 
-## Goal
+## Decision
 
-Add an opt-in textual registration mode that emits standalone generated
-registration sources for eligible `.cpp` tests without including the owning
-source file. The existing textual wrapper mode remains the default because it is
-the only compatibility-preserving path for anonymous namespaces, `static`
-tests, source-local fixtures, and other `.cpp`-local declarations.
+Do not add declaration-only textual registration.
 
-## Problem
+Textual `.cpp` tests keep wrapper/include mode as the compatibility path. That
+mode is explicit in the artifact manifest through `includes_owner_source: true`
+and `replaces_owner_source: true`, and it remains the only path that preserves
+anonymous namespaces, `static` tests, source-local fixtures, source-local helper
+types, benchmarks, jitters, and mocks without forcing users to move declarations
+into headers.
 
-Story `034` intentionally keeps textual registration on wrapper/include mode:
+Named modules remain the strategic path for declaration-free registration. For
+module test sources, same-module registration avoids including the authored
+`.cppm` source while still allowing non-exported tests and fixtures in the
+module purview.
 
-```cpp
-#include "../tests/cases.cpp"
-#include "tu_0000_cases.gentest.h"
-```
+## Rationale
 
-That preserves current semantics, but some projects may prefer declaration-only
-generated registration units when all called tests and fixture types are visible
-from another translation unit. That mode has stricter source-style rules and
-needs explicit diagnostics instead of becoming an accidental default.
+The rejected proposal would have added an opt-in textual mode that generated
+standalone registration sources for `.cpp` tests without including the owning
+source file. That only works when every called test function and every required
+fixture/signature type is visible from another translation unit.
 
-## Scope
+That tradeoff is not worth the additional protocol surface:
 
-In scope:
+- it adds CLI/build-system switches for a narrow transitional mode
+- it adds manifest semantics that are not needed by the default textual path
+- it needs codegen-owned eligibility diagnostics for anonymous namespaces,
+  `static` functions, source-local fixtures, and source-local helper types
+- it creates more non-CMake parity work before the wrappers have been collapsed
+  to thin manifest consumers
+- it encourages a source style that modules replace more cleanly
+
+The long-term cleanup direction is therefore:
+
+- keep textual wrapper/include mode for `.cpp` compatibility
+- keep same-module registration for `.cppm` sources
+- make build-system wrappers consume tool-owned manifests instead of
+  reimplementing C++ semantics
+- do not add a second textual registration protocol
+
+## Consequences
+
+- Story `037` must not gate cleanup on declaration-only textual registration.
+- Cleanup that previously depended on this story should instead preserve
+  manifest-declared textual wrapper semantics.
+- Source-inspector and wrapper cleanup should proceed through story `033`,
+  story `015`, and the release-window gates tracked by story `037`.
+- Documentation should describe declaration-only textual registration as a
+  rejected alternative, not future work.
+
+## Rejected Proposal
+
+The proposal was:
 
 - add an explicit opt-in CLI/build-system switch for declaration-only textual
   registration
@@ -38,68 +67,6 @@ In scope:
 - reject or clearly diagnose source-local tests, anonymous-namespace tests,
   `static` tests, and fixture/signature types that are not visible to the
   generated translation unit
-- keep wrapper/include mode as the default path for ordinary textual sources
 
-Out of scope:
-
-- replacing wrapper mode as the default
-- supporting `.cpp`-local declarations in declaration-only mode
-- same-module registration
-- full non-CMake parity
-
-## Example
-
-Eligible authored source:
-
-```cpp
-#include "cases.hpp"
-
-namespace textual_tests {
-
-[[using gentest: test("textual/public_case")]]
-void public_case() {}
-
-} // namespace textual_tests
-```
-
-Generated standalone registration source:
-
-```cpp
-#include "cases.hpp"
-#include "gentest/runner.h"
-
-namespace gentest::generated::tu_0000 {
-
-static void public_case_wrapper(void*) {
-    textual_tests::public_case();
-}
-
-// generated case table and registrar
-
-} // namespace gentest::generated::tu_0000
-```
-
-Rejected source shape:
-
-```cpp
-namespace {
-
-[[using gentest: test("textual/local")]]
-void local_case() {}
-
-} // namespace
-```
-
-## Acceptance Criteria
-
-- Default textual `gentest_attach_codegen(...)` behavior continues to emit and
-  compile wrapper/include artifacts.
-- Opt-in declaration-only mode emits standalone registration artifacts whose
-  manifest records that the owner source is not included or replaced.
-- A positive regression compiles and runs a declaration-only textual case with
-  externally visible declarations.
-- Negative regressions reject anonymous-namespace, `static`, and source-local
-  fixture/type cases with actionable `gentest_codegen` diagnostics.
-- CMake remains a thin adapter; semantic eligibility checks live in
-  `gentest_codegen`.
-
+This remains rejected unless a future design shows a concrete user need that is
+not better served by modules or by the existing textual wrapper mode.

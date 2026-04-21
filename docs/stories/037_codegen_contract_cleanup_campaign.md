@@ -9,10 +9,11 @@ version gates, so the wrappers shrink to thin manifest consumers rather than
 parallel re-implementations of C++ semantics.
 
 This is a subtraction story. It does not introduce new features or protocols.
-It sequences the dependent closures of stories `015`, `033`, and `036` into one
-explicit demolition plan, and assigns owners and dates to deprecations that
-previously lived only as footnotes in other story closures. Story `032` remains
-adjacent installed-devkit work, not a `037` closure gate.
+It sequences the dependent closures of stories `015` and `033` into one explicit
+demolition plan, and assigns owners and dates to deprecations that previously
+lived only as footnotes in other story closures. Story `032` remains adjacent
+installed-devkit work, not a `037` closure gate. Story `036` was rejected, so
+declaration-only textual registration is not a cleanup prerequisite.
 
 ## Problem
 
@@ -52,18 +53,18 @@ Before this file, that campaign was not tracked as a story. As a result:
   deprecation state was scattered across warning strings and story closure
   notes.
 
-The open stories that border this work each own part of the cleanup but do not
-coordinate it:
+The stories that border this work each define part of the cleanup context:
 
 | Story | Owns | Relationship to `037` |
 | --- | --- | --- |
 | `015` | non-CMake (Bazel/Xmake/Meson) parity | Lua/Bazel wrapper collapse, `.in` template removal |
 | `032` | installed devkit boundary | adjacent installed API cleanup; does not gate `037` closure |
 | `033` | `GentestCodegen.cmake` modularization | configure-time source inspector probe deletion, scan-deps collection deletion |
-| `036` | declaration-only textual registration | removal of include-based `cases.cpp`-as-TU registration path |
+| `036` | rejected declaration-only textual registration | no longer gates `037`; textual `.cpp` sources keep wrapper/include semantics |
 
-Without a coordinating story, each of those can close individually while the
-redundant wrapper code lives on indefinitely.
+Without a coordinating story, active dependencies can close individually while
+the redundant wrapper code lives on indefinitely; rejected alternatives can also
+keep appearing as false prerequisites.
 
 ## User stories
 
@@ -93,8 +94,8 @@ In scope:
 - Define LOC-reduction targets per wrapper and track them in this story's
   acceptance criteria.
 - Define the dependency DAG between this campaign and the owning stories
-  (`015`, `033`, `036`), while keeping adjacent `032` devkit work visible but
-  out of the `037` closure gates.
+  (`015`, `033`), while keeping adjacent `032` devkit work and rejected `036`
+  context visible but out of the `037` closure gates.
 - Drive removal of each deprecation at its scheduled version via explicit
   slices (warn -> hard-error -> delete).
 - Add CI regression tests that assert each deprecation's warning fires in its
@@ -105,7 +106,9 @@ In scope:
 
 Out of scope:
 
-- Designing new codegen protocols. Captured by `036`.
+- Designing new codegen protocols. Declaration-only textual registration was
+  rejected in `036`; module registration and textual wrapper semantics are the
+  active protocol paths.
 - Adding non-CMake features to reach parity. Captured by `015`.
 - Splitting `GentestCodegen.cmake` internals. Captured by `033`.
 - Shrinking the installed runtime devkit surface. Captured by `032`.
@@ -122,9 +125,9 @@ The initial population of `DEPRECATIONS.md`:
 | `NO_INCLUDE_SOURCES` option | not applicable once legacy manifest mode is removed | `037` |
 | `EXPECT_SUBSTRING` argument to `gentest_discover_tests(...)` | `DEATH_EXPECT_SUBSTRING` | `037` |
 | legacy `share/cmake/gentest/scan_inspector/` helper install shape | tool-owned source inspection; package absence guard | `037` (gated on `025` closure already done) |
-| configure-time source inspector probe in `GentestCodegen.cmake` | artifact manifest `module` fields, mock-manifest module metadata, and tool-side validation | gated on `033` + `036` |
+| configure-time source inspector probe in `GentestCodegen.cmake` | artifact manifest `module` fields, mock-manifest module metadata, tool-side validation, and manifest-declared textual wrapper semantics | gated on `033` |
 | CMake scan include-dir / macro collection helpers | tool-side `compile_commands.json` scan | gated on `033` |
-| `xmake/templates/*.in` and `meson/*.in` skeleton files | tool-emitted final sources | gated on `015` + `036` |
+| `xmake/templates/*.in` and `meson/*.in` skeleton files | tool-emitted final sources | gated on `015` |
 | `xmake/gentest.lua` scan / emit logic | manifest consumer + file staging only | gated on `015` |
 | `build_defs/gentest.bzl` scan / emit logic | manifest consumer + file staging only | gated on `015` |
 
@@ -154,19 +157,19 @@ target.
 ## Dependency DAG
 
 ```text
-           (done)        (done)        (open)       (open)       (open)
+           (done)        (done)        (open)       (open)      (rejected)
            034           035           015          033          036
-            \             \             \            \            /
-             \             \             \            \          /
-              \             \             \            \        /
-               v             v             v            v      v
+            \             \             \            \             :
+             \             \             \            \            :
+              \             \             \            \           :
+               v             v             v            v          :
                              037  codegen contract cleanup campaign
 ```
 
 Gates inside `037`:
 
 - Kill wave 1 (CMake configure-time probe): needs `033` discoverable module
-  split + `036` declaration-only textual registration closure.
+  split and must preserve manifest-declared textual wrapper/include semantics.
 - Kill wave 2 (Lua/Bazel wrapper collapse + `.in` template removal): needs
   `015` non-CMake parity closure + manifest schema v1 frozen.
 - Kill wave 3 (legacy manifest mode hard-remove): targets `2.0.0` after one
@@ -191,7 +194,7 @@ Gates inside `037`:
    - after that target, remove `EXPECT_SUBSTRING` handling from
      `gentest_discover_tests(...)` and add a CI regression that asserts the
      hard-error behavior
-4. Wave 1 (after `033` + `036` close):
+4. Wave 1 (after `033` closes):
    - delete `_gentest_probe_source_inspector_executable` and related
      configure-time probe helpers from `cmake/gentest/CodegenInspector.cmake`
      (post-`033` location)
@@ -200,6 +203,8 @@ Gates inside `037`:
    - wire CMake consumers to read module classification from the artifact
      manifest and mock module coverage from the mock manifest or tool-side
      validation instead
+   - keep textual `.cpp` sources on manifest-declared wrapper/include mode;
+     do not add declaration-only textual registration as a replacement
 5. Wave 2 (after `015` closes):
    - rewrite `xmake/gentest.lua` as a manifest consumer; target 600 LOC
    - rewrite `build_defs/gentest.bzl` the same way; target 400 LOC
@@ -244,9 +249,9 @@ Gates inside `037`:
 For each wave, run the relevant focused slice plus a package-consumer smoke
 test:
 
-- Wave 1: `033`- and `036`-owned module and textual regressions, plus a
-  package-consumer build that exercises a `.cppm` test source end-to-end
-  without configure-time inspection.
+- Wave 1: `033`-owned module/source-inspection regressions, textual wrapper
+  compatibility regressions, plus a package-consumer build that exercises a
+  `.cppm` test source end-to-end without configure-time inspection.
 - Wave 2: non-CMake consumer suites (`tests/downstream/meson_wrap_consumer`,
   `tests/downstream/xmake_xrepo_consumer`, Bazel bzlmod consumer),
   including module-variant coverage where parity landed in `015`.
@@ -268,8 +273,9 @@ owns the retirement schedule that ties their closures together:
   devkit surface.
 - `033` modularizes `GentestCodegen.cmake`; `037` is the deletion pass that
   becomes mechanical once the modules exist.
-- `036` closes the last codegen emission gap for textual tests; `037` uses
-  that closure to justify deleting the wrapper-side emission fallback.
+- `036` records the rejected declaration-only textual alternative; `037`
+  preserves textual wrapper/include mode instead of waiting for that rejected
+  feature.
 
 Separating the campaign avoids each of those stories reopening after its own
 closure just to delete residue, and gives the deprecation schedule one owner

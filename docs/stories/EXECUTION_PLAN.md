@@ -13,8 +13,10 @@ It assumes the current branch state, not raw worktree ancestry:
 
 - `021` through `031` are now treated as done at the current evidence level
 - `034` and `035` closed with cleanup residue explicitly deferred to `037`
-- the remaining story-tracked cleanups are `032`, `033`, `036`, and the
-  cross-cutting cleanup campaign `037`
+- story `036` is rejected; declaration-only textual registration is no longer
+  part of the implementation plan
+- the remaining story-tracked cleanups are `032`, `033`, and the cross-cutting
+  cleanup campaign `037`
 
 ## Working rules
 
@@ -57,9 +59,10 @@ It assumes the current branch state, not raw worktree ancestry:
      coverage for `NO_INCLUDE_SOURCES` and `EXPECT_SUBSTRING`, guard the install
      tree against legacy `share/cmake/gentest/scan_inspector/`, and remove
      `EXPECT_SUBSTRING` after the documented deprecation target. Does not wait
-     on `033`/`015`/`036`.
-   - Wave 1 (gated on `033` + `036`): delete configure-time source inspector
-     probe and related extraction helpers from CMake.
+     on `033` or `015`.
+   - Wave 1 (gated on `033`): delete configure-time source inspector probe and
+     related extraction helpers from CMake while preserving textual wrapper
+     semantics.
    - Wave 2 (gated on `015`): rewrite `xmake/gentest.lua` and
      `build_defs/gentest.bzl` as thin manifest consumers; delete
      `xmake/templates/*.in` and `meson/*.in`.
@@ -113,8 +116,8 @@ Take story `033` first when the repo wants a low-risk structural cleanup.
 Continue story `037` wave 4 in parallel, because its install-tree absence guard
 is independent of the other gates and cheap. Take story `032` next, or when
 the repo is ready for another package/module contract cleanup pass. Story `037`
-waves 1-3 follow their gating story closures (`033` + `036`, then `015`, then
-the release-cycle warn window).
+waves 1-3 follow their gating story closures (`033`, then `015`, then the
+release-cycle warn window).
 
 That ordering follows the current evidence:
 
