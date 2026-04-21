@@ -252,3 +252,10 @@ separately in `032_generated_runtime_devkit_boundary_cleanup.md`. That deferred
 scope includes the generated-code/devkit install/package checks that still need
 to move with the compatibility boundary, including future revalidation of
 `gentest_install_only_codegen_default` when that boundary changes again.
+
+Follow-up status: story `032` is now closed on the current branch. Generated
+wrappers include `detail/registration_runtime.h` for registration-only output
+or `detail/generated_runtime.h` for fixture/shared-fixture support. The legacy
+`gentest/fixture.h` and `gentest/registry.h` compatibility shims now layer that
+smaller generated devkit instead of making generated code include broad
+fixture/registry runtime-detail headers directly.

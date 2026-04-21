@@ -11,8 +11,8 @@ parallel re-implementations of C++ semantics.
 This is a subtraction story. It sequences the dependent closures of stories
 `015` and `033` into one explicit demolition plan, and assigns owners and dates
 to deprecations that previously lived only as footnotes in other story
-closures. Story `032` remains adjacent installed-devkit work, not a `037`
-closure gate. Story `036` was rejected, so declaration-only textual
+closures. Story `032` is now closed adjacent installed-devkit work, not a
+`037` closure gate. Story `036` was rejected, so declaration-only textual
 registration is not a cleanup prerequisite.
 
 ## Problem
@@ -59,7 +59,7 @@ The stories that border this work each define part of the cleanup context:
 | Story | Owns | Relationship to `037` |
 | --- | --- | --- |
 | `015` | non-CMake (Bazel/Xmake/Meson) parity | Lua/Bazel wrapper collapse, `.in` template removal |
-| `032` | installed devkit boundary | adjacent installed API cleanup; does not gate `037` closure |
+| `032` | installed devkit boundary | closed adjacent installed API cleanup; does not gate `037` closure |
 | `033` | `GentestCodegen.cmake` modularization | unblocked wave 1; configure-time source inspector and scan helper deletion is now landed in `037` |
 | `036` | rejected declaration-only textual registration | no longer gates `037`; textual `.cpp` sources keep wrapper/include semantics |
 
@@ -112,7 +112,8 @@ Out of scope:
   active protocol paths.
 - Adding non-CMake features to reach parity. Captured by `015`.
 - Splitting `GentestCodegen.cmake` internals. Captured by `033`.
-- Shrinking the installed runtime devkit surface. Captured by `032`.
+- Shrinking the installed runtime devkit surface. Captured by closed story
+  `032`.
 - Changing the artifact manifest schema (`gentest.artifact_manifest.v1`,
   `gentest.mock_manifest.v1`). Schema freeze is a precondition.
 
@@ -269,9 +270,9 @@ Those stories define the end-state of their respective areas. This story
 owns the retirement schedule that ties their closures together:
 
 - `015` adds features; `037` removes code those features make redundant.
-- `032` shrinks the installed runtime devkit; `037` removes CMake and
-  non-CMake scaffolding that only exists to support the older broader
-  devkit surface.
+- `032` shrank the installed runtime devkit; `037` removes CMake and
+  non-CMake scaffolding that only exists to support older wrapper/backend
+  duplication.
 - `033` modularizes `GentestCodegen.cmake`; `037` is the deletion pass that
   becomes mechanical once the modules exist.
 - `036` records the rejected declaration-only textual alternative; `037`

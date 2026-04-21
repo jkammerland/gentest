@@ -2500,7 +2500,8 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_fixture_resolution.cpp
     -DEXPECT_CASE_COUNT=2
-    "-DREQUIRED_SUBSTRINGS=gentest_init_fixture(fx0_, \"smoke::fixture_resolution::LocalFixture\");;gentest_init_shared_fixture(fx0_, ::gentest::detail::SharedFixtureScope::Suite, \"smoke/fixture_resolution\", \"smoke::fixture_resolution::SharedSuiteFixture\")")
+    "-DREQUIRED_SUBSTRINGS=#include \"gentest/detail/generated_runtime.h\";;gentest_init_fixture(fx0_, \"smoke::fixture_resolution::LocalFixture\");;gentest_init_shared_fixture(fx0_, ::gentest::detail::SharedFixtureScope::Suite, \"smoke/fixture_resolution\", \"smoke::fixture_resolution::SharedSuiteFixture\")"
+    "-DREJECTED_SUBSTRINGS=#include \"gentest/detail/fixture_runtime.h\";;#include \"gentest/detail/registry_runtime.h\"")
 set_property(TEST gentest_codegen_emit_fixture_resolution APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(

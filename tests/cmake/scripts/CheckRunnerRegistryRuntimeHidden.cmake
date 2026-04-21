@@ -103,6 +103,114 @@ if(NOT _all_output MATCHES "${_hidden_api_pattern}")
     "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
 endif()
 
+function(gentest_expect_runner_hidden_api NAME SOURCE_TEXT EXPECT_PATTERN)
+  set(_hidden_source "${_work_dir}/${NAME}.cpp")
+  set(_hidden_object "${_work_dir}/${NAME}.o")
+  gentest_fixture_write_file("${_hidden_source}" "${SOURCE_TEXT}")
+  gentest_make_compile_only_command_args(
+    _hidden_compile_args
+    COMPILER "${CXX_COMPILER}"
+    STD "-std=c++20"
+    SOURCE "${_hidden_source}"
+    OBJECT "${_hidden_object}"
+    INCLUDE_ARGS ${_include_args})
+
+  execute_process(
+    COMMAND ${_hidden_compile_args}
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _hidden_rc
+    OUTPUT_VARIABLE _hidden_out
+    ERROR_VARIABLE _hidden_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  set(_hidden_all_output "${_hidden_out}\n${_hidden_err}")
+  if(CMAKE_HOST_WIN32 AND _is_windows_native_llvm_clang AND NOT _hidden_rc EQUAL 0 AND NOT _hidden_all_output MATCHES "${EXPECT_PATTERN}")
+    gentest_is_msvc_style_compiler(_is_msvc_style_compiler "${CXX_COMPILER}")
+    gentest_normalize_std_flag_for_compiler(_msvc_std "clang-cl" "-std=c++20")
+    gentest_normalize_include_args_for_compiler(_msvc_include_args "clang-cl" ${_include_args})
+    set(_msvc_compile_args
+        "${CXX_COMPILER}")
+    if(NOT _is_msvc_style_compiler)
+      list(APPEND _msvc_compile_args "--driver-mode=cl")
+    endif()
+    list(APPEND _msvc_compile_args
+        "${_msvc_std}"
+        ${_msvc_include_args}
+        "/utf-8"
+        "/EHsc"
+        "/c"
+        "${_hidden_source}"
+        "/Fo${_hidden_object}")
+    execute_process(
+      COMMAND ${_msvc_compile_args}
+      WORKING_DIRECTORY "${_work_dir}"
+      RESULT_VARIABLE _msvc_rc
+      OUTPUT_VARIABLE _msvc_out
+      ERROR_VARIABLE _msvc_err
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_STRIP_TRAILING_WHITESPACE)
+
+    set(_msvc_all_output "${_msvc_out}\n${_msvc_err}")
+    if(_hidden_all_output MATCHES "${_windows_mode_mismatch_pattern}" OR _msvc_all_output MATCHES "${EXPECT_PATTERN}" OR _msvc_rc EQUAL 0)
+      set(_hidden_rc "${_msvc_rc}")
+      set(_hidden_out "${_msvc_out}")
+      set(_hidden_err "${_msvc_err}")
+      set(_hidden_all_output "${_msvc_all_output}")
+    endif()
+  endif()
+
+  if(_hidden_rc EQUAL 0)
+    message(FATAL_ERROR
+      "gentest/runner.h should not expose hidden runtime API '${EXPECT_PATTERN}'.\n"
+      "--- stdout ---\n${_hidden_out}\n--- stderr ---\n${_hidden_err}")
+  endif()
+
+  if(NOT _hidden_all_output MATCHES "${EXPECT_PATTERN}")
+    message(FATAL_ERROR
+      "Expected compile failure for '${NAME}' to mention '${EXPECT_PATTERN}'.\n"
+      "--- stdout ---\n${_hidden_out}\n--- stderr ---\n${_hidden_err}")
+  endif()
+endfunction()
+
+gentest_expect_runner_hidden_api(runner_hides_register_cases [=[
+#include "gentest/runner.h"
+
+#include <span>
+
+auto main() -> int {
+    gentest::detail::register_cases(std::span<const gentest::Case>{});
+    return 0;
+}
+]=] "register_cases")
+
+gentest_expect_runner_hidden_api(runner_hides_snapshot_registered_cases [=[
+#include "gentest/runner.h"
+
+auto main() -> int {
+    static_cast<void>(gentest::detail::snapshot_registered_cases());
+    return 0;
+}
+]=] "snapshot_registered_cases")
+
+gentest_expect_runner_hidden_api(runner_hides_shared_fixture_scope [=[
+#include "gentest/runner.h"
+
+auto main() -> int {
+    static_cast<void>(gentest::detail::SharedFixtureScope::Suite);
+    return 0;
+}
+]=] "SharedFixtureScope")
+
+gentest_expect_runner_hidden_api(runner_hides_register_shared_fixture [=[
+#include "gentest/runner.h"
+
+auto main() -> int {
+    gentest::detail::register_shared_fixture<int>(gentest::detail::SharedFixtureScope::Suite, "suite", "fixture");
+    return 0;
+}
+]=] "register_shared_fixture|SharedFixtureScope")
+
 set(_registry_source "${_work_dir}/registry_run_all_tests_visible.cpp")
 gentest_fixture_write_file("${_registry_source}" [=[
 #include "gentest/registry.h"

@@ -1,6 +1,9 @@
 #pragma once
 
-#include "gentest/detail/registration_runtime.h"
+// Legacy runtime-detail compatibility header for registry snapshots. Generated
+// code should include `gentest/detail/registration_runtime.h` or
+// `gentest/detail/generated_runtime.h` for registration mutation.
+
 #include "gentest/detail/registry_api.h"
 
 namespace gentest::detail {

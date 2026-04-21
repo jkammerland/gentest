@@ -88,13 +88,18 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(@PACKAGE_NAME@ CONFIG REQUIRED)
 
-add_executable(legacy_fixture_detail_contract legacy_fixture_detail_contract.cpp)
-target_compile_features(legacy_fixture_detail_contract PRIVATE cxx_std_20)
-target_link_libraries(legacy_fixture_detail_contract PRIVATE gentest::gentest_main)
+function(gentest_add_legacy_detail_contract target source)
+    add_executable(${target} ${source})
+    target_compile_features(${target} PRIVATE cxx_std_20)
+    target_link_libraries(${target} PRIVATE gentest::gentest_main)
+endfunction()
 
-add_executable(legacy_registry_detail_contract legacy_registry_detail_contract.cpp)
-target_compile_features(legacy_registry_detail_contract PRIVATE cxx_std_20)
-target_link_libraries(legacy_registry_detail_contract PRIVATE gentest::gentest_main)
+gentest_add_legacy_detail_contract(legacy_fixture_detail_contract legacy_fixture_detail_contract.cpp)
+gentest_add_legacy_detail_contract(legacy_registry_detail_contract legacy_registry_detail_contract.cpp)
+gentest_add_legacy_detail_contract(detail_generated_runtime_contract detail_generated_runtime_contract.cpp)
+gentest_add_legacy_detail_contract(detail_registration_runtime_contract detail_registration_runtime_contract.cpp)
+gentest_add_legacy_detail_contract(detail_fixture_runtime_contract detail_fixture_runtime_contract.cpp)
+gentest_add_legacy_detail_contract(detail_registry_runtime_contract detail_registry_runtime_contract.cpp)
 ]=])
 string(CONFIGURE "${_consumer_cmakelists}" _consumer_cmakelists @ONLY)
 gentest_fixture_write_file("${_consumer_source_dir}/CMakeLists.txt" "${_consumer_cmakelists}")
@@ -142,6 +147,93 @@ auto main() -> int {
         .suite            = "legacy",
     };
     gentest::detail::register_cases(std::span<const gentest::Case>(&legacy_case, 1));
+    static_cast<void>(gentest::detail::snapshot_registered_cases());
+    return 0;
+}
+]=])
+
+gentest_fixture_write_file("${_consumer_source_dir}/detail_generated_runtime_contract.cpp" [=[
+#include "gentest/detail/generated_runtime.h"
+
+#include <span>
+
+struct DirectGeneratedFixture {};
+
+auto main() -> int {
+    auto handle = gentest::detail::FixtureHandle<DirectGeneratedFixture>::empty();
+    (void)handle;
+    gentest::detail::register_shared_fixture<DirectGeneratedFixture>(
+        gentest::detail::SharedFixtureScope::Suite,
+        "direct",
+        "DirectGeneratedFixture");
+    gentest::Case generated_case{
+        .name             = "direct/generated-runtime",
+        .fn               = nullptr,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "direct",
+    };
+    gentest::detail::register_cases(std::span<const gentest::Case>(&generated_case, 1));
+    return 0;
+}
+]=])
+
+gentest_fixture_write_file("${_consumer_source_dir}/detail_registration_runtime_contract.cpp" [=[
+#include "gentest/detail/registration_runtime.h"
+
+#include <span>
+
+auto main() -> int {
+    gentest::Case registration_case{
+        .name             = "direct/registration-runtime",
+        .fn               = nullptr,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "direct",
+    };
+    gentest::detail::register_cases(std::span<const gentest::Case>(&registration_case, 1));
+    return 0;
+}
+]=])
+
+gentest_fixture_write_file("${_consumer_source_dir}/detail_fixture_runtime_contract.cpp" [=[
+#include "gentest/detail/fixture_runtime.h"
+
+struct DirectFixture {};
+
+auto main() -> int {
+    auto handle = gentest::detail::FixtureHandle<DirectFixture>::empty();
+    auto *setup_shared_fixtures = &gentest::detail::setup_shared_fixtures;
+    auto *teardown_shared_fixtures = &gentest::detail::teardown_shared_fixtures;
+    (void)handle;
+    (void)setup_shared_fixtures;
+    (void)teardown_shared_fixtures;
+    return 0;
+}
+]=])
+
+gentest_fixture_write_file("${_consumer_source_dir}/detail_registry_runtime_contract.cpp" [=[
+#include "gentest/detail/registry_runtime.h"
+
+auto main() -> int {
     static_cast<void>(gentest::detail::snapshot_registered_cases());
     return 0;
 }
@@ -237,32 +329,31 @@ if(NOT _build_rc EQUAL 0)
     "--- stdout ---\n${_build_out}\n--- stderr ---\n${_build_err}")
 endif()
 
-set(_fixture_exe "${_consumer_build_dir}/legacy_fixture_detail_contract")
-set(_registry_exe "${_consumer_build_dir}/legacy_registry_detail_contract")
-if(CMAKE_HOST_WIN32)
-  string(APPEND _fixture_exe ".exe")
-  string(APPEND _registry_exe ".exe")
-endif()
-if(NOT "${_effective_build_config}" STREQUAL "")
-  set(_fixture_exe_with_config "${_consumer_build_dir}/${_effective_build_config}/legacy_fixture_detail_contract")
-  set(_registry_exe_with_config "${_consumer_build_dir}/${_effective_build_config}/legacy_registry_detail_contract")
-  if(CMAKE_HOST_WIN32)
-    string(APPEND _fixture_exe_with_config ".exe")
-    string(APPEND _registry_exe_with_config ".exe")
-  endif()
-  if(EXISTS "${_fixture_exe_with_config}")
-    set(_fixture_exe "${_fixture_exe_with_config}")
-  endif()
-  if(EXISTS "${_registry_exe_with_config}")
-    set(_registry_exe "${_registry_exe_with_config}")
-  endif()
-endif()
+set(_consumer_targets
+    legacy_fixture_detail_contract
+    legacy_registry_detail_contract
+    detail_generated_runtime_contract
+    detail_registration_runtime_contract
+    detail_fixture_runtime_contract
+    detail_registry_runtime_contract)
 
-gentest_check_run_or_fail(
-  COMMAND "${_fixture_exe}"
-  WORKING_DIRECTORY "${_work_dir}"
-  DISPLAY_COMMAND "run legacy fixture detail consumer")
-gentest_check_run_or_fail(
-  COMMAND "${_registry_exe}"
-  WORKING_DIRECTORY "${_work_dir}"
-  DISPLAY_COMMAND "run legacy registry detail consumer")
+foreach(_consumer_target IN LISTS _consumer_targets)
+  set(_consumer_exe "${_consumer_build_dir}/${_consumer_target}")
+  if(CMAKE_HOST_WIN32)
+    string(APPEND _consumer_exe ".exe")
+  endif()
+  if(NOT "${_effective_build_config}" STREQUAL "")
+    set(_consumer_exe_with_config "${_consumer_build_dir}/${_effective_build_config}/${_consumer_target}")
+    if(CMAKE_HOST_WIN32)
+      string(APPEND _consumer_exe_with_config ".exe")
+    endif()
+    if(EXISTS "${_consumer_exe_with_config}")
+      set(_consumer_exe "${_consumer_exe_with_config}")
+    endif()
+  endif()
+
+  gentest_check_run_or_fail(
+    COMMAND "${_consumer_exe}"
+    WORKING_DIRECTORY "${_work_dir}"
+    DISPLAY_COMMAND "run ${_consumer_target}")
+endforeach()

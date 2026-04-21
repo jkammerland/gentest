@@ -51,8 +51,7 @@ inline constexpr std::string_view registration_preamble_full = R"CPP(#include <a
 #include <type_traits>
 #include <utility>
 
-#include "gentest/detail/fixture_runtime.h"
-#include "gentest/detail/registration_runtime.h"
+#include "gentest/detail/generated_runtime.h"
 )CPP";
 ;
 

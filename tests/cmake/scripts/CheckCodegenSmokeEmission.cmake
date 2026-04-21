@@ -81,6 +81,15 @@ foreach(_expected IN LISTS REQUIRED_SUBSTRINGS)
   endif()
 endforeach()
 
+foreach(_rejected IN LISTS REJECTED_SUBSTRINGS)
+  string(FIND "${_output_text}" "${_rejected}" _rejected_pos)
+  if(NOT _rejected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected generated output for '${SMOKE_SOURCE}' not to contain '${_rejected}'.\n"
+      "Generated file: ${_output}\n${_output_text}")
+  endif()
+endforeach()
+
 if(DEFINED EXPECT_COMPILE AND EXPECT_COMPILE)
   if(NOT DEFINED CXX_COMPILER OR "${CXX_COMPILER}" STREQUAL "")
     message(FATAL_ERROR "CheckCodegenSmokeEmission.cmake: CXX_COMPILER must be set when EXPECT_COMPILE=ON")
