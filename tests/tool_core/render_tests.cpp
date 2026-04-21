@@ -224,11 +224,6 @@ int main() {
         member_shared_with_fixtures.free_call_args = {FreeCallArg{.kind = FreeCallArgKind::Fixture, .fixture_index = 0}};
         cases.push_back(member_shared_with_fixtures);
 
-        TestCaseInfo defaulted_passthrough;
-        defaulted_passthrough.qualified_name          = "ptr::defaulted_passthrough";
-        defaulted_passthrough.has_function_parameters = true;
-        cases.push_back(defaulted_passthrough);
-
         const std::string rendered = render_wrappers(cases, templates);
         t.excludes(rendered, "FREE_TEST kCaseInvoke_0", "render_wrappers skips direct free test wrappers");
         t.excludes(rendered, "plain_free", "render_wrappers leaves direct free test calls to generated metadata");
@@ -258,8 +253,6 @@ int main() {
         t.contains(rendered, R"(gentest_record_fixture_failure("fixture::SharedWithFx", "instance missing");)",
                    "render_wrappers reports missing shared member fixtures");
         t.contains(rendered, "static thread_local BenchState bench_state{};", "render_wrappers emits measured bench state");
-        t.contains(rendered, "FREE_TEST kCaseInvoke_7", "render_wrappers keeps wrappers for defaulted parameter passthrough");
-        t.contains(rendered, "ptr::defaulted_passthrough()", "render_wrappers calls defaulted parameter functions through wrappers");
     }
 
     if (t.failures != 0) {

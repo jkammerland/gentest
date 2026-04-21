@@ -185,9 +185,6 @@ struct TestCaseInfo {
     bool is_function_template = false;
     // True when the test function/method returns a non-void value.
     bool returns_value = false;
-    // True when the discovered callable declares any function parameters,
-    // including defaulted parameters that are intentionally passed through.
-    bool has_function_parameters = false;
     // Tags and metadata
     std::vector<std::string> tags;
     std::vector<std::string> requirements;
