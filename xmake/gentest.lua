@@ -538,6 +538,13 @@ local function module_wrapper_output_rel(output_dir, source, index)
     )
 end
 
+local function module_registration_output_rel(output_dir, source, index)
+    return path.join(
+        output_dir,
+        string.format("tu_%04d_%s.registration.gentest.cpp", index, shorten_generated_stem(basename_stem(source)))
+    )
+end
+
 local function mock_domain_output_rel(input_path, index, label)
     local domain_dir = path.directory(input_path)
     local domain_stem = path.basename(input_path):gsub("%.[^.]+$", "")
@@ -676,12 +683,8 @@ local function batch_render_template(batchcmds, template_name, output_rel, varia
     batchcmds:lua(helper_script_path("materialize_file.lua"), argv)
 end
 
-local function batch_copy_generated_source(batchcmds, source_relpath, output_rel)
-    batchcmds:lua(helper_script_path("materialize_file.lua"), {
-        "copy",
-        project_path(source_relpath),
-        project_path(output_rel),
-    })
+local function batch_write_literal_file(batchcmds, output_file, content)
+    batchcmds:lua(helper_script_path("materialize_file.lua"), {"literal", output_file, content})
 end
 
 local function ensure_materialized_public_modules(entries, runtime_os)
@@ -798,11 +801,7 @@ end
 
 local function materialize_module_suite_placeholders(config, runtime_os, runtime_io)
     ensure_materialized_public_modules(config.public_module_entries, runtime_os)
-    local source_body = runtime_io.readfile(config.source_file)
-    if source_body == nil then
-        fail("gentest_attach_codegen(kind='modules') could not read `" .. tostring(config.source_file) .. "`")
-    end
-    write_placeholder_file(config.wrapper_output, source_body, runtime_os, runtime_io)
+    write_placeholder_file(config.registration_output, "module;\n\nmodule " .. config.module_name .. ";\n", runtime_os, runtime_io)
     write_placeholder_file(config.header_output, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
 end
 
@@ -1165,6 +1164,11 @@ local function existing_project_compdb_dir()
     return nil
 end
 
+local function fallback_compdb_paths(output_dir)
+    local compdb_dir = project_path(path.join(output_dir, ".gentest_compdb"))
+    return compdb_dir, path.join(compdb_dir, "compile_commands.json")
+end
+
 local function ensure_codegen(batchcmds, target)
     local cached = gentest_state["_resolved_codegen"]
     if cached and cached.path and os.isfile(cached.path) then
@@ -1228,10 +1232,6 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
             table.insert(args, "--module-wrapper-output")
             table.insert(args, wrapper_output)
         end
-        if compdb_dir then
-            table.insert(args, "--compdb")
-            table.insert(args, compdb_dir)
-        end
         for _, module_source in ipairs(default_external_module_sources()) do
             table.insert(args, "--external-module-source")
             table.insert(args, module_source)
@@ -1252,7 +1252,7 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
         table.insert(args, "--clang-scan-deps")
         table.insert(args, scan_deps)
     end
-    if config.kind == "textual" and compdb_dir then
+    if compdb_dir then
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
     end
@@ -1270,13 +1270,17 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
         table.insert(args, "--depfile")
         table.insert(args, config.depfile)
     end
+    if compdb_dir then
+        table.insert(args, "--compdb")
+        table.insert(args, compdb_dir)
+    end
     if config.kind == "modules" then
-        table.insert(args, "--module-wrapper-output")
-        table.insert(args, config.wrapper_output)
-        if compdb_dir then
-            table.insert(args, "--compdb")
-            table.insert(args, compdb_dir)
-        end
+        table.insert(args, "--module-registration-output")
+        table.insert(args, config.registration_output)
+        table.insert(args, "--artifact-manifest")
+        table.insert(args, config.artifact_manifest)
+        table.insert(args, "--compile-context-id")
+        table.insert(args, config.compile_context_id)
         for _, module_source in ipairs(default_external_module_sources()) do
             table.insert(args, "--external-module-source")
             table.insert(args, module_source)
@@ -1287,11 +1291,13 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
         end
         table.insert(args, config.source_file)
     else
-        if compdb_dir then
-            table.insert(args, "--compdb")
-            table.insert(args, compdb_dir)
-        end
+        table.insert(args, "--artifact-manifest")
+        table.insert(args, config.artifact_manifest)
+        table.insert(args, "--artifact-owner-source")
         table.insert(args, config.source_file)
+        table.insert(args, "--compile-context-id")
+        table.insert(args, config.compile_context_id)
+        table.insert(args, config.wrapper_output)
     end
     if host_clang and host_clang ~= "" then
         table.insert(args, "--host-clang")
@@ -1332,10 +1338,13 @@ function gentest_add_mocks(opts)
     local anchor_cpp = path.join(output_dir, target_id .. "_anchor.cpp")
     local mock_registry_h = path.join(output_dir, target_id .. "_mock_registry.hpp")
     local mock_impl_h = path.join(output_dir, target_id .. "_mock_impl.hpp")
+    local fallback_compdb_dir, fallback_compdb_file = fallback_compdb_paths(output_dir)
     local config = {
         kind = kind,
         defs = {},
         out_dir_abs = out_dir_abs,
+        fallback_compdb_dir = fallback_compdb_dir,
+        fallback_compdb_file = fallback_compdb_file,
         anchor_output = project_path(anchor_cpp),
         mock_registry = project_path(mock_registry_h),
         mock_impl = project_path(mock_impl_h),
@@ -1469,6 +1478,7 @@ function gentest_add_mocks(opts)
         add_deps(table.unpack(dep_targets))
     end
     on_config(function ()
+        write_placeholder_file(config.fallback_compdb_file, "[]\n", os, io)
         if kind == "textual" then
             materialize_textual_mock_placeholders(config, defs, target_id, os, io)
         else
@@ -1528,6 +1538,10 @@ function gentest_add_mocks(opts)
             end
         end
         config.dep_module_sources = dep_module_sources
+        if not compdb_dir then
+            compdb_dir = config.fallback_compdb_dir
+            batch_write_literal_file(batchcmds, config.fallback_compdb_file, "[]")
+        end
         run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     end)
 
@@ -1560,10 +1574,11 @@ function gentest_attach_codegen(opts)
         wrapper_cpp = path.join(output_dir, "tu_0000_" .. source_basename .. ".gentest.cpp")
         wrapper_h = path.join(output_dir, "tu_0000_" .. source_basename .. ".gentest.h")
     else
-        wrapper_cpp = module_wrapper_output_rel(output_dir, source, 0)
+        wrapper_cpp = module_registration_output_rel(output_dir, source, 0)
         wrapper_h = module_header_output_rel(output_dir, source, 0)
     end
     local wrapper_d = path.join(output_dir, basename_stem(wrapper_h) .. ".d")
+    local fallback_compdb_dir, fallback_compdb_file = fallback_compdb_paths(output_dir)
     local extra_includes = {}
     local seen_extra_includes = {}
     for _, include_dir in ipairs(opts.includes or {}) do
@@ -1573,8 +1588,13 @@ function gentest_attach_codegen(opts)
     local config = {
         kind = kind,
         out_dir_abs = out_dir_abs,
+        fallback_compdb_dir = fallback_compdb_dir,
+        fallback_compdb_file = fallback_compdb_file,
         wrapper_output = project_path(wrapper_cpp),
+        registration_output = project_path(wrapper_cpp),
         header_output = project_path(wrapper_h),
+        artifact_manifest = project_path(path.join(output_dir, sanitize_target_id(target_name) .. ".artifact_manifest.json")),
+        compile_context_id = sanitize_target_id(target_name) .. ":" .. project_path(source),
         depfile = project_path(wrapper_d),
         source_file = project_path(source),
         extra_includes = extra_includes,
@@ -1585,6 +1605,9 @@ function gentest_attach_codegen(opts)
         public_modules_via_deps = opts.public_modules_via_deps == true,
         public_module_entries = {},
     }
+    if kind == "modules" then
+        config.module_name = require_opt(opts, "module_name", "gentest_attach_codegen(kind='modules')")
+    end
     if kind == "modules" and not config.public_modules_via_deps then
         config.public_module_entries = materialized_public_module_entries(output_dir)
     end
@@ -1626,7 +1649,8 @@ function gentest_attach_codegen(opts)
         end
     end
     if kind == "modules" then
-        add_files(wrapper_cpp, {public = true, always_added = true})
+        add_files(source, {public = true, always_added = true})
+        add_files(wrapper_cpp, {always_added = true})
     else
         add_files(wrapper_cpp, {always_added = true})
     end
@@ -1637,6 +1661,7 @@ function gentest_attach_codegen(opts)
         add_deps(table.unpack(dep_targets))
     end
     on_config(function ()
+        write_placeholder_file(config.fallback_compdb_file, "[]\n", os, io)
         if kind == "textual" then
             materialize_textual_suite_placeholders(config, source, os, io)
         else
@@ -1664,7 +1689,6 @@ function gentest_attach_codegen(opts)
             })
         else
             batch_render_template(batchcmds, "header.hpp.in", wrapper_h, {})
-            batch_copy_generated_source(batchcmds, source, wrapper_cpp)
         end
         local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
         local dep_include_dirs = resolve_dep_inputs(config.deps)
@@ -1680,6 +1704,10 @@ function gentest_attach_codegen(opts)
             append_unique(config.extra_includes, seen_extra_includes, include_dir)
         end
         config.dep_module_sources = dep_module_sources
+        if not compdb_dir then
+            compdb_dir = config.fallback_compdb_dir
+            batch_write_literal_file(batchcmds, config.fallback_compdb_file, "[]")
+        end
         run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     end)
 end

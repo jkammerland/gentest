@@ -2,6 +2,8 @@
 #  -DSOURCE_DIR=<fixture source dir>
 #  -DBUILD_ROOT=<path to parent build dir>
 #  -DGENTEST_SOURCE_DIR=<path to gentest source tree>
+# Optional:
+#  -DNO_EXPLICIT_CODEGEN=ON
 
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckModuleCppSource.cmake: SOURCE_DIR not set")
@@ -26,6 +28,11 @@ file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
   gentest_skip_test("module .cpp source regression: clang/clang++ not found")
+  return()
+endif()
+gentest_module_cpp_source_textual_wrapper_skip_reason(_module_cpp_source_skip_reason "${_clangxx}")
+if(NOT "${_module_cpp_source_skip_reason}" STREQUAL "")
+  gentest_skip_test("${_module_cpp_source_skip_reason}")
   return()
 endif()
 
@@ -60,7 +67,10 @@ endif()
 if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
 endif()
-if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
+if(DEFINED NO_EXPLICIT_CODEGEN AND NO_EXPLICIT_CODEGEN)
+  # Exercise the native in-tree codegen target path. This must not require a
+  # configure-time scan helper.
+elseif(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
 endif()
 gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
@@ -82,6 +92,26 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+if(DEFINED NO_EXPLICIT_CODEGEN AND NO_EXPLICIT_CODEGEN)
+  file(GLOB _scan_helper_dirs
+    LIST_DIRECTORIES TRUE
+    "${_work_dir}/gentest_scan_inspector_*"
+    "${_build_dir}/gentest_scan_inspector_*")
+  if(_scan_helper_dirs)
+    message(FATAL_ERROR
+      "Module .cpp source fixture created removed scan_inspector helper directories: ${_scan_helper_dirs}")
+  endif()
+endif()
+
+if(EXISTS "${_build_dir}/generated/tu_0001_import_only.module.gentest.cpp")
+  message(FATAL_ERROR
+    "Import-only .cpp source with CXX_SCAN_FOR_MODULES=ON was misclassified as a named module wrapper")
+endif()
+if(NOT EXISTS "${_build_dir}/generated/tu_0001_import_only.gentest.cpp")
+  message(FATAL_ERROR
+    "Expected import-only .cpp source with CXX_SCAN_FOR_MODULES=ON to use the textual TU wrapper")
+endif()
+
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target cpp_source_module_tests
   WORKING_DIRECTORY "${_work_dir}"
@@ -101,9 +131,17 @@ string(FIND "${_list_out}" "cpp_source/basic" _basic_pos)
 if(_basic_pos EQUAL -1)
   message(FATAL_ERROR "Expected cpp_source/basic in --list-tests output.\n${_list_out}")
 endif()
+string(FIND "${_list_out}" "cpp_source/import_only" _import_only_pos)
+if(_import_only_pos EQUAL -1)
+  message(FATAL_ERROR "Expected cpp_source/import_only in --list-tests output.\n${_list_out}")
+endif()
 
 gentest_check_run_or_fail(
   COMMAND "${_exe}" --run=cpp_source/basic
+  WORKING_DIRECTORY "${_build_dir}"
+  STRIP_TRAILING_WHITESPACE)
+gentest_check_run_or_fail(
+  COMMAND "${_exe}" --run=cpp_source/import_only
   WORKING_DIRECTORY "${_build_dir}"
   STRIP_TRAILING_WHITESPACE)
 

@@ -111,6 +111,33 @@ function(_gentest_collect_common_codegen_system_include_args out_var)
     set(${out_var} "${_gentest_args}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_resolve_codegen_clang_scan_deps out_var)
+    set(_gentest_clang_scan_deps "${GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
+    if("${_gentest_clang_scan_deps}" STREQUAL ""
+       AND DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
+        set(_gentest_clang_scan_deps "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+    endif()
+    set(${out_var} "${_gentest_clang_scan_deps}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_append_codegen_module_context_args command_var target clang_scan_deps)
+    set(_gentest_command "${${command_var}}")
+    if(NOT "${GENTEST_CODEGEN_SCAN_DEPS_MODE}" STREQUAL "")
+        list(APPEND _gentest_command "--scan-deps-mode=${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
+    endif()
+    if(NOT "${clang_scan_deps}" STREQUAL "")
+        list(APPEND _gentest_command --clang-scan-deps "${clang_scan_deps}")
+    endif()
+    if(NOT "${GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
+        list(APPEND _gentest_command --host-clang "${GENTEST_CODEGEN_HOST_CLANG}")
+    endif()
+    list(APPEND _gentest_command
+        "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>")
+    set(${command_var} "${_gentest_command}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_make_codegen_command_launcher executable out_command)
     set(_gentest_command "${executable}")
     if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
@@ -448,36 +475,7 @@ function(_gentest_resolve_codegen_backend)
     set(one_value_args TARGET OUT_CODEGEN_TARGET OUT_CODEGEN_EXECUTABLE OUT_CODEGEN_BACKEND_KIND)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "" ${ARGN})
 
-    set(_gentest_installed_codegen "")
-    if(NOT CMAKE_CROSSCOMPILING)
-        set(_gentest_codegen_prefixes "")
-        if(DEFINED PACKAGE_PREFIX_DIR AND NOT PACKAGE_PREFIX_DIR STREQUAL "")
-            list(APPEND _gentest_codegen_prefixes "${PACKAGE_PREFIX_DIR}")
-        endif()
-        get_filename_component(_gentest_codegen_prefix "${_GENTEST_CODEGEN_CMAKE_DIR}/../../.." ABSOLUTE)
-        list(APPEND _gentest_codegen_prefixes "${_gentest_codegen_prefix}")
-        list(REMOVE_DUPLICATES _gentest_codegen_prefixes)
-
-        set(_gentest_codegen_bindirs "")
-        if(DEFINED CMAKE_INSTALL_BINDIR AND NOT CMAKE_INSTALL_BINDIR STREQUAL "")
-            list(APPEND _gentest_codegen_bindirs "${CMAKE_INSTALL_BINDIR}")
-        endif()
-        list(APPEND _gentest_codegen_bindirs "bin")
-        list(REMOVE_DUPLICATES _gentest_codegen_bindirs)
-
-        foreach(_gentest_prefix IN LISTS _gentest_codegen_prefixes)
-            foreach(_gentest_bindir IN LISTS _gentest_codegen_bindirs)
-                set(_gentest_candidate "${_gentest_prefix}/${_gentest_bindir}/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}")
-                if(EXISTS "${_gentest_candidate}" AND NOT IS_DIRECTORY "${_gentest_candidate}")
-                    set(_gentest_installed_codegen "${_gentest_candidate}")
-                    break()
-                endif()
-            endforeach()
-            if(NOT _gentest_installed_codegen STREQUAL "")
-                break()
-            endif()
-        endforeach()
-    endif()
+    _gentest_find_installed_codegen_executable(_gentest_installed_codegen)
 
     set(_gentest_codegen_target "")
     set(_gentest_codegen_executable "")
@@ -614,16 +612,6 @@ function(_gentest_find_installed_codegen_executable out_executable)
     set(${out_executable} "${_gentest_installed_codegen}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_source_inspector_helper_available out_available)
-    _gentest_get_codegen_cmake_dir(_gentest_codegen_cmake_dir)
-    set(_gentest_helper_source_dir "${_gentest_codegen_cmake_dir}/scan_inspector")
-    if(EXISTS "${_gentest_helper_source_dir}/CMakeLists.txt" AND EXISTS "${_gentest_helper_source_dir}/main.cpp")
-        set(${out_available} TRUE PARENT_SCOPE)
-    else()
-        set(${out_available} FALSE PARENT_SCOPE)
-    endif()
-endfunction()
-
 function(_gentest_probe_source_inspector_executable executable out_supported out_reason)
     string(SHA256 _gentest_probe_hash "${executable}")
     get_property(_gentest_cached_support_set GLOBAL PROPERTY "GENTEST_SOURCE_INSPECTOR_SUPPORT_${_gentest_probe_hash}" SET)
@@ -749,216 +737,10 @@ function(_gentest_try_resolve_source_inspector_target target out_executable out_
 
     set(${out_executable} "" PARENT_SCOPE)
     set(${out_reason}
-        "candidate target '${target}' is a build-tree executable and is not runnable during configure-time source inspection"
+        "candidate target '${target}' is a build-tree executable and is not runnable during configure-time source inspection. "
+        "Configure-time source inspection is only used for explicit module mock metadata; provide a built/installed "
+        "gentest_codegen via GENTEST_CODEGEN_EXECUTABLE or an imported GENTEST_CODEGEN_TARGET."
         PARENT_SCOPE)
-endfunction()
-
-function(_gentest_build_native_scan_inspector out_executable)
-    if(CMAKE_CROSSCOMPILING)
-        message(FATAL_ERROR
-            "gentest source inspection requires a runnable host tool when cross-compiling. "
-            "Set -DGENTEST_CODEGEN_EXECUTABLE=<path> or -DGENTEST_CODEGEN_TARGET=<imported-executable-target>.")
-    endif()
-
-    _gentest_get_codegen_cmake_dir(_gentest_codegen_cmake_dir)
-    set(_gentest_helper_source_dir "${_gentest_codegen_cmake_dir}/scan_inspector")
-    if(NOT EXISTS "${_gentest_helper_source_dir}/CMakeLists.txt")
-        message(FATAL_ERROR
-            "gentest source inspection helper sources were not found at '${_gentest_helper_source_dir}'.")
-    endif()
-
-    set(_gentest_helper_generator "${CMAKE_GENERATOR}")
-    if(_gentest_helper_generator STREQUAL "" AND DEFINED GENERATOR AND NOT "${GENERATOR}" STREQUAL "")
-        set(_gentest_helper_generator "${GENERATOR}")
-    endif()
-    set(_gentest_helper_make_program "${CMAKE_MAKE_PROGRAM}")
-    if(_gentest_helper_make_program STREQUAL "" AND DEFINED MAKE_PROGRAM AND NOT "${MAKE_PROGRAM}" STREQUAL "")
-        set(_gentest_helper_make_program "${MAKE_PROGRAM}")
-    endif()
-    get_filename_component(_gentest_cmake_bin_dir "${CMAKE_COMMAND}" DIRECTORY)
-    set(_gentest_make_program_name "")
-    if(NOT _gentest_helper_make_program STREQUAL "")
-        get_filename_component(_gentest_make_program_name "${_gentest_helper_make_program}" NAME_WE)
-    endif()
-    if(_gentest_helper_generator STREQUAL "")
-        if(NOT _gentest_helper_make_program STREQUAL "")
-            if(_gentest_make_program_name STREQUAL "ninja" OR _gentest_make_program_name STREQUAL "ninja-build")
-                set(_gentest_helper_generator "Ninja")
-            elseif(_gentest_make_program_name STREQUAL "make" OR _gentest_make_program_name STREQUAL "gmake")
-                set(_gentest_helper_generator "Unix Makefiles")
-            endif()
-        else()
-            find_program(_gentest_helper_make_program NAMES ninja ninja-build HINTS "${_gentest_cmake_bin_dir}")
-            if(NOT _gentest_helper_make_program STREQUAL "")
-                set(_gentest_helper_generator "Ninja")
-            endif()
-        endif()
-        if(_gentest_helper_generator STREQUAL "")
-            if(WIN32)
-                message(FATAL_ERROR
-                    "gentest source inspection helper could not infer a usable generator. "
-                    "Set CMAKE_GENERATOR or ensure Ninja is available in PATH.")
-            endif()
-            find_program(_gentest_helper_make_program NAMES gmake make)
-            if(NOT _gentest_helper_make_program STREQUAL "")
-                get_filename_component(_gentest_make_program_name "${_gentest_helper_make_program}" NAME_WE)
-                set(_gentest_helper_generator "Unix Makefiles")
-            else()
-                message(FATAL_ERROR
-                    "gentest source inspection helper could not infer a usable generator. "
-                    "Set CMAKE_GENERATOR or ensure Ninja or make is available in PATH.")
-            endif()
-        endif()
-    endif()
-
-    set(_gentest_helper_cxx_compiler "${CMAKE_CXX_COMPILER}")
-    if(_gentest_helper_cxx_compiler STREQUAL "" AND DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
-        set(_gentest_helper_cxx_compiler "${CXX_COMPILER}")
-    endif()
-    if(_gentest_helper_cxx_compiler STREQUAL "" AND DEFINED ENV{CXX} AND NOT "$ENV{CXX}" STREQUAL "")
-        set(_gentest_helper_cxx_compiler "$ENV{CXX}")
-    endif()
-    if(_gentest_helper_cxx_compiler STREQUAL "" AND NOT "${GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
-        get_filename_component(_gentest_host_clang_dir "${GENTEST_CODEGEN_HOST_CLANG}" DIRECTORY)
-        get_filename_component(_gentest_host_clang_name "${GENTEST_CODEGEN_HOST_CLANG}" NAME)
-        if(_gentest_host_clang_name MATCHES "^clang\\+\\+(-[0-9.]+)?(\\.exe)?$")
-            set(_gentest_helper_cxx_compiler "${GENTEST_CODEGEN_HOST_CLANG}")
-        elseif(_gentest_host_clang_name MATCHES "^clang(-[0-9.]+)?(\\.exe)?$")
-            set(_gentest_host_clang_version_suffix "${CMAKE_MATCH_1}")
-            set(_gentest_host_clang_extension "${CMAKE_MATCH_2}")
-            find_program(_gentest_helper_cxx_compiler
-                NAMES "clang++${_gentest_host_clang_version_suffix}${_gentest_host_clang_extension}" clang++ clang++.exe
-                HINTS "${_gentest_host_clang_dir}"
-                NO_DEFAULT_PATH)
-        endif()
-    endif()
-    if(_gentest_helper_cxx_compiler STREQUAL "")
-        find_program(_gentest_helper_cxx_compiler
-            NAMES clang++ clang++.exe clang++-22 clang++-21 clang++-20 c++)
-    endif()
-    if(_gentest_helper_cxx_compiler STREQUAL "")
-        message(FATAL_ERROR
-            "gentest source inspection helper could not infer a usable C++ compiler. "
-            "Set CMAKE_CXX_COMPILER or ensure clang++ is available in PATH.")
-    endif()
-
-    _gentest_get_host_executable_suffix(_gentest_helper_executable_suffix)
-    set(_gentest_helper_platform "${CMAKE_GENERATOR_PLATFORM}")
-    if(_gentest_helper_platform STREQUAL "" AND DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
-        set(_gentest_helper_platform "${GENERATOR_PLATFORM}")
-    endif()
-    set(_gentest_helper_toolset "${CMAKE_GENERATOR_TOOLSET}")
-    if(_gentest_helper_toolset STREQUAL "" AND DEFINED GENERATOR_TOOLSET AND NOT "${GENERATOR_TOOLSET}" STREQUAL "")
-        set(_gentest_helper_toolset "${GENERATOR_TOOLSET}")
-    endif()
-    string(SHA256 _gentest_helper_build_hash
-        "${_gentest_helper_generator}|${_gentest_helper_make_program}|${_gentest_helper_cxx_compiler}|${_gentest_helper_platform}|${_gentest_helper_toolset}")
-    string(SUBSTRING "${_gentest_helper_build_hash}" 0 12 _gentest_helper_build_suffix)
-    set(_gentest_helper_build_dir "${CMAKE_BINARY_DIR}/gentest_scan_inspector_${_gentest_helper_build_suffix}")
-    set(_gentest_helper_executable "${_gentest_helper_build_dir}/gentest_scan_inspector${_gentest_helper_executable_suffix}")
-    set(_gentest_helper_ccache_dir "$ENV{CCACHE_DIR}")
-    set(_gentest_helper_ccache_tmp "$ENV{CCACHE_TEMPDIR}")
-    if(_gentest_helper_ccache_dir STREQUAL "")
-        set(_gentest_helper_ccache_dir "${_gentest_helper_build_dir}/ccache")
-    endif()
-    if(_gentest_helper_ccache_tmp STREQUAL "")
-        set(_gentest_helper_ccache_tmp "${_gentest_helper_build_dir}/ccache/tmp")
-    endif()
-    file(MAKE_DIRECTORY "${_gentest_helper_ccache_dir}")
-    file(MAKE_DIRECTORY "${_gentest_helper_ccache_tmp}")
-    set(_gentest_helper_env_cmd
-        "${CMAKE_COMMAND}" -E env
-        "CCACHE_DIR=${_gentest_helper_ccache_dir}"
-        "CCACHE_TEMPDIR=${_gentest_helper_ccache_tmp}")
-
-    set(_gentest_configure_cmd
-        "${CMAKE_COMMAND}"
-        -S "${_gentest_helper_source_dir}"
-        -B "${_gentest_helper_build_dir}"
-        -G "${_gentest_helper_generator}")
-    if(DEFINED CMAKE_GENERATOR_PLATFORM AND NOT "${CMAKE_GENERATOR_PLATFORM}" STREQUAL "" AND NOT "${CMAKE_GENERATOR}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd -A "${CMAKE_GENERATOR_PLATFORM}")
-    elseif(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "" AND NOT "${_gentest_helper_generator}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd -A "${GENERATOR_PLATFORM}")
-    endif()
-    if(DEFINED CMAKE_GENERATOR_TOOLSET AND NOT "${CMAKE_GENERATOR_TOOLSET}" STREQUAL "" AND NOT "${CMAKE_GENERATOR}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd -T "${CMAKE_GENERATOR_TOOLSET}")
-    elseif(DEFINED GENERATOR_TOOLSET AND NOT "${GENERATOR_TOOLSET}" STREQUAL "" AND NOT "${_gentest_helper_generator}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd -T "${GENERATOR_TOOLSET}")
-    endif()
-    if(NOT _gentest_helper_make_program STREQUAL "")
-        list(APPEND _gentest_configure_cmd "-DCMAKE_MAKE_PROGRAM=${_gentest_helper_make_program}")
-    elseif(DEFINED CMAKE_MAKE_PROGRAM AND NOT "${CMAKE_MAKE_PROGRAM}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
-    elseif(DEFINED MAKE_PROGRAM AND NOT "${MAKE_PROGRAM}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
-    endif()
-    if(DEFINED CMAKE_C_COMPILER AND NOT "${CMAKE_C_COMPILER}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
-    elseif(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd "-DCMAKE_C_COMPILER=${C_COMPILER}")
-    endif()
-    list(APPEND _gentest_configure_cmd "-DCMAKE_CXX_COMPILER=${_gentest_helper_cxx_compiler}")
-    if(DEFINED CMAKE_C_COMPILER_LAUNCHER AND NOT "${CMAKE_C_COMPILER_LAUNCHER}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd "-DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}")
-    endif()
-    if(DEFINED CMAKE_CXX_COMPILER_LAUNCHER AND NOT "${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd "-DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}")
-    endif()
-    if(DEFINED CMAKE_BUILD_TYPE AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
-    elseif(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
-        list(APPEND _gentest_configure_cmd "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
-    endif()
-    if(APPLE)
-        foreach(_gentest_apple_var IN ITEMS CMAKE_OSX_ARCHITECTURES CMAKE_OSX_DEPLOYMENT_TARGET CMAKE_OSX_SYSROOT)
-            if(DEFINED ${_gentest_apple_var} AND NOT "${${_gentest_apple_var}}" STREQUAL "")
-                list(APPEND _gentest_configure_cmd "-D${_gentest_apple_var}=${${_gentest_apple_var}}")
-            endif()
-        endforeach()
-    endif()
-
-    execute_process(
-        COMMAND ${_gentest_helper_env_cmd} ${_gentest_configure_cmd}
-        RESULT_VARIABLE _gentest_configure_rc
-        OUTPUT_VARIABLE _gentest_configure_out
-        ERROR_VARIABLE _gentest_configure_err
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_STRIP_TRAILING_WHITESPACE)
-    if(NOT _gentest_configure_rc EQUAL 0)
-        message(FATAL_ERROR
-            "Failed to configure the native gentest source-inspection helper.\n"
-            "--- stdout ---\n${_gentest_configure_out}\n--- stderr ---\n${_gentest_configure_err}")
-    endif()
-
-    set(_gentest_build_cmd "${CMAKE_COMMAND}" --build "${_gentest_helper_build_dir}")
-    if(CMAKE_CONFIGURATION_TYPES)
-        if(DEFINED CMAKE_BUILD_TYPE AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "")
-            list(APPEND _gentest_build_cmd --config "${CMAKE_BUILD_TYPE}")
-        else()
-            list(APPEND _gentest_build_cmd --config Debug)
-        endif()
-    endif()
-    execute_process(
-        COMMAND ${_gentest_helper_env_cmd} ${_gentest_build_cmd}
-        RESULT_VARIABLE _gentest_build_rc
-        OUTPUT_VARIABLE _gentest_build_out
-        ERROR_VARIABLE _gentest_build_err
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_STRIP_TRAILING_WHITESPACE)
-    if(NOT _gentest_build_rc EQUAL 0)
-        message(FATAL_ERROR
-            "Failed to build the native gentest source-inspection helper.\n"
-            "--- stdout ---\n${_gentest_build_out}\n--- stderr ---\n${_gentest_build_err}")
-    endif()
-
-    if(NOT EXISTS "${_gentest_helper_executable}")
-        message(FATAL_ERROR
-            "gentest source-inspection helper build completed, but the executable was not found at "
-            "'${_gentest_helper_executable}'.")
-    endif()
-
-    set(${out_executable} "${_gentest_helper_executable}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_try_select_source_inspector_backend out_executable out_reason)
@@ -978,16 +760,10 @@ function(_gentest_try_select_source_inspector_backend out_executable out_reason)
             if(_gentest_source_inspector_supported)
                 set(_gentest_selected_executable "${GENTEST_BACKEND_EXECUTABLE}")
             else()
-                _gentest_source_inspector_helper_available(_gentest_helper_available)
-                if(_gentest_helper_available AND NOT CMAKE_CROSSCOMPILING)
-                    _gentest_build_native_scan_inspector(_gentest_helper_executable)
-                    set(_gentest_selected_executable "${_gentest_helper_executable}")
-                else()
-                    set(_gentest_selected_reason "${_gentest_source_inspector_reason}")
-                endif()
+                set(_gentest_selected_reason "${_gentest_source_inspector_reason}")
             endif()
         endif()
-    elseif(GENTEST_BACKEND_KIND STREQUAL "explicit_target" OR GENTEST_BACKEND_KIND STREQUAL "in_tree_target")
+    elseif(GENTEST_BACKEND_KIND STREQUAL "explicit_target")
         if(NOT TARGET "${GENTEST_BACKEND_TARGET}")
             set(_gentest_selected_reason "candidate target '${GENTEST_BACKEND_TARGET}' does not exist")
         else()
@@ -1002,20 +778,14 @@ function(_gentest_try_select_source_inspector_backend out_executable out_reason)
                         "candidate target '${GENTEST_BACKEND_TARGET}' resolves to '${_gentest_target_codegen}', but ${_gentest_source_inspector_reason}")
                 endif()
             else()
-                set(_gentest_allow_helper FALSE)
-                if((GENTEST_BACKEND_KIND STREQUAL "in_tree_target" OR GENTEST_BACKEND_KIND STREQUAL "explicit_target")
-                   AND _gentest_target_reason MATCHES "build-tree executable")
-                    set(_gentest_allow_helper TRUE)
-                endif()
-                _gentest_source_inspector_helper_available(_gentest_helper_available)
-                if(_gentest_allow_helper AND _gentest_helper_available AND NOT CMAKE_CROSSCOMPILING)
-                    _gentest_build_native_scan_inspector(_gentest_helper_executable)
-                    set(_gentest_selected_executable "${_gentest_helper_executable}")
-                else()
-                    set(_gentest_selected_reason "${_gentest_target_reason}")
-                endif()
+                set(_gentest_selected_reason "${_gentest_target_reason}")
             endif()
         endif()
+    elseif(GENTEST_BACKEND_KIND STREQUAL "in_tree_target")
+        set(_gentest_selected_reason
+            "candidate target '${GENTEST_BACKEND_TARGET}' is a build-tree executable and is not runnable during configure-time source inspection. "
+            "Configure-time source inspection is only used for explicit module mock metadata; provide a built/installed "
+            "gentest_codegen via GENTEST_CODEGEN_EXECUTABLE or an imported GENTEST_CODEGEN_TARGET.")
     endif()
 
     set(${out_executable} "${_gentest_selected_executable}" PARENT_SCOPE)
@@ -1027,43 +797,34 @@ function(_gentest_resolve_source_inspector_executable out_executable)
     set(_gentest_source_inspector_backend_executable "")
     set(_gentest_source_inspector_backend_target "")
 
-    if(DEFINED _gentest_source_inspector_codegen_backend_kind AND NOT "${_gentest_source_inspector_codegen_backend_kind}" STREQUAL "")
-        set(_gentest_source_inspector_backend_kind "${_gentest_source_inspector_codegen_backend_kind}")
-        set(_gentest_source_inspector_backend_executable "${_gentest_source_inspector_codegen_executable}")
-        set(_gentest_source_inspector_backend_target "${_gentest_source_inspector_codegen_target}")
-    elseif(GENTEST_CODEGEN_EXECUTABLE)
+    if(GENTEST_CODEGEN_EXECUTABLE)
         set(_gentest_source_inspector_backend_kind "explicit_executable")
         set(_gentest_source_inspector_backend_executable "${GENTEST_CODEGEN_EXECUTABLE}")
     elseif(GENTEST_CODEGEN_TARGET)
         set(_gentest_source_inspector_backend_kind "explicit_target")
         set(_gentest_source_inspector_backend_target "${GENTEST_CODEGEN_TARGET}")
-    elseif(TARGET gentest_codegen)
-        set(_gentest_source_inspector_backend_kind "in_tree_target")
-        set(_gentest_source_inspector_backend_target gentest_codegen)
     else()
         _gentest_find_installed_codegen_executable(_gentest_installed_codegen)
         if(NOT _gentest_installed_codegen STREQUAL "")
             set(_gentest_source_inspector_backend_kind "installed_executable")
             set(_gentest_source_inspector_backend_executable "${_gentest_installed_codegen}")
+        elseif(TARGET gentest_codegen)
+            set(_gentest_source_inspector_backend_kind "in_tree_target")
+            set(_gentest_source_inspector_backend_target gentest_codegen)
         endif()
     endif()
 
     if(_gentest_source_inspector_backend_kind STREQUAL "")
-        _gentest_source_inspector_helper_available(_gentest_helper_available)
-        if(_gentest_helper_available AND NOT CMAKE_CROSSCOMPILING)
-            _gentest_build_native_scan_inspector(_gentest_helper_executable)
-            set(${out_executable} "${_gentest_helper_executable}" PARENT_SCOPE)
-            return()
-        endif()
-
         if(CMAKE_CROSSCOMPILING)
             message(FATAL_ERROR
-                "gentest source inspection requires a runnable host gentest_codegen during configure time. "
+                "gentest source inspection for explicit module mock metadata requires a runnable host gentest_codegen during configure time. "
                 "Set -DGENTEST_CODEGEN_EXECUTABLE=<path> or -DGENTEST_CODEGEN_TARGET=<imported-executable-target> when cross-compiling.")
         endif()
 
         message(FATAL_ERROR
-            "gentest source inspection could not resolve a codegen backend or in-tree scan_inspector helper.")
+            "gentest source inspection for explicit module mock metadata could not resolve a runnable gentest_codegen executable. "
+            "Source-tree gentest_codegen targets are build outputs and cannot be used during configure; use an installed tool "
+            "or set -DGENTEST_CODEGEN_EXECUTABLE=<path>.")
     endif()
 
     _gentest_try_select_source_inspector_backend(
@@ -1078,7 +839,7 @@ function(_gentest_resolve_source_inspector_executable out_executable)
     endif()
 
     message(FATAL_ERROR
-        "gentest source inspection could not resolve a runnable inspect-capable backend.\n"
+        "gentest source inspection for explicit module mock metadata could not resolve a runnable inspect-capable backend.\n"
         "  - ${_gentest_source_inspector_reason}")
 endfunction()
 
@@ -1227,6 +988,27 @@ function(_gentest_make_module_wrapper_output_path output_dir input_tu idx out_pa
         PARENT_SCOPE)
 endfunction()
 
+function(_gentest_make_module_registration_output_path output_dir input_tu idx out_path)
+    get_filename_component(_gentest_module_stem "${input_tu}" NAME_WE)
+    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" _gentest_module_stem "${_gentest_module_stem}")
+    if(_gentest_module_stem STREQUAL "")
+        set(_gentest_module_stem "tu")
+    endif()
+    _gentest_shorten_generated_stem("${_gentest_module_stem}" _gentest_module_stem)
+
+    set(_gentest_idx_str "${idx}")
+    string(LENGTH "${_gentest_idx_str}" _gentest_idx_len)
+    if(_gentest_idx_len LESS 4)
+        math(EXPR _gentest_pad "4 - ${_gentest_idx_len}")
+        string(REPEAT "0" ${_gentest_pad} _gentest_zeros)
+        set(_gentest_idx_str "${_gentest_zeros}${_gentest_idx_str}")
+    endif()
+
+    set(${out_path}
+        "${output_dir}/tu_${_gentest_idx_str}_${_gentest_module_stem}.registration.gentest.cpp"
+        PARENT_SCOPE)
+endfunction()
+
 function(_gentest_shorten_generated_stem input_stem out_stem)
     set(_gentest_short_stem "${input_stem}")
     string(LENGTH "${_gentest_short_stem}" _gentest_short_stem_len)
@@ -1316,7 +1098,10 @@ function(_gentest_copy_source_properties_to_wrappers)
 endfunction()
 
 function(_gentest_prepare_tu_mode)
-    set(one_value_args TARGET TARGET_ID OUTPUT_DIR NO_INCLUDE_SOURCES OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP)
+    set(one_value_args
+        TARGET TARGET_ID OUTPUT_DIR NO_INCLUDE_SOURCES
+        OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP
+        OUT_ARTIFACT_MANIFEST OUT_COMPILE_CONTEXT_IDS OUT_ARTIFACT_OWNER_SOURCES)
     set(multi_value_args TUS TU_SOURCE_ENTRIES MODULE_NAMES NEEDS_MODULE_SCAN)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -1361,6 +1146,8 @@ function(_gentest_prepare_tu_mode)
     set(_gentest_wrapper_cpp "")
     set(_gentest_wrapper_headers "")
     set(_gentest_registration_cpp "")
+    set(_gentest_compile_context_ids "")
+    set(_gentest_artifact_owner_sources "")
     list(LENGTH GENTEST_TUS _gentest_tu_count)
     math(EXPR _gentest_last_tu "${_gentest_tu_count} - 1")
     foreach(_gentest_idx RANGE 0 ${_gentest_last_tu})
@@ -1388,6 +1175,8 @@ function(_gentest_prepare_tu_mode)
             list(APPEND _gentest_wrapper_cpp "${_gentest_module_wrap_cpp}")
             list(APPEND _gentest_registration_cpp "__gentest_no_registration__")
         endif()
+        list(APPEND _gentest_compile_context_ids "${GENTEST_TARGET_ID}:${_tu}")
+        list(APPEND _gentest_artifact_owner_sources "${_tu}")
     endforeach()
 
     file(MAKE_DIRECTORY "${_gentest_output_dir}")
@@ -1456,6 +1245,151 @@ function(_gentest_prepare_tu_mode)
     set(${GENTEST_OUT_WRAPPER_CPP} "${_gentest_wrapper_cpp}" PARENT_SCOPE)
     set(${GENTEST_OUT_WRAPPER_HEADERS} "${_gentest_wrapper_headers}" PARENT_SCOPE)
     set(${GENTEST_OUT_EXTRA_CPP} "${_gentest_extra_cpp}" PARENT_SCOPE)
+    set(${GENTEST_OUT_ARTIFACT_MANIFEST} "${_gentest_output_dir}/${GENTEST_TARGET_ID}.artifact_manifest.json" PARENT_SCOPE)
+    set(${GENTEST_OUT_COMPILE_CONTEXT_IDS} "${_gentest_compile_context_ids}" PARENT_SCOPE)
+    set(${GENTEST_OUT_ARTIFACT_OWNER_SOURCES} "${_gentest_artifact_owner_sources}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_prepare_module_registration_mode)
+    set(one_value_args TARGET TARGET_ID OUTPUT_DIR OUT_OUTPUT_DIR OUT_REGISTRATION_CPP OUT_WRAPPER_HEADERS OUT_MANIFEST OUT_COMPILE_CONTEXT_IDS)
+    set(multi_value_args TUS TU_SOURCE_ENTRIES NEEDS_MODULE_SCAN)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    if(GENTEST_OUTPUT_DIR)
+        set(_gentest_output_dir "${GENTEST_OUTPUT_DIR}")
+    else()
+        set(_gentest_output_dir "${CMAKE_CURRENT_BINARY_DIR}/gentest/${GENTEST_TARGET_ID}")
+    endif()
+
+    if("${_gentest_output_dir}" MATCHES "\\$<")
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT_DIR contains generator expressions, which is not supported in "
+            "MODULE_REGISTRATION mode. Pass a concrete OUTPUT_DIR.")
+    endif()
+
+    _gentest_normalize_path_and_key("${_gentest_output_dir}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_outdir_abs _gentest_outdir_key)
+    set(_gentest_output_dir "${_gentest_outdir_abs}")
+
+    _gentest_reserve_unique_owner("GENTEST_CODEGEN_OUTDIR_OWNER" "${_gentest_outdir_key}" "${GENTEST_TARGET}" _gentest_prev_owner)
+    if(_gentest_prev_owner AND NOT _gentest_prev_owner STREQUAL "${GENTEST_TARGET}")
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT_DIR '${_gentest_outdir_abs}' is already used by '${_gentest_prev_owner}'. "
+            "Each target should have a unique OUTPUT_DIR to avoid generated file clobbering.")
+    endif()
+
+    set(_gentest_wrapper_headers "")
+    set(_gentest_registration_cpp "")
+    set(_gentest_compile_context_ids "")
+    list(LENGTH GENTEST_TUS _gentest_tu_count)
+    math(EXPR _gentest_last_tu "${_gentest_tu_count} - 1")
+    foreach(_gentest_idx RANGE 0 ${_gentest_last_tu})
+        list(GET GENTEST_TUS ${_gentest_idx} _tu)
+        get_filename_component(_stem "${_tu}" NAME_WE)
+        string(REGEX REPLACE "[^A-Za-z0-9_]" "_" _stem "${_stem}")
+        if(_stem STREQUAL "")
+            set(_stem "tu")
+        endif()
+        _gentest_shorten_generated_stem("${_stem}" _stem)
+        set(_idx_str "${_gentest_idx}")
+        string(LENGTH "${_idx_str}" _idx_len)
+        if(_idx_len LESS 4)
+            math(EXPR _pad "4 - ${_idx_len}")
+            string(REPEAT "0" ${_pad} _zeros)
+            set(_idx_str "${_zeros}${_idx_str}")
+        endif()
+        list(APPEND _gentest_wrapper_headers "${_gentest_output_dir}/tu_${_idx_str}_${_stem}.gentest.h")
+        _gentest_make_module_registration_output_path("${_gentest_output_dir}" "${_tu}" ${_gentest_idx} _gentest_reg_cpp)
+        list(APPEND _gentest_registration_cpp "${_gentest_reg_cpp}")
+        list(APPEND _gentest_compile_context_ids "${GENTEST_TARGET_ID}:${_tu}")
+    endforeach()
+
+    file(MAKE_DIRECTORY "${_gentest_output_dir}")
+
+    set_source_files_properties(${_gentest_registration_cpp} PROPERTIES
+        GENERATED TRUE
+        SKIP_UNITY_BUILD_INCLUSION ON
+        CXX_SCAN_FOR_MODULES ON)
+    set_source_files_properties(${_gentest_wrapper_headers} PROPERTIES GENERATED TRUE)
+    _gentest_copy_source_properties_to_wrappers(
+        TU_SOURCE_ENTRIES ${GENTEST_TU_SOURCE_ENTRIES}
+        TUS ${GENTEST_TUS}
+        WRAPPER_CPP ${_gentest_registration_cpp})
+    set_source_files_properties(${_gentest_registration_cpp} PROPERTIES CXX_SCAN_FOR_MODULES ON)
+
+    set(${GENTEST_OUT_OUTPUT_DIR} "${_gentest_output_dir}" PARENT_SCOPE)
+    set(${GENTEST_OUT_REGISTRATION_CPP} "${_gentest_registration_cpp}" PARENT_SCOPE)
+    set(${GENTEST_OUT_WRAPPER_HEADERS} "${_gentest_wrapper_headers}" PARENT_SCOPE)
+    set(${GENTEST_OUT_MANIFEST} "${_gentest_output_dir}/${GENTEST_TARGET_ID}.artifact_manifest.json" PARENT_SCOPE)
+    set(${GENTEST_OUT_COMPILE_CONTEXT_IDS} "${_gentest_compile_context_ids}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_append_artifact_manifest_validation_values args_var option)
+    set(_gentest_args "${${args_var}}")
+    foreach(_gentest_value IN LISTS ARGN)
+        list(APPEND _gentest_args "${option}" "${_gentest_value}")
+    endforeach()
+    set(${args_var} "${_gentest_args}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_make_artifact_manifest_validation_args)
+    set(one_value_args
+        MANIFEST STAMP INCLUDE_DIR DEPFILE TARGET_ATTACHMENT ARTIFACT_ROLE COMPILE_AS REQUIRES_MODULE_SCAN
+        INCLUDES_OWNER_SOURCE REPLACES_OWNER_SOURCE COMPDB OUT_ARGS)
+    set(multi_value_args
+        SOURCES SOURCE_KINDS REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS OWNER_SOURCES SOURCE_REGISTRATION_OUTPUTS
+        SCAN_CONTEXT_ARGS)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    set(_gentest_args
+        validate-artifact-manifest
+        --manifest "${GENTEST_MANIFEST}"
+        --stamp "${GENTEST_STAMP}"
+        --expected-include-dir "${GENTEST_INCLUDE_DIR}"
+        --expected-depfile "${GENTEST_DEPFILE}"
+        --expected-target-attachment "${GENTEST_TARGET_ATTACHMENT}"
+        --expected-artifact-role "${GENTEST_ARTIFACT_ROLE}"
+        --expected-compile-as "${GENTEST_COMPILE_AS}"
+        --expected-requires-module-scan "${GENTEST_REQUIRES_MODULE_SCAN}")
+    if(GENTEST_COMPDB)
+        list(APPEND _gentest_args --compdb "${GENTEST_COMPDB}")
+    endif()
+    if(DEFINED GENTEST_INCLUDES_OWNER_SOURCE)
+        list(APPEND _gentest_args --expected-includes-owner-source "${GENTEST_INCLUDES_OWNER_SOURCE}")
+    endif()
+    if(DEFINED GENTEST_REPLACES_OWNER_SOURCE)
+        list(APPEND _gentest_args --expected-replaces-owner-source "${GENTEST_REPLACES_OWNER_SOURCE}")
+    endif()
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source" ${GENTEST_SOURCES})
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source-kind" ${GENTEST_SOURCE_KINDS})
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-registration-output" ${GENTEST_REGISTRATION_OUTPUTS})
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-header" ${GENTEST_HEADERS})
+    _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-compile-context-id" ${GENTEST_COMPILE_CONTEXT_IDS})
+    if(GENTEST_OWNER_SOURCES)
+        _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-owner-source" ${GENTEST_OWNER_SOURCES})
+    endif()
+    if(GENTEST_SOURCE_REGISTRATION_OUTPUTS)
+        _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source-registration-output"
+            ${GENTEST_SOURCE_REGISTRATION_OUTPUTS})
+    endif()
+    if(GENTEST_SCAN_CONTEXT_ARGS)
+        list(APPEND _gentest_args ${GENTEST_SCAN_CONTEXT_ARGS})
+    endif()
+
+    set(${GENTEST_OUT_ARGS} "${_gentest_args}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_add_artifact_manifest_validation_command)
+    set(one_value_args STAMP COMMENT)
+    set(multi_value_args COMMAND_LAUNCHER VALIDATION_ARGS DEPENDS)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    add_custom_command(
+        OUTPUT "${GENTEST_STAMP}"
+        COMMAND ${GENTEST_COMMAND_LAUNCHER} ${GENTEST_VALIDATION_ARGS}
+        COMMAND_EXPAND_LISTS
+        DEPENDS ${GENTEST_DEPENDS}
+        COMMENT "${GENTEST_COMMENT}"
+        VERBATIM)
 endfunction()
 
 function(_gentest_attach_manifest_codegen)
@@ -1621,12 +1555,30 @@ function(_gentest_attach_tu_wrapper_sources)
     add_dependencies(${GENTEST_TARGET} gentest_codegen_${GENTEST_TARGET_ID})
 endfunction()
 
+function(_gentest_attach_module_registration_sources)
+    set(one_value_args TARGET TARGET_ID)
+    set(multi_value_args REGISTRATION_CPP CODEGEN_OUTPUTS)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    if(GENTEST_REGISTRATION_CPP)
+        target_sources(${GENTEST_TARGET} PRIVATE ${GENTEST_REGISTRATION_CPP})
+        set_source_files_properties(${GENTEST_REGISTRATION_CPP} TARGET_DIRECTORY ${GENTEST_TARGET} PROPERTIES CXX_SCAN_FOR_MODULES ON)
+    endif()
+
+    add_custom_target(gentest_codegen_${GENTEST_TARGET_ID} DEPENDS ${GENTEST_CODEGEN_OUTPUTS})
+    set_property(TARGET ${GENTEST_TARGET} PROPERTY GENTEST_CODEGEN_DEP_TARGET gentest_codegen_${GENTEST_TARGET_ID})
+    if(TARGET gentest_codegen_all)
+        add_dependencies(gentest_codegen_all gentest_codegen_${GENTEST_TARGET_ID})
+    endif()
+    add_dependencies(${GENTEST_TARGET} gentest_codegen_${GENTEST_TARGET_ID})
+endfunction()
+
 function(_gentest_collect_scan_include_dirs target source out_dirs)
     set(_gentest_dirs "")
 
     foreach(_gentest_prop IN ITEMS INCLUDE_DIRECTORIES SYSTEM_INCLUDE_DIRECTORIES)
         get_target_property(_gentest_prop_values ${target} ${_gentest_prop})
-        if(NOT _gentest_prop_values STREQUAL "NOTFOUND")
+        if(NOT _gentest_prop_values STREQUAL "NOTFOUND" AND NOT _gentest_prop_values MATCHES "-NOTFOUND$")
             foreach(_gentest_dir IN LISTS _gentest_prop_values)
                 if("${_gentest_dir}" MATCHES "\\$<")
                     continue()
@@ -1638,7 +1590,7 @@ function(_gentest_collect_scan_include_dirs target source out_dirs)
     endforeach()
 
     get_source_file_property(_gentest_source_include_dirs "${source}" INCLUDE_DIRECTORIES)
-    if(NOT _gentest_source_include_dirs STREQUAL "NOTFOUND")
+    if(NOT _gentest_source_include_dirs STREQUAL "NOTFOUND" AND NOT _gentest_source_include_dirs MATCHES "-NOTFOUND$")
         foreach(_gentest_dir IN LISTS _gentest_source_include_dirs)
             if("${_gentest_dir}" MATCHES "\\$<")
                 continue()
@@ -1779,9 +1731,49 @@ function(_gentest_collect_scan_macro_args_from_sequence out_args out_has_genex)
 endfunction()
 
 function(_gentest_collect_scan_macro_args target source out_args out_has_genex)
+    set(_gentest_definition_props COMPILE_DEFINITIONS)
+    if(NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE)
+        set(_gentest_configs ${CMAKE_BUILD_TYPE})
+    else()
+        set(_gentest_configs "")
+    endif()
+    foreach(_cfg IN LISTS _gentest_configs)
+        string(TOUPPER "${_cfg}" _cfg_upper)
+        list(APPEND _gentest_definition_props "COMPILE_DEFINITIONS_${_cfg_upper}")
+    endforeach()
+    list(REMOVE_DUPLICATES _gentest_definition_props)
+
+    set(_gentest_args "")
+    set(_gentest_has_genex FALSE)
+    foreach(_gentest_prop IN LISTS _gentest_definition_props)
+        get_target_property(_gentest_target_defs ${target} ${_gentest_prop})
+        if(NOT _gentest_target_defs STREQUAL "NOTFOUND" AND NOT _gentest_target_defs MATCHES "-NOTFOUND$")
+            foreach(_gentest_def IN LISTS _gentest_target_defs)
+                if("${_gentest_def}" MATCHES "\\$<")
+                    continue()
+                endif()
+                list(APPEND _gentest_args "-D${_gentest_def}")
+            endforeach()
+        endif()
+
+        get_source_file_property(_gentest_source_defs "${source}" ${_gentest_prop})
+        if(NOT _gentest_source_defs STREQUAL "NOTFOUND" AND NOT _gentest_source_defs MATCHES "-NOTFOUND$")
+            foreach(_gentest_def IN LISTS _gentest_source_defs)
+                if("${_gentest_def}" MATCHES "\\$<")
+                    continue()
+                endif()
+                list(APPEND _gentest_args "-D${_gentest_def}")
+            endforeach()
+        endif()
+    endforeach()
+
     _gentest_collect_scan_macro_args_from_sequence(_gentest_argn_args _gentest_argn_has_genex ${ARGN})
-    set(${out_args} "${_gentest_argn_args}" PARENT_SCOPE)
-    set(${out_has_genex} "${_gentest_argn_has_genex}" PARENT_SCOPE)
+    list(APPEND _gentest_args ${_gentest_argn_args})
+    if(_gentest_argn_has_genex)
+        set(_gentest_has_genex TRUE)
+    endif()
+    set(${out_args} "${_gentest_args}" PARENT_SCOPE)
+    set(${out_has_genex} "${_gentest_has_genex}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets)
@@ -1994,21 +1986,6 @@ function(gentest_link_mocks target)
     endforeach()
 
     if(_gentest_explicit_mock_targets_for_codegen)
-        get_target_property(_gentest_source_inspector_codegen_backend_kind "${target}" GENTEST_SOURCE_INSPECTOR_CODEGEN_BACKEND_KIND)
-        if(NOT _gentest_source_inspector_codegen_backend_kind
-           OR _gentest_source_inspector_codegen_backend_kind MATCHES "-NOTFOUND$")
-            set(_gentest_source_inspector_codegen_backend_kind "")
-        endif()
-        get_target_property(_gentest_source_inspector_codegen_target "${target}" GENTEST_SOURCE_INSPECTOR_CODEGEN_TARGET)
-        if(NOT _gentest_source_inspector_codegen_target OR _gentest_source_inspector_codegen_target MATCHES "-NOTFOUND$")
-            set(_gentest_source_inspector_codegen_target "")
-        endif()
-        get_target_property(_gentest_source_inspector_codegen_executable "${target}" GENTEST_SOURCE_INSPECTOR_CODEGEN_EXECUTABLE)
-        if(NOT _gentest_source_inspector_codegen_executable
-           OR _gentest_source_inspector_codegen_executable MATCHES "-NOTFOUND$")
-            set(_gentest_source_inspector_codegen_executable "")
-        endif()
-
         _gentest_collect_external_module_source_mappings(_gentest_late_external_module_source_mappings
             ${_gentest_explicit_mock_targets_for_codegen})
         _gentest_append_external_module_source_args_property(${target} ${_gentest_late_external_module_source_mappings})
@@ -2016,8 +1993,8 @@ function(gentest_link_mocks target)
 endfunction()
 
 function(gentest_attach_codegen target)
-    set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG)
-    set(one_value_args OUTPUT OUTPUT_DIR ENTRY)
+    set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG MODULE_REGISTRATION)
+    set(one_value_args OUTPUT OUTPUT_DIR ENTRY FILE_SET)
     set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -2031,17 +2008,62 @@ function(gentest_attach_codegen target)
         set(_gentest_attach_discovers_mocks FALSE)
     endif()
 
+    if(GENTEST_MODULE_REGISTRATION)
+        if(GENTEST_OUTPUT)
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): MODULE_REGISTRATION cannot be combined with OUTPUT manifest mode.")
+        endif()
+        if(NOT GENTEST_FILE_SET)
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): MODULE_REGISTRATION requires FILE_SET <name>.")
+        endif()
+        if(GENTEST_SOURCES)
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): MODULE_REGISTRATION selects sources from FILE_SET; SOURCES is not supported.")
+        endif()
+    elseif(GENTEST_FILE_SET)
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${target}): FILE_SET is only valid with MODULE_REGISTRATION.")
+    endif()
+
     # Scan sources: explicit SOURCES preferred, otherwise pull from target and
-    # any named module file sets attached to it.
+    # any named module file sets attached to it. CMake only uses buildsystem
+    # metadata for configure-time source shape; gentest_codegen owns source
+    # parsing during the build.
     set(_gentest_scan_sources "${GENTEST_SOURCES}")
-    if(NOT _gentest_scan_sources)
+    set(_gentest_cxx_module_source_keys "")
+    get_target_property(_gentest_module_sets ${target} CXX_MODULE_SETS)
+    if(_gentest_module_sets AND NOT _gentest_module_sets MATCHES "-NOTFOUND$")
+        foreach(_gentest_module_set IN LISTS _gentest_module_sets)
+            get_target_property(_gentest_module_files ${target} CXX_MODULE_SET_${_gentest_module_set})
+            if(NOT _gentest_module_files OR _gentest_module_files MATCHES "-NOTFOUND$")
+                continue()
+            endif()
+            foreach(_gentest_module_file IN LISTS _gentest_module_files)
+                if("${_gentest_module_file}" MATCHES "\\$<")
+                    continue()
+                endif()
+                _gentest_normalize_path_and_key("${_gentest_module_file}" "${CMAKE_CURRENT_SOURCE_DIR}"
+                    _gentest_module_file_abs _gentest_module_file_key)
+                list(APPEND _gentest_cxx_module_source_keys "${_gentest_module_file_key}")
+            endforeach()
+        endforeach()
+    endif()
+    list(REMOVE_DUPLICATES _gentest_cxx_module_source_keys)
+
+    if(GENTEST_MODULE_REGISTRATION)
+        get_target_property(_gentest_scan_sources ${target} CXX_MODULE_SET_${GENTEST_FILE_SET})
+        if(NOT _gentest_scan_sources OR _gentest_scan_sources MATCHES "-NOTFOUND$")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): FILE_SET '${GENTEST_FILE_SET}' does not exist or has no CXX_MODULES sources.")
+        endif()
+    elseif(NOT _gentest_scan_sources)
         get_target_property(_gentest_scan_sources ${target} SOURCES)
 
-        get_target_property(_gentest_module_sets ${target} CXX_MODULE_SETS)
-        if(NOT _gentest_module_sets STREQUAL "NOTFOUND")
+        if(_gentest_module_sets AND NOT _gentest_module_sets MATCHES "-NOTFOUND$")
             foreach(_gentest_module_set IN LISTS _gentest_module_sets)
                 get_target_property(_gentest_module_files ${target} CXX_MODULE_SET_${_gentest_module_set})
-                if(NOT _gentest_module_files STREQUAL "NOTFOUND")
+                if(_gentest_module_files AND NOT _gentest_module_files MATCHES "-NOTFOUND$")
                     list(APPEND _gentest_scan_sources ${_gentest_module_files})
                 endif()
             endforeach()
@@ -2056,12 +2078,6 @@ function(gentest_attach_codegen target)
         OUT_CODEGEN_TARGET _gentest_codegen_target
         OUT_CODEGEN_EXECUTABLE _gentest_codegen_executable
         OUT_CODEGEN_BACKEND_KIND _gentest_codegen_backend_kind)
-    set(_gentest_source_inspector_codegen_backend_kind "${_gentest_codegen_backend_kind}")
-    set(_gentest_source_inspector_codegen_target "${_gentest_codegen_target}")
-    set(_gentest_source_inspector_codegen_executable "${_gentest_codegen_executable}")
-    set_property(TARGET ${target} PROPERTY GENTEST_SOURCE_INSPECTOR_CODEGEN_BACKEND_KIND "${_gentest_codegen_backend_kind}")
-    set_property(TARGET ${target} PROPERTY GENTEST_SOURCE_INSPECTOR_CODEGEN_TARGET "${_gentest_codegen_target}")
-    set_property(TARGET ${target} PROPERTY GENTEST_SOURCE_INSPECTOR_CODEGEN_EXECUTABLE "${_gentest_codegen_executable}")
     _gentest_collect_common_codegen_clang_args(_gentest_source_inspection_clang_args)
     _gentest_collect_common_codegen_system_include_args(_gentest_source_inspection_system_include_args)
 
@@ -2069,7 +2085,9 @@ function(gentest_attach_codegen target)
     set(_gentest_tus "")
     set(_gentest_tu_source_entries "")
     set(_gentest_module_names "")
+    set(_gentest_manifest_validation_scan_context_args "")
     set(_gentest_skipped_genex_sources "")
+    set(_gentest_seen_scan_source_keys "")
     foreach(_gentest_src IN LISTS _gentest_scan_sources)
         if("${_gentest_src}" MATCHES "\\$<")
             list(APPEND _gentest_skipped_genex_sources "${_gentest_src}")
@@ -2080,30 +2098,59 @@ function(gentest_attach_codegen target)
             continue()
         endif()
         _gentest_normalize_path_and_key("${_gentest_src}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_src_abs _gentest_src_key)
-        _gentest_collect_scan_include_dirs(${target} "${_gentest_src}" _gentest_scan_include_dirs
-            ${_gentest_source_inspection_clang_args}
-            ${_gentest_source_inspection_system_include_args})
-        _gentest_collect_scan_macro_args(${target} "${_gentest_src}" _gentest_scan_macro_args _gentest_scan_macro_has_genex
-            ${_gentest_source_inspection_clang_args})
-        set(_gentest_module_name "")
-        if(_gentest_scan_macro_has_genex)
-            message(FATAL_ERROR
-                "gentest_attach_codegen(${target}): source inspection for '${_gentest_src_abs}' does not support generator-expression "
-                "macro state in CLANG_ARGS. Use concrete macro arguments for sources that require configure-time module or "
-                "gentest.mock inspection.")
+        if(_gentest_src_key IN_LIST _gentest_seen_scan_source_keys)
+            continue()
         endif()
-        _gentest_run_source_inspector("${_gentest_src_abs}" _gentest_module_name _gentest_imports_mock
-            ${_gentest_scan_include_dirs}
-            __GENTEST_SCAN_COMMAND_LINE__
-            ${_gentest_scan_macro_args})
+        list(APPEND _gentest_seen_scan_source_keys "${_gentest_src_key}")
+
+        if(GENTEST_MODULE_REGISTRATION)
+            _gentest_collect_scan_include_dirs(${target} "${_gentest_src}" _gentest_scan_include_dirs
+                ${_gentest_source_inspection_clang_args}
+                ${_gentest_source_inspection_system_include_args})
+            _gentest_collect_scan_macro_args(${target} "${_gentest_src}" _gentest_scan_macro_args _gentest_scan_macro_has_genex
+                ${_gentest_source_inspection_clang_args})
+            foreach(_gentest_scan_include_dir IN LISTS _gentest_scan_include_dirs)
+                list(APPEND _gentest_manifest_validation_scan_context_args
+                    --expected-source-scan-include-dir "${_gentest_src_abs}" "${_gentest_scan_include_dir}")
+            endforeach()
+            foreach(_gentest_scan_arg IN LISTS _gentest_scan_macro_args)
+                list(APPEND _gentest_manifest_validation_scan_context_args
+                    --expected-source-scan-arg "${_gentest_src_abs}" "${_gentest_scan_arg}")
+            endforeach()
+        endif()
+
+        set(_gentest_module_name "")
+        get_source_file_property(_gentest_declared_module_name "${_gentest_src}" GENTEST_MODULE_NAME)
+        if(_gentest_declared_module_name STREQUAL "NOTFOUND")
+            get_source_file_property(_gentest_declared_module_name "${_gentest_src_abs}" GENTEST_MODULE_NAME)
+        endif()
+        if(_gentest_declared_module_name STREQUAL "NOTFOUND")
+            set(_gentest_declared_module_name "")
+        endif()
+
         set(_gentest_is_module FALSE)
-        if(NOT _gentest_module_name STREQUAL "")
+        if(GENTEST_MODULE_REGISTRATION)
+            set(_gentest_is_module TRUE)
+        elseif(NOT _gentest_declared_module_name STREQUAL "")
+            set(_gentest_is_module TRUE)
+            set(_gentest_module_name "${_gentest_declared_module_name}")
+        elseif(_gentest_src_key IN_LIST _gentest_cxx_module_source_keys)
+            set(_gentest_is_module TRUE)
+        elseif(_gentest_ext MATCHES "^\\.(cppm|ccm|cxxm|ixx|mxx)$")
             set(_gentest_is_module TRUE)
         endif()
         list(APPEND _gentest_tu_source_entries "${_gentest_src}")
         list(APPEND _gentest_tus "${_gentest_src_abs}")
         if(_gentest_is_module)
-            list(APPEND _gentest_module_names "${_gentest_module_name}")
+            if(GENTEST_MODULE_REGISTRATION)
+                list(APPEND _gentest_module_names "__gentest_module_registration__")
+            else()
+                if(_gentest_module_name STREQUAL "")
+                    string(MD5 _gentest_module_key "${_gentest_src_key}")
+                    set(_gentest_module_name "__gentest_module_${_gentest_module_key}")
+                endif()
+                list(APPEND _gentest_module_names "${_gentest_module_name}")
+            endif()
         else()
             list(APPEND _gentest_module_names "__gentest_no_module__")
         endif()
@@ -2143,24 +2190,39 @@ function(gentest_attach_codegen target)
     endforeach()
 
     # Mode selection:
+    # - MODULE_REGISTRATION emits additive same-module implementation units.
     # - If OUTPUT is provided, emit a single manifest TU (legacy).
     # - Otherwise, emit a wrapper TU + header per translation unit and replace
     #   the target sources (gtest/catch/doctest-like workflow).
     set(_gentest_mode "tu")
-    if(GENTEST_OUTPUT)
+    if(GENTEST_MODULE_REGISTRATION)
+        set(_gentest_mode "module_registration")
+    elseif(GENTEST_OUTPUT)
         set(_gentest_mode "manifest")
     endif()
 
-    if(_gentest_mode STREQUAL "tu" AND CMAKE_CONFIGURATION_TYPES)
+    if((_gentest_mode STREQUAL "tu" OR _gentest_mode STREQUAL "module_registration") AND CMAKE_CONFIGURATION_TYPES)
         message(FATAL_ERROR
-            "gentest_attach_codegen(${target}): TU wrapper mode is not supported with multi-config generators. "
-            "Use a single-config generator (separate build dirs) or pass OUTPUT=... to use manifest mode.")
+            "gentest_attach_codegen(${target}): ${_gentest_mode} mode is not supported with multi-config generators. "
+            "Use a single-config generator/build directory for generated per-source outputs.")
     endif()
+
+    set(_gentest_has_module_sources FALSE)
+    foreach(_gentest_module_name IN LISTS _gentest_module_names)
+        if(NOT _gentest_module_name STREQUAL "__gentest_no_module__")
+            set(_gentest_has_module_sources TRUE)
+            break()
+        endif()
+    endforeach()
 
     set(_gentest_manifest_output "")
     set(_gentest_wrapper_cpp "")
     set(_gentest_wrapper_headers "")
     set(_gentest_extra_cpp "")
+    set(_gentest_artifact_manifest "")
+    set(_gentest_compile_context_ids "")
+    set(_gentest_artifact_owner_sources "")
+    set(_gentest_tu_manifest_enabled FALSE)
     if(_gentest_mode STREQUAL "manifest")
         _gentest_configure_manifest_mode(
             TARGET ${target}
@@ -2169,6 +2231,22 @@ function(gentest_attach_codegen target)
             TUS ${_gentest_tus}
             OUT_OUTPUT _gentest_manifest_output
             OUT_OUTPUT_DIR _gentest_output_dir)
+        message(WARNING
+            "gentest_attach_codegen(${target}): OUTPUT selects legacy manifest/single-TU mode; "
+            "omit OUTPUT or use OUTPUT_DIR for per-TU wrapper mode when supported. Manifest mode remains fallback-only.")
+    elseif(_gentest_mode STREQUAL "module_registration")
+        _gentest_prepare_module_registration_mode(
+            TARGET ${target}
+            TARGET_ID ${_gentest_target_id}
+            OUTPUT_DIR "${GENTEST_OUTPUT_DIR}"
+            TUS ${_gentest_tus}
+            TU_SOURCE_ENTRIES ${_gentest_tu_source_entries}
+            NEEDS_MODULE_SCAN ${_gentest_needs_module_scan}
+            OUT_OUTPUT_DIR _gentest_output_dir
+            OUT_REGISTRATION_CPP _gentest_wrapper_cpp
+            OUT_WRAPPER_HEADERS _gentest_wrapper_headers
+            OUT_MANIFEST _gentest_artifact_manifest
+            OUT_COMPILE_CONTEXT_IDS _gentest_compile_context_ids)
     else()
         _gentest_prepare_tu_mode(
             TARGET ${target}
@@ -2182,7 +2260,13 @@ function(gentest_attach_codegen target)
             OUT_OUTPUT_DIR _gentest_output_dir
             OUT_WRAPPER_CPP _gentest_wrapper_cpp
             OUT_WRAPPER_HEADERS _gentest_wrapper_headers
-            OUT_EXTRA_CPP _gentest_extra_cpp)
+            OUT_EXTRA_CPP _gentest_extra_cpp
+            OUT_ARTIFACT_MANIFEST _gentest_artifact_manifest
+            OUT_COMPILE_CONTEXT_IDS _gentest_compile_context_ids
+            OUT_ARTIFACT_OWNER_SOURCES _gentest_artifact_owner_sources)
+        if(NOT _gentest_has_module_sources)
+            set(_gentest_tu_manifest_enabled TRUE)
+        endif()
     endif()
 
     set(_gentest_module_wrapper_outputs "")
@@ -2200,42 +2284,52 @@ function(gentest_attach_codegen target)
         endif()
     endif()
 
-    set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
-    # Generate inline mock implementations as a header; it will be included by
-    # the generated wrapper translation units after including sources.
-    set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
+    set(_gentest_mock_registry "")
+    set(_gentest_mock_impl "")
     set(_gentest_mock_registry_domain_outputs "")
     set(_gentest_mock_impl_domain_outputs "")
-    _gentest_make_mock_domain_output_path("${_gentest_mock_registry}" 0 "header" _gentest_mock_registry_header_domain)
-    _gentest_make_mock_domain_output_path("${_gentest_mock_impl}" 0 "header" _gentest_mock_impl_header_domain)
-    list(APPEND _gentest_mock_registry_domain_outputs "${_gentest_mock_registry_header_domain}")
-    list(APPEND _gentest_mock_impl_domain_outputs "${_gentest_mock_impl_header_domain}")
+    if(NOT _gentest_mode STREQUAL "module_registration")
+        set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
+        # Generate inline mock implementations as a header; it will be included by
+        # the generated wrapper translation units after including sources.
+        set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
+        _gentest_make_mock_domain_output_path("${_gentest_mock_registry}" 0 "header" _gentest_mock_registry_header_domain)
+        _gentest_make_mock_domain_output_path("${_gentest_mock_impl}" 0 "header" _gentest_mock_impl_header_domain)
+        list(APPEND _gentest_mock_registry_domain_outputs "${_gentest_mock_registry_header_domain}")
+        list(APPEND _gentest_mock_impl_domain_outputs "${_gentest_mock_impl_header_domain}")
 
-    set(_gentest_mock_seen_modules "")
-    set(_gentest_mock_domain_idx 1)
-    foreach(_gentest_module_name IN LISTS _gentest_module_names)
-        if(_gentest_module_name STREQUAL "__gentest_no_module__")
-            continue()
-        endif()
-        list(FIND _gentest_mock_seen_modules "${_gentest_module_name}" _gentest_mock_seen_idx)
-        if(NOT _gentest_mock_seen_idx EQUAL -1)
-            continue()
-        endif()
-        list(APPEND _gentest_mock_seen_modules "${_gentest_module_name}")
+        set(_gentest_mock_seen_modules "")
+        set(_gentest_mock_domain_idx 1)
+        foreach(_gentest_module_name IN LISTS _gentest_module_names)
+            if(_gentest_module_name STREQUAL "__gentest_no_module__")
+                continue()
+            endif()
+            list(FIND _gentest_mock_seen_modules "${_gentest_module_name}" _gentest_mock_seen_idx)
+            if(NOT _gentest_mock_seen_idx EQUAL -1)
+                continue()
+            endif()
+            list(APPEND _gentest_mock_seen_modules "${_gentest_module_name}")
 
-        _gentest_make_mock_domain_output_path("${_gentest_mock_registry}" ${_gentest_mock_domain_idx} "${_gentest_module_name}"
-            _gentest_mock_registry_domain)
-        _gentest_make_mock_domain_output_path("${_gentest_mock_impl}" ${_gentest_mock_domain_idx} "${_gentest_module_name}"
-            _gentest_mock_impl_domain)
-        list(APPEND _gentest_mock_registry_domain_outputs "${_gentest_mock_registry_domain}")
-        list(APPEND _gentest_mock_impl_domain_outputs "${_gentest_mock_impl_domain}")
+            _gentest_make_mock_domain_output_path("${_gentest_mock_registry}" ${_gentest_mock_domain_idx} "${_gentest_module_name}"
+                _gentest_mock_registry_domain)
+            _gentest_make_mock_domain_output_path("${_gentest_mock_impl}" ${_gentest_mock_domain_idx} "${_gentest_module_name}"
+                _gentest_mock_impl_domain)
+            list(APPEND _gentest_mock_registry_domain_outputs "${_gentest_mock_registry_domain}")
+            list(APPEND _gentest_mock_impl_domain_outputs "${_gentest_mock_impl_domain}")
 
-        string(MD5 _gentest_module_key "${_gentest_module_name}")
-        set(_gentest_mock_domain_registry_${_gentest_module_key} "${_gentest_mock_registry_domain}")
-        set(_gentest_mock_domain_impl_${_gentest_module_key} "${_gentest_mock_impl_domain}")
-        math(EXPR _gentest_mock_domain_idx "${_gentest_mock_domain_idx} + 1")
-    endforeach()
+            string(MD5 _gentest_module_key "${_gentest_module_name}")
+            set(_gentest_mock_domain_registry_${_gentest_module_key} "${_gentest_mock_registry_domain}")
+            set(_gentest_mock_domain_impl_${_gentest_module_key} "${_gentest_mock_impl_domain}")
+            math(EXPR _gentest_mock_domain_idx "${_gentest_mock_domain_idx} + 1")
+        endforeach()
+    endif()
     set(_gentest_depfile "${_gentest_output_dir}/${_gentest_target_id}.gentest.d")
+    set(_gentest_mock_registration_manifest "")
+    set(_gentest_mock_registration_manifest_depfile "")
+    if(_gentest_mode STREQUAL "module_registration")
+        set(_gentest_mock_registration_manifest "${_gentest_output_dir}/${_gentest_target_id}.mock_manifest.json")
+        set(_gentest_mock_registration_manifest_depfile "${_gentest_output_dir}/${_gentest_target_id}.mock_manifest.d")
+    endif()
 
     set(_gentest_codegen_scan_inputs "")
     list(LENGTH _gentest_tus _gentest_tu_count)
@@ -2278,13 +2372,22 @@ function(gentest_attach_codegen target)
     endif()
 
     _gentest_make_codegen_command_launcher("${_gentest_codegen_executable}" _command_launcher)
+    set(_gentest_codegen_tool_depends "")
+    if(_gentest_codegen_target)
+        list(APPEND _gentest_codegen_tool_depends "${_gentest_codegen_target}")
+    elseif(NOT "${_gentest_codegen_executable}" MATCHES "\\$<")
+        list(APPEND _gentest_codegen_tool_depends "${_gentest_codegen_executable}")
+    endif()
 
     set(_command ${_command_launcher}
-        --mock-registry ${_gentest_mock_registry}
-        --mock-impl ${_gentest_mock_impl}
         --depfile ${_gentest_depfile}
         --compdb ${CMAKE_BINARY_DIR}
         --source-root ${CMAKE_SOURCE_DIR})
+    if(_gentest_mock_registry AND _gentest_mock_impl)
+        list(APPEND _command
+            --mock-registry ${_gentest_mock_registry}
+            --mock-impl ${_gentest_mock_impl})
+    endif()
 
     if(_gentest_mode STREQUAL "manifest")
         list(APPEND _command --output ${_gentest_manifest_output})
@@ -2292,14 +2395,38 @@ function(gentest_attach_codegen target)
         if(GENTEST_NO_INCLUDE_SOURCES)
             list(APPEND _command --no-include-sources)
         endif()
+    elseif(_gentest_mode STREQUAL "module_registration")
+        list(APPEND _command --tu-out-dir ${_gentest_output_dir})
+        list(APPEND _command --artifact-manifest ${_gentest_artifact_manifest})
+        list(APPEND _command --mock-registration-manifest ${_gentest_mock_registration_manifest})
+        foreach(_gentest_wrap_header IN LISTS _gentest_wrapper_headers)
+            list(APPEND _command --tu-header-output ${_gentest_wrap_header})
+        endforeach()
+        foreach(_gentest_reg_cpp IN LISTS _gentest_wrapper_cpp)
+            list(APPEND _command --module-registration-output ${_gentest_reg_cpp})
+        endforeach()
+        foreach(_gentest_context_id IN LISTS _gentest_compile_context_ids)
+            list(APPEND _command --compile-context-id "${_gentest_context_id}")
+        endforeach()
     else()
         list(APPEND _command --tu-out-dir ${_gentest_output_dir})
+        if(_gentest_tu_manifest_enabled)
+            list(APPEND _command --artifact-manifest ${_gentest_artifact_manifest})
+        endif()
         foreach(_gentest_wrap_header IN LISTS _gentest_wrapper_headers)
             list(APPEND _command --tu-header-output ${_gentest_wrap_header})
         endforeach()
         foreach(_gentest_wrap_cpp IN LISTS _gentest_wrapper_cpp)
             list(APPEND _command --module-wrapper-output ${_gentest_wrap_cpp})
         endforeach()
+        if(_gentest_tu_manifest_enabled)
+            foreach(_gentest_owner_source IN LISTS _gentest_artifact_owner_sources)
+                list(APPEND _command --artifact-owner-source "${_gentest_owner_source}")
+            endforeach()
+            foreach(_gentest_context_id IN LISTS _gentest_compile_context_ids)
+                list(APPEND _command --compile-context-id "${_gentest_context_id}")
+            endforeach()
+        endif()
     endif()
     foreach(_gentest_mock_registry_domain_output IN LISTS _gentest_mock_registry_domain_outputs)
         list(APPEND _command --mock-domain-registry-output ${_gentest_mock_registry_domain_output})
@@ -2314,27 +2441,11 @@ function(gentest_attach_codegen target)
     if(GENTEST_QUIET_CLANG)
         list(APPEND _command --quiet-clang)
     endif()
-    if(_gentest_attach_discovers_mocks)
+    if(_gentest_attach_discovers_mocks AND NOT _gentest_mode STREQUAL "module_registration")
         list(APPEND _command --discover-mocks)
     endif()
-    if(NOT "${GENTEST_CODEGEN_SCAN_DEPS_MODE}" STREQUAL "")
-        list(APPEND _command "--scan-deps-mode=${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
-    endif()
-    set(_gentest_clang_scan_deps "${GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
-    if("${_gentest_clang_scan_deps}" STREQUAL ""
-       AND DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
-       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
-       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
-        set(_gentest_clang_scan_deps "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
-    endif()
-    if(NOT "${_gentest_clang_scan_deps}" STREQUAL "")
-        list(APPEND _command --clang-scan-deps "${_gentest_clang_scan_deps}")
-    endif()
-    if(NOT "${GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
-        list(APPEND _command --host-clang "${GENTEST_CODEGEN_HOST_CLANG}")
-    endif()
-    list(APPEND _command
-        "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>")
+    _gentest_resolve_codegen_clang_scan_deps(_gentest_clang_scan_deps)
+    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}")
 
     if(_gentest_mode STREQUAL "tu")
         # Classic translation units are scanned via generated wrapper sources so
@@ -2355,6 +2466,44 @@ function(gentest_attach_codegen target)
         cmake_policy(SET CMP0171 NEW)
     endif()
 
+    if(_gentest_mock_registration_manifest)
+        set(_gentest_mock_inspect_command ${_command_launcher}
+            inspect-mocks
+            --mock-manifest-output ${_gentest_mock_registration_manifest}
+            --depfile ${_gentest_mock_registration_manifest_depfile}
+            --compdb ${CMAKE_BINARY_DIR}
+            --source-root ${CMAKE_SOURCE_DIR})
+        if(GENTEST_QUIET_CLANG)
+            list(APPEND _gentest_mock_inspect_command --quiet-clang)
+        endif()
+        _gentest_append_codegen_module_context_args(_gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}")
+        list(APPEND _gentest_mock_inspect_command ${_gentest_tus})
+        list(APPEND _gentest_mock_inspect_command --)
+        list(APPEND _gentest_mock_inspect_command ${_gentest_source_inspection_clang_args})
+        list(APPEND _gentest_mock_inspect_command ${_gentest_source_inspection_system_include_args})
+
+        set(_gentest_mock_inspect_command_args
+            OUTPUT ${_gentest_mock_registration_manifest}
+            COMMAND ${_gentest_mock_inspect_command}
+            COMMAND_EXPAND_LISTS
+            DEPENDS
+                ${_gentest_codegen_deps}
+                ${_gentest_codegen_tool_depends}
+                ${_gentest_tus}
+                ${GENTEST_DEPENDS}
+                "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>"
+            COMMENT "Inspecting gentest mocks for target ${target}"
+            VERBATIM)
+        if(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+            list(APPEND _gentest_mock_inspect_command_args DEPFILE ${_gentest_mock_registration_manifest_depfile})
+        endif()
+        if(POLICY CMP0171)
+            list(APPEND _gentest_mock_inspect_command_args CODEGEN)
+        endif()
+        add_custom_command(${_gentest_mock_inspect_command_args})
+        unset(_gentest_mock_inspect_command_args)
+    endif()
+
     if(_gentest_mode STREQUAL "manifest")
         set(_gentest_codegen_outputs
             ${_gentest_manifest_output}
@@ -2362,6 +2511,11 @@ function(gentest_attach_codegen target)
             ${_gentest_mock_impl}
             ${_gentest_mock_registry_domain_outputs}
             ${_gentest_mock_impl_domain_outputs})
+    elseif(_gentest_mode STREQUAL "module_registration")
+        set(_gentest_codegen_outputs
+            ${_gentest_wrapper_headers}
+            ${_gentest_wrapper_cpp}
+            ${_gentest_artifact_manifest})
     else()
         set(_gentest_codegen_outputs
             ${_gentest_wrapper_headers}
@@ -2370,8 +2524,16 @@ function(gentest_attach_codegen target)
             ${_gentest_mock_impl}
             ${_gentest_mock_registry_domain_outputs}
             ${_gentest_mock_impl_domain_outputs})
+        if(_gentest_tu_manifest_enabled)
+            list(APPEND _gentest_codegen_outputs ${_gentest_artifact_manifest})
+        endif()
     endif()
-    set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_OUTPUTS "${_gentest_codegen_outputs}")
+    set(_gentest_all_codegen_outputs ${_gentest_codegen_outputs})
+    if(_gentest_mock_registration_manifest)
+        list(APPEND _gentest_all_codegen_outputs ${_gentest_mock_registration_manifest})
+    endif()
+    set(_gentest_codegen_target_depends ${_gentest_all_codegen_outputs})
+    set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_OUTPUTS "${_gentest_all_codegen_outputs}")
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTRA_DEPENDS "")
     set(_gentest_custom_command_args
         OUTPUT ${_gentest_codegen_outputs}
@@ -2379,7 +2541,9 @@ function(gentest_attach_codegen target)
         COMMAND_EXPAND_LISTS
         DEPENDS
             ${_gentest_codegen_deps}
+            ${_gentest_codegen_tool_depends}
             ${_gentest_tus}
+            ${_gentest_mock_registration_manifest}
             ${GENTEST_DEPENDS}
             "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTRA_DEPENDS>>"
         COMMENT "Running gentest_codegen for target ${target}"
@@ -2393,10 +2557,84 @@ function(gentest_attach_codegen target)
     add_custom_command(${_gentest_custom_command_args})
     unset(_gentest_custom_command_args)
 
+    if(_gentest_mode STREQUAL "module_registration")
+        set(_gentest_manifest_validation_stamp "${_gentest_output_dir}/${_gentest_target_id}.artifact_manifest.validated")
+        set(_gentest_manifest_source_kinds "")
+        foreach(_gentest_unused IN LISTS _gentest_tus)
+            list(APPEND _gentest_manifest_source_kinds "module-primary-interface")
+        endforeach()
+        _gentest_make_artifact_manifest_validation_args(
+            MANIFEST "${_gentest_artifact_manifest}"
+            STAMP "${_gentest_manifest_validation_stamp}"
+            INCLUDE_DIR "${_gentest_output_dir}"
+            DEPFILE "${_gentest_depfile}"
+            TARGET_ATTACHMENT "private-generated-source"
+            ARTIFACT_ROLE "registration"
+            COMPILE_AS "cxx-module-implementation"
+            REQUIRES_MODULE_SCAN "ON"
+            COMPDB "${CMAKE_BINARY_DIR}"
+            SOURCES ${_gentest_tus}
+            SOURCE_KINDS ${_gentest_manifest_source_kinds}
+            REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
+            HEADERS ${_gentest_wrapper_headers}
+            COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
+            SOURCE_REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
+            SCAN_CONTEXT_ARGS ${_gentest_manifest_validation_scan_context_args}
+            OUT_ARGS _gentest_manifest_validation_args)
+        _gentest_add_artifact_manifest_validation_command(
+            STAMP "${_gentest_manifest_validation_stamp}"
+            COMMAND_LAUNCHER ${_command_launcher}
+            VALIDATION_ARGS ${_gentest_manifest_validation_args}
+            DEPENDS
+                ${_gentest_codegen_outputs}
+                ${_gentest_codegen_tool_depends}
+            COMMENT "Validating gentest_codegen artifact manifest for target ${target}")
+        list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")
+    elseif(_gentest_tu_manifest_enabled)
+        set(_gentest_manifest_validation_stamp "${_gentest_output_dir}/${_gentest_target_id}.artifact_manifest.validated")
+        set(_gentest_manifest_source_kinds "")
+        foreach(_gentest_unused IN LISTS _gentest_codegen_scan_inputs)
+            list(APPEND _gentest_manifest_source_kinds "textual-wrapper")
+        endforeach()
+        _gentest_make_artifact_manifest_validation_args(
+            MANIFEST "${_gentest_artifact_manifest}"
+            STAMP "${_gentest_manifest_validation_stamp}"
+            INCLUDE_DIR "${_gentest_output_dir}"
+            DEPFILE "${_gentest_depfile}"
+            TARGET_ATTACHMENT "replace-owner-source"
+            ARTIFACT_ROLE "registration"
+            COMPILE_AS "cxx-textual-wrapper"
+            REQUIRES_MODULE_SCAN "OFF"
+            INCLUDES_OWNER_SOURCE "ON"
+            REPLACES_OWNER_SOURCE "ON"
+            SOURCES ${_gentest_codegen_scan_inputs}
+            SOURCE_KINDS ${_gentest_manifest_source_kinds}
+            REGISTRATION_OUTPUTS ${_gentest_codegen_scan_inputs}
+            HEADERS ${_gentest_wrapper_headers}
+            COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
+            OWNER_SOURCES ${_gentest_artifact_owner_sources}
+            OUT_ARGS _gentest_manifest_validation_args)
+        _gentest_add_artifact_manifest_validation_command(
+            STAMP "${_gentest_manifest_validation_stamp}"
+            COMMAND_LAUNCHER ${_command_launcher}
+            VALIDATION_ARGS ${_gentest_manifest_validation_args}
+            DEPENDS
+                ${_gentest_codegen_outputs}
+                ${_gentest_codegen_tool_depends}
+            COMMENT "Validating gentest_codegen textual artifact manifest for target ${target}")
+        list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")
+    endif()
+
     cmake_policy(POP)
 
     if(_gentest_mode STREQUAL "manifest")
         _gentest_attach_manifest_codegen(TARGET ${target} OUTPUT ${_gentest_manifest_output})
+    elseif(_gentest_mode STREQUAL "module_registration")
+        _gentest_attach_module_registration_sources(
+            TARGET ${target}
+            TARGET_ID ${_gentest_target_id}
+            REGISTRATION_CPP ${_gentest_wrapper_cpp}
+            CODEGEN_OUTPUTS ${_gentest_codegen_target_depends})
     else()
         _gentest_attach_tu_wrapper_sources(
             TARGET ${target}
@@ -2406,10 +2644,12 @@ function(gentest_attach_codegen target)
             WRAPPER_CPP ${_gentest_wrapper_cpp}
             MODULE_NAMES ${_gentest_module_names}
             EXTRA_CPP ${_gentest_extra_cpp}
-            CODEGEN_OUTPUTS ${_gentest_codegen_outputs})
+            CODEGEN_OUTPUTS ${_gentest_codegen_target_depends})
     endif()
 
-    if(_gentest_attach_discovers_mocks AND _gentest_module_wrapper_outputs)
+    # MODULE_REGISTRATION consumes the split inspect-mocks manifest directly;
+    # only legacy TU wrapper-mode explicit mock targets publish module wrappers.
+    if(_gentest_mode STREQUAL "tu" AND _gentest_attach_discovers_mocks AND _gentest_module_wrapper_outputs)
         set(_gentest_explicit_mock_module_build_sources "")
         set(_gentest_explicit_mock_module_rel_sources "")
         list(LENGTH _gentest_wrapper_cpp _gentest_wrapper_count)
@@ -2437,19 +2677,21 @@ function(gentest_attach_codegen target)
         endif()
     endif()
 
-    get_filename_component(_gentest_mock_dir "${_gentest_mock_registry}" DIRECTORY)
-    include(GNUInstallDirs)
-    target_include_directories(${target}
-        PRIVATE
-            "$<BUILD_INTERFACE:${_gentest_mock_dir}>"
-            "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+    if(_gentest_mock_registry AND _gentest_mock_impl)
+        get_filename_component(_gentest_mock_dir "${_gentest_mock_registry}" DIRECTORY)
+        include(GNUInstallDirs)
+        target_include_directories(${target}
+            PRIVATE
+                "$<BUILD_INTERFACE:${_gentest_mock_dir}>"
+                "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 
-    get_filename_component(_gentest_mock_header_name "${_gentest_mock_registry}" NAME)
-    get_filename_component(_gentest_mock_impl_name "${_gentest_mock_impl}" NAME)
-    target_compile_definitions(${target} PRIVATE
-        GENTEST_MOCK_REGISTRY_PATH=${_gentest_mock_header_name}
-        GENTEST_MOCK_IMPL_PATH=${_gentest_mock_impl_name}
-    )
+        get_filename_component(_gentest_mock_header_name "${_gentest_mock_registry}" NAME)
+        get_filename_component(_gentest_mock_impl_name "${_gentest_mock_impl}" NAME)
+        target_compile_definitions(${target} PRIVATE
+            GENTEST_MOCK_REGISTRY_PATH=${_gentest_mock_header_name}
+            GENTEST_MOCK_IMPL_PATH=${_gentest_mock_impl_name}
+        )
+    endif()
     if(GENTEST_USE_BOOST_JSON)
         target_compile_definitions(${target} PRIVATE GENTEST_USE_BOOST_JSON)
     endif()
@@ -2649,6 +2891,16 @@ function(gentest_add_mocks target)
         _gentest_materialized_module_defs
         _gentest_module_public_files
         ${_gentest_module_defs})
+    if(_gentest_materialized_module_defs)
+        list(LENGTH _gentest_materialized_module_defs _gentest_materialized_module_count)
+        math(EXPR _gentest_last_materialized_module "${_gentest_materialized_module_count} - 1")
+        foreach(_gentest_module_idx RANGE 0 ${_gentest_last_materialized_module})
+            list(GET _gentest_materialized_module_defs ${_gentest_module_idx} _gentest_materialized_module_def)
+            list(GET _gentest_module_def_names ${_gentest_module_idx} _gentest_materialized_module_name)
+            set_source_files_properties("${_gentest_materialized_module_def}" PROPERTIES
+                GENTEST_MODULE_NAME "${_gentest_materialized_module_name}")
+        endforeach()
+    endif()
 
     set(_gentest_codegen_sources "${_gentest_materialized_module_defs}")
 

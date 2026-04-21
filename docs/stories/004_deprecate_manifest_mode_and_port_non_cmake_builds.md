@@ -426,7 +426,7 @@ Keep manifest mode working for now, but make “per‑TU by default” the docum
   - Clearly label manifest mode as “legacy / fallback”.
   - Explain when it’s still appropriate (multi‑config generators, bootstrapping, very constrained build graphs).
 - Tooling:
-  - Add a clear warning when `--output` is used (and/or when CMake `gentest_attach_codegen(... OUTPUT ...)` is used),
+  - Implemented: warn when `--output` is used and when CMake `gentest_attach_codegen(... OUTPUT ...)` is used,
     pointing to per‑TU mode.
   - Provide a suppress flag/env var if needed for CI logs once the migration is underway.
 

@@ -43,7 +43,8 @@ Features currently include:
 - Unified APIs for other test kinds (for example, benchmark, jitter, and coroutine cases)
 
 >[!NOTE]
-> Start at [`docs/index.md`](docs/index.md) for the rest of the docs.
+> Start at [`docs/index.md`](docs/index.md) for the rest of the docs. See
+> [`CHANGELOG.md`](CHANGELOG.md) for user-facing changes.
 
 ## Requirements
 
@@ -66,6 +67,9 @@ Contributor workflows, including lint, static analysis, coverage, and local CI-a
 
 ## Use in your project (CMake)
 
+Complete copy-paste projects live in [`examples/hello`](examples/hello) and
+[`examples/hello_modules`](examples/hello_modules).
+
 ```cmake
 # Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
@@ -82,6 +86,30 @@ gentest_discover_tests(my_tests)
 
 # Alternative: run everything in a single process.
 # add_test(NAME my_tests COMMAND my_tests)
+```
+
+`cases.cpp`:
+
+```cpp
+#include "gentest/attributes.h"
+#include "gentest/runner.h"
+
+using namespace gentest::asserts;
+
+[[using gentest: test("demo/addition")]]
+void addition() {
+    const auto value = 2 + 2;
+    gentest::expect_true(value == 4);
+    EXPECT_EQ(value, 4);
+}
+```
+
+Configure and run the consumer project after installing gentest:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 Docs: [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
@@ -522,11 +550,12 @@ gentest_add_mocks(service_mocks
   OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
   MODULE_NAME mytests.service_mocks)
 
-add_executable(module_tests
-  main.cpp
-  cases.cppm)
+add_executable(module_tests main.cpp)
+target_sources(module_tests PRIVATE
+  FILE_SET module_cases TYPE CXX_MODULES FILES
+    cases.cppm)
 target_link_libraries(module_tests PRIVATE gentest::gentest gentest::gentest_runtime service_mocks)
-gentest_attach_codegen(module_tests)
+gentest_attach_codegen(module_tests MODULE_REGISTRATION FILE_SET module_cases)
 gentest_discover_tests(module_tests)
 ```
 

@@ -7,6 +7,7 @@ endif()
 if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
   message(FATAL_ERROR "CheckXmakeXrepoConsumer.cmake: PROG not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
 function(_gentest_run_or_fail)
   set(options "")
@@ -225,6 +226,11 @@ foreach(_target IN ITEMS
     ENV ${_xmake_env}
     COMMAND "${_xmake}" ${_xmake_build_args} ${_target})
   string(APPEND _build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}\n")
+  if(_target STREQUAL "gentest_xrepo_module_mocks")
+    set(_module_mocks_build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}")
+  elseif(_target STREQUAL "gentest_xrepo_module")
+    set(_module_suite_build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}")
+  endif()
 endforeach()
 
 set(_generated_glob_root "${_out_dir}/gen/*/*/*")
@@ -257,6 +263,18 @@ if(_clang_scan_deps)
       "log:\n${_build_log}")
   endif()
 endif()
+string(FIND "${_module_mocks_build_log}" "--compdb" _module_mocks_compdb_flag_pos)
+if(_module_mocks_compdb_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Xmake xrepo module mock codegen did not forward --compdb.\n"
+    "log:\n${_module_mocks_build_log}")
+endif()
+string(FIND "${_module_suite_build_log}" "--compdb" _module_suite_compdb_flag_pos)
+if(_module_suite_compdb_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Xmake xrepo module suite codegen did not forward --compdb.\n"
+    "log:\n${_module_suite_build_log}")
+endif()
 
 foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/${_textual_mock_leaf}/gentest_xrepo_mocks.hpp"
@@ -267,7 +285,8 @@ foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/${_module_mock_leaf}/downstream/xrepo/consumer_mocks.cppm"
     "${_generated_glob_root}/${_module_mock_leaf}/tu_0000_service_module.module.gentest.cppm"
     "${_generated_glob_root}/${_module_mock_leaf}/tu_0001_module_mock_defs.module.gentest.cppm"
-    "${_generated_glob_root}/${_module_leaf}/tu_0000_cases.module.gentest.cppm"
+    "${_generated_glob_root}/${_module_leaf}/tu_0000_cases.registration.gentest.cpp"
+    "${_generated_glob_root}/${_module_leaf}/gentest_xrepo_module.artifact_manifest.json"
     "${_generated_glob_root}/${_module_leaf}/tu_0000_cases.gentest.h")
   file(GLOB _expected_matches LIST_DIRECTORIES FALSE "${_expected_glob}")
   list(LENGTH _expected_matches _expected_match_count)
@@ -278,6 +297,23 @@ foreach(_expected_glob IN ITEMS
       "log:\n${_build_log}")
   endif()
 endforeach()
+
+file(GLOB _module_manifest_matches
+  LIST_DIRECTORIES FALSE
+  "${_generated_glob_root}/${_module_leaf}/gentest_xrepo_module.artifact_manifest.json")
+list(LENGTH _module_manifest_matches _module_manifest_count)
+if(NOT _module_manifest_count EQUAL 1)
+  message(FATAL_ERROR
+    "Expected exactly one Xmake xrepo module artifact manifest, found ${_module_manifest_count}.\n"
+    "Matches:\n${_module_manifest_matches}")
+endif()
+list(GET _module_manifest_matches 0 _module_manifest)
+gentest_expect_module_artifact_manifest(
+  "${_module_manifest}"
+  "downstream.xrepo.consumer_cases"
+  "gentest_xrepo_module:"
+  "cases.cppm"
+  "${_module_leaf}/tu_0000_cases.registration.gentest.cpp")
 
 function(_gentest_find_single_binary out_var glob_a glob_b label)
   file(GLOB_RECURSE _binary_matches LIST_DIRECTORIES FALSE "${glob_a}" "${glob_b}")

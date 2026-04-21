@@ -40,6 +40,8 @@ gentest_wrapper_template = gentest_sp.get_variable('gentest_wrapper_template')
 gentest_textual_mock_template = gentest_sp.get_variable('gentest_textual_mock_template')
 gentest_anchor_template = gentest_sp.get_variable('gentest_anchor_template')
 gentest_textual_public_header_template = gentest_sp.get_variable('gentest_textual_public_header_template')
+gentest_fmt_pkgconfig_include_dirs = gentest_sp.get_variable('fmt_pkgconfig_include_dirs')
+gentest_fmt_fallback_include_dir = gentest_sp.get_variable('fmt_fallback_include_dir')
 
 fixture_inc = include_directories('tests')
 project_includes = [fixture_inc]
@@ -55,6 +57,12 @@ clang_args = [
   '-I@0@'.format(gentest_public_include_path),
   '-I@0@'.format(gentest_third_party_include_path),
 ]
+foreach fmt_include_dir : gentest_fmt_pkgconfig_include_dirs
+  clang_args += ['-I@0@'.format(fmt_include_dir)]
+endforeach
+if gentest_fmt_fallback_include_dir != ''
+  clang_args += ['-I@0@'.format(gentest_fmt_fallback_include_dir)]
+endif
 
 support_inputs_cmd = run_command(
   py,
@@ -88,6 +96,7 @@ consumer_mock_out_dir = meson.current_build_dir()
 consumer_mock_defs_cpp = 'downstream_textual_mocks_defs.cpp'
 consumer_mock_anchor_cpp = 'downstream_textual_mocks_anchor.cpp'
 consumer_mock_codegen_h = 'tu_0000_downstream_textual_mocks_defs.gentest.h'
+consumer_mock_depfile = '@0@.d'.format(consumer_mock_codegen_h)
 consumer_mock_registry_h = 'downstream_textual_mocks_mock_registry.hpp'
 consumer_mock_impl_h = 'downstream_textual_mocks_mock_impl.hpp'
 consumer_mock_domain_registry_h = 'downstream_textual_mocks_mock_registry__domain_0000_header.hpp'
@@ -139,11 +148,13 @@ consumer_mocks = custom_target(
     '--mock-domain-registry-output', join_paths(consumer_mock_out_dir, consumer_mock_domain_registry_h),
     '--mock-domain-impl-output', join_paths(consumer_mock_out_dir, consumer_mock_domain_impl_h),
     '--discover-mocks',
+    '--depfile', join_paths(consumer_mock_out_dir, consumer_mock_depfile),
     gentest_codegen_tool_args,
     '@INPUT0@',
     '--',
     clang_args,
   ],
+  depfile: consumer_mock_depfile,
   build_by_default: true
 )
 
@@ -157,8 +168,11 @@ consumer_mock_lib = static_library(
 
 consumer_wrapper_cpp = 'tu_0000_downstream_textual_cases.gentest.cpp'
 consumer_wrapper_h = 'tu_0000_downstream_textual_cases.gentest.h'
+consumer_wrapper_depfile = '@0@.d'.format(consumer_wrapper_h)
+consumer_wrapper_manifest = 'gentest_downstream_textual.artifact_manifest.json'
+consumer_owner_source = join_paths(meson.project_source_root(), 'tests', 'cases.cpp')
 consumer_wrapper_cfg = configuration_data()
-consumer_wrapper_cfg.set('SOURCE_FILE', join_paths(meson.project_source_root(), 'tests', 'cases.cpp'))
+consumer_wrapper_cfg.set('SOURCE_FILE', consumer_owner_source)
 consumer_wrapper_cfg.set('HEADER_FILE', consumer_wrapper_h)
 consumer_wrapper_src = configure_file(
   input: gentest_wrapper_template,
@@ -167,19 +181,24 @@ consumer_wrapper_src = configure_file(
 )
 consumer_codegen = custom_target(
   'gen_downstream_textual_cases',
-  output: [consumer_wrapper_h],
+  output: [consumer_wrapper_h, consumer_wrapper_manifest],
   input: [consumer_wrapper_src, consumer_mocks] + support_inputs,
   command: [
     gentest_codegen,
     '--source-root', meson.project_source_root(),
     '--tu-out-dir', meson.current_build_dir(),
     '--tu-header-output', join_paths(meson.current_build_dir(), consumer_wrapper_h),
+    '--depfile', join_paths(meson.current_build_dir(), consumer_wrapper_depfile),
+    '--artifact-manifest', join_paths(meson.current_build_dir(), consumer_wrapper_manifest),
+    '--artifact-owner-source', consumer_owner_source,
+    '--compile-context-id', 'gentest_downstream_textual:@0@'.format(consumer_owner_source),
     gentest_codegen_tool_args,
     '@INPUT0@',
     '--',
     '-I@0@'.format(meson.current_build_dir()),
     clang_args,
   ],
+  depfile: consumer_wrapper_depfile,
   build_by_default: true
 )
 

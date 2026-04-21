@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--anchor-output", help="Generated anchor source for textual mock mode")
     parser.add_argument("--target-id", help="Stable identifier used for textual mock generated anchors")
     parser.add_argument("--metadata-output", help="Optional metadata JSON emitted by mocks mode")
+    parser.add_argument("--artifact-manifest", help="Optional artifact manifest JSON emitted by suite mode")
     parser.add_argument(
         "--mock-metadata",
         action="append",
@@ -682,6 +683,9 @@ def build_codegen_command(
     mock_impl: str,
     discover_mocks: bool,
     external_module_sources: list[str],
+    artifact_manifest: str = "",
+    artifact_owner_sources: list[pathlib.Path] | None = None,
+    compile_context_ids: list[str] | None = None,
 ) -> list[str]:
     command = [
         str(codegen_path),
@@ -694,6 +698,12 @@ def build_codegen_command(
         command.extend(["--tu-header-output", str(header_output)])
     if depfile:
         command.extend(["--depfile", str(pathlib.Path(depfile).resolve())])
+    if artifact_manifest:
+        command.extend(["--artifact-manifest", str(pathlib.Path(artifact_manifest).resolve())])
+        for owner_source in artifact_owner_sources or []:
+            command.extend(["--artifact-owner-source", str(owner_source.resolve())])
+    for compile_context_id in compile_context_ids or []:
+        command.extend(["--compile-context-id", compile_context_id])
     if compdb_dir:
         command.extend(["--compdb", str(compdb_dir)])
     if mock_registry:
@@ -805,11 +815,18 @@ def main() -> int:
             mock_impl=args.mock_impl,
             discover_mocks=False,
             external_module_sources=normalize_external_module_sources(args.external_module_source + metadata_module_sources, source_root),
+            artifact_manifest=args.artifact_manifest if args.kind == "textual" else "",
+            artifact_owner_sources=[source_file] if args.kind == "textual" and args.artifact_manifest else [],
+            compile_context_ids=[
+                f"{args.target_id or wrapper_output.stem}:{source_file}"
+            ] if args.kind == "textual" and args.artifact_manifest else [],
         )
         subprocess.run(command, check=True, env=build_codegen_env(kind=args.kind, compdb_dir=compdb_dir))
         sanitize_depfile(
             args.depfile,
-            [wrapper_output, header_output] if args.kind == "textual" else [staged_source, expected_wrapper, header_output],
+            [path for path in [wrapper_output, header_output, pathlib.Path(args.artifact_manifest).resolve() if args.artifact_manifest else None]
+             if path is not None]
+            if args.kind == "textual" else [staged_source, expected_wrapper, header_output],
         )
         if args.kind == "modules":
             expected_wrapper = module_wrapper_output_path(out_dir, staged_source, 0)

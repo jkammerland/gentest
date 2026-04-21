@@ -25,6 +25,7 @@ void sum_is_computed() {
     EXPECT_EQ(values.back(), 4, "last element");
     const auto average = static_cast<double>(result) / values.size();
     EXPECT_EQ(result, 10);
+    gentest::expect_true(result == 10, "expect_true aliases expect");
     EXPECT_EQ(average, 2.5, "arithmetic mean");
 }
 

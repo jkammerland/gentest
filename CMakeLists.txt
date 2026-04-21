@@ -68,9 +68,20 @@ set(GENTEST_PUBLIC_MODULES_DISABLED_REASON "${_gentest_public_modules_reason}" C
 message(STATUS "gentest: public named modules ${_gentest_public_modules_status}")
 
 if(CMAKE_CROSSCOMPILING)
-    option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" OFF)
+    set(_gentest_build_codegen_default OFF)
 else()
-    option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" "${${PROJECT_NAME}_BUILD_TESTING}")
+    set(_gentest_build_codegen_default "${${PROJECT_NAME}_BUILD_TESTING}")
+    if(${PROJECT_NAME}_INSTALL)
+        set(_gentest_build_codegen_default ON)
+    endif()
+endif()
+option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" "${_gentest_build_codegen_default}")
+unset(_gentest_build_codegen_default)
+
+if(${PROJECT_NAME}_INSTALL AND NOT CMAKE_CROSSCOMPILING AND NOT GENTEST_BUILD_CODEGEN)
+    message(FATAL_ERROR
+        "${PROJECT_NAME}_INSTALL=ON requires GENTEST_BUILD_CODEGEN=ON so the installed CMake package includes "
+        "the gentest_codegen host tool used by GentestCodegen.cmake.")
 endif()
 
 if(GENTEST_BUILD_CODEGEN)
@@ -102,13 +113,6 @@ if(${PROJECT_NAME}_INSTALL)
 
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/xmake/"
         DESTINATION "share/gentest/xmake")
-    install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/scan_inspector/"
-        DESTINATION "share/cmake/gentest/scan_inspector")
-    install(FILES
-        "${PROJECT_SOURCE_DIR}/tools/src/source_inspection.hpp"
-        "${PROJECT_SOURCE_DIR}/tools/src/scan_utils.hpp"
-        DESTINATION "share/cmake/gentest/scan_inspector/include")
-
     set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
     set(CPACK_PACKAGE_VENDOR "${PROJECT_NAME}")
     set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")

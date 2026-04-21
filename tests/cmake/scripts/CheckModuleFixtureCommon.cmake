@@ -315,6 +315,55 @@ function(gentest_compiler_version_output out_var compiler_path)
   set(${out_var} "${_out}\n${_err}" PARENT_SCOPE)
 endfunction()
 
+function(gentest_probe_cxx_compiler_macros out_is_gnu out_is_clang out_gnu_major compiler_path)
+  set(${out_is_gnu} FALSE PARENT_SCOPE)
+  set(${out_is_clang} FALSE PARENT_SCOPE)
+  set(${out_gnu_major} "" PARENT_SCOPE)
+  if("${compiler_path}" STREQUAL "" OR NOT EXISTS "${compiler_path}")
+    return()
+  endif()
+
+  get_filename_component(_compiler_name_we "${compiler_path}" NAME_WE)
+  string(TOLOWER "${_compiler_name_we}" _compiler_name_lower)
+  if(_compiler_name_lower STREQUAL "cl")
+    return()
+  endif()
+  if(_compiler_name_lower STREQUAL "clang-cl")
+    set(${out_is_clang} TRUE PARENT_SCOPE)
+    return()
+  endif()
+
+  set(_probe_root "${CMAKE_CURRENT_BINARY_DIR}")
+  if(DEFINED BUILD_ROOT AND NOT "${BUILD_ROOT}" STREQUAL "")
+    set(_probe_root "${BUILD_ROOT}")
+  endif()
+  string(MD5 _probe_hash "${compiler_path}")
+  set(_probe_dir "${_probe_root}/gentest_compiler_probe_${_probe_hash}")
+  file(MAKE_DIRECTORY "${_probe_dir}")
+  set(_probe_source "${_probe_dir}/probe.cpp")
+  file(WRITE "${_probe_source}" "\n")
+
+  execute_process(
+    COMMAND "${compiler_path}" -dM -E -x c++ "${_probe_source}"
+    RESULT_VARIABLE _probe_rc
+    OUTPUT_VARIABLE _macros
+    ERROR_VARIABLE _probe_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _probe_rc EQUAL 0)
+    return()
+  endif()
+
+  if(_macros MATCHES "(^|[\r\n])#define __clang__")
+    set(${out_is_clang} TRUE PARENT_SCOPE)
+    return()
+  endif()
+  if(_macros MATCHES "(^|[\r\n])#define __GNUC__[ \t]+([0-9]+)")
+    set(${out_is_gnu} TRUE PARENT_SCOPE)
+    set(${out_gnu_major} "${CMAKE_MATCH_2}" PARENT_SCOPE)
+  endif()
+endfunction()
+
 function(_gentest_is_known_compiler_launcher_name out_var tool_name)
   string(TOLOWER "${tool_name}" _tool_name_lower)
   if(_tool_name_lower STREQUAL "ccache"
@@ -372,6 +421,53 @@ function(gentest_is_supported_module_fixture_clang out_var compiler_path)
   endif()
 
   set(${out_var} TRUE PARENT_SCOPE)
+endfunction()
+
+function(gentest_module_cpp_source_textual_wrapper_skip_reason out_reason compiler_path)
+  set(_reason "")
+
+  if("${compiler_path}" STREQUAL "" OR NOT EXISTS "${compiler_path}")
+    set(_reason "module .cpp source regression: no usable C++ compiler was provided")
+  else()
+    gentest_is_clang_like(_is_clang_like "${compiler_path}")
+    gentest_compiler_version_output(_version_output "${compiler_path}")
+    gentest_probe_cxx_compiler_macros(_is_real_gnu _is_macro_clang _gnu_major "${compiler_path}")
+
+    if(_is_macro_clang)
+      set(_is_clang_like TRUE)
+    endif()
+
+    if(CMAKE_HOST_WIN32)
+      set(_reason
+        "module .cpp source regression: textual wrapper after public module import is not stable on Windows toolchains")
+    elseif(_is_clang_like)
+      if(_version_output MATCHES "(^|[\r\n])Apple clang version ")
+        set(_reason "module .cpp source regression: Apple Clang module support is not covered by this fixture")
+      elseif(_version_output MATCHES "clang version ([0-9]+)")
+        set(_clang_major "${CMAKE_MATCH_1}")
+        if(_clang_major VERSION_LESS 21)
+          set(_reason
+            "module .cpp source regression: textual wrapper after public module import requires Clang 21+; '${compiler_path}' reports Clang ${_clang_major}")
+        endif()
+      else()
+        set(_reason
+          "module .cpp source regression: unable to confirm Clang 21+ support for '${compiler_path}'")
+      endif()
+    elseif(_is_real_gnu)
+      if(_gnu_major VERSION_LESS 16)
+        set(_reason
+          "module .cpp source regression: textual wrapper after public module import is not stable on GNU C++ before GCC 16; '${compiler_path}' reports GCC ${_gnu_major}")
+      endif()
+    elseif(_version_output MATCHES "(^|[\r\n])(g\\+\\+|c\\+\\+)[^\\r\\n]*\\) ([0-9]+)")
+      set(_gcc_major "${CMAKE_MATCH_3}")
+      if(_gcc_major VERSION_LESS 16)
+        set(_reason
+          "module .cpp source regression: textual wrapper after public module import is not stable on GNU C++ before GCC 16; '${compiler_path}' reports GCC ${_gcc_major}")
+      endif()
+    endif()
+  endif()
+
+  set(${out_reason} "${_reason}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_append_candidate_dir_unique list_var dir_path)

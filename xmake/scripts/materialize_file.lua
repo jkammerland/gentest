@@ -38,5 +38,13 @@ function main(...)
         return
     end
 
+    if mode == "literal" then
+        local output_file = argv[2]
+        local text = tostring(argv[3] or "")
+        os.mkdir(path.directory(output_file))
+        io.writefile(output_file, text)
+        return
+    end
+
     die("unsupported materialize_file mode: " .. tostring(mode))
 end

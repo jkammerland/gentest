@@ -313,6 +313,7 @@ add_executable(gentest_codegen
     src/parse.cpp
     src/discovery.cpp
     src/mock_discovery.cpp
+    src/mock_manifest.cpp
     src/validate.cpp
     src/emit.cpp
     src/render_mocks.cpp
@@ -425,7 +426,7 @@ if(_gentest_use_libcxx)
 endif()
 
 set(_gentest_fmt_target fmt::fmt)
-if(_gentest_use_libcxx OR (WIN32 AND MSVC))
+if(_gentest_use_libcxx OR WIN32)
     set(_gentest_fmt_target fmt::fmt-header-only)
 endif()
 
@@ -505,9 +506,71 @@ endif()
 
 llvm_map_components_to_libnames(_gentest_llvm_support Support)
 
+function(_gentest_get_imported_config_artifacts target config out_location out_implib)
+    string(TOUPPER "${config}" _gentest_config_upper)
+    if(_gentest_config_upper STREQUAL "")
+        get_target_property(_gentest_location "${target}" IMPORTED_LOCATION)
+        get_target_property(_gentest_implib "${target}" IMPORTED_IMPLIB)
+    else()
+        get_target_property(_gentest_location "${target}" "IMPORTED_LOCATION_${_gentest_config_upper}")
+        get_target_property(_gentest_implib "${target}" "IMPORTED_IMPLIB_${_gentest_config_upper}")
+    endif()
+    if(NOT _gentest_location OR _gentest_location MATCHES "-NOTFOUND$")
+        set(_gentest_location "")
+    endif()
+    if(NOT _gentest_implib OR _gentest_implib MATCHES "-NOTFOUND$")
+        set(_gentest_implib "")
+    endif()
+    set(${out_location} "${_gentest_location}" PARENT_SCOPE)
+    set(${out_implib} "${_gentest_implib}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_ensure_imported_config_artifacts target config)
+    string(TOUPPER "${config}" _gentest_config_upper)
+    _gentest_get_imported_config_artifacts("${target}" "${_gentest_config_upper}"
+        _gentest_existing_location _gentest_existing_implib)
+    if(_gentest_existing_location OR _gentest_existing_implib)
+        return()
+    endif()
+
+    set(_gentest_fallback_configs RELEASE RELWITHDEBINFO MINSIZEREL NOCONFIG "")
+    foreach(_gentest_fallback_config IN LISTS _gentest_fallback_configs)
+        string(TOUPPER "${_gentest_fallback_config}" _gentest_fallback_upper)
+        if(_gentest_fallback_upper STREQUAL _gentest_config_upper)
+            continue()
+        endif()
+
+        _gentest_get_imported_config_artifacts("${target}" "${_gentest_fallback_upper}"
+            _gentest_fallback_location _gentest_fallback_implib)
+        if(NOT _gentest_fallback_location AND NOT _gentest_fallback_implib)
+            continue()
+        endif()
+
+        if(_gentest_fallback_location)
+            set_property(TARGET "${target}" PROPERTY
+                "IMPORTED_LOCATION_${_gentest_config_upper}" "${_gentest_fallback_location}")
+        endif()
+        if(_gentest_fallback_implib)
+            set_property(TARGET "${target}" PROPERTY
+                "IMPORTED_IMPLIB_${_gentest_config_upper}" "${_gentest_fallback_implib}")
+        endif()
+        get_target_property(_gentest_imported_configs "${target}" IMPORTED_CONFIGURATIONS)
+        if(NOT _gentest_imported_configs OR _gentest_imported_configs MATCHES "-NOTFOUND$")
+            set(_gentest_imported_configs "")
+        endif()
+        list(APPEND _gentest_imported_configs "${_gentest_config_upper}")
+        list(REMOVE_DUPLICATES _gentest_imported_configs)
+        set_property(TARGET "${target}" PROPERTY IMPORTED_CONFIGURATIONS "${_gentest_imported_configs}")
+        return()
+    endforeach()
+endfunction()
+
 # Prefer monolithic clang-cpp when available (more stable across LLVM versions),
 # otherwise fall back to per-component linking.
 if(TARGET clang-cpp)
+    _gentest_ensure_imported_config_artifacts(clang-cpp RELWITHDEBINFO)
+    _gentest_ensure_imported_config_artifacts(clang-cpp MINSIZEREL)
+
     # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
     # Link it when the imported target exists; otherwise fall back to LLVMSupport.
     # Link the monolithic clang-cpp; avoid mixing in static LLVM components.

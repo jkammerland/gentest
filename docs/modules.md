@@ -20,7 +20,17 @@ Supported module-authored test flows:
 - CMake >= 3.31
 - C++20 compiler with named-module support
 - LLVM/Clang available for `gentest_codegen`
+- `clang-scan-deps` discoverable by CMake for module dependency scanning
+- Ninja >= 1.11 for module dependency scanning
 - Configure the gentest package/provider build with `-DGENTEST_ENABLE_PUBLIC_MODULES=ON` when you want the installed public module surface.
+
+`GENTEST_ENABLE_PUBLIC_MODULES=AUTO` is useful for broad CI matrices because unsupported toolchains quietly disable the public
+module surface. For local module work, prefer `ON`: configure fails immediately with the detected reason if CMake cannot build
+the public module file set.
+
+On macOS, AppleClang does not provide the LLVM `clang-scan-deps` flow expected by this package. Use Homebrew LLVM for module
+builds, set `LLVM_DIR` and `Clang_DIR` to the Homebrew LLVM CMake package directories, and use Ninja >= 1.11. See
+[install/macos.md](install/macos.md) for full commands.
 
 For host-toolchain vs target-sysroot setup details, including cross-build
 examples, see [buildsystems/host_toolchain_sysroots.md](buildsystems/host_toolchain_sysroots.md).
@@ -37,22 +47,31 @@ enable_testing()
 
 find_package(gentest CONFIG REQUIRED)
 
-add_executable(my_tests
-  main.cpp
-  cases.cppm)
+add_executable(my_tests main.cpp)
+
+target_sources(my_tests PRIVATE
+  FILE_SET module_cases TYPE CXX_MODULES FILES
+    cases.cppm)
 
 target_link_libraries(my_tests PRIVATE
   gentest::gentest
   gentest::gentest_runtime)
 
-gentest_attach_codegen(my_tests)
+gentest_attach_codegen(my_tests
+  MODULE_REGISTRATION
+  FILE_SET module_cases
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen")
 gentest_discover_tests(my_tests)
 
-# For multi-config generators, 
-# use manifest mode with `gentest_attach_codegen(... OUTPUT ...)`.
+# MODULE_REGISTRATION mode requires a single-config generator such as Ninja.
 ```
 
 If you do not provide your own `main()`, link `gentest::gentest_main` instead of `gentest::gentest_runtime`.
+
+Plain `gentest_attach_codegen(my_tests)` remains the default CMake wrapper mode.
+For module-authored tests, prefer `MODULE_REGISTRATION`: it adds generated
+same-module implementation units without replacing the authored `.cppm` module
+interface in the target or compile database.
 
 ## Minimal layout
 
@@ -170,7 +189,23 @@ The important rule is simple:
 
 ## Assertions and exceptions
 
-Include-based consumers can use gtest-like macros. Module consumers should use the matching function templates from `gentest::asserts`.
+Include-based consumers can use gtest-like macros. Module consumers should use the matching function templates from
+`gentest::asserts`, or the lowercase top-level `gentest::expect_*` / `gentest::require_*` helpers.
+
+| Top-level `gentest::` | `gentest::asserts::` |
+|---|---|
+| `expect_true` / `expect` | `EXPECT_TRUE` |
+| `expect_false` | `EXPECT_FALSE` |
+| `expect_eq` | `EXPECT_EQ` |
+| `expect_ne` | `EXPECT_NE` |
+| `expect_lt` | `EXPECT_LT` |
+| `expect_le` | `EXPECT_LE` |
+| `expect_gt` | `EXPECT_GT` |
+| `expect_ge` | `EXPECT_GE` |
+| `require` | `ASSERT_TRUE` |
+| `require_false` | `ASSERT_FALSE` |
+| `require_eq` | `ASSERT_EQ` |
+| `require_ne` | `ASSERT_NE` |
 
 ```cpp
 import gentest;
@@ -183,7 +218,7 @@ void module_functions() {
 }
 ```
 
-For richer checks, use normal C++ plus `gentest::fail(...)` or `gentest::expect(...)`.
+For richer checks, use normal C++ plus `gentest::fail(...)`, `gentest::expect_true(...)`, or `gentest::expect(...)`.
 
 ## Module-local mocks
 

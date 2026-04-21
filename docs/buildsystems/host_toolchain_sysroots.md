@@ -105,9 +105,10 @@ Notes:
 - In native packaged CMake use, `gentest_attach_codegen()` can resolve an
   installed `gentest_codegen` automatically from the same prefix.
 - When you set `GENTEST_CODEGEN_EXECUTABLE` explicitly, point it at a current
-  `gentest_codegen` binary from the same feature generation. Configure-time
-  source inspection now uses that executable too, not just the build-time
-  custom command.
+  `gentest_codegen` binary from the same feature generation. Most
+  `gentest_attach_codegen()` module classification now comes from CMake
+  metadata, but explicit module mock definitions still use that executable for
+  configure-time module-surface checks.
 - In cross builds, the host code generator is not inferred; set
   `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` to an imported
   executable target that resolves to the host-built tool.
@@ -285,22 +286,25 @@ c_args = ['--sysroot=/opt/sdk/targets/aarch64-sysroot']
 cpp_args = ['--sysroot=/opt/sdk/targets/aarch64-sysroot']
 ```
 
-Setup:
+Downstream setup:
 
 ```bash
-meson setup build/meson \
+meson setup build/meson path/to/downstream \
   --native-file clang.ini \
-  -Dcodegen_path=/opt/sdk/host-tools/bin/gentest_codegen \
-  -Dcodegen_host_clang=/opt/sdk/host-llvm/bin/clang++ \
-  -Dcodegen_clang_scan_deps=/opt/sdk/host-llvm/bin/clang-scan-deps
+  -Dgentest_codegen_path=/opt/sdk/host-tools/bin/gentest_codegen \
+  -Dgentest_codegen_host_clang=/opt/sdk/host-llvm/bin/clang++ \
+  -Dgentest_codegen_clang_scan_deps=/opt/sdk/host-llvm/bin/clang-scan-deps
 meson compile -C build/meson
 meson test -C build/meson --print-errorlogs
 ```
 
 Notes:
 
-- `-Dcodegen_path=...` and `-Dcodegen_host_clang=...` are the explicit Meson
-  host-tool hooks.
+- `-Dgentest_codegen_path=...` and `-Dgentest_codegen_host_clang=...` are the
+  downstream fixture hooks that pass `codegen_path` and `codegen_host_clang`
+  into the gentest subproject.
+- If you configure the gentest Meson subproject directly, use the lower-level
+  `-Dcodegen_path=...` and `-Dcodegen_host_clang=...` option names.
 - Keep target `c` / `cpp` compiler selection in the Meson native file or
   cross file. Do not use it as a substitute for the codegen-host contract.
 - The checked-in downstream proof consumes `gentest` as a subproject with
@@ -313,7 +317,11 @@ systems, the clean direction is:
 
 - CMake:
   install the runtime, public modules, `GentestCodegen.cmake`, and
-  `gentest_codegen` in the same developer prefix.
+  `gentest_codegen` in the same developer prefix. Native
+  `gentest_INSTALL=ON` configurations default `GENTEST_BUILD_CODEGEN=ON` for
+  that reason; source-tree explicit module mock definitions still need either
+  an installed codegen tool or an explicit `GENTEST_CODEGEN_EXECUTABLE` because
+  build-tree executable targets are not runnable during CMake configure.
 - Bazel:
   publish a Bzlmod package / rule set that acquires a host `gentest_codegen`
   hermetically and takes toolchain inputs through Bazel configuration rather

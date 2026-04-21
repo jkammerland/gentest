@@ -9,6 +9,7 @@ add_subdirectory(tool_core)
 
 gentest_resolve_test_std(_gentest_test_std_feature _gentest_codegen_std_flag)
 unset(_gentest_test_std_feature)
+gentest_normalize_std_flag_for_compiler(_gentest_codegen_scan_std_flag "clang++" "${_gentest_codegen_std_flag}")
 
 set(_gentest_default_suites
     unit
@@ -189,6 +190,23 @@ _gentest_resolve_codegen_backend(
     OUT_CODEGEN_EXECUTABLE _gentest_codegen_prog)
 
 _gentest_collect_cross_codegen_clang_args(_gentest_codegen_cross_target_arg)
+set(_gentest_codegen_public_include_args
+    -I${PROJECT_SOURCE_DIR}/include
+    -I${CMAKE_CURRENT_SOURCE_DIR})
+gentest_append_public_dependency_include_args(_gentest_codegen_public_include_args "${CMAKE_BINARY_DIR}")
+_gentest_collect_common_codegen_system_include_args(_gentest_codegen_system_include_args)
+set(_gentest_codegen_direct_clang_args
+    ${_gentest_codegen_cross_target_arg}
+    ${_gentest_codegen_scan_std_flag}
+    ${_gentest_codegen_public_include_args}
+    ${_gentest_codegen_system_include_args})
+set(_gentest_codegen_direct_cxx_language_clang_args
+    ${_gentest_codegen_cross_target_arg}
+    -x
+    c++
+    ${_gentest_codegen_scan_std_flag}
+    ${_gentest_codegen_public_include_args}
+    ${_gentest_codegen_system_include_args})
 
 function(_gentest_add_proof_test name source)
     add_executable(${name} ${source})
@@ -254,10 +272,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/unit/cases.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_namespaced_attrs
@@ -268,10 +283,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_axis_generators
@@ -282,10 +294,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_axis_generators.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_parameters_pack
@@ -296,10 +305,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_parameters_pack.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_fixture_resolution
@@ -310,10 +316,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_fixture_resolution.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_template_fixture_resolution
@@ -324,10 +327,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_template_fixture_resolution.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_template_parser_edges
@@ -338,10 +338,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_template_parser_edges.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_type_quoting_edges
@@ -352,10 +349,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/codegen_type_quoting.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_warns_unknown_preprocessor_condition
@@ -366,10 +360,7 @@ gentest_add_cmake_script_test(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_unknown_condition_warn.cppm
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        -- ${_gentest_codegen_direct_clang_args}
     DEFINES
         "EXPECT_RC=0"
         "REQUIRED_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_unknown_condition_warn.cppm:6"
@@ -385,10 +376,7 @@ gentest_add_cmake_script_test(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_active_elif_unknown_warn.cppm
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        -- ${_gentest_codegen_direct_clang_args}
     DEFINES
         "EXPECT_RC=0"
         "REQUIRED_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_active_elif_unknown_warn.cppm:7"
@@ -404,10 +392,7 @@ gentest_add_cmake_script_test(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_supported_condition_nowarn.cppm
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        -- ${_gentest_codegen_direct_clang_args}
     DEFINES
         "EXPECT_RC=0"
         "FORBID_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan")
@@ -421,10 +406,7 @@ gentest_add_cmake_script_test(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_dead_elif_unknown_nowarn.cppm
-        -- ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        -- ${_gentest_codegen_direct_clang_args}
     DEFINES
         "EXPECT_RC=0"
         "FORBID_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan")
@@ -455,10 +437,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/mis_scoped_attrs.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_mis_scoped_attr_value_keyword
@@ -471,10 +450,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/mis_scoped_attrs.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_mis_scoped_attr_unqualified_test
@@ -487,10 +463,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/mis_scoped_attrs.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_emit_namespaced_attrs_mixed_std_first
@@ -504,10 +477,7 @@ gentest_add_cmake_script_test(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        ${_gentest_codegen_direct_clang_args}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_std_first.gentest.cpp"
         "REQUIRED_SUBSTRING=smoke/namespaced/mixed/std_first")
@@ -524,10 +494,7 @@ gentest_add_cmake_script_test(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        ${_gentest_codegen_direct_clang_args}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_scoped_first.gentest.cpp"
         "REQUIRED_SUBSTRING=smoke/namespaced/mixed/scoped_first")
@@ -544,10 +511,7 @@ gentest_add_cmake_script_test(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        ${_gentest_codegen_direct_clang_args}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_foreign_after.gentest.cpp"
         "REQUIRED_SUBSTRING=smoke/namespaced/mixed/gentest_first_foreign_after")
@@ -564,10 +528,7 @@ gentest_add_cmake_script_test(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        ${_gentest_codegen_direct_clang_args}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign.gentest.cpp"
         "REQUIRED_SUBSTRING=smoke/namespaced/mixed/gentest_first_unscoped_foreign")
@@ -584,10 +545,7 @@ gentest_add_cmake_script_test(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespace_suite_comment.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        ${_gentest_codegen_direct_clang_args}
     DEFINES
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment.gentest.cpp"
         "REQUIRED_SUBSTRING=suite_override/comment_backscan/trailing_comment_suite_attr_case")
@@ -603,10 +561,7 @@ gentest_add_cmake_script_test(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespace_suite_diag_dedup.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR}
+        ${_gentest_codegen_direct_clang_args}
     DEFINES
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRING=duplicate gentest namespace attribute 'suite'"
@@ -622,10 +577,7 @@ gentest_add_check_death(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_check_invalid_duplicate_template_attr
@@ -636,10 +588,7 @@ gentest_add_check_death(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_check_invalid_template_pack_bare
@@ -650,10 +599,7 @@ gentest_add_check_death(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_check_invalid_template_nonpack_row
@@ -664,10 +610,7 @@ gentest_add_check_death(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_template_parenthesized_nttp_ok
@@ -678,10 +621,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/template_parenthesized_nttp_ok.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_invalid_template_pack_empty_cells
@@ -692,10 +632,7 @@ gentest_add_check_exit_code(
         --check
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_template_pack_empty_cells.cpp
-        -- ${_gentest_codegen_cross_target_arg}
-           ${_gentest_codegen_std_flag}
-           -I${PROJECT_SOURCE_DIR}/include
-           -I${CMAKE_CURRENT_SOURCE_DIR})
+        -- ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_baseline_requires_bench
@@ -708,10 +645,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/baseline_requires_bench.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_unknown_parameters_name
@@ -724,10 +658,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_unknown_pack_name
@@ -740,10 +671,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_duplicate_axis
@@ -756,10 +684,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_overlap_pack
@@ -772,10 +697,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_range_inconsistent
@@ -788,10 +710,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_discovery.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_range_unsupported
@@ -804,10 +723,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_range_unsupported.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_linspace_unsupported
@@ -820,10 +736,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_linspace_unsupported.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_geom_unsupported
@@ -836,10 +749,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_geom_unsupported.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_invalid_axis_logspace_unsupported
@@ -852,10 +762,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_axis_logspace_unsupported.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 # Generator negative tests for mocks: robust diagnostics
 set(_gentest_codegen_discover_mocks_arg --discover-mocks)
@@ -872,10 +779,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/incomplete_virtual_ref.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_virtual_defined_in_cpp_msg
@@ -889,10 +793,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/virtual_defined_in_cpp.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_cpp_msg
@@ -906,10 +807,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_cpp.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_mock_header_main_tu_ok
@@ -922,12 +820,7 @@ gentest_add_check_exit_code(
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        -x
-        c++
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_cxx_language_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_cu_msg
@@ -941,12 +834,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_cu.cu
         --
-        ${_gentest_codegen_cross_target_arg}
-        -x
-        c++
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_cxx_language_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_included_cpp_msg
@@ -960,10 +848,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_cpp.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_nonvirtual_defined_in_included_cppm_msg
@@ -977,10 +862,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_cppm.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_mock_nonvirtual_defined_in_included_cu_msg
@@ -994,10 +876,7 @@ gentest_add_check_exit_code(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_cu.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_mock_nonvirtual_defined_in_included_noext_ok
@@ -1011,10 +890,7 @@ gentest_add_check_exit_code(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_noext.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_mock_nonvirtual_defined_in_included_mpp_ok
@@ -1028,10 +904,7 @@ gentest_add_check_exit_code(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/nonvirtual_defined_in_included_mpp.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_exit_code(
     NAME gentest_codegen_mock_emit_header_main_tu_ok
@@ -1054,12 +927,7 @@ gentest_add_check_exit_code(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/header_main_tu.hpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        -x
-        c++
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_cxx_language_clang_args})
 
 if(WIN32)
     gentest_add_cmake_script_test(
@@ -1071,7 +939,7 @@ if(WIN32)
             "BUILD_ROOT=${CMAKE_BINARY_DIR}"
             "PROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
             "TESTS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
-            "CODEGEN_STD=${_gentest_codegen_std_flag}"
+            "CODEGEN_STD=${_gentest_codegen_scan_std_flag}"
             "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
 endif()
 
@@ -1083,7 +951,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "BUILD_ROOT=${CMAKE_BINARY_DIR}"
         "PROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "CODEGEN_STD=${_gentest_codegen_std_flag}"
+        "CODEGEN_STD=${_gentest_codegen_scan_std_flag}"
         "CROSS_TARGET_ARG=${_gentest_codegen_cross_target_arg}")
 
 gentest_add_check_death(
@@ -1098,10 +966,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/anonymous_namespace_type.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_mock_local_class_msg
@@ -1115,10 +980,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/local_class.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 unset(_gentest_codegen_discover_mocks_arg)
 
 # Generator negative tests for fixtures: disallow member tests on suite/global under strict mode
@@ -1134,10 +996,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/suite_member_test.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_fixture_global_member_illegal
@@ -1151,10 +1010,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/global_member_test.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_fixture_namespace_scope
@@ -1167,10 +1023,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/namespace_scope.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_top_level_suite_fixture
@@ -1183,10 +1036,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/top_level_suite_fixture.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
     NAME gentest_codegen_fixture_attr_removed
@@ -1199,10 +1049,7 @@ gentest_add_check_death(
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/fixtures_attribute_removed.cpp
         --
-        ${_gentest_codegen_cross_target_arg}
-        ${_gentest_codegen_std_flag}
-        -I${PROJECT_SOURCE_DIR}/include
-        -I${CMAKE_CURRENT_SOURCE_DIR})
+        ${_gentest_codegen_direct_clang_args})
 
 # Label codegen/clang-tooling checks so valgrind workflows can exclude them by default.
 set_tests_properties(
@@ -2469,6 +2316,46 @@ gentest_add_cmake_script_test(
 set_property(TEST gentest_codegen_check_cmake_fixture_build_build_config APPEND PROPERTY LABELS "cmake;codegen")
 
 gentest_add_cmake_script_test(
+    NAME gentest_codegen_genex_compile_definitions
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/genex_compile_definitions_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/genex_compile_definitions"
+        "TARGET_NAME=genex_compile_definitions"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "BUILD_CONFIG=${_gentest_fixture_build_config}"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+set_property(TEST gentest_codegen_genex_compile_definitions APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_genex_compile_definitions_multiconfig
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake"
+    DEFINES
+        "PROG=${_gentest_codegen_prog}"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/genex_compile_definitions_multiconfig_check"
+        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/genex_compile_definitions"
+        "TARGET_NAME=genex_compile_definitions"
+        "GENERATOR=Ninja Multi-Config"
+        "BUILD_CONFIG=Release"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
+set_property(TEST gentest_codegen_genex_compile_definitions_multiconfig APPEND PROPERTY LABELS "cmake;codegen")
+
+gentest_add_cmake_script_test(
     NAME gentest_codegen_legacy_wrapper_impls_template_rejected
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
@@ -2488,7 +2375,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenManifestDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_manifest_depfile_aggregation APPEND PROPERTY LABELS "codegen")
 
@@ -2498,7 +2385,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenManifestDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DMODE=write_failure)
 set_property(TEST gentest_codegen_depfile_write_failure APPEND PROPERTY LABELS "codegen")
@@ -2509,7 +2396,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenManifestDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DMODE=escaped_paths)
 set_property(TEST gentest_codegen_manifest_depfile_escaped_paths APPEND PROPERTY LABELS "codegen")
@@ -2521,16 +2408,53 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_cli_validation_warnings APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_legacy_manifest_mode_warnings
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckLegacyManifestModeWarnings.cmake
+    cmake
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_legacy_manifest_mode_warnings APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_mock_manifest_split
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockManifestSplit.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_mock_manifest_split APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_module_mock_registration_manifest
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMockRegistrationManifest.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_module_mock_registration_manifest APPEND PROPERTY LABELS "codegen;modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_artifact_protocol_direct_invocation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckArtifactProtocolDirectInvocation.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_artifact_protocol_direct_invocation APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_response_file_expansion
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenResponseFileExpansion.cmake
     cmake
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_response_file_expansion APPEND PROPERTY LABELS "codegen")
 
@@ -2539,7 +2463,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenSyntheticFallback.cmake
     cmake
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
 set_property(TEST gentest_codegen_synthetic_compdb_fallback APPEND PROPERTY LABELS "codegen")
 
@@ -2550,7 +2474,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_axis_generators.cpp
     -DEXPECT_CASE_COUNT=45
@@ -2564,7 +2488,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_parameters_pack.cpp
     -DEXPECT_CASE_COUNT=6
@@ -2578,7 +2502,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_fixture_resolution.cpp
     -DEXPECT_CASE_COUNT=2
@@ -2592,7 +2516,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
     -DEXPECT_COMPILE=ON
@@ -2607,7 +2531,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_template_parser_edges.cpp
     -DEXPECT_CASE_COUNT=7
@@ -2621,7 +2545,7 @@ _gentest_add_cmake_helper_test(
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
-    -DCODEGEN_STD=${_gentest_codegen_std_flag}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_type_quoting.cpp
     -DEXPECT_CASE_COUNT=21
@@ -2763,6 +2687,30 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_auto_discovery APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_module_registration_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationManifest.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_manifest APPEND PROPERTY LABELS "modules;codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_registration_mock_split
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_mock_split
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationMockSplit.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_registration_mock_split APPEND PROPERTY LABELS "modules;codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_textual_wrapper_artifact_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/textual_wrapper_artifact_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTextualWrapperArtifactManifest.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_textual_wrapper_artifact_manifest APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMultilineDirectiveFailure.cmake
@@ -2785,6 +2733,15 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_module_cpp_source APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_module_cpp_source_in_tree_codegen
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_cpp_source
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleCppSource.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DNO_EXPLICIT_CODEGEN=ON)
+set_property(TEST gentest_module_cpp_source_in_tree_codegen APPEND PROPERTY LABELS "modules;codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_module_first_classic_order
@@ -3203,6 +3160,13 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleDocContract.cmake
     contract)
 set_property(TEST gentest_module_doc_contract APPEND PROPERTY LABELS "modules" "docs")
+
+_gentest_add_cmake_helper_test(
+    gentest_examples_doc_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExamplesContract.cmake
+    contract)
+set_property(TEST gentest_examples_doc_contract APPEND PROPERTY LABELS "docs" "examples" "modules")
 
 _gentest_add_cmake_helper_test(
     gentest_syntax_sensitive_regression_fixtures
