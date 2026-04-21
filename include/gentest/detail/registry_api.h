@@ -1,7 +1,6 @@
 #pragma once
 
-#include "gentest/detail/case_api.h"
-#include "gentest/detail/runtime_config.h"
+#include "gentest/detail/registration_runtime.h"
 
 #include <span>
 #include <vector>

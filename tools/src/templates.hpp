@@ -39,21 +39,23 @@
 namespace gentest::codegen::tpl {
 
 inline constexpr std::string_view registration_preamble_light = R"CPP(#include <array>
+#include <span>
 #include <string_view>
 
-#include "gentest/detail/generated_registration.h"
+#include "gentest/detail/registration_runtime.h"
 )CPP";
 ;
 
 inline constexpr std::string_view registration_preamble_full = R"CPP(#include <array>
 #include <fmt/format.h>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 
 #include "gentest/detail/fixture_runtime.h"
-#include "gentest/detail/generated_registration.h"
+#include "gentest/detail/registration_runtime.h"
 )CPP";
 ;
 
