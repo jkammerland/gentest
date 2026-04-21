@@ -77,13 +77,13 @@ TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const st
         if (test.tags.empty()) {
             out.tag_names.emplace_back("{}");
         } else {
-            out.tag_names.emplace_back("std::span{" + tag_name + "}");
+            out.tag_names.emplace_back("{" + tag_name + ", " + std::to_string(test.tags.size()) + "}");
             out.declarations += format_nonempty_sv_array(tag_name, test.tags, tpl_array_nonempty);
         }
         if (test.requirements.empty()) {
             out.req_names.emplace_back("{}");
         } else {
-            out.req_names.emplace_back("std::span{" + req_name + "}");
+            out.req_names.emplace_back("{" + req_name + ", " + std::to_string(test.requirements.size()) + "}");
             out.declarations += format_nonempty_sv_array(req_name, test.requirements, tpl_array_nonempty);
         }
     }
@@ -673,20 +673,35 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
     std::string out;
     out.reserve(cases.size() * 160);
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
-        const auto &test = cases[idx];
+        const auto &test  = cases[idx];
+        unsigned    flags = 0u;
+        if (test.is_benchmark)
+            flags |= 1u << 0u;
+        if (test.is_jitter)
+            flags |= 1u << 1u;
+        if (test.is_baseline)
+            flags |= 1u << 2u;
+        if (test.should_skip)
+            flags |= 1u << 3u;
+        const std::string skip_reason =
+            !test.skip_reason.empty() ? "\"" + escape_string(test.skip_reason) + "\"" : std::string("std::string_view{}");
+        const std::string skip_reason_init = !test.skip_reason.empty() ? skip_reason : std::string("{}");
+        const std::string fixture          = !test.fixture_qualified_name.empty() ? "\"" + escape_string(test.fixture_qualified_name) + "\""
+                                                                                  : std::string("std::string_view{}");
+        const std::string fixture_init     = !test.fixture_qualified_name.empty() ? fixture : std::string("{}");
+        const std::string suite =
+            !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}");
+        const std::string suite_init = !test.suite_name.empty() ? suite : std::string("{}");
         append_format_runtime(
             out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)),
             fmt::arg("wrapper", std::string("::kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
             fmt::arg("line", test.line), fmt::arg("is_bench", test.is_benchmark ? "true" : "false"),
             fmt::arg("is_jitter", test.is_jitter ? "true" : "false"), fmt::arg("is_baseline", test.is_baseline ? "true" : "false"),
-            fmt::arg("tags", tag_names[idx]), fmt::arg("reqs", req_names[idx]),
-            fmt::arg("skip_reason",
-                     !test.skip_reason.empty() ? "\"" + escape_string(test.skip_reason) + "\"" : std::string("std::string_view{}")),
-            fmt::arg("should_skip", test.should_skip ? "true" : "false"),
-            fmt::arg("fixture", !test.fixture_qualified_name.empty() ? "\"" + escape_string(test.fixture_qualified_name) + "\""
-                                                                     : std::string("std::string_view{}")),
-            fmt::arg("lifetime", fixture_lifetime_literal(test.fixture_lifetime)),
-            fmt::arg("suite", !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}")));
+            fmt::arg("flags", std::to_string(flags) + "u"), fmt::arg("tags", tag_names[idx]), fmt::arg("reqs", req_names[idx]),
+            fmt::arg("skip_reason", skip_reason), fmt::arg("skip_reason_init", skip_reason_init),
+            fmt::arg("should_skip", test.should_skip ? "true" : "false"), fmt::arg("fixture", fixture),
+            fmt::arg("fixture_init", fixture_init), fmt::arg("lifetime", fixture_lifetime_literal(test.fixture_lifetime)),
+            fmt::arg("suite", suite), fmt::arg("suite_init", suite_init));
     }
     return out;
 }

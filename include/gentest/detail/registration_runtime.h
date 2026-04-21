@@ -2,6 +2,7 @@
 
 #include "gentest/detail/runtime_config.h"
 
+#include <cstddef>
 #include <span>
 #include <string_view>
 
@@ -36,6 +37,29 @@ struct Case {
     std::string_view                  suite;
 };
 
+namespace detail {
+
+struct GeneratedStringRange {
+    const std::string_view *data = nullptr;
+    std::size_t             size = 0;
+};
+
+struct GeneratedCase {
+    std::string_view name;
+    void (*fn)(void *);
+    std::string_view     file;
+    unsigned             line;
+    unsigned             flags;
+    GeneratedStringRange tags;
+    GeneratedStringRange requirements;
+    std::string_view     skip_reason;
+    std::string_view     fixture;
+    FixtureLifetime      fixture_lifetime;
+    std::string_view     suite;
+};
+
+} // namespace detail
+
 } // namespace gentest
 
 namespace gentest::detail {
@@ -43,5 +67,6 @@ namespace gentest::detail {
 // Called by generated sources to register discovered cases. Not intended for
 // direct use in normal test code.
 GENTEST_RUNTIME_API void register_cases(std::span<const Case> cases);
+GENTEST_RUNTIME_API void register_generated_cases(const GeneratedCase *cases, std::size_t count);
 
 } // namespace gentest::detail

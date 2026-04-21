@@ -182,13 +182,13 @@ inline constexpr std::string_view test_impl = R"CPP(// This file is auto-generat
 {{GLOBAL_WRAPPER_IMPLS}}
 {{REGISTRATION_COMMON}}
 
-constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
+constexpr std::array<gentest::detail::GeneratedCase, {{CASE_COUNT}}> kCases = {
 {{CASE_INITS}}
 };
 
 struct GentestRegistrar {
     GentestRegistrar() {
-{{FIXTURE_REGISTRATIONS}}        gentest::detail::register_cases(std::span{kCases});
+{{FIXTURE_REGISTRATIONS}}        gentest::detail::register_generated_cases(kCases.data(), kCases.size());
     }
 };
 
@@ -221,7 +221,7 @@ inline constexpr std::string_view tu_registration_header = R"CPP(// This file is
 namespace gentest::generated::{{REGISTER_FN}} {
 {{REGISTRATION_COMMON}}
 
-constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
+constexpr std::array<gentest::detail::GeneratedCase, {{CASE_COUNT}}> kCases = {
 {{CASE_INITS}}
 };
 } // namespace
@@ -230,7 +230,7 @@ constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
 namespace gentest::generated::{{REGISTER_FN}} {
 struct {{REGISTER_FN}}_registrar {
     {{REGISTER_FN}}_registrar() {
-{{FIXTURE_REGISTRATIONS}}        gentest::detail::register_cases(std::span{kCases});
+{{FIXTURE_REGISTRATIONS}}        gentest::detail::register_generated_cases(kCases.data(), kCases.size());
     }
 };
 [[maybe_unused]] const {{REGISTER_FN}}_registrar {{REGISTER_FN}}_instance{};
@@ -365,22 +365,8 @@ inline constexpr std::string_view wrapper_stateful = R"FMT(static void {w}(void*
 
 )FMT";
 
-inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
-        .name = "{name}",
-        .fn = &{wrapper},
-        .file = "{file}",
-        .line = {line},
-        .is_benchmark = {is_bench},
-        .is_jitter = {is_jitter},
-        .is_baseline = {is_baseline},
-        .tags = {tags},
-        .requirements = {reqs},
-        .skip_reason = {skip_reason},
-        .should_skip = {should_skip},
-        .fixture = {fixture},
-        .fixture_lifetime = {lifetime},
-        .suite = {suite}
-    }},
+inline constexpr std::string_view case_entry =
+    R"FMT(    gentest::detail::GeneratedCase{{"{name}", &{wrapper}, "{file}", {line}, {flags}, {tags}, {reqs}, {skip_reason_init}, {fixture_init}, {lifetime}, {suite_init}}},
 
 )FMT";
 
@@ -392,7 +378,7 @@ inline constexpr std::string_view array_decl_empty = R"FMT(constexpr std::array<
 
 )FMT";
 
-inline constexpr std::string_view array_decl_nonempty = R"FMT(constexpr std::array<std::string_view, {count}> {name} = {{
+inline constexpr std::string_view array_decl_nonempty = R"FMT(constexpr std::string_view {name}[] = {{
 {body}
 }};
 
