@@ -82,11 +82,10 @@ int main() {
 
     {
         std::vector<TestCaseInfo> cases(2);
-        cases[0].display_name   = "suite/plain";
-        cases[0].filename       = "plain.cpp";
-        cases[0].line           = 17;
-        cases[0].qualified_name = "suite::plain";
-        cases[0].suite_name     = "suite";
+        cases[0].display_name = "suite/plain";
+        cases[0].filename     = "plain.cpp";
+        cases[0].line         = 17;
+        cases[0].suite_name   = "suite";
 
         cases[1].display_name           = "bench/case";
         cases[1].filename               = "bench.cpp";
@@ -102,16 +101,14 @@ int main() {
 
         const std::string rendered = render_case_entries(
             cases, {"kTags_0", "kTags_1"}, {"kReqs_0", "kReqs_1"},
-            "N={name}|W={wrapper}|FN={fn}|SIMPLE={simple_fn}|F={file}|L={line}|B={is_bench}|J={is_jitter}|BASE={is_baseline}|T={tags}|"
-            "R={reqs}|SK={skip_reason}"
+            "N={name}|W={wrapper}|F={file}|L={line}|B={is_bench}|J={is_jitter}|BASE={is_baseline}|T={tags}|R={reqs}|SK={skip_reason}"
             "|SS={should_skip}|FL={flags}|FX={fixture}|LT={lifetime}|SU={suite}\n");
-        t.contains(rendered,
-                   "N=suite/plain|W=::kCaseInvoke_0|FN=nullptr|SIMPLE=&::suite::plain|F=plain.cpp|L=17|B=false|J=false|BASE=false",
+        t.contains(rendered, "N=suite/plain|W=::kCaseInvoke_0|F=plain.cpp|L=17|B=false|J=false|BASE=false",
                    "render_case_entries renders plain case");
-        t.contains(rendered, "N=bench/case|W=::kCaseInvoke_1|FN=&::kCaseInvoke_1|SIMPLE=nullptr|F=bench.cpp|L=23|B=true|J=true|BASE=true",
-                   "render_case_entries renders wrapper-backed measured case");
         t.contains(rendered, "SK=std::string_view{}|SS=false|FL=0u|FX=std::string_view{}|LT=gentest::FixtureLifetime::None|SU=\"suite\"",
                    "render_case_entries renders empty skip and fixture fields");
+        t.contains(rendered, "N=bench/case|W=::kCaseInvoke_1|F=bench.cpp|L=23|B=true|J=true|BASE=true",
+                   "render_case_entries renders measured flags");
         t.contains(rendered,
                    R"(SK="why \"quoted\""|SS=true|FL=15u|FX="fixtures::Shared"|LT=gentest::FixtureLifetime::MemberSuite|SU="bench/suite")",
                    "render_case_entries escapes skip reason and fixture name");
@@ -225,8 +222,8 @@ int main() {
         cases.push_back(member_shared_with_fixtures);
 
         const std::string rendered = render_wrappers(cases, templates);
-        t.excludes(rendered, "FREE_TEST kCaseInvoke_0", "render_wrappers skips direct free test wrappers");
-        t.excludes(rendered, "plain_free", "render_wrappers leaves direct free test calls to generated metadata");
+        t.contains(rendered, "FREE_TEST kCaseInvoke_0\nstatic_cast<void>(::alpha::beta::plain_free());",
+                   "render_wrappers emits direct free test wrappers");
         t.contains(rendered, "[[maybe_unused]] const auto _ = ::__gentest_lookup_helper_1();",
                    "render_wrappers preserves return values for parameterized free cases");
         t.contains(rendered, "return math::sum(1, 2);", "render_wrappers forwards plain call arguments inside helpers");

@@ -35,7 +35,6 @@ struct Case {
     std::string_view                  fixture; // empty for free tests
     FixtureLifetime                   fixture_lifetime;
     std::string_view                  suite;
-    void (*simple_fn)() = nullptr; // optional direct call for generated void free tests
 };
 
 namespace detail {
@@ -48,7 +47,6 @@ struct GeneratedStringRange {
 struct GeneratedCase {
     std::string_view name;
     void (*fn)(void *);
-    void (*simple_fn)();
     std::string_view     file;
     unsigned             line;
     unsigned             flags;

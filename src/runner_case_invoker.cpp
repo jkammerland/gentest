@@ -14,13 +14,7 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
     const auto start_tp = std::chrono::steady_clock::now();
     {
         gentest::runner::detail::CurrentTestScope test_scope(out.ctxinfo);
-        auto                                      run_call = [&] {
-            if (c.simple_fn != nullptr) {
-                c.simple_fn();
-                return;
-            }
-            c.fn(ctx);
-        };
+        auto                                      run_call = [&] { c.fn(ctx); };
         try {
             if (phase == gentest::detail::BenchPhase::None) {
                 run_call();
