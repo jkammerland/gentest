@@ -362,6 +362,12 @@ else()
   run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install)
 endif()
 
+set(_legacy_scan_inspector_dir "${_install_prefix}/share/cmake/gentest/scan_inspector")
+if(EXISTS "${_legacy_scan_inspector_dir}")
+  message(FATAL_ERROR
+    "Installed package must not contain the legacy scan_inspector helper directory: '${_legacy_scan_inspector_dir}'")
+endif()
+
 set(_producer_fmt_dir "")
 set(_producer_fmt_version "")
 set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")

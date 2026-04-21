@@ -19,6 +19,8 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
 set(_legacy_warning "--output selects legacy manifest/single-TU mode")
 set(_cmake_legacy_warning "OUTPUT selects legacy")
+set(_no_include_warning "--no-include-sources/GENTEST_NO_INCLUDE_SOURCES is deprecated with legacy manifest/single-TU mode")
+set(_cmake_no_include_warning "deprecated with legacy manifest/single-TU mode")
 
 function(_gentest_expect_success label)
   set(one_value_args CONTAINS FORBIDS)
@@ -87,9 +89,37 @@ list(APPEND _clang_args "${_codegen_std}" ${_public_include_args})
 _gentest_expect_success(
   "cli legacy manifest output warning"
   CONTAINS "${_legacy_warning}"
+  FORBIDS "${_no_include_warning}"
   COMMAND
     "${PROG}"
     --output "${BUILD_ROOT}/cli_legacy_manifest.cpp"
+    --compdb "${_compdb_root}"
+    "${_smoke_source}"
+    --
+    ${_clang_args})
+
+_gentest_expect_success(
+  "cli no-include-sources legacy manifest warning"
+  CONTAINS "${_no_include_warning}"
+  COMMAND
+    "${PROG}"
+    --output "${BUILD_ROOT}/cli_no_include_legacy_manifest.cpp"
+    --no-include-sources
+    --compdb "${_compdb_root}"
+    "${_smoke_source}"
+    --
+    ${_clang_args})
+
+_gentest_expect_success(
+  "cli no-include-sources env legacy manifest warning"
+  CONTAINS "${_no_include_warning}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    -E
+    env
+    GENTEST_NO_INCLUDE_SOURCES=1
+    "${PROG}"
+    --output "${BUILD_ROOT}/cli_no_include_env_legacy_manifest.cpp"
     --compdb "${_compdb_root}"
     "${_smoke_source}"
     --
@@ -117,13 +147,32 @@ function(_gentest_write_manifest_warning_fixture source_dir target_name test_nam
     "void ${target_name}_builds() {\n"
     "    gentest::asserts::EXPECT_TRUE(true);\n"
     "}\n")
+  file(WRITE "${source_dir}/cases_decl.hpp"
+    "void ${target_name}_builds();\n")
 
+  set(_fixture_target_sources_call "")
+  set(_fixture_compile_options_call "")
   if("${mode}" STREQUAL "LEGACY_OUTPUT")
     string(CONCAT _fixture_codegen_call
       "gentest_attach_codegen(${target_name}\n"
       "    OUTPUT \"\${CMAKE_CURRENT_BINARY_DIR}/${target_name}.gentest.cpp\"\n"
       "    SOURCES \"\${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp\"\n"
       "    CLANG_ARGS \${_gentest_fixture_clang_args})\n")
+  elseif("${mode}" STREQUAL "LEGACY_OUTPUT_NO_INCLUDE_SOURCES")
+    string(CONCAT _fixture_codegen_call
+      "gentest_attach_codegen(${target_name}\n"
+      "    OUTPUT \"\${CMAKE_CURRENT_BINARY_DIR}/${target_name}.gentest.cpp\"\n"
+      "    NO_INCLUDE_SOURCES\n"
+      "    SOURCES \"\${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp\"\n"
+      "    CLANG_ARGS \${_gentest_fixture_clang_args})\n")
+    string(CONCAT _fixture_target_sources_call
+      "target_sources(${target_name} PRIVATE \"\${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp\")\n")
+    string(CONCAT _fixture_compile_options_call
+      "if(MSVC)\n"
+      "  target_compile_options(${target_name} PRIVATE \"/FI\${CMAKE_CURRENT_SOURCE_DIR}/cases_decl.hpp\")\n"
+      "else()\n"
+      "  target_compile_options(${target_name} PRIVATE \"-include\" \"\${CMAKE_CURRENT_SOURCE_DIR}/cases_decl.hpp\")\n"
+      "endif()\n")
   elseif("${mode}" STREQUAL "PER_TU_OUTPUT_DIR")
     string(CONCAT _fixture_codegen_call
       "gentest_attach_codegen(${target_name}\n"
@@ -154,6 +203,8 @@ function(_gentest_write_manifest_warning_fixture source_dir target_name test_nam
     "add_executable(${target_name})\n"
     "target_link_libraries(${target_name} PRIVATE gentest::gentest_main)\n"
     "target_compile_features(${target_name} PRIVATE cxx_std_20)\n"
+    "${_fixture_target_sources_call}"
+    "${_fixture_compile_options_call}"
     "\n"
     "${_fixture_codegen_call}")
 endfunction()
@@ -217,6 +268,7 @@ endif()
 _gentest_expect_success(
   "cmake legacy manifest output warning"
   CONTAINS "${_cmake_legacy_warning}"
+  FORBIDS "${_cmake_no_include_warning}"
   COMMAND
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
@@ -224,6 +276,26 @@ _gentest_expect_success(
     -B "${_fixture_build_dir}"
     ${_cmake_cache_args})
 _gentest_build_manifest_warning_fixture("${_fixture_build_dir}" legacy_manifest_warning)
+
+set(_no_include_source_dir "${BUILD_ROOT}/cmake_no_include_warning_src")
+set(_no_include_build_dir "${BUILD_ROOT}/cmake_no_include_warning_build")
+file(REMOVE_RECURSE "${_no_include_build_dir}")
+_gentest_write_manifest_warning_fixture(
+  "${_no_include_source_dir}"
+  no_include_warning
+  no_include_warning
+  LEGACY_OUTPUT_NO_INCLUDE_SOURCES)
+
+_gentest_expect_success(
+  "cmake no-include-sources legacy manifest warning"
+  CONTAINS "${_cmake_no_include_warning}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    ${_cmake_gen_args}
+    -S "${_no_include_source_dir}"
+    -B "${_no_include_build_dir}"
+    ${_cmake_cache_args})
+_gentest_build_manifest_warning_fixture("${_no_include_build_dir}" no_include_warning)
 
 set(_per_tu_source_dir "${BUILD_ROOT}/cmake_per_tu_warning_probe_src")
 set(_per_tu_build_dir "${BUILD_ROOT}/cmake_per_tu_warning_probe_build")

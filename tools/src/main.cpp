@@ -3944,6 +3944,12 @@ int main(int argc, const char **argv) {
         gentest::codegen::log_err_raw(
             "gentest_codegen: warning: --output selects legacy manifest/single-TU mode; prefer --tu-out-dir per-TU wrapper mode when "
             "supported. Manifest mode remains fallback-only.\n");
+        if (!options.include_sources) {
+            gentest::codegen::log_err_raw(
+                "gentest_codegen: warning: --no-include-sources/GENTEST_NO_INCLUDE_SOURCES is deprecated with legacy "
+                "manifest/single-TU mode and will be removed with manifest mode; use --tu-out-dir so owner sources stay in normal "
+                "compilation units.\n");
+        }
     }
     if (!options.tu_output_headers.empty() && options.tu_output_headers.size() != options.sources.size()) {
         gentest::codegen::log_err("gentest_codegen: expected {} --tu-header-output value(s) for {} input source(s), got {}\n",

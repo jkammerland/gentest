@@ -20,7 +20,7 @@ Version fields mean:
 | --- | --- | --- | --- | --- | --- | --- |
 | `gentest_codegen --output <file>` legacy single-TU manifest mode | Warns | `1.0.0` | `1.0.0` | `2.0.0`, after non-CMake migration evidence | TU-wrapper mode with `--tu-out-dir` and explicit per-input outputs | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
 | `gentest_attach_codegen(... OUTPUT <file>)` legacy single-TU manifest mode | Warns | `1.0.0` | `1.0.0` | `2.0.0`, after non-CMake migration evidence | Default TU-wrapper mode, or `OUTPUT_DIR <dir>` when a concrete generated-output directory is needed | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| `NO_INCLUDE_SOURCES` / `--no-include-sources` legacy manifest-mode escape hatch | Deprecated with manifest mode | `1.0.0` | `1.1.0` planned | `2.0.0`, with legacy manifest mode | No replacement; use TU-wrapper mode so owner sources stay in normal compilation units | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
+| `NO_INCLUDE_SOURCES` / `--no-include-sources` legacy manifest-mode escape hatch | Warns | `1.0.0` | `1.0.0` | `2.0.0`, with legacy manifest mode | No replacement; use TU-wrapper mode so owner sources stay in normal compilation units | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
 | `EXPECT_SUBSTRING` in `gentest_discover_tests(...)` | Warns | `1.0.0` | `1.0.0` | `2.0.0` | `DEATH_EXPECT_SUBSTRING` | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
 
 ## Removed or internal cleanup inventory
@@ -31,7 +31,7 @@ shapes from returning.
 
 | Item | Status | Deprecated since | Warn since | Removal target | Replacement | Owner |
 | --- | --- | --- | --- | --- | --- | --- |
-| Legacy installed `share/cmake/gentest/scan_inspector/` helper directory | Removed from the source package; needs an install-tree absence guard | `1.0.0` | N/A | Guard in story 037 wave 4 | Tool-owned source inspection through `gentest_codegen --inspect-source` and mock/artifact manifest validation | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
+| Legacy installed `share/cmake/gentest/scan_inspector/` helper directory | Removed from the source package; guarded by package-consumer install smoke | `1.0.0` | N/A | Guarded in story 037 wave 4 | Tool-owned source inspection through `gentest_codegen --inspect-source` and mock/artifact manifest validation | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
 | Configure-time source-inspector probe helpers in `GentestCodegen.cmake` | Internal cleanup scheduled | `1.0.0` | N/A | First release after stories 033 and 036 close | Artifact manifest module fields, mock-manifest module metadata, and tool-side validation | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
 | CMake scan include-dir and macro collection helpers | Internal cleanup scheduled | `1.0.0` | N/A | First release after story 033 closes | Tool-side `compile_commands.json` scans | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
 | `xmake/templates/*.in` and `meson/*.in` generated-source skeletons | Wrapper cleanup scheduled | `1.0.0` | N/A | First release after stories 015 and 036 close | Final generated sources emitted by `gentest_codegen` | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |

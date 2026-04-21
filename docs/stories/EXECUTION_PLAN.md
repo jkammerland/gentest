@@ -53,18 +53,19 @@ It assumes the current branch state, not raw worktree ancestry:
 
 3. Story `037`: codegen contract cleanup campaign (parallel track).
    - Runs alongside `033` and picks up after each gating story closes.
-   - Wave 4 (independent, cheap): keep `DEPRECATIONS.md` current, add an
-     install-tree absence regression for legacy
-     `share/cmake/gentest/scan_inspector/`, and remove `EXPECT_SUBSTRING`
-     after the documented deprecation target. Does not wait on
-     `033`/`015`/`036`.
+   - Wave 4 (independent, cheap): keep `DEPRECATIONS.md` current, keep warning
+     coverage for `NO_INCLUDE_SOURCES` and `EXPECT_SUBSTRING`, guard the install
+     tree against legacy `share/cmake/gentest/scan_inspector/`, and remove
+     `EXPECT_SUBSTRING` after the documented deprecation target. Does not wait
+     on `033`/`015`/`036`.
    - Wave 1 (gated on `033` + `036`): delete configure-time source inspector
      probe and related extraction helpers from CMake.
    - Wave 2 (gated on `015`): rewrite `xmake/gentest.lua` and
      `build_defs/gentest.bzl` as thin manifest consumers; delete
      `xmake/templates/*.in` and `meson/*.in`.
-   - Wave 3 (one release cycle after warning coverage lands): hard-remove
-     legacy `OUTPUT=...` manifest mode and `NO_INCLUDE_SOURCES`.
+   - Wave 3 (at `2.0.0`, after a release cycle containing warning coverage and
+     `015` consumer migration evidence): hard-remove legacy `OUTPUT=...`
+     manifest mode and `NO_INCLUDE_SOURCES`.
 
 ## Closure criteria
 
