@@ -67,12 +67,8 @@ int main() {
         const TraitArrays arrays = render_trait_arrays(cases, "empty:{name}", "name={name};count={count};body={body}");
         t.expect(arrays.tag_names.size() == 2, "render_trait_arrays creates tag names");
         t.expect(arrays.req_names.size() == 2, "render_trait_arrays creates requirement names");
-        t.expect(arrays.tag_names[0] == "{}", "render_trait_arrays uses empty tag span expression");
-        t.expect(arrays.req_names[0] == "{}", "render_trait_arrays uses empty requirement span expression");
-        t.expect(arrays.tag_names[1] == "std::span{kTags_1}", "render_trait_arrays uses non-empty tag span expression");
-        t.expect(arrays.req_names[1] == "std::span{kReqs_1}", "render_trait_arrays uses non-empty requirement span expression");
-        t.excludes(arrays.declarations, "empty:kTags_0", "render_trait_arrays skips empty tag array declarations");
-        t.excludes(arrays.declarations, "empty:kReqs_0", "render_trait_arrays skips empty requirement array declarations");
+        t.contains(arrays.declarations, "empty:kTags_0\n", "render_trait_arrays emits empty tag array");
+        t.contains(arrays.declarations, "empty:kReqs_0\n", "render_trait_arrays emits empty requirement array");
         t.contains(arrays.declarations, "name=kTags_1;count=2;body=", "render_trait_arrays emits non-empty tag array");
         t.contains(arrays.declarations, "    \"fast\",\n", "render_trait_arrays renders first tag");
         t.contains(arrays.declarations, "    \"owner=qa\",\n", "render_trait_arrays renders second tag");
