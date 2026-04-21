@@ -27,6 +27,7 @@ struct TraitArrays {
 };
 
 struct WrapperTemplates {
+    const std::string &free_test;
     const std::string &free;
     const std::string &free_fixtures;
     const std::string &ephemeral;

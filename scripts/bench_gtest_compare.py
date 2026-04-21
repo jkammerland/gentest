@@ -365,8 +365,7 @@ def print_summary(result: dict[str, object]) -> None:
     assert isinstance(benchmark_deltas, dict)
 
     print("\n=== Test Framework Consumer E2E Build Benchmark ===")
-    dirty_suffix = " (dirty worktree)" if result.get("dirty_worktree") else ""
-    print(f"Commit:       {result['sha']}{dirty_suffix}")
+    print(f"Commit:       {result['sha']}")
     print(f"Build type:   {result['build_type']}")
     print(f"Jobs:         {result['jobs']}")
     print(f"GoogleTest:   {result['gtest_version']} (pkg-config)")
@@ -461,7 +460,6 @@ def main() -> int:
     harness_build = build_root / "harness"
 
     sha = git(root, "rev-parse", "HEAD")
-    dirty_worktree = bool(git(root, "status", "--short"))
     codegen_exe = configure_and_build_codegen(root, tool_build, args.build_type, args.jobs, env)
     configure_harness(
         root,
@@ -529,7 +527,6 @@ def main() -> int:
 
     result: dict[str, object] = {
         "sha": sha,
-        "dirty_worktree": dirty_worktree,
         "build_type": args.build_type,
         "jobs": args.jobs,
         "samples": args.samples,

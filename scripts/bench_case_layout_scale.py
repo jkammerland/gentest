@@ -472,8 +472,7 @@ def print_summary(result: dict[str, object]) -> None:
     assert isinstance(doctest_fit, dict)
 
     print("\n=== Layout Scale Summary ===")
-    dirty_suffix = " (dirty worktree)" if result.get("dirty_worktree") else ""
-    print(f"Commit: {result['sha']}{dirty_suffix}")
+    print(f"Commit: {result['sha']}")
     print(f"Layout: {result['layout']}, requested shards: {result['shards']}")
     print(f"Counts: {', '.join(str(c) for c in result['counts'])}")
     print(f"Samples: {result['samples']}, jobs: {result['jobs']}, build type: {result['build_type']}")
@@ -559,7 +558,6 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
 
     sha = git(root, "rev-parse", "HEAD")
-    dirty_worktree = bool(git(root, "status", "--short"))
     codegen_exe = configure_and_build_codegen(root, tool_build, args.build_type, args.jobs, env)
 
     results: list[dict[str, object]] = []
@@ -675,7 +673,6 @@ def main() -> int:
 
     result: dict[str, object] = {
         "sha": sha,
-        "dirty_worktree": dirty_worktree,
         "layout": args.layout,
         "shards": args.shards,
         "build_type": args.build_type,

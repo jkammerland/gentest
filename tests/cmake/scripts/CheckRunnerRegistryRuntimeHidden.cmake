@@ -102,3 +102,73 @@ if(NOT _all_output MATCHES "${_hidden_api_pattern}")
     "Expected compile failure to mention hidden gentest::detail runtime APIs.\n"
     "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
 endif()
+
+set(_registry_source "${_work_dir}/registry_run_all_tests_visible.cpp")
+gentest_fixture_write_file("${_registry_source}" [=[
+#include "gentest/registry.h"
+
+#include <span>
+
+auto main() -> int {
+    auto run_all_tests = static_cast<int (*)(std::span<const char *>)>(&gentest::run_all_tests);
+    static_cast<void>(run_all_tests);
+    return 0;
+}
+]=])
+
+gentest_make_compile_only_command_args(
+  _registry_compile_args
+  COMPILER "${CXX_COMPILER}"
+  STD "-std=c++20"
+  SOURCE "${_registry_source}"
+  OBJECT "${_work_dir}/registry_run_all_tests_visible.o"
+  INCLUDE_ARGS ${_include_args})
+
+execute_process(
+  COMMAND ${_registry_compile_args}
+  WORKING_DIRECTORY "${_work_dir}"
+  RESULT_VARIABLE _registry_rc
+  OUTPUT_VARIABLE _registry_out
+  ERROR_VARIABLE _registry_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+
+set(_registry_all_output "${_registry_out}\n${_registry_err}")
+if(CMAKE_HOST_WIN32 AND _is_windows_native_llvm_clang AND NOT _registry_rc EQUAL 0)
+  gentest_is_msvc_style_compiler(_is_msvc_style_compiler "${CXX_COMPILER}")
+  gentest_normalize_std_flag_for_compiler(_msvc_std "clang-cl" "-std=c++20")
+  gentest_normalize_include_args_for_compiler(_msvc_include_args "clang-cl" ${_include_args})
+  set(_msvc_compile_args
+      "${CXX_COMPILER}")
+  if(NOT _is_msvc_style_compiler)
+    list(APPEND _msvc_compile_args "--driver-mode=cl")
+  endif()
+  list(APPEND _msvc_compile_args
+      "${_msvc_std}"
+      ${_msvc_include_args}
+      "/utf-8"
+      "/EHsc"
+      "/c"
+      "${_registry_source}"
+      "/Fo${_work_dir}/registry_run_all_tests_visible.o")
+  execute_process(
+    COMMAND ${_msvc_compile_args}
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _msvc_rc
+    OUTPUT_VARIABLE _msvc_out
+    ERROR_VARIABLE _msvc_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(_registry_all_output MATCHES "${_windows_mode_mismatch_pattern}" OR _msvc_rc EQUAL 0)
+    set(_registry_rc "${_msvc_rc}")
+    set(_registry_out "${_msvc_out}")
+    set(_registry_err "${_msvc_err}")
+  endif()
+endif()
+
+if(NOT _registry_rc EQUAL 0)
+  message(FATAL_ERROR
+    "gentest/registry.h should expose gentest::run_all_tests(std::span<const char *>).\n"
+    "--- stdout ---\n${_registry_out}\n--- stderr ---\n${_registry_err}")
+endif()

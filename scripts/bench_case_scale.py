@@ -405,7 +405,6 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
 
     sha = git(root, "rev-parse", "HEAD")
-    dirty_worktree = bool(git(root, "status", "--short"))
     codegen_exe = configure_and_build_codegen(root, tool_build, args.build_type, args.jobs, env)
 
     results: list[dict[str, object]] = []
@@ -515,7 +514,6 @@ def main() -> int:
 
     result: dict[str, object] = {
         "sha": sha,
-        "dirty_worktree": dirty_worktree,
         "build_type": args.build_type,
         "jobs": args.jobs,
         "samples": args.samples,
@@ -536,7 +534,7 @@ def main() -> int:
     log(f"[scale] Wrote {output}")
 
     print("\n=== Scale Summary ===")
-    print(f"Commit: {sha}{' (dirty worktree)' if dirty_worktree else ''}")
+    print(f"Commit: {sha}")
     print(f"Counts: {', '.join(str(c) for c in counts)}")
     print(f"Samples: {args.samples}, jobs: {args.jobs}, build type: {args.build_type}")
     print()

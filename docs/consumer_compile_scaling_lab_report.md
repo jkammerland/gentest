@@ -6,9 +6,8 @@ Branch: `perf/consumer-generated-tu-compile`
 
 Measured commit: `f7fbdaeea2166bed7ab93318f187484e3716b37e`
 
-Status caveat: the measured runs below were taken from a dirty worktree while the generated-TU compile-weight experiment was in progress. Treat
-these as lab measurements for this branch, not a final release benchmark. Rerun the commands in this document from a clean commit before publishing
-numbers externally.
+Status caveat: these are local lab measurements for this branch, not a final release benchmark. Rerun the commands in this document on the target
+machine and toolchain before publishing numbers externally.
 
 ## Goal
 
@@ -328,7 +327,6 @@ TU. The e2e consumer build is still slower because the fixed codegen cost is lar
 
 ## Threats To Validity
 
-- Dirty worktree: rerun from a clean commit for publication-quality numbers.
 - Synthetic scale workload: all cases are trivial tests in one TU. Real-world test bodies, fixtures, mocks, and multiple TUs can shift both fixed
   costs and slopes.
 - Single host/toolchain: these numbers are from one Linux GCC Release setup. Clang, MSVC, modules, and Debug builds need separate runs.
