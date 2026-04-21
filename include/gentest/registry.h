@@ -5,4 +5,5 @@
 // narrower public-only registry API directly.
 
 #include "gentest/detail/fixture_runtime.h"
+#include "gentest/detail/registration_runtime.h"
 #include "gentest/detail/registry_runtime.h"
