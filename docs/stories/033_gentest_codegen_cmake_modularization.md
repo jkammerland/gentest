@@ -152,6 +152,16 @@ That order is intentionally low-risk first, high-entanglement last.
 
 ## Acceptance criteria
 
+- Status: **Done** on the current branch.
+- Closure evidence:
+  - `cmake/GentestCodegen.cmake` is a facade that declares configuration
+    variables and includes focused modules from `cmake/gentest/`.
+  - The helper modules are installed under `share/cmake/gentest/gentest/` so
+    installed `find_package(gentest CONFIG REQUIRED)` consumers load the same
+    facade graph as source-tree consumers.
+  - Focused discovery, explicit mock, module-registration, textual wrapper,
+    install-only codegen, and package-consumer tests passed after the split.
+
 - `cmake/GentestCodegen.cmake` becomes a thin facade rather than the location
   of nearly all helper implementations.
 - Story completion means all private helper implementations currently living in

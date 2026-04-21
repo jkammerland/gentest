@@ -1,0 +1,278 @@
+include_guard(GLOBAL)
+
+function(_gentest_get_codegen_cmake_dir out_dir)
+    if(DEFINED _GENTEST_CODEGEN_CMAKE_DIR AND NOT "${_GENTEST_CODEGEN_CMAKE_DIR}" STREQUAL "")
+        set(${out_dir} "${_GENTEST_CODEGEN_CMAKE_DIR}" PARENT_SCOPE)
+    elseif(DEFINED CMAKE_CURRENT_FUNCTION_LIST_DIR AND NOT "${CMAKE_CURRENT_FUNCTION_LIST_DIR}" STREQUAL "")
+        get_filename_component(_gentest_codegen_cmake_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
+        set(${out_dir} "${_gentest_codegen_cmake_dir}" PARENT_SCOPE)
+    else()
+        set(${out_dir} "${_GENTEST_CODEGEN_CMAKE_DIR}" PARENT_SCOPE)
+    endif()
+endfunction()
+
+function(_gentest_get_host_executable_suffix out_suffix)
+    set(_gentest_suffix "${CMAKE_EXECUTABLE_SUFFIX}")
+    if(_gentest_suffix STREQUAL "" AND (WIN32 OR CMAKE_HOST_WIN32))
+        set(_gentest_suffix ".exe")
+    endif()
+    set(${out_suffix} "${_gentest_suffix}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_collect_cross_codegen_clang_args out_var)
+    set(_gentest_args "")
+    if(CMAKE_CROSSCOMPILING)
+        if(CMAKE_CXX_COMPILER_TARGET)
+            list(APPEND _gentest_args "--target=${CMAKE_CXX_COMPILER_TARGET}")
+        elseif(CMAKE_C_COMPILER_TARGET)
+            list(APPEND _gentest_args "--target=${CMAKE_C_COMPILER_TARGET}")
+        endif()
+
+        if(CMAKE_SYSROOT)
+            list(APPEND _gentest_args "--sysroot=${CMAKE_SYSROOT}")
+        endif()
+
+        set(_gentest_cross_compiler "")
+        if(CMAKE_CXX_COMPILER)
+            set(_gentest_cross_compiler "${CMAKE_CXX_COMPILER}")
+        elseif(CMAKE_C_COMPILER)
+            set(_gentest_cross_compiler "${CMAKE_C_COMPILER}")
+        endif()
+
+        if(_gentest_cross_compiler AND IS_ABSOLUTE "${_gentest_cross_compiler}")
+            get_filename_component(_gentest_cross_compiler_dir "${_gentest_cross_compiler}" DIRECTORY)
+            get_filename_component(_gentest_cross_toolchain_root "${_gentest_cross_compiler_dir}" DIRECTORY)
+            if(EXISTS "${_gentest_cross_toolchain_root}")
+                list(APPEND _gentest_args "--gcc-toolchain=${_gentest_cross_toolchain_root}")
+            endif()
+            unset(_gentest_cross_toolchain_root)
+            unset(_gentest_cross_compiler_dir)
+        endif()
+        unset(_gentest_cross_compiler)
+    endif()
+
+    set(${out_var} "${_gentest_args}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_collect_common_codegen_clang_args out_var)
+    set(_gentest_args -DGENTEST_CODEGEN=1)
+    _gentest_collect_cross_codegen_clang_args(_gentest_cross_codegen_clang_args)
+    list(APPEND _gentest_args ${_gentest_cross_codegen_clang_args})
+    if(GENTEST_CODEGEN_DEFAULT_CLANG_ARGS AND NOT GENTEST_CODEGEN_DEFAULT_CLANG_ARGS STREQUAL "")
+        list(APPEND _gentest_args ${GENTEST_CODEGEN_DEFAULT_CLANG_ARGS})
+    endif()
+    if(GENTEST_CLANG_ARGS)
+        list(APPEND _gentest_args ${GENTEST_CLANG_ARGS})
+    endif()
+    set(${out_var} "${_gentest_args}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_collect_common_codegen_system_include_args out_var)
+    set(_gentest_args "")
+    set(_gentest_system_includes "${CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES}")
+    if(_gentest_system_includes STREQUAL "" AND CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES)
+        set(_gentest_system_includes "${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES}")
+    endif()
+    if(_gentest_system_includes)
+        foreach(_gentest_inc_dir ${_gentest_system_includes})
+            list(APPEND _gentest_args -isystem "${_gentest_inc_dir}")
+        endforeach()
+    endif()
+    set(${out_var} "${_gentest_args}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_resolve_codegen_clang_scan_deps out_var)
+    set(_gentest_clang_scan_deps "${GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
+    if("${_gentest_clang_scan_deps}" STREQUAL ""
+       AND DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
+       AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
+        set(_gentest_clang_scan_deps "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+    endif()
+    set(${out_var} "${_gentest_clang_scan_deps}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_append_codegen_module_context_args command_var target clang_scan_deps)
+    set(_gentest_command "${${command_var}}")
+    if(NOT "${GENTEST_CODEGEN_SCAN_DEPS_MODE}" STREQUAL "")
+        list(APPEND _gentest_command "--scan-deps-mode=${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
+    endif()
+    if(NOT "${clang_scan_deps}" STREQUAL "")
+        list(APPEND _gentest_command --clang-scan-deps "${clang_scan_deps}")
+    endif()
+    if(NOT "${GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
+        list(APPEND _gentest_command --host-clang "${GENTEST_CODEGEN_HOST_CLANG}")
+    endif()
+    list(APPEND _gentest_command
+        "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>")
+    set(${command_var} "${_gentest_command}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_make_codegen_command_launcher executable out_command)
+    set(_gentest_command "${executable}")
+    if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
+        set(_gentest_ld_library_path "${GENTEST_TERMINFO_SHIM_DIR}")
+        if(DEFINED ENV{LD_LIBRARY_PATH} AND NOT "$ENV{LD_LIBRARY_PATH}" STREQUAL "")
+            string(APPEND _gentest_ld_library_path ":$ENV{LD_LIBRARY_PATH}")
+        endif()
+        set(_gentest_command ${CMAKE_COMMAND} -E env
+            "LD_LIBRARY_PATH=${_gentest_ld_library_path}"
+            "${executable}")
+    endif()
+    set(${out_command} "${_gentest_command}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_normalize_path_and_key input_path base_dir out_abs out_key)
+    set(_gentest_path "${input_path}")
+    cmake_path(ABSOLUTE_PATH _gentest_path BASE_DIRECTORY "${base_dir}" NORMALIZE OUTPUT_VARIABLE _gentest_abs)
+
+    set(_gentest_key "${_gentest_abs}")
+    if(WIN32)
+        string(TOLOWER "${_gentest_key}" _gentest_key)
+    endif()
+
+    set(${out_abs} "${_gentest_abs}" PARENT_SCOPE)
+    set(${out_key} "${_gentest_key}" PARENT_SCOPE)
+endfunction()
+
+
+function(_gentest_resolve_codegen_backend)
+    set(one_value_args TARGET OUT_CODEGEN_TARGET OUT_CODEGEN_EXECUTABLE OUT_CODEGEN_BACKEND_KIND)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "" ${ARGN})
+
+    _gentest_find_installed_codegen_executable(_gentest_installed_codegen)
+
+    set(_gentest_codegen_target "")
+    set(_gentest_codegen_executable "")
+    set(_gentest_codegen_backend_kind "")
+    if(CMAKE_CROSSCOMPILING AND NOT GENTEST_CODEGEN_EXECUTABLE AND NOT GENTEST_CODEGEN_TARGET)
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${GENTEST_TARGET}): cross-compiling requires a host gentest_codegen. "
+            "Set -DGENTEST_CODEGEN_EXECUTABLE=<path> or -DGENTEST_CODEGEN_TARGET=<imported-executable-target>.")
+    endif()
+    if(GENTEST_CODEGEN_EXECUTABLE)
+        if(NOT EXISTS "${GENTEST_CODEGEN_EXECUTABLE}" OR IS_DIRECTORY "${GENTEST_CODEGEN_EXECUTABLE}")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${GENTEST_TARGET}): GENTEST_CODEGEN_EXECUTABLE='${GENTEST_CODEGEN_EXECUTABLE}' does not exist "
+                "or is not a file")
+        endif()
+        set(_gentest_codegen_executable "${GENTEST_CODEGEN_EXECUTABLE}")
+        set(_gentest_codegen_backend_kind "explicit_executable")
+    elseif(GENTEST_CODEGEN_TARGET)
+        if(NOT TARGET ${GENTEST_CODEGEN_TARGET})
+            message(FATAL_ERROR "gentest_attach_codegen: GENTEST_CODEGEN_TARGET='${GENTEST_CODEGEN_TARGET}' does not exist")
+        endif()
+        get_target_property(_gentest_target_imported "${GENTEST_CODEGEN_TARGET}" IMPORTED)
+        if(CMAKE_CROSSCOMPILING AND NOT _gentest_target_imported)
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${GENTEST_TARGET}): GENTEST_CODEGEN_TARGET='${GENTEST_CODEGEN_TARGET}' must be an imported "
+                "executable target when cross-compiling so the host tool can run during configure-time inspection and build-time "
+                "generation. Use -DGENTEST_CODEGEN_EXECUTABLE=<path> for ordinary build-tree targets, or provide an imported host-tool "
+                "target.")
+        endif()
+        set(_gentest_codegen_target "${GENTEST_CODEGEN_TARGET}")
+        set(_gentest_codegen_executable $<TARGET_FILE:${GENTEST_CODEGEN_TARGET}>)
+        set(_gentest_codegen_backend_kind "explicit_target")
+    elseif(TARGET gentest_codegen)
+        set(_gentest_codegen_target gentest_codegen)
+        set(_gentest_codegen_executable $<TARGET_FILE:gentest_codegen>)
+        set(_gentest_codegen_backend_kind "in_tree_target")
+    elseif(NOT _gentest_installed_codegen STREQUAL "")
+        set(_gentest_codegen_executable "${_gentest_installed_codegen}")
+        set(_gentest_codegen_backend_kind "installed_executable")
+    else()
+        message(FATAL_ERROR
+            "gentest_attach_codegen: no gentest code generator available. "
+            "Either enable -DGENTEST_BUILD_CODEGEN=ON (native builds) or provide a host tool via "
+            "-DGENTEST_CODEGEN_EXECUTABLE=<path> (cross builds).")
+    endif()
+
+    set(${GENTEST_OUT_CODEGEN_TARGET} "${_gentest_codegen_target}" PARENT_SCOPE)
+    set(${GENTEST_OUT_CODEGEN_EXECUTABLE} "${_gentest_codegen_executable}" PARENT_SCOPE)
+    if(GENTEST_OUT_CODEGEN_BACKEND_KIND)
+        set(${GENTEST_OUT_CODEGEN_BACKEND_KIND} "${_gentest_codegen_backend_kind}" PARENT_SCOPE)
+    endif()
+endfunction()
+
+function(_gentest_configure_manifest_mode)
+    set(one_value_args TARGET TARGET_ID OUTPUT OUT_OUTPUT OUT_OUTPUT_DIR)
+    set(multi_value_args TUS)
+    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+    set(_gentest_output "${GENTEST_OUTPUT}")
+    if(NOT _gentest_output)
+        set(_gentest_output "${CMAKE_CURRENT_BINARY_DIR}/${GENTEST_TARGET}_generated.cpp")
+    endif()
+
+    if("${_gentest_output}" MATCHES "\\$<")
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT with generator expressions is not supported in manifest mode. "
+            "Use a concrete OUTPUT path instead: '${_gentest_output}'")
+    else()
+        _gentest_normalize_path_and_key("${_gentest_output}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_output_abs _gentest_output_key)
+        _gentest_reserve_unique_owner("GENTEST_CODEGEN_OUTPUT_OWNER" "${_gentest_output_key}" "${GENTEST_TARGET}" _gentest_prev_owner)
+        if(_gentest_prev_owner)
+            if(NOT _gentest_prev_owner STREQUAL "${GENTEST_TARGET}")
+                message(FATAL_ERROR
+                    "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT '${_gentest_output_abs}' is already used by '${_gentest_prev_owner}'. "
+                    "Each target must have a unique OUTPUT to avoid generated file clobbering.")
+            endif()
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT '${_gentest_output_abs}' is registered multiple times for the same target. "
+                "Call gentest_attach_codegen() once per target and list all SOURCES in that call.")
+        endif()
+
+        foreach(_gentest_src IN LISTS GENTEST_TUS)
+            _gentest_normalize_path_and_key("${_gentest_src}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_src_abs _gentest_src_key)
+            if(_gentest_src_key STREQUAL _gentest_output_key)
+                message(FATAL_ERROR
+                    "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT '${_gentest_output_abs}' would overwrite a scanned source file '${_gentest_src_abs}'.")
+            endif()
+        endforeach()
+    endif()
+
+    get_filename_component(_gentest_output_dir "${_gentest_output}" DIRECTORY)
+    if(_gentest_output_dir STREQUAL "")
+        set(_gentest_output_dir "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+
+    set(${GENTEST_OUT_OUTPUT} "${_gentest_output}" PARENT_SCOPE)
+    set(${GENTEST_OUT_OUTPUT_DIR} "${_gentest_output_dir}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_find_installed_codegen_executable out_executable)
+    set(_gentest_installed_codegen "")
+    if(NOT CMAKE_CROSSCOMPILING)
+        _gentest_get_codegen_cmake_dir(_gentest_codegen_cmake_dir)
+        _gentest_get_host_executable_suffix(_gentest_host_executable_suffix)
+        set(_gentest_codegen_prefixes "")
+        if(DEFINED PACKAGE_PREFIX_DIR AND NOT PACKAGE_PREFIX_DIR STREQUAL "")
+            list(APPEND _gentest_codegen_prefixes "${PACKAGE_PREFIX_DIR}")
+        endif()
+        get_filename_component(_gentest_codegen_prefix "${_gentest_codegen_cmake_dir}/../../.." ABSOLUTE)
+        list(APPEND _gentest_codegen_prefixes "${_gentest_codegen_prefix}")
+        list(REMOVE_DUPLICATES _gentest_codegen_prefixes)
+
+        set(_gentest_codegen_bindirs "")
+        if(DEFINED CMAKE_INSTALL_BINDIR AND NOT CMAKE_INSTALL_BINDIR STREQUAL "")
+            list(APPEND _gentest_codegen_bindirs "${CMAKE_INSTALL_BINDIR}")
+        endif()
+        list(APPEND _gentest_codegen_bindirs "bin")
+        list(REMOVE_DUPLICATES _gentest_codegen_bindirs)
+
+        foreach(_gentest_prefix IN LISTS _gentest_codegen_prefixes)
+            foreach(_gentest_bindir IN LISTS _gentest_codegen_bindirs)
+                set(_gentest_candidate "${_gentest_prefix}/${_gentest_bindir}/gentest_codegen${_gentest_host_executable_suffix}")
+                if(EXISTS "${_gentest_candidate}" AND NOT IS_DIRECTORY "${_gentest_candidate}")
+                    set(_gentest_installed_codegen "${_gentest_candidate}")
+                    break()
+                endif()
+            endforeach()
+            if(NOT _gentest_installed_codegen STREQUAL "")
+                break()
+            endif()
+        endforeach()
+    endif()
+
+    set(${out_executable} "${_gentest_installed_codegen}" PARENT_SCOPE)
+endfunction()

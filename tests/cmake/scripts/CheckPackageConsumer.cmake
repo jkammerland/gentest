@@ -227,6 +227,10 @@ set(_producer_surface_files
     "${SOURCE_DIR}/cmake/GentestFmtDependency.cmake"
     "${SOURCE_DIR}/cmake/GentestCodegen.cmake"
     "${SOURCE_DIR}/third_party/target_install_package/VENDORED_TAG.txt")
+file(GLOB_RECURSE _producer_codegen_cmake_modules
+  LIST_DIRECTORIES FALSE
+  "${SOURCE_DIR}/cmake/gentest/*.cmake")
+list(APPEND _producer_surface_files ${_producer_codegen_cmake_modules})
 file(GLOB_RECURSE _producer_public_headers
   LIST_DIRECTORIES FALSE
   "${SOURCE_DIR}/include/gentest/*.h"
