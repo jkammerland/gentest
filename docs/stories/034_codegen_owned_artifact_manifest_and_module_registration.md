@@ -62,10 +62,12 @@ command mode.
 
 ## Target Model
 
-The long-term registration target is to split codegen into explicit phases:
+The long-term registration target is to split registration planning and
+emission into explicit phases. The exact command names below are design
+placeholders, not current CLI:
 
 ```text
-gentest_codegen inspect
+registration planning phase
   inputs:
     - source list
     - compile database or explicit compile commands
@@ -74,7 +76,7 @@ gentest_codegen inspect
     - artifact manifest
     - depfile for discovered scan inputs
 
-gentest_codegen emit
+registration emission phase
   inputs:
     - artifact manifest
   outputs:
@@ -129,9 +131,10 @@ like:
 }
 ```
 
-The exact schema can evolve, but it must be sufficient for any supported build
-system to add generated outputs to the correct target without parsing source
-files itself.
+The stable `gentest.artifact_manifest.v1` schema is sufficient for supported
+build systems to add generated outputs to the correct target without parsing
+source files themselves. Future incompatible changes should use a new schema
+identifier.
 
 At minimum, the manifest must represent:
 

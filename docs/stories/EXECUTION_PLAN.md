@@ -12,7 +12,9 @@ It assumes the current branch state, not raw worktree ancestry:
 ## Current branch truth
 
 - `021` through `031` are now treated as done at the current evidence level
-- the remaining future cleanups are stories `032` and `033`
+- `034` and `035` closed with cleanup residue explicitly deferred to `037`
+- the remaining story-tracked cleanups are `032`, `033`, `036`, and the
+  cross-cutting cleanup campaign `037`
 
 ## Working rules
 
@@ -49,6 +51,21 @@ It assumes the current branch state, not raw worktree ancestry:
      `gentest/registry.h` compatibility shims.
    - Preserve package/module downstream coverage on every slice.
 
+3. Story `037`: codegen contract cleanup campaign (parallel track).
+   - Runs alongside `033` and picks up after each gating story closes.
+   - Wave 4 (independent, cheap): keep `DEPRECATIONS.md` current, add an
+     install-tree absence regression for legacy
+     `share/cmake/gentest/scan_inspector/`, and remove `EXPECT_SUBSTRING`
+     after the documented deprecation target. Does not wait on
+     `033`/`015`/`036`.
+   - Wave 1 (gated on `033` + `036`): delete configure-time source inspector
+     probe and related extraction helpers from CMake.
+   - Wave 2 (gated on `015`): rewrite `xmake/gentest.lua` and
+     `build_defs/gentest.bzl` as thin manifest consumers; delete
+     `xmake/templates/*.in` and `meson/*.in`.
+   - Wave 3 (one release cycle after warning coverage lands): hard-remove
+     legacy `OUTPUT=...` manifest mode and `NO_INCLUDE_SOURCES`.
+
 ## Closure criteria
 
 - `032`: generated-code support depends on a smaller explicit devkit contract
@@ -76,11 +93,27 @@ It assumes the current branch state, not raw worktree ancestry:
 - `033`: extraction-specific regression slices stay green as each subsystem is
   moved, especially discovery, explicit mocks, TU-wrapper/manifest outputs,
   scan-deps/public-module flows, and package/install/codegen-host-tool flows.
+- `037`: `DEPRECATIONS.md` exists at the repo root, covers every deprecated
+  feature or scheduled cleanup item with warn-since/removal-target information,
+  and is linked from `README.md`, `docs/index.md`, and `STATUS.md`.
+- `037`: the LOC-reduction targets per wrapper in story `037` are met or
+  beaten, measured across the facade file plus any new split modules so the
+  campaign cannot succeed by reshuffling alone.
+- `037`: every removal wave lands a CI regression that asserts the deprecated
+  feature is gone (hard-error for removed options, missing-file for removed
+  install paths, missing-subcommand for removed wrapper calls).
+- `037`: the public user-facing contracts (`gentest_attach_codegen`,
+  `gentest_add_mocks`, `gentest_discover_tests`) stay stable through the
+  campaign except for the deliberately removed legacy options.
+
 ## Practical next move
 
 Take story `033` first when the repo wants a low-risk structural cleanup.
-Take story `032` only after that, or when the repo is ready for another
-package/module contract cleanup pass.
+Continue story `037` wave 4 in parallel, because its install-tree absence guard
+is independent of the other gates and cheap. Take story `032` next, or when
+the repo is ready for another package/module contract cleanup pass. Story `037`
+waves 1-3 follow their gating story closures (`033` + `036`, then `015`, then
+the release-cycle warn window).
 
 That ordering follows the current evidence:
 

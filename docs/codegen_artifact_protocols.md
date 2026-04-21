@@ -74,7 +74,8 @@ New integrations should use textual wrapper registration with `--tu-out-dir`
 and explicit per-input outputs. Existing manifest-mode users should migrate by
 predeclaring wrapper `.cpp`/`.h` files, compiling the wrapper sources instead
 of the owner sources, and optionally validating the generated artifact
-manifest.
+manifest. The removal schedule is tracked in
+[`DEPRECATIONS.md`](../DEPRECATIONS.md).
 
 ## Mock Manifest Phases
 
