@@ -69,8 +69,8 @@ int main() {
         t.expect(arrays.req_names.size() == 2, "render_trait_arrays creates requirement names");
         t.expect(arrays.tag_names[0] == "{}", "render_trait_arrays uses empty tag span expression");
         t.expect(arrays.req_names[0] == "{}", "render_trait_arrays uses empty requirement span expression");
-        t.expect(arrays.tag_names[1] == "{kTags_1, 2}", "render_trait_arrays uses non-empty tag range expression");
-        t.expect(arrays.req_names[1] == "{kReqs_1, 1}", "render_trait_arrays uses non-empty requirement range expression");
+        t.expect(arrays.tag_names[1] == "std::span{kTags_1}", "render_trait_arrays uses non-empty tag span expression");
+        t.expect(arrays.req_names[1] == "std::span{kReqs_1}", "render_trait_arrays uses non-empty requirement span expression");
         t.excludes(arrays.declarations, "empty:kTags_0", "render_trait_arrays skips empty tag array declarations");
         t.excludes(arrays.declarations, "empty:kReqs_0", "render_trait_arrays skips empty requirement array declarations");
         t.contains(arrays.declarations, "name=kTags_1;count=2;body=", "render_trait_arrays emits non-empty tag array");
@@ -102,15 +102,15 @@ int main() {
         const std::string rendered = render_case_entries(
             cases, {"kTags_0", "kTags_1"}, {"kReqs_0", "kReqs_1"},
             "N={name}|W={wrapper}|F={file}|L={line}|B={is_bench}|J={is_jitter}|BASE={is_baseline}|T={tags}|R={reqs}|SK={skip_reason}"
-            "|SS={should_skip}|FL={flags}|FX={fixture}|LT={lifetime}|SU={suite}\n");
+            "|SS={should_skip}|FX={fixture}|LT={lifetime}|SU={suite}\n");
         t.contains(rendered, "N=suite/plain|W=::kCaseInvoke_0|F=plain.cpp|L=17|B=false|J=false|BASE=false",
                    "render_case_entries renders plain case");
-        t.contains(rendered, "SK=std::string_view{}|SS=false|FL=0u|FX=std::string_view{}|LT=gentest::FixtureLifetime::None|SU=\"suite\"",
+        t.contains(rendered, "SK=std::string_view{}|SS=false|FX=std::string_view{}|LT=gentest::FixtureLifetime::None|SU=\"suite\"",
                    "render_case_entries renders empty skip and fixture fields");
         t.contains(rendered, "N=bench/case|W=::kCaseInvoke_1|F=bench.cpp|L=23|B=true|J=true|BASE=true",
                    "render_case_entries renders measured flags");
         t.contains(rendered,
-                   R"(SK="why \"quoted\""|SS=true|FL=15u|FX="fixtures::Shared"|LT=gentest::FixtureLifetime::MemberSuite|SU="bench/suite")",
+                   R"(SK="why \"quoted\""|SS=true|FX="fixtures::Shared"|LT=gentest::FixtureLifetime::MemberSuite|SU="bench/suite")",
                    "render_case_entries escapes skip reason and fixture name");
     }
 

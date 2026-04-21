@@ -62,7 +62,7 @@ endif()
 file(READ "${_output}" _output_text)
 
 if(DEFINED EXPECT_CASE_COUNT AND NOT "${EXPECT_CASE_COUNT}" STREQUAL "")
-  set(_case_needle "constexpr std::array<gentest::detail::GeneratedCase, ${EXPECT_CASE_COUNT}> kCases = {")
+  set(_case_needle "constexpr std::array<gentest::Case, ${EXPECT_CASE_COUNT}> kCases = {")
   string(FIND "${_output_text}" "${_case_needle}" _case_pos)
   if(_case_pos EQUAL -1)
     message(FATAL_ERROR
