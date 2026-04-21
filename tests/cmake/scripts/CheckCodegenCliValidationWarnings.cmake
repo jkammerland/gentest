@@ -115,12 +115,21 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
-  "output cannot combine with tu out dir"
+  "output option removed"
   1
-  "gentest_codegen: --output cannot be combined with --tu-out-dir"
+  "gentest_codegen: --output legacy manifest/single-TU mode was removed in gentest 2.0.0"
   "${PROG}"
   --output "${BUILD_ROOT}/manifest.cpp"
   --tu-out-dir "${BUILD_ROOT}/tu-mode"
+  ${_common_args})
+
+_gentest_expect_result(
+  "template option removed"
+  1
+  "gentest_codegen: --template was removed with legacy manifest/single-TU mode in gentest 2.0.0"
+  "${PROG}"
+  --template "${BUILD_ROOT}/legacy-template.tpl"
+  --tu-out-dir "${BUILD_ROOT}/template-removed"
   ${_common_args})
 
 _gentest_expect_result(

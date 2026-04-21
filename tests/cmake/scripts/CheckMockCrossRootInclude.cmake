@@ -94,7 +94,7 @@ file(COPY "${_mock_cross_root_fixture_dir}/cross_root_sink.hpp"
 set(_work_dir "${_build_root}/gentest_codegen_cross_root")
 file(MAKE_DIRECTORY "${_work_dir}")
 set(_input_cpp "${_work_dir}/cross_root_input.cpp")
-set(_output_cpp "${_work_dir}/cross_root_output.gentest.cpp")
+set(_output_header "${_work_dir}/cross_root_output.gentest.h")
 set(_mock_registry "${_work_dir}/cross_root_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/cross_root_mock_impl.hpp")
 set(_mock_registry_domain "${_work_dir}/cross_root_mock_registry__domain_0000_header.hpp")
@@ -111,7 +111,8 @@ unset(CROSS_ROOT_HEADER)
 
 set(_args
   --discover-mocks
-  --output "${_output_cpp}"
+  --tu-out-dir "${_work_dir}"
+  --tu-header-output "${_output_header}"
   --mock-registry "${_mock_registry}"
   --mock-impl "${_mock_impl}"
   --mock-domain-registry-output "${_mock_registry_domain}"

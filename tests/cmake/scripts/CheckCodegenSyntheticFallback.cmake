@@ -29,10 +29,11 @@ gentest_fixture_write_compdb("${_work_dir}/compile_commands.json")
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.cpp" _source_norm)
-file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.gentest.cpp" _output_norm)
+file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.gentest.h" _output_norm)
 
 set(_codegen_args
-  --output "${_output_norm}"
+  --tu-out-dir "${_work_dir_norm}"
+  --tu-header-output "${_output_norm}"
   --compdb "${_work_dir_norm}"
   "${_source_norm}"
   --)

@@ -1014,14 +1014,6 @@ void replace_all(std::string &inout, std::string_view needle, std::string_view r
     }
 }
 
-bool requires_global_wrapper_impls_placeholder(const std::string &template_content) {
-    if (template_content.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {
-        return false;
-    }
-    return template_content.find("{{WRAPPER_IMPLS}}") != std::string::npos ||
-           template_content.find("{{REGISTRATION_COMMON}}") != std::string::npos;
-}
-
 struct RegistrationRenderTemplates {
     std::string wrapper_free_test;
     std::string wrapper_free;
@@ -1122,66 +1114,6 @@ void apply_registration_core(std::string &output, const RenderedRegistrationCore
     replace_all(output, "{{FIXTURE_REGISTRATIONS}}", core.fixture_registrations);
 }
 
-auto render_cases(const CollectorOptions &options, const std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures)
-    -> std::optional<std::string> {
-    std::string template_content;
-    if (!options.template_path.empty()) {
-        template_content = render::read_template_file(options.template_path);
-        if (template_content.empty()) {
-            log_err("gentest_codegen: failed to load template file '{}', using built-in template.\n", options.template_path.string());
-        }
-    }
-    if (template_content.empty())
-        template_content = std::string(tpl::test_impl);
-
-    if (requires_global_wrapper_impls_placeholder(template_content)) {
-        log_err(
-            "gentest_codegen: template file '{}' must use {{GLOBAL_WRAPPER_IMPLS}}; legacy {{WRAPPER_IMPLS}} placement is unsupported\n",
-            options.template_path.string());
-        return std::nullopt;
-    }
-
-    const auto templates = load_registration_render_templates();
-    const auto core      = render_registration_core(cases, fixtures, templates);
-
-    std::string output = template_content;
-    apply_registration_core(output, core);
-    replace_all(output, "{{ENTRY_FUNCTION}}", options.entry);
-    // Version for --help
-#if defined(GENTEST_VERSION_STR)
-    replace_all(output, "{{VERSION}}", GENTEST_VERSION_STR);
-#else
-    replace_all(output, "{{VERSION}}", "0.0.0");
-#endif
-
-    // Include sources in the generated file so fixture types are visible
-    std::string includes;
-    includes.reserve(options.sources.size() * 32);
-    const bool     skip_includes = !options.include_sources;
-    const fs::path out_dir       = options.output_path.has_parent_path() ? options.output_path.parent_path() : fs::current_path();
-    for (const auto &src : options.sources) {
-        if (skip_includes)
-            break;
-        fs::path spath(src);
-        // Avoid `std::filesystem::proximate()` because it canonicalizes paths, which
-        // can resolve symlink forests (e.g. Bazel execroot) into host paths that
-        // don't exist in sandboxed builds.
-        fs::path rel = spath.lexically_relative(out_dir);
-        if (rel.empty()) {
-            rel = spath;
-        }
-        std::string inc = rel.generic_string();
-        fmt::format_to(std::back_inserter(includes), "#include \"{}\"\n", render::escape_string(inc));
-    }
-    replace_all(output, "{{INCLUDE_SOURCES}}", includes);
-
-    // Mock registry and inline implementations are generated alongside the
-    // test wrappers. Test sources that use mocking should include
-    // `gentest/mock.h` after the mocked types are declared/defined.
-
-    return output;
-}
-
 int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures,
          const std::vector<MockClassInfo> &mocks) {
     std::vector<TestCaseInfo> cases_for_render = cases;
@@ -1197,23 +1129,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         }
     }
 
-    if (!opts.output_path.empty()) {
-        fs::path out_path = opts.output_path;
-        if (!ensure_parent_dir(out_path)) {
-            return 1;
-        }
-
-        // Embedded template is used when no template path is provided.
-
-        const auto content = render_cases(opts, cases_for_render, fixtures_for_render);
-        if (!content) {
-            return 1;
-        }
-
-        if (!write_file_atomic_if_changed(out_path, *content)) {
-            return 1;
-        }
-    } else if (!opts.tu_output_dir.empty()) {
+    if (!opts.tu_output_dir.empty()) {
         if (!ensure_dir(opts.tu_output_dir)) {
             return 1;
         }

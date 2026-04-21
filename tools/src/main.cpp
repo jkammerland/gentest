@@ -77,10 +77,6 @@ using gentest::codegen::resolve_free_fixtures;
 using gentest::codegen::TestCaseCollector;
 using gentest::codegen::TestCaseInfo;
 
-#ifndef GENTEST_TEMPLATE_DIR
-#define GENTEST_TEMPLATE_DIR ""
-#endif
-static constexpr std::string_view kTemplateDir                         = GENTEST_TEMPLATE_DIR;
 static constexpr std::string_view kMissingCompdbSyntheticCommandMarker = "__gentest_missing_compdb_entry__";
 
 namespace {
@@ -379,9 +375,7 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     };
 
     std::vector<std::filesystem::path> targets;
-    if (!options.output_path.empty()) {
-        targets.push_back(options.output_path);
-    } else if (!options.tu_output_dir.empty()) {
+    if (!options.tu_output_dir.empty()) {
         targets.reserve(options.sources.size() * 2 + 2);
         for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
             if (idx < options.tu_output_headers.size() && !options.tu_output_headers[idx].empty()) {
@@ -2777,9 +2771,6 @@ std::filesystem::path resolve_codegen_module_cache_dir(const CollectorOptions &o
     if (!options.tu_output_dir.empty()) {
         base_dir  = options.tu_output_dir;
         cache_key = options.tu_output_dir.generic_string();
-    } else if (!options.output_path.empty()) {
-        base_dir  = options.output_path.parent_path();
-        cache_key = options.output_path.generic_string();
     } else {
         base_dir  = std::filesystem::current_path();
         cache_key = base_dir.generic_string();
@@ -3447,15 +3438,18 @@ enum class MockPhaseCommand {
 struct ParsedArguments {
     CollectorOptions                   options;
     std::optional<std::string>         explicit_host_clang_path;
-    MockPhaseCommand                   mock_phase     = MockPhaseCommand::None;
-    bool                               inspect_source = false;
+    MockPhaseCommand                   mock_phase                           = MockPhaseCommand::None;
+    bool                               inspect_source                       = false;
+    bool                               removed_output_requested             = false;
+    bool                               removed_template_requested           = false;
+    bool                               removed_no_include_sources_requested = false;
     std::vector<std::filesystem::path> inspect_include_dirs;
 };
 
 ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory   category{"gentest codegen"};
-    static llvm::cl::opt<std::string> output_option{"output", llvm::cl::desc("Path to a legacy manifest/single-TU output source file"),
-                                                    llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string> output_option{"output", llvm::cl::desc("Removed legacy manifest/single-TU output source file option"),
+                                                    llvm::cl::init(""), llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::opt<std::string> entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> tu_out_dir_option{
@@ -3489,10 +3483,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string> source_root_option{
         "source-root", llvm::cl::desc("Source root used to emit stable relative paths in gentest::Case.file"), llvm::cl::init(""),
         llvm::cl::cat(category)};
-    static llvm::cl::opt<bool> no_include_sources_option{
-        "no-include-sources",
-        llvm::cl::desc("Do not emit #include directives for input sources (deprecated env: GENTEST_NO_INCLUDE_SOURCES)"),
-        llvm::cl::init(false), llvm::cl::cat(category)};
+    static llvm::cl::opt<bool> no_include_sources_option{"no-include-sources",
+                                                         llvm::cl::desc("Removed legacy manifest-mode source-include escape hatch"),
+                                                         llvm::cl::init(false), llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::opt<bool> strict_fixture_option{
         "strict-fixture", llvm::cl::desc("Treat member tests on suite/global fixtures as errors (deprecated env: GENTEST_STRICT_FIXTURE)"),
         llvm::cl::init(false), llvm::cl::cat(category)};
@@ -3517,8 +3510,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         llvm::cl::cat(category)};
     static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::ZeroOrMore,
                                                      llvm::cl::cat(category)};
-    static llvm::cl::opt<std::string>  template_option{"template", llvm::cl::desc("Path to the template file used for code generation"),
-                                                      llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  template_option{"template",
+                                                      llvm::cl::desc("Removed legacy manifest/single-TU template source option"),
+                                                      llvm::cl::init(""), llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::opt<std::string>  mock_registry_option{"mock-registry", llvm::cl::desc("Path to the generated mock registry header"),
                                                            llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
@@ -3582,8 +3576,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     llvm::cl::ParseCommandLineOptions(static_cast<int>(tool_argv.size()), tool_argv.data(), "gentest clang code generator\n");
 
     CollectorOptions opts;
-    opts.entry       = entry_option;
-    opts.output_path = std::filesystem::path{output_option.getValue()};
+    opts.entry = entry_option;
     if (!tu_out_dir_option.getValue().empty()) {
         opts.tu_output_dir = std::filesystem::path{tu_out_dir_option.getValue()};
     }
@@ -3626,14 +3619,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         }
         const auto strict_env = get_env_value("GENTEST_STRICT_FIXTURE");
         return strict_env && *strict_env != "0";
-    }();
-    opts.include_sources = [&] {
-        if (no_include_sources_option.getValue()) {
-            return false;
-        }
-        const auto no_inc_env = get_env_value("GENTEST_NO_INCLUDE_SOURCES");
-        const bool skip_env   = (no_inc_env && *no_inc_env != "0");
-        return !skip_env;
     }();
     opts.jobs           = static_cast<std::size_t>(jobs_option.getValue());
     opts.discover_mocks = discover_mocks_option.getValue() || mock_phase == MockPhaseCommand::InspectMocks;
@@ -3706,20 +3691,21 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
             }
         }
     }
-    if (!template_option.getValue().empty()) {
-        opts.template_path = std::filesystem::path{template_option.getValue()};
-    } else if (!kTemplateDir.empty()) {
-        opts.template_path = std::filesystem::path{std::string(kTemplateDir)} / "test_impl.cpp.tpl";
+    if (!inspect_source_option.getValue() && mock_phase == MockPhaseCommand::None && !opts.check_only && opts.tu_output_dir.empty() &&
+        opts.mock_manifest_output_path.empty() && opts.mock_manifest_input_path.empty() && output_option.getNumOccurrences() == 0 &&
+        template_option.getNumOccurrences() == 0) {
+        gentest::codegen::log_err_raw("gentest_codegen: --tu-out-dir is required unless --check is specified\n");
     }
-    if (!inspect_source_option.getValue() && mock_phase == MockPhaseCommand::None && !opts.check_only && opts.output_path.empty() &&
-        opts.tu_output_dir.empty() && opts.mock_manifest_output_path.empty() && opts.mock_manifest_input_path.empty()) {
-        gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
-    }
+    const auto no_include_sources_env = get_env_value("GENTEST_NO_INCLUDE_SOURCES");
     return ParsedArguments{
-        .options                  = std::move(opts),
-        .explicit_host_clang_path = std::move(explicit_host_clang_path),
-        .mock_phase               = mock_phase,
-        .inspect_source           = inspect_source_option.getValue(),
+        .options                    = std::move(opts),
+        .explicit_host_clang_path   = std::move(explicit_host_clang_path),
+        .mock_phase                 = mock_phase,
+        .inspect_source             = inspect_source_option.getValue(),
+        .removed_output_requested   = output_option.getNumOccurrences() != 0,
+        .removed_template_requested = template_option.getNumOccurrences() != 0,
+        .removed_no_include_sources_requested =
+            no_include_sources_option.getValue() || (no_include_sources_env && *no_include_sources_env != "0"),
         .inspect_include_dirs =
             [&]() {
                 std::vector<std::filesystem::path> paths;
@@ -3758,7 +3744,7 @@ void diagnose_missing_mock_phase_manifest(MockPhaseCommand mock_phase, const Col
             gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with --check\n");
             return false;
         }
-        if (!options.output_path.empty() || !options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
+        if (!options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
             gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks only writes a mock manifest\n");
             return false;
         }
@@ -3793,6 +3779,24 @@ int main(int argc, const char **argv) {
 
     const auto  parsed_arguments = parse_arguments(argc, argv);
     const auto &options          = parsed_arguments.options;
+    if (parsed_arguments.removed_output_requested) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --output legacy manifest/single-TU mode was removed in gentest 2.0.0; use --tu-out-dir with explicit "
+            "per-input outputs instead\n");
+        return 1;
+    }
+    if (parsed_arguments.removed_template_requested) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --template was removed with legacy manifest/single-TU mode in gentest 2.0.0; use TU-wrapper mode "
+            "registration headers instead\n");
+        return 1;
+    }
+    if (parsed_arguments.removed_no_include_sources_requested) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --no-include-sources/GENTEST_NO_INCLUDE_SOURCES was removed with legacy manifest mode in gentest 2.0.0; "
+            "use --tu-out-dir so owner sources stay in normal compilation units\n");
+        return 1;
+    }
     diagnose_missing_mock_phase_manifest(parsed_arguments.mock_phase, options);
     if (parsed_arguments.inspect_source) {
         if (options.sources.size() != 1) {
@@ -3819,9 +3823,9 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
-    const bool mock_manifest_emit_mode      = !options.mock_manifest_input_path.empty();
-    const bool mock_manifest_discovery_only = !options.mock_manifest_output_path.empty() && options.output_path.empty() &&
-                                              options.tu_output_dir.empty() && !mock_manifest_emit_mode;
+    const bool mock_manifest_emit_mode = !options.mock_manifest_input_path.empty();
+    const bool mock_manifest_discovery_only =
+        !options.mock_manifest_output_path.empty() && options.tu_output_dir.empty() && !mock_manifest_emit_mode;
 
     if (mock_manifest_emit_mode) {
         if (!options.sources.empty()) {
@@ -3836,7 +3840,7 @@ int main(int argc, const char **argv) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with --mock-manifest-output\n");
             return 1;
         }
-        if (!options.output_path.empty() || !options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
+        if (!options.tu_output_dir.empty() || !options.artifact_manifest_path.empty()) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input only emits mock outputs\n");
             return 1;
         }
@@ -3908,7 +3912,7 @@ int main(int argc, const char **argv) {
                 "gentest_codegen: --mock-registration-manifest requires --tu-out-dir and --module-registration-output\n");
             return 1;
         }
-        if (!options.output_path.empty() || !options.module_wrapper_outputs.empty()) {
+        if (!options.module_wrapper_outputs.empty()) {
             gentest::codegen::log_err_raw(
                 "gentest_codegen: --mock-registration-manifest is only supported with same-module registration outputs\n");
             return 1;
@@ -3923,33 +3927,17 @@ int main(int argc, const char **argv) {
     if (mock_manifest_discovery_only && (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() ||
                                          !options.mock_domain_registry_outputs.empty() || !options.mock_domain_impl_outputs.empty())) {
         gentest::codegen::log_err_raw(
-            "gentest_codegen: --mock-manifest-output without --output/--tu-out-dir cannot be combined with final mock output paths\n");
+            "gentest_codegen: --mock-manifest-output without --tu-out-dir cannot be combined with final mock output paths\n");
         return 1;
     }
     if (mock_manifest_discovery_only && !options.artifact_manifest_path.empty()) {
-        gentest::codegen::log_err_raw(
-            "gentest_codegen: --mock-manifest-output without --output/--tu-out-dir cannot emit artifact manifests\n");
+        gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-output without --tu-out-dir cannot emit artifact manifests\n");
         return 1;
     }
 
     if (!options.tu_output_headers.empty() && options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --tu-header-output requires --tu-out-dir\n");
         return 1;
-    }
-    if (!options.output_path.empty() && !options.tu_output_dir.empty()) {
-        gentest::codegen::log_err_raw("gentest_codegen: --output cannot be combined with --tu-out-dir\n");
-        return 1;
-    }
-    if (!options.output_path.empty() && options.tu_output_dir.empty()) {
-        gentest::codegen::log_err_raw(
-            "gentest_codegen: warning: --output selects legacy manifest/single-TU mode; prefer --tu-out-dir per-TU wrapper mode when "
-            "supported. Manifest mode remains fallback-only.\n");
-        if (!options.include_sources) {
-            gentest::codegen::log_err_raw(
-                "gentest_codegen: warning: --no-include-sources/GENTEST_NO_INCLUDE_SOURCES is deprecated with legacy "
-                "manifest/single-TU mode and will be removed with manifest mode; use --tu-out-dir so owner sources stay in normal "
-                "compilation units.\n");
-        }
     }
     if (!options.tu_output_headers.empty() && options.tu_output_headers.size() != options.sources.size()) {
         gentest::codegen::log_err("gentest_codegen: expected {} --tu-header-output value(s) for {} input source(s), got {}\n",
@@ -5342,8 +5330,8 @@ int main(int argc, const char **argv) {
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
 
-    if (!options.check_only && options.output_path.empty() && options.tu_output_dir.empty() && options.mock_manifest_output_path.empty()) {
-        gentest::codegen::log_err_raw("gentest_codegen: --output or --tu-out-dir is required unless --check is specified\n");
+    if (!options.check_only && options.tu_output_dir.empty() && options.mock_manifest_output_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --tu-out-dir is required unless --check is specified\n");
         return 1;
     }
 

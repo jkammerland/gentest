@@ -163,7 +163,7 @@ if(NOT _invalid_artifact_manifest_rc EQUAL 1)
     "--- stdout ---\n${_invalid_artifact_manifest_out}\n--- stderr ---\n${_invalid_artifact_manifest_err}")
 endif()
 string(FIND "${_invalid_artifact_manifest_out}\n${_invalid_artifact_manifest_err}"
-  "--mock-manifest-output without --output/--tu-out-dir cannot emit artifact manifests"
+  "--mock-manifest-output without --tu-out-dir cannot emit artifact manifests"
   _invalid_artifact_manifest_msg_pos)
 if(_invalid_artifact_manifest_msg_pos EQUAL -1)
   message(FATAL_ERROR

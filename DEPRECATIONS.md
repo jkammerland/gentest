@@ -18,10 +18,11 @@ Version fields mean:
 
 | Feature | Status | Deprecated since | Warn since | Removal target | Replacement | Owner |
 | --- | --- | --- | --- | --- | --- | --- |
-| `gentest_codegen --output <file>` legacy single-TU manifest mode | Warns | `1.0.0` | `1.0.0` | `2.0.0`, after non-CMake migration evidence | TU-wrapper mode with `--tu-out-dir` and explicit per-input outputs | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| `gentest_attach_codegen(... OUTPUT <file>)` legacy single-TU manifest mode | Warns | `1.0.0` | `1.0.0` | `2.0.0`, after non-CMake migration evidence | Default TU-wrapper mode, or `OUTPUT_DIR <dir>` when a concrete generated-output directory is needed | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| `NO_INCLUDE_SOURCES` / `--no-include-sources` legacy manifest-mode escape hatch | Warns | `1.0.0` | `1.0.0` | `2.0.0`, with legacy manifest mode | No replacement; use TU-wrapper mode so owner sources stay in normal compilation units | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| `EXPECT_SUBSTRING` in `gentest_discover_tests(...)` | Warns | `1.0.0` | `1.0.0` | `2.0.0` | `DEATH_EXPECT_SUBSTRING` | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
+| `gentest_codegen --output <file>` legacy single-TU manifest mode | Removed; hard-fails with migration guidance | `1.0.0` | `1.0.0` | Removed in `2.0.0` | TU-wrapper mode with `--tu-out-dir` and explicit per-input outputs | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
+| `gentest_attach_codegen(... OUTPUT <file>)` legacy single-TU manifest mode | Removed; configure hard-fails with migration guidance | `1.0.0` | `1.0.0` | Removed in `2.0.0` | Default TU-wrapper mode, or `OUTPUT_DIR <dir>` when a concrete generated-output directory is needed | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
+| `NO_INCLUDE_SOURCES` / `--no-include-sources` / `GENTEST_NO_INCLUDE_SOURCES` legacy manifest-mode escape hatch | Removed with legacy manifest mode | `1.0.0` | `1.0.0` | Removed in `2.0.0` | No replacement; use TU-wrapper mode so owner sources stay in normal compilation units | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
+| `gentest_codegen --template <file>` legacy manifest-mode template override | Removed with legacy manifest mode | `1.0.0` | N/A | Removed in `2.0.0` | No replacement; generate TU registration headers with the built-in protocol | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
+| `EXPECT_SUBSTRING` in `gentest_discover_tests(...)` | Removed; configure hard-fails with replacement guidance | `1.0.0` | `1.0.0` | Removed in `2.0.0` | `DEATH_EXPECT_SUBSTRING` | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
 
 ## Removed or internal cleanup inventory
 

@@ -165,26 +165,11 @@ endfunction()
 
 function(_gentest_prepare_tu_mode)
     set(one_value_args
-        TARGET TARGET_ID OUTPUT_DIR NO_INCLUDE_SOURCES
+        TARGET TARGET_ID OUTPUT_DIR
         OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP
         OUT_ARTIFACT_MANIFEST OUT_COMPILE_CONTEXT_IDS OUT_ARTIFACT_OWNER_SOURCES)
     set(multi_value_args TUS TU_SOURCE_ENTRIES MODULE_NAMES NEEDS_MODULE_SCAN)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
-
-    set(_gentest_requires_includes FALSE)
-    foreach(_gentest_module_name IN LISTS GENTEST_MODULE_NAMES)
-        if(_gentest_module_name STREQUAL "__gentest_no_module__")
-            set(_gentest_requires_includes TRUE)
-            break()
-        endif()
-    endforeach()
-
-    if(GENTEST_NO_INCLUDE_SOURCES AND _gentest_requires_includes)
-        message(FATAL_ERROR
-            "gentest_attach_codegen(${GENTEST_TARGET}): NO_INCLUDE_SOURCES is not supported in TU wrapper mode, "
-            "because wrappers must include the original translation unit. "
-            "Use OUTPUT=... to switch to legacy manifest mode if you need NO_INCLUDE_SOURCES.")
-    endif()
 
     if(GENTEST_OUTPUT_DIR)
         set(_gentest_output_dir "${GENTEST_OUTPUT_DIR}")
@@ -196,7 +181,7 @@ function(_gentest_prepare_tu_mode)
         message(FATAL_ERROR
             "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT_DIR contains generator expressions, which is not supported in TU wrapper mode "
             "(requires a concrete directory to generate shim translation units). "
-            "Pass a concrete OUTPUT_DIR, or use OUTPUT=... to switch to manifest mode.")
+            "Pass a concrete OUTPUT_DIR.")
     endif()
 
     _gentest_normalize_path_and_key("${_gentest_output_dir}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_outdir_abs _gentest_outdir_key)
@@ -458,12 +443,6 @@ function(_gentest_add_artifact_manifest_validation_command)
         VERBATIM)
 endfunction()
 
-function(_gentest_attach_manifest_codegen)
-    set(one_value_args TARGET OUTPUT)
-    cmake_parse_arguments(GENTEST "" "${one_value_args}" "" ${ARGN})
-    target_sources(${GENTEST_TARGET} PRIVATE ${GENTEST_OUTPUT})
-endfunction()
-
 function(_gentest_attach_tu_wrapper_sources)
     set(one_value_args TARGET TARGET_ID)
     set(multi_value_args REPLACED_TUS REPLACED_SOURCE_ENTRIES WRAPPER_CPP MODULE_NAMES EXTRA_CPP CODEGEN_OUTPUTS)
@@ -721,8 +700,21 @@ function(gentest_link_mocks target)
 endfunction()
 
 function(gentest_attach_codegen target)
-    set(options NO_INCLUDE_SOURCES STRICT_FIXTURE QUIET_CLANG MODULE_REGISTRATION)
-    set(one_value_args OUTPUT OUTPUT_DIR ENTRY FILE_SET)
+    foreach(_gentest_removed_arg IN LISTS ARGN)
+        if(_gentest_removed_arg STREQUAL "OUTPUT")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): OUTPUT manifest/single-TU mode was removed in gentest 2.0.0. "
+                "Omit OUTPUT to use TU-wrapper mode, or pass OUTPUT_DIR for a concrete generated-output directory.")
+        endif()
+        if(_gentest_removed_arg STREQUAL "NO_INCLUDE_SOURCES")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): NO_INCLUDE_SOURCES was removed with legacy manifest mode in gentest 2.0.0. "
+                "Use TU-wrapper mode so owner sources stay in normal compilation units.")
+        endif()
+    endforeach()
+
+    set(options STRICT_FIXTURE QUIET_CLANG MODULE_REGISTRATION)
+    set(one_value_args OUTPUT_DIR ENTRY FILE_SET)
     set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -737,10 +729,6 @@ function(gentest_attach_codegen target)
     endif()
 
     if(GENTEST_MODULE_REGISTRATION)
-        if(GENTEST_OUTPUT)
-            message(FATAL_ERROR
-                "gentest_attach_codegen(${target}): MODULE_REGISTRATION cannot be combined with OUTPUT manifest mode.")
-        endif()
         if(NOT GENTEST_FILE_SET)
             message(FATAL_ERROR
                 "gentest_attach_codegen(${target}): MODULE_REGISTRATION requires FILE_SET <name>.")
@@ -919,14 +907,11 @@ function(gentest_attach_codegen target)
 
     # Mode selection:
     # - MODULE_REGISTRATION emits additive same-module implementation units.
-    # - If OUTPUT is provided, emit a single manifest TU (legacy).
     # - Otherwise, emit a wrapper TU + header per translation unit and replace
     #   the target sources (gtest/catch/doctest-like workflow).
     set(_gentest_mode "tu")
     if(GENTEST_MODULE_REGISTRATION)
         set(_gentest_mode "module_registration")
-    elseif(GENTEST_OUTPUT)
-        set(_gentest_mode "manifest")
     endif()
 
     if((_gentest_mode STREQUAL "tu" OR _gentest_mode STREQUAL "module_registration") AND CMAKE_CONFIGURATION_TYPES)
@@ -943,7 +928,6 @@ function(gentest_attach_codegen target)
         endif()
     endforeach()
 
-    set(_gentest_manifest_output "")
     set(_gentest_wrapper_cpp "")
     set(_gentest_wrapper_headers "")
     set(_gentest_extra_cpp "")
@@ -951,23 +935,7 @@ function(gentest_attach_codegen target)
     set(_gentest_compile_context_ids "")
     set(_gentest_artifact_owner_sources "")
     set(_gentest_tu_manifest_enabled FALSE)
-    if(_gentest_mode STREQUAL "manifest")
-        _gentest_configure_manifest_mode(
-            TARGET ${target}
-            TARGET_ID ${_gentest_target_id}
-            OUTPUT "${GENTEST_OUTPUT}"
-            TUS ${_gentest_tus}
-            OUT_OUTPUT _gentest_manifest_output
-            OUT_OUTPUT_DIR _gentest_output_dir)
-        message(WARNING
-            "gentest_attach_codegen(${target}): OUTPUT selects legacy manifest/single-TU mode; "
-            "omit OUTPUT or use OUTPUT_DIR for per-TU wrapper mode when supported. Manifest mode remains fallback-only.")
-        if(GENTEST_NO_INCLUDE_SOURCES)
-            message(WARNING
-                "gentest_attach_codegen(${target}): NO_INCLUDE_SOURCES is deprecated with legacy manifest/single-TU mode "
-                "and will be removed with manifest mode; use TU-wrapper mode so owner sources stay in normal compilation units.")
-        endif()
-    elseif(_gentest_mode STREQUAL "module_registration")
+    if(_gentest_mode STREQUAL "module_registration")
         _gentest_prepare_module_registration_mode(
             TARGET ${target}
             TARGET_ID ${_gentest_target_id}
@@ -985,7 +953,6 @@ function(gentest_attach_codegen target)
             TARGET ${target}
             TARGET_ID ${_gentest_target_id}
             OUTPUT_DIR "${GENTEST_OUTPUT_DIR}"
-            NO_INCLUDE_SOURCES "${GENTEST_NO_INCLUDE_SOURCES}"
             TUS ${_gentest_tus}
             TU_SOURCE_ENTRIES ${_gentest_tu_source_entries}
             MODULE_NAMES ${_gentest_module_names}
@@ -1122,13 +1089,7 @@ function(gentest_attach_codegen target)
             --mock-impl ${_gentest_mock_impl})
     endif()
 
-    if(_gentest_mode STREQUAL "manifest")
-        list(APPEND _command --output ${_gentest_manifest_output})
-        list(APPEND _command --entry ${GENTEST_ENTRY})
-        if(GENTEST_NO_INCLUDE_SOURCES)
-            list(APPEND _command --no-include-sources)
-        endif()
-    elseif(_gentest_mode STREQUAL "module_registration")
+    if(_gentest_mode STREQUAL "module_registration")
         list(APPEND _command --tu-out-dir ${_gentest_output_dir})
         list(APPEND _command --artifact-manifest ${_gentest_artifact_manifest})
         list(APPEND _command --mock-registration-manifest ${_gentest_mock_registration_manifest})
@@ -1237,14 +1198,7 @@ function(gentest_attach_codegen target)
         unset(_gentest_mock_inspect_command_args)
     endif()
 
-    if(_gentest_mode STREQUAL "manifest")
-        set(_gentest_codegen_outputs
-            ${_gentest_manifest_output}
-            ${_gentest_mock_registry}
-            ${_gentest_mock_impl}
-            ${_gentest_mock_registry_domain_outputs}
-            ${_gentest_mock_impl_domain_outputs})
-    elseif(_gentest_mode STREQUAL "module_registration")
+    if(_gentest_mode STREQUAL "module_registration")
         set(_gentest_codegen_outputs
             ${_gentest_wrapper_headers}
             ${_gentest_wrapper_cpp}
@@ -1360,9 +1314,7 @@ function(gentest_attach_codegen target)
 
     cmake_policy(POP)
 
-    if(_gentest_mode STREQUAL "manifest")
-        _gentest_attach_manifest_codegen(TARGET ${target} OUTPUT ${_gentest_manifest_output})
-    elseif(_gentest_mode STREQUAL "module_registration")
+    if(_gentest_mode STREQUAL "module_registration")
         _gentest_attach_module_registration_sources(
             TARGET ${target}
             TARGET_ID ${_gentest_target_id}
@@ -1435,4 +1387,3 @@ function(gentest_attach_codegen target)
         add_dependencies(${target} ${_gentest_codegen_target})
     endif()
 endfunction()
-

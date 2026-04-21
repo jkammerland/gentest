@@ -194,52 +194,6 @@ function(_gentest_resolve_codegen_backend)
     endif()
 endfunction()
 
-function(_gentest_configure_manifest_mode)
-    set(one_value_args TARGET TARGET_ID OUTPUT OUT_OUTPUT OUT_OUTPUT_DIR)
-    set(multi_value_args TUS)
-    cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
-
-    set(_gentest_output "${GENTEST_OUTPUT}")
-    if(NOT _gentest_output)
-        set(_gentest_output "${CMAKE_CURRENT_BINARY_DIR}/${GENTEST_TARGET}_generated.cpp")
-    endif()
-
-    if("${_gentest_output}" MATCHES "\\$<")
-        message(FATAL_ERROR
-            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT with generator expressions is not supported in manifest mode. "
-            "Use a concrete OUTPUT path instead: '${_gentest_output}'")
-    else()
-        _gentest_normalize_path_and_key("${_gentest_output}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_output_abs _gentest_output_key)
-        _gentest_reserve_unique_owner("GENTEST_CODEGEN_OUTPUT_OWNER" "${_gentest_output_key}" "${GENTEST_TARGET}" _gentest_prev_owner)
-        if(_gentest_prev_owner)
-            if(NOT _gentest_prev_owner STREQUAL "${GENTEST_TARGET}")
-                message(FATAL_ERROR
-                    "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT '${_gentest_output_abs}' is already used by '${_gentest_prev_owner}'. "
-                    "Each target must have a unique OUTPUT to avoid generated file clobbering.")
-            endif()
-            message(FATAL_ERROR
-                "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT '${_gentest_output_abs}' is registered multiple times for the same target. "
-                "Call gentest_attach_codegen() once per target and list all SOURCES in that call.")
-        endif()
-
-        foreach(_gentest_src IN LISTS GENTEST_TUS)
-            _gentest_normalize_path_and_key("${_gentest_src}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_src_abs _gentest_src_key)
-            if(_gentest_src_key STREQUAL _gentest_output_key)
-                message(FATAL_ERROR
-                    "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT '${_gentest_output_abs}' would overwrite a scanned source file '${_gentest_src_abs}'.")
-            endif()
-        endforeach()
-    endif()
-
-    get_filename_component(_gentest_output_dir "${_gentest_output}" DIRECTORY)
-    if(_gentest_output_dir STREQUAL "")
-        set(_gentest_output_dir "${CMAKE_CURRENT_BINARY_DIR}")
-    endif()
-
-    set(${GENTEST_OUT_OUTPUT} "${_gentest_output}" PARENT_SCOPE)
-    set(${GENTEST_OUT_OUTPUT_DIR} "${_gentest_output_dir}" PARENT_SCOPE)
-endfunction()
-
 function(_gentest_find_installed_codegen_executable out_executable)
     set(_gentest_installed_codegen "")
     if(NOT CMAKE_CROSSCOMPILING)

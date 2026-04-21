@@ -1,31 +1,30 @@
 if(WIN32)
-  message(STATUS "CheckCodegenLegacyWrapperImplsTemplateRejected.cmake: Windows host; skipping")
+  message(STATUS "CheckCodegenTemplateOptionRemoved.cmake: Windows host; skipping")
   return()
 endif()
 
 if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
-  message(FATAL_ERROR "CheckCodegenLegacyWrapperImplsTemplateRejected.cmake: PROG not set")
+  message(FATAL_ERROR "CheckCodegenTemplateOptionRemoved.cmake: PROG not set")
 endif()
 if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
-  message(FATAL_ERROR "CheckCodegenLegacyWrapperImplsTemplateRejected.cmake: BUILD_ROOT not set")
+  message(FATAL_ERROR "CheckCodegenTemplateOptionRemoved.cmake: BUILD_ROOT not set")
 endif()
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
-  message(FATAL_ERROR "CheckCodegenLegacyWrapperImplsTemplateRejected.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckCodegenTemplateOptionRemoved.cmake: SOURCE_DIR not set")
 endif()
 if(NOT DEFINED CXX_COMPILER OR "${CXX_COMPILER}" STREQUAL "")
-  message(FATAL_ERROR "CheckCodegenLegacyWrapperImplsTemplateRejected.cmake: CXX_COMPILER not set")
+  message(FATAL_ERROR "CheckCodegenTemplateOptionRemoved.cmake: CXX_COMPILER not set")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-set(_work_dir "${BUILD_ROOT}/legacy_wrapper_impls_template_rejected")
+set(_work_dir "${BUILD_ROOT}/template_option_removed")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
 set(_source "${_work_dir}/legacy_template_case.cpp")
 set(_template "${_work_dir}/legacy_test_impl.cpp.tpl")
-set(_output "${_work_dir}/legacy_template_case.gentest.cpp")
 
 gentest_fixture_write_file("${_source}" [=[
 #include "gentest/attributes.h"
@@ -87,7 +86,7 @@ execute_process(
     "${PROG}"
     --compdb "${_work_dir}"
     --template "${_template}"
-    --output "${_output}"
+    --tu-out-dir "${_work_dir}/generated"
     "${_source}"
   WORKING_DIRECTORY "${_work_dir}"
   RESULT_VARIABLE _rc
@@ -98,7 +97,7 @@ execute_process(
 
 if(_rc EQUAL 0)
   message(FATAL_ERROR
-    "legacy external template regression: gentest_codegen should reject templates that rely on legacy {{WRAPPER_IMPLS}} placement.
+    "template option removal regression: gentest_codegen should reject removed manifest-mode template emission.
 "
     "Output:
 ${_out}
@@ -108,9 +107,9 @@ endif()
 
 set(_all_output "${_out}
 ${_err}")
-if(NOT _all_output MATCHES "GLOBAL_WRAPPER_IMPLS")
+if(NOT _all_output MATCHES "--template was removed with legacy manifest/single-TU mode")
   message(FATAL_ERROR
-    "legacy external template regression: expected migration diagnostic mentioning {{GLOBAL_WRAPPER_IMPLS}}.
+    "template option removal regression: expected removed --template diagnostic.
 "
     "Output:
 ${_all_output}")

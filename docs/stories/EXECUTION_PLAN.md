@@ -56,20 +56,20 @@ It assumes the current branch state, not raw worktree ancestry:
 
 3. Story `037`: codegen contract cleanup campaign (parallel track).
    - Runs alongside `032` / `015` and picks up after each gating story closes.
-   - Wave 4 (independent, cheap): keep `DEPRECATIONS.md` current, keep warning
-     coverage for `NO_INCLUDE_SOURCES` and `EXPECT_SUBSTRING`, guard the install
-     tree against legacy `share/cmake/gentest/scan_inspector/`, and remove
-     `EXPECT_SUBSTRING` after the documented deprecation target. Does not wait
-     on `033` or `015`.
+   - Wave 4 (independent, cheap): keep `DEPRECATIONS.md` current, guard the
+     install tree against legacy `share/cmake/gentest/scan_inspector/`, and
+     keep the `EXPECT_SUBSTRING` hard-error regression green. The
+     `EXPECT_SUBSTRING` alias is removed on this `2.0.0` branch.
    - Wave 1 (unblocked by `033`): delete configure-time source inspector probe and
      related extraction helpers from CMake while preserving textual wrapper
      semantics.
    - Wave 2 (gated on `015`): rewrite `xmake/gentest.lua` and
      `build_defs/gentest.bzl` as thin manifest consumers; delete
      `xmake/templates/*.in` and `meson/*.in`.
-   - Wave 3 (this branch is the `2.0.0` removal branch): hard-remove legacy
-     `OUTPUT=...` manifest mode, `NO_INCLUDE_SOURCES`, CLI
-     `--no-include-sources`, and `EXPECT_SUBSTRING`.
+   - Wave 3 (this branch is the `2.0.0` removal branch): user-facing removals
+     are landed for legacy `OUTPUT=...` manifest mode, CLI `--output`, CLI
+     `--template`, `NO_INCLUDE_SOURCES`, CLI `--no-include-sources`,
+     `GENTEST_NO_INCLUDE_SOURCES`, and top-level `EXPECT_SUBSTRING`.
 
 ## Closure criteria
 
@@ -104,9 +104,10 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ## Practical next move
 
-Take `037` wave 1 next now that `033` closed, then continue with `032` and
-`015`. Story `037` wave 2 follows `015`; wave 3 is handled on this branch as
-the `2.0.0` removal branch.
+Finish the remaining `037` wave 1 CMake helper deletion now that `033` closed,
+then continue with `032` and `015`. Story `037` wave 2 follows `015`; the
+user-facing `2.0.0` removal slice for waves 3 and 4 is already landed on this
+branch.
 
 That ordering follows the current evidence:
 

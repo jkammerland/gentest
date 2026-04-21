@@ -3,17 +3,11 @@
 
 #include "model.hpp"
 
-#include <filesystem>
 #include <map>
 #include <string>
 #include <vector>
 
 namespace gentest::codegen::render {
-
-// Optional support for reading an external template file if provided by CLI.
-// Optional support to read a main template from disk if provided via CLI.
-// The emitter falls back to embedded templates if loading fails.
-std::string read_template_file(const std::filesystem::path &path);
 
 // Forward decls for free functions
 // Render forward declarations for free functions (non-member tests).

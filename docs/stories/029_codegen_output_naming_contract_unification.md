@@ -82,8 +82,8 @@ they are part of the build contract.
 4. Re-run output-sensitive codegen checks, including:
    - `gentest_codegen_output_collision`
    - `gentest_tu_header_case_collision`
-   - `gentest_codegen_manifest_depfile_aggregation`
-   - `gentest_codegen_manifest_depfile_escaped_paths`
+   - `gentest_codegen_tu_depfile_aggregation`
+   - `gentest_codegen_tu_depfile_escaped_paths`
    - `gentest_explicit_mock_target_surface`
    - `gentest_explicit_mock_target_validation`
    - `gentest_explicit_mock_target_staging`
@@ -96,8 +96,8 @@ they are part of the build contract.
   both tool code and `GentestCodegen.cmake`.
 - `gentest_codegen_output_collision`,
   `gentest_tu_header_case_collision`,
-  `gentest_codegen_manifest_depfile_aggregation`, and
-  `gentest_codegen_manifest_depfile_escaped_paths`,
+  `gentest_codegen_tu_depfile_aggregation`, and
+  `gentest_codegen_tu_depfile_escaped_paths`,
   `gentest_explicit_mock_target_surface`,
   `gentest_explicit_mock_target_validation`,
   `gentest_explicit_mock_target_staging`,
@@ -127,7 +127,7 @@ cross-layer contract is now explicit rather than duplicated:
   -> no remaining generated filename family that matters to the CMake/tool
   contract is still independently synthesized in both layers
 - fresh local acceptance slice from a clean `debug-system` worktree build:
-  `ctest --preset=debug-system --output-on-failure -R '^(gentest_codegen_output_collision|gentest_tu_header_case_collision|gentest_codegen_manifest_depfile_aggregation|gentest_codegen_manifest_depfile_escaped_paths|gentest_explicit_mock_target_surface|gentest_explicit_mock_target_validation|gentest_explicit_mock_target_staging|gentest_explicit_mock_target_install_export|gentest_module_mock_long_domain_outputs)$'`
+  `ctest --preset=debug-system --output-on-failure -R '^(gentest_codegen_output_collision|gentest_tu_header_case_collision|gentest_codegen_tu_depfile_aggregation|gentest_codegen_tu_depfile_escaped_paths|gentest_explicit_mock_target_surface|gentest_explicit_mock_target_validation|gentest_explicit_mock_target_staging|gentest_explicit_mock_target_install_export|gentest_module_mock_long_domain_outputs)$'`
   -> `9/9` passed
 
 The remaining tool-side TU-header fallback and mirrored mock-domain ordering

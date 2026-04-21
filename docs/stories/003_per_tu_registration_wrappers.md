@@ -23,7 +23,8 @@ Path hygiene:
 - `gentest::Case.file` is normalized relative to `--source-root` so it is stable across machines/build dirs.
 
 Multi-config:
-- TU wrapper mode is intentionally not supported with multi-config generators (use manifest mode or separate build dirs).
+- TU wrapper mode is intentionally not supported with multi-config generators.
+  Use separate single-config build directories.
 
 ## Diagram
 

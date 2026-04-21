@@ -30,7 +30,7 @@ file(COPY "${_fixture_source}" DESTINATION "${_work_dir}")
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
 file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.cpp" _source_abs)
-file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.gentest.cpp" _output_abs)
+file(TO_CMAKE_PATH "${_work_dir}/namespaced_attrs.gentest.h" _output_abs)
 gentest_make_public_api_include_args(
   _public_include_args
   SOURCE_ROOT "${_source_dir_norm}"
@@ -43,7 +43,7 @@ gentest_fixture_write_file("${_work_dir}/args.rsp" "
 ${_compdb_std}
 ${_public_include_args_rsp}
 -c
-namespaced_attrs.cpp
+${_source_abs}
 -o
 namespaced_attrs.o
 &&
@@ -69,7 +69,8 @@ gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_entry}")
 execute_process(
   COMMAND
     "${PROG}"
-    --output "${_output_abs}"
+    --tu-out-dir "${_work_dir}"
+    --tu-header-output "${_output_abs}"
     --compdb "${_work_dir}"
     "${_source_abs}"
   RESULT_VARIABLE _rc

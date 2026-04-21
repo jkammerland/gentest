@@ -61,7 +61,8 @@ Required design rules:
 4. Module defs stay module-based.
 5. Mock generation and test codegen are two separate user-facing operations.
 6. Any metadata handoff between them is internal implementation detail.
-7. Manifest mode stays legacy/fallback only.
+7. Manifest mode is removed in `2.0.0`; non-CMake parity must use
+   TU-wrapper/artifact-manifest flows.
 
 ## Public model
 

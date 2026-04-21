@@ -4,20 +4,11 @@
 
 #include <algorithm>
 #include <fmt/format.h>
-#include <fstream>
-#include <iterator>
 #include <map>
 #include <set>
 #include <string>
 
 namespace gentest::codegen::render {
-
-std::string read_template_file(const std::filesystem::path &path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file)
-        return {};
-    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-}
 
 std::string escape_string(std::string_view value) {
     std::string escaped;

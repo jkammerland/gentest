@@ -67,9 +67,9 @@ if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
   list(APPEND _ctest_common_args -C "${BUILD_CONFIG}")
 endif()
 
-set(_legacy_expect_build_dir "${_work_dir}/legacy_expect_substring_warning_build")
-message(STATUS "Configure gentest_discover_tests legacy EXPECT_SUBSTRING warning fixture...")
-gentest_check_run_or_fail(
+set(_legacy_expect_build_dir "${_work_dir}/legacy_expect_substring_removed_build")
+message(STATUS "Configure gentest_discover_tests removed EXPECT_SUBSTRING fixture...")
+execute_process(
   COMMAND
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
@@ -77,37 +77,22 @@ gentest_check_run_or_fail(
     -B "${_legacy_expect_build_dir}"
     ${_cmake_cache_args}
     -DGENTEST_DISCOVER_TESTS_USE_LEGACY_EXPECT_SUBSTRING=ON
-  STRIP_TRAILING_WHITESPACE
-  WORKING_DIRECTORY "${_work_dir}"
+  RESULT_VARIABLE _legacy_expect_configure_rc
   OUTPUT_VARIABLE _legacy_expect_configure_out
-)
-string(FIND "${_legacy_expect_configure_out}" "EXPECT_SUBSTRING is deprecated" _legacy_expect_warning_pos)
-if(_legacy_expect_warning_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected gentest_discover_tests legacy EXPECT_SUBSTRING configure warning. Output:\n${_legacy_expect_configure_out}")
-endif()
-
-message(STATUS "Build gentest_discover_tests legacy EXPECT_SUBSTRING fixture...")
-set(_legacy_build_args --build "${_legacy_expect_build_dir}")
-if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
-  list(APPEND _legacy_build_args --config "${BUILD_CONFIG}")
-endif()
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" ${_legacy_build_args}
-  STRIP_TRAILING_WHITESPACE
+  ERROR_VARIABLE _legacy_expect_configure_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_work_dir}"
 )
-
-message(STATUS "Run legacy EXPECT_SUBSTRING death tests...")
-gentest_check_run_or_fail(
-  COMMAND "${_ctest_cmd}" -V ${_ctest_common_args} -R "^death/"
-  STRIP_TRAILING_WHITESPACE
-  WORKING_DIRECTORY "${_legacy_expect_build_dir}"
-  OUTPUT_VARIABLE _legacy_death_out
-)
-string(FIND "${_legacy_death_out}" "Death test passed" _legacy_death_pos)
-if(_legacy_death_pos EQUAL -1)
-  message(FATAL_ERROR "Expected legacy EXPECT_SUBSTRING death harness success message. Output:\n${_legacy_death_out}")
+set(_legacy_expect_configure_all "${_legacy_expect_configure_out}\n${_legacy_expect_configure_err}")
+if(_legacy_expect_configure_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Expected gentest_discover_tests legacy EXPECT_SUBSTRING configure failure. Output:\n${_legacy_expect_configure_all}")
+endif()
+string(FIND "${_legacy_expect_configure_all}" "EXPECT_SUBSTRING was removed in gentest 2.0.0" _legacy_expect_removed_pos)
+if(_legacy_expect_removed_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected gentest_discover_tests legacy EXPECT_SUBSTRING removal message. Output:\n${_legacy_expect_configure_all}")
 endif()
 
 set(_forwarded_legacy_token_build_dir "${_work_dir}/forwarded_expect_substring_token_build")
@@ -127,7 +112,7 @@ gentest_check_run_or_fail(
 string(FIND "${_forwarded_token_configure_out}" "EXPECT_SUBSTRING is deprecated" _forwarded_token_warning_pos)
 if(NOT _forwarded_token_warning_pos EQUAL -1)
   message(FATAL_ERROR
-    "Forwarded EXTRA_ARGS token EXPECT_SUBSTRING must not trigger the legacy option warning. Output:\n${_forwarded_token_configure_out}")
+    "Forwarded EXTRA_ARGS token EXPECT_SUBSTRING must not trigger legacy option handling. Output:\n${_forwarded_token_configure_out}")
 endif()
 
 message(STATUS "Configure gentest_discover_tests fixture...")

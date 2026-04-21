@@ -62,19 +62,19 @@ Adapters may assert that the manifest contains the predeclared outputs and the
 expected schema. They should not use generated JSON to invent new outputs after
 their build graph has been finalized.
 
-## Legacy Manifest Mode
+## Removed Legacy Manifest Mode
 
-`gentest_codegen --output <file>` emits one generated source file that includes
-all input sources. In CMake this is selected with
-`gentest_attach_codegen(... OUTPUT <file>)`. This mode is deprecated and kept as
-a fallback for multi-config generators, bootstrapping, and constrained build
-graphs that cannot yet predeclare per-TU wrapper artifacts.
+`gentest_codegen --output <file>` and
+`gentest_attach_codegen(... OUTPUT <file>)` were removed in `2.0.0`. They now
+hard-fail with migration guidance instead of producing a single generated
+source that includes all inputs. `NO_INCLUDE_SOURCES`,
+`GENTEST_NO_INCLUDE_SOURCES`, and `gentest_codegen --template <file>` were
+removed with that mode.
 
-New integrations should use textual wrapper registration with `--tu-out-dir`
-and explicit per-input outputs. Existing manifest-mode users should migrate by
-predeclaring wrapper `.cpp`/`.h` files, compiling the wrapper sources instead
-of the owner sources, and optionally validating the generated artifact
-manifest. The removal schedule is tracked in
+Use textual wrapper registration with `--tu-out-dir` and explicit per-input
+outputs. Build systems should predeclare wrapper `.cpp`/`.h` files, compile the
+wrapper sources instead of owner sources, and optionally validate the generated
+artifact manifest. The removal record is tracked in
 [`DEPRECATIONS.md`](../DEPRECATIONS.md).
 
 ## Mock Manifest Phases

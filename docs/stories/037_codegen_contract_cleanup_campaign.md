@@ -34,11 +34,11 @@ Before this file, that campaign was not tracked as a story. As a result:
   (`_gentest_collect_scan_include_dirs`, `_gentest_collect_scan_macro_args`,
   and their `_from_sequence` siblings) even though the tool already reads
   `compile_commands.json` for manifest validation scans.
-- Legacy manifest mode (`OUTPUT=...` single-TU path) still compiles and runs
-  with deprecation warnings and a documented `2.0.0` removal target after
-  non-CMake migration evidence. Its `NO_INCLUDE_SOURCES` escape hatch now warns
-  through both CLI and CMake legacy-manifest entry points; removal waits for
-  the manifest-mode removal window.
+- Legacy manifest mode (`OUTPUT=...` single-TU path) is removed on the `2.0.0`
+  branch. The CMake option, CLI `--output`, legacy `--template`, and
+  `NO_INCLUDE_SOURCES` / `GENTEST_NO_INCLUDE_SOURCES` paths hard-fail with
+  replacement guidance. Direct codegen tests that used manifest output now use
+  TU-mode registration headers.
 - `xmake/gentest.lua` (1748 LOC) and `build_defs/gentest.bzl` (996 LOC) each
   reimplement scan-and-emit decisions in their host language instead of
   consuming the artifact manifest the tool already emits.
@@ -46,9 +46,10 @@ Before this file, that campaign was not tracked as a story. As a result:
   skeletons that `gentest_codegen` is already capable of emitting directly.
 - The legacy `share/cmake/gentest/scan_inspector/` install shape has package
   consumer absence coverage so stale helper packaging is caught.
-- `EXPECT_SUBSTRING` alias for `DEATH_EXPECT_SUBSTRING` warns, has a `2.0.0`
-  removal target, and has warning coverage; hard-error coverage waits for that
-  target.
+- `EXPECT_SUBSTRING` alias for `DEATH_EXPECT_SUBSTRING` is removed on the
+  `2.0.0` branch. `gentest_discover_tests(...)` now hard-fails when the
+  top-level alias is used, while `EXTRA_ARGS EXPECT_SUBSTRING` still forwards a
+  literal test argument.
 - Until this story's first slice, there was no repo-level `DEPRECATIONS.md`;
   deprecation state was scattered across warning strings and story closure
   notes.
@@ -121,9 +122,10 @@ The initial population of `DEPRECATIONS.md`:
 
 | Feature | Replacement | Owning story |
 | --- | --- | --- |
-| `gentest_attach_codegen(OUTPUT=...)` legacy single-TU manifest mode | TU-wrapper mode (default) | `037` |
-| `NO_INCLUDE_SOURCES` option | not applicable once legacy manifest mode is removed | `037` |
-| `EXPECT_SUBSTRING` argument to `gentest_discover_tests(...)` | `DEATH_EXPECT_SUBSTRING` | `037` |
+| `gentest_attach_codegen(OUTPUT=...)` legacy single-TU manifest mode | TU-wrapper mode (default) | `037` (removed in `2.0.0`) |
+| `gentest_codegen --output <file>` and `--template <file>` | TU-wrapper mode with explicit per-input outputs | `037` (removed in `2.0.0`) |
+| `NO_INCLUDE_SOURCES` option | not applicable once legacy manifest mode is removed | `037` (removed in `2.0.0`) |
+| `EXPECT_SUBSTRING` argument to `gentest_discover_tests(...)` | `DEATH_EXPECT_SUBSTRING` | `037` (removed in `2.0.0`) |
 | legacy `share/cmake/gentest/scan_inspector/` helper install shape | tool-owned source inspection; package absence guard | `037` (gated on `025` closure already done) |
 | configure-time source inspector probe in `GentestCodegen.cmake` | artifact manifest `module` fields, mock-manifest module metadata, tool-side validation, and manifest-declared textual wrapper semantics | gated on `033` |
 | CMake scan include-dir / macro collection helpers | tool-side `compile_commands.json` scan | gated on `033` |
@@ -157,7 +159,7 @@ target.
 ## Dependency DAG
 
 ```text
-           (done)        (done)        (open)       (open)      (rejected)
+           (done)        (done)        (open)       (done)      (rejected)
            034           035           015          033          036
             \             \             \            \             :
              \             \             \            \            :
@@ -172,12 +174,11 @@ Gates inside `037`:
   split and must preserve manifest-declared textual wrapper/include semantics.
 - Kill wave 2 (Lua/Bazel wrapper collapse + `.in` template removal): needs
   `015` non-CMake parity closure + manifest schema v1 frozen.
-- Kill wave 3 (legacy manifest mode hard-remove): targets `2.0.0` after one
-  release cycle of warn coverage plus consumer migration evidence from `015`.
+- Kill wave 3 (legacy manifest mode hard-remove): done on this `2.0.0`
+  branch for CMake and direct CLI entry points.
 - Kill wave 4 (`EXPECT_SUBSTRING` + `scan_inspector` install absence guard):
-  independent; the `DEPRECATIONS.md` and absence-guard slices can land
-  immediately, while `EXPECT_SUBSTRING` hard removal waits for the documented
-  removal target.
+  package install absence coverage is done; `EXPECT_SUBSTRING` hard removal is
+  done on this `2.0.0` branch.
 
 ## Rollout
 
@@ -190,10 +191,11 @@ Gates inside `037`:
      `share/cmake/gentest/scan_inspector/` stays absent. **Done via the package
      consumer install smoke.**
    - document the `EXPECT_SUBSTRING` removal target in `DEPRECATIONS.md` and
-     keep warning coverage in `gentest_discover_tests_smoke`. **Done.**
+     keep warning coverage in `gentest_discover_tests_smoke`. **Superseded by
+     the `2.0.0` removal slice.**
    - after that target, remove `EXPECT_SUBSTRING` handling from
      `gentest_discover_tests(...)` and add a CI regression that asserts the
-     hard-error behavior
+     hard-error behavior. **Done on the `2.0.0` branch.**
 4. Wave 1 (after `033` closes):
    - delete `_gentest_probe_source_inspector_executable` and related
      configure-time probe helpers from `cmake/gentest/CodegenInspector.cmake`
@@ -210,12 +212,13 @@ Gates inside `037`:
    - rewrite `build_defs/gentest.bzl` the same way; target 400 LOC
    - delete `xmake/templates/*.in` and `meson/*.in`, emit final sources from
      the tool
-6. Wave 3 (at `2.0.0`, after one release cycle of warn coverage and `015`
-   consumer migration evidence):
+6. Wave 3 (`2.0.0` legacy manifest removal branch):
    - remove legacy `OUTPUT=...` single-TU manifest mode from
-     `gentest_attach_codegen(...)`
-   - remove `NO_INCLUDE_SOURCES` option
-   - update examples and docs; add CI regression asserting hard-error behavior
+     `gentest_attach_codegen(...)`. **Done.**
+   - remove `gentest_codegen --output`, `--template`, and
+     `NO_INCLUDE_SOURCES` / `GENTEST_NO_INCLUDE_SOURCES`. **Done.**
+   - update examples and docs; add CI regression asserting hard-error behavior.
+     **Done for the removed user-facing options.**
 7. Update `STATUS.md` to mark `037` `Done` when every row in
    `DEPRECATIONS.md` is either removed or has an assigned later story.
 
@@ -255,12 +258,11 @@ test:
 - Wave 2: non-CMake consumer suites (`tests/downstream/meson_wrap_consumer`,
   `tests/downstream/xmake_xrepo_consumer`, Bazel bzlmod consumer),
   including module-variant coverage where parity landed in `015`.
-- Wave 3: full matrix of include-based and module-based consumers under both
-  TU-wrapper mode and the removed legacy manifest mode, with CI asserting
-  the hard-error message for the removed mode.
-- Wave 4: package-consumer install smoke now scans the install tree and asserts
+- Wave 3: TU-wrapper direct codegen, depfile, mock include, module PCM cache,
+  and CLI/CMake hard-error regressions for the removed legacy options.
+- Wave 4: package-consumer install smoke scans the install tree and asserts
   `share/cmake/gentest/scan_inspector/` is absent; `EXPECT_SUBSTRING`
-  hard-error coverage lands when the `2.0.0` removal target is reached.
+  hard-error coverage is part of `gentest_discover_tests_smoke`.
 
 ## Why separate from stories `015`, `032`, `033`, `036`
 
