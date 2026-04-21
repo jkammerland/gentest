@@ -366,7 +366,7 @@ inline constexpr std::string_view wrapper_stateful = R"FMT(static void {w}(void*
 )FMT";
 
 inline constexpr std::string_view case_entry =
-    R"FMT(    gentest::detail::GeneratedCase{{"{name}", &{wrapper}, "{file}", {line}, {flags}, {tags}, {reqs}, {skip_reason_init}, {fixture_init}, {lifetime}, {suite_init}}},
+    R"FMT(    gentest::detail::GeneratedCase{{"{name}", {fn}, {simple_fn}, "{file}", {line}, {flags}, {tags}, {reqs}, {skip_reason_init}, {fixture_init}, {lifetime}, {suite_init}}},
 
 )FMT";
 

@@ -326,6 +326,11 @@ std::string helper_name_for(const WrapperSpec &spec) {
     return "__gentest_lookup_helper_" + spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
 }
 
+bool uses_direct_free_test_call(const TestCaseInfo &test) {
+    return !test.is_benchmark && !test.is_jitter && test.fixture_qualified_name.empty() && test.free_fixtures.empty() &&
+           test.call_arguments.empty() && !test.is_function_template && !test.returns_value;
+}
+
 std::string build_helper_param_decls(const std::vector<FreeFixtureUse> &fixtures, bool include_self) {
     std::string params;
     bool        first = true;
@@ -662,7 +667,10 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const Wrappe
     out.reserve(cases.size() * 160);
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
         const auto &test = cases[idx];
-        const auto  spec = build_wrapper_spec(test, idx);
+        if (uses_direct_free_test_call(test)) {
+            continue;
+        }
+        const auto spec = build_wrapper_spec(test, idx);
         append_wrapper(out, spec, templates);
     }
     return out;
@@ -691,17 +699,21 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
         const std::string fixture_init     = !test.fixture_qualified_name.empty() ? fixture : std::string("{}");
         const std::string suite =
             !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}");
-        const std::string suite_init = !test.suite_name.empty() ? suite : std::string("{}");
-        append_format_runtime(
-            out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)),
-            fmt::arg("wrapper", std::string("::kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
-            fmt::arg("line", test.line), fmt::arg("is_bench", test.is_benchmark ? "true" : "false"),
-            fmt::arg("is_jitter", test.is_jitter ? "true" : "false"), fmt::arg("is_baseline", test.is_baseline ? "true" : "false"),
-            fmt::arg("flags", std::to_string(flags) + "u"), fmt::arg("tags", tag_names[idx]), fmt::arg("reqs", req_names[idx]),
-            fmt::arg("skip_reason", skip_reason), fmt::arg("skip_reason_init", skip_reason_init),
-            fmt::arg("should_skip", test.should_skip ? "true" : "false"), fmt::arg("fixture", fixture),
-            fmt::arg("fixture_init", fixture_init), fmt::arg("lifetime", fixture_lifetime_literal(test.fixture_lifetime)),
-            fmt::arg("suite", suite), fmt::arg("suite_init", suite_init));
+        const std::string suite_init       = !test.suite_name.empty() ? suite : std::string("{}");
+        const bool        direct_free_test = uses_direct_free_test_call(test);
+        const std::string wrapper_name     = std::string("::kCaseInvoke_") + std::to_string(idx);
+        const std::string fn               = direct_free_test ? "nullptr" : std::string("&") + wrapper_name;
+        const std::string simple_fn        = direct_free_test ? std::string("&") + qualify_global_callee(test.qualified_name) : "nullptr";
+        append_format_runtime(out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)), fmt::arg("wrapper", wrapper_name),
+                              fmt::arg("fn", fn), fmt::arg("simple_fn", simple_fn), fmt::arg("file", escape_string(test.filename)),
+                              fmt::arg("line", test.line), fmt::arg("is_bench", test.is_benchmark ? "true" : "false"),
+                              fmt::arg("is_jitter", test.is_jitter ? "true" : "false"),
+                              fmt::arg("is_baseline", test.is_baseline ? "true" : "false"), fmt::arg("flags", std::to_string(flags) + "u"),
+                              fmt::arg("tags", tag_names[idx]), fmt::arg("reqs", req_names[idx]), fmt::arg("skip_reason", skip_reason),
+                              fmt::arg("skip_reason_init", skip_reason_init), fmt::arg("should_skip", test.should_skip ? "true" : "false"),
+                              fmt::arg("fixture", fixture), fmt::arg("fixture_init", fixture_init),
+                              fmt::arg("lifetime", fixture_lifetime_literal(test.fixture_lifetime)), fmt::arg("suite", suite),
+                              fmt::arg("suite_init", suite_init));
     }
     return out;
 }

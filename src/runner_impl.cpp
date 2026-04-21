@@ -59,6 +59,7 @@ auto make_case(const gentest::detail::GeneratedCase &generated) -> gentest::Case
         .fixture          = generated.fixture,
         .fixture_lifetime = generated.fixture_lifetime,
         .suite            = generated.suite,
+        .simple_fn        = generated.simple_fn,
     };
 }
 } // namespace
