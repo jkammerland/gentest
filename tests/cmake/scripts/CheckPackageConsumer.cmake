@@ -371,6 +371,11 @@ if(EXISTS "${_legacy_scan_inspector_dir}")
   message(FATAL_ERROR
     "Installed package must not contain the legacy scan_inspector helper directory: '${_legacy_scan_inspector_dir}'")
 endif()
+set(_removed_codegen_inspector "${_install_prefix}/share/cmake/gentest/gentest/CodegenInspector.cmake")
+if(EXISTS "${_removed_codegen_inspector}")
+  message(FATAL_ERROR
+    "Installed package must not contain removed configure-time source inspector helper: '${_removed_codegen_inspector}'")
+endif()
 
 set(_producer_fmt_dir "")
 set(_producer_fmt_version "")

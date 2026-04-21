@@ -123,6 +123,41 @@ gentest_codegen emit-mocks \
 `emit-mocks` validates that every named-module mock belongs to a manifest
 module domain and rejects unsupported `schema` values.
 
+## Explicit Mock Aggregate Modules
+
+CMake explicit mock targets with module `DEFS` predeclare a public aggregate
+module interface and ask `gentest_codegen` to emit it:
+
+```bash
+gentest_codegen \
+  --tu-out-dir gen \
+  --tu-header-output gen/tu_0000_service.gentest.h \
+  --module-wrapper-output gen/tu_0000_service.module.gentest.cppm \
+  --tu-header-output gen/tu_0001_module_mocks.gentest.h \
+  --module-wrapper-output gen/tu_0001_module_mocks.module.gentest.cppm \
+  --mock-registry gen/module_mock_registry.hpp \
+  --mock-impl gen/module_mock_impl.hpp \
+  --mock-domain-registry-output gen/module_mock_registry__domain_0000_header.hpp \
+  --mock-domain-registry-output gen/module_mock_registry__domain_0001_service.hpp \
+  --mock-domain-impl-output gen/module_mock_impl__domain_0000_header.hpp \
+  --mock-domain-impl-output gen/module_mock_impl__domain_0001_service.hpp \
+  --mock-aggregate-module-name fixture.explicit_module_mocks \
+  --mock-aggregate-module-output gen/fixture/explicit_module_mocks.cppm \
+  tests/service.cppm tests/module_mocks.cppm \
+  -- -std=c++20 -I/path/to/gentest/include
+```
+
+The aggregate output is a build-owned product and is listed in the depfile.
+It re-exports `gentest`, `gentest.mock`, and the discovered named-module
+domains. Build-system adapters should not parse the module `DEFS` at
+configure time to write this file themselves.
+
+When an installed explicit mock target is consumed later, the buildsystem may
+only have provisional names for generated module-wrapper outputs. It should
+still pass those files with `--external-module-source=<name>=<path>`.
+`gentest_codegen` reads each candidate and only uses it for the requested
+module when the source declares that module name.
+
 ## Same-Module Mock Registration
 
 `MODULE_REGISTRATION` composes module-owned mocks by consuming the mock manifest

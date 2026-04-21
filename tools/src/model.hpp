@@ -136,6 +136,8 @@ struct CollectorOptions {
     std::filesystem::path                                               mock_registration_manifest_path;
     std::filesystem::path                                               mock_registry_path;
     std::filesystem::path                                               mock_impl_path;
+    std::filesystem::path                                               mock_aggregate_module_path;
+    std::string                                                         mock_aggregate_module_name;
     std::optional<std::filesystem::path>                                depfile_path;
     std::vector<std::string>                                            sources;
     std::unordered_map<std::string, std::string>                        module_interface_names_by_source;

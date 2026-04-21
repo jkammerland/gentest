@@ -275,28 +275,6 @@ function(_gentest_collect_imported_explicit_mock_module_sources target out_mappi
         endforeach()
     endif()
 
-    if(NOT _gentest_mappings)
-        get_target_property(_gentest_imported_module_sets "${target}" INTERFACE_CXX_MODULE_SETS)
-        if(_gentest_imported_module_sets AND NOT _gentest_imported_module_sets MATCHES "-NOTFOUND$")
-            foreach(_gentest_module_set IN LISTS _gentest_imported_module_sets)
-                get_target_property(_gentest_module_files "${target}" CXX_MODULE_SET_${_gentest_module_set})
-                if(NOT _gentest_module_files OR _gentest_module_files MATCHES "-NOTFOUND$")
-                    continue()
-                endif()
-                foreach(_gentest_module_file IN LISTS _gentest_module_files)
-                    if("${_gentest_module_file}" STREQUAL "" OR IS_DIRECTORY "${_gentest_module_file}" OR NOT EXISTS "${_gentest_module_file}")
-                        continue()
-                    endif()
-                    get_filename_component(_gentest_module_dir "${_gentest_module_file}" DIRECTORY)
-                    _gentest_try_extract_module_name("${_gentest_module_file}" _gentest_module_name "${_gentest_module_dir}")
-                    if(_gentest_module_name)
-                        list(APPEND _gentest_mappings "${_gentest_module_name}=${_gentest_module_file}")
-                    endif()
-                endforeach()
-            endforeach()
-        endif()
-    endif()
-
     list(REMOVE_DUPLICATES _gentest_mappings)
     set(${out_mappings} "${_gentest_mappings}" PARENT_SCOPE)
 endfunction()
@@ -344,21 +322,6 @@ function(gentest_add_mocks target)
 
     set(_gentest_textual_defs "")
     set(_gentest_module_defs "")
-    set(_gentest_module_def_names "")
-    set(_gentest_mock_surface_module_defs "")
-    set(_gentest_mock_surface_module_names "")
-    _gentest_collect_common_codegen_clang_args(_gentest_mock_inspection_clang_args)
-    _gentest_collect_common_codegen_system_include_args(_gentest_mock_inspection_system_include_args)
-    _gentest_collect_scan_macro_args_from_sequence(_gentest_mock_scan_macro_args _gentest_mock_scan_macro_has_genex
-        ${_gentest_mock_inspection_clang_args})
-    if(_gentest_mock_scan_macro_has_genex)
-        message(FATAL_ERROR
-            "gentest_add_mocks(${target}): source inspection for module DEFS does not support generator-expression macro state in "
-            "CLANG_ARGS. Use concrete macro arguments for module DEFS that conditionally expose gentest.mock imports.")
-    endif()
-    _gentest_collect_scan_include_dirs_from_sequence("${CMAKE_CURRENT_SOURCE_DIR}" _gentest_mock_scan_include_dirs
-        ${_gentest_mock_inspection_clang_args}
-        ${_gentest_mock_inspection_system_include_args})
     foreach(_gentest_def IN LISTS GENTEST_DEFS)
         if("${_gentest_def}" MATCHES "\\$<")
             message(FATAL_ERROR
@@ -369,24 +332,6 @@ function(gentest_add_mocks target)
         get_filename_component(_gentest_def_ext "${_gentest_def_abs}" EXT)
         if(_gentest_def_ext MATCHES "^\\.(cppm|ccm|cxxm|ixx|mxx)$")
             list(APPEND _gentest_module_defs "${_gentest_def_abs}")
-            _gentest_try_extract_module_name("${_gentest_def_abs}" _gentest_module_name
-                ${_gentest_mock_scan_include_dirs}
-                __GENTEST_SCAN_COMMAND_LINE__
-                ${_gentest_mock_scan_macro_args})
-            if(_gentest_module_name STREQUAL "")
-                message(FATAL_ERROR
-                    "gentest_add_mocks(${target}): failed to extract a named module declaration from '${_gentest_def_abs}'. "
-                    "Explicit mock module defs must declare `export module ...;`.")
-            endif()
-            list(APPEND _gentest_module_def_names "${_gentest_module_name}")
-            _gentest_file_imports_gentest_mock("${_gentest_def_abs}" _gentest_imports_gentest_mock
-                ${_gentest_mock_scan_include_dirs}
-                __GENTEST_SCAN_COMMAND_LINE__
-                ${_gentest_mock_scan_macro_args})
-            if(_gentest_imports_gentest_mock)
-                list(APPEND _gentest_mock_surface_module_defs "${_gentest_def_abs}")
-                list(APPEND _gentest_mock_surface_module_names "${_gentest_module_name}")
-            endif()
         else()
             list(APPEND _gentest_textual_defs "${_gentest_def_abs}")
         endif()
@@ -407,13 +352,7 @@ function(gentest_add_mocks target)
             message(FATAL_ERROR
                 "gentest_add_mocks(${target}): MODULE_NAME is required when DEFS contain named modules.")
         endif()
-        if(NOT _gentest_mock_surface_module_defs)
-            message(FATAL_ERROR
-                "gentest_add_mocks(${target}): module DEFS must include at least one mock-surface module that "
-                "`import`s or `export import`s `gentest.mock`. Keep provider/support modules in DEFS if needed, "
-                "but include one module that forms the public mock surface too.")
-        endif()
-    elseif(GENTEST_MODULE_NAME)
+    elseif(NOT "${GENTEST_MODULE_NAME}" STREQUAL "")
         message(FATAL_ERROR
             "gentest_add_mocks(${target}): MODULE_NAME is not yet supported for textual DEFS files. "
             "Use module DEFS when you need a public named-module surface, or omit MODULE_NAME.")
@@ -490,16 +429,6 @@ function(gentest_add_mocks target)
         _gentest_materialized_module_defs
         _gentest_module_public_files
         ${_gentest_module_defs})
-    if(_gentest_materialized_module_defs)
-        list(LENGTH _gentest_materialized_module_defs _gentest_materialized_module_count)
-        math(EXPR _gentest_last_materialized_module "${_gentest_materialized_module_count} - 1")
-        foreach(_gentest_module_idx RANGE 0 ${_gentest_last_materialized_module})
-            list(GET _gentest_materialized_module_defs ${_gentest_module_idx} _gentest_materialized_module_def)
-            list(GET _gentest_module_def_names ${_gentest_module_idx} _gentest_materialized_module_name)
-            set_source_files_properties("${_gentest_materialized_module_def}" PROPERTIES
-                GENTEST_MODULE_NAME "${_gentest_materialized_module_name}")
-        endforeach()
-    endif()
 
     set(_gentest_codegen_sources "${_gentest_materialized_module_defs}")
 
@@ -570,11 +499,21 @@ int ${_gentest_target_id}_explicit_mock_anchor = 0;\n\
                     FILES ${_gentest_materialized_module_defs})
     endif()
 
+    set(_gentest_aggregate_module "")
+    if(NOT "${GENTEST_MODULE_NAME}" STREQUAL "")
+        set(_gentest_aggregate_module_rel "${GENTEST_MODULE_NAME}")
+        string(REPLACE "." "/" _gentest_aggregate_module_rel "${_gentest_aggregate_module_rel}")
+        string(REPLACE ":" "/" _gentest_aggregate_module_rel "${_gentest_aggregate_module_rel}")
+        set(_gentest_aggregate_module "${_gentest_output_dir}/${_gentest_aggregate_module_rel}.cppm")
+    endif()
+
     gentest_attach_codegen(${target}
         OUTPUT_DIR "${_gentest_output_dir}"
         SOURCES ${_gentest_codegen_sources}
         CLANG_ARGS ${GENTEST_CLANG_ARGS}
-        DEPENDS ${GENTEST_DEPENDS})
+        DEPENDS ${GENTEST_DEPENDS}
+        MOCK_AGGREGATE_MODULE_NAME "${GENTEST_MODULE_NAME}"
+        MOCK_AGGREGATE_MODULE_OUTPUT "${_gentest_aggregate_module}")
 
     set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
     set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
@@ -635,27 +574,7 @@ int ${_gentest_target_id}_explicit_mock_anchor = 0;\n\
                     FILES ${_gentest_module_support_headers})
     endif()
 
-    if(GENTEST_MODULE_NAME)
-        set(_gentest_aggregate_module_rel "${GENTEST_MODULE_NAME}")
-        string(REPLACE "." "/" _gentest_aggregate_module_rel "${_gentest_aggregate_module_rel}")
-        string(REPLACE ":" "/" _gentest_aggregate_module_rel "${_gentest_aggregate_module_rel}")
-        set(_gentest_aggregate_module "${_gentest_output_dir}/${_gentest_aggregate_module_rel}.cppm")
-        get_filename_component(_gentest_aggregate_module_dir "${_gentest_aggregate_module}" DIRECTORY)
-        file(MAKE_DIRECTORY "${_gentest_aggregate_module_dir}")
-        set(_gentest_aggregate_module_content
-"// This file is auto-generated by gentest (explicit mocks aggregate module).\n\
-// Do not edit manually.\n\
-\n\
-module;\n\
-\n\
-export module ${GENTEST_MODULE_NAME};\n\
-\n")
-        string(APPEND _gentest_aggregate_module_content "export import gentest;\n")
-        string(APPEND _gentest_aggregate_module_content "export import gentest.mock;\n")
-        foreach(_gentest_module_name IN LISTS _gentest_module_def_names)
-            string(APPEND _gentest_aggregate_module_content "export import ${_gentest_module_name};\n")
-        endforeach()
-        file(WRITE "${_gentest_aggregate_module}" "${_gentest_aggregate_module_content}")
+    if(NOT "${GENTEST_MODULE_NAME}" STREQUAL "")
         set_source_files_properties("${_gentest_aggregate_module}" PROPERTIES GENERATED TRUE)
         target_sources(${target}
             PUBLIC
@@ -675,4 +594,3 @@ export module ${GENTEST_MODULE_NAME};\n\
         _gentest_append_target_export_property(${target} GENTEST_EXPLICIT_MOCK_MODULE_REL_SOURCES)
     endif()
 endfunction()
-

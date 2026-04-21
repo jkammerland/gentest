@@ -94,6 +94,24 @@ elseif(TEST_CASE STREQUAL "missing_named_module")
             ${CMAKE_CURRENT_SOURCE_DIR}/bad_module.cppm
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
         MODULE_NAME fixture.validation_missing_named_module)
+elseif(TEST_CASE STREQUAL "provider_only_module")
+    gentest_add_mocks(explicit_validation_provider_only_module
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/provider_only_module.cppm
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        MODULE_NAME fixture.validation_provider_only_module)
+elseif(TEST_CASE STREQUAL "implementation_unit_module")
+    gentest_add_mocks(explicit_validation_implementation_unit_module
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/implementation_unit_module.cppm
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        MODULE_NAME fixture.validation_implementation_unit_module)
+elseif(TEST_CASE STREQUAL "partition_module")
+    gentest_add_mocks(explicit_validation_partition_module
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/partition_module.cppm
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        MODULE_NAME fixture.validation_partition_module)
 elseif(TEST_CASE STREQUAL "missing_module_name")
     gentest_add_mocks(explicit_validation_missing_module_name
         DEFS

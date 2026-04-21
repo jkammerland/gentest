@@ -388,7 +388,7 @@ function(_gentest_make_artifact_manifest_validation_args)
         INCLUDES_OWNER_SOURCE REPLACES_OWNER_SOURCE COMPDB OUT_ARGS)
     set(multi_value_args
         SOURCES SOURCE_KINDS REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS OWNER_SOURCES SOURCE_REGISTRATION_OUTPUTS
-        SCAN_CONTEXT_ARGS)
+        )
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     set(_gentest_args
@@ -422,10 +422,6 @@ function(_gentest_make_artifact_manifest_validation_args)
         _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source-registration-output"
             ${GENTEST_SOURCE_REGISTRATION_OUTPUTS})
     endif()
-    if(GENTEST_SCAN_CONTEXT_ARGS)
-        list(APPEND _gentest_args ${GENTEST_SCAN_CONTEXT_ARGS})
-    endif()
-
     set(${GENTEST_OUT_ARGS} "${_gentest_args}" PARENT_SCOPE)
 endfunction()
 
@@ -714,7 +710,7 @@ function(gentest_attach_codegen target)
     endforeach()
 
     set(options STRICT_FIXTURE QUIET_CLANG MODULE_REGISTRATION)
-    set(one_value_args OUTPUT_DIR ENTRY FILE_SET)
+    set(one_value_args OUTPUT_DIR ENTRY FILE_SET MOCK_AGGREGATE_MODULE_NAME MOCK_AGGREGATE_MODULE_OUTPUT)
     set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -740,6 +736,21 @@ function(gentest_attach_codegen target)
     elseif(GENTEST_FILE_SET)
         message(FATAL_ERROR
             "gentest_attach_codegen(${target}): FILE_SET is only valid with MODULE_REGISTRATION.")
+    endif()
+    if(NOT "${GENTEST_MOCK_AGGREGATE_MODULE_NAME}" STREQUAL "" OR NOT "${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}" STREQUAL "")
+        if("${GENTEST_MOCK_AGGREGATE_MODULE_NAME}" STREQUAL "" OR "${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}" STREQUAL "")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): MOCK_AGGREGATE_MODULE_NAME and MOCK_AGGREGATE_MODULE_OUTPUT must be provided together.")
+        endif()
+        if(GENTEST_MODULE_REGISTRATION)
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): MOCK_AGGREGATE_MODULE_* is only valid with TU-wrapper mock generation.")
+        endif()
+        if("${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}" MATCHES "\\$<")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): MOCK_AGGREGATE_MODULE_OUTPUT contains generator expressions, which is not supported. "
+                "Pass a concrete path.")
+        endif()
     endif()
 
     # Scan sources: explicit SOURCES preferred, otherwise pull from target and
@@ -801,7 +812,6 @@ function(gentest_attach_codegen target)
     set(_gentest_tus "")
     set(_gentest_tu_source_entries "")
     set(_gentest_module_names "")
-    set(_gentest_manifest_validation_scan_context_args "")
     set(_gentest_skipped_genex_sources "")
     set(_gentest_seen_scan_source_keys "")
     foreach(_gentest_src IN LISTS _gentest_scan_sources)
@@ -818,22 +828,6 @@ function(gentest_attach_codegen target)
             continue()
         endif()
         list(APPEND _gentest_seen_scan_source_keys "${_gentest_src_key}")
-
-        if(GENTEST_MODULE_REGISTRATION)
-            _gentest_collect_scan_include_dirs(${target} "${_gentest_src}" _gentest_scan_include_dirs
-                ${_gentest_source_inspection_clang_args}
-                ${_gentest_source_inspection_system_include_args})
-            _gentest_collect_scan_macro_args(${target} "${_gentest_src}" _gentest_scan_macro_args _gentest_scan_macro_has_genex
-                ${_gentest_source_inspection_clang_args})
-            foreach(_gentest_scan_include_dir IN LISTS _gentest_scan_include_dirs)
-                list(APPEND _gentest_manifest_validation_scan_context_args
-                    --expected-source-scan-include-dir "${_gentest_src_abs}" "${_gentest_scan_include_dir}")
-            endforeach()
-            foreach(_gentest_scan_arg IN LISTS _gentest_scan_macro_args)
-                list(APPEND _gentest_manifest_validation_scan_context_args
-                    --expected-source-scan-arg "${_gentest_src_abs}" "${_gentest_scan_arg}")
-            endforeach()
-        endif()
 
         set(_gentest_module_name "")
         get_source_file_property(_gentest_declared_module_name "${_gentest_src}" GENTEST_MODULE_NAME)
@@ -1128,6 +1122,11 @@ function(gentest_attach_codegen target)
     foreach(_gentest_mock_impl_domain_output IN LISTS _gentest_mock_impl_domain_outputs)
         list(APPEND _command --mock-domain-impl-output ${_gentest_mock_impl_domain_output})
     endforeach()
+    if(NOT "${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}" STREQUAL "")
+        list(APPEND _command
+            --mock-aggregate-module-output ${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}
+            --mock-aggregate-module-name ${GENTEST_MOCK_AGGREGATE_MODULE_NAME})
+    endif()
 
     if(GENTEST_STRICT_FIXTURE)
         list(APPEND _command --strict-fixture)
@@ -1214,6 +1213,9 @@ function(gentest_attach_codegen target)
         if(_gentest_tu_manifest_enabled)
             list(APPEND _gentest_codegen_outputs ${_gentest_artifact_manifest})
         endif()
+        if(NOT "${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}" STREQUAL "")
+            list(APPEND _gentest_codegen_outputs ${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT})
+        endif()
     endif()
     set(_gentest_all_codegen_outputs ${_gentest_codegen_outputs})
     if(_gentest_mock_registration_manifest)
@@ -1266,7 +1268,6 @@ function(gentest_attach_codegen target)
             HEADERS ${_gentest_wrapper_headers}
             COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
             SOURCE_REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
-            SCAN_CONTEXT_ARGS ${_gentest_manifest_validation_scan_context_args}
             OUT_ARGS _gentest_manifest_validation_args)
         _gentest_add_artifact_manifest_validation_command(
             STAMP "${_gentest_manifest_validation_stamp}"

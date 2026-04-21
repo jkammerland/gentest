@@ -63,7 +63,7 @@ Preferred internal modules under `cmake/gentest/`:
   - common Clang argument collection
   - command launcher/env wrapping
   - codegen backend selection
-- `CodegenInspector.cmake`
+- `CodegenInspector.cmake` (transitional)
   - source-inspector executable discovery/probing
   - in-tree/native helper build path
   - source-inspector invocation and result extraction
@@ -78,8 +78,8 @@ Preferred internal modules under `cmake/gentest/`:
   - TU-mode preparation and attachment
   - manifest-vs-wrapper shell attachment helpers
 - `ScanDeps.cmake`
-  - scan include-dir collection
-  - scan macro argument collection
+  - scan include-dir collection (transitional)
+  - scan macro argument collection (transitional)
   - codegen dep-target traversal from the link graph
 - `DiscoverTests.cmake`
   - discovery script generation
@@ -156,6 +156,9 @@ That order is intentionally low-risk first, high-entanglement last.
 - Closure evidence:
   - `cmake/GentestCodegen.cmake` is a facade that declares configuration
     variables and includes focused modules from `cmake/gentest/`.
+  - Follow-up story `037` wave 1 subsequently deleted the transitional
+    `CodegenInspector.cmake` module and the scan macro/include-dir collectors;
+    the split still served its purpose by isolating that deletion.
   - The helper modules are installed under `share/cmake/gentest/gentest/` so
     installed `find_package(gentest CONFIG REQUIRED)` consumers load the same
     facade graph as source-tree consumers.
@@ -195,8 +198,8 @@ At minimum, each extraction step should rerun the relevant focused slice:
 - mock/explicit-mock tests after `ExplicitMocks.cmake`
 - TU-wrapper/manifest output tests after `TuMode.cmake`
 - scan-deps/public-module tests after `ScanDeps.cmake`
-- package/install/codegen-host-tool tests after `CodegenToolchain.cmake` and
-  `CodegenInspector.cmake`
+- package/install/codegen-host-tool tests after `CodegenToolchain.cmake` and,
+  while it existed, the transitional `CodegenInspector.cmake`
 - installed package-consumer configure/build coverage whenever the include graph
   of `GentestCodegen.cmake` changes
 

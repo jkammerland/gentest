@@ -142,6 +142,34 @@ if(_inspect_output_paths_msg_pos EQUAL -1)
     "--- stdout ---\n${_inspect_output_paths_out}\n--- stderr ---\n${_inspect_output_paths_err}")
 endif()
 
+execute_process(
+  COMMAND "${PROG}"
+    inspect-mocks
+    --mock-manifest-output "${_work_dir}/invalid_aggregate_phase.mock_manifest.json"
+    --mock-aggregate-module-output "${_work_dir}/invalid_aggregate_phase.cppm"
+    --mock-aggregate-module-name mock_manifest_split.invalid_aggregate_phase
+    "${_fixture_source}"
+    --
+    ${_clang_args}
+  RESULT_VARIABLE _inspect_aggregate_output_rc
+  OUTPUT_VARIABLE _inspect_aggregate_output_out
+  ERROR_VARIABLE _inspect_aggregate_output_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _inspect_aggregate_output_rc EQUAL 1)
+  message(FATAL_ERROR
+    "inspect-mocks should reject aggregate module output paths.\n"
+    "--- stdout ---\n${_inspect_aggregate_output_out}\n--- stderr ---\n${_inspect_aggregate_output_err}")
+endif()
+string(FIND "${_inspect_aggregate_output_out}\n${_inspect_aggregate_output_err}"
+  "inspect-mocks cannot be combined with final mock output paths"
+  _inspect_aggregate_output_msg_pos)
+if(_inspect_aggregate_output_msg_pos EQUAL -1)
+  message(FATAL_ERROR
+    "inspect-mocks emitted the wrong aggregate-output diagnostic.\n"
+    "--- stdout ---\n${_inspect_aggregate_output_out}\n--- stderr ---\n${_inspect_aggregate_output_err}")
+endif()
+
 set(_unexpected_registry "${_work_dir}/unexpected_mock_registry.hpp")
 set(_unexpected_artifact_manifest "${_work_dir}/unexpected_artifact_manifest.json")
 execute_process(
@@ -169,6 +197,34 @@ if(_invalid_artifact_manifest_msg_pos EQUAL -1)
   message(FATAL_ERROR
     "Discovery-only mock manifest command emitted the wrong artifact-manifest diagnostic.\n"
     "--- stdout ---\n${_invalid_artifact_manifest_out}\n--- stderr ---\n${_invalid_artifact_manifest_err}")
+endif()
+
+execute_process(
+  COMMAND "${PROG}"
+    --discover-mocks
+    --mock-manifest-output "${_work_dir}/unexpected_aggregate.mock_manifest.json"
+    --mock-aggregate-module-output "${_work_dir}/unexpected_aggregate.cppm"
+    --mock-aggregate-module-name mock_manifest_split.unexpected_aggregate
+    "${_fixture_source}"
+    --
+    ${_clang_args}
+  RESULT_VARIABLE _invalid_aggregate_manifest_rc
+  OUTPUT_VARIABLE _invalid_aggregate_manifest_out
+  ERROR_VARIABLE _invalid_aggregate_manifest_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _invalid_aggregate_manifest_rc EQUAL 1)
+  message(FATAL_ERROR
+    "Discovery-only mock manifest command should reject aggregate module outputs.\n"
+    "--- stdout ---\n${_invalid_aggregate_manifest_out}\n--- stderr ---\n${_invalid_aggregate_manifest_err}")
+endif()
+string(FIND "${_invalid_aggregate_manifest_out}\n${_invalid_aggregate_manifest_err}"
+  "--mock-manifest-output without --tu-out-dir cannot be combined with final mock output paths"
+  _invalid_aggregate_manifest_msg_pos)
+if(_invalid_aggregate_manifest_msg_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Discovery-only mock manifest command emitted the wrong aggregate-output diagnostic.\n"
+    "--- stdout ---\n${_invalid_aggregate_manifest_out}\n--- stderr ---\n${_invalid_aggregate_manifest_err}")
 endif()
 
 execute_process(
@@ -501,6 +557,65 @@ file(WRITE "${_module_manifest}" [=[
 }
 ]=])
 
+execute_process(
+  COMMAND "${PROG}"
+    emit-mocks
+    --mock-manifest-input "${_module_manifest}"
+    --mock-registry "${_work_dir}/missing_aggregate_name_mock_registry.hpp"
+    --mock-impl "${_work_dir}/missing_aggregate_name_mock_impl.hpp"
+    --mock-domain-registry-output "${_work_dir}/missing_aggregate_name_mock_registry__domain_0000_header.hpp"
+    --mock-domain-registry-output "${_work_dir}/missing_aggregate_name_mock_registry__domain_0001_service.hpp"
+    --mock-domain-impl-output "${_work_dir}/missing_aggregate_name_mock_impl__domain_0000_header.hpp"
+    --mock-domain-impl-output "${_work_dir}/missing_aggregate_name_mock_impl__domain_0001_service.hpp"
+    --mock-aggregate-module-output "${_work_dir}/missing_aggregate_name.cppm"
+  RESULT_VARIABLE _missing_aggregate_name_rc
+  OUTPUT_VARIABLE _missing_aggregate_name_out
+  ERROR_VARIABLE _missing_aggregate_name_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _missing_aggregate_name_rc EQUAL 1)
+  message(FATAL_ERROR
+    "emit-mocks should require aggregate module output/name options together.\n"
+    "--- stdout ---\n${_missing_aggregate_name_out}\n--- stderr ---\n${_missing_aggregate_name_err}")
+endif()
+string(FIND "${_missing_aggregate_name_out}\n${_missing_aggregate_name_err}"
+  "--mock-aggregate-module-output and --mock-aggregate-module-name must be provided together"
+  _missing_aggregate_name_msg_pos)
+if(_missing_aggregate_name_msg_pos EQUAL -1)
+  message(FATAL_ERROR
+    "emit-mocks emitted the wrong aggregate pair diagnostic.\n"
+    "--- stdout ---\n${_missing_aggregate_name_out}\n--- stderr ---\n${_missing_aggregate_name_err}")
+endif()
+
+execute_process(
+  COMMAND "${PROG}"
+    emit-mocks
+    --mock-manifest-input "${_manifest}"
+    --mock-registry "${_work_dir}/header_aggregate_mock_registry.hpp"
+    --mock-impl "${_work_dir}/header_aggregate_mock_impl.hpp"
+    --mock-domain-registry-output "${_work_dir}/header_aggregate_mock_registry__domain_0000_header.hpp"
+    --mock-domain-impl-output "${_work_dir}/header_aggregate_mock_impl__domain_0000_header.hpp"
+    --mock-aggregate-module-output "${_work_dir}/header_aggregate.cppm"
+    --mock-aggregate-module-name mock_manifest_split.header_aggregate
+  RESULT_VARIABLE _header_aggregate_emit_rc
+  OUTPUT_VARIABLE _header_aggregate_emit_out
+  ERROR_VARIABLE _header_aggregate_emit_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _header_aggregate_emit_rc EQUAL 1)
+  message(FATAL_ERROR
+    "emit-mocks should reject aggregate modules for header-only mock manifests.\n"
+    "--- stdout ---\n${_header_aggregate_emit_out}\n--- stderr ---\n${_header_aggregate_emit_err}")
+endif()
+string(FIND "${_header_aggregate_emit_out}\n${_header_aggregate_emit_err}"
+  "has no named-module mocks to re-export"
+  _header_aggregate_emit_msg_pos)
+if(_header_aggregate_emit_msg_pos EQUAL -1)
+  message(FATAL_ERROR
+    "emit-mocks emitted the wrong header aggregate diagnostic.\n"
+    "--- stdout ---\n${_header_aggregate_emit_out}\n--- stderr ---\n${_header_aggregate_emit_err}")
+endif()
+
 set(_stale_module_manifest "${_work_dir}/module.stale_domain.mock_manifest.json")
 file(READ "${_module_manifest}" _module_manifest_json)
 string(REPLACE
@@ -580,6 +695,8 @@ set(_module_header_domain_registry "${_work_dir}/module_mock_registry__domain_00
 set(_module_header_domain_impl "${_work_dir}/module_mock_impl__domain_0000_header.hpp")
 set(_module_service_domain_registry "${_work_dir}/module_mock_registry__domain_0001_service.hpp")
 set(_module_service_domain_impl "${_work_dir}/module_mock_impl__domain_0001_service.hpp")
+set(_module_aggregate "${_work_dir}/module_aggregate.cppm")
+set(_module_aggregate_depfile "${_work_dir}/module_aggregate.d")
 
 execute_process(
   COMMAND "${PROG}"
@@ -591,6 +708,9 @@ execute_process(
     --mock-domain-registry-output "${_module_service_domain_registry}"
     --mock-domain-impl-output "${_module_header_domain_impl}"
     --mock-domain-impl-output "${_module_service_domain_impl}"
+    --mock-aggregate-module-output "${_module_aggregate}"
+    --mock-aggregate-module-name mock_manifest_split.aggregate_mocks
+    --depfile "${_module_aggregate_depfile}"
   RESULT_VARIABLE _module_emit_rc
   OUTPUT_VARIABLE _module_emit_out
   ERROR_VARIABLE _module_emit_err
@@ -607,11 +727,34 @@ foreach(_generated IN ITEMS
     "${_module_header_domain_registry}"
     "${_module_header_domain_impl}"
     "${_module_service_domain_registry}"
-    "${_module_service_domain_impl}")
+    "${_module_service_domain_impl}"
+    "${_module_aggregate}"
+    "${_module_aggregate_depfile}")
   if(NOT EXISTS "${_generated}")
     message(FATAL_ERROR "Expected named-module emit-mocks output '${_generated}'")
   endif()
 endforeach()
+
+file(READ "${_module_aggregate}" _module_aggregate_text)
+foreach(_token IN ITEMS
+    "export module mock_manifest_split.aggregate_mocks;"
+    "export import gentest;"
+    "export import gentest.mock;"
+    "export import mock_manifest_split.module_service;")
+  string(FIND "${_module_aggregate_text}" "${_token}" _module_aggregate_token_pos)
+  if(_module_aggregate_token_pos EQUAL -1)
+    message(FATAL_ERROR "Expected aggregate module token '${_token}'.\n${_module_aggregate_text}")
+  endif()
+endforeach()
+
+file(READ "${_module_aggregate_depfile}" _module_aggregate_depfile_text)
+get_filename_component(_module_aggregate_depfile_name "${_module_aggregate}" NAME)
+string(FIND "${_module_aggregate_depfile_text}" "${_module_aggregate_depfile_name}" _module_aggregate_depfile_pos)
+if(_module_aggregate_depfile_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected aggregate module output to be listed as a depfile target.\n"
+    "Depfile: ${_module_aggregate_depfile}\n${_module_aggregate_depfile_text}")
+endif()
 
 file(READ "${_module_service_domain_registry}" _module_service_registry_text)
 foreach(_token IN ITEMS "mock_manifest_split_module::Service" "MockAccess")

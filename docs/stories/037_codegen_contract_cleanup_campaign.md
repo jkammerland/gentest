@@ -8,12 +8,12 @@ now that `gentest_codegen` owns the artifact manifest contract (stories `034` +
 version gates, so the wrappers shrink to thin manifest consumers rather than
 parallel re-implementations of C++ semantics.
 
-This is a subtraction story. It does not introduce new features or protocols.
-It sequences the dependent closures of stories `015` and `033` into one explicit
-demolition plan, and assigns owners and dates to deprecations that previously
-lived only as footnotes in other story closures. Story `032` remains adjacent
-installed-devkit work, not a `037` closure gate. Story `036` was rejected, so
-declaration-only textual registration is not a cleanup prerequisite.
+This is a subtraction story. It sequences the dependent closures of stories
+`015` and `033` into one explicit demolition plan, and assigns owners and dates
+to deprecations that previously lived only as footnotes in other story
+closures. Story `032` remains adjacent installed-devkit work, not a `037`
+closure gate. Story `036` was rejected, so declaration-only textual
+registration is not a cleanup prerequisite.
 
 ## Problem
 
@@ -24,16 +24,16 @@ Story `034` closed with the note:
 
 Before this file, that campaign was not tracked as a story. As a result:
 
-- `cmake/GentestCodegen.cmake` still ships ~500 lines of configure-time source
-  inspection (`_gentest_probe_source_inspector_executable`,
-  `_gentest_run_source_inspector`, `_gentest_extract_module_name`,
-  `_gentest_file_imports_gentest_mock`, backend resolution) even though
-  `gentest_codegen --inspect-source` and the artifact/mock manifests now expose
-  these facts at the tool boundary.
-- ~300 lines of scan include-dir and macro collection exist in CMake
-  (`_gentest_collect_scan_include_dirs`, `_gentest_collect_scan_macro_args`,
-  and their `_from_sequence` siblings) even though the tool already reads
-  `compile_commands.json` for manifest validation scans.
+- Wave 1 removed the CMake configure-time source inspector module
+  (`cmake/gentest/CodegenInspector.cmake`) and the scan include-dir / macro
+  collectors that supported it. CMake no longer parses C++ to discover module
+  names or `gentest.mock` imports before build time.
+- `gentest_codegen` now emits explicit mock aggregate module interfaces with
+  `--mock-aggregate-module-output` and `--mock-aggregate-module-name`, using
+  the same source/module classification it already computes for wrapper and
+  mock output planning. Installed consumers pass explicit module source
+  candidates to the tool; the tool verifies the candidate's actual module
+  declaration before using it.
 - Legacy manifest mode (`OUTPUT=...` single-TU path) is removed on the `2.0.0`
   branch. The CMake option, CLI `--output`, legacy `--template`, and
   `NO_INCLUDE_SOURCES` / `GENTEST_NO_INCLUDE_SOURCES` paths hard-fail with
@@ -60,7 +60,7 @@ The stories that border this work each define part of the cleanup context:
 | --- | --- | --- |
 | `015` | non-CMake (Bazel/Xmake/Meson) parity | Lua/Bazel wrapper collapse, `.in` template removal |
 | `032` | installed devkit boundary | adjacent installed API cleanup; does not gate `037` closure |
-| `033` | `GentestCodegen.cmake` modularization | configure-time source inspector probe deletion, scan-deps collection deletion |
+| `033` | `GentestCodegen.cmake` modularization | unblocked wave 1; configure-time source inspector and scan helper deletion is now landed in `037` |
 | `036` | rejected declaration-only textual registration | no longer gates `037`; textual `.cpp` sources keep wrapper/include semantics |
 
 Without a coordinating story, active dependencies can close individually while
@@ -127,8 +127,8 @@ The initial population of `DEPRECATIONS.md`:
 | `NO_INCLUDE_SOURCES` option | not applicable once legacy manifest mode is removed | `037` (removed in `2.0.0`) |
 | `EXPECT_SUBSTRING` argument to `gentest_discover_tests(...)` | `DEATH_EXPECT_SUBSTRING` | `037` (removed in `2.0.0`) |
 | legacy `share/cmake/gentest/scan_inspector/` helper install shape | tool-owned source inspection; package absence guard | `037` (gated on `025` closure already done) |
-| configure-time source inspector probe in `GentestCodegen.cmake` | artifact manifest `module` fields, mock-manifest module metadata, tool-side validation, and manifest-declared textual wrapper semantics | gated on `033` |
-| CMake scan include-dir / macro collection helpers | tool-side `compile_commands.json` scan | gated on `033` |
+| configure-time source inspector probe in CMake | tool-owned source/module classification, mock-manifest module metadata, codegen-emitted explicit mock aggregate modules, and manifest-declared textual wrapper semantics | `037` wave 1 (done) |
+| CMake scan include-dir / macro collection helpers | tool-side `compile_commands.json` scan | `037` wave 1 (done) |
 | `xmake/templates/*.in` and `meson/*.in` skeleton files | tool-emitted final sources | gated on `015` |
 | `xmake/gentest.lua` scan / emit logic | manifest consumer + file staging only | gated on `015` |
 | `build_defs/gentest.bzl` scan / emit logic | manifest consumer + file staging only | gated on `015` |
@@ -170,8 +170,9 @@ target.
 
 Gates inside `037`:
 
-- Kill wave 1 (CMake configure-time probe): needs `033` discoverable module
-  split and must preserve manifest-declared textual wrapper/include semantics.
+- Kill wave 1 (CMake configure-time probe): done after `033`; preserves
+  manifest-declared textual wrapper/include semantics and moves explicit mock
+  aggregate module emission into `gentest_codegen`.
 - Kill wave 2 (Lua/Bazel wrapper collapse + `.in` template removal): needs
   `015` non-CMake parity closure + manifest schema v1 frozen.
 - Kill wave 3 (legacy manifest mode hard-remove): done on this `2.0.0`
@@ -196,17 +197,14 @@ Gates inside `037`:
    - after that target, remove `EXPECT_SUBSTRING` handling from
      `gentest_discover_tests(...)` and add a CI regression that asserts the
      hard-error behavior. **Done on the `2.0.0` branch.**
-4. Wave 1 (after `033` closes):
-   - delete `_gentest_probe_source_inspector_executable` and related
-     configure-time probe helpers from `cmake/gentest/CodegenInspector.cmake`
-     (post-`033` location)
-   - delete configure-time `_gentest_file_imports_gentest_mock`,
-     `_gentest_extract_module_name`, `_gentest_try_extract_module_name`
-   - wire CMake consumers to read module classification from the artifact
-     manifest and mock module coverage from the mock manifest or tool-side
-     validation instead
-   - keep textual `.cpp` sources on manifest-declared wrapper/include mode;
-     do not add declaration-only textual registration as a replacement
+4. Wave 1 (after `033` closes): **Done.**
+   - deleted `cmake/gentest/CodegenInspector.cmake` and removed its include
+     from the CMake facade
+   - deleted configure-time module/import extraction and scan macro/include-dir
+     collectors from the CMake helper modules
+   - moved explicit mock aggregate module emission into `gentest_codegen`
+   - kept textual `.cpp` sources on manifest-declared wrapper/include mode;
+     declaration-only textual registration remains rejected
 5. Wave 2 (after `015` closes):
    - rewrite `xmake/gentest.lua` as a manifest consumer; target 600 LOC
    - rewrite `build_defs/gentest.bzl` the same way; target 400 LOC
@@ -252,9 +250,10 @@ Gates inside `037`:
 For each wave, run the relevant focused slice plus a package-consumer smoke
 test:
 
-- Wave 1: `033`-owned module/source-inspection regressions, textual wrapper
-  compatibility regressions, plus a package-consumer build that exercises a
-  `.cppm` test source end-to-end without configure-time inspection.
+- Wave 1: `033`-owned module/source-inspection regressions, explicit mock
+  target surface/install-export regressions, textual wrapper compatibility
+  regressions, plus a package-consumer build that exercises a `.cppm` test
+  source end-to-end without configure-time inspection.
 - Wave 2: non-CMake consumer suites (`tests/downstream/meson_wrap_consumer`,
   `tests/downstream/xmake_xrepo_consumer`, Bazel bzlmod consumer),
   including module-variant coverage where parity landed in `015`.

@@ -60,9 +60,9 @@ It assumes the current branch state, not raw worktree ancestry:
      install tree against legacy `share/cmake/gentest/scan_inspector/`, and
      keep the `EXPECT_SUBSTRING` hard-error regression green. The
      `EXPECT_SUBSTRING` alias is removed on this `2.0.0` branch.
-   - Wave 1 (unblocked by `033`): delete configure-time source inspector probe and
-     related extraction helpers from CMake while preserving textual wrapper
-     semantics.
+   - Wave 1 (unblocked by `033`): done. CMake no longer ships the
+     configure-time source inspector or scan macro/include-dir collectors, and
+     explicit mock aggregate modules are emitted by `gentest_codegen`.
    - Wave 2 (gated on `015`): rewrite `xmake/gentest.lua` and
      `build_defs/gentest.bzl` as thin manifest consumers; delete
      `xmake/templates/*.in` and `meson/*.in`.
@@ -104,10 +104,9 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ## Practical next move
 
-Finish the remaining `037` wave 1 CMake helper deletion now that `033` closed,
-then continue with `032` and `015`. Story `037` wave 2 follows `015`; the
-user-facing `2.0.0` removal slice for waves 3 and 4 is already landed on this
-branch.
+Continue with `032`, then `015`. Story `037` wave 2 follows `015`; wave 1 and
+the user-facing `2.0.0` removal slice for waves 3 and 4 are already landed on
+this branch.
 
 That ordering follows the current evidence:
 
