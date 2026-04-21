@@ -328,7 +328,7 @@ std::string helper_name_for(const WrapperSpec &spec) {
 
 bool uses_direct_free_test_call(const TestCaseInfo &test) {
     return !test.is_benchmark && !test.is_jitter && test.fixture_qualified_name.empty() && test.free_fixtures.empty() &&
-           test.call_arguments.empty() && !test.is_function_template && !test.returns_value;
+           test.call_arguments.empty() && !test.has_function_parameters && !test.is_function_template && !test.returns_value;
 }
 
 std::string build_helper_param_decls(const std::vector<FreeFixtureUse> &fixtures, bool include_self) {

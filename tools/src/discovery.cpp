@@ -517,6 +517,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.call_arguments               = call_args;
         info.is_function_template         = is_function_template;
         info.returns_value                = !func->getReturnType()->isVoidType();
+        info.has_function_parameters      = !func->parameters().empty();
         info.namespace_parts              = namespace_parts;
         info.free_fixture_types           = free_fixture_types;
         info.free_fixture_required_scopes = free_fixture_required_scopes;

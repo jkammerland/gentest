@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gentest/detail/registration_runtime.h"
 #include "gentest/detail/registry_api.h"
 
 namespace gentest::detail {
