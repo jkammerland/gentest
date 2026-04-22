@@ -38,6 +38,8 @@
 - Coverage hygiene gate: [`docs/coverage_hygiene.md`](coverage_hygiene.md)
 - Traceability standards map: [`docs/traceability_standards.md`](traceability_standards.md)
 - Consumer compile scaling lab report: [`docs/consumer_compile_scaling_lab_report.md`](consumer_compile_scaling_lab_report.md)
+- Consumer compile scaling Debug lab report:
+  [`docs/consumer_compile_scaling_debug_lab_report.md`](consumer_compile_scaling_debug_lab_report.md)
 
 ## Work items
 
