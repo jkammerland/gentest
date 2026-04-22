@@ -97,7 +97,7 @@ reconstructs the same strings twice under different names.
    - `gentest_codegen_emit_template_fixture_resolution`
    - `gentest_codegen_emit_template_parser_edges`
    - `gentest_codegen_emit_type_quoting`
-   - `gentest_codegen_manifest_depfile_aggregation`
+   - `gentest_codegen_tu_depfile_aggregation`
    - `gentest_codegen_manifest_header_shared_fixture_visibility`
    - `gentest_tu_register_symbol_collision`
    - `gentest_tu_wrapper_source_props`
@@ -120,7 +120,7 @@ reconstructs the same strings twice under different names.
   `gentest_codegen_emit_template_fixture_resolution`,
   `gentest_codegen_emit_template_parser_edges`,
   `gentest_codegen_emit_type_quoting`,
-  `gentest_codegen_manifest_depfile_aggregation`,
+  `gentest_codegen_tu_depfile_aggregation`,
   `gentest_codegen_manifest_header_shared_fixture_visibility`, and
   `gentest_tu_register_symbol_collision`, and
   `gentest_tu_wrapper_source_props`
@@ -143,7 +143,7 @@ story's unification question:
 Fresh acceptance validation from a clean `debug-system` worktree build also
 stayed green:
 
-- `ctest --preset=debug-system --output-on-failure -R '^(gentest_core_render|gentest_core_discovery|gentest_codegen_check_valid|gentest_codegen_emit_namespaced_attrs_mixed_std_first|gentest_codegen_emit_namespaced_attrs_mixed_scoped_first|gentest_codegen_emit_axis_generators|gentest_codegen_emit_parameters_pack|gentest_codegen_emit_fixture_resolution|gentest_codegen_emit_template_fixture_resolution|gentest_codegen_emit_template_parser_edges|gentest_codegen_emit_type_quoting|gentest_codegen_manifest_depfile_aggregation|gentest_codegen_manifest_header_shared_fixture_visibility|gentest_tu_register_symbol_collision|gentest_tu_wrapper_source_props)$'`
+- `ctest --preset=debug-system --output-on-failure -R '^(gentest_core_render|gentest_core_discovery|gentest_codegen_check_valid|gentest_codegen_emit_namespaced_attrs_mixed_std_first|gentest_codegen_emit_namespaced_attrs_mixed_scoped_first|gentest_codegen_emit_axis_generators|gentest_codegen_emit_parameters_pack|gentest_codegen_emit_fixture_resolution|gentest_codegen_emit_template_fixture_resolution|gentest_codegen_emit_template_parser_edges|gentest_codegen_emit_type_quoting|gentest_codegen_tu_depfile_aggregation|gentest_codegen_manifest_header_shared_fixture_visibility|gentest_tu_register_symbol_collision|gentest_tu_wrapper_source_props)$'`
   -> `15/15` passed
 
 Story `024` can close on the current branch state without another

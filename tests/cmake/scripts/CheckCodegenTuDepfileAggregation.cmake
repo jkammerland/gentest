@@ -1,14 +1,14 @@
 if(NOT DEFINED PROG)
-  message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: PROG not set")
+  message(FATAL_ERROR "CheckCodegenTuDepfileAggregation.cmake: PROG not set")
 endif()
 if(NOT DEFINED BUILD_ROOT)
-  message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: BUILD_ROOT not set")
+  message(FATAL_ERROR "CheckCodegenTuDepfileAggregation.cmake: BUILD_ROOT not set")
 endif()
 if(NOT DEFINED SOURCE_DIR)
-  message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: SOURCE_DIR not set")
+  message(FATAL_ERROR "CheckCodegenTuDepfileAggregation.cmake: SOURCE_DIR not set")
 endif()
 if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
-  message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: CODEGEN_STD not set")
+  message(FATAL_ERROR "CheckCodegenTuDepfileAggregation.cmake: CODEGEN_STD not set")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
@@ -23,7 +23,7 @@ find_program(_real_clang NAMES clang++-22 clang++-21 clang++-20 clang++ clang++.
 file(TO_CMAKE_PATH "${_real_clang}" _real_clang_norm)
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 
-set(_work_dir "${BUILD_ROOT}/codegen_manifest_depfile_aggregation")
+set(_work_dir "${BUILD_ROOT}/codegen_tu_depfile_aggregation")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(TO_CMAKE_PATH "${_work_dir}" _work_dir_norm)
@@ -32,18 +32,21 @@ set(_a_hpp "${_work_dir}/a.hpp")
 set(_b_hpp "${_work_dir}/b.hpp")
 set(_a_cpp "${_work_dir}/a.cpp")
 set(_b_cpp "${_work_dir}/b.cpp")
-set(_depfile "${_work_dir}/dep_manifest.d")
-set(_output "${_work_dir}/dep_manifest.cpp")
-set(_mock_registry "${_work_dir}/dep_manifest_mock_registry.hpp")
-set(_mock_impl "${_work_dir}/dep_manifest_mock_impl.hpp")
-set(_mock_registry_domain "${_work_dir}/dep_manifest_mock_registry__domain_0000_header.hpp")
-set(_mock_impl_domain "${_work_dir}/dep_manifest_mock_impl__domain_0000_header.hpp")
+set(_depfile "${_work_dir}/dep_tu.d")
+set(_tu_output_dir "${_work_dir}/generated")
+set(_output_a "${_tu_output_dir}/tu_a.gentest.h")
+set(_output_b "${_tu_output_dir}/tu_b.gentest.h")
+set(_mock_registry "${_work_dir}/dep_tu_mock_registry.hpp")
+set(_mock_impl "${_work_dir}/dep_tu_mock_impl.hpp")
+set(_mock_registry_domain "${_work_dir}/dep_tu_mock_registry__domain_0000_header.hpp")
+set(_mock_impl_domain "${_work_dir}/dep_tu_mock_impl__domain_0000_header.hpp")
+file(MAKE_DIRECTORY "${_tu_output_dir}")
 
 file(COPY
-  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.hpp"
-  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.hpp"
-  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.cpp"
-  "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.cpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_tu_depfile_aggregation/a.hpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_tu_depfile_aggregation/b.hpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_tu_depfile_aggregation/a.cpp"
+  "${SOURCE_DIR}/tests/cmake/codegen_tu_depfile_aggregation/b.cpp"
   DESTINATION "${_work_dir}")
 
 file(TO_CMAKE_PATH "${_a_cpp}" _a_cpp_norm)
@@ -76,11 +79,13 @@ gentest_fixture_make_compdb_entry(_b_entry
   ARGUMENTS ${_compile_command_args_b})
 gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_a_entry}" "${_b_entry}")
 
-function(_gentest_run_manifest_codegen depfile_path out_rc out_out out_err)
+function(_gentest_run_tu_codegen depfile_path out_rc out_out out_err)
   execute_process(
     COMMAND
       "${PROG}"
-      --output "${_output}"
+      --tu-out-dir "${_tu_output_dir}"
+      --tu-header-output "${_output_a}"
+      --tu-header-output "${_output_b}"
       --mock-registry "${_mock_registry}"
       --mock-impl "${_mock_impl}"
       --mock-domain-registry-output "${_mock_registry_domain}"
@@ -101,16 +106,17 @@ function(_gentest_run_manifest_codegen depfile_path out_rc out_out out_err)
 endfunction()
 
 if(_mode STREQUAL "aggregation")
-  _gentest_run_manifest_codegen("${_depfile}" _rc _out _err)
+  _gentest_run_tu_codegen("${_depfile}" _rc _out _err)
 
   if(NOT _rc EQUAL 0)
     message(FATAL_ERROR
-      "gentest_codegen failed while writing a manifest depfile. Output:\n${_out}\nErrors:\n${_err}")
+      "gentest_codegen failed while writing a TU-mode depfile. Output:\n${_out}\nErrors:\n${_err}")
   endif()
 
   file(READ "${_depfile}" _depfile_text)
   foreach(_target IN ITEMS
-      "${_output}"
+      "${_output_a}"
+      "${_output_b}"
       "${_mock_registry}"
       "${_mock_impl}"
       "${_mock_registry_domain}"
@@ -119,21 +125,21 @@ if(_mode STREQUAL "aggregation")
     string(FIND "${_depfile_text}" "${_target_name}" _pos)
     if(_pos EQUAL -1)
       message(FATAL_ERROR
-        "Manifest depfile is missing target '${_target_name}'. Full depfile:\n${_depfile_text}")
+        "TU-mode depfile is missing target '${_target_name}'. Full depfile:\n${_depfile_text}")
     endif()
   endforeach()
   foreach(_needle IN ITEMS "a.cpp" "a.hpp" "b.cpp" "b.hpp" "compile_commands.json")
     string(FIND "${_depfile_text}" "${_needle}" _pos)
     if(_pos EQUAL -1)
       message(FATAL_ERROR
-        "Manifest depfile is missing '${_needle}'. Full depfile:\n${_depfile_text}")
+        "TU-mode depfile is missing '${_needle}'. Full depfile:\n${_depfile_text}")
     endif()
   endforeach()
 elseif(_mode STREQUAL "write_failure")
   file(REMOVE_RECURSE "${_depfile}")
   file(MAKE_DIRECTORY "${_depfile}")
 
-  _gentest_run_manifest_codegen("${_depfile}" _rc _out _err)
+  _gentest_run_tu_codegen("${_depfile}" _rc _out _err)
 
   set(_all "${_out}\n${_err}")
   if(NOT _rc EQUAL 1)
@@ -151,7 +157,8 @@ elseif(_mode STREQUAL "write_failure")
   endif()
 
   foreach(_generated IN ITEMS
-      "${_output}"
+      "${_output_a}"
+      "${_output_b}"
       "${_mock_registry}"
       "${_mock_impl}"
       "${_mock_registry_domain}"
@@ -168,10 +175,10 @@ elseif(_mode STREQUAL "escaped_paths")
   file(MAKE_DIRECTORY "${_special_dir}" "${_special_generated_dir}")
 
   file(COPY
-    "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.hpp"
-    "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.hpp"
-    "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/a.cpp"
-    "${SOURCE_DIR}/tests/cmake/codegen_manifest_depfile_aggregation/b.cpp"
+    "${SOURCE_DIR}/tests/cmake/codegen_tu_depfile_aggregation/a.hpp"
+    "${SOURCE_DIR}/tests/cmake/codegen_tu_depfile_aggregation/b.hpp"
+    "${SOURCE_DIR}/tests/cmake/codegen_tu_depfile_aggregation/a.cpp"
+    "${SOURCE_DIR}/tests/cmake/codegen_tu_depfile_aggregation/b.cpp"
     DESTINATION "${_special_dir}")
 
   file(TO_CMAKE_PATH "${_special_dir}" _special_dir_norm)
@@ -182,14 +189,15 @@ elseif(_mode STREQUAL "escaped_paths")
   # Keep the integration fixture portable by avoiding ':' on Windows while
   # still exercising Make-style colon escaping on POSIX hosts.
   if(WIN32)
-    set(_special_stem "dep manifest#special$")
-    set(_special_escaped_stem "dep\\ manifest\\#special\\$")
+    set(_special_stem "dep tu#special$")
+    set(_special_escaped_stem "dep\\ tu\\#special\\$")
   else()
-    set(_special_stem "dep manifest:special#$")
-    set(_special_escaped_stem "dep\\ manifest\\:special\\#\\$")
+    set(_special_stem "dep tu:special#$")
+    set(_special_escaped_stem "dep\\ tu\\:special\\#\\$")
   endif()
   set(_special_depfile "${_special_generated_dir}/${_special_stem}.d")
-  set(_special_output "${_special_generated_dir}/${_special_stem}.cpp")
+  set(_special_output_a "${_special_generated_dir}/${_special_stem}_a.gentest.h")
+  set(_special_output_b "${_special_generated_dir}/${_special_stem}_b.gentest.h")
   set(_special_mock_registry "${_special_generated_dir}/${_special_stem}_mock_registry.hpp")
   set(_special_mock_impl "${_special_generated_dir}/${_special_stem}_mock_impl.hpp")
   set(_special_mock_registry_domain "${_special_generated_dir}/${_special_stem}_mock_registry__domain_0000_header.hpp")
@@ -222,7 +230,9 @@ elseif(_mode STREQUAL "escaped_paths")
   execute_process(
     COMMAND
       "${PROG}"
-      --output "${_special_output}"
+      --tu-out-dir "${_special_generated_dir}"
+      --tu-header-output "${_special_output_a}"
+      --tu-header-output "${_special_output_b}"
       --mock-registry "${_special_mock_registry}"
       --mock-impl "${_special_mock_impl}"
       --mock-domain-registry-output "${_special_mock_registry_domain}"
@@ -245,7 +255,8 @@ elseif(_mode STREQUAL "escaped_paths")
 
   file(READ "${_special_depfile}" _depfile_text)
   foreach(_needle IN ITEMS
-      "generated\\ dir\\#hash/${_special_escaped_stem}.cpp"
+      "generated\\ dir\\#hash/${_special_escaped_stem}_a.gentest.h"
+      "generated\\ dir\\#hash/${_special_escaped_stem}_b.gentest.h"
       "generated\\ dir\\#hash/${_special_escaped_stem}_mock_registry.hpp"
       "generated\\ dir\\#hash/${_special_escaped_stem}_mock_impl.hpp"
       "generated\\ dir\\#hash/${_special_escaped_stem}_mock_registry__domain_0000_header.hpp"
@@ -262,5 +273,5 @@ elseif(_mode STREQUAL "escaped_paths")
     endif()
   endforeach()
 else()
-  message(FATAL_ERROR "CheckCodegenManifestDepfileAggregation.cmake: unknown MODE='${_mode}'")
+  message(FATAL_ERROR "CheckCodegenTuDepfileAggregation.cmake: unknown MODE='${_mode}'")
 endif()

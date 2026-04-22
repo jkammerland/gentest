@@ -1,3 +1,4 @@
+#include "gentest/detail/registration_runtime.h"
 #include "gentest/detail/registry_runtime.h"
 #include "gentest/runner.h"
 

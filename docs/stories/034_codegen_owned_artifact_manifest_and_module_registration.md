@@ -62,10 +62,12 @@ command mode.
 
 ## Target Model
 
-The long-term registration target is to split codegen into explicit phases:
+The long-term registration target is to split registration planning and
+emission into explicit phases. The exact command names below are design
+placeholders, not current CLI:
 
 ```text
-gentest_codegen inspect
+registration planning phase
   inputs:
     - source list
     - compile database or explicit compile commands
@@ -74,7 +76,7 @@ gentest_codegen inspect
     - artifact manifest
     - depfile for discovered scan inputs
 
-gentest_codegen emit
+registration emission phase
   inputs:
     - artifact manifest
   outputs:
@@ -129,9 +131,10 @@ like:
 }
 ```
 
-The exact schema can evolve, but it must be sufficient for any supported build
-system to add generated outputs to the correct target without parsing source
-files itself.
+The stable `gentest.artifact_manifest.v1` schema is sufficient for supported
+build systems to add generated outputs to the correct target without parsing
+source files themselves. Future incompatible changes should use a new schema
+identifier.
 
 At minimum, the manifest must represent:
 
@@ -309,21 +312,9 @@ than hiding them in a build-system-specific helper:
 }
 ```
 
-Textual declaration-only registration is a possible future opt-in mode, not the
-default. It can only work for sources that make test functions and all required
-fixture/signature types visible to another translation unit:
-
-```cpp
-namespace textual_tests {
-void case_a();
-}
-
-// generated standalone registration can call textual_tests::case_a(),
-// but it cannot call anonymous-namespace or static tests in cases.cpp.
-```
-
-This stricter mode should have a separate source-style contract and diagnostics.
-It must not become the default for existing textual tests.
+Textual declaration-only registration was considered and rejected in story
+`036`. Textual `.cpp` tests keep wrapper/include mode as the compatibility
+path; named modules are the declaration-free registration path.
 
 ## Build-System Contract
 
@@ -429,7 +420,7 @@ Out of scope for the first implementation slice:
 - private module fragment support
 - public API redesign for fixture/runtime internals
 - making every non-CMake backend feature-complete in the first commit
-- making declaration-only standalone textual registration the default
+- adding declaration-only standalone textual registration
 - preserving CMake configure-time source parsers as a compatibility mechanism
 
 ## Tradeoffs
@@ -495,9 +486,8 @@ have codegen emit any generated-unit preamble it needs explicitly.
 - Textual registration keeps manifest-declared wrapper/include mode as the
   default compatibility path, with explicit `includes_owner_source` and
   `replaces_owner_source` semantics.
-- Declaration-only standalone textual registration is treated as a separate
-  opt-in mode with stricter source-style constraints, not as a default
-  acceptance criterion.
+- Declaration-only standalone textual registration is not an acceptance
+  criterion; story `036` records it as a rejected alternative.
 - Mock extraction can run independently from test registration and emits a
   reusable manifest.
 - Existing `gentest_attach_codegen(...)`, package-consumer, public-module, and
@@ -532,7 +522,7 @@ the original long-term direction are intentionally not claimed here:
 - replacing integrated module-wrapper mock attachment injection with the split
   mock protocol is tracked by
   [`035_module_mock_split_protocol_registration.md`](035_module_mock_split_protocol_registration.md)
-- declaration-only textual registration is tracked by
+- declaration-only textual registration was rejected in
   [`036_textual_declaration_only_registration.md`](036_textual_declaration_only_registration.md)
 - full non-CMake parity is tracked by
   [`015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md)
@@ -588,7 +578,7 @@ Done for the first implementation slice described above.
 - The split mock protocol still does not replace the integrated
   `--discover-mocks` path for module-wrapper source transformation and
   module-owned mock attachment injection; that is moved to story `035`.
-- Optional declaration-only textual registration is not implemented; that is
-  moved to story `036`.
+- Declaration-only textual registration is not implemented; it was rejected in
+  story `036`.
 - Full non-CMake parity is not completed by this story; that remains tracked by
   story `015`.

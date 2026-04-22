@@ -128,7 +128,7 @@ function(_gentest_run_codegen_fixture output_stem)
     message(FATAL_ERROR "_gentest_run_codegen_fixture requires at least one source")
   endif()
 
-  set(_output_path "${_generated_dir}/${output_stem}.cpp")
+  set(_tu_output_dir "${_generated_dir}/${output_stem}")
   set(_mock_registry "${_generated_dir}/${output_stem}_mock_registry.hpp")
   set(_mock_impl "${_generated_dir}/${output_stem}_mock_impl.hpp")
   set(_mock_registry_header_domain "${_generated_dir}/${output_stem}_mock_registry_domain_header.hpp")
@@ -138,11 +138,27 @@ function(_gentest_run_codegen_fixture output_stem)
   set(_mock_registry_module_domain_b "${_generated_dir}/${output_stem}_mock_registry_domain_b.hpp")
   set(_mock_impl_module_domain_b "${_generated_dir}/${output_stem}_mock_impl_domain_b.hpp")
   set(_depfile "${_generated_dir}/${output_stem}.gentest.d")
+  file(MAKE_DIRECTORY "${_tu_output_dir}")
+
+  set(_tu_output_args)
+  set(_source_index 0)
+  foreach(_source IN LISTS GENTEST_SOURCES)
+    list(APPEND
+      _tu_output_args
+      --tu-header-output
+      "${_tu_output_dir}/tu_${_source_index}.gentest.h"
+      --module-wrapper-output
+      "${_tu_output_dir}/tu_${_source_index}.module.gentest.cppm")
+    math(EXPR _source_index "${_source_index} + 1")
+  endforeach()
+  unset(_source)
+  unset(_source_index)
 
   gentest_check_run_or_fail(
     COMMAND
       "${_codegen_exe}"
-      --output "${_output_path}"
+      --tu-out-dir "${_tu_output_dir}"
+      ${_tu_output_args}
       --mock-registry "${_mock_registry}"
       --mock-impl "${_mock_impl}"
       --mock-domain-registry-output "${_mock_registry_header_domain}"
@@ -182,7 +198,7 @@ if(EXISTS "${_generated_dir}/.gentest_codegen_modules")
   message(FATAL_ERROR "Expected hashed per-target module cache directories, but found legacy shared cache directory '${_generated_dir}/.gentest_codegen_modules'")
 endif()
 
-file(GLOB _module_cache_dirs LIST_DIRECTORIES TRUE "${_generated_dir}/.gentest_codegen_modules_*")
+file(GLOB _module_cache_dirs LIST_DIRECTORIES TRUE "${_generated_dir}/*/.gentest_codegen_modules_*")
 list(SORT _module_cache_dirs)
 list(LENGTH _module_cache_dirs _module_cache_dir_count)
 _gentest_expect_equal("${_module_cache_dir_count}" "2" "module cache directory count")

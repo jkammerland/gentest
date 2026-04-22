@@ -154,6 +154,11 @@ target("gentest_xrepo_module")
 
 ## Configure and build
 
+These commands assume the downstream project already has an installed/staged
+gentest prefix in `GENTEST_XREPO_PREFIX` and has copied
+`share/gentest/xmake/gentest.lua` into `.gentest_support/`. The checked-in CTest
+proof creates that staged prefix and support copy automatically.
+
 ```bash
 export GENTEST_XREPO_PREFIX=/abs/prefix
 export GENTEST_CODEGEN_HOST_CLANG=/opt/llvm/bin/clang++
@@ -165,7 +170,13 @@ xmake f -c -y -m debug -o build/xmake-downstream \
   --cxx=/opt/llvm/bin/clang++
 xmake b gentest_xrepo_module
 xmake run gentest_xrepo_textual -- --list
-xmake run gentest_xrepo_module -- --run=downstream/module_mock --kind=test
+xmake run gentest_xrepo_module -- --run=downstream/xrepo/mock --kind=test
+```
+
+To run the checked-in proof instead of a prepared downstream project:
+
+```bash
+ctest --preset=debug-system --output-on-failure -R '^gentest_xmake_xrepo_consumer$'
 ```
 
 On Windows, use Xmake's LLVM toolchain explicitly when the module lane is
@@ -216,5 +227,7 @@ not yet separate non-CMake CI lanes.
   explicitly.
 - The public-module provider step is required for installed-prefix module users;
   that ownership is not inferred automatically.
+- `deps` can carry gentest helper metadata and package metadata, but arbitrary
+  Xmake target public include/module settings are not inferred for codegen.
 - The current package shape is validated through the checked-in fixture-local
   xrepo repository, not a published external xrepo registry entry yet.

@@ -1,11 +1,8 @@
 #include "render.hpp"
 
-#include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <vector>
 
 using gentest::codegen::FixtureDeclInfo;
@@ -42,19 +39,6 @@ int main() {
     using namespace gentest::codegen::render;
 
     Run t;
-
-    {
-        const std::filesystem::path fixture_path = std::filesystem::current_path() / "gentest_core_render_fixture.txt";
-        {
-            std::ofstream out(fixture_path, std::ios::binary);
-            out << "alpha\nbeta";
-        }
-        t.expect(read_template_file(fixture_path) == "alpha\nbeta", "read_template_file reads file contents");
-        t.expect(read_template_file(fixture_path.string() + ".missing").empty(), "read_template_file returns empty for missing file");
-
-        std::error_code ec;
-        std::filesystem::remove(fixture_path, ec);
-    }
 
     t.expect(escape_string("\\\"\n\r\t") == R"(\\\"\n\r\t)", "escape_string escapes control characters");
     t.expect(render_forward_decls({}, "ignored", "ignored").empty(), "render_forward_decls stays empty");

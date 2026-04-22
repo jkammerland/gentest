@@ -1,7 +1,9 @@
 #pragma once
 
+// Unstable generated-code registration contract. The public runner API sees the
+// `Case` model through `case_api.h`, but mutable registration stays here.
+
 #include "gentest/detail/case_api.h"
-#include "gentest/detail/runtime_config.h"
 
 #include <span>
 

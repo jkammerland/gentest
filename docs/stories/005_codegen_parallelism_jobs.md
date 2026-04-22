@@ -34,8 +34,6 @@ Parallel parsing/emission is enabled only when:
 - the invocation has **more than one** input wrapper TU, **and**
 - resolved `jobs > 1`.
 
-Manifest mode (`--output`) is currently unchanged (serial).
-
 ## High-level flow (one invocation)
 
 ```

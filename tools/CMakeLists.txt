@@ -462,8 +462,6 @@ if(UNIX AND NOT APPLE)
     endif()
 endif()
 
-## Embedded templates are used by default; --template can point to an external file if desired
-
 set(_gentest_codegen_support_includes "")
 if(DEFINED LLVM_INCLUDE_DIRS AND NOT "${LLVM_INCLUDE_DIRS}" STREQUAL "")
     list(APPEND _gentest_codegen_support_includes ${LLVM_INCLUDE_DIRS})

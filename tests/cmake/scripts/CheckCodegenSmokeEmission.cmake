@@ -29,12 +29,13 @@ endif()
 
 get_filename_component(_smoke_name "${SMOKE_SOURCE}" NAME_WE)
 set(_work_dir "${BUILD_ROOT}/codegen_smoke_emission/${_smoke_name}")
-set(_output "${_work_dir}/${_smoke_name}.gentest.cpp")
+set(_output "${_work_dir}/${_smoke_name}.gentest.h")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
 set(_codegen_args
-  --output "${_output}"
+  --tu-out-dir "${_work_dir}"
+  --tu-header-output "${_output}"
   --compdb "${_compdb_root}"
   "${_smoke_abs}"
   --)
@@ -80,17 +81,32 @@ foreach(_expected IN LISTS REQUIRED_SUBSTRINGS)
   endif()
 endforeach()
 
+foreach(_rejected IN LISTS REJECTED_SUBSTRINGS)
+  string(FIND "${_output_text}" "${_rejected}" _rejected_pos)
+  if(NOT _rejected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected generated output for '${SMOKE_SOURCE}' not to contain '${_rejected}'.\n"
+      "Generated file: ${_output}\n${_output_text}")
+  endif()
+endforeach()
+
 if(DEFINED EXPECT_COMPILE AND EXPECT_COMPILE)
   if(NOT DEFINED CXX_COMPILER OR "${CXX_COMPILER}" STREQUAL "")
     message(FATAL_ERROR "CheckCodegenSmokeEmission.cmake: CXX_COMPILER must be set when EXPECT_COMPILE=ON")
   endif()
 
+  file(TO_CMAKE_PATH "${_smoke_abs}" _smoke_include)
+  file(TO_CMAKE_PATH "${_output}" _output_include)
+  set(_compile_source "${_work_dir}/${_smoke_name}.wrapper.cpp")
+  file(WRITE "${_compile_source}"
+    "#include \"${_smoke_include}\"\n"
+    "#include \"${_output_include}\"\n")
   set(_compile_output "${_work_dir}/${_smoke_name}.o")
   gentest_make_compile_only_command_args(
     _compile_command
     COMPILER "${CXX_COMPILER}"
     STD "${CODEGEN_STD}"
-    SOURCE "${_output}"
+    SOURCE "${_compile_source}"
     OBJECT "${_compile_output}"
     INCLUDE_ARGS ${_public_include_args})
   execute_process(

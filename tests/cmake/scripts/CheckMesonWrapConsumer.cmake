@@ -179,6 +179,34 @@ if(NOT _setup_rc EQUAL 0)
 endif()
 
 execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" compile -C "${_out_dir}" -v gentest_downstream_textual_mocks
+  WORKING_DIRECTORY "${_scratch_root}/workspace"
+  RESULT_VARIABLE _mock_build_rc
+  OUTPUT_VARIABLE _mock_build_out
+  ERROR_VARIABLE _mock_build_err)
+if(NOT _mock_build_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson wrap consumer mock target compile failed.\n"
+    "stdout:\n${_mock_build_out}\n"
+    "stderr:\n${_mock_build_err}")
+endif()
+
+set(_meson_textual_dir "${_out_dir}/subprojects/gentest/meson/textual")
+foreach(_expected_mock_file IN ITEMS
+    "${_meson_textual_dir}/downstream_textual_mocks_defs.cpp"
+    "${_meson_textual_dir}/tu_0000_downstream_textual_mocks_defs.gentest.h"
+    "${_meson_textual_dir}/downstream_textual_mocks_mock_registry.hpp"
+    "${_meson_textual_dir}/downstream_textual_mocks_mock_impl.hpp"
+    "${_meson_textual_dir}/gentest_downstream_mocks.hpp")
+  if(NOT EXISTS "${_expected_mock_file}")
+    message(FATAL_ERROR
+      "Building the Meson mock target alone did not produce expected artifact '${_expected_mock_file}'.\n"
+      "stdout:\n${_mock_build_out}\n"
+      "stderr:\n${_mock_build_err}")
+  endif()
+endforeach()
+
+execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" compile -C "${_out_dir}" -v gentest_downstream_textual
   WORKING_DIRECTORY "${_scratch_root}/workspace"
   RESULT_VARIABLE _build_rc
@@ -192,14 +220,13 @@ if(NOT _build_rc EQUAL 0)
 endif()
 
 foreach(_expected_file IN ITEMS
-    "${_out_dir}/downstream_textual_mocks_defs.cpp"
-    "${_out_dir}/downstream_textual_mocks_anchor.cpp"
-    "${_out_dir}/tu_0000_downstream_textual_mocks_defs.gentest.h"
-    "${_out_dir}/downstream_textual_mocks_mock_registry.hpp"
-    "${_out_dir}/downstream_textual_mocks_mock_impl.hpp"
-    "${_out_dir}/gentest_downstream_mocks.hpp"
-    "${_out_dir}/tu_0000_downstream_textual_cases.gentest.h"
-    "${_out_dir}/gentest_downstream_textual.artifact_manifest.json")
+    "${_meson_textual_dir}/downstream_textual_mocks_defs.cpp"
+    "${_meson_textual_dir}/tu_0000_downstream_textual_mocks_defs.gentest.h"
+    "${_meson_textual_dir}/downstream_textual_mocks_mock_registry.hpp"
+    "${_meson_textual_dir}/downstream_textual_mocks_mock_impl.hpp"
+    "${_meson_textual_dir}/gentest_downstream_mocks.hpp"
+    "${_meson_textual_dir}/tu_0000_downstream_textual_cases.gentest.h"
+    "${_meson_textual_dir}/gentest_downstream_textual.artifact_manifest.json")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
       "Meson wrap consumer build did not produce expected artifact '${_expected_file}'.\n"
@@ -208,6 +235,7 @@ foreach(_expected_file IN ITEMS
   endif()
 endforeach()
 
+set(_combined_build_log "${_mock_build_out}\n${_mock_build_err}\n${_build_out}\n${_build_err}")
 foreach(_expected_depfile_flag IN ITEMS
     "--depfile"
     "--artifact-manifest"
@@ -215,16 +243,18 @@ foreach(_expected_depfile_flag IN ITEMS
     "--compile-context-id"
     "tu_0000_downstream_textual_mocks_defs.gentest.h.d"
     "tu_0000_downstream_textual_cases.gentest.h.d")
-  string(FIND "${_build_out}\n${_build_err}" "${_expected_depfile_flag}" _depfile_flag_pos)
+  string(FIND "${_combined_build_log}" "${_expected_depfile_flag}" _depfile_flag_pos)
   if(_depfile_flag_pos EQUAL -1)
     message(FATAL_ERROR
       "Meson wrap consumer build did not pass expected depfile argument '${_expected_depfile_flag}'.\n"
-      "stdout:\n${_build_out}\n"
-      "stderr:\n${_build_err}")
+      "mock stdout:\n${_mock_build_out}\n"
+      "mock stderr:\n${_mock_build_err}\n"
+      "suite stdout:\n${_build_out}\n"
+      "suite stderr:\n${_build_err}")
   endif()
 endforeach()
 
-set(_textual_manifest "${_out_dir}/gentest_downstream_textual.artifact_manifest.json")
+set(_textual_manifest "${_meson_textual_dir}/gentest_downstream_textual.artifact_manifest.json")
 file(READ "${_textual_manifest}" _textual_manifest_json)
 foreach(_expected_manifest_token IN ITEMS
     "\"kind\": \"textual-wrapper\""
@@ -242,7 +272,7 @@ foreach(_expected_manifest_token IN ITEMS
   endif()
 endforeach()
 
-set(_consumer_bin "${_out_dir}/gentest_downstream_textual")
+set(_consumer_bin "${_meson_textual_dir}/gentest_downstream_textual")
 if(NOT EXISTS "${_consumer_bin}")
   message(FATAL_ERROR "Expected built Meson wrap consumer binary was not found: ${_consumer_bin}")
 endif()

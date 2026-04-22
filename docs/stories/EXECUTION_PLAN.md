@@ -12,7 +12,17 @@ It assumes the current branch state, not raw worktree ancestry:
 ## Current branch truth
 
 - `021` through `031` are now treated as done at the current evidence level
-- the remaining future cleanups are stories `032` and `033`
+- `034` and `035` closed with cleanup residue explicitly deferred to `037`
+- story `036` is rejected; declaration-only textual registration is no longer
+  part of the implementation plan
+- story `033` is done: `GentestCodegen.cmake` is now a thin facade over
+  installed focused modules in `cmake/gentest/`
+- story `032` is done: generated code now uses explicit `registration_runtime`
+  / `generated_runtime` devkit headers instead of broad fixture/registry
+  runtime-detail headers
+- story `015` is done for the supported non-CMake scope
+- the remaining story-tracked cleanup is the cross-cutting cleanup campaign
+  `037`
 
 ## Working rules
 
@@ -33,54 +43,53 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ### Remaining implementation
 
-1. Story `033`: split `GentestCodegen.cmake` into focused private modules.
-   - Keep `GentestCodegen.cmake` as the installed/public facade.
-   - Extract self-contained helper families into `cmake/gentest/*.cmake`.
-   - Start with `DiscoverTests.cmake` as the first behavior-preserving slice.
-   - Preserve existing public CMake entry points and regression coverage while
-     the internal file structure changes.
-
-2. Story `032`: split the generated-code/devkit boundary from the installed
-   runtime-detail compatibility layer.
-   - Keep `gentest/runner.h` and `import gentest;` unchanged.
-   - Reduce generated-code and runtime-internal support dependence on broad
-     installed detail headers.
-   - Decide and implement the end state for the `gentest/fixture.h` /
-     `gentest/registry.h` compatibility shims.
-   - Preserve package/module downstream coverage on every slice.
+1. Story `037`: codegen contract cleanup campaign.
+   - Wave 4 (independent, cheap): keep `DEPRECATIONS.md` current, guard the
+     install tree against legacy `share/cmake/gentest/scan_inspector/`, and
+     keep the `EXPECT_SUBSTRING` hard-error regression green. The
+     `EXPECT_SUBSTRING` alias is removed on this `2.0.0` branch.
+   - Wave 1 (unblocked by `033`): done. CMake no longer ships the
+     configure-time source inspector or scan macro/include-dir collectors, and
+     explicit mock aggregate modules are emitted by `gentest_codegen`.
+   - Wave 2 (unblocked by `015`): rewrite `xmake/gentest.lua` and
+     `build_defs/gentest.bzl` as thin manifest consumers; the Meson textual
+     helper is already off its `.in` templates and `meson/*.in` is deleted;
+     delete `xmake/templates/*.in`.
+   - Wave 3 (this branch is the `2.0.0` removal branch): user-facing removals
+     are landed for legacy `OUTPUT=...` manifest mode, CLI `--output`, CLI
+     `--template`, `NO_INCLUDE_SOURCES`, CLI `--no-include-sources`,
+     `GENTEST_NO_INCLUDE_SOURCES`, and top-level `EXPECT_SUBSTRING`.
 
 ## Closure criteria
 
-- `032`: generated-code support depends on a smaller explicit devkit contract
-  rather than the broad installed fixture/registry runtime-detail layer.
-- `032`: runtime-internal generated-code support includes are migrated to the
-  same smaller devkit contract.
-- `032`: `gentest/fixture.h` and `gentest/registry.h` are either reduced
-  further or left only as explicitly unstable compatibility shims with a
-  smaller payload than today.
-- `032`: `gentest_public_module_surface`,
-  `gentest_public_module_detail_hidden`,
-  `gentest_runtime_shared_context_exports`, and
-  `gentest_package_consumer_legacy_detail_contract` remain green.
-- `032`: `gentest_install_only_codegen_default`,
-  `gentest_package_consumer_workdir_isolation`, and
-  `gentest_package_consumer_executable_path` remain green.
-- `032`: generated-code package and non-CMake downstream lanes remain green.
-- `033`: all private helper implementations currently living in
-  `GentestCodegen.cmake` move into focused modules under `cmake/gentest/`,
-  leaving `GentestCodegen.cmake` as a facade for config declarations,
-  `include(...)`, and public entry-point export/dispatch.
-- `033`: the installed package surface remains correct after the split,
-  including install/export of any new `cmake/gentest/*.cmake` modules required
-  by `find_package(gentest CONFIG REQUIRED)`.
-- `033`: extraction-specific regression slices stay green as each subsystem is
-  moved, especially discovery, explicit mocks, TU-wrapper/manifest outputs,
-  scan-deps/public-module flows, and package/install/codegen-host-tool flows.
+- `032`: closed; generated-code support now depends on explicit
+  `registration_runtime` / `generated_runtime` devkit contracts, public
+  runner/module surfaces stay narrow, direct installed detail headers have
+  package/export smoke coverage, and package/non-CMake downstream lanes were
+  revalidated for the boundary split under their existing CTest
+  tool-availability policies.
+- `033`: closed; follow-up CMake deletion work is now part of `037` wave 1.
+- `015`: closed for the supported non-CMake scope; Meson remains textual-only,
+  Xmake downstream helper coverage is staged through xrepo, and Bazel
+  downstream helper coverage is staged through Bzlmod.
+- `037`: `DEPRECATIONS.md` exists at the repo root, covers every deprecated
+  feature or scheduled cleanup item with warn-since/removal-target information,
+  and is linked from `README.md`, `docs/index.md`, and `STATUS.md`.
+- `037`: the LOC-reduction targets per wrapper in story `037` are met or
+  beaten, measured across the facade file plus any new split modules so the
+  campaign cannot succeed by reshuffling alone.
+- `037`: every removal wave lands a CI regression that asserts the deprecated
+  feature is gone (hard-error for removed options, missing-file for removed
+  install paths, missing-subcommand for removed wrapper calls).
+- `037`: the public user-facing contracts (`gentest_attach_codegen`,
+  `gentest_add_mocks`, `gentest_discover_tests`) stay stable through the
+  campaign except for the deliberately removed legacy options.
+
 ## Practical next move
 
-Take story `033` first when the repo wants a low-risk structural cleanup.
-Take story `032` only after that, or when the repo is ready for another
-package/module contract cleanup pass.
+Continue with `037` wave 2. Story `015`, story `032`, wave 1, and the
+user-facing `2.0.0` removal slice for waves 3 and 4 are already landed on this
+branch.
 
 That ordering follows the current evidence:
 
@@ -88,8 +97,6 @@ That ordering follows the current evidence:
   reopened `025`, `028`, and `031` slices are now re-closed by validated
   implementation work
 - `023` and `026` are now closed at their current scope
-- `033` is a future behavior-preserving internal modularization pass for the
-  remaining large CMake integration layer
-- `032` is a future devkit/generated-code boundary cleanup with a different
-  risk profile than the already-closed public-surface and helper-simplification
-  stories
+- `033` is closed and provides the internal module boundaries for `037`
+- `032` is closed and no longer blocks the non-CMake parity work
+- `015` is closed and no longer blocks the cleanup campaign

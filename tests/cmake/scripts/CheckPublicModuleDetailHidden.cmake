@@ -13,8 +13,11 @@ endif()
 file(READ "${_module_path}" _module_text)
 
 set(_forbidden_exports
+  "using ::gentest::detail::SharedFixtureScope"
   "using ::gentest::detail::SharedFixtureRegistration"
   "using ::gentest::detail::get_shared_fixture"
+  "using ::gentest::detail::register_cases"
+  "using ::gentest::detail::register_shared_fixture"
   "using ::gentest::detail::setup_shared_fixtures"
   "using ::gentest::detail::snapshot_registered_cases"
   "using ::gentest::detail::teardown_shared_fixtures")

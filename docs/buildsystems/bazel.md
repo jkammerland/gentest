@@ -49,7 +49,7 @@ on the same toolchain.
 ```python
 module(name = "gentest_downstream_fixture")
 
-bazel_dep(name = "gentest", version = "0.0.0")
+bazel_dep(name = "gentest", version = "1.0.0")
 
 local_path_override(
     module_name = "gentest",
@@ -131,37 +131,54 @@ your_project/
 
 ## Build and run
 
+These commands assume a prepared downstream Bzlmod project with a concrete
+`MODULE.bazel`. The checked-in fixture stores `MODULE.bazel.in`; the CTest proof
+configures and stages it before invoking Bazel.
+
 ```bash
 HOST_CLANG=/opt/llvm/bin/clang++
 HOST_CC=/opt/llvm/bin/clang
 RES_DIR="$($HOST_CLANG -print-resource-dir)"
 
+GENTEST_BAZEL_FLAGS=(
+  --experimental_cpp_modules
+  --action_env=CC
+  --action_env=CXX
+  --action_env=GENTEST_CODEGEN_HOST_CLANG
+  --action_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --host_action_env=CC
+  --host_action_env=CXX
+  --host_action_env=GENTEST_CODEGEN_HOST_CLANG
+  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --repo_env=CC
+  --repo_env=CXX
+  --repo_env=GENTEST_CODEGEN_HOST_CLANG
+  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
+)
+
 GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
 GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
 CC="$HOST_CC" \
 CXX="$HOST_CLANG" \
-bazelisk build //:gentest_downstream_module \
-  --experimental_cpp_modules \
-  --action_env=CC \
-  --action_env=CXX \
-  --action_env=GENTEST_CODEGEN_HOST_CLANG \
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
-  --host_action_env=CC \
-  --host_action_env=CXX \
-  --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR \
-  --repo_env=CC \
-  --repo_env=CXX \
-  --repo_env=GENTEST_CODEGEN_HOST_CLANG \
-  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
+bazelisk build "${GENTEST_BAZEL_FLAGS[@]}" //:gentest_downstream_module
 
 GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
 GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
-bazelisk run //:gentest_downstream_textual -- --list
+CC="$HOST_CC" \
+CXX="$HOST_CLANG" \
+bazelisk run "${GENTEST_BAZEL_FLAGS[@]}" //:gentest_downstream_textual -- --list
 
 GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
 GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
-bazelisk run //:gentest_downstream_module -- --run=downstream/module_mock --kind=test
+CC="$HOST_CC" \
+CXX="$HOST_CLANG" \
+bazelisk run "${GENTEST_BAZEL_FLAGS[@]}" //:gentest_downstream_module -- --run=downstream/bazel/mock --kind=test
+```
+
+To run the checked-in proof instead of a prepared downstream project:
+
+```bash
+ctest --preset=debug-system --output-on-failure -R '^gentest_bazel_bzlmod_consumer$'
 ```
 
 ## Checked-in proofs
@@ -193,6 +210,9 @@ an explicitly configured module-capable Clang toolchain.
 - This is source-package / Bzlmod support, not a prebuilt binary package.
 - `gentest_add_mocks_textual(...)` currently accepts exactly one defs file.
 - `gentest_attach_codegen_*` currently require same-package `mock_targets`.
+- `deps` are final target dependencies. Codegen consumes explicit
+  `mock_targets`, `source_includes`, gentest metadata providers, and fixed
+  support inputs; arbitrary dependency include/module metadata is not inferred.
 - The repo still bootstraps `gentest_codegen` via CMake inside Bazel.
 - The module path remains toolchain-sensitive and expects explicit host-tool
   configuration.

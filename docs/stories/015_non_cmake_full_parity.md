@@ -15,12 +15,12 @@ the unfinished deliverable.
 
 ## Status
 
-Open.
+Complete for the supported non-CMake scope.
 
 This is the named follow-up for story `034`'s full non-CMake parity gap. The
-checked-in repo-local backend slices are useful evidence, but this story remains
-open until the documented helper surfaces and downstream/package-quality
-coverage reach the acceptance criteria below.
+closed scope is explicit textual mocks everywhere, named-module suites and
+module mocks where the backend is intentionally supported, and honest
+downstream helper documentation/tests for Meson, Xmake, and Bazel.
 
 ## Current state
 
@@ -30,23 +30,31 @@ Implemented already:
   repository suites.
 - Legacy `gentest_codegen --output ...` manifest mode has been removed from the
   active non-CMake suite integrations.
-- Meson has a repo-local textual consumer target.
-- Xmake has repo-local textual and module helper APIs in
-  [`xmake/gentest.lua`](../../xmake/gentest.lua).
-- Bazel has repo-local textual and module macros in
-  [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl).
+- Meson has a textual-only declarative helper in
+  [`meson/textual/meson.build`](../../meson/textual/meson.build), exercised by
+  the downstream wrap fixture. Its textual wrapper sources and generated mock
+  public headers are emitted by `gentest_codegen`, not checked-in Meson
+  templates.
+- Xmake has textual and module helper APIs in
+  [`xmake/gentest.lua`](../../xmake/gentest.lua), staged through the xrepo
+  downstream fixture.
+- Bazel has textual and module macros in
+  [`build_defs/gentest.bzl`](../../build_defs/gentest.bzl), with a public
+  downstream entrypoint in [`bazel/defs.bzl`](../../bazel/defs.bzl).
 - All three buildsystem guides now document the current repo-local surfaces:
   - [`docs/buildsystems/meson.md`](../buildsystems/meson.md)
   - [`docs/buildsystems/xmake.md`](../buildsystems/xmake.md)
   - [`docs/buildsystems/bazel.md`](../buildsystems/bazel.md)
 
-Still missing for real parity:
+Documented product limits, not story blockers:
 
-- packaged/downstream Meson helper APIs
-- install/export-quality non-CMake surfaces
-- hermetic/polished Bazel codegen bootstrap
-- API polish for advanced codegen options outside the checked-in repo-local use
-  cases
+- Meson named-module support remains intentionally unsupported.
+- Bazel still bootstraps the repo-local `gentest_codegen` through CMake and is
+  not a prebuilt binary package.
+- Xmake xrepo coverage uses a fixture-local repository, not a published xrepo
+  registry entry.
+- Advanced arbitrary-dependency metadata inference is intentionally limited and
+  documented per backend.
 
 ## Product direction
 
@@ -61,14 +69,27 @@ Required design rules:
 4. Module defs stay module-based.
 5. Mock generation and test codegen are two separate user-facing operations.
 6. Any metadata handoff between them is internal implementation detail.
-7. Manifest mode stays legacy/fallback only.
+7. Manifest mode is removed in `2.0.0`; non-CMake parity must use
+   TU-wrapper/artifact-manifest flows.
 
 ## Public model
 
-Each non-CMake backend should expose only these two conceptual APIs. The kind
-must be explicit in the API. The implementation may validate that the provided
-files really match the declared kind, but it should not auto-detect or silently
-switch modes.
+Each non-CMake backend exposes the two conceptual operations below. Backend
+spelling is intentionally native rather than identical:
+
+- Meson uses `gentest_textual_mocks` / `gentest_textual_suites` dictionaries
+  followed by `subdir('subprojects/gentest/meson/textual')`, because Meson does
+  not provide user-defined functions. This surface is textual-only and rejects
+  `kind = 'modules'`.
+- Xmake uses `gentest_add_mocks({...})` and
+  `gentest_attach_codegen({...})` with explicit `kind`.
+- Bazel uses kind-specific public macros:
+  `gentest_add_mocks_textual`, `gentest_attach_codegen_textual`,
+  `gentest_add_mocks_modules`, and `gentest_attach_codegen_modules`.
+
+The kind must be explicit in the API where the backend supports more than one
+kind. The implementation may validate that the provided files really match the
+declared kind, but it should not auto-detect or silently switch modes.
 
 ### 1. Add mocks
 
@@ -161,7 +182,8 @@ This is the only real coupling between the two user-facing operations.
 
 Current repo state:
 
-- there is still no reusable Meson helper API
+- a reusable textual declarative helper exists at
+  [`meson/textual/meson.build`](../../meson/textual/meson.build)
 - the checked-in repo supports textual consumers only
 - Meson named-module targets are intentionally unsupported
 - the textual path still snapshots support headers/fragments at configure time,
@@ -170,12 +192,12 @@ Current repo state:
   only as a fallback when Meson does not resolve a system `fmt` dependency via
   `pkg-config`
 
-Open work:
+Closed decision:
 
-- decide whether Meson should grow a real module helper surface at all
-- keep the API shape explicit even while module execution is unsupported
-- if Meson module behavior becomes reliable enough later, reintroduce a real
-  module target on top of the same 2-step contract
+- Meson is textual-only for this story.
+- `kind = 'modules'` fails fast rather than pretending module support exists.
+- If Meson module behavior becomes reliable enough later, it should be a new
+  story on top of the same explicit mock/codegen product model.
 
 ### Xmake
 
@@ -195,9 +217,9 @@ Current repo state:
 - the checked-in Linux workflow validates both the textual and module consumers
   through list/test/mock/bench/jitter execution under a Clang contract
 
-Open work:
+Documented follow-up limits:
 
-- package/version the helper layer for downstream consumers
+- publish a real external xrepo registry entry if/when needed
 - expose more advanced external-module mapping control without forcing users to
   patch the helper
 - add broader workflow coverage beyond the checked-in repo-local targets
@@ -214,9 +236,8 @@ Current repo state:
   Clang + `--experimental_cpp_modules` contract, including
   test/mock/bench/jitter execution
 
-Open work:
+Documented follow-up limits:
 
-- turn the repo-local macros into a cleaner downstream rule surface
 - make the codegen bootstrap more hermetic
 - broaden module-path workflow coverage beyond the checked-in direct consumer
   lane
@@ -234,25 +255,23 @@ Open work:
 
 Current status:
 
-- Meson: repo-local textual slice implemented
-- Xmake: repo-local textual slice implemented
-- Bazel: repo-local textual slice implemented
+- Meson: downstream textual helper implemented
+- Xmake: downstream textual helper implemented through the xrepo fixture
+- Bazel: downstream textual helper implemented through the Bzlmod fixture
 
 ### Phase 3: named-module tests
 
 Status:
 
 - Meson: no checked-in module target; modules remain intentionally unsupported
-- Xmake: repo-local helper path exists
-- Bazel: repo-local macro path exists
+- Xmake: helper path exists and is covered by the xrepo fixture
+- Bazel: macro path exists and is covered by the Bzlmod fixture
 
 Remaining work:
 
-- turn the supported repo-local paths into a downstream contract
 - keep Meson in explicit fail-fast mode unless its module backend becomes
   reliable enough to justify a real checked-in path
-- add workflow coverage for at least one supported module lane for each backend
-  that intentionally supports modules
+- add more workflow coverage only as backend/toolchain risk justifies it
 
 ### Phase 4: explicit module mocks
 
@@ -264,8 +283,6 @@ Status:
 
 Remaining work:
 
-- package/polish the supported APIs
-- document downstream expectations and limits
 - keep Meson docs/tests explicit about the unsupported module boundary until
   the backend status changes
 - add stronger regression and workflow coverage around the supported module
@@ -273,14 +290,15 @@ Remaining work:
 
 ### Phase 5: downstream/reusable API polish
 
-- stabilize public helper names/arguments
-- document downstream usage
-- add package/export or equivalent downstream-consumer coverage where the
-  backend supports it
+- Meson: declarative textual helper documented and covered by the downstream
+  wrap fixture
+- Xmake: helper Lua layer documented and covered by the xrepo fixture
+- Bazel: public `bazel/defs.bzl` entrypoint documented and covered by the
+  Bzlmod fixture
 
 ## Acceptance criteria
 
-Full parity is reached when:
+The supported-scope parity target is reached when:
 
 - Meson, Xmake, and Bazel each expose a documented helper surface for the
   supported path
@@ -294,6 +312,9 @@ Full parity is reached when:
 - the remaining repo-local-only implementation quirks are either removed or
   documented as intentional product limits
 
+Current closing state: these criteria are satisfied for the supported scope.
+Known backend limits are documented in the buildsystem guides and below.
+
 ## Current rough edges
 
 The checked-in repo-local implementation is useful, but several details remain
@@ -304,30 +325,32 @@ and are intentionally documented here rather than treated as invisible debt.
 - `mock_targets` are still same-package only on the repo-local path
 - the codegen bootstrap is still repo-local and not yet hermetic or packaged as
   a downstream rule set
+- arbitrary dependency metadata is not inferred for codegen; callers must use
+  explicit `mock_targets`, `source_includes`, and gentest metadata providers
 
 ### Meson
 
-- module API shape exists, but `kind=modules` intentionally fails fast rather
-  than executing
+- the textual declarative helper exists, and `kind=modules` intentionally fails
+  fast rather than executing
 - the textual path still snapshots support headers/fragments at configure time,
   so adding new support includes still requires `meson setup --reconfigure`
-- there is still no reusable/published Meson helper module; the checked-in
-  wiring is repo-local
+- the helper is a Meson `subdir()` fragment rather than a function because
+  Meson does not support user-defined functions
 
 ### Xmake
 
-- the helper in [`xmake/gentest.lua`](../../xmake/gentest.lua) is usable, but it
-  is still a repo-local helper rather than a separately packaged integration
 - the current validation is strong for the checked-in targets, but it is still
   centered on repo-local consumer shapes rather than arbitrary downstream
   project layouts
+- arbitrary target public include/module metadata is not inferred for codegen;
+  callers should pass explicit gentest deps/metadata or codegen arguments
 
 ### General
 
 - some coverage is intentionally source-shape/static-contract oriented and is
   paired with separate runtime backend smoke tests
-- the non-CMake support is honest and working for the checked-in scope, but it
-  is not yet install/export-quality across all backends
+- the non-CMake support is honest and working for the documented scope; broader
+  package-manager publication and hermetic bootstrap work are follow-ups
 
 ## Non-goals
 

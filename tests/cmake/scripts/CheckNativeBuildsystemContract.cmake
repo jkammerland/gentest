@@ -18,13 +18,19 @@ foreach(_required IN ITEMS
     "${_xmake_file}"
     "${_xmake_helper_file}"
     "${_bazel_rules_file}"
-    "${_bazel_root_file}"
+    "${_bazel_root_file}")
+  if(NOT EXISTS "${_required}")
+    message(FATAL_ERROR "Missing native backend fixture: ${_required}")
+  endif()
+endforeach()
+
+foreach(_obsolete IN ITEMS
     "${SOURCE_DIR}/meson/tu_wrapper.cpp.in"
     "${SOURCE_DIR}/meson/textual_mock_defs.cpp.in"
     "${SOURCE_DIR}/meson/anchor.cpp.in"
     "${SOURCE_DIR}/meson/textual_mock_public.hpp.in")
-  if(NOT EXISTS "${_required}")
-    message(FATAL_ERROR "Missing native backend fixture: ${_required}")
+  if(EXISTS "${_obsolete}")
+    message(FATAL_ERROR "Obsolete Meson template should be codegen-owned now: ${_obsolete}")
   endif()
 endforeach()
 
@@ -34,12 +40,12 @@ if(NOT _meson_helper_pos EQUAL -1)
   message(FATAL_ERROR "meson.build must not route textual codegen through scripts/gentest_buildsystem_codegen.py anymore.")
 endif()
 foreach(_expected IN ITEMS
-    "wrapper_template = files('meson/tu_wrapper.cpp.in')"
-    "textual_mock_template = files('meson/textual_mock_defs.cpp.in')"
     "Meson named-module support is"
     "'gentest_consumer_textual_meson'"
     "'gen_consumer_textual_mocks'"
     "'--tu-out-dir'"
+    "'--textual-wrapper-output'"
+    "'--mock-public-header'"
     "'--depfile'"
     "'--artifact-manifest'"
     "depfile:")

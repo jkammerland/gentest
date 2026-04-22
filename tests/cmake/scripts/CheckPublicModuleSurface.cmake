@@ -105,4 +105,63 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+function(gentest_expect_generated_boundary file required_include)
+  if(NOT EXISTS "${file}")
+    message(FATAL_ERROR "Expected generated public-module artifact '${file}' to exist")
+  endif()
+  file(READ "${file}" _generated_text)
+  string(FIND "${_generated_text}" "${required_include}" _required_pos)
+  if(_required_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected generated public-module artifact '${file}' to contain '${required_include}'.\n${_generated_text}")
+  endif()
+  foreach(_rejected IN ITEMS
+      "#include \"gentest/detail/fixture_runtime.h\""
+      "#include \"gentest/detail/registry_runtime.h\"")
+    string(FIND "${_generated_text}" "${_rejected}" _rejected_pos)
+    if(NOT _rejected_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Generated public-module artifact '${file}' should not include '${_rejected}'.\n${_generated_text}")
+    endif()
+  endforeach()
+endfunction()
+
+gentest_expect_generated_boundary(
+  "${_consumer_build_dir}/gentest_codegen/tu_0000_cases.registration.gentest.cpp"
+  "#include \"gentest/detail/generated_runtime.h\"")
+gentest_expect_generated_boundary(
+  "${_consumer_build_dir}/gentest_codegen/tu_0000_cases.gentest.h"
+  "#include \"gentest/detail/registration_runtime.h\"")
+
+function(gentest_expect_public_module_hidden_target target expected_api_pattern)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_dir}" --target "${target}"
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _hidden_rc
+    OUTPUT_VARIABLE _hidden_out
+    ERROR_VARIABLE _hidden_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(_hidden_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Public module target '${target}' should not compile; generated-runtime detail APIs must stay hidden.\n"
+      "--- stdout ---\n${_hidden_out}\n--- stderr ---\n${_hidden_err}")
+  endif()
+
+  set(_hidden_all_output "${_hidden_out}\n${_hidden_err}")
+  if(NOT _hidden_all_output MATCHES "gentest::detail"
+     OR NOT _hidden_all_output MATCHES "${expected_api_pattern}")
+    message(FATAL_ERROR
+      "Public module target '${target}' failed, but not with the expected hidden API diagnostic.\n"
+      "Expected output to mention gentest::detail and '${expected_api_pattern}'.\n"
+      "--- stdout ---\n${_hidden_out}\n--- stderr ---\n${_hidden_err}")
+  endif()
+endfunction()
+
+gentest_expect_public_module_hidden_target(public_module_hides_register_cases "register_cases")
+gentest_expect_public_module_hidden_target(public_module_hides_snapshot_registered_cases "snapshot_registered_cases")
+gentest_expect_public_module_hidden_target(public_module_hides_shared_fixture_scope "SharedFixtureScope")
+gentest_expect_public_module_hidden_target(public_module_hides_register_shared_fixture "register_shared_fixture|SharedFixtureScope")
+
 message(STATUS "Observed public module surface consumer success")

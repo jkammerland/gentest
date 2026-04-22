@@ -62,19 +62,20 @@ Adapters may assert that the manifest contains the predeclared outputs and the
 expected schema. They should not use generated JSON to invent new outputs after
 their build graph has been finalized.
 
-## Legacy Manifest Mode
+## Removed Legacy Manifest Mode
 
-`gentest_codegen --output <file>` emits one generated source file that includes
-all input sources. In CMake this is selected with
-`gentest_attach_codegen(... OUTPUT <file>)`. This mode is deprecated and kept as
-a fallback for multi-config generators, bootstrapping, and constrained build
-graphs that cannot yet predeclare per-TU wrapper artifacts.
+`gentest_codegen --output <file>` and
+`gentest_attach_codegen(... OUTPUT <file>)` were removed in `2.0.0`. They now
+hard-fail with migration guidance instead of producing a single generated
+source that includes all inputs. `NO_INCLUDE_SOURCES`,
+`GENTEST_NO_INCLUDE_SOURCES`, and `gentest_codegen --template <file>` were
+removed with that mode.
 
-New integrations should use textual wrapper registration with `--tu-out-dir`
-and explicit per-input outputs. Existing manifest-mode users should migrate by
-predeclaring wrapper `.cpp`/`.h` files, compiling the wrapper sources instead
-of the owner sources, and optionally validating the generated artifact
-manifest.
+Use textual wrapper registration with `--tu-out-dir` and explicit per-input
+outputs. Build systems should predeclare wrapper `.cpp`/`.h` files, compile the
+wrapper sources instead of owner sources, and optionally validate the generated
+artifact manifest. The removal record is tracked in
+[`DEPRECATIONS.md`](../DEPRECATIONS.md).
 
 ## Mock Manifest Phases
 
@@ -122,6 +123,41 @@ gentest_codegen emit-mocks \
 `emit-mocks` validates that every named-module mock belongs to a manifest
 module domain and rejects unsupported `schema` values.
 
+## Explicit Mock Aggregate Modules
+
+CMake explicit mock targets with module `DEFS` predeclare a public aggregate
+module interface and ask `gentest_codegen` to emit it:
+
+```bash
+gentest_codegen \
+  --tu-out-dir gen \
+  --tu-header-output gen/tu_0000_service.gentest.h \
+  --module-wrapper-output gen/tu_0000_service.module.gentest.cppm \
+  --tu-header-output gen/tu_0001_module_mocks.gentest.h \
+  --module-wrapper-output gen/tu_0001_module_mocks.module.gentest.cppm \
+  --mock-registry gen/module_mock_registry.hpp \
+  --mock-impl gen/module_mock_impl.hpp \
+  --mock-domain-registry-output gen/module_mock_registry__domain_0000_header.hpp \
+  --mock-domain-registry-output gen/module_mock_registry__domain_0001_service.hpp \
+  --mock-domain-impl-output gen/module_mock_impl__domain_0000_header.hpp \
+  --mock-domain-impl-output gen/module_mock_impl__domain_0001_service.hpp \
+  --mock-aggregate-module-name fixture.explicit_module_mocks \
+  --mock-aggregate-module-output gen/fixture/explicit_module_mocks.cppm \
+  tests/service.cppm tests/module_mocks.cppm \
+  -- -std=c++20 -I/path/to/gentest/include
+```
+
+The aggregate output is a build-owned product and is listed in the depfile.
+It re-exports `gentest`, `gentest.mock`, and the discovered named-module
+domains. Build-system adapters should not parse the module `DEFS` at
+configure time to write this file themselves.
+
+When an installed explicit mock target is consumed later, the buildsystem may
+only have provisional names for generated module-wrapper outputs. It should
+still pass those files with `--external-module-source=<name>=<path>`.
+`gentest_codegen` reads each candidate and only uses it for the requested
+module when the source declares that module name.
+
 ## Same-Module Mock Registration
 
 `MODULE_REGISTRATION` composes module-owned mocks by consuming the mock manifest
@@ -159,9 +195,10 @@ registration uses `--mock-registration-manifest` instead.
 ## Current Limits
 
 Standalone declaration-only textual registration is not part of this protocol.
-It remains a future opt-in mode with stricter source visibility rules, tracked
-by
-[`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md).
+It was rejected in
+[`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md);
+textual `.cpp` sources keep manifest-declared wrapper/include semantics, and
+named modules remain the declaration-free registration path.
 
 Full non-CMake parity across supported backends is tracked separately by
 [`docs/stories/015_non_cmake_full_parity.md`](stories/015_non_cmake_full_parity.md).

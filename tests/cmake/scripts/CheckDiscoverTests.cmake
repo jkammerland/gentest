@@ -61,6 +61,60 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
+set(_ctest_cmd "${CMAKE_CTEST_COMMAND}")
+set(_ctest_common_args --output-on-failure)
+if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
+  list(APPEND _ctest_common_args -C "${BUILD_CONFIG}")
+endif()
+
+set(_legacy_expect_build_dir "${_work_dir}/legacy_expect_substring_removed_build")
+message(STATUS "Configure gentest_discover_tests removed EXPECT_SUBSTRING fixture...")
+execute_process(
+  COMMAND
+    "${CMAKE_COMMAND}"
+    ${_cmake_gen_args}
+    -S "${SOURCE_DIR}"
+    -B "${_legacy_expect_build_dir}"
+    ${_cmake_cache_args}
+    -DGENTEST_DISCOVER_TESTS_USE_LEGACY_EXPECT_SUBSTRING=ON
+  RESULT_VARIABLE _legacy_expect_configure_rc
+  OUTPUT_VARIABLE _legacy_expect_configure_out
+  ERROR_VARIABLE _legacy_expect_configure_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE
+  WORKING_DIRECTORY "${_work_dir}"
+)
+set(_legacy_expect_configure_all "${_legacy_expect_configure_out}\n${_legacy_expect_configure_err}")
+if(_legacy_expect_configure_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Expected gentest_discover_tests legacy EXPECT_SUBSTRING configure failure. Output:\n${_legacy_expect_configure_all}")
+endif()
+string(FIND "${_legacy_expect_configure_all}" "EXPECT_SUBSTRING was removed in gentest 2.0.0" _legacy_expect_removed_pos)
+if(_legacy_expect_removed_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected gentest_discover_tests legacy EXPECT_SUBSTRING removal message. Output:\n${_legacy_expect_configure_all}")
+endif()
+
+set(_forwarded_legacy_token_build_dir "${_work_dir}/forwarded_expect_substring_token_build")
+message(STATUS "Configure gentest_discover_tests forwarded EXPECT_SUBSTRING token fixture...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}"
+    ${_cmake_gen_args}
+    -S "${SOURCE_DIR}"
+    -B "${_forwarded_legacy_token_build_dir}"
+    ${_cmake_cache_args}
+    -DGENTEST_DISCOVER_TESTS_FORWARD_LEGACY_EXPECT_TOKEN=ON
+  STRIP_TRAILING_WHITESPACE
+  WORKING_DIRECTORY "${_work_dir}"
+  OUTPUT_VARIABLE _forwarded_token_configure_out
+)
+string(FIND "${_forwarded_token_configure_out}" "EXPECT_SUBSTRING is deprecated" _forwarded_token_warning_pos)
+if(NOT _forwarded_token_warning_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Forwarded EXTRA_ARGS token EXPECT_SUBSTRING must not trigger legacy option handling. Output:\n${_forwarded_token_configure_out}")
+endif()
+
 message(STATUS "Configure gentest_discover_tests fixture...")
 gentest_check_run_or_fail(
   COMMAND
@@ -79,12 +133,6 @@ if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
   list(APPEND _build_args --config "${BUILD_CONFIG}")
 endif()
 gentest_check_run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_build_args} STRIP_TRAILING_WHITESPACE WORKING_DIRECTORY "${_work_dir}")
-
-set(_ctest_cmd "${CMAKE_CTEST_COMMAND}")
-set(_ctest_common_args --output-on-failure)
-if(DEFINED BUILD_CONFIG AND NOT "${BUILD_CONFIG}" STREQUAL "")
-  list(APPEND _ctest_common_args -C "${BUILD_CONFIG}")
-endif()
 
 message(STATUS "List discovered tests...")
 gentest_check_run_or_fail(

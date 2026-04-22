@@ -471,15 +471,17 @@ gentest_add_cmake_script_test(
     PROG ${_gentest_codegen_prog}
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFileContains.cmake"
     ARGS
-        --output
-        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_std_first.gentest.cpp
+        --tu-out-dir
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_std_first
+        --tu-header-output
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_std_first/namespaced_attrs_mixed_std_first.gentest.h
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         --
         ${_gentest_codegen_direct_clang_args}
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_std_first.gentest.cpp"
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_std_first/namespaced_attrs_mixed_std_first.gentest.h"
         "REQUIRED_SUBSTRING=smoke/namespaced/mixed/std_first")
 
 gentest_add_cmake_script_test(
@@ -488,15 +490,17 @@ gentest_add_cmake_script_test(
     PROG ${_gentest_codegen_prog}
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFileContains.cmake"
     ARGS
-        --output
-        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_scoped_first.gentest.cpp
+        --tu-out-dir
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_scoped_first
+        --tu-header-output
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_scoped_first/namespaced_attrs_mixed_scoped_first.gentest.h
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         --
         ${_gentest_codegen_direct_clang_args}
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_scoped_first.gentest.cpp"
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_mixed_scoped_first/namespaced_attrs_mixed_scoped_first.gentest.h"
         "REQUIRED_SUBSTRING=smoke/namespaced/mixed/scoped_first")
 
 gentest_add_cmake_script_test(
@@ -505,15 +509,17 @@ gentest_add_cmake_script_test(
     PROG ${_gentest_codegen_prog}
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFileContains.cmake"
     ARGS
-        --output
-        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_foreign_after.gentest.cpp
+        --tu-out-dir
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_foreign_after
+        --tu-header-output
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_foreign_after/namespaced_attrs_gentest_first_foreign_after.gentest.h
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         --
         ${_gentest_codegen_direct_clang_args}
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_foreign_after.gentest.cpp"
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_foreign_after/namespaced_attrs_gentest_first_foreign_after.gentest.h"
         "REQUIRED_SUBSTRING=smoke/namespaced/mixed/gentest_first_foreign_after")
 
 gentest_add_cmake_script_test(
@@ -522,15 +528,17 @@ gentest_add_cmake_script_test(
     PROG ${_gentest_codegen_prog}
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFileContains.cmake"
     ARGS
-        --output
-        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign.gentest.cpp
+        --tu-out-dir
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign
+        --tu-header-output
+        ${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign/namespaced_attrs_gentest_first_unscoped_foreign.gentest.h
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespaced_attrs.cpp
         --
         ${_gentest_codegen_direct_clang_args}
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign.gentest.cpp"
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign/namespaced_attrs_gentest_first_unscoped_foreign.gentest.h"
         "REQUIRED_SUBSTRING=smoke/namespaced/mixed/gentest_first_unscoped_foreign")
 
 gentest_add_cmake_script_test(
@@ -539,15 +547,17 @@ gentest_add_cmake_script_test(
     PROG ${_gentest_codegen_prog}
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFileContains.cmake"
     ARGS
-        --output
-        ${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment.gentest.cpp
+        --tu-out-dir
+        ${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment
+        --tu-header-output
+        ${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment/namespace_suite_comment.gentest.h
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespace_suite_comment.cpp
         --
         ${_gentest_codegen_direct_clang_args}
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment.gentest.cpp"
+        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment/namespace_suite_comment.gentest.h"
         "REQUIRED_SUBSTRING=suite_override/comment_backscan/trailing_comment_suite_attr_case")
 
 gentest_add_cmake_script_test(
@@ -913,8 +923,10 @@ gentest_add_check_exit_code(
     EXPECT_RC 0
     ARGS
         ${_gentest_codegen_discover_mocks_arg}
-        --output
-        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu.gentest.cpp
+        --tu-out-dir
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu
+        --tu-header-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu/mock_emit_header_main_tu.gentest.h
         --mock-registry
         ${CMAKE_CURRENT_BINARY_DIR}/mock_emit_header_main_tu_mock_registry.hpp
         --mock-impl
@@ -2117,7 +2129,8 @@ _gentest_add_cmake_helper_test(
     gentest_codegen_output_collision
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_collision
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake
-    cmake)
+    cmake
+    -DREQUIRED_SUBSTRING=OUTPUT manifest/single-TU mode was removed)
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_genex_sources_rejected
@@ -2132,7 +2145,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_genex
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake
     cmake
-    -DREQUIRED_SUBSTRING=OUTPUT with generator expressions is not supported in manifest mode)
+    -DREQUIRED_SUBSTRING=OUTPUT manifest/single-TU mode was removed)
 set_property(TEST gentest_codegen_output_genex_rejected APPEND PROPERTY LABELS "codegen")
 
 set(_gentest_discover_tests_config "")
@@ -2337,52 +2350,33 @@ gentest_add_cmake_script_test(
 set_property(TEST gentest_codegen_genex_compile_definitions APPEND PROPERTY LABELS "cmake;codegen")
 
 gentest_add_cmake_script_test(
-    NAME gentest_codegen_genex_compile_definitions_multiconfig
+    NAME gentest_codegen_template_option_removed
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTemplateOptionRemoved.cmake"
     DEFINES
         "PROG=${_gentest_codegen_prog}"
-        "BUILD_ROOT=${CMAKE_BINARY_DIR}/genex_compile_definitions_multiconfig_check"
-        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/genex_compile_definitions"
-        "TARGET_NAME=genex_compile_definitions"
-        "GENERATOR=Ninja Multi-Config"
-        "BUILD_CONFIG=Release"
-        "C_COMPILER=${CMAKE_C_COMPILER}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        "LLVM_DIR=${LLVM_DIR}"
-        "Clang_DIR=${Clang_DIR}")
-set_property(TEST gentest_codegen_genex_compile_definitions_multiconfig APPEND PROPERTY LABELS "cmake;codegen")
-
-gentest_add_cmake_script_test(
-    NAME gentest_codegen_legacy_wrapper_impls_template_rejected
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenLegacyWrapperImplsTemplateRejected.cmake"
-    DEFINES
-        "PROG=${_gentest_codegen_prog}"
-        "BUILD_ROOT=${CMAKE_BINARY_DIR}/legacy_wrapper_impls_template_rejected_check"
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/template_option_removed_check"
         "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
         "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
-set_property(TEST gentest_codegen_legacy_wrapper_impls_template_rejected APPEND PROPERTY LABELS "cmake;codegen")
+set_property(TEST gentest_codegen_template_option_removed APPEND PROPERTY LABELS "cmake;codegen")
 
 unset(_gentest_fixture_build_config)
 
 _gentest_add_cmake_helper_test(
-    gentest_codegen_manifest_depfile_aggregation
+    gentest_codegen_tu_depfile_aggregation
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenManifestDepfileAggregation.cmake
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTuDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
-set_property(TEST gentest_codegen_manifest_depfile_aggregation APPEND PROPERTY LABELS "codegen")
+set_property(TEST gentest_codegen_tu_depfile_aggregation APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_depfile_write_failure
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenManifestDepfileAggregation.cmake
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTuDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
@@ -2391,15 +2385,15 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_depfile_write_failure APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
-    gentest_codegen_manifest_depfile_escaped_paths
+    gentest_codegen_tu_depfile_escaped_paths
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenManifestDepfileAggregation.cmake
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTuDepfileAggregation.cmake
     cmake
     -DPROG=${_gentest_codegen_prog}
     -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DMODE=escaped_paths)
-set_property(TEST gentest_codegen_manifest_depfile_escaped_paths APPEND PROPERTY LABELS "codegen")
+set_property(TEST gentest_codegen_tu_depfile_escaped_paths APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_cli_validation_warnings
@@ -2413,14 +2407,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_cli_validation_warnings APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
-    gentest_legacy_manifest_mode_warnings
+    gentest_legacy_manifest_mode_removed
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckLegacyManifestModeWarnings.cmake
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckLegacyManifestModeRemoved.cmake
     cmake
     -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
     -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
-set_property(TEST gentest_legacy_manifest_mode_warnings APPEND PROPERTY LABELS "codegen")
+set_property(TEST gentest_legacy_manifest_mode_removed APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_mock_manifest_split
@@ -2506,7 +2500,8 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_fixture_resolution.cpp
     -DEXPECT_CASE_COUNT=2
-    "-DREQUIRED_SUBSTRINGS=gentest_init_fixture(fx0_, \"smoke::fixture_resolution::LocalFixture\");;gentest_init_shared_fixture(fx0_, ::gentest::detail::SharedFixtureScope::Suite, \"smoke/fixture_resolution\", \"smoke::fixture_resolution::SharedSuiteFixture\")")
+    "-DREQUIRED_SUBSTRINGS=#include \"gentest/detail/generated_runtime.h\";;gentest_init_fixture(fx0_, \"smoke::fixture_resolution::LocalFixture\");;gentest_init_shared_fixture(fx0_, ::gentest::detail::SharedFixtureScope::Suite, \"smoke/fixture_resolution\", \"smoke::fixture_resolution::SharedSuiteFixture\")"
+    "-DREJECTED_SUBSTRINGS=#include \"gentest/detail/fixture_runtime.h\";;#include \"gentest/detail/registry_runtime.h\"")
 set_property(TEST gentest_codegen_emit_fixture_resolution APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(

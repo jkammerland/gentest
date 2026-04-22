@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gentest/detail/runtime_config.h"
+
 #include <span>
 #include <string_view>
 

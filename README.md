@@ -44,7 +44,8 @@ Features currently include:
 
 >[!NOTE]
 > Start at [`docs/index.md`](docs/index.md) for the rest of the docs. See
-> [`CHANGELOG.md`](CHANGELOG.md) for user-facing changes.
+> [`CHANGELOG.md`](CHANGELOG.md) for user-facing changes and
+> [`DEPRECATIONS.md`](DEPRECATIONS.md) for scheduled removals.
 
 ## Requirements
 
@@ -112,7 +113,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Docs: [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md).
+Docs: [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md), [Deprecations](DEPRECATIONS.md).
 
 Non-CMake downstream consumers:
 - [Downstream consumers overview](docs/buildsystems/downstream_consumers.md)

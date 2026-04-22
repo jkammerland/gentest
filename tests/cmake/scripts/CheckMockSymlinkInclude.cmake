@@ -63,7 +63,7 @@ file(MAKE_DIRECTORY "${_real_include_dir}" "${_real_src_dir}")
 
 set(_real_header "${_real_include_dir}/symlink_sink.hpp")
 set(_input_cpp "${_real_src_dir}/input.cpp")
-set(_output_cpp "${_work_dir}/symlink_output.gentest.cpp")
+set(_output_header "${_work_dir}/symlink_output.gentest.h")
 set(_mock_registry "${_work_dir}/symlink_mock_registry.hpp")
 set(_mock_impl "${_work_dir}/symlink_mock_impl.hpp")
 set(_mock_registry_domain "${_work_dir}/symlink_mock_registry__domain_0000_header.hpp")
@@ -90,7 +90,8 @@ endif()
 
 set(_args
   --discover-mocks
-  --output "${_output_cpp}"
+  --tu-out-dir "${_work_dir}"
+  --tu-header-output "${_output_header}"
   --mock-registry "${_mock_registry}"
   --mock-impl "${_mock_impl}"
   --mock-domain-registry-output "${_mock_registry_domain}"

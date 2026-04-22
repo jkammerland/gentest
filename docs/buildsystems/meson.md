@@ -15,7 +15,8 @@ Meson support is textual-only. The downstream contract is:
   - `gentest_codegen_path`
   - `gentest_codegen_host_clang`
   - optional `gentest_codegen_clang_scan_deps`
-- use the exported Meson variables from the gentest subproject
+- describe textual mocks and suites with Meson dictionaries
+- load the helper with `subdir('subprojects/gentest/meson/textual')`
 
 The gentest subproject now exports:
 
@@ -28,16 +29,13 @@ The gentest subproject now exports:
 - `gentest_public_include_path`
 - `gentest_third_party_include`
 - `gentest_third_party_include_path`
-- `gentest_wrapper_template`
-- `gentest_textual_mock_template`
-- `gentest_anchor_template`
-- `gentest_textual_public_header_template`
 
-This is a lower-level wrap contract than CMake or Xmake. There is still no
-high-level `gentest_add_mocks()` Meson function, but downstream textual
-consumption no longer depends on copying repo-private files by hand.
-The textual custom targets emit depfiles for generated mock and registration
-outputs so Meson/Ninja can rebuild when codegen inputs change.
+Meson does not support user-defined functions, so the public helper is a
+declarative `subdir()` fragment rather than a `gentest_add_mocks()` function.
+The helper delegates wrapper sources, mock wrapper sources, and generated mock
+public headers to `gentest_codegen` through explicit output paths. The textual
+custom targets emit depfiles for generated mock and registration outputs so
+Meson/Ninja can rebuild when codegen inputs change.
 
 ## Downstream wrap example
 
@@ -53,15 +51,73 @@ gentest_sp = subproject(
   ],
 )
 
-gentest_codegen = gentest_sp.get_variable('gentest_codegen')
-gentest_codegen_tool_args = gentest_sp.get_variable('gentest_codegen_tool_args')
-gentest_main_dep = gentest_sp.get_variable('gentest_main_dep')
-gentest_runtime_dep = gentest_sp.get_variable('gentest_runtime_dep')
-gentest_wrapper_template = gentest_sp.get_variable('gentest_wrapper_template')
-gentest_textual_mock_template = gentest_sp.get_variable('gentest_textual_mock_template')
-gentest_anchor_template = gentest_sp.get_variable('gentest_anchor_template')
-gentest_textual_public_header_template = gentest_sp.get_variable('gentest_textual_public_header_template')
+gentest_textual_mocks = [
+  {
+    'name': 'gentest_downstream_textual_mocks',
+    'id': 'downstream_textual_mocks',
+    'defs': 'tests/header_mock_defs.hpp',
+    'public_header': 'gentest_downstream_mocks.hpp',
+    'source_includes': ['tests'],
+  },
+]
+
+gentest_textual_suites = [
+  {
+    'name': 'gentest_downstream_textual',
+    'id': 'downstream_textual',
+    'source': 'tests/cases.cpp',
+    'main': files('tests/main.cpp'),
+    'source_includes': ['tests'],
+    'mocks': ['gentest_downstream_textual_mocks'],
+    'test_name': 'meson_downstream_textual',
+  },
+]
+
+subdir('subprojects/gentest/meson/textual')
 ```
+
+`source` and `defs` are source-root-relative strings used by `gentest_codegen`.
+Extra executable sources such as `main` should be passed as caller-owned Meson
+file objects, for example `files('tests/main.cpp')`, because the helper itself
+lives under the gentest subproject.
+
+The helper accepts these textual mock fields:
+
+- `name`
+- `id` (optional, used for generated file names)
+- `kind` (optional, defaults to `textual`; any other value fails configure)
+- `defs`
+- `public_header`
+- `source_includes` (list)
+- `clang_args` (list)
+- `cpp_args` (list)
+- `dependencies` (list)
+- `include_directories` (list)
+- `install`
+- `build_by_default`
+
+It accepts these textual suite fields:
+
+- `name`
+- `id` (optional, used for generated file names)
+- `kind` (optional, defaults to `textual`; any other value fails configure)
+- `source`
+- `main`
+- `source_includes` (list)
+- `mocks` (list)
+- `test_name`
+- `clang_args` (list)
+- `cpp_args` (list)
+- `dependencies` (list)
+- `include_directories` (list)
+- `link_with` (list)
+- `install`
+- `build_by_default`
+
+After `subdir()`, the helper exposes lookup dictionaries named
+`gentest_textual_mock_targets`, `gentest_textual_mock_codegen_targets`,
+`gentest_textual_mock_public_headers`, `gentest_textual_suite_targets`, and
+`gentest_textual_suite_codegen_targets`.
 
 The checked-in downstream fixture in
 [`tests/downstream/meson_wrap_consumer`](../../tests/downstream/meson_wrap_consumer)
@@ -93,19 +149,30 @@ real wrap package can provide the same subproject shape.
 
 ## Configure and build
 
+These commands are for a downstream project that already has the layout shown
+above, including `subprojects/gentest`. The checked-in fixture is not built
+directly from its source directory; the CTest proof stages it into a temporary
+workspace first.
+
 ```bash
-meson setup build/meson-downstream tests/downstream/meson_wrap_consumer \
+meson setup build/meson-downstream . \
   -Dgentest_codegen_path=/abs/path/to/gentest_codegen \
   -Dgentest_codegen_host_clang=/opt/llvm/bin/clang++ \
   -Dgentest_codegen_clang_scan_deps=/opt/llvm/bin/clang-scan-deps
 
 meson compile -C build/meson-downstream
 meson test -C build/meson-downstream --print-errorlogs
-build/meson-downstream/gentest_downstream_textual --list
+build/meson-downstream/subprojects/gentest/meson/textual/gentest_downstream_textual --list
 ```
 
 The final Meson compiler can remain non-Clang. The explicit host Clang contract
 only applies to `gentest_codegen`.
+
+To run the checked-in proof instead of a prepared downstream project:
+
+```bash
+ctest --preset=debug-system --output-on-failure -R '^gentest_meson_wrap_consumer$'
+```
 
 ## Checked-in proofs
 
@@ -126,7 +193,11 @@ checked-in wrap proof intentionally skips Windows today.
 ## Limitations
 
 - Meson support is textual-only.
-- There is still no high-level Meson macro API matching
-  `gentest_add_mocks()` / `gentest_attach_codegen()`.
+- The helper is a declarative `subdir()` API because Meson does not provide
+  user-defined functions.
+- Set `kind` to `textual` or omit it. `kind = 'modules'` intentionally fails
+  at configure time.
 - Windows is currently skipped for the downstream wrap proof.
 - Named-module support remains intentionally unsupported.
+- Support headers/fragments are snapshotted at configure time, so adding new
+  included support files requires `meson setup --reconfigure`.

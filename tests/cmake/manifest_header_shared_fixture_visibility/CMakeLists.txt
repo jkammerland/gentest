@@ -24,4 +24,4 @@ target_compile_features(mhsf_tests PRIVATE cxx_std_20)
 target_include_directories(mhsf_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
 gentest_attach_codegen(mhsf_tests
-    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/mhsf_tests.cpp")
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

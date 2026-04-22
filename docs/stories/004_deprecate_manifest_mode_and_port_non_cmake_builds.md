@@ -7,6 +7,10 @@
 > remains textual-only with explicit fail-fast module entrypoints. The
 > remaining packaging/API/CI parity work is tracked in
 > [`docs/stories/015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md).
+> Legacy manifest mode itself was later removed in the `2.0.0` cleanup tracked
+> by
+> [`docs/stories/037_codegen_contract_cleanup_campaign.md`](037_codegen_contract_cleanup_campaign.md);
+> this story is a historical migration record.
 
 ## Goal
 

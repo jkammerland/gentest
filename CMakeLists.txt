@@ -111,6 +111,10 @@ if(${PROJECT_NAME}_INSTALL)
             "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
         PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}")
 
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/gentest/"
+        DESTINATION "share/cmake/gentest/gentest"
+        COMPONENT Development
+        FILES_MATCHING PATTERN "*.cmake")
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/xmake/"
         DESTINATION "share/gentest/xmake")
     set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")

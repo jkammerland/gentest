@@ -134,7 +134,7 @@ The following checks passed in `build/debug-system`:
 
 ```bash
 cmake --build build/debug-system --target gentest_codegen -j4
-ctest --test-dir build/debug-system -R '^(gentest_public_mock_module_gcc|gentest_mixed_module_mock_registry|gentest_module_auto_discovery|gentest_module_mock_additive_visibility|gentest_module_mock_imported_sibling|gentest_package_consumer|gentest_package_consumer_gcc|gentest_codegen_incremental_dependencies|gentest_codegen_manifest_depfile_aggregation)$' --output-on-failure
+ctest --test-dir build/debug-system -R '^(gentest_public_mock_module_gcc|gentest_mixed_module_mock_registry|gentest_module_auto_discovery|gentest_module_mock_additive_visibility|gentest_module_mock_imported_sibling|gentest_package_consumer|gentest_package_consumer_gcc|gentest_codegen_incremental_dependencies|gentest_codegen_tu_depfile_aggregation)$' --output-on-failure
 ```
 
 Passing meaning:
@@ -149,8 +149,8 @@ Passing meaning:
   - installed package consumer works in the supported module smoke configuration
 - `gentest_codegen_incremental_dependencies`
   - header-domain mock shards rebuild correctly after interface changes
-- `gentest_codegen_manifest_depfile_aggregation`
-  - manifest-mode depfile aggregation still works
+- `gentest_codegen_tu_depfile_aggregation`
+  - TU-mode depfile aggregation works
 
 ## Current State
 

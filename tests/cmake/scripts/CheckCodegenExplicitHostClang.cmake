@@ -191,7 +191,8 @@ set(GENTEST_CODEGEN_HOST_CLANG "]=] "${_clangxx_norm}" [=[" CACHE FILEPATH "" FO
 
 add_executable(host_clang_consumer main.cpp cases.cpp)
 gentest_attach_codegen(host_clang_consumer
-  OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/host_clang_consumer.gentest.cpp")
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+  SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp")
 ]=])
 gentest_fixture_write_file("${_cmake_project_dir}/main.cpp" "int main() { return 0; }\n")
 gentest_fixture_write_file("${_cmake_project_dir}/cases.cpp" "void host_clang_consumer_case() {}\n")

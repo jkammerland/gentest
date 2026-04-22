@@ -103,15 +103,12 @@ struct AttributeCollection {
 
 // Options consumed by the generator tool entry point.
 // - entry: fully qualified function name to emit as the test entry
-// - output_path: file to write the generated source into
-// - template_path: optional external template path; if empty, built-in used
 // - sources: translation units to scan
 // - clang_args: extra arguments appended to the underlying clang invocation
 // - compilation_database: directory containing compile_commands.json
 // - check_only: validate without emitting any output
 struct CollectorOptions {
     std::string           entry = "gentest::run_all_tests";
-    std::filesystem::path output_path;
     std::filesystem::path tu_output_dir;
     // Optional explicit per-source TU registration headers. When provided in
     // TU mode, this must stay aligned with `sources` and overrides the legacy
@@ -125,6 +122,10 @@ struct CollectorOptions {
     // This first-slice mode stays aligned with `sources` and is validated by
     // gentest_codegen after it has classified each module source.
     std::vector<std::filesystem::path> module_registration_outputs;
+    // Build-owned per-source textual wrapper outputs. This is used by
+    // non-CMake textual integrations that pass owner sources directly to
+    // gentest_codegen and need the generator to emit the compilable wrapper TU.
+    std::vector<std::filesystem::path> textual_wrapper_outputs;
     std::vector<std::string>           compile_context_ids;
     std::filesystem::path              artifact_manifest_path;
     std::vector<std::filesystem::path> artifact_owner_sources;
@@ -139,8 +140,10 @@ struct CollectorOptions {
     std::filesystem::path                                               mock_registration_manifest_path;
     std::filesystem::path                                               mock_registry_path;
     std::filesystem::path                                               mock_impl_path;
+    std::filesystem::path                                               mock_public_header_path;
+    std::filesystem::path                                               mock_aggregate_module_path;
+    std::string                                                         mock_aggregate_module_name;
     std::optional<std::filesystem::path>                                depfile_path;
-    std::filesystem::path                                               template_path;
     std::vector<std::string>                                            sources;
     std::unordered_map<std::string, std::string>                        module_interface_names_by_source;
     std::unordered_set<std::string>                                     module_interface_sources;
@@ -152,12 +155,11 @@ struct CollectorOptions {
     std::optional<std::filesystem::path>                                clang_scan_deps_executable;
     // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
     // 0 selects std::thread::hardware_concurrency().
-    std::size_t jobs            = 0;
-    bool        discover_mocks  = false;
-    bool        include_sources = true;
-    bool        strict_fixture  = false;
-    bool        quiet_clang     = false;
-    bool        check_only      = false;
+    std::size_t jobs           = 0;
+    bool        discover_mocks = false;
+    bool        strict_fixture = false;
+    bool        quiet_clang    = false;
+    bool        check_only     = false;
 };
 
 // Description of a discovered test function or member function.
