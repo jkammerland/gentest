@@ -143,6 +143,37 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
+  "textual wrapper output requires tu out dir"
+  1
+  "gentest_codegen: --textual-wrapper-output requires --tu-out-dir"
+  "${PROG}"
+  --textual-wrapper-output "${BUILD_ROOT}/unused.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "textual wrapper output count mismatch"
+  1
+  "gentest_codegen: expected 1 --textual-wrapper-output value(s) for 1 input source(s), got 2"
+  "${PROG}"
+  --tu-out-dir "${BUILD_ROOT}/unused-textual-wrappers"
+  --textual-wrapper-output "${BUILD_ROOT}/a.gentest.cpp"
+  --textual-wrapper-output "${BUILD_ROOT}/b.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "textual wrapper output rejects named modules"
+  1
+  "gentest_codegen: --textual-wrapper-output does not support named module source '${_module_smoke_source}'"
+  "${PROG}"
+  --check
+  --compdb "${_compdb_root}"
+  --tu-out-dir "${BUILD_ROOT}/textual-wrapper-module"
+  --textual-wrapper-output "${BUILD_ROOT}/textual-wrapper-module/cases.gentest.cpp"
+  "${_module_smoke_source}"
+  --
+  ${_module_clang_args})
+
+_gentest_expect_result(
   "module wrapper output requires tu out dir"
   1
   "gentest_codegen: --module-wrapper-output requires --tu-out-dir"
@@ -198,6 +229,16 @@ _gentest_expect_result(
   --tu-out-dir "${BUILD_ROOT}/mixed-module-outputs"
   --module-wrapper-output "${BUILD_ROOT}/a.module.gentest.cpp"
   --module-registration-output "${BUILD_ROOT}/a.registration.gentest.cpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "textual wrapper output cannot combine with module outputs"
+  1
+  "gentest_codegen: --textual-wrapper-output cannot be combined with module wrapper/registration outputs"
+  "${PROG}"
+  --tu-out-dir "${BUILD_ROOT}/mixed-textual-module-outputs"
+  --textual-wrapper-output "${BUILD_ROOT}/a.gentest.cpp"
+  --module-wrapper-output "${BUILD_ROOT}/a.module.gentest.cpp"
   ${_common_args})
 
 _gentest_expect_result(
@@ -310,6 +351,28 @@ _gentest_expect_result(
   --mock-domain-registry-output "${BUILD_ROOT}/a_mock_registry__domain_0000_header.hpp"
   --mock-domain-impl-output "${BUILD_ROOT}/a_mock_impl__domain_0000_header.hpp"
   ${_common_args})
+
+_gentest_expect_result(
+  "mock public header requires base outputs"
+  1
+  "gentest_codegen: --mock-public-header requires --mock-registry and --mock-impl"
+  "${PROG}"
+  --mock-public-header "${BUILD_ROOT}/mocks.hpp"
+  ${_common_args})
+
+_gentest_expect_result(
+  "mock public header source count"
+  1
+  "gentest_codegen: --mock-public-header expects exactly 1 input source, got 2"
+  "${PROG}"
+  --mock-registry "${BUILD_ROOT}/mock-public-count_registry.hpp"
+  --mock-impl "${BUILD_ROOT}/mock-public-count_impl.hpp"
+  --mock-public-header "${BUILD_ROOT}/mock-public-count.hpp"
+  --compdb "${_compdb_root}"
+  "${_smoke_source}"
+  "${_module_smoke_source}"
+  --
+  ${_clang_args})
 
 _gentest_expect_result(
   "mock outputs require explicit domain outputs"

@@ -122,6 +122,10 @@ struct CollectorOptions {
     // This first-slice mode stays aligned with `sources` and is validated by
     // gentest_codegen after it has classified each module source.
     std::vector<std::filesystem::path> module_registration_outputs;
+    // Build-owned per-source textual wrapper outputs. This is used by
+    // non-CMake textual integrations that pass owner sources directly to
+    // gentest_codegen and need the generator to emit the compilable wrapper TU.
+    std::vector<std::filesystem::path> textual_wrapper_outputs;
     std::vector<std::string>           compile_context_ids;
     std::filesystem::path              artifact_manifest_path;
     std::vector<std::filesystem::path> artifact_owner_sources;
@@ -136,6 +140,7 @@ struct CollectorOptions {
     std::filesystem::path                                               mock_registration_manifest_path;
     std::filesystem::path                                               mock_registry_path;
     std::filesystem::path                                               mock_impl_path;
+    std::filesystem::path                                               mock_public_header_path;
     std::filesystem::path                                               mock_aggregate_module_path;
     std::string                                                         mock_aggregate_module_name;
     std::optional<std::filesystem::path>                                depfile_path;

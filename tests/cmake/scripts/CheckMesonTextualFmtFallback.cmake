@@ -184,7 +184,6 @@ endif()
 
 foreach(_expected_file IN ITEMS
     "${_out_dir}/consumer_textual_mocks_defs.cpp"
-    "${_out_dir}/consumer_textual_mocks_anchor.cpp"
     "${_out_dir}/tu_0000_consumer_textual_mocks_defs.gentest.h"
     "${_out_dir}/consumer_textual_mocks_mock_registry.hpp"
     "${_out_dir}/consumer_textual_mocks_mock_impl.hpp"

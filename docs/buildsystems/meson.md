@@ -29,15 +29,13 @@ The gentest subproject now exports:
 - `gentest_public_include_path`
 - `gentest_third_party_include`
 - `gentest_third_party_include_path`
-- `gentest_wrapper_template`
-- `gentest_textual_mock_template`
-- `gentest_anchor_template`
-- `gentest_textual_public_header_template`
 
 Meson does not support user-defined functions, so the public helper is a
 declarative `subdir()` fragment rather than a `gentest_add_mocks()` function.
-The textual custom targets emit depfiles for generated mock and registration
-outputs so Meson/Ninja can rebuild when codegen inputs change.
+The helper delegates wrapper sources, mock wrapper sources, and generated mock
+public headers to `gentest_codegen` through explicit output paths. The textual
+custom targets emit depfiles for generated mock and registration outputs so
+Meson/Ninja can rebuild when codegen inputs change.
 
 ## Downstream wrap example
 

@@ -441,7 +441,7 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
 
     std::vector<std::filesystem::path> targets;
     if (!options.tu_output_dir.empty()) {
-        targets.reserve(options.sources.size() * 2 + 2);
+        targets.reserve(options.sources.size() * 3 + 3);
         for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
             if (idx < options.tu_output_headers.size() && !options.tu_output_headers[idx].empty()) {
                 targets.push_back(options.tu_output_headers[idx]);
@@ -449,6 +449,9 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
                 std::filesystem::path header_out = options.tu_output_dir / std::filesystem::path(options.sources[idx]).filename();
                 header_out.replace_extension(".h");
                 targets.push_back(std::move(header_out));
+            }
+            if (idx < options.textual_wrapper_outputs.size() && !options.textual_wrapper_outputs[idx].empty()) {
+                targets.push_back(options.textual_wrapper_outputs[idx]);
             }
             if (is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
                 if (!options.module_registration_outputs.empty()) {
@@ -470,6 +473,9 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     }
     if (!options.mock_impl_path.empty()) {
         targets.push_back(options.mock_impl_path);
+    }
+    if (!options.mock_public_header_path.empty()) {
+        targets.push_back(options.mock_public_header_path);
     }
     if (!options.mock_aggregate_module_path.empty()) {
         targets.push_back(options.mock_aggregate_module_path);
@@ -552,6 +558,21 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
             continue;
         }
         error = fmt::format("named module source '{}' requires an explicit --module-wrapper-output path in TU mode", options.sources[idx]);
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_textual_wrapper_outputs(const CollectorOptions &options, std::string &error) {
+    if (options.textual_wrapper_outputs.empty() || options.module_interface_sources.empty()) {
+        return true;
+    }
+
+    for (const auto &source : options.sources) {
+        if (!options.module_interface_sources.contains(source)) {
+            continue;
+        }
+        error = fmt::format("--textual-wrapper-output does not support named module source '{}'", source);
         return false;
     }
     return true;
@@ -3526,6 +3547,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> tu_header_output_option{
         "tu-header-output", llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> textual_wrapper_output_option{
+        "textual-wrapper-output",
+        llvm::cl::desc("Explicit output textual wrapper path for a TU-mode input source (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::list<std::string> module_wrapper_output_option{
         "module-wrapper-output",
         llvm::cl::desc("Explicit output module wrapper path for a TU-mode input source (repeat once per positional source)"),
@@ -3585,6 +3610,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
                                                            llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
                                                        llvm::cl::init(""), llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_public_header_option{"mock-public-header",
+                                                                llvm::cl::desc("Path to a generated textual mock aggregate public header"),
+                                                                llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_aggregate_module_output_option{
         "mock-aggregate-module-output", llvm::cl::desc("Path to a generated explicit mock aggregate module interface"), llvm::cl::init(""),
         llvm::cl::cat(category)};
@@ -3655,6 +3683,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     }
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
+    opts.textual_wrapper_outputs.assign(textual_wrapper_output_option.begin(), textual_wrapper_output_option.end());
     opts.module_wrapper_outputs.assign(module_wrapper_output_option.begin(), module_wrapper_output_option.end());
     opts.module_registration_outputs.assign(module_registration_output_option.begin(), module_registration_output_option.end());
     opts.compile_context_ids.assign(compile_context_id_option.begin(), compile_context_id_option.end());
@@ -3732,6 +3761,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     }
     if (!mock_impl_option.getValue().empty()) {
         opts.mock_impl_path = std::filesystem::path{mock_impl_option.getValue()};
+    }
+    if (!mock_public_header_option.getValue().empty()) {
+        opts.mock_public_header_path = std::filesystem::path{mock_public_header_option.getValue()};
     }
     if (!mock_aggregate_module_output_option.getValue().empty()) {
         opts.mock_aggregate_module_path = std::filesystem::path{mock_aggregate_module_output_option.getValue()};
@@ -3827,8 +3859,9 @@ void diagnose_missing_mock_phase_manifest(MockPhaseCommand mock_phase, const Col
             gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks only writes a mock manifest\n");
             return false;
         }
-        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_aggregate_module_path.empty() ||
-            !options.mock_domain_registry_outputs.empty() || !options.mock_domain_impl_outputs.empty()) {
+        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_public_header_path.empty() ||
+            !options.mock_aggregate_module_path.empty() || !options.mock_domain_registry_outputs.empty() ||
+            !options.mock_domain_impl_outputs.empty()) {
             gentest::codegen::log_err_raw("gentest_codegen: inspect-mocks cannot be combined with final mock output paths\n");
             return false;
         }
@@ -3928,10 +3961,14 @@ int main(int argc, const char **argv) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input only emits mock outputs\n");
             return 1;
         }
-        if (!options.tu_output_headers.empty() || !options.module_wrapper_outputs.empty() || !options.module_registration_outputs.empty() ||
-            !options.compile_context_ids.empty() || !options.artifact_owner_sources.empty() ||
-            !options.mock_registration_manifest_path.empty()) {
+        if (!options.tu_output_headers.empty() || !options.textual_wrapper_outputs.empty() || !options.module_wrapper_outputs.empty() ||
+            !options.module_registration_outputs.empty() || !options.compile_context_ids.empty() ||
+            !options.artifact_owner_sources.empty() || !options.mock_registration_manifest_path.empty()) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with source/TU planning options\n");
+            return 1;
+        }
+        if (!options.mock_public_header_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with --mock-public-header\n");
             return 1;
         }
 
@@ -4009,16 +4046,17 @@ int main(int argc, const char **argv) {
                 "gentest_codegen: --mock-registration-manifest is only supported with same-module registration outputs\n");
             return 1;
         }
-        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_aggregate_module_path.empty() ||
-            !options.mock_domain_registry_outputs.empty() || !options.mock_domain_impl_outputs.empty()) {
+        if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_public_header_path.empty() ||
+            !options.mock_aggregate_module_path.empty() || !options.mock_domain_registry_outputs.empty() ||
+            !options.mock_domain_impl_outputs.empty()) {
             gentest::codegen::log_err_raw(
                 "gentest_codegen: --mock-registration-manifest cannot be combined with final mock output paths\n");
             return 1;
         }
     }
-    if (mock_manifest_discovery_only &&
-        (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_aggregate_module_path.empty() ||
-         !options.mock_domain_registry_outputs.empty() || !options.mock_domain_impl_outputs.empty())) {
+    if (mock_manifest_discovery_only && (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() ||
+                                         !options.mock_public_header_path.empty() || !options.mock_aggregate_module_path.empty() ||
+                                         !options.mock_domain_registry_outputs.empty() || !options.mock_domain_impl_outputs.empty())) {
         gentest::codegen::log_err_raw(
             "gentest_codegen: --mock-manifest-output without --tu-out-dir cannot be combined with final mock output paths\n");
         return 1;
@@ -4035,6 +4073,21 @@ int main(int argc, const char **argv) {
     if (!options.tu_output_headers.empty() && options.tu_output_headers.size() != options.sources.size()) {
         gentest::codegen::log_err("gentest_codegen: expected {} --tu-header-output value(s) for {} input source(s), got {}\n",
                                   options.sources.size(), options.sources.size(), options.tu_output_headers.size());
+        return 1;
+    }
+    if (!options.textual_wrapper_outputs.empty() && options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --textual-wrapper-output requires --tu-out-dir\n");
+        return 1;
+    }
+    if (!options.textual_wrapper_outputs.empty() && options.textual_wrapper_outputs.size() != options.sources.size()) {
+        gentest::codegen::log_err("gentest_codegen: expected {} --textual-wrapper-output value(s) for {} input source(s), got {}\n",
+                                  options.sources.size(), options.sources.size(), options.textual_wrapper_outputs.size());
+        return 1;
+    }
+    if (!options.textual_wrapper_outputs.empty() &&
+        (!options.module_wrapper_outputs.empty() || !options.module_registration_outputs.empty())) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --textual-wrapper-output cannot be combined with module wrapper/registration outputs\n");
         return 1;
     }
     if (!options.module_wrapper_outputs.empty() && options.tu_output_dir.empty()) {
@@ -4058,6 +4111,17 @@ int main(int argc, const char **argv) {
     if (!options.module_registration_outputs.empty() && !options.module_wrapper_outputs.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --module-registration-output cannot be combined with --module-wrapper-output\n");
         return 1;
+    }
+    if (!options.mock_public_header_path.empty()) {
+        if (options.mock_registry_path.empty() || options.mock_impl_path.empty()) {
+            gentest::codegen::log_err_raw("gentest_codegen: --mock-public-header requires --mock-registry and --mock-impl\n");
+            return 1;
+        }
+        if (options.sources.size() != 1) {
+            gentest::codegen::log_err("gentest_codegen: --mock-public-header expects exactly 1 input source, got {}\n",
+                                      options.sources.size());
+            return 1;
+        }
     }
     std::string compile_context_error;
     if (!validate_compile_context_ids(options, compile_context_error)) {
@@ -5496,6 +5560,11 @@ int main(int argc, const char **argv) {
     auto final_options                             = options;
     final_options.module_interface_sources         = std::move(module_interface_sources);
     final_options.module_interface_names_by_source = std::move(module_interface_names_by_source);
+    std::string textual_wrapper_error;
+    if (!validate_textual_wrapper_outputs(final_options, textual_wrapper_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", textual_wrapper_error);
+        return 1;
+    }
     std::string module_wrapper_error;
     if (!validate_module_wrapper_outputs(final_options, module_wrapper_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", module_wrapper_error);

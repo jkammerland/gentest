@@ -42,8 +42,10 @@ Before this file, that campaign was not tracked as a story. As a result:
 - `xmake/gentest.lua` (1748 LOC) and `build_defs/gentest.bzl` (996 LOC) each
   reimplement scan-and-emit decisions in their host language instead of
   consuming the artifact manifest the tool already emits.
-- `xmake/templates/` (6 `.in` files) and `meson/*.in` (4 files) duplicate
-  skeletons that `gentest_codegen` is already capable of emitting directly.
+- `xmake/templates/` (6 `.in` files) still duplicates skeletons that
+  `gentest_codegen` is already capable of emitting directly. The Meson textual
+  helper has been moved to codegen-owned wrapper/public-header emission and the
+  former `meson/*.in` templates are removed.
 - The legacy `share/cmake/gentest/scan_inspector/` install shape has package
   consumer absence coverage so stale helper packaging is caught.
 - `EXPECT_SUBSTRING` alias for `DEATH_EXPECT_SUBSTRING` is removed on the
@@ -130,7 +132,8 @@ The initial population of `DEPRECATIONS.md`:
 | legacy `share/cmake/gentest/scan_inspector/` helper install shape | tool-owned source inspection; package absence guard | `037` (gated on `025` closure already done) |
 | configure-time source inspector probe in CMake | tool-owned source/module classification, mock-manifest module metadata, codegen-emitted explicit mock aggregate modules, and manifest-declared textual wrapper semantics | `037` wave 1 (done) |
 | CMake scan include-dir / macro collection helpers | tool-side `compile_commands.json` scan | `037` wave 1 (done) |
-| `xmake/templates/*.in` and `meson/*.in` skeleton files | tool-emitted final sources | unblocked by closed `015`; Meson textual helper must be rewritten off templates first |
+| `xmake/templates/*.in` skeleton files | tool-emitted final sources | unblocked by closed `015` |
+| `meson/*.in` skeleton files | `--textual-wrapper-output` and `--mock-public-header` tool-emitted final sources | `037` wave 2 (removed) |
 | `xmake/gentest.lua` scan / emit logic | manifest consumer + file staging only | unblocked by closed `015` |
 | `build_defs/gentest.bzl` scan / emit logic | manifest consumer + file staging only | unblocked by closed `015` |
 
@@ -149,7 +152,7 @@ Baseline as of the branch that opens this story:
 | `xmake/gentest.lua` | 1748 | 600 | -1148 |
 | `build_defs/gentest.bzl` | 996 | 400 | -596 |
 | `xmake/templates/*.in` | 6 files | 0 files | remove |
-| `meson/*.in` | 4 files | 0 files | remove |
+| `meson/*.in` | 4 files | 0 files | removed |
 
 Total wrapper reduction target: **~3300 LOC** removed, across four buildsystem
 integrations. The codegen tool is expected to grow by **~500-800 LOC** to
@@ -210,9 +213,10 @@ Gates inside `037`:
    - rewrite `xmake/gentest.lua` as a manifest consumer; target 600 LOC
    - rewrite `build_defs/gentest.bzl` the same way; target 400 LOC
    - rewrite the Meson textual helper to consume tool-emitted final sources
-     before deleting `meson/*.in`
-   - delete `xmake/templates/*.in` and `meson/*.in`, emit final sources from
-     the tool
+     before deleting `meson/*.in`. **Done via `--textual-wrapper-output` and
+     `--mock-public-header`.**
+   - delete `meson/*.in`. **Done.**
+   - delete `xmake/templates/*.in`, emit final sources from the tool
 6. Wave 3 (`2.0.0` legacy manifest removal branch):
    - remove legacy `OUTPUT=...` single-TU manifest mode from
      `gentest_attach_codegen(...)`. **Done.**

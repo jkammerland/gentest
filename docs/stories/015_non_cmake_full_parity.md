@@ -32,7 +32,9 @@ Implemented already:
   active non-CMake suite integrations.
 - Meson has a textual-only declarative helper in
   [`meson/textual/meson.build`](../../meson/textual/meson.build), exercised by
-  the downstream wrap fixture.
+  the downstream wrap fixture. Its textual wrapper sources and generated mock
+  public headers are emitted by `gentest_codegen`, not checked-in Meson
+  templates.
 - Xmake has textual and module helper APIs in
   [`xmake/gentest.lua`](../../xmake/gentest.lua), staged through the xrepo
   downstream fixture.

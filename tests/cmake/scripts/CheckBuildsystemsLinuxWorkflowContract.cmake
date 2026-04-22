@@ -163,8 +163,9 @@ endif()
 foreach(_expected IN ITEMS
     "meson_consumer_textual"
     "Meson named-module support is"
-    "wrapper_template = files('meson/tu_wrapper.cpp.in')"
     "'--tu-out-dir'"
+    "'--textual-wrapper-output'"
+    "'--mock-public-header'"
     "'--depfile'"
     "'--artifact-manifest'"
     "'--artifact-owner-source'"

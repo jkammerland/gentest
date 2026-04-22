@@ -30,7 +30,8 @@ file(READ "${_meson_file}" _meson_content)
 foreach(_expected IN ITEMS
     "gentest_consumer_textual_meson"
     "Meson named-module support is"
-    "wrapper_template = files('meson/tu_wrapper.cpp.in')"
+    "'--textual-wrapper-output'"
+    "'--mock-public-header'"
     "'--depfile'"
     "'--artifact-manifest'"
     "'--artifact-owner-source'"

@@ -193,9 +193,11 @@ endif()
 
 set(_meson_textual_dir "${_out_dir}/subprojects/gentest/meson/textual")
 foreach(_expected_mock_file IN ITEMS
+    "${_meson_textual_dir}/downstream_textual_mocks_defs.cpp"
     "${_meson_textual_dir}/tu_0000_downstream_textual_mocks_defs.gentest.h"
     "${_meson_textual_dir}/downstream_textual_mocks_mock_registry.hpp"
-    "${_meson_textual_dir}/downstream_textual_mocks_mock_impl.hpp")
+    "${_meson_textual_dir}/downstream_textual_mocks_mock_impl.hpp"
+    "${_meson_textual_dir}/gentest_downstream_mocks.hpp")
   if(NOT EXISTS "${_expected_mock_file}")
     message(FATAL_ERROR
       "Building the Meson mock target alone did not produce expected artifact '${_expected_mock_file}'.\n"
@@ -219,7 +221,6 @@ endif()
 
 foreach(_expected_file IN ITEMS
     "${_meson_textual_dir}/downstream_textual_mocks_defs.cpp"
-    "${_meson_textual_dir}/downstream_textual_mocks_anchor.cpp"
     "${_meson_textual_dir}/tu_0000_downstream_textual_mocks_defs.gentest.h"
     "${_meson_textual_dir}/downstream_textual_mocks_mock_registry.hpp"
     "${_meson_textual_dir}/downstream_textual_mocks_mock_impl.hpp"

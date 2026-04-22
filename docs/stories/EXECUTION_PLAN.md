@@ -52,9 +52,9 @@ It assumes the current branch state, not raw worktree ancestry:
      configure-time source inspector or scan macro/include-dir collectors, and
      explicit mock aggregate modules are emitted by `gentest_codegen`.
    - Wave 2 (unblocked by `015`): rewrite `xmake/gentest.lua` and
-     `build_defs/gentest.bzl` as thin manifest consumers; rewrite the Meson
-     textual helper off its `.in` templates; delete `xmake/templates/*.in` and
-     `meson/*.in`.
+     `build_defs/gentest.bzl` as thin manifest consumers; the Meson textual
+     helper is already off its `.in` templates and `meson/*.in` is deleted;
+     delete `xmake/templates/*.in`.
    - Wave 3 (this branch is the `2.0.0` removal branch): user-facing removals
      are landed for legacy `OUTPUT=...` manifest mode, CLI `--output`, CLI
      `--template`, `NO_INCLUDE_SOURCES`, CLI `--no-include-sources`,
