@@ -130,9 +130,9 @@ The initial population of `DEPRECATIONS.md`:
 | legacy `share/cmake/gentest/scan_inspector/` helper install shape | tool-owned source inspection; package absence guard | `037` (gated on `025` closure already done) |
 | configure-time source inspector probe in CMake | tool-owned source/module classification, mock-manifest module metadata, codegen-emitted explicit mock aggregate modules, and manifest-declared textual wrapper semantics | `037` wave 1 (done) |
 | CMake scan include-dir / macro collection helpers | tool-side `compile_commands.json` scan | `037` wave 1 (done) |
-| `xmake/templates/*.in` and `meson/*.in` skeleton files | tool-emitted final sources | gated on `015` |
-| `xmake/gentest.lua` scan / emit logic | manifest consumer + file staging only | gated on `015` |
-| `build_defs/gentest.bzl` scan / emit logic | manifest consumer + file staging only | gated on `015` |
+| `xmake/templates/*.in` and `meson/*.in` skeleton files | tool-emitted final sources | unblocked by closed `015`; Meson textual helper must be rewritten off templates first |
+| `xmake/gentest.lua` scan / emit logic | manifest consumer + file staging only | unblocked by closed `015` |
+| `build_defs/gentest.bzl` scan / emit logic | manifest consumer + file staging only | unblocked by closed `015` |
 
 Each row in the table maps to one CI regression plus one deletion, hard-error,
 or absence-guard slice in the rollout section below. `DEPRECATIONS.md` is now
@@ -160,7 +160,7 @@ target.
 ## Dependency DAG
 
 ```text
-           (done)        (done)        (open)       (done)      (rejected)
+           (done)        (done)        (done)       (done)      (rejected)
            034           035           015          033          036
             \             \             \            \             :
              \             \             \            \            :
@@ -174,8 +174,8 @@ Gates inside `037`:
 - Kill wave 1 (CMake configure-time probe): done after `033`; preserves
   manifest-declared textual wrapper/include semantics and moves explicit mock
   aggregate module emission into `gentest_codegen`.
-- Kill wave 2 (Lua/Bazel wrapper collapse + `.in` template removal): needs
-  `015` non-CMake parity closure + manifest schema v1 frozen.
+- Kill wave 2 (Lua/Bazel wrapper collapse + `.in` template removal): unblocked
+  by `015` non-CMake parity closure + manifest schema v1 freeze.
 - Kill wave 3 (legacy manifest mode hard-remove): done on this `2.0.0`
   branch for CMake and direct CLI entry points.
 - Kill wave 4 (`EXPECT_SUBSTRING` + `scan_inspector` install absence guard):
@@ -206,9 +206,11 @@ Gates inside `037`:
    - moved explicit mock aggregate module emission into `gentest_codegen`
    - kept textual `.cpp` sources on manifest-declared wrapper/include mode;
      declaration-only textual registration remains rejected
-5. Wave 2 (after `015` closes):
+5. Wave 2 (after `015` closes, now unblocked):
    - rewrite `xmake/gentest.lua` as a manifest consumer; target 600 LOC
    - rewrite `build_defs/gentest.bzl` the same way; target 400 LOC
+   - rewrite the Meson textual helper to consume tool-emitted final sources
+     before deleting `meson/*.in`
    - delete `xmake/templates/*.in` and `meson/*.in`, emit final sources from
      the tool
 6. Wave 3 (`2.0.0` legacy manifest removal branch):

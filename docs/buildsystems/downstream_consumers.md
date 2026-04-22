@@ -104,9 +104,10 @@ Minimal assets:
 - `subprojects/gentest` or an equivalent wrap/subproject source
 - your textual test and mock defs
 
-The Meson downstream surface is intentionally lower-level than CMake/Xmake:
-you consume exported variables from the `gentest` subproject and wire the
-textual codegen targets yourself.
+The Meson downstream surface is a textual-only declarative helper: define
+`gentest_textual_mocks` / `gentest_textual_suites`, then load
+`subdir('subprojects/gentest/meson/textual')`. Meson named-module support is
+intentionally unsupported.
 
 Start here:
 

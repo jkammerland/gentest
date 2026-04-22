@@ -4,6 +4,7 @@ endif()
 if(NOT DEFINED BUILD_ROOT)
   message(FATAL_ERROR "CheckBazelBzlmodConsumer.cmake: BUILD_ROOT not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
 set(_bazel "")
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
@@ -401,6 +402,13 @@ foreach(_expected_file IN ITEMS
       "stderr:\n${_build_err}")
   endif()
 endforeach()
+
+gentest_expect_module_artifact_manifest(
+  "${_bazel_bin_dir}/gen/gentest_downstream_module/gentest_downstream_module.artifact_manifest.json"
+  "downstream.bazel.consumer_cases"
+  "gentest_downstream_module:"
+  "suite_0000.cppm"
+  "gentest_downstream_module/tu_0000_suite_0000.registration.gentest.cpp")
 
 foreach(_binary IN ITEMS
     "${_bazel_bin_dir}/gentest_downstream_textual"

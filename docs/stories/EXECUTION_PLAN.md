@@ -20,8 +20,9 @@ It assumes the current branch state, not raw worktree ancestry:
 - story `032` is done: generated code now uses explicit `registration_runtime`
   / `generated_runtime` devkit headers instead of broad fixture/registry
   runtime-detail headers
-- the remaining story-tracked cleanup is `015`, plus the cross-cutting cleanup
-  campaign `037`
+- story `015` is done for the supported non-CMake scope
+- the remaining story-tracked cleanup is the cross-cutting cleanup campaign
+  `037`
 
 ## Working rules
 
@@ -42,14 +43,7 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ### Remaining implementation
 
-1. Story `015`: finish non-CMake parity for explicit mocks and supported
-   module paths.
-   - Keep Meson textual-only and explicitly fail-fast for modules.
-   - Polish installed Xmake helper and source-package Bazel helper surfaces.
-   - Preserve the explicit two-step mock/codegen model.
-
-2. Story `037`: codegen contract cleanup campaign (parallel track).
-   - Runs alongside `015` and picks up after each gating story closes.
+1. Story `037`: codegen contract cleanup campaign.
    - Wave 4 (independent, cheap): keep `DEPRECATIONS.md` current, guard the
      install tree against legacy `share/cmake/gentest/scan_inspector/`, and
      keep the `EXPECT_SUBSTRING` hard-error regression green. The
@@ -57,9 +51,10 @@ It assumes the current branch state, not raw worktree ancestry:
    - Wave 1 (unblocked by `033`): done. CMake no longer ships the
      configure-time source inspector or scan macro/include-dir collectors, and
      explicit mock aggregate modules are emitted by `gentest_codegen`.
-   - Wave 2 (gated on `015`): rewrite `xmake/gentest.lua` and
-     `build_defs/gentest.bzl` as thin manifest consumers; delete
-     `xmake/templates/*.in` and `meson/*.in`.
+   - Wave 2 (unblocked by `015`): rewrite `xmake/gentest.lua` and
+     `build_defs/gentest.bzl` as thin manifest consumers; rewrite the Meson
+     textual helper off its `.in` templates; delete `xmake/templates/*.in` and
+     `meson/*.in`.
    - Wave 3 (this branch is the `2.0.0` removal branch): user-facing removals
      are landed for legacy `OUTPUT=...` manifest mode, CLI `--output`, CLI
      `--template`, `NO_INCLUDE_SOURCES`, CLI `--no-include-sources`,
@@ -74,6 +69,9 @@ It assumes the current branch state, not raw worktree ancestry:
   revalidated for the boundary split under their existing CTest
   tool-availability policies.
 - `033`: closed; follow-up CMake deletion work is now part of `037` wave 1.
+- `015`: closed for the supported non-CMake scope; Meson remains textual-only,
+  Xmake downstream helper coverage is staged through xrepo, and Bazel
+  downstream helper coverage is staged through Bzlmod.
 - `037`: `DEPRECATIONS.md` exists at the repo root, covers every deprecated
   feature or scheduled cleanup item with warn-since/removal-target information,
   and is linked from `README.md`, `docs/index.md`, and `STATUS.md`.
@@ -89,9 +87,9 @@ It assumes the current branch state, not raw worktree ancestry:
 
 ## Practical next move
 
-Continue with `015`. Story `037` wave 2 follows `015`; wave 1, story `032`,
-and the user-facing `2.0.0` removal slice for waves 3 and 4 are already landed
-on this branch.
+Continue with `037` wave 2. Story `015`, story `032`, wave 1, and the
+user-facing `2.0.0` removal slice for waves 3 and 4 are already landed on this
+branch.
 
 That ordering follows the current evidence:
 
@@ -101,3 +99,4 @@ That ordering follows the current evidence:
 - `023` and `026` are now closed at their current scope
 - `033` is closed and provides the internal module boundaries for `037`
 - `032` is closed and no longer blocks the non-CMake parity work
+- `015` is closed and no longer blocks the cleanup campaign
