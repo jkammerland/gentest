@@ -476,19 +476,9 @@ std::string render_module_mock_codegen_include_block() {
 
 std::string render_module_registration_support_include_block() {
     std::string out;
-    out.reserve(320);
+    out.reserve(tpl::registration_preamble_full.size() + 96);
     out.append("\n// gentest_codegen: injected registration support includes.\n");
-    out.append("#include <array>\n");
-    out.append("#include <fmt/format.h>\n");
-    out.append("#include <memory>\n");
-    out.append("#include <span>\n");
-    out.append("#include <string>\n");
-    out.append("#include <string_view>\n");
-    out.append("#include <type_traits>\n");
-    out.append("#include <utility>\n");
-    out.append("#include \"gentest/detail/fixture_runtime.h\"\n");
-    out.append("#include \"gentest/detail/registry_runtime.h\"\n");
-    out.append("#include \"gentest/runner.h\"\n");
+    out.append(tpl::registration_preamble_full);
     return out;
 }
 
@@ -1033,6 +1023,7 @@ bool requires_global_wrapper_impls_placeholder(const std::string &template_conte
 }
 
 struct RegistrationRenderTemplates {
+    std::string wrapper_free_test;
     std::string wrapper_free;
     std::string wrapper_free_fixtures;
     std::string wrapper_ephemeral;
@@ -1045,6 +1036,7 @@ struct RegistrationRenderTemplates {
 
     [[nodiscard]] render::WrapperTemplates wrapper_templates() const {
         return render::WrapperTemplates{
+            .free_test     = wrapper_free_test,
             .free          = wrapper_free,
             .free_fixtures = wrapper_free_fixtures,
             .ephemeral     = wrapper_ephemeral,
@@ -1059,11 +1051,13 @@ struct RenderedRegistrationCore {
     std::string wrapper_impls;
     std::string case_inits;
     std::string fixture_registrations;
-    std::size_t case_count = 0;
+    std::size_t case_count                      = 0;
+    bool        needs_full_registration_support = false;
 };
 
 [[nodiscard]] RegistrationRenderTemplates load_registration_render_templates() {
     return RegistrationRenderTemplates{
+        .wrapper_free_test     = std::string(tpl::wrapper_free_test),
         .wrapper_free          = std::string(tpl::wrapper_free),
         .wrapper_free_fixtures = std::string(tpl::wrapper_free_fixtures),
         .wrapper_ephemeral     = std::string(tpl::wrapper_ephemeral),
@@ -1076,12 +1070,23 @@ struct RenderedRegistrationCore {
     };
 }
 
+[[nodiscard]] bool needs_full_registration_support(const std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures) {
+    if (!fixtures.empty()) {
+        return true;
+    }
+    return std::ranges::any_of(cases, [](const TestCaseInfo &test) {
+        return test.is_benchmark || test.is_jitter || !test.fixture_qualified_name.empty() || !test.free_fixtures.empty() ||
+               test.is_function_template || !test.call_arguments.empty();
+    });
+}
+
 [[nodiscard]] RenderedRegistrationCore render_registration_core(const std::vector<TestCaseInfo>    &cases,
                                                                 const std::vector<FixtureDeclInfo> &fixtures,
                                                                 const RegistrationRenderTemplates  &templates) {
     RenderedRegistrationCore core;
-    core.case_count    = cases.size();
-    core.forward_decls = render::render_forward_decls(cases, templates.forward_decl_line, templates.forward_decl_ns);
+    core.case_count                      = cases.size();
+    core.needs_full_registration_support = needs_full_registration_support(cases, fixtures);
+    core.forward_decls                   = render::render_forward_decls(cases, templates.forward_decl_line, templates.forward_decl_ns);
 
     auto traits      = render::render_trait_arrays(cases, templates.array_decl_empty, templates.array_decl_nonempty);
     core.trait_decls = std::move(traits.declarations);
@@ -1099,7 +1104,10 @@ struct RenderedRegistrationCore {
 }
 
 void apply_registration_core(std::string &output, const RenderedRegistrationCore &core) {
-    replace_all(output, "{{WRAPPER_SUPPORT_COMMON}}", tpl::wrapper_support_common);
+    replace_all(output, "{{REGISTRATION_PREAMBLE}}",
+                core.needs_full_registration_support ? tpl::registration_preamble_full : tpl::registration_preamble_light);
+    replace_all(output, "{{WRAPPER_SUPPORT_COMMON}}",
+                core.needs_full_registration_support ? tpl::wrapper_support_common : std::string_view{});
     replace_all(output, "{{REGISTRATION_COMMON}}", tpl::registration_common);
     replace_all(output, "{{FORWARD_DECLS}}", core.forward_decls);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(core.case_count));

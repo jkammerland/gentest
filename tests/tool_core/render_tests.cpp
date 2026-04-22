@@ -139,12 +139,14 @@ int main() {
     }
 
     {
+        const std::string free_test_tpl     = "FREE_TEST {w}\n{invoke}\n";
         const std::string free_tpl          = "FREE {w}\n{invoke}\n";
         const std::string free_fixtures_tpl = "FREE_FIX {w}\n{decls}{inits}{setup_flags}{setup}{teardown}{invoke}\nBENCH\n{bench_decls}"
                                               "{bench_setup_flags}{bench_inits}{bench_setup}{bench_teardown}{bench_invoke}\n";
         const std::string ephemeral_tpl     = "EPHEMERAL {w}\n{fixture}\n{invoke}\n{bench_invoke}\n";
         const std::string stateful_tpl      = "STATEFUL {w}\n{fixture}\n{invoke}\n";
         const WrapperTemplates templates{
+            .free_test     = free_test_tpl,
             .free          = free_tpl,
             .free_fixtures = free_fixtures_tpl,
             .ephemeral     = ephemeral_tpl,
@@ -216,12 +218,11 @@ int main() {
         cases.push_back(member_shared_with_fixtures);
 
         const std::string rendered = render_wrappers(cases, templates);
-        t.contains(rendered, "namespace alpha {\nnamespace beta {\n", "render_wrappers wraps helper in namespaces");
-        t.contains(rendered, "return alpha::beta::plain_free();", "render_wrappers emits free call helper");
-        t.contains(rendered, "static_cast<void>(::alpha::beta::__gentest_lookup_helper_0());", "render_wrappers invokes namespaced helper");
+        t.contains(rendered, "FREE_TEST kCaseInvoke_0\nstatic_cast<void>(::alpha::beta::plain_free());",
+                   "render_wrappers emits direct free test wrappers");
         t.contains(rendered, "[[maybe_unused]] const auto _ = ::__gentest_lookup_helper_1();",
-                   "render_wrappers preserves return values for free cases");
-        t.contains(rendered, "return math::sum(1, 2);", "render_wrappers forwards plain call arguments");
+                   "render_wrappers preserves return values for parameterized free cases");
+        t.contains(rendered, "return math::sum(1, 2);", "render_wrappers forwards plain call arguments inside helpers");
         t.contains(rendered, "if (!gentest_init_fixture(fx0_, \"fx::LocalFx\")) return;",
                    "render_wrappers initializes local free fixtures");
         t.contains(rendered,

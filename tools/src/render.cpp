@@ -115,6 +115,7 @@ struct WrapperSpec {
     std::string                 value_args; // comma-separated value args (may be empty)
     bool                        method_is_template = false;
     bool                        returns_value      = false; // whether to capture result
+    bool                        is_measured        = false;
 };
 
 std::string build_fixture_decls(const std::vector<FreeFixtureUse> &types) {
@@ -295,6 +296,15 @@ std::string qualify_global_name(const std::vector<std::string> &parts, std::stri
     return qualified;
 }
 
+std::string qualify_global_callee(std::string_view callee) {
+    if (callee.starts_with("::")) {
+        return std::string(callee);
+    }
+    std::string qualified = "::";
+    qualified.append(callee);
+    return qualified;
+}
+
 std::string wrap_in_namespaces(const std::vector<std::string> &parts, const std::string &body) {
     if (parts.empty()) {
         return body;
@@ -403,17 +413,24 @@ static std::string make_invoke_for_free(const WrapperSpec &spec, const std::stri
 }
 
 static void append_wrapper(std::string &out, const WrapperSpec &spec, const WrapperTemplates &templates) {
-    const auto helper_name      = helper_name_for(spec);
-    const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
-    out += build_helper_definition(spec, helper_name);
-
     switch (spec.kind) {
     case WrapperKind::Free: {
+        if (!spec.is_measured && !spec.method_is_template && spec.value_args.empty()) {
+            const auto invoke = make_invoke_for_free(spec, qualify_global_callee(spec.callee), format_call_args(spec.value_args));
+            append_format_runtime(out, templates.free_test, fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
+            return;
+        }
+        const auto helper_name      = helper_name_for(spec);
+        const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
+        out += build_helper_definition(spec, helper_name);
         const auto invoke = make_invoke_for_free(spec, qualified_helper, "()");
         append_format_runtime(out, templates.free, fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
         return;
     }
     case WrapperKind::FreeWithFixtures: {
+        const auto helper_name      = helper_name_for(spec);
+        const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
+        out += build_helper_definition(spec, helper_name);
         const std::string decls            = build_fixture_decls(spec.fixtures);
         const std::string inits            = build_fixture_inits(spec.fixtures);
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
@@ -436,6 +453,9 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         return;
     }
     case WrapperKind::MemberEphemeral: {
+        const auto helper_name      = helper_name_for(spec);
+        const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
+        out += build_helper_definition(spec, helper_name);
         const auto invoke       = make_invoke_for_free(spec, qualified_helper, "(fx_.ref())");
         const auto bench_invoke = make_invoke_for_free(spec, qualified_helper, "(bench_state.fx_.ref())");
         append_format_runtime(out, templates.ephemeral, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
@@ -443,12 +463,18 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         return;
     }
     case WrapperKind::MemberShared: {
+        const auto helper_name      = helper_name_for(spec);
+        const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
+        out += build_helper_definition(spec, helper_name);
         const auto invoke = make_invoke_for_free(spec, qualified_helper, "(*fx_)");
         append_format_runtime(out, templates.stateful, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
                               fmt::arg("invoke", invoke));
         return;
     }
     case WrapperKind::MemberEphemeralWithFixtures: {
+        const auto helper_name      = helper_name_for(spec);
+        const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
+        out += build_helper_definition(spec, helper_name);
         const std::string decls            = build_fixture_decls(spec.fixtures);
         const std::string inits            = build_fixture_inits(spec.fixtures);
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
@@ -523,6 +549,9 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         return;
     }
     case WrapperKind::MemberSharedWithFixtures: {
+        const auto helper_name      = helper_name_for(spec);
+        const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
+        out += build_helper_definition(spec, helper_name);
         const std::string decls            = build_fixture_decls(spec.fixtures);
         const std::string inits            = build_fixture_inits(spec.fixtures);
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
@@ -592,9 +621,11 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
 
 WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
     WrapperSpec spec{};
-    spec.wrapper_name    = std::string("kCaseInvoke_") + std::to_string(idx);
-    spec.value_args      = test.call_arguments; // may be empty
-    spec.namespace_parts = test.namespace_parts;
+    spec.wrapper_name       = std::string("kCaseInvoke_") + std::to_string(idx);
+    spec.value_args         = test.call_arguments; // may be empty
+    spec.namespace_parts    = test.namespace_parts;
+    spec.method_is_template = test.is_function_template;
+    spec.is_measured        = test.is_benchmark || test.is_jitter;
     if (test.fixture_qualified_name.empty()) {
         if (!test.free_fixtures.empty()) {
             spec.kind      = WrapperKind::FreeWithFixtures;
@@ -616,11 +647,10 @@ WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
         case FixtureLifetime::None:
         default: spec.kind = has_extra_fixtures ? WrapperKind::MemberEphemeralWithFixtures : WrapperKind::MemberEphemeral; break;
         }
-        spec.callee             = test.fixture_qualified_name;
-        spec.method             = extract_method_name(test.qualified_name);
-        spec.method_is_template = test.is_function_template;
-        spec.fixtures           = test.free_fixtures;
-        spec.free_args          = test.free_call_args;
+        spec.callee    = test.fixture_qualified_name;
+        spec.method    = extract_method_name(test.qualified_name);
+        spec.fixtures  = test.free_fixtures;
+        spec.free_args = test.free_call_args;
     }
     spec.returns_value = test.returns_value;
     return spec;
