@@ -134,6 +134,50 @@ python3 scripts/bench_compile.py \
   --codegen-jobs 4
 ```
 
+### 4) Representative local speedup
+
+This run isolates one `gentest_codegen` invocation over the `gentest_codegen_parallel_bench_obj` target. In this configuration, the invocation sees
+12 wrapper TUs in one process. The generator itself was built with the `release-system` preset so the measurement reflects a Release host tool.
+
+Setup and correctness check:
+
+```bash
+cmake --preset=release-system -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
+cmake --build --preset=release-system --target gentest_codegen_parallel_bench --clean-first -j 8
+python3 scripts/verify_codegen_parallel.py \
+  --build-dir build/release-system \
+  --target gentest_codegen_parallel_bench_obj \
+  --serial-jobs 1 \
+  --parallel-jobs 0 \
+  --repeats 3
+```
+
+Timing command shape:
+
+```bash
+python3 scripts/bench_compile.py \
+  --preset release-system \
+  --jobs 8 \
+  --no-clean \
+  --codegen-only \
+  --targets gentest_codegen_parallel_bench_obj \
+  --codegen-jobs <N>
+```
+
+Representative local samples, five measured runs per cap after one warm-up run:
+
+| `GENTEST_CODEGEN_JOBS` | Median codegen | Mean | Speedup vs `1` | Samples |
+| ---: | ---: | ---: | ---: | --- |
+| 1 | 3.353s | 3.357s | 1.00x | 3.353, 3.352, 3.361, 3.346, 3.371 |
+| 2 | 2.035s | 2.035s | 1.65x | 2.042, 2.052, 2.035, 2.035, 2.013 |
+| 4 | 1.404s | 1.402s | 2.39x | 1.404, 1.399, 1.397, 1.405, 1.404 |
+| 8 | 1.125s | 1.124s | 2.98x | 1.128, 1.125, 1.118, 1.119, 1.130 |
+| 0 (auto) | 0.914s | 0.913s | 3.67x | 0.912, 0.903, 0.918, 0.916, 0.914 |
+
+The equivalence check passed for serial versus auto parallel output. This is an isolated codegen-process speedup, not a whole-target compile
+speedup: final target wall time also includes generated TU compilation, linking, Ninja scheduling, and any other codegen processes running in the
+same build.
+
 ## Limitations / expectations
 
 - If a given test target has only **one** test TU, a single `gentest_codegen` invocation won’t benefit from internal parallelism.

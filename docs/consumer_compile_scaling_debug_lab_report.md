@@ -172,6 +172,25 @@ Observed/predicted crossovers:
 - gentest vs GoogleTest crosses between 1000 and 2000 cases; the whole-range fit predicts about 1083 cases.
 - gentest stayed slower than doctest through 2000 cases. The whole-range fit does not predict a positive crossover for this layout.
 
+## Isolated Multi-TU Codegen Speedup
+
+The synthetic layout tables above measure whole consumer target wall time. To isolate internal codegen parallelism, the repository also has a
+codegen-only benchmark target that invokes one `gentest_codegen` process over 12 wrapper TUs:
+`gentest_codegen_parallel_bench_obj`.
+
+Representative local Release-host-tool run:
+
+| `GENTEST_CODEGEN_JOBS` | Median codegen | Mean | Speedup vs `1` |
+| ---: | ---: | ---: | ---: |
+| 1 | 3.353s | 3.357s | 1.00x |
+| 2 | 2.035s | 2.035s | 1.65x |
+| 4 | 1.404s | 1.402s | 2.39x |
+| 8 | 1.125s | 1.124s | 2.98x |
+| 0 (auto) | 0.914s | 0.913s | 3.67x |
+
+Serial and auto-parallel output hashes matched in `scripts/verify_codegen_parallel.py` with 3 repeated parallel runs. See
+[`docs/stories/005_codegen_parallelism_jobs.md`](stories/005_codegen_parallelism_jobs.md) for the exact commands and samples.
+
 ## Results: 8 Target Binaries
 
 Median wall times in seconds for up to 8 target binaries, one test TU per binary. The `codegen` and `gentest TU` columns are median Ninja edge sums,
