@@ -383,12 +383,6 @@ they are no longer the only visible signal.
   costs and slopes.
 - Fixed workload: the repo-derived tests intentionally include shared dependency and helper headers, so they are proof of target-level build impact,
   not an isolated measurement of framework registration overhead.
-- Single host/toolchain: these numbers are from one Linux GCC Release setup. Clang, MSVC, modules, and Debug builds need separate runs.
-- Parallel Ninja edge sums: compile edge sums show where work happened, but they are not wall time when multiple compile edges run concurrently.
-- Runtime benchmark smoke is not a stable runtime-performance study. The benchmark binaries were primarily included to measure consumer compile
-  cost, not benchmark-framework measurement quality.
-- The jkammerland/doctest fork currently needs a local `<tuple>` compatibility include in this harness because the pinned revision uses
-  `std::tuple_cat` without including `<tuple>`.
 
 ## Source Files
 
