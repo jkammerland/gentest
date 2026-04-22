@@ -155,6 +155,28 @@ build/bench-gtest-compare/harness/gbench_compare_benchmarks --benchmark_format=c
 build/bench-gtest-compare/harness/nanobench_compare_benchmarks
 ```
 
+## How To Read These Numbers
+
+This report intentionally contains two different benchmark shapes, and they answer different questions.
+
+The synthetic scaling benchmarks largely isolate incremental framework overhead. The test bodies are trivial, and the generated project
+keeps the non-framework workload small. That makes the per-case slopes meaningful: if GoogleTest or doctest spends more template/macro work
+per test case, it shows up clearly as case count grows. Those measurements are useful for answering "what is the incremental cost of adding
+many simple test cases?"
+
+The fixed workload benchmark is deliberately not a framework-only microbenchmark. It ports the existing unit, integration, and skip-only
+tests, then adds append-iota benchmark binaries. Those tests include real headers such as `<array>`, `<vector>`, `<numeric>`, `<cmath>`,
+`gentest/detail/bench_stats.h`, and `gentest/bench_util.h`; the benchmark binaries instantiate the same append-iota workload for
+`std::vector`, `std::list`, and `std::deque`. In that shape, dependency and workload compilation can hide framework differences. The right
+question becomes "what is the total consumer build cost for this target shape after dependencies have already been built?"
+
+That distinction matters for performance claims:
+
+- Use the synthetic scaling slopes to argue about framework overhead and amortization.
+- Use the fixed workload to argue about observed end-to-end target cost.
+- Do not use the fixed workload alone to claim that one framework's registration mechanism scales better. It contains too much shared
+  application and dependency code for that conclusion.
+
 ## Results: Test Count Scaling
 
 Median wall times in seconds. `d/gtest` and `d/doctest` are `gentest - other`; negative means gentest is faster.
@@ -253,7 +275,8 @@ Observed/predicted crossovers:
 
 ## Results: Fixed Test Workload
 
-Median wall times in seconds for the 26-test repo-derived workload.
+Median wall times in seconds for the 26-test repo-derived workload. This is a non-trivial target-level benchmark, not an isolated
+framework-overhead benchmark.
 
 | Framework | Median | Mean | Samples |
 | --- | ---: | ---: | --- |
@@ -274,9 +297,22 @@ Last-sample Ninja edge profile:
 | GoogleTest | n/a | 2.472 | 0.037 | 3 compile edges |
 | doctest | n/a | 0.898 | 0.035 | 3 compile edges |
 
+What this shows:
+
+- GoogleTest's compile edge sum was higher than gentest's generated TU compile edge sum (`2.472s` vs `2.095s`), but GoogleTest still had
+  lower end-to-end wall time (`1.309s` vs `1.657s`) because gentest also paid `0.623s` of codegen. A target-level result can therefore hide
+  or reverse a framework-TU advantage.
+- doctest remained much faster on this small fixed test target, but the absolute comparison is not just doctest registration versus gentest
+  registration. The target also compiles shared test logic, STL headers, and gentest runtime-facing helper code.
+- A framework delta can become smaller as a fraction of the full target when non-framework work is present. For example, the synthetic
+  25-case trivial target had gentest at `+349%` versus doctest (`0.921s` vs `0.205s`), while this 26-test repo-derived target had gentest at
+  `+199%` versus doctest (`1.657s` vs `0.554s`). That is consistent with non-framework work diluting the visible framework-only signal, but
+  the comparison also changes target layout, assertion mix, codegen topology, and scheduling.
+
 ## Results: Fixed Benchmark Workload
 
-Median wall times in seconds for append-iota benchmark binaries over `std::vector`, `std::list`, and `std::deque`, each with `1,000,000` elements.
+Median wall times in seconds for append-iota benchmark binaries over `std::vector`, `std::list`, and `std::deque`, each with `1,000,000`
+elements.
 
 | Framework | Median | Mean | Samples |
 | --- | ---: | ---: | --- |
@@ -297,12 +333,21 @@ Last-sample Ninja edge profile:
 | Google Benchmark | n/a | 0.473 | 0.041 |
 | nanobench | n/a | 0.561 | 0.031 |
 
-For this tiny benchmark workload, gentest's generated benchmark TU is lighter than the nanobench TU and slightly lighter than the Google Benchmark
-TU. The e2e consumer build is still slower because the fixed codegen cost is larger than the compile-time savings for only three benchmarks.
+This is the clearest masking example in the report. All three benchmark targets instantiate the same container-heavy append-iota workload.
+The aggregate Ninja profile does not decompose shared workload parsing, STL/template instantiation, framework headers, and benchmark
+registration, but the small TU compile spread is consistent with shared workload and dependency code masking benchmark-framework differences.
+The TU compile edge spread was only `0.114s` (`0.447s` to `0.561s`) across all three frameworks. gentest had the lightest benchmark TU, but
+the end-to-end target was still slower than Google Benchmark because the `0.171s` codegen edge outweighed the small TU compile advantage for
+only three benchmarks.
+
+That is the central performance lesson: once test bodies pull in non-trivial dependencies, the measured target can include dependency
+parsing, template instantiation, link shape, parallel scheduling, and fixed codegen/setup costs. Framework differences are still present, but
+they are no longer the only visible signal.
 
 ## Findings
 
-1. Codegen scaling matches `O(N) + C` for this workload. The measured fixed cost is roughly `0.29s`, and the fitted slope is about
+1. The synthetic one-TU scaling run is the best evidence for framework overhead. Codegen scaling matches `O(N) + C` for this workload. The
+   measured fixed cost is roughly `0.29s`, and the fitted slope is about
    `0.273ms/case`. For small test counts, the fixed parse/setup cost dominates. At 2000 tests, codegen was `0.891s`, while generated TU
    compilation was `3.719s`.
 
@@ -322,13 +367,22 @@ TU. The e2e consumer build is still slower because the fixed codegen cost is lar
 6. Splitting over 8 binaries lets Ninja run independent gentest codegen invocations in parallel. The codegen edge sum is around `2.8-3.0s`, but
    that work is parallelized; gentest overtook GoogleTest around the 250-500 case region and overtook doctest between 1000 and 2000 cases.
 
-7. For fixed benchmark binaries, gentest's generated benchmark TU is not the heavy part. The fixed codegen step is the overhead that must be
-   amortized by larger benchmark counts or more expensive framework headers.
+7. The fixed repo-derived tests show why target-level results can reverse a TU edge-sum advantage. gentest's generated TU edge sum was lower
+   than GoogleTest's, but the whole target was slower because codegen was also on the critical path.
+
+8. The fixed benchmark binaries show why non-trivial dependency-heavy targets can hide framework differences. All three frameworks compiled
+   the same container-heavy workload, and the TU compile spread was only `0.114s`.
+
+9. Therefore the performance argument is two-part. gentest's generated approach has better scaling on framework-heavy synthetic tests once
+   fixed codegen cost is amortized. For small or dependency-heavy targets, the result is governed by total target shape, not just the test
+   framework.
 
 ## Threats To Validity
 
 - Synthetic scale workload: all cases are trivial tests in one TU. Real-world test bodies, fixtures, mocks, and multiple TUs can shift both fixed
   costs and slopes.
+- Fixed workload: the repo-derived tests intentionally include shared dependency and helper headers, so they are proof of target-level build impact,
+  not an isolated measurement of framework registration overhead.
 - Single host/toolchain: these numbers are from one Linux GCC Release setup. Clang, MSVC, modules, and Debug builds need separate runs.
 - Parallel Ninja edge sums: compile edge sums show where work happened, but they are not wall time when multiple compile edges run concurrently.
 - Runtime benchmark smoke is not a stable runtime-performance study. The benchmark binaries were primarily included to measure consumer compile
@@ -342,3 +396,10 @@ TU. The e2e consumer build is still slower because the fixed codegen cost is lar
 - Layout scale script: [`scripts/bench_case_layout_scale.py`](../scripts/bench_case_layout_scale.py)
 - Fixed workload script: [`scripts/bench_gtest_compare.py`](../scripts/bench_gtest_compare.py)
 - Fixed workload harness: [`benchmarks/gtest_compare/CMakeLists.txt`](../benchmarks/gtest_compare/CMakeLists.txt)
+- Append-iota workload: [`benchmarks/gtest_compare/append_iota_workload.hpp`](../benchmarks/gtest_compare/append_iota_workload.hpp)
+- gentest benchmark port:
+  [`benchmarks/gtest_compare/gentest_append_iota_bench.cpp`](../benchmarks/gtest_compare/gentest_append_iota_bench.cpp)
+- Google Benchmark port:
+  [`benchmarks/gtest_compare/gbench_append_iota_bench.cpp`](../benchmarks/gtest_compare/gbench_append_iota_bench.cpp)
+- nanobench port:
+  [`benchmarks/gtest_compare/nanobench_append_iota_bench.cpp`](../benchmarks/gtest_compare/nanobench_append_iota_bench.cpp)
