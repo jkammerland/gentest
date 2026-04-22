@@ -8,6 +8,9 @@ test binary link. It excludes the gentest_codegen tool build and prebuilt
 gentest runtime libraries. The timed GoogleTest and doctest sections include
 test TU compilation and final test binary link. GoogleTest uses the system
 package reported by pkg-config; doctest uses the configured GitHub fork checkout.
+The prebuilt gentest_codegen host tool defaults to a Release build even when the
+consumer target build type is Debug; override with --codegen-build-type when
+you intentionally want to measure a differently built host tool.
 
 Usage:
   python3 scripts/bench_gtest_compare.py
@@ -367,6 +370,7 @@ def print_summary(result: dict[str, object]) -> None:
     print("\n=== Test Framework Consumer E2E Build Benchmark ===")
     print(f"Commit:       {result['sha']}")
     print(f"Build type:   {result['build_type']}")
+    print(f"Codegen type: {result['codegen_build_type']}")
     print(f"Jobs:         {result['jobs']}")
     print(f"GoogleTest:   {result['gtest_version']} (pkg-config)")
     print(f"gbench:       {result['gbench_repository']} @ {result['gbench_tag']}")
@@ -426,6 +430,11 @@ def main() -> int:
     ap.add_argument("--samples", type=int, default=3, help="Number of paired clean consumer build samples")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1, help="Parallel build jobs")
     ap.add_argument("--build-type", default="Release", help="CMake build type")
+    ap.add_argument(
+        "--codegen-build-type",
+        default="Release",
+        help="CMake build type for the prebuilt gentest_codegen host tool",
+    )
     ap.add_argument("--output", default=None, help="JSON output path")
     ap.add_argument("--cmake-arg", action="append", default=[], help="Extra CMake argument for the harness configure")
     ap.add_argument("--ccache", choices=["off", "on"], default="off", help="Disable ccache by default for stable timings")
@@ -460,7 +469,7 @@ def main() -> int:
     harness_build = build_root / "harness"
 
     sha = git(root, "rev-parse", "HEAD")
-    codegen_exe = configure_and_build_codegen(root, tool_build, args.build_type, args.jobs, env)
+    codegen_exe = configure_and_build_codegen(root, tool_build, args.codegen_build_type, args.jobs, env)
     configure_harness(
         root,
         harness_build,
@@ -528,6 +537,7 @@ def main() -> int:
     result: dict[str, object] = {
         "sha": sha,
         "build_type": args.build_type,
+        "codegen_build_type": args.codegen_build_type,
         "jobs": args.jobs,
         "samples": args.samples,
         "ccache": args.ccache,

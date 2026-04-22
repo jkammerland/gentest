@@ -11,6 +11,9 @@ while distributing cases across either:
 Timed scope matches bench_case_scale.py: configure, framework/runtime builds,
 and the gentest_codegen tool build are excluded. gentest timing includes
 codegen execution, generated TU compilation, and final binary links.
+The prebuilt gentest_codegen host tool defaults to a Release build even when the
+consumer target build type is Debug; override with --codegen-build-type when
+you intentionally want to measure a differently built host tool.
 
 Usage:
   python3 scripts/bench_case_layout_scale.py --layout multi-tu --shards 8
@@ -475,7 +478,10 @@ def print_summary(result: dict[str, object]) -> None:
     print(f"Commit: {result['sha']}")
     print(f"Layout: {result['layout']}, requested shards: {result['shards']}")
     print(f"Counts: {', '.join(str(c) for c in result['counts'])}")
-    print(f"Samples: {result['samples']}, jobs: {result['jobs']}, build type: {result['build_type']}")
+    print(
+        f"Samples: {result['samples']}, jobs: {result['jobs']}, build type: {result['build_type']}, "
+        f"codegen build type: {result['codegen_build_type']}"
+    )
     print()
     print(f"doctest: {result['doctest_repository']} @ {result['doctest_tag']}")
     print()
@@ -526,6 +532,11 @@ def main() -> int:
     ap.add_argument("--samples", type=int, default=3)
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--build-type", default="Release")
+    ap.add_argument(
+        "--codegen-build-type",
+        default="Release",
+        help="CMake build type for the prebuilt gentest_codegen host tool",
+    )
     ap.add_argument("--output", default=None)
     ap.add_argument("--ccache", choices=["off", "on"], default="off")
     ap.add_argument("--skip-run", action="store_true")
@@ -558,7 +569,7 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
 
     sha = git(root, "rev-parse", "HEAD")
-    codegen_exe = configure_and_build_codegen(root, tool_build, args.build_type, args.jobs, env)
+    codegen_exe = configure_and_build_codegen(root, tool_build, args.codegen_build_type, args.jobs, env)
 
     results: list[dict[str, object]] = []
     for count in counts:
@@ -676,6 +687,7 @@ def main() -> int:
         "layout": args.layout,
         "shards": args.shards,
         "build_type": args.build_type,
+        "codegen_build_type": args.codegen_build_type,
         "jobs": args.jobs,
         "samples": args.samples,
         "ccache": args.ccache,
