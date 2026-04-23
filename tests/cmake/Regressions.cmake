@@ -340,6 +340,15 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=1")
 
 gentest_add_cmake_script_test(
+    NAME regression_runtime_reporting_junit_xml_control_sanitized
+    PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckRuntimeReportingXmlSanitize.cmake"
+    ARGS --run=regressions/runtime_reporting/junit_invalid_xml_control_failure --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/runtime_reporting_xml_control.xml
+    DEFINES
+        "JUNIT_FILE=${CMAKE_CURRENT_BINARY_DIR}/runtime_reporting_xml_control.xml"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
     NAME regression_runtime_reporting_junit_open_failure_is_visible
     PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
