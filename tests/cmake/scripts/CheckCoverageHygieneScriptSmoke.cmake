@@ -96,3 +96,5 @@ foreach(_required IN ITEMS "src/detail.hpp" "zero_hits" "src/main.cpp" "ok")
       "stderr:\n${_hygiene_err}")
   endif()
 endforeach()
+
+file(REMOVE_RECURSE "${_work_dir}")
