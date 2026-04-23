@@ -28,8 +28,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
-CoverageRecord = Tuple[Path, str, Optional[float], Optional[int], Optional[str], Optional[str]]
 GcovStatus = str
+CoverageRecord = Tuple[Path, str, Optional[float], Optional[int], Optional[str], Optional[str]]
+HeaderCoverageRecord = Tuple[GcovStatus, Optional[float], Optional[int], Optional[str], Optional[str]]
 
 DEFAULT_POLICY = {
     "roots": ["src", "tools/src"],
@@ -272,6 +273,17 @@ def _parse_gcov_json(tmpdir: Path, source: Path) -> Optional[Tuple[float, int, s
     return pct, total_exec_lines, entry_file
 
 
+def _coverage_status_from_json_entry(entry: Dict[str, Any]) -> Tuple[GcovStatus, float, int]:
+    lines = [ln for ln in entry.get("lines", []) if isinstance(ln, dict) and "count" in ln]
+    if not lines:
+        return "no_executable_lines", 0.0, 0
+
+    total_exec_lines = len(lines)
+    hit = sum(1 for ln in lines if ln.get("count", 0) > 0)
+    pct = (hit * 100.0) / total_exec_lines if total_exec_lines else 0.0
+    return ("ok" if pct > 0 else "zero_hits"), pct, total_exec_lines
+
+
 def _is_under_any_root(source: Path, roots: Sequence[Path]) -> bool:
     return any(source == root or source.is_relative_to(root) for root in roots)
 
@@ -417,8 +429,45 @@ def _header_from_gcov_file(file_name: str, source_roots: Sequence[Path], exclude
     return source
 
 
-def _parse_gcov_json_headers(tmpdir: Path, source_roots: Sequence[Path], exclude: Sequence[Path]) -> Set[Path]:
-    headers: Set[Path] = set()
+def _is_better_header_coverage(
+    candidate: HeaderCoverageRecord,
+    current: Optional[HeaderCoverageRecord],
+) -> bool:
+    if current is None:
+        return True
+
+    candidate_priority = PREFERRED_ORDER.get(candidate[0], 99)
+    current_priority = PREFERRED_ORDER.get(current[0], 99)
+    if candidate_priority != current_priority:
+        return candidate_priority < current_priority
+
+    candidate_pct = candidate[1] if candidate[1] is not None else -1.0
+    current_pct = current[1] if current[1] is not None else -1.0
+    if candidate_pct != current_pct:
+        return candidate_pct > current_pct
+
+    candidate_lines = candidate[2] if candidate[2] is not None else -1
+    current_lines = current[2] if current[2] is not None else -1
+    return candidate_lines > current_lines
+
+
+def _store_header_coverage(
+    records: Dict[Path, HeaderCoverageRecord],
+    header: Path,
+    record: HeaderCoverageRecord,
+) -> None:
+    if _is_better_header_coverage(record, records.get(header)):
+        records[header] = record
+
+
+def _parse_gcov_json_header_records(
+    tmpdir: Path,
+    source_roots: Sequence[Path],
+    exclude: Sequence[Path],
+    gcda: Path,
+    obj_file: Path,
+) -> Dict[Path, HeaderCoverageRecord]:
+    records: Dict[Path, HeaderCoverageRecord] = {}
     for candidate_json in tmpdir.glob("*.gcov.json.gz"):
         with gzip.open(candidate_json, "rt", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -426,32 +475,54 @@ def _parse_gcov_json_headers(tmpdir: Path, source_roots: Sequence[Path], exclude
         for entry in data.get("files", []):
             header = _header_from_gcov_file(str(entry.get("file", "")), source_roots, exclude)
             if header is not None:
-                headers.add(header)
-    return headers
+                status, pct, lines = _coverage_status_from_json_entry(entry)
+                _store_header_coverage(records, header, (status, pct, lines, str(gcda), str(obj_file)))
+    return records
 
 
-def _parse_gcov_text_headers(output: str, source_roots: Sequence[Path], exclude: Sequence[Path]) -> Set[Path]:
-    headers: Set[Path] = set()
+def _parse_gcov_text_header_records(
+    output: str,
+    source_roots: Sequence[Path],
+    exclude: Sequence[Path],
+    gcda: Path,
+    obj_file: Path,
+) -> Dict[Path, HeaderCoverageRecord]:
+    records: Dict[Path, HeaderCoverageRecord] = {}
+    last_header: Optional[Path] = None
     for line in output.splitlines():
-        match = re.match(r"^File ['\"]([^'\"]+)['\"]$", line.strip())
-        if not match:
+        stripped = line.strip()
+        match = re.match(r"^File ['\"]([^'\"]+)['\"]$", stripped)
+        if match:
+            last_header = _header_from_gcov_file(match.group(1), source_roots, exclude)
             continue
-        header = _header_from_gcov_file(match.group(1), source_roots, exclude)
-        if header is not None:
-            headers.add(header)
-    return headers
+
+        if last_header is None:
+            continue
+        if stripped == "No executable lines":
+            _store_header_coverage(records, last_header, ("no_executable_lines", 0.0, 0, str(gcda), str(obj_file)))
+            last_header = None
+            continue
+
+        mexec = re.match(r"^Lines executed:\s*([0-9]+\.[0-9]+)% of\s*([0-9]+)$", stripped)
+        if mexec:
+            pct = float(mexec.group(1))
+            lines = int(mexec.group(2))
+            status = "ok" if pct > 0 else "zero_hits"
+            _store_header_coverage(records, last_header, (status, pct, lines, str(gcda), str(obj_file)))
+            last_header = None
+    return records
 
 
-def _discover_header_source_map(
+def _discover_header_records(
     compile_map: Dict[Path, List[Path]],
     source_roots: Sequence[Path],
     exclude_prefix: Sequence[str],
     gcov_cmd: Sequence[str],
     gcov_support: Set[str],
     gcov_args: Sequence[str],
-) -> Dict[Path, List[Path]]:
+) -> Dict[Path, HeaderCoverageRecord]:
     exclude = [Path(prefix).resolve() for prefix in exclude_prefix]
-    header_map: Dict[Path, List[Path]] = {}
+    header_records: Dict[Path, HeaderCoverageRecord] = {}
     scanned: Set[Tuple[Path, Path, Path]] = set()
 
     for source, obj_files in compile_map.items():
@@ -473,16 +544,14 @@ def _discover_header_source_map(
                         text=True,
                         check=False,
                     )
-                    headers = _parse_gcov_json_headers(tmpdir, source_roots, exclude)
-                    if not headers:
-                        headers = _parse_gcov_text_headers(proc.stdout, source_roots, exclude)
+                    records = _parse_gcov_json_header_records(tmpdir, source_roots, exclude, gcda, obj_file)
+                    if not records:
+                        records = _parse_gcov_text_header_records(proc.stdout, source_roots, exclude, gcda, obj_file)
 
-                for header in headers:
-                    items = header_map.setdefault(header, [])
-                    if obj_file not in items:
-                        items.append(obj_file)
+                for header, record in records.items():
+                    _store_header_coverage(header_records, header, record)
 
-    return header_map
+    return header_records
 
 
 def _scan_unit(
@@ -566,7 +635,9 @@ def _print_report(
         status_counts[status] = status_counts.get(status, 0) + 1
         source_label = str(source)
         if source.is_relative_to(project_root):
-            source_label = str(source.relative_to(project_root))
+            source_label = source.relative_to(project_root).as_posix()
+        else:
+            source_label = source.as_posix()
         pct_s = "-" if pct is None else f"{pct:6.2f}%"
         lines_s = "-" if lines is None else str(lines)
         gcda_label = gcda or "-"
@@ -661,7 +732,7 @@ def main() -> int:
     compdb = _load_compile_commands(build_dir)
     compile_map = _source_roots_map(compdb, source_roots)
     sources = _collect_sources(source_roots, args.exclude_prefix)
-    header_map = _discover_header_source_map(
+    header_records = _discover_header_records(
         compile_map,
         source_roots,
         args.exclude_prefix,
@@ -669,14 +740,16 @@ def main() -> int:
         gcov_support,
         args.gcov_args,
     )
-    for header, obj_files in header_map.items():
+    for header, record in header_records.items():
+        obj_path = Path(record[4]).resolve(strict=False) if record[4] else None
+        obj_files = [obj_path] if obj_path is not None else []
         if header not in compile_map:
             compile_map[header] = obj_files
         else:
             for obj_file in obj_files:
                 if obj_file not in compile_map[header]:
                     compile_map[header].append(obj_file)
-    sources = sorted(set(sources).union(header_map.keys()))
+    sources = sorted(set(sources).union(header_records.keys()))
 
     groups: Dict[str, List[CoverageRecord]] = {
         "codegen": [],
@@ -687,7 +760,14 @@ def main() -> int:
 
     for source in sources:
         obj_files = compile_map.get(source, [])
-        if not obj_files:
+        if source in header_records:
+            status, pct, lines, gcda, obj_file = header_records[source]
+            if _is_expected(source, intentional_roots):
+                status = "intentional"
+            elif _is_expected(source, no_exec_roots) and status == "no_executable_lines":
+                status = "no_exec"
+            record = (source, status, pct, lines, gcda, obj_file)
+        elif not obj_files:
             record = (
                 source,
                 "intentional" if _is_expected(source, intentional_roots) else "missing_obj",

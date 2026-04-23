@@ -62,7 +62,7 @@ if source.suffix == ".cpp":
     files.append({"file": str(source), "lines": [{"count": 1}]})
     files.append({"file": str(header), "lines": [{"count": 0}]})
 else:
-    files.append({"file": str(source), "lines": [{"count": 0}]})
+    files.append({"file": str(source.with_name("unrelated.hpp")), "lines": [{"count": 0}]})
 
 with gzip.open(pathlib.Path.cwd() / "fake.gcov.json.gz", "wt", encoding="utf-8") as handle:
     json.dump({"files": files}, handle)
