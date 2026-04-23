@@ -333,14 +333,7 @@ def _parse_status_set(value: str) -> Set[GcovStatus]:
 def _parse_gcov_command(spec: Sequence[str] | str) -> List[str]:
     if isinstance(spec, str):
         return [token for token in shlex.split(spec) if token]
-    out: List[str] = []
-    for token in spec:
-        if not isinstance(token, str):
-            continue
-        chunks = shlex.split(token)
-        if chunks:
-            out.extend(chunks)
-    return out
+    return [token for token in spec if isinstance(token, str) and token]
 
 
 def _probe_gcov_support(gcov_cmd: Sequence[str], env: Optional[Dict[str, str]] = None) -> Set[str]:

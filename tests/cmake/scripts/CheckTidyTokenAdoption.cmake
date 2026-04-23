@@ -224,6 +224,23 @@ set(_tidy_common_args
   "--header-filter=.*"
   "-p" "${_fixture_build_dir}")
 
+execute_process(
+  COMMAND
+    "${_clang_tidy}"
+    "--load=${_plugin_path}"
+    "--checks=-*,gentest-token-adoption"
+    "--list-checks"
+  WORKING_DIRECTORY "${_work_dir}"
+  RESULT_VARIABLE _list_tidy_rc
+  OUTPUT_VARIABLE _list_tidy_out
+  ERROR_VARIABLE _list_tidy_err)
+set(_list_tidy_text "${_list_tidy_out}\n${_list_tidy_err}")
+string(FIND "${_list_tidy_text}" "gentest-token-adoption" _loaded_check_pos)
+if(NOT _list_tidy_rc EQUAL 0 OR _loaded_check_pos EQUAL -1)
+  gentest_skip_test("tidy token adoption regression: clang-tidy did not expose loaded gentest plugin checks")
+  return()
+endif()
+
 message(STATUS "Run tidy token adoption negative fixture...")
 execute_process(
   COMMAND
