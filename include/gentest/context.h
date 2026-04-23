@@ -14,27 +14,30 @@ namespace detail {
 struct TestContextInfo;
 }
 
-// Public context adoption API for multi-threaded/coroutine tests.
-namespace ctx {
+// Public token adoption API for multi-threaded/coroutine tests.
+using CurrentToken = std::shared_ptr<detail::TestContextInfo>;
 
-using Token = std::shared_ptr<detail::TestContextInfo>;
+struct Adoption;
 
-GENTEST_RUNTIME_API auto current() -> Token;
+GENTEST_RUNTIME_API auto               get_current_token() -> CurrentToken;
+[[nodiscard]] GENTEST_RUNTIME_API auto set_current_token(CurrentToken token) -> Adoption;
 
-struct Adopt {
-    Adopt(const Adopt &)            = delete;
-    Adopt &operator=(const Adopt &) = delete;
-    Adopt(Adopt &&)                 = delete;
-    Adopt &operator=(Adopt &&)      = delete;
+struct [[nodiscard]] Adoption {
+    Adoption(const Adoption &)            = delete;
+    Adoption &operator=(const Adoption &) = delete;
+    Adoption(Adoption &&)                 = delete;
+    Adoption &operator=(Adoption &&)      = delete;
 
-    GENTEST_RUNTIME_API explicit Adopt(Token t);
-    GENTEST_RUNTIME_API ~Adopt();
+    GENTEST_RUNTIME_API ~Adoption();
 
-    Token prev{};
-    Token adopted{};
+  private:
+    friend auto set_current_token(CurrentToken token) -> Adoption;
+
+    GENTEST_RUNTIME_API explicit Adoption(CurrentToken token);
+
+    CurrentToken previous_{};
+    CurrentToken adopted_{};
 };
-
-} // namespace ctx
 
 // Lightweight per-test logging.
 // - `set_log_policy()` overrides log visibility for the active test context.

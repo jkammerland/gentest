@@ -219,10 +219,10 @@ and made the remaining legacy detail surface explicit compatibility shims:
 - `023_public_api_internal_surface_inventory.md`
   - now records the public/detail/private classification for the installed
     `context.h`, `registry.h`, and `fixture.h` surface under review
-  - explicitly classifies `gentest::ctx::Token` as a compatibility-preserved
-    public token type while `gentest::detail::TestContextInfo` remains an
-    installed unstable detail escape hatch that is no longer exposed through
-    the normal `runner.h` / `context.h` include path
+  - explicitly classifies `gentest::CurrentToken` as the public token type
+    while `gentest::detail::TestContextInfo` remains an installed unstable
+    detail escape hatch that is no longer exposed through the normal
+    `runner.h` / `context.h` include path
 
 Validation for the current slice:
 

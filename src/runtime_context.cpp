@@ -32,7 +32,7 @@ void record_failure(std::string msg) {
     auto &buffer = current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
         (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
-                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         "        Did you forget to set the current token in this thread/coroutine?\n",
                          stderr);
         std::abort();
     }
@@ -57,7 +57,7 @@ void record_failure(std::string msg, const std::source_location &loc) {
     auto &buffer = current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
         (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
-                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         "        Did you forget to set the current token in this thread/coroutine?\n",
                          stderr);
         std::abort();
     }

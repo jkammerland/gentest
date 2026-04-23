@@ -3,6 +3,7 @@
 #  -DARGS=<optional CLI args>
 #  -DENV_VARS=<optional env vars (list of KEY=VALUE)>
 #  -DREQUIRED_SUBSTRING=<substring expected in combined output>
+#  -DREQUIRED_SUBSTRINGS=<list of substrings expected in combined output>
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "CheckDeath.cmake: PROG not set")
@@ -54,6 +55,15 @@ if(DEFINED REQUIRED_SUBSTRING)
   if(_pos EQUAL -1)
     message(FATAL_ERROR "Expected substring not found in output: '${REQUIRED_SUBSTRING}'. Output:\n${_all}")
   endif()
+endif()
+
+if(DEFINED REQUIRED_SUBSTRINGS)
+  foreach(_required_substring IN LISTS REQUIRED_SUBSTRINGS)
+    string(FIND "${_all}" "${_required_substring}" _pos)
+    if(_pos EQUAL -1)
+      message(FATAL_ERROR "Expected substring not found in output: '${_required_substring}'. Output:\n${_all}")
+    endif()
+  endforeach()
 endif()
 
 message(STATUS "Death test passed (non-zero exit and expected output present)")

@@ -15,10 +15,10 @@ Use it to record which installed symbols or surfaces are:
 
 - `gentest::log`, `gentest::set_log_policy`, `gentest::set_default_log_policy`, `gentest::skip`,
   `gentest::skip_if`, `gentest::xfail`, `gentest::xfail_if`: `public` -> keep
-- `gentest::ctx::current`, `gentest::ctx::Adopt`: `public` -> keep
-- `gentest::ctx::Token`: `public` -> keep as the existing shared-pointer token type for compatibility; current
-  reduction work hides the concrete `TestContextInfo` definition and removes the transitive `runtime_context.h`
-  exposure from `context.h` without changing the token type
+- `gentest::get_current_token`, `gentest::set_current_token`, `gentest::Adoption`: `public` -> keep
+- `gentest::CurrentToken`: `public` -> keep as the shared-pointer token type; current reduction work hides the
+  concrete `TestContextInfo` definition and removes the transitive `runtime_context.h` exposure from `context.h`
+  without changing the token representation
 - `gentest/detail/runtime_support.h`: `detail` -> keep installed as the narrow unstable support layer needed by
   normal assertions/generated wrappers without re-exporting the concrete `TestContextInfo` layout
 - `gentest/detail/runtime_context.h` and `gentest::detail::TestContextInfo`: `detail` -> still installed as an

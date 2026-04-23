@@ -34,11 +34,11 @@ void measured_call_phase_body_timing(void *) {
     }
 
     ++g_call_invocations;
-    auto               token = gentest::ctx::current();
+    auto               token = gentest::get_current_token();
     std::promise<void> adopted_started;
     auto               adopted_ready = adopted_started.get_future();
     std::thread([token = std::move(token), adopted_started = std::move(adopted_started)]() mutable {
-        gentest::ctx::Adopt adopt(std::move(token));
+        auto adoption = gentest::set_current_token(std::move(token));
         adopted_started.set_value();
         std::this_thread::sleep_for(kAdoptedWait);
     }).detach();
