@@ -3049,6 +3049,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_coverage_report_script_smoke APPEND PROPERTY LABELS "contract")
 
 _gentest_add_cmake_helper_test(
+    gentest_coverage_hygiene_script_smoke
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCoverageHygieneScriptSmoke.cmake
+    contract)
+set_property(TEST gentest_coverage_hygiene_script_smoke APPEND PROPERTY LABELS "contract")
+
+_gentest_add_cmake_helper_test(
     gentest_diagnostic_workflow_lanes
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckDiagnosticWorkflowLanes.cmake

@@ -59,6 +59,8 @@ PREFERRED_ORDER: Dict[GcovStatus, int] = {
     "no_match": 5,
     "gcov_error": 6,
 }
+TRANSLATION_UNIT_SUFFIXES = (".cpp",)
+IMPLEMENTATION_HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx", ".ipp", ".inl")
 
 
 def _read_policy_config(config_path: Path) -> Dict[str, Any]:
@@ -270,16 +272,34 @@ def _parse_gcov_json(tmpdir: Path, source: Path) -> Optional[Tuple[float, int, s
     return pct, total_exec_lines, entry_file
 
 
-def _collect_sources(roots: Sequence[Path], exclude_prefix: Sequence[str]) -> List[Path]:
+def _is_under_any_root(source: Path, roots: Sequence[Path]) -> bool:
+    return any(source == root or source.is_relative_to(root) for root in roots)
+
+
+def _is_excluded(source: Path, exclude: Sequence[Path]) -> bool:
+    return any(source == item or source.is_relative_to(item) for item in exclude)
+
+
+def _collect_sources(
+    roots: Sequence[Path],
+    exclude_prefix: Sequence[str],
+    suffixes: Sequence[str] = TRANSLATION_UNIT_SUFFIXES,
+) -> List[Path]:
     exclude = [Path(prefix).resolve() for prefix in exclude_prefix]
+    suffix_set = {suffix.lower() for suffix in suffixes}
     out: List[Path] = []
     for root in roots:
         if not root.exists():
             continue
-        for src in root.rglob("*.cpp"):
-            if any(src == e or src.is_relative_to(e) for e in exclude):
+        for src in root.rglob("*"):
+            if not src.is_file():
                 continue
-            out.append(src.resolve())
+            if src.suffix.lower() not in suffix_set:
+                continue
+            resolved = src.resolve()
+            if _is_excluded(resolved, exclude):
+                continue
+            out.append(resolved)
     out.sort()
     return out
 
@@ -331,13 +351,13 @@ def _probe_gcov_support(gcov_cmd: Sequence[str], env: Optional[Dict[str, str]] =
     return supports
 
 
-def _run_gcov(
+def _gcov_invocation_args(
     source: Path,
     gcov_cmd: Sequence[str],
     gcda: Path,
     gcov_support: Set[str],
     gcov_args: Sequence[str],
-) -> Tuple[GcovStatus, Optional[float], Optional[int], Optional[str]]:
+) -> List[str]:
     args = list(gcov_cmd) + list(gcov_args)
     if "-j" in gcov_support:
         args.append("-j")
@@ -346,6 +366,17 @@ def _run_gcov(
     if "--preserve-paths" in gcov_support:
         args.append("--preserve-paths")
     args.extend(("-o", str(gcda), str(source)))
+    return args
+
+
+def _run_gcov(
+    source: Path,
+    gcov_cmd: Sequence[str],
+    gcda: Path,
+    gcov_support: Set[str],
+    gcov_args: Sequence[str],
+) -> Tuple[GcovStatus, Optional[float], Optional[int], Optional[str]]:
+    args = _gcov_invocation_args(source, gcov_cmd, gcda, gcov_support, gcov_args)
 
     with tempfile.TemporaryDirectory(prefix="gcov_") as tmp:
         tmpdir = Path(tmp)
@@ -368,6 +399,90 @@ def _run_gcov(
         if status == "no_match" and proc.returncode != 0:
             status = "gcov_error"
         return status, pct, total, str(gcda)
+
+
+def _header_from_gcov_file(file_name: str, source_roots: Sequence[Path], exclude: Sequence[Path]) -> Optional[Path]:
+    if not file_name:
+        return None
+    source = Path(file_name)
+    if not source.is_absolute():
+        return None
+    source = source.resolve(strict=False)
+    if source.suffix.lower() not in IMPLEMENTATION_HEADER_SUFFIXES:
+        return None
+    if not _is_under_any_root(source, source_roots):
+        return None
+    if _is_excluded(source, exclude):
+        return None
+    return source
+
+
+def _parse_gcov_json_headers(tmpdir: Path, source_roots: Sequence[Path], exclude: Sequence[Path]) -> Set[Path]:
+    headers: Set[Path] = set()
+    for candidate_json in tmpdir.glob("*.gcov.json.gz"):
+        with gzip.open(candidate_json, "rt", encoding="utf-8") as fh:
+            data = json.load(fh)
+
+        for entry in data.get("files", []):
+            header = _header_from_gcov_file(str(entry.get("file", "")), source_roots, exclude)
+            if header is not None:
+                headers.add(header)
+    return headers
+
+
+def _parse_gcov_text_headers(output: str, source_roots: Sequence[Path], exclude: Sequence[Path]) -> Set[Path]:
+    headers: Set[Path] = set()
+    for line in output.splitlines():
+        match = re.match(r"^File ['\"]([^'\"]+)['\"]$", line.strip())
+        if not match:
+            continue
+        header = _header_from_gcov_file(match.group(1), source_roots, exclude)
+        if header is not None:
+            headers.add(header)
+    return headers
+
+
+def _discover_header_source_map(
+    compile_map: Dict[Path, List[Path]],
+    source_roots: Sequence[Path],
+    exclude_prefix: Sequence[str],
+    gcov_cmd: Sequence[str],
+    gcov_support: Set[str],
+    gcov_args: Sequence[str],
+) -> Dict[Path, List[Path]]:
+    exclude = [Path(prefix).resolve() for prefix in exclude_prefix]
+    header_map: Dict[Path, List[Path]] = {}
+    scanned: Set[Tuple[Path, Path, Path]] = set()
+
+    for source, obj_files in compile_map.items():
+        for obj_file in obj_files:
+            for gcda in _find_gcda_files(obj_file, source):
+                scan_key = (source, obj_file, gcda)
+                if scan_key in scanned:
+                    continue
+                scanned.add(scan_key)
+
+                args = _gcov_invocation_args(source, gcov_cmd, gcda, gcov_support, gcov_args)
+                with tempfile.TemporaryDirectory(prefix="gcov_headers_") as tmp:
+                    tmpdir = Path(tmp)
+                    proc = subprocess.run(
+                        args,
+                        cwd=tmpdir,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        check=False,
+                    )
+                    headers = _parse_gcov_json_headers(tmpdir, source_roots, exclude)
+                    if not headers:
+                        headers = _parse_gcov_text_headers(proc.stdout, source_roots, exclude)
+
+                for header in headers:
+                    items = header_map.setdefault(header, [])
+                    if obj_file not in items:
+                        items.append(obj_file)
+
+    return header_map
 
 
 def _scan_unit(
@@ -546,6 +661,22 @@ def main() -> int:
     compdb = _load_compile_commands(build_dir)
     compile_map = _source_roots_map(compdb, source_roots)
     sources = _collect_sources(source_roots, args.exclude_prefix)
+    header_map = _discover_header_source_map(
+        compile_map,
+        source_roots,
+        args.exclude_prefix,
+        gcov_cmd,
+        gcov_support,
+        args.gcov_args,
+    )
+    for header, obj_files in header_map.items():
+        if header not in compile_map:
+            compile_map[header] = obj_files
+        else:
+            for obj_file in obj_files:
+                if obj_file not in compile_map[header]:
+                    compile_map[header].append(obj_file)
+    sources = sorted(set(sources).union(header_map.keys()))
 
     groups: Dict[str, List[CoverageRecord]] = {
         "codegen": [],
