@@ -109,7 +109,7 @@
 - In `tests/CMakeLists.txt`, prefer `gentest_add_cmake_script_test(...)` for these checks and pass required `DEFINES` explicitly (for example `TIMEOUT_SEC`, `EXPECT_RC`, `BUILD_ROOT`, `TARGET_ARG`).
 
 ## Commit & Pull Request Guidelines
-- Commits: short, imperative subject (e.g., “Implement clang codegen attach helper”); add context in the body when needed; use trailers like `Refs: #123`.
+- Commits: use Conventional Commits (`type(scope): subject`) with a short imperative subject, for example `feat(codegen): attach generated registration shims`; add context in the body when needed; use trailers like `Refs: #123`.
 - PRs: describe scope, list exercised build presets (unit/integration and sanitizers), and include failing output snippets for regressions or flaky behavior.
 
 ## Tooling & Configuration Tips

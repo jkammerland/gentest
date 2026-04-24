@@ -142,34 +142,44 @@ unset(_gentest_skip)
 unset(_gentest_run)
 
 set(_gentest_concurrency_death_checks
-    "concurrency_fail_single_death|concurrency/child_expect_fail"
-    "concurrency_multi_noadopt_death|concurrency/no_adopt_expect_death_multi")
+    "concurrency_fail_single_death|concurrency/child_expect_fail|gentest: fatal: assertion/expectation recorded without an active test context."
+    "concurrency_skip_no_token_death|concurrency/child_skip_no_token|gentest: fatal: skip called without an active test context."
+    "concurrency_xfail_no_token_death|concurrency/child_xfail_no_token|gentest: fatal: xfail called without an active test context."
+    "concurrency_multi_noadopt_death|concurrency/no_adopt_expect_death_multi|gentest: fatal: assertion/expectation recorded without an active test context.")
 
 foreach(_gentest_check IN LISTS _gentest_concurrency_death_checks)
     string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
     list(GET _gentest_fields 0 _gentest_name)
     list(GET _gentest_fields 1 _gentest_run)
+    list(GET _gentest_fields 2 _gentest_required_substring)
 
     gentest_add_check_death(
         NAME ${_gentest_name}
         PROG ${PROJECT_NAME}_concurrency_tests
-        REQUIRED_SUBSTRING "gentest: fatal: assertion/expectation recorded without an active test context."
+        REQUIRED_SUBSTRINGS
+            "${_gentest_required_substring}"
+            "Did you forget to set the current token in this thread/coroutine?"
         ARGS --run=${_gentest_run})
 endforeach()
 unset(_gentest_concurrency_death_checks)
 unset(_gentest_check)
 unset(_gentest_fields)
 unset(_gentest_name)
+unset(_gentest_required_substring)
 unset(_gentest_run)
 
 option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
-    set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED "$<CONFIG:Debug>")
+    set_tests_properties(
+        concurrency_fail_single_death concurrency_skip_no_token_death concurrency_xfail_no_token_death concurrency_multi_noadopt_death
+        PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 
 option(GENTEST_SKIP_TSAN_DEATH_TESTS "Skip death tests whose stderr contract is incompatible with ThreadSanitizer" OFF)
 if(GENTEST_SKIP_TSAN_DEATH_TESTS)
-    set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)
+    set_tests_properties(
+        concurrency_fail_single_death concurrency_skip_no_token_death concurrency_xfail_no_token_death concurrency_multi_noadopt_death
+        PROPERTIES DISABLED TRUE)
 endif()
 
 option(GENTEST_ENABLE_TSAN_STRESS_TESTS "Enable long-running TSAN stress reproducers" OFF)
@@ -3039,6 +3049,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_coverage_report_script_smoke APPEND PROPERTY LABELS "contract")
 
 _gentest_add_cmake_helper_test(
+    gentest_coverage_hygiene_script_smoke
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCoverageHygieneScriptSmoke.cmake
+    contract)
+set_property(TEST gentest_coverage_hygiene_script_smoke APPEND PROPERTY LABELS "contract")
+
+_gentest_add_cmake_helper_test(
     gentest_diagnostic_workflow_lanes
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckDiagnosticWorkflowLanes.cmake
@@ -3054,6 +3071,12 @@ _gentest_add_cmake_helper_test(
     gentest_clang_tidy_arguments_materialization
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckClangTidyArgumentsMaterialization.cmake
+    cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_tidy_token_adoption
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tidy_token_adoption
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTidyTokenAdoption.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(

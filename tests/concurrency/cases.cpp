@@ -13,9 +13,9 @@ namespace concurrency {
 
 [[using gentest: test("child_expect_pass")]]
 void child_expect_pass() {
-    auto        tok = gentest::ctx::current();
+    auto        tok = gentest::get_current_token();
     std::thread t([tok] {
-        gentest::ctx::Adopt guard(tok);
+        auto guard = gentest::set_current_token(tok);
         EXPECT_TRUE(true);
         EXPECT_EQ(1, 1);
     });
@@ -24,9 +24,9 @@ void child_expect_pass() {
 
 [[using gentest: test("child_expect_fail")]]
 void child_expect_fail() {
-    auto        tok = gentest::ctx::current();
+    auto        tok = gentest::get_current_token();
     std::thread t([tok] {
-        // Intentionally forget to adopt to exercise global fallback
+        // Intentionally forget to set the current token to exercise the fatal no-current-token path.
         (void)tok;
         EXPECT_TRUE(false, "child thread EXPECT_TRUE(false)");
         EXPECT_EQ(1, 2, "child thread EXPECT_EQ(1,2)");
@@ -34,11 +34,23 @@ void child_expect_fail() {
     t.join();
 }
 
+[[using gentest: test("child_skip_no_token")]]
+void child_skip_no_token() {
+    std::thread t([] { gentest::skip("child thread skip without token"); });
+    t.join();
+}
+
+[[using gentest: test("child_xfail_no_token")]]
+void child_xfail_no_token() {
+    std::thread t([] { gentest::xfail("child thread xfail without token"); });
+    t.join();
+}
+
 [[using gentest: test("child_expect_throw_pass")]]
 void child_expect_throw_pass() {
-    auto        tok = gentest::ctx::current();
+    auto        tok = gentest::get_current_token();
     std::thread t([tok] {
-        gentest::ctx::Adopt guard(tok);
+        auto guard = gentest::set_current_token(tok);
         EXPECT_THROW(throw std::runtime_error("boom"), std::runtime_error);
         EXPECT_THROW(throw 123, int);
     });
@@ -51,17 +63,17 @@ namespace concurrency {
 
 [[using gentest: test("multi_adopt_expect_pass")]]
 void multi_adopt_expect_pass() {
-    auto        tok = gentest::ctx::current();
+    auto        tok = gentest::get_current_token();
     std::thread t1([tok] {
-        gentest::ctx::Adopt g(tok);
+        auto g = gentest::set_current_token(tok);
         EXPECT_TRUE(true);
     });
     std::thread t2([tok] {
-        gentest::ctx::Adopt g(tok);
+        auto g = gentest::set_current_token(tok);
         EXPECT_EQ(10, 10);
     });
     std::thread t3([tok] {
-        gentest::ctx::Adopt g(tok);
+        auto g = gentest::set_current_token(tok);
         EXPECT_NE(1, 2);
     });
     t1.join();
@@ -79,14 +91,14 @@ void mock_adopt_dispatch() {
     std::atomic<int>               sum{0};
     EXPECT_CALL(mock_tick, tick).times(kExpectedInvokes).invokes([&](int value) { sum.fetch_add(value, std::memory_order_relaxed); });
 
-    auto                     tok = gentest::ctx::current();
+    auto                     tok = gentest::get_current_token();
     std::latch               ready(kThreads);
     std::latch               start(1);
     std::vector<std::thread> threads;
     threads.reserve(kThreads);
     for (int i = 0; i < kThreads; ++i) {
         threads.emplace_back([&mock_tick, &ready, &start, tok] {
-            gentest::ctx::Adopt guard(tok);
+            auto guard = gentest::set_current_token(tok);
             ready.count_down();
             start.wait();
             for (int call = 0; call < kCallsPerThread; ++call) {
@@ -106,17 +118,17 @@ void mock_adopt_dispatch() {
 
 [[using gentest: test("multi_adopt_expect_fail")]]
 void multi_adopt_expect_fail() {
-    auto        tok = gentest::ctx::current();
+    auto        tok = gentest::get_current_token();
     std::thread t1([tok] {
-        gentest::ctx::Adopt g(tok);
+        auto g = gentest::set_current_token(tok);
         EXPECT_TRUE(false, "multi t1");
     });
     std::thread t2([tok] {
-        gentest::ctx::Adopt g(tok);
+        auto g = gentest::set_current_token(tok);
         EXPECT_EQ(1, 2, "multi t2");
     });
     std::thread t3([tok] {
-        gentest::ctx::Adopt g(tok);
+        auto g = gentest::set_current_token(tok);
         EXPECT_NE(3, 3, "multi t3");
     });
     t1.join();

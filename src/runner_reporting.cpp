@@ -3,11 +3,13 @@
 #include "runner_reporting_allure.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fmt/format.h>
 #include <fstream>
 #include <iterator>
 #include <ostream>
+#include <string>
 
 namespace gentest::runner {
 
@@ -42,10 +44,96 @@ std::string gha_escape_property(std::string_view s) {
     return out;
 }
 
-std::string escape_xml(std::string_view s) {
+struct Utf8DecodeResult {
+    char32_t    code_point = 0;
+    std::size_t width      = 1;
+    bool        valid      = false;
+};
+
+bool is_xml_char(char32_t code_point) {
+    return code_point == 0x09 || code_point == 0x0A || code_point == 0x0D || (code_point >= 0x20 && code_point <= 0xD7FF) ||
+           (code_point >= 0xE000 && code_point <= 0xFFFD) || (code_point >= 0x10000 && code_point <= 0x10FFFF);
+}
+
+bool is_utf8_continuation(unsigned char ch) { return (ch & 0xC0U) == 0x80U; }
+
+Utf8DecodeResult decode_utf8(std::string_view s, std::size_t pos) {
+    const auto remaining = s.size() - pos;
+    const auto first     = static_cast<unsigned char>(s[pos]);
+    if (first < 0x80U) {
+        return {.code_point = first, .width = 1, .valid = true};
+    }
+    if (first < 0xC2U) {
+        return {};
+    }
+    if (first <= 0xDFU) {
+        if (remaining < 2) {
+            return {};
+        }
+        const auto second = static_cast<unsigned char>(s[pos + 1]);
+        if (!is_utf8_continuation(second)) {
+            return {};
+        }
+        return {.code_point = static_cast<char32_t>(((first & 0x1FU) << 6U) | (second & 0x3FU)), .width = 2, .valid = true};
+    }
+    if (first <= 0xEFU) {
+        if (remaining < 3) {
+            return {};
+        }
+        const auto second = static_cast<unsigned char>(s[pos + 1]);
+        const auto third  = static_cast<unsigned char>(s[pos + 2]);
+        if (!is_utf8_continuation(second) || !is_utf8_continuation(third)) {
+            return {};
+        }
+        if ((first == 0xE0U && second < 0xA0U) || (first == 0xEDU && second >= 0xA0U)) {
+            return {};
+        }
+        return {.code_point = static_cast<char32_t>(((first & 0x0FU) << 12U) | ((second & 0x3FU) << 6U) | (third & 0x3FU)),
+                .width      = 3,
+                .valid      = true};
+    }
+    if (first <= 0xF4U) {
+        if (remaining < 4) {
+            return {};
+        }
+        const auto second = static_cast<unsigned char>(s[pos + 1]);
+        const auto third  = static_cast<unsigned char>(s[pos + 2]);
+        const auto fourth = static_cast<unsigned char>(s[pos + 3]);
+        if (!is_utf8_continuation(second) || !is_utf8_continuation(third) || !is_utf8_continuation(fourth)) {
+            return {};
+        }
+        if ((first == 0xF0U && second < 0x90U) || (first == 0xF4U && second >= 0x90U)) {
+            return {};
+        }
+        return {.code_point = static_cast<char32_t>(((first & 0x07U) << 18U) | ((second & 0x3FU) << 12U) | ((third & 0x3FU) << 6U) |
+                                                    (fourth & 0x3FU)),
+                .width      = 4,
+                .valid      = true};
+    }
+    return {};
+}
+
+std::string sanitize_xml_text(std::string_view s) {
     std::string out;
     out.reserve(s.size());
-    for (char ch : s) {
+    for (std::size_t pos = 0; pos < s.size();) {
+        const Utf8DecodeResult decoded = decode_utf8(s, pos);
+        if (!decoded.valid || !is_xml_char(decoded.code_point)) {
+            out.push_back('?');
+            pos += decoded.width;
+            continue;
+        }
+        out.append(s.data() + pos, decoded.width);
+        pos += decoded.width;
+    }
+    return out;
+}
+
+std::string escape_xml(std::string_view s) {
+    const std::string sanitized = sanitize_xml_text(s);
+    std::string       out;
+    out.reserve(sanitized.size());
+    for (char ch : sanitized) {
         switch (ch) {
         case '&': out += "&amp;"; break;
         case '<': out += "&lt;"; break;
@@ -58,15 +146,16 @@ std::string escape_xml(std::string_view s) {
 }
 
 void write_xml_cdata(std::ostream &out, std::string_view s) {
+    const std::string sanitized = sanitize_xml_text(s);
     out << "<![CDATA[";
     std::size_t pos = 0;
     while (true) {
-        const std::size_t end = s.find("]]>", pos);
+        const std::size_t end = sanitized.find("]]>", pos);
         if (end == std::string_view::npos) {
-            out.write(s.data() + pos, static_cast<std::streamsize>(s.size() - pos));
+            out.write(sanitized.data() + pos, static_cast<std::streamsize>(sanitized.size() - pos));
             break;
         }
-        out.write(s.data() + pos, static_cast<std::streamsize>(end - pos));
+        out.write(sanitized.data() + pos, static_cast<std::streamsize>(end - pos));
         out << "]]]]><![CDATA[>";
         pos = end + 3;
     }

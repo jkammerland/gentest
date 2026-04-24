@@ -138,7 +138,7 @@ inline void request_runtime_skip(std::string_view reason, TestContextInfo::Runti
     auto ctx = current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
         (void)std::fputs("gentest: fatal: skip called without an active test context.\n"
-                         "        Did you forget to adopt the test context in this thread/coroutine?\n",
+                         "        Did you forget to set the current token in this thread/coroutine?\n",
                          stderr);
         std::abort();
     }

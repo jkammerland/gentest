@@ -19,11 +19,13 @@ export module gentest;
 
 export namespace gentest {
 
+using ::gentest::Adoption;
 using ::gentest::assert_eq;
 using ::gentest::assert_false;
 using ::gentest::assert_true;
 using ::gentest::assertion;
 using ::gentest::Case;
+using ::gentest::CurrentToken;
 using ::gentest::expect;
 using ::gentest::expect_eq;
 using ::gentest::expect_false;
@@ -38,6 +40,7 @@ using ::gentest::failure;
 using ::gentest::FixtureLifetime;
 using ::gentest::FixtureSetup;
 using ::gentest::FixtureTearDown;
+using ::gentest::get_current_token;
 using ::gentest::log;
 using ::gentest::LogPolicy;
 using ::gentest::operator|;
@@ -52,6 +55,7 @@ using ::gentest::require_le;
 using ::gentest::require_lt;
 using ::gentest::require_ne;
 using ::gentest::run_all_tests;
+using ::gentest::set_current_token;
 using ::gentest::set_default_log_policy;
 using ::gentest::set_log_policy;
 using ::gentest::skip;
@@ -65,12 +69,6 @@ using ::gentest::approx::Approx;
 using ::gentest::approx::operator==;
 using ::gentest::approx::operator!=;
 } // namespace approx
-
-namespace ctx {
-using ::gentest::ctx::Adopt;
-using ::gentest::ctx::current;
-using ::gentest::ctx::Token;
-} // namespace ctx
 
 namespace asserts {
 using ::gentest::asserts::ASSERT_EQ;

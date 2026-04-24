@@ -17,12 +17,50 @@ file(READ "${_presets_file}" _json)
 
 foreach(_required IN ITEMS
     "option(GENTEST_SKIP_TSAN_DEATH_TESTS"
-    "if(GENTEST_SKIP_TSAN_DEATH_TESTS)"
-    "set_tests_properties(concurrency_fail_single_death concurrency_multi_noadopt_death PROPERTIES DISABLED TRUE)")
+    "if(GENTEST_SKIP_TSAN_DEATH_TESTS)")
   string(FIND "${_tests_content}" "${_required}" _pos)
   if(_pos EQUAL -1)
     message(FATAL_ERROR
       "tests/CMakeLists.txt must contain the TSan death-test skip gate fragment:\n${_required}")
+  endif()
+endforeach()
+
+string(FIND "${_tests_content}" "if(GENTEST_SKIP_TSAN_DEATH_TESTS)" _gate_if_pos)
+if(_gate_if_pos EQUAL -1)
+  message(FATAL_ERROR
+    "tests/CMakeLists.txt must disable the TSan-incompatible concurrency death tests inside if(GENTEST_SKIP_TSAN_DEATH_TESTS).")
+endif()
+
+string(SUBSTRING "${_tests_content}" ${_gate_if_pos} -1 _tests_from_gate)
+string(FIND "${_tests_from_gate}" "endif()" _gate_endif_rel)
+if(_gate_endif_rel EQUAL -1)
+  message(FATAL_ERROR
+    "tests/CMakeLists.txt has an unterminated if(GENTEST_SKIP_TSAN_DEATH_TESTS) block.")
+endif()
+
+math(EXPR _gate_block_len "${_gate_endif_rel} + 7")
+string(SUBSTRING "${_tests_from_gate}" 0 ${_gate_block_len} _tsan_gate_block)
+
+string(FIND "${_tsan_gate_block}" "set_tests_properties(" _set_tests_pos)
+if(_set_tests_pos EQUAL -1)
+  message(FATAL_ERROR
+    "TSan death-test skip gate must call set_tests_properties(... DISABLED TRUE).\nObserved block:\n${_tsan_gate_block}")
+endif()
+string(FIND "${_tsan_gate_block}" "PROPERTIES DISABLED TRUE" _disabled_true_pos)
+if(_disabled_true_pos EQUAL -1)
+  message(FATAL_ERROR
+    "TSan death-test skip gate must set PROPERTIES DISABLED TRUE.\nObserved block:\n${_tsan_gate_block}")
+endif()
+
+foreach(_death_test IN ITEMS
+    concurrency_fail_single_death
+    concurrency_skip_no_token_death
+    concurrency_xfail_no_token_death
+    concurrency_multi_noadopt_death)
+  string(FIND "${_tsan_gate_block}" "${_death_test}" _death_test_pos)
+  if(_death_test_pos EQUAL -1)
+    message(FATAL_ERROR
+      "TSan death-test skip gate must disable '${_death_test}'.\nObserved block:\n${_tsan_gate_block}")
   endif()
 endforeach()
 

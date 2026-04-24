@@ -292,9 +292,9 @@ void xfail_example() {
 }
 ```
 
-### Threads/coroutines + logging (ctx::Adopt)
+### Threads/coroutines + logging
 
-Assertions must run under an active test context. When you spawn threads/coroutines, adopt the current context so
+Assertions must run under an active test token. When you spawn threads/coroutines, capture the current token and set it in the worker so
 `EXPECT_*` failures are attributed to the right test. Use `gentest::set_log_policy(gentest::LogPolicy::Always)` when logs should be
 emitted even for passing tests, or `gentest::set_log_policy(gentest::LogPolicy::OnFailure)` for failure-only log output. Use
 `gentest::set_default_log_policy(...)` to change the default for tests that do not override it explicitly.
@@ -309,10 +309,10 @@ using namespace gentest::asserts;
 [[gentest::test("concurrency/adopt_and_log")]]
 void adopt_and_log() {
     gentest::set_log_policy(gentest::LogPolicy::Always);
-    auto tok = gentest::ctx::current();
+    auto token = gentest::get_current_token();
 
-    std::thread t([tok] {
-        gentest::ctx::Adopt adopt(tok);
+    std::thread t([token] {
+        auto adoption = gentest::set_current_token(token);
         gentest::log("from child thread");
         EXPECT_EQ(1, 2, "failure recorded on parent test");
     });
@@ -320,10 +320,10 @@ void adopt_and_log() {
 }
 ```
 
-Completion semantics are strict by design: runner phase completion waits until all adopted contexts are released.
+Completion semantics are strict by design: runner phase completion waits until all token adoptions are released.
 
 >[!WARNING]
-> If adopted work is detached or stuck and never releases `gentest::ctx::Adopt`, the test/run blocks forever.
+> If adopted work is detached or stuck and never releases the `gentest::Adoption`, the test/run blocks forever.
 
 ### Parameters (value matrices)
 
