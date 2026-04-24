@@ -86,19 +86,29 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
     const bool has_failures = !ctxinfo->failures.empty();
 
     if (should_skip && !has_failures && !threw_non_skip) {
-        ++c.skipped;
-        rr.skipped     = true;
-        rr.outcome     = Outcome::Skip;
         rr.skip_reason = std::move(runtime_skip_reason);
         if (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) {
+            rr.outcome              = Outcome::Fail;
             const std::string issue = rr.skip_reason.empty() ? std::string("shared fixture unavailable") : rr.skip_reason;
             rr.failures.push_back(issue);
             rr.summary_issues.push_back(issue);
             ++c.failed;
             ++c.failures;
+            const auto dur_ms = duration_ms(rr.time_s);
+            if (state.color_output) {
+                fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
+                fmt::print(stderr, " {} :: {} ({} ms)\n", test.name, issue, dur_ms);
+            } else {
+                fmt::print(stderr, "[ FAIL ] {} :: {} ({} ms)\n", test.name, issue, dur_ms);
+            }
             if (state.acc)
                 gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, issue);
+            return rr;
         }
+
+        ++c.skipped;
+        rr.skipped        = true;
+        rr.outcome        = Outcome::Skip;
         const auto dur_ms = duration_ms(rr.time_s);
         if (state.color_output) {
             fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
@@ -252,36 +262,42 @@ void execute_and_record(TestRunContext &state, const gentest::Case &test, void *
 void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std::string reason, TestCounters &c,
                            bool infra_failure = false) {
     ++c.total;
-    ++c.skipped;
-    const long long dur_ms = 0LL;
-    if (state.color_output) {
-        fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
-        if (!reason.empty()) {
-            fmt::print(" {} :: {} ({} ms)\n", test.name, reason, dur_ms);
-        } else {
-            fmt::print(" {} ({} ms)\n", test.name, dur_ms);
-        }
-    } else {
-        if (!reason.empty()) {
-            fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, reason, dur_ms);
-        } else {
-            fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
-        }
-    }
-
-    const std::string issue = reason.empty() ? std::string("fixture allocation returned null") : reason;
+    const std::string issue  = reason.empty() ? std::string("fixture allocation returned null") : reason;
+    const long long   dur_ms = 0LL;
     if (infra_failure) {
         ++c.failed;
         ++c.failures;
+        if (state.color_output) {
+            fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
+            fmt::print(stderr, " {} :: {} ({} ms)\n", test.name, issue, dur_ms);
+        } else {
+            fmt::print(stderr, "[ FAIL ] {} :: {} ({} ms)\n", test.name, issue, dur_ms);
+        }
         if (state.acc)
             gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, issue);
+    } else {
+        ++c.skipped;
+        if (state.color_output) {
+            fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
+            if (!reason.empty()) {
+                fmt::print(" {} :: {} ({} ms)\n", test.name, reason, dur_ms);
+            } else {
+                fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+            }
+        } else {
+            if (!reason.empty()) {
+                fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, reason, dur_ms);
+            } else {
+                fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+            }
+        }
     }
     if (!state.acc)
         return;
 
     RunResult rr;
-    rr.skipped     = true;
-    rr.outcome     = Outcome::Skip;
+    rr.skipped     = !infra_failure;
+    rr.outcome     = infra_failure ? Outcome::Fail : Outcome::Skip;
     rr.skip_reason = std::move(reason);
     if (infra_failure) {
         rr.failures.push_back(issue);

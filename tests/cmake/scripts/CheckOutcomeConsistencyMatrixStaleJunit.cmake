@@ -63,7 +63,7 @@ if(_run STREQUAL "outcomes/xfail_xpass")
 endif()
 
 if(_prog STREQUAL "infra-test-prog")
-  message("Summary: passed 0/2; failed 4; skipped 2; xfail 0; xpass 0.")
+  message("Summary: passed 0/2; failed 4; skipped 0; xfail 0; xpass 0.")
   message(FATAL_ERROR "intentional nonzero")
 endif()
 
@@ -84,7 +84,7 @@ _seed_stale_xml(fail "tests=\"1\" failures=\"1\" skipped=\"0\" errors=\"0\"")
 _seed_stale_xml(skip "tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\"")
 _seed_stale_xml(xfail "tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\"")
 _seed_stale_xml(xpass "tests=\"1\" failures=\"1\" skipped=\"0\" errors=\"0\"")
-_seed_stale_xml(infra_skip_test "tests=\"2\" failures=\"2\" skipped=\"2\" errors=\"2\"")
+_seed_stale_xml(infra_skip_test "tests=\"2\" failures=\"2\" skipped=\"0\" errors=\"2\"")
 _seed_stale_xml(infra_skip_measured "tests=\"1\" failures=\"1\" skipped=\"1\" errors=\"0\"")
 
 execute_process(

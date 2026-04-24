@@ -64,18 +64,23 @@ function(run_matrix_case _label _prog _expect_rc _expect_summary _expect_junit)
   endif()
 
   if(_label STREQUAL "infra_skip_test")
-    string(FIND "${_junit_content}"
-      "<skipped message=\"shared fixture unavailable for 'regressions::shared_setup_skip::NullGlobalFx': fixture allocation returned null\"/>"
-      _global_skip_pos)
-    if(_global_skip_pos EQUAL -1)
-      message(FATAL_ERROR "${_label}: expected global-case <skipped .../> element not found. File:\n${_junit_content}")
+    string(FIND "${_junit_content}" "<skipped" _skip_pos)
+    if(NOT _skip_pos EQUAL -1)
+      message(FATAL_ERROR "${_label}: shared fixture infrastructure failures must not emit <skipped/>. File:\n${_junit_content}")
     endif()
 
-    string(FIND "${_junit_content}"
-      "<skipped message=\"shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null\"/>"
-      _suite_skip_pos)
-    if(_suite_skip_pos EQUAL -1)
-      message(FATAL_ERROR "${_label}: expected suite-case <skipped .../> element not found. File:\n${_junit_content}")
+    foreach(_expected_issue IN ITEMS
+        "shared fixture unavailable for 'regressions::shared_setup_skip::NullGlobalFx': fixture allocation returned null"
+        "shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null")
+      string(FIND "${_junit_content}" "${_expected_issue}" _issue_pos)
+      if(_issue_pos EQUAL -1)
+        message(FATAL_ERROR "${_label}: expected failure issue not found: '${_expected_issue}'. File:\n${_junit_content}")
+      endif()
+    endforeach()
+
+    string(FIND "${_junit_content}" "<failure>" _failure_pos)
+    if(_failure_pos EQUAL -1)
+      message(FATAL_ERROR "${_label}: expected failure elements for shared fixture infrastructure failures. File:\n${_junit_content}")
     endif()
   endif()
 endfunction()
@@ -129,8 +134,8 @@ run_matrix_case(
   infra_skip_test
   "${PROG_INFRA_TEST}"
   1
-  "Summary: passed 0/2; failed 4; skipped 2; xfail 0; xpass 0."
-  "tests=\"2\" failures=\"2\" skipped=\"2\" errors=\"2\""
+  "Summary: passed 0/2; failed 4; skipped 0; xfail 0; xpass 0."
+  "tests=\"2\" failures=\"2\" skipped=\"0\" errors=\"2\""
   --kind=test)
 
 run_matrix_case(
