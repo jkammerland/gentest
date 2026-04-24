@@ -28,16 +28,8 @@ foreach(_cand IN LISTS _gentest_llvm_config_candidates)
 endforeach()
 unset(_gentest_llvm_config_candidates)
 
-# Work around upstream LLVM exports referring to zstd::libzstd_shared while
-# some package layouts only expose zstd::libzstd. Keep the compatibility shim
-# aligned with the long-standing gentest_codegen dependency shape instead of
-# widening it just for the newer split helper targets below.
-find_package(zstd CONFIG QUIET)
-if(TARGET zstd::libzstd AND NOT TARGET zstd::libzstd_shared)
-    add_library(zstd::libzstd_shared INTERFACE IMPORTED)
-    set_target_properties(zstd::libzstd_shared PROPERTIES
-        INTERFACE_LINK_LIBRARIES "zstd::libzstd")
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/GentestLlvmDependencyShims.cmake")
+gentest_ensure_llvm_zstd_targets()
 
 # Some LLVM builds export a Terminfo::terminfo dependency even when the host
 # toolchain lacks a proper CMake package. Provide a best-effort target before

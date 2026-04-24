@@ -44,6 +44,9 @@ function(_gentest_tidy_append_package_prefix_include_dirs out_var package_cmake_
         "${_prefix}/tools/clang/include")
 endfunction()
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/GentestLlvmDependencyShims.cmake")
+gentest_ensure_llvm_zstd_targets()
+
 find_package(LLVM CONFIG QUIET)
 find_package(Clang CONFIG QUIET)
 
