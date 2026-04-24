@@ -113,15 +113,57 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_build_dir}"
   STRIP_TRAILING_WHITESPACE
   OUTPUT_VARIABLE _list_out)
-string(FIND "${_list_out}" "module_registration/non_exported_fixture" _case_pos)
-if(_case_pos EQUAL -1)
-  message(FATAL_ERROR "Expected module_registration/non_exported_fixture in --list-tests output.\n${_list_out}")
-endif()
+foreach(_expected_case IN ITEMS
+    "module_registration/non_exported_fixture"
+    "module_registration/blocked_shared_fixture")
+  string(FIND "${_list_out}" "${_expected_case}" _case_pos)
+  if(_case_pos EQUAL -1)
+    message(FATAL_ERROR "Expected ${_expected_case} in --list-tests output.\n${_list_out}")
+  endif()
+endforeach()
 
 gentest_check_run_or_fail(
   COMMAND "${_exe}" --run=module_registration/non_exported_fixture
   WORKING_DIRECTORY "${_build_dir}"
   STRIP_TRAILING_WHITESPACE)
+
+set(_blocked_junit "${_build_dir}/blocked_shared_fixture.xml")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env GENTEST_STORY034_BLOCKED_FIXTURE=1 "${_exe}"
+    --run=module_registration/blocked_shared_fixture
+    --kind=test
+    "--junit=${_blocked_junit}"
+  WORKING_DIRECTORY "${_build_dir}"
+  RESULT_VARIABLE _blocked_rc
+  OUTPUT_VARIABLE _blocked_out
+  ERROR_VARIABLE _blocked_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(_blocked_rc EQUAL 0)
+  message(FATAL_ERROR "Expected module blocked shared fixture case to fail.\n${_blocked_out}\n${_blocked_err}")
+endif()
+set(_blocked_combined "${_blocked_out}\n${_blocked_err}")
+foreach(_required IN ITEMS
+    "module_registration/blocked_shared_fixture"
+    "shared fixture unavailable for 'story034_module_registration::blocked_scope::NullSuiteFixture': fixture allocation returned null"
+    "Summary: passed 0/1; failed 1; skipped 0; blocked 1; xfail 0; xpass 0.")
+  string(FIND "${_blocked_combined}" "${_required}" _required_pos)
+  if(_required_pos EQUAL -1)
+    message(FATAL_ERROR "Expected blocked module run output to contain '${_required}'.\n${_blocked_combined}")
+  endif()
+endforeach()
+if(NOT EXISTS "${_blocked_junit}")
+  message(FATAL_ERROR "Expected blocked module JUnit report '${_blocked_junit}'")
+endif()
+file(READ "${_blocked_junit}" _blocked_junit_text)
+foreach(_required IN ITEMS
+    "tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"1\""
+    "<skipped message=\"blocked: shared fixture unavailable for 'story034_module_registration::blocked_scope::NullSuiteFixture': fixture allocation returned null\"/>")
+  string(FIND "${_blocked_junit_text}" "${_required}" _required_pos)
+  if(_required_pos EQUAL -1)
+    message(FATAL_ERROR "Expected blocked module JUnit to contain '${_required}'.\n${_blocked_junit_text}")
+  endif()
+endforeach()
 
 set(_registration_source "${_build_dir}/generated/tu_0000_cases.registration.gentest.cpp")
 if(NOT EXISTS "${_registration_source}")

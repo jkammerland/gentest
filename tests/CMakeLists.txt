@@ -1170,6 +1170,12 @@ gentest_add_check_inventory(
     ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeInventoryProgram.cmake --
     EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_semicolon_status.list)
 
+gentest_add_check_inventory(
+    NAME inventory_parser_blocked_case_name
+    PROG ${CMAKE_COMMAND}
+    ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeBlockedInventoryProgram.cmake --
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_blocked_status.list)
+
 gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 10 SKIP 0 BLOCKED 2)
 
 # The raw failing suite run is expected to fail
@@ -1500,6 +1506,19 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             --run=unit/arithmetic/sum
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single)
     set_tests_properties(allure_smoke_single PROPERTIES LABELS "allure")
+
+    gentest_add_cmake_script_test(
+        NAME allure_blocked_shared_fixture_label
+        PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
+        SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAllureBlockedOutcome.cmake"
+        ARGS
+            --run=regressions/shared_setup_skip/suite_free
+            --kind=test
+        DEFINES
+            "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_blocked_shared_fixture"
+            "EXPECT_RC=1"
+            "EXPECTED_REASON=shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null")
+    set_tests_properties(allure_blocked_shared_fixture_label PROPERTIES LABELS "allure")
 
     # Allure logs attachment: failing test with LogPolicy::OnFailure should create a logs attachment
     gentest_add_run_and_check_file(
