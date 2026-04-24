@@ -1329,6 +1329,14 @@ gentest_add_check_death(
     REQUIRED_SUBSTRING "expected == 3"
     ARGS --run=failing/mocking/predicate_mismatch)
 
+gentest_add_check_death(
+    NAME check_death_required_substrings_preserves_list
+    PROG gentest_failing_tests
+    REQUIRED_SUBSTRINGS
+        "failing/mocking/predicate_mismatch"
+        "argument[0] mismatch for ::mocking::Ticker::tick: expected == 3, got 4"
+    ARGS --run=failing/mocking/predicate_mismatch)
+
 if(WIN32 AND (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
     gentest_add_check_death(
         NAME mocking_ambiguous_method_pointer_message

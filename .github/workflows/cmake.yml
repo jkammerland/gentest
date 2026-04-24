@@ -705,7 +705,7 @@ jobs:
               unzip \
               fmt-devel \
               zlib-ng-compat-devel \
-              zstd-devel \
+              libzstd-devel \
               libunwind-devel \
               libcurl-devel \
               libffi-devel \
@@ -741,7 +741,7 @@ jobs:
               llvm-devel \
               fmt-devel \
               zlib-ng-compat-devel \
-              zstd-devel \
+              libzstd-devel \
               libunwind-devel \
               libcurl-devel \
               libffi-devel \

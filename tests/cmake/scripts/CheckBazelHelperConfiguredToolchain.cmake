@@ -179,13 +179,19 @@ function Write-ModuleArtifactManifest(
   [string]$CompileContext,
   [string]$RegistrationPath) {
   $NormalizedRegistration = $RegistrationPath -replace '\\', '/'
+  $RegistrationDir = $NormalizedRegistration -replace '/[^/]*$', ''
+  $RegistrationName = $NormalizedRegistration -replace '^.*/', ''
+  $HeaderName = $RegistrationName -replace '\.registration\.gentest\.cpp$', '.gentest.h'
+  $HeaderPath = "${RegistrationDir}/${HeaderName}"
   $Manifest = @"
 {
+  "schema": "gentest.artifact_manifest.v1",
   "sources": [
     {
       "source": "$Source",
       "kind": "module-primary-interface",
       "module": "$ModuleName",
+      "partition": null,
       "compile_context_id": "$CompileContext",
       "registration_output": "$NormalizedRegistration"
     }
@@ -197,8 +203,12 @@ function Write-ModuleArtifactManifest(
       "compile_as": "cxx-module-implementation",
       "module": "$ModuleName",
       "owner_source": "$Source",
+      "target_attachment": "private-generated-source",
       "compile_context_id": "$CompileContext",
-      "requires_module_scan": true
+      "requires_module_scan": true,
+      "generated_include_dirs": ["$RegistrationDir"],
+      "generated_headers": ["$HeaderPath"],
+      "depfile": ""
     }
   ]
 }

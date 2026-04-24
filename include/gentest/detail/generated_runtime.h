@@ -209,9 +209,7 @@ inline std::shared_ptr<void> shared_fixture_create_impl(std::string_view suite, 
     try {
         auto       handle = FixtureHandle<Fixture>::empty();
         const bool ok     = [&] {
-            if constexpr (Mode == SharedFixtureAllocationMode::Suite) {
-                return handle.init(suite);
-            } else if constexpr (kHasGentestAllocate<Fixture>) {
+            if constexpr (Mode == SharedFixtureAllocationMode::Global && kHasGentestAllocate<Fixture>) {
                 return handle.init();
             } else {
                 return handle.init(suite);
@@ -232,9 +230,7 @@ inline std::shared_ptr<void> shared_fixture_create_impl(std::string_view suite, 
 #else
     auto       handle = FixtureHandle<Fixture>::empty();
     const bool ok     = [&] {
-        if constexpr (Mode == SharedFixtureAllocationMode::Suite) {
-            return handle.init(suite);
-        } else if constexpr (kHasGentestAllocate<Fixture>) {
+        if constexpr (Mode == SharedFixtureAllocationMode::Global && kHasGentestAllocate<Fixture>) {
             return handle.init();
         } else {
             return handle.init(suite);
