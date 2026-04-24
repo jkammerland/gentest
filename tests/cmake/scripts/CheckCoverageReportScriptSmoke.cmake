@@ -36,6 +36,7 @@ set(_fake_llvm_cov "${_fake_tool_dir}/llvm-cov")
 file(MAKE_DIRECTORY "${_build_dir}" "${_fake_module_dir}" "${_fake_tool_dir}" "${_default_script_dir}")
 configure_file("${SOURCE_DIR}/scripts/coverage_report.py" "${_default_script_dir}/coverage_report.py" COPYONLY)
 configure_file("${SOURCE_DIR}/scripts/coverage_hygiene.py" "${_default_script_dir}/coverage_hygiene.py" COPYONLY)
+configure_file("${SOURCE_DIR}/scripts/coverage_common.py" "${_default_script_dir}/coverage_common.py" COPYONLY)
 
 gentest_fixture_write_file(
   "${_fake_gcov}"

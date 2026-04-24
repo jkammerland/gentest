@@ -6,14 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
-from coverage_hygiene import DEFAULT_POLICY_PATH, _read_policy_config
+from coverage_common import DEFAULT_BUILD_DIR, DEFAULT_POLICY_PATH, normalize_build_dir, read_policy_config, resolve_gcov_command
 
 
 DEFAULT_REPORT_POLICY = {
@@ -52,54 +51,6 @@ def _read_report_policy(config_path: Path) -> Dict[str, Any]:
         raise RuntimeError(f"coverage report key 'gcov_ignore_parse_errors' in '{config_path}' must be a string")
     policy["gcov_ignore_parse_errors"] = value
     return policy
-
-
-def _parse_cmake_cache(cache_path: Path) -> Dict[str, str]:
-    entries: Dict[str, str] = {}
-    if not cache_path.exists():
-        return entries
-    for raw_line in cache_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("//") or line.startswith("#"):
-            continue
-        if "=" not in line or ":" not in line:
-            continue
-        lhs, rhs = line.split("=", 1)
-        key, _, _ = lhs.partition(":")
-        entries[key] = rhs
-    return entries
-
-
-def _compiler_family(build_dir: Path) -> str:
-    cache = _parse_cmake_cache(build_dir / "CMakeCache.txt")
-    compiler_id = cache.get("CMAKE_CXX_COMPILER_ID", "") or cache.get("CMAKE_C_COMPILER_ID", "")
-    compiler = cache.get("CMAKE_CXX_COMPILER", "") or cache.get("CMAKE_C_COMPILER", "")
-    compiler_text = f"{compiler_id} {compiler}".lower()
-    if "clang" in compiler_text:
-        return "clang"
-    if "gnu" in compiler_text or re.search(r"(^|[\\/])(g\+\+|gcc|cc|c\+\+)([.-]|$)", compiler_text):
-        return "gcc"
-    return ""
-
-
-def _resolve_gcov_command(build_dir: Path, explicit: Sequence[str] | None) -> List[str]:
-    if explicit:
-        command = list(explicit)
-    else:
-        family = _compiler_family(build_dir)
-        if family == "clang":
-            command = ["llvm-cov", "gcov"]
-        else:
-            command = ["gcov"]
-
-    binary = shutil.which(command[0])
-    if not binary:
-        raise RuntimeError(
-            f"Coverage frontend '{command[0]}' was not found in PATH. "
-            "Install the matching gcov frontend or pass --gcov explicitly."
-        )
-    command[0] = binary
-    return command
 
 
 def _path_regex(path: Path, directory: bool) -> str:
@@ -288,13 +239,13 @@ def main() -> int:
     )
     config_args, remaining = config_parser.parse_known_args()
     config_path = Path(config_args.config)
-    hygiene_policy = _read_policy_config(config_path)
+    hygiene_policy = read_policy_config(config_path)
     report_policy = _read_report_policy(config_path)
 
     parser = argparse.ArgumentParser(parents=[config_parser])
     parser.add_argument(
         "--build-dir",
-        default="build/coverage-system",
+        default=DEFAULT_BUILD_DIR,
         help="Coverage-instrumented build directory.",
     )
     parser.add_argument(
@@ -329,10 +280,7 @@ def main() -> int:
     args = parser.parse_args(remaining)
 
     project_root = Path(__file__).resolve().parents[1]
-    build_dir = Path(args.build_dir)
-    if not build_dir.is_absolute():
-        build_dir = project_root / build_dir
-    build_dir = build_dir.resolve(strict=False)
+    build_dir = normalize_build_dir(project_root, args.build_dir)
     if not build_dir.exists():
         raise FileNotFoundError(f"Coverage build directory not found: {build_dir}")
 
@@ -342,7 +290,7 @@ def main() -> int:
     output_dir = output_dir.resolve(strict=False)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    gcov_cmd = _resolve_gcov_command(build_dir, args.gcov)
+    gcov_cmd = resolve_gcov_command(build_dir, args.gcov)
     gcovr_cmd = _gcovr_command(
         project_root,
         build_dir,
