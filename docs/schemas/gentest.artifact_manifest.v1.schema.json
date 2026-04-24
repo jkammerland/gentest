@@ -47,11 +47,11 @@
             "properties": {
               "source": { "type": "string" },
               "kind": {
-                "enum": ["module-primary-interface", "module-partition-interface"]
+                "const": "module-primary-interface"
               },
               "module": { "type": "string" },
               "partition": {
-                "type": ["string", "null"]
+                "type": "null"
               },
               "compile_context_id": { "type": "string" },
               "registration_output": { "type": "string" }

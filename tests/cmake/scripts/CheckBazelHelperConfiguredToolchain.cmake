@@ -530,14 +530,20 @@ write_module_artifact_manifest() {
   compile_context="$4"
   registration="$5"
   registration_path=$(printf '%s' "$registration" | tr '\\' '/')
+  registration_dir=$(dirname "$registration_path")
+  registration_name=$(basename "$registration_path")
+  header_name=${registration_name%.registration.gentest.cpp}.gentest.h
+  header_path="$registration_dir/$header_name"
   mkdir -p "$(dirname "$manifest")"
   cat > "$manifest" <<EOF
 {
+  "schema": "gentest.artifact_manifest.v1",
   "sources": [
     {
       "source": "$source",
       "kind": "module-primary-interface",
       "module": "$module_name",
+      "partition": null,
       "compile_context_id": "$compile_context",
       "registration_output": "$registration_path"
     }
@@ -549,8 +555,12 @@ write_module_artifact_manifest() {
       "compile_as": "cxx-module-implementation",
       "module": "$module_name",
       "owner_source": "$source",
+      "target_attachment": "private-generated-source",
       "compile_context_id": "$compile_context",
-      "requires_module_scan": true
+      "requires_module_scan": true,
+      "generated_include_dirs": ["$registration_dir"],
+      "generated_headers": ["$header_path"],
+      "depfile": ""
     }
   ]
 }

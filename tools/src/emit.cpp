@@ -961,9 +961,7 @@ bool write_module_registration_manifest(const CollectorOptions &opts) {
         const auto        module_it           = opts.module_interface_names_by_source.find(opts.sources[idx]);
         const std::string module_name = module_it != opts.module_interface_names_by_source.end() ? module_it->second : std::string{};
         const std::string context_id  = compile_context_id_for(opts, idx);
-        const std::string source_kind =
-            module_name.find(':') == std::string::npos ? "module-primary-interface" : "module-partition-interface";
-        const std::string comma = idx + 1 == opts.sources.size() ? "" : ",";
+        const std::string comma       = idx + 1 == opts.sources.size() ? "" : ",";
         fmt::format_to(std::back_inserter(manifest),
                        "    {{\n"
                        "      \"source\": \"{}\",\n"
@@ -973,7 +971,7 @@ bool write_module_registration_manifest(const CollectorOptions &opts) {
                        "      \"compile_context_id\": \"{}\",\n"
                        "      \"registration_output\": \"{}\"\n"
                        "    }}{}\n",
-                       render::escape_string(source_path.generic_string()), source_kind, render::escape_string(module_name),
+                       render::escape_string(source_path.generic_string()), "module-primary-interface", render::escape_string(module_name),
                        render::escape_string(context_id), render::escape_string(registration_output.generic_string()), comma);
     }
     manifest.append("  ],\n  \"artifacts\": [\n");
