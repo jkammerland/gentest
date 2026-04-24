@@ -163,6 +163,30 @@ struct [[using gentest: fixture(global)]] GlobalAlloc {
     }
 };
 
+struct [[using gentest: fixture(global)]] GlobalBothAlloc {
+    static inline int         no_arg_allocations    = 0;
+    static inline int         suite_arg_allocations = 0;
+    static inline std::string seen_suite;
+
+    static std::unique_ptr<GlobalBothAlloc> gentest_allocate() {
+        ++no_arg_allocations;
+        return std::make_unique<GlobalBothAlloc>();
+    }
+
+    static std::unique_ptr<GlobalBothAlloc> gentest_allocate(std::string_view suite) {
+        ++suite_arg_allocations;
+        seen_suite = std::string(suite);
+        return std::make_unique<GlobalBothAlloc>();
+    }
+
+    [[using gentest: test("global_alloc_both/no_arg_preferred")]]
+    void no_arg_preferred() {
+        gentest::expect_eq(no_arg_allocations, 1, "global fixture prefers no-arg allocation when both hooks exist");
+        gentest::expect_eq(suite_arg_allocations, 0, "global fixture does not call suite-aware allocation when no-arg exists");
+        gentest::expect_eq(seen_suite, std::string{}, "global fixture did not pass an empty suite to the suite-aware hook");
+    }
+};
+
 // Free-function fixtures inferred from function parameter types.
 
 struct A : gentest::FixtureSetup, gentest::FixtureTearDown {

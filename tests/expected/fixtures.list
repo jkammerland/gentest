@@ -16,6 +16,7 @@
 [PASS] fixtures/global/observe
 [PASS] fixtures/global_alloc/a_increment
 [PASS] fixtures/global_alloc/b_observe
+[PASS] fixtures/global_alloc_both/no_arg_preferred
 [PASS] fixtures/global_shared/inner_a/global_shared/inner_a/hit
 [PASS] fixtures/global_shared/inner_b/global_shared/inner_b/check
 [PASS] fixtures/global_shared/inner_c/global_shared/inner_c/pointer
