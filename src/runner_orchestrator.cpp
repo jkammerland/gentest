@@ -265,8 +265,8 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         const std::size_t  failed_count  = counters.failed + bench_status.failed + jitter_status.failed + state.acc.infra_errors.size();
         const std::size_t  skipped_count = counters.skipped + bench_status.skipped + jitter_status.skipped;
         fmt::memory_buffer summary;
-        fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n", passed_count,
-                       total_count, failed_count, skipped_count, counters.xfail, counters.xpass);
+        fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; blocked {}; xfail {}; xpass {}.\n",
+                       passed_count, total_count, failed_count, skipped_count, counters.blocked, counters.xfail, counters.xpass);
         if (!state.acc.failure_items.empty()) {
             fmt::format_to(std::back_inserter(summary), "Failed tests:\n");
             for (const auto &item : state.acc.failure_items) {
@@ -290,7 +290,8 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         fmt::print("{}", std::string_view(summary.data(), summary.size()));
     }
 
-    const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() && state.acc.infra_errors.empty();
+    const bool ok = (counters.failures == 0) && (counters.blocked == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() &&
+                    state.acc.infra_errors.empty();
     return ok ? 0 : 1;
 }
 

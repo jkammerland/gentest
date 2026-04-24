@@ -16,6 +16,7 @@ struct TestCounters {
     std::size_t xfail    = 0;
     std::size_t xpass    = 0;
     std::size_t failed   = 0;
+    std::size_t blocked  = 0;
     int         failures = 0;
 };
 

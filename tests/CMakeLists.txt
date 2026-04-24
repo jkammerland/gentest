@@ -1170,7 +1170,7 @@ gentest_add_check_inventory(
     ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeInventoryProgram.cmake --
     EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_semicolon_status.list)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 12 SKIP 0)
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 10 SKIP 0 BLOCKED 2)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)

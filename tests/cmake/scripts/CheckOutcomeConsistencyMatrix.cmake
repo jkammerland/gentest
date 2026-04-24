@@ -65,8 +65,8 @@ function(run_matrix_case _label _prog _expect_rc _expect_summary _expect_junit)
 
   if(_label STREQUAL "infra_skip_test")
     string(FIND "${_junit_content}" "<skipped" _skip_pos)
-    if(NOT _skip_pos EQUAL -1)
-      message(FATAL_ERROR "${_label}: shared fixture infrastructure failures must not emit <skipped/>. File:\n${_junit_content}")
+    if(_skip_pos EQUAL -1)
+      message(FATAL_ERROR "${_label}: shared fixture infrastructure failures must mark dependent cases as blocked skips. File:\n${_junit_content}")
     endif()
 
     foreach(_expected_issue IN ITEMS
@@ -79,8 +79,8 @@ function(run_matrix_case _label _prog _expect_rc _expect_summary _expect_junit)
     endforeach()
 
     string(FIND "${_junit_content}" "<failure>" _failure_pos)
-    if(_failure_pos EQUAL -1)
-      message(FATAL_ERROR "${_label}: expected failure elements for shared fixture infrastructure failures. File:\n${_junit_content}")
+    if(NOT _failure_pos EQUAL -1)
+      message(FATAL_ERROR "${_label}: shared fixture infrastructure failures must not emit per-case failure elements. File:\n${_junit_content}")
     endif()
   endif()
 endfunction()
@@ -89,7 +89,7 @@ run_matrix_case(
   pass
   "${PROG_UNIT}"
   0
-  "Summary: passed 1/1; failed 0; skipped 0; xfail 0; xpass 0."
+  "Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0."
   "tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"0\""
   --run=unit/arithmetic/sum
   --kind=test)
@@ -98,7 +98,7 @@ run_matrix_case(
   fail
   "${PROG_OUTCOMES}"
   1
-  "Summary: passed 0/1; failed 1; skipped 0; xfail 0; xpass 0."
+  "Summary: passed 0/1; failed 1; skipped 0; blocked 0; xfail 0; xpass 0."
   "tests=\"1\" failures=\"1\" skipped=\"0\" errors=\"0\""
   --run=outcomes/skip_after_failure_is_fail
   --kind=test)
@@ -107,7 +107,7 @@ run_matrix_case(
   skip
   "${PROG_OUTCOMES}"
   0
-  "Summary: passed 0/1; failed 0; skipped 1; xfail 0; xpass 0."
+  "Summary: passed 0/1; failed 0; skipped 1; blocked 0; xfail 0; xpass 0."
   "tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\""
   --run=outcomes/runtime_skip_simple
   --kind=test)
@@ -116,7 +116,7 @@ run_matrix_case(
   xfail
   "${PROG_OUTCOMES}"
   0
-  "Summary: passed 0/1; failed 0; skipped 1; xfail 1; xpass 0."
+  "Summary: passed 0/1; failed 0; skipped 1; blocked 0; xfail 1; xpass 0."
   "tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\""
   --run=outcomes/xfail_expect_fail
   --kind=test)
@@ -125,7 +125,7 @@ run_matrix_case(
   xpass
   "${PROG_OUTCOMES}"
   1
-  "Summary: passed 0/1; failed 1; skipped 0; xfail 0; xpass 1."
+  "Summary: passed 0/1; failed 1; skipped 0; blocked 0; xfail 0; xpass 1."
   "tests=\"1\" failures=\"1\" skipped=\"0\" errors=\"0\""
   --run=outcomes/xfail_xpass
   --kind=test)
@@ -134,15 +134,15 @@ run_matrix_case(
   infra_skip_test
   "${PROG_INFRA_TEST}"
   1
-  "Summary: passed 0/2; failed 4; skipped 0; xfail 0; xpass 0."
-  "tests=\"2\" failures=\"2\" skipped=\"0\" errors=\"2\""
+  "Summary: passed 0/2; failed 2; skipped 0; blocked 2; xfail 0; xpass 0."
+  "tests=\"2\" failures=\"0\" skipped=\"2\" errors=\"2\""
   --kind=test)
 
 run_matrix_case(
   infra_skip_measured
   "${PROG_INFRA_MEASURED}"
   1
-  "Summary: passed 0/1; failed 1; skipped 0; xfail 0; xpass 0."
+  "Summary: passed 0/1; failed 1; skipped 0; blocked 0; xfail 0; xpass 0."
   "tests=\"1\" failures=\"1\" skipped=\"0\" errors=\"0\""
   --run=regressions/member_shared_setup_skip_measured/bench_member
   --kind=bench)

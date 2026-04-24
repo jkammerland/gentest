@@ -139,6 +139,14 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
                 r = std::string_view{};
             }
             labels.push_back({{"name", "xfail"}, {"value", std::string(r)}});
+        } else if (it.outcome == Outcome::Blocked) {
+            std::string_view r = it.skip_reason;
+            if (r.starts_with("blocked:")) {
+                r.remove_prefix(std::string_view("blocked:").size());
+                while (!r.empty() && r.front() == ' ')
+                    r.remove_prefix(1);
+            }
+            labels.push_back({{"name", "blocked"}, {"value", std::string(r)}});
         }
         obj["labels"] = std::move(labels);
         if (!it.failures.empty()) {

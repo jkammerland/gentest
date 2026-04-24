@@ -9,6 +9,7 @@ enum class Outcome {
     Pass,
     Fail,
     Skip,
+    Blocked,
     XFail,
     XPass,
 };
