@@ -2,6 +2,9 @@ if(NOT UNIX)
     message(STATUS "llvm-config probe regression is Unix-only")
     return()
 endif()
+if(POLICY CMP0053)
+    cmake_policy(SET CMP0053 NEW)
+endif()
 
 foreach(_required IN ITEMS BUILD_ROOT SHIMS_MODULE)
     if(NOT DEFINED ${_required} OR "${${_required}}" STREQUAL "")
@@ -24,7 +27,7 @@ file(WRITE "${BUILD_ROOT}/bin/llvm-config" [=[
 #!/bin/sh
 case "$1" in
   --version) echo "18.1.8" ;;
-  --cmakedir) echo "@BUILD_ROOT@/llvm18/lib/cmake/llvm" ;;
+  --cmakedir) echo "$GENTEST_FAKE_LLVM_ROOT/llvm18/lib/cmake/llvm" ;;
   *) exit 1 ;;
 esac
 ]=])
@@ -32,7 +35,7 @@ file(WRITE "${BUILD_ROOT}/bin/llvm-config-20" [=[
 #!/bin/sh
 case "$1" in
   --version) echo "20.1.8" ;;
-  --cmakedir) echo "@BUILD_ROOT@/llvm20/lib/cmake/llvm" ;;
+  --cmakedir) echo "$GENTEST_FAKE_LLVM_ROOT/llvm20/lib/cmake/llvm" ;;
   *) exit 1 ;;
 esac
 ]=])
@@ -40,19 +43,10 @@ file(WRITE "${BUILD_ROOT}/bin/llvm-config-23" [=[
 #!/bin/sh
 case "$1" in
   --version) echo "23.1.0" ;;
-  --cmakedir) echo "@BUILD_ROOT@/llvm23/lib/cmake/llvm" ;;
+  --cmakedir) echo "$GENTEST_FAKE_LLVM_ROOT/llvm23/lib/cmake/llvm" ;;
   *) exit 1 ;;
 esac
 ]=])
-file(READ "${BUILD_ROOT}/bin/llvm-config" _llvm_config)
-file(READ "${BUILD_ROOT}/bin/llvm-config-20" _llvm_config_20)
-file(READ "${BUILD_ROOT}/bin/llvm-config-23" _llvm_config_23)
-string(REPLACE "@BUILD_ROOT@" "${BUILD_ROOT}" _llvm_config "${_llvm_config}")
-string(REPLACE "@BUILD_ROOT@" "${BUILD_ROOT}" _llvm_config_20 "${_llvm_config_20}")
-string(REPLACE "@BUILD_ROOT@" "${BUILD_ROOT}" _llvm_config_23 "${_llvm_config_23}")
-file(WRITE "${BUILD_ROOT}/bin/llvm-config" "${_llvm_config}")
-file(WRITE "${BUILD_ROOT}/bin/llvm-config-20" "${_llvm_config_20}")
-file(WRITE "${BUILD_ROOT}/bin/llvm-config-23" "${_llvm_config_23}")
 file(CHMOD
     "${BUILD_ROOT}/bin/llvm-config"
     "${BUILD_ROOT}/bin/llvm-config-20"
@@ -62,6 +56,7 @@ file(CHMOD
         GROUP_READ GROUP_EXECUTE
         WORLD_READ WORLD_EXECUTE)
 
+set(ENV{GENTEST_FAKE_LLVM_ROOT} "${BUILD_ROOT}")
 set(ENV{PATH} "${BUILD_ROOT}/bin")
 include("${SHIMS_MODULE}")
 

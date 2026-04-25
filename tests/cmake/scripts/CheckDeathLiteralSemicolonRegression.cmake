@@ -9,8 +9,14 @@ set(_work_dir "${BUILD_ROOT}/check_death_literal_semicolon")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}/src")
 
-set(_fake_death "${_work_dir}/src/fake_death.cmake")
-file(WRITE "${_fake_death}" "message(STATUS \"alpha\")\nmessage(STATUS \"beta\")\nmessage(FATAL_ERROR \"intentional failure\")\n")
+if(WIN32)
+  set(_fake_death "${_work_dir}/src/fake_death.bat")
+  file(WRITE "${_fake_death}" "@echo off\r\necho alpha\r\necho beta\r\nexit /b 1\r\n")
+else()
+  set(_fake_death "${_work_dir}/src/fake_death.sh")
+  file(WRITE "${_fake_death}" "#!/bin/sh\nprintf '%s\\n' alpha beta\nexit 1\n")
+  file(CHMOD "${_fake_death}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+endif()
 
 file(WRITE "${_work_dir}/src/CMakeLists.txt" "
 cmake_minimum_required(VERSION 3.25)
@@ -20,9 +26,8 @@ include(\"${GENTEST_TESTS_MODULE}\")
 gentest_add_check_death(
   NAME literal_semicolon_is_single_required_substring
   NO_EMULATOR
-  PROG \"${CMAKE_COMMAND}\"
-  REQUIRED_SUBSTRINGS \"alpha\\;beta\"
-  ARGS -P \"${_fake_death}\")
+  PROG \"${_fake_death}\"
+  REQUIRED_SUBSTRINGS \"alpha\\;beta\")
 ")
 
 execute_process(

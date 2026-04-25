@@ -48,8 +48,20 @@ macro(gentest_seed_llvm_prefix_from_config)
     endforeach()
     list(APPEND _gentest_llvm_config_candidates llvm-config)
     foreach(_cand IN LISTS _gentest_llvm_config_candidates)
+        unset(_gentest_llvm_config_program)
+        unset(_gentest_llvm_config_program CACHE)
+        if(IS_ABSOLUTE "${_cand}" OR "${_cand}" MATCHES "[/\\\\]")
+            if(EXISTS "${_cand}" AND NOT IS_DIRECTORY "${_cand}")
+                set(_gentest_llvm_config_program "${_cand}")
+            endif()
+        else()
+            find_program(_gentest_llvm_config_program NAMES "${_cand}" NO_CACHE)
+        endif()
+        if(NOT _gentest_llvm_config_program)
+            continue()
+        endif()
         execute_process(
-            COMMAND ${_cand} --version
+            COMMAND "${_gentest_llvm_config_program}" --version
             RESULT_VARIABLE _gentest_llvm_config_version_rc
             OUTPUT_VARIABLE _gentest_llvm_config_version
             OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -63,7 +75,7 @@ macro(gentest_seed_llvm_prefix_from_config)
         endif()
 
         execute_process(
-            COMMAND ${_cand} --cmakedir
+            COMMAND "${_gentest_llvm_config_program}" --cmakedir
             OUTPUT_VARIABLE _gentest_llvm_cmakedir
             OUTPUT_STRIP_TRAILING_WHITESPACE
             ERROR_QUIET)
@@ -76,6 +88,7 @@ macro(gentest_seed_llvm_prefix_from_config)
         endif()
     endforeach()
     unset(_gentest_llvm_config_candidates)
+    unset(_gentest_llvm_config_program)
     unset(_gentest_llvm_config_version_rc)
     unset(_gentest_llvm_config_version)
     unset(_gentest_llvm_config_major)
