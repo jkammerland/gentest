@@ -61,6 +61,7 @@ struct TimedRunStatus {
     std::size_t total   = 0;
     std::size_t passed  = 0;
     std::size_t skipped = 0;
+    std::size_t blocked = 0;
     std::size_t failed  = 0;
 };
 

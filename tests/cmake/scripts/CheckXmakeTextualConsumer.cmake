@@ -87,6 +87,7 @@ foreach(_cmake_dir IN ITEMS "${Clang_DIR}" "${LLVM_DIR}")
 endforeach()
 if(APPLE)
   list(APPEND _gentest_clang_search_paths
+    /opt/homebrew/opt/llvm@23/bin
     /opt/homebrew/opt/llvm@22/bin
     /opt/homebrew/opt/llvm@21/bin
     /opt/homebrew/opt/llvm@20/bin
@@ -95,30 +96,32 @@ endif()
 list(APPEND _gentest_clang_search_paths
   /usr/bin
   /bin
+  /usr/lib64/llvm23/bin
   /usr/lib64/llvm22/bin
   /usr/lib64/llvm21/bin
   /usr/lib64/llvm20/bin
+  /usr/lib/llvm-23/bin
   /usr/lib/llvm-22/bin
   /usr/lib/llvm-21/bin
   /usr/lib/llvm-20/bin)
 list(REMOVE_DUPLICATES _gentest_clang_search_paths)
 
-find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20
+find_program(_clang_cxx NAMES clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++
   PATHS ${_gentest_clang_search_paths}
   NO_DEFAULT_PATH)
 if(NOT _clang_cxx)
-  find_program(_clang_cxx NAMES clang++ clang++-22 clang++-21 clang++-20)
+  find_program(_clang_cxx NAMES clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 endif()
 if(NOT _clang_cxx)
   message(STATUS "clang++ not found; skipping Xmake textual consumer smoke check.")
   return()
 endif()
 
-find_program(_clang_cc NAMES clang clang-22 clang-21 clang-20
+find_program(_clang_cc NAMES clang-23 clang-22 clang-21 clang-20 clang-19 clang
   PATHS ${_gentest_clang_search_paths}
   NO_DEFAULT_PATH)
 if(NOT _clang_cc)
-  find_program(_clang_cc NAMES clang clang-22 clang-21 clang-20)
+  find_program(_clang_cc NAMES clang-23 clang-22 clang-21 clang-20 clang-19 clang)
 endif()
 if(NOT _clang_cc)
   message(STATUS "clang not found; skipping Xmake textual consumer smoke check.")

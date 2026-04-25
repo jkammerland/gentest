@@ -219,7 +219,7 @@ and made the remaining legacy detail surface explicit compatibility shims:
 - `023_public_api_internal_surface_inventory.md`
   - now records the public/detail/private classification for the installed
     `context.h`, `registry.h`, and `fixture.h` surface under review
-  - explicitly classifies `gentest::CurrentToken` as the public token type
+  - explicitly classifies `gentest::CurrentContext` as the public context type
     while `gentest::detail::TestContextInfo` remains an installed unstable
     detail escape hatch that is no longer exposed through the normal
     `runner.h` / `context.h` include path
@@ -244,7 +244,7 @@ normal `gentest/runner.h` path is now narrow, and the legacy detail surface is
 called out explicitly through compatibility headers instead of leaking through
 the normal umbrella path. The story inventory artifact is populated, and the
 `context.h` / `TestContextInfo` classification question is resolved at the
-current scope by preserving the compatible public token type while keeping the
+current scope by preserving the compatible public context type while keeping the
 concrete runtime context layout off the normal public include path.
 
 The remaining generated-code/devkit compatibility cleanup is tracked

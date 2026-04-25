@@ -198,30 +198,34 @@ template <typename T> class FixtureHandle {
 
 namespace detail_internal {
 
-template <typename Fixture> inline std::shared_ptr<void> shared_fixture_create(std::string_view suite, std::string &error) {
-#if GENTEST_EXCEPTIONS_ENABLED
-    try {
-        auto handle = FixtureHandle<Fixture>::empty();
-        if (!handle.init(suite)) {
-            error = "returned null";
-            return {};
+enum class SharedFixtureAllocationMode {
+    Suite,
+    Global,
+};
+
+template <typename Fixture, SharedFixtureAllocationMode Mode>
+inline std::shared_ptr<void> shared_fixture_create_impl(std::string_view suite, std::string &error) {
+    auto       handle = FixtureHandle<Fixture>::empty();
+    const bool ok     = [&] {
+        if constexpr (Mode == SharedFixtureAllocationMode::Global && kHasGentestAllocate<Fixture>) {
+            return handle.init();
+        } else {
+            return handle.init(suite);
         }
-        return handle.shared();
-    } catch (const std::exception &e) {
-        error = std::string("std::exception: ") + e.what();
-        return {};
-    } catch (...) {
-        error = "unknown exception";
-        return {};
-    }
-#else
-    auto handle = FixtureHandle<Fixture>::empty();
-    if (!handle.init(suite)) {
+    }();
+    if (!ok) {
         error = "returned null";
         return {};
     }
     return handle.shared();
-#endif
+}
+
+template <typename Fixture> inline std::shared_ptr<void> shared_fixture_create_suite(std::string_view suite, std::string &error) {
+    return shared_fixture_create_impl<Fixture, SharedFixtureAllocationMode::Suite>(suite, error);
+}
+
+template <typename Fixture> inline std::shared_ptr<void> shared_fixture_create_global(std::string_view suite, std::string &error) {
+    return shared_fixture_create_impl<Fixture, SharedFixtureAllocationMode::Global>(suite, error);
 }
 
 template <typename Fixture> inline void shared_fixture_setup(void *instance, std::string &error) {
@@ -230,15 +234,7 @@ template <typename Fixture> inline void shared_fixture_setup(void *instance, std
             error = "instance missing";
             return;
         }
-#if GENTEST_EXCEPTIONS_ENABLED
-        try {
-            static_cast<Fixture *>(instance)->setUp();
-        } catch (const gentest::assertion &e) { error = e.message(); } catch (const std::exception &e) {
-            error = std::string("std::exception: ") + e.what();
-        } catch (...) { error = "unknown exception"; }
-#else
         static_cast<Fixture *>(instance)->setUp();
-#endif
     }
 }
 
@@ -248,15 +244,7 @@ template <typename Fixture> inline void shared_fixture_teardown(void *instance, 
             error = "instance missing";
             return;
         }
-#if GENTEST_EXCEPTIONS_ENABLED
-        try {
-            static_cast<Fixture *>(instance)->tearDown();
-        } catch (const gentest::assertion &e) { error = e.message(); } catch (const std::exception &e) {
-            error = std::string("std::exception: ") + e.what();
-        } catch (...) { error = "unknown exception"; }
-#else
         static_cast<Fixture *>(instance)->tearDown();
-#endif
     }
 }
 
@@ -264,8 +252,10 @@ template <typename Fixture> inline void shared_fixture_teardown(void *instance, 
 
 template <typename Fixture>
 inline void register_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name) {
-    register_shared_fixture(scope, suite, fixture_name, &detail_internal::shared_fixture_create<Fixture>,
-                            &detail_internal::shared_fixture_setup<Fixture>, &detail_internal::shared_fixture_teardown<Fixture>);
+    const auto create = (scope == SharedFixtureScope::Suite) ? &detail_internal::shared_fixture_create_suite<Fixture>
+                                                             : &detail_internal::shared_fixture_create_global<Fixture>;
+    register_shared_fixture(scope, suite, fixture_name, create, &detail_internal::shared_fixture_setup<Fixture>,
+                            &detail_internal::shared_fixture_teardown<Fixture>);
 }
 
 template <typename Fixture>

@@ -114,11 +114,11 @@ RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, st
     RunResult result;
     if (failure.skipped) {
         if (failure.infra_failure) {
-            result.outcome          = Outcome::Fail;
+            result.skipped          = true;
+            result.outcome          = Outcome::Blocked;
             result.time_s           = failure.time_s;
             const std::string issue = failure.reason.empty() ? std::string("shared fixture unavailable") : failure.reason;
-            result.failures.push_back(issue);
-            result.summary_issues.push_back(issue);
+            result.skip_reason      = fmt::format("blocked: {}", issue);
             return result;
         }
         result.skipped     = true;
@@ -259,14 +259,15 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         gentest::runner::emit_github_annotations(state.acc);
     }
 
-    if (!test_idxs.empty() || !state.acc.failure_items.empty()) {
+    if (!selection.idxs.empty() || !state.acc.failure_items.empty()) {
         const std::size_t  passed_count  = counters.passed + bench_status.passed + jitter_status.passed;
         const std::size_t  total_count   = counters.total + bench_status.total + jitter_status.total;
         const std::size_t  failed_count  = counters.failed + bench_status.failed + jitter_status.failed + state.acc.infra_errors.size();
         const std::size_t  skipped_count = counters.skipped + bench_status.skipped + jitter_status.skipped;
+        const std::size_t  blocked_count = counters.blocked + bench_status.blocked + jitter_status.blocked;
         fmt::memory_buffer summary;
-        fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; xfail {}; xpass {}.\n", passed_count,
-                       total_count, failed_count, skipped_count, counters.xfail, counters.xpass);
+        fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; blocked {}; xfail {}; xpass {}.\n",
+                       passed_count, total_count, failed_count, skipped_count, blocked_count, counters.xfail, counters.xpass);
         if (!state.acc.failure_items.empty()) {
             fmt::format_to(std::back_inserter(summary), "Failed tests:\n");
             for (const auto &item : state.acc.failure_items) {
@@ -290,7 +291,8 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         fmt::print("{}", std::string_view(summary.data(), summary.size()));
     }
 
-    const bool ok = (counters.failures == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() && state.acc.infra_errors.empty();
+    const bool ok = (counters.failures == 0) && (counters.blocked == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() &&
+                    state.acc.infra_errors.empty();
     return ok ? 0 : 1;
 }
 

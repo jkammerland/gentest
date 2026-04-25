@@ -24,12 +24,12 @@ endif()
 
 get_filename_component(_clangxx_dir "${_clangxx}" DIRECTORY)
 find_program(_clang_scan_deps
-  NAMES clang-scan-deps clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20
+  NAMES clang-scan-deps-23 clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19 clang-scan-deps
   PATHS "${_clangxx_dir}"
   NO_DEFAULT_PATH)
 if(NOT _clang_scan_deps)
   find_program(_clang_scan_deps
-    NAMES clang-scan-deps clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20)
+    NAMES clang-scan-deps-23 clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19 clang-scan-deps)
 endif()
 if(NOT _clang_scan_deps)
   gentest_skip_test("explicit host-clang regression: no clang-scan-deps executable available")

@@ -690,6 +690,18 @@ void report_measured_case_skip(const gentest::Case &c, std::string_view reason, 
     }
 }
 
+void report_measured_case_blocked(const gentest::Case &c, std::string_view reason, double time_s) {
+    long long duration_ms = std::llround(time_s * 1000.0);
+    if (time_s > 0.0 && duration_ms == 0) {
+        duration_ms = 1;
+    }
+    if (!reason.empty()) {
+        fmt::print("[ BLOCKED ] {} :: {} ({} ms)\n", c.name, reason, duration_ms);
+    } else {
+        fmt::print("[ BLOCKED ] {} ({} ms)\n", c.name, duration_ms);
+    }
+}
+
 template <typename Result, typename CallFn, typename SuccessFn>
 TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::span<const std::size_t> idxs, std::string_view kind_label,
                                   bool fail_fast, CallFn run_call, const SuccessFn &on_success, const MeasurementFailureFn &on_failure) {
@@ -700,7 +712,23 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
         MeasurementCaseFailure failure{};
         ++status.total;
         if (!run_measured_case(c, run_call, result, failure)) {
-            if (failure.skipped && !failure.infra_failure) {
+            if (failure.skipped) {
+                if (failure.infra_failure) {
+                    report_measured_case_blocked(c, failure.reason, failure.time_s);
+                    on_failure(c, failure, {});
+                    status.ok = false;
+                    ++status.blocked;
+                    if (fail_fast) {
+                        return TimedRunStatus{.ok      = false,
+                                              .stopped = true,
+                                              .total   = status.total,
+                                              .passed  = status.passed,
+                                              .skipped = status.skipped,
+                                              .blocked = status.blocked,
+                                              .failed  = status.failed};
+                    }
+                    continue;
+                }
                 report_measured_case_skip(c, failure.reason, failure.time_s);
                 on_failure(c, failure, {});
                 ++status.skipped;
@@ -718,6 +746,7 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
                                       .total   = status.total,
                                       .passed  = status.passed,
                                       .skipped = status.skipped,
+                                      .blocked = status.blocked,
                                       .failed  = status.failed};
             continue;
         }

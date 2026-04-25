@@ -1,12 +1,13 @@
 # Usage:
 #   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> -P tests/cmake/scripts/CheckTestInventory.cmake
-#   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
-#   cmake -DPROG=<path> [-DCASES=<n>] [-DEXPECTED_LIST_FILE=<path>] [-DPASS=<n> -DFAIL=<n> -DSKIP=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
+#   cmake -DPROG=<path> -DPASS=<n> -DFAIL=<n> -DSKIP=<n> [-DBLOCKED=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
+#   cmake -DPROG=<path> [-DCASES=<n>] [-DEXPECTED_LIST_FILE=<path>] [-DPASS=<n> -DFAIL=<n> -DSKIP=<n>] [-DBLOCKED=<n>] [-DXFAIL=<n>] [-DXPASS=<n>] [-DEXPECT_RC=<n>] -P tests/cmake/scripts/CheckTestInventory.cmake
 #
 # EXPECTED_LIST_FILE may use either plain case names (legacy, implicitly PASS)
 # or explicit status markers:
 #   [PASS] suite/test_name
 #   [SKIP] suite/other_test
+#   [BLOCKED] suite/blocked_by_infrastructure
 #   [FAIL] suite/failing_test
 #   [XFAIL] suite/expected_failure
 #   [XPASS] suite/unexpected_pass
@@ -83,7 +84,7 @@ function(_gentest_normalize_sorted_lines text out_var)
   set(${out_var} "${_filtered}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_parse_expected_list_text text_var out_names_var out_cases_var out_pass_var out_fail_var out_skip_var out_xfail_var out_xpass_var)
+function(_gentest_parse_expected_list_text text_var out_names_var out_cases_var out_pass_var out_fail_var out_skip_var out_blocked_var out_xfail_var out_xpass_var)
   _gentest_normalize_text("${${text_var}}" _remaining)
   if("${_remaining}" STREQUAL "")
     set(${out_names_var} "" PARENT_SCOPE)
@@ -91,6 +92,7 @@ function(_gentest_parse_expected_list_text text_var out_names_var out_cases_var 
     set(${out_pass_var} 0 PARENT_SCOPE)
     set(${out_fail_var} 0 PARENT_SCOPE)
     set(${out_skip_var} 0 PARENT_SCOPE)
+    set(${out_blocked_var} 0 PARENT_SCOPE)
     set(${out_xfail_var} 0 PARENT_SCOPE)
     set(${out_xpass_var} 0 PARENT_SCOPE)
     return()
@@ -101,6 +103,7 @@ function(_gentest_parse_expected_list_text text_var out_names_var out_cases_var 
   set(_pass 0)
   set(_fail 0)
   set(_skip 0)
+  set(_blocked 0)
   set(_xfail 0)
   set(_xpass 0)
 
@@ -116,7 +119,7 @@ function(_gentest_parse_expected_list_text text_var out_names_var out_cases_var 
 
     set(_status "PASS")
     set(_name "${_line}")
-    if(_line MATCHES "^[ \t]*\\[(PASS|FAIL|SKIP|XFAIL|XPASS)\\][ \t]+(.+)$")
+    if(_line MATCHES "^[ \t]*\\[(PASS|FAIL|SKIP|BLOCKED|XFAIL|XPASS)\\][ \t]+(.+)$")
       set(_status "${CMAKE_MATCH_1}")
       set(_name "${CMAKE_MATCH_2}")
     endif()
@@ -134,6 +137,8 @@ function(_gentest_parse_expected_list_text text_var out_names_var out_cases_var 
       math(EXPR _fail "${_fail} + 1")
     elseif(_status STREQUAL "SKIP")
       math(EXPR _skip "${_skip} + 1")
+    elseif(_status STREQUAL "BLOCKED")
+      math(EXPR _blocked "${_blocked} + 1")
     elseif(_status STREQUAL "XFAIL")
       math(EXPR _xfail "${_xfail} + 1")
     elseif(_status STREQUAL "XPASS")
@@ -149,6 +154,7 @@ function(_gentest_parse_expected_list_text text_var out_names_var out_cases_var 
   set(${out_pass_var} "${_pass}" PARENT_SCOPE)
   set(${out_fail_var} "${_fail}" PARENT_SCOPE)
   set(${out_skip_var} "${_skip}" PARENT_SCOPE)
+  set(${out_blocked_var} "${_blocked}" PARENT_SCOPE)
   set(${out_xfail_var} "${_xfail}" PARENT_SCOPE)
   set(${out_xpass_var} "${_xpass}" PARENT_SCOPE)
 endfunction()
@@ -189,6 +195,7 @@ set(_expected_cases)
 set(_derived_pass)
 set(_derived_fail)
 set(_derived_skip)
+set(_derived_blocked)
 set(_derived_xfail)
 set(_derived_xpass)
 set(_have_inventory_expectations OFF)
@@ -214,6 +221,7 @@ if(DEFINED EXPECTED_LIST_FILE AND NOT "${EXPECTED_LIST_FILE}" STREQUAL "")
     _derived_pass
     _derived_fail
     _derived_skip
+    _derived_blocked
     _derived_xfail
     _derived_xpass)
   if(NOT _have_inventory_expectations)
@@ -252,6 +260,9 @@ if(NOT DEFINED PASS AND NOT DEFINED FAIL AND NOT DEFINED SKIP)
     set(PASS "${_derived_pass}")
     set(FAIL "${_derived_fail}")
     set(SKIP "${_derived_skip}")
+    if(NOT _derived_blocked EQUAL 0)
+      set(BLOCKED "${_derived_blocked}")
+    endif()
     if(NOT _derived_xfail EQUAL 0)
       set(XFAIL "${_derived_xfail}")
     endif()
@@ -278,6 +289,7 @@ _gentest_normalize_text("${out}${err}" all)
 _gentest_count_status_lines("${all}" "PASS" pass_count)
 _gentest_count_status_lines("${all}" "FAIL" fail_count)
 _gentest_count_status_lines("${all}" "SKIP" skip_count)
+_gentest_count_status_lines("${all}" "BLOCKED" blocked_count)
 _gentest_count_status_lines("${all}" "XFAIL" xfail_count)
 _gentest_count_status_lines("${all}" "XPASS" xpass_count)
 
@@ -292,6 +304,10 @@ if(NOT fail_count EQUAL FAIL)
 endif()
 if(NOT skip_count EQUAL SKIP)
   message(STATUS "SKIP count mismatch: expected ${SKIP}, got ${skip_count}")
+  set(_ok FALSE)
+endif()
+if(DEFINED BLOCKED AND NOT "${BLOCKED}" STREQUAL "" AND NOT blocked_count EQUAL BLOCKED)
+  message(STATUS "BLOCKED count mismatch: expected ${BLOCKED}, got ${blocked_count}")
   set(_ok FALSE)
 endif()
 if(DEFINED XFAIL AND NOT "${XFAIL}" STREQUAL "" AND NOT xfail_count EQUAL XFAIL)
@@ -312,6 +328,9 @@ else()
   set(_fail_like ${FAIL})
   if(DEFINED XPASS AND NOT "${XPASS}" STREQUAL "")
     math(EXPR _fail_like "${_fail_like} + ${XPASS}")
+  endif()
+  if(DEFINED BLOCKED AND NOT "${BLOCKED}" STREQUAL "")
+    math(EXPR _fail_like "${_fail_like} + ${BLOCKED}")
   endif()
 
   if(_fail_like GREATER 0)

@@ -29,7 +29,7 @@ class CurrentTestScope {
         if (!ctx_) {
             return;
         }
-        gentest::detail::wait_for_adopted_tokens(ctx_);
+        gentest::detail::wait_for_adopted_contexts(ctx_);
         ctx_->active = false;
         gentest::detail::set_current_test(std::move(previous_));
     }

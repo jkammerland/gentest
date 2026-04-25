@@ -4,21 +4,30 @@ function(gentest_expect_module_artifact_manifest manifest expected_module expect
   endif()
 
   file(READ "${manifest}" _manifest_json)
+  string(JSON _manifest_schema GET "${_manifest_json}" schema)
   string(JSON _source_kind GET "${_manifest_json}" sources 0 kind)
   string(JSON _source_module GET "${_manifest_json}" sources 0 module)
+  string(JSON _source_partition_type TYPE "${_manifest_json}" sources 0 partition)
   string(JSON _source_context GET "${_manifest_json}" sources 0 compile_context_id)
   string(JSON _source_registration GET "${_manifest_json}" sources 0 registration_output)
   string(JSON _artifact_path GET "${_manifest_json}" artifacts 0 path)
   string(JSON _artifact_compile_as GET "${_manifest_json}" artifacts 0 compile_as)
   string(JSON _artifact_module GET "${_manifest_json}" artifacts 0 module)
+  string(JSON _artifact_attachment GET "${_manifest_json}" artifacts 0 target_attachment)
   string(JSON _artifact_context GET "${_manifest_json}" artifacts 0 compile_context_id)
   string(JSON _artifact_scan GET "${_manifest_json}" artifacts 0 requires_module_scan)
+  string(JSON _artifact_include_dir GET "${_manifest_json}" artifacts 0 generated_include_dirs 0)
+  string(JSON _artifact_header GET "${_manifest_json}" artifacts 0 generated_headers 0)
+  string(JSON _artifact_depfile GET "${_manifest_json}" artifacts 0 depfile)
 
   foreach(_actual_expected IN ITEMS
+      "_manifest_schema=gentest.artifact_manifest.v1"
       "_source_kind=module-primary-interface"
       "_source_module=${expected_module}"
+      "_source_partition_type=NULL"
       "_artifact_compile_as=cxx-module-implementation"
       "_artifact_module=${expected_module}"
+      "_artifact_attachment=private-generated-source"
       "_artifact_scan=ON")
     string(REPLACE "=" ";" _pair "${_actual_expected}")
     list(GET _pair 0 _actual_var)
@@ -36,6 +45,38 @@ function(gentest_expect_module_artifact_manifest manifest expected_module expect
   if(NOT _artifact_context STREQUAL _source_context)
     message(FATAL_ERROR
       "Manifest artifact context should match source context.\n${_manifest_json}")
+  endif()
+  if(_artifact_include_dir STREQUAL "" OR _artifact_include_dir MATCHES "-NOTFOUND$")
+    message(FATAL_ERROR
+      "Manifest module artifact must declare a generated include directory.\n${_manifest_json}")
+  endif()
+  if(_artifact_header STREQUAL "" OR _artifact_header MATCHES "-NOTFOUND$")
+    message(FATAL_ERROR
+      "Manifest module artifact must declare a generated registration header.\n${_manifest_json}")
+  endif()
+  set(_expected_artifact_include_dir "${_source_registration}")
+  if(_expected_artifact_include_dir MATCHES "/")
+    string(REGEX REPLACE "/[^/]*$" "" _expected_artifact_include_dir "${_expected_artifact_include_dir}")
+  else()
+    set(_expected_artifact_include_dir ".")
+  endif()
+  set(_expected_artifact_header "${_source_registration}")
+  string(REGEX REPLACE "\\.registration\\.gentest\\.cpp$" ".gentest.h" _expected_artifact_header "${_expected_artifact_header}")
+  if(_expected_artifact_header STREQUAL _source_registration)
+    message(FATAL_ERROR
+      "Manifest registration output must use the .registration.gentest.cpp suffix.\n${_manifest_json}")
+  endif()
+  if(NOT _artifact_include_dir STREQUAL _expected_artifact_include_dir)
+    message(FATAL_ERROR
+      "Manifest generated include directory mismatch: expected '${_expected_artifact_include_dir}', got '${_artifact_include_dir}'.\n${_manifest_json}")
+  endif()
+  if(NOT _artifact_header STREQUAL _expected_artifact_header)
+    message(FATAL_ERROR
+      "Manifest generated header mismatch: expected '${_expected_artifact_header}', got '${_artifact_header}'.\n${_manifest_json}")
+  endif()
+  if(_artifact_depfile MATCHES "-NOTFOUND$")
+    message(FATAL_ERROR
+      "Manifest module artifact must declare a depfile field, even when empty.\n${_manifest_json}")
   endif()
   string(FIND "${_source_context}" "${expected_context_prefix}" _context_prefix_pos)
   if(NOT _context_prefix_pos EQUAL 0)

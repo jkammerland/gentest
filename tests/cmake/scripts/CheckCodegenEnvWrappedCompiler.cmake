@@ -11,7 +11,7 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-find_program(_real_cxx NAMES c++ g++ clang++ clang++-21 clang++-20 REQUIRED)
+find_program(_real_cxx NAMES clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++ c++ g++ REQUIRED)
 file(TO_CMAKE_PATH "${_real_cxx}" _real_cxx_norm)
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 find_program(_env_program NAMES env)

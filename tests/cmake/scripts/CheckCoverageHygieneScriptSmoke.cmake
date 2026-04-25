@@ -20,6 +20,7 @@ file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_script_dir}" "${_src_dir}" "${_obj_dir}" "${_fake_tool_dir}")
 
 configure_file("${SOURCE_DIR}/scripts/coverage_hygiene.py" "${_script_dir}/coverage_hygiene.py" COPYONLY)
+configure_file("${SOURCE_DIR}/scripts/coverage_common.py" "${_script_dir}/coverage_common.py" COPYONLY)
 configure_file("${SOURCE_DIR}/scripts/coverage_hygiene.toml" "${_script_dir}/coverage_hygiene.toml" COPYONLY)
 
 set(_source_file "${_src_dir}/main.cpp")

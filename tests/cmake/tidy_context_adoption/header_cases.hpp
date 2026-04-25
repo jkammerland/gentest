@@ -4,11 +4,11 @@
 
 #include <thread>
 
-namespace header_tidy_token_adoption {
+namespace header_tidy_context_adoption {
 
-inline void missing_header_thread_token() {
+inline void missing_header_thread_context() {
     std::thread worker([] { gentest::log("missing header adoption"); });
     worker.join();
 }
 
-} // namespace header_tidy_token_adoption
+} // namespace header_tidy_context_adoption

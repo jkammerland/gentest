@@ -143,8 +143,8 @@ unset(_gentest_run)
 
 set(_gentest_concurrency_death_checks
     "concurrency_fail_single_death|concurrency/child_expect_fail|gentest: fatal: assertion/expectation recorded without an active test context."
-    "concurrency_skip_no_token_death|concurrency/child_skip_no_token|gentest: fatal: skip called without an active test context."
-    "concurrency_xfail_no_token_death|concurrency/child_xfail_no_token|gentest: fatal: xfail called without an active test context."
+    "concurrency_skip_no_context_death|concurrency/child_skip_no_context|gentest: fatal: skip called without an active test context."
+    "concurrency_xfail_no_context_death|concurrency/child_xfail_no_context|gentest: fatal: xfail called without an active test context."
     "concurrency_multi_noadopt_death|concurrency/no_adopt_expect_death_multi|gentest: fatal: assertion/expectation recorded without an active test context.")
 
 foreach(_gentest_check IN LISTS _gentest_concurrency_death_checks)
@@ -158,7 +158,7 @@ foreach(_gentest_check IN LISTS _gentest_concurrency_death_checks)
         PROG ${PROJECT_NAME}_concurrency_tests
         REQUIRED_SUBSTRINGS
             "${_gentest_required_substring}"
-            "Did you forget to set the current token in this thread/coroutine?"
+            "Did you forget to set the current context in this thread/coroutine?"
         ARGS --run=${_gentest_run})
 endforeach()
 unset(_gentest_concurrency_death_checks)
@@ -171,14 +171,14 @@ unset(_gentest_run)
 option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(
-        concurrency_fail_single_death concurrency_skip_no_token_death concurrency_xfail_no_token_death concurrency_multi_noadopt_death
+        concurrency_fail_single_death concurrency_skip_no_context_death concurrency_xfail_no_context_death concurrency_multi_noadopt_death
         PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 
 option(GENTEST_SKIP_TSAN_DEATH_TESTS "Skip death tests whose stderr contract is incompatible with ThreadSanitizer" OFF)
 if(GENTEST_SKIP_TSAN_DEATH_TESTS)
     set_tests_properties(
-        concurrency_fail_single_death concurrency_skip_no_token_death concurrency_xfail_no_token_death concurrency_multi_noadopt_death
+        concurrency_fail_single_death concurrency_skip_no_context_death concurrency_xfail_no_context_death concurrency_multi_noadopt_death
         PROPERTIES DISABLED TRUE)
 endif()
 
@@ -1170,7 +1170,13 @@ gentest_add_check_inventory(
     ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeInventoryProgram.cmake --
     EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_semicolon_status.list)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 10 SKIP 2)
+gentest_add_check_inventory(
+    NAME inventory_parser_blocked_case_name
+    PROG ${CMAKE_COMMAND}
+    ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeBlockedInventoryProgram.cmake --
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_blocked_status.list)
+
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 10 SKIP 0 BLOCKED 2)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -1321,6 +1327,14 @@ gentest_add_check_death(
     NAME mocking_predicate_mismatch_message
     PROG gentest_failing_tests
     REQUIRED_SUBSTRING "expected == 3"
+    ARGS --run=failing/mocking/predicate_mismatch)
+
+gentest_add_check_death(
+    NAME check_death_required_substrings_preserves_list
+    PROG gentest_failing_tests
+    REQUIRED_SUBSTRINGS
+        "failing/mocking/predicate_mismatch"
+        "argument[0] mismatch for ::mocking::Ticker::tick: expected == 3, got 4"
     ARGS --run=failing/mocking/predicate_mismatch)
 
 if(WIN32 AND (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
@@ -1500,6 +1514,19 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             --run=unit/arithmetic/sum
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single)
     set_tests_properties(allure_smoke_single PROPERTIES LABELS "allure")
+
+    gentest_add_cmake_script_test(
+        NAME allure_blocked_shared_fixture_label
+        PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
+        SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAllureBlockedOutcome.cmake"
+        ARGS
+            --run=regressions/shared_setup_skip/suite_free
+            --kind=test
+        DEFINES
+            "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_blocked_shared_fixture"
+            "EXPECT_RC=1"
+            "EXPECTED_REASON=shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null")
+    set_tests_properties(allure_blocked_shared_fixture_label PROPERTIES LABELS "allure")
 
     # Allure logs attachment: failing test with LogPolicy::OnFailure should create a logs attachment
     gentest_add_run_and_check_file(
@@ -3074,9 +3101,9 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
-    gentest_tidy_token_adoption
-    ${PROJECT_SOURCE_DIR}/tests/cmake/tidy_token_adoption
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTidyTokenAdoption.cmake
+    gentest_tidy_context_adoption
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tidy_context_adoption
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTidyContextAdoption.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(

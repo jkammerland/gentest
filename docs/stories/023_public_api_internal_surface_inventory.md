@@ -15,15 +15,17 @@ Use it to record which installed symbols or surfaces are:
 
 - `gentest::log`, `gentest::set_log_policy`, `gentest::set_default_log_policy`, `gentest::skip`,
   `gentest::skip_if`, `gentest::xfail`, `gentest::xfail_if`: `public` -> keep
-- `gentest::get_current_token`, `gentest::set_current_token`, `gentest::Adoption`: `public` -> keep
-- `gentest::CurrentToken`: `public` -> keep as the shared-pointer token type; current reduction work hides the
+- `gentest::get_current_context`, `gentest::set_current_context`, `gentest::Adoption`: `public` -> keep
+- `gentest::CurrentContext`: `public` -> keep as the shared-pointer context type; current reduction work hides the
   concrete `TestContextInfo` definition and removes the transitive `runtime_context.h` exposure from `context.h`
-  without changing the token representation
+  without changing the context representation
+- `gentest::get_current_token`, `gentest::set_current_token`, `gentest::CurrentToken`: `public` -> keep as legacy
+  aliases for the context API
 - `gentest/detail/runtime_support.h`: `detail` -> keep installed as the narrow unstable support layer needed by
   normal assertions/generated wrappers without re-exporting the concrete `TestContextInfo` layout
 - `gentest/detail/runtime_context.h` and `gentest::detail::TestContextInfo`: `detail` -> still installed as an
   unstable escape hatch for in-repo/runtime users, but no longer exposed through the normal `runner.h` /
-  `context.h` include path while the compatible token type remains
+  `context.h` include path while the compatible context type remains
 - `gentest/detail/registry_api.h`: `detail` -> keep installed as the narrow registry API layer included by
   `gentest/runner.h`; this is the new normal umbrella path for `run_all_tests`, `Case`, `FixtureLifetime`, and
   `registered_cases`

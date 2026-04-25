@@ -35,7 +35,7 @@ struct TestContextInfo {
     std::condition_variable  adopted_cv;
     std::atomic<bool>        active{false};
     std::atomic<bool>        has_failures{false};
-    std::atomic<std::size_t> adopted_tokens{0};
+    std::atomic<std::size_t> adopted_contexts{0};
     gentest::LogPolicy       log_policy{gentest::LogPolicy::Never};
     bool                     log_policy_overridden{false};
 
@@ -113,14 +113,14 @@ inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
 
 inline std::shared_ptr<TestContextInfo> current_test() { return current_test_storage(); }
 
-inline void wait_for_adopted_tokens(const std::shared_ptr<TestContextInfo> &ctx) {
+inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ctx) {
     if (!ctx)
         return;
     // Intentional barrier: test/phase completion waits for all adopted contexts
     // to be released. If adopted work is leaked (for example detached/stuck),
     // completion blocks by design to preserve one-shot outcome accounting.
     std::unique_lock<std::mutex> lk(ctx->adopted_mtx);
-    ctx->adopted_cv.wait(lk, [&] { return ctx->adopted_tokens.load(std::memory_order_acquire) == 0; });
+    ctx->adopted_cv.wait(lk, [&] { return ctx->adopted_contexts.load(std::memory_order_acquire) == 0; });
 }
 
 inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo> &ctx) {
@@ -138,7 +138,7 @@ inline void request_runtime_skip(std::string_view reason, TestContextInfo::Runti
     auto ctx = current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
         (void)std::fputs("gentest: fatal: skip called without an active test context.\n"
-                         "        Did you forget to set the current token in this thread/coroutine?\n",
+                         "        Did you forget to set the current context in this thread/coroutine?\n",
                          stderr);
         std::abort();
     }

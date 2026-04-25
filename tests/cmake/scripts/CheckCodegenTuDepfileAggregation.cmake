@@ -19,7 +19,7 @@ if(DEFINED MODE AND NOT "${MODE}" STREQUAL "")
   set(_mode "${MODE}")
 endif()
 
-find_program(_real_clang NAMES clang++-22 clang++-21 clang++-20 clang++ clang++.exe REQUIRED)
+find_program(_real_clang NAMES clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++ clang++.exe REQUIRED)
 file(TO_CMAKE_PATH "${_real_clang}" _real_clang_norm)
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 

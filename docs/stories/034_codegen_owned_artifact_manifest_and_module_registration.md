@@ -124,7 +124,7 @@ like:
       "compile_context_id": "my_tests:tests/cases.cppm",
       "requires_module_scan": true,
       "generated_include_dirs": ["build/gentest"],
-      "generated_headers": [],
+      "generated_headers": ["build/gentest/tu_0000_cases.gentest.h"],
       "depfile": "build/gentest/my_tests.gentest.d"
     }
   ]
@@ -141,8 +141,9 @@ At minimum, the manifest must represent:
 - stable output path
 - artifact role
 - owning source
-- source unit kind, including primary interface vs partition
-- module name and partition name when applicable
+- source unit kind (`gentest.artifact_manifest.v1` currently admits primary
+  module interfaces only; partitions are rejected before emission)
+- module name, with `"partition": null` in the v1 schema
 - compile treatment, such as textual wrapper or same-module implementation unit
 - target attachment mode
 - whether the artifact includes and replaces the owning source

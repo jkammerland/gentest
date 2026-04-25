@@ -54,8 +54,8 @@ endif()
 
 foreach(_death_test IN ITEMS
     concurrency_fail_single_death
-    concurrency_skip_no_token_death
-    concurrency_xfail_no_token_death
+    concurrency_skip_no_context_death
+    concurrency_xfail_no_context_death
     concurrency_multi_noadopt_death)
   string(FIND "${_tsan_gate_block}" "${_death_test}" _death_test_pos)
   if(_death_test_pos EQUAL -1)

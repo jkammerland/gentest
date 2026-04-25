@@ -69,7 +69,6 @@ jobs:
             libclang-20-dev \
             libclang-cpp20-dev \
             llvm-20-dev \
-            libtinfo6 \
             qemu-user \
             libc6-dev-arm64-cross \
             libc6-arm64-cross \
@@ -136,8 +135,7 @@ jobs:
             -DCMAKE_C_COMPILER=${HOST_CLANG} \
             -DCMAKE_CXX_COMPILER=${HOST_CLANGXX} \
             -DLLVM_DIR=${LLVM_DIR} \
-            -DClang_DIR=${Clang_DIR} \
-            -DGENTEST_USE_SYSTEM_TERMINFO=ON
+            -DClang_DIR=${Clang_DIR}
 
       - name: Build host codegen (native)
         run: |
@@ -219,7 +217,6 @@ jobs:
             libclang-20-dev \
             libclang-cpp20-dev \
             llvm-20-dev \
-            libtinfo6 \
             qemu-user \
             libc6-dev-riscv64-cross \
             libc6-riscv64-cross \
@@ -286,8 +283,7 @@ jobs:
             -DCMAKE_C_COMPILER=${HOST_CLANG} \
             -DCMAKE_CXX_COMPILER=${HOST_CLANGXX} \
             -DLLVM_DIR=${LLVM_DIR} \
-            -DClang_DIR=${Clang_DIR} \
-            -DGENTEST_USE_SYSTEM_TERMINFO=ON
+            -DClang_DIR=${Clang_DIR}
 
       - name: Build host codegen (native)
         run: |

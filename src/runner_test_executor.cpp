@@ -86,19 +86,26 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
     const bool has_failures = !ctxinfo->failures.empty();
 
     if (should_skip && !has_failures && !threw_non_skip) {
-        ++c.skipped;
-        rr.skipped     = true;
-        rr.outcome     = Outcome::Skip;
         rr.skip_reason = std::move(runtime_skip_reason);
         if (runtime_skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra) {
             const std::string issue = rr.skip_reason.empty() ? std::string("shared fixture unavailable") : rr.skip_reason;
-            rr.failures.push_back(issue);
-            rr.summary_issues.push_back(issue);
-            ++c.failed;
-            ++c.failures;
-            if (state.acc)
-                gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, issue);
+            rr.skipped              = true;
+            rr.outcome              = Outcome::Blocked;
+            rr.skip_reason          = fmt::format("blocked: {}", issue);
+            ++c.blocked;
+            const auto dur_ms = duration_ms(rr.time_s);
+            if (state.color_output) {
+                fmt::print(fmt::fg(fmt::color::yellow), "[ BLOCKED ]");
+                fmt::print(" {} :: {} ({} ms)\n", test.name, issue, dur_ms);
+            } else {
+                fmt::print("[ BLOCKED ] {} :: {} ({} ms)\n", test.name, issue, dur_ms);
+            }
+            return rr;
         }
+
+        ++c.skipped;
+        rr.skipped        = true;
+        rr.outcome        = Outcome::Skip;
         const auto dur_ms = duration_ms(rr.time_s);
         if (state.color_output) {
             fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
@@ -252,41 +259,40 @@ void execute_and_record(TestRunContext &state, const gentest::Case &test, void *
 void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std::string reason, TestCounters &c,
                            bool infra_failure = false) {
     ++c.total;
-    ++c.skipped;
-    const long long dur_ms = 0LL;
-    if (state.color_output) {
-        fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
-        if (!reason.empty()) {
-            fmt::print(" {} :: {} ({} ms)\n", test.name, reason, dur_ms);
+    const std::string issue  = reason.empty() ? std::string("fixture allocation returned null") : reason;
+    const long long   dur_ms = 0LL;
+    if (infra_failure) {
+        ++c.blocked;
+        if (state.color_output) {
+            fmt::print(fmt::fg(fmt::color::yellow), "[ BLOCKED ]");
+            fmt::print(" {} :: {} ({} ms)\n", test.name, issue, dur_ms);
         } else {
-            fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+            fmt::print("[ BLOCKED ] {} :: {} ({} ms)\n", test.name, issue, dur_ms);
         }
     } else {
-        if (!reason.empty()) {
-            fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, reason, dur_ms);
+        ++c.skipped;
+        if (state.color_output) {
+            fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
+            if (!reason.empty()) {
+                fmt::print(" {} :: {} ({} ms)\n", test.name, reason, dur_ms);
+            } else {
+                fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+            }
         } else {
-            fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+            if (!reason.empty()) {
+                fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, reason, dur_ms);
+            } else {
+                fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+            }
         }
-    }
-
-    const std::string issue = reason.empty() ? std::string("fixture allocation returned null") : reason;
-    if (infra_failure) {
-        ++c.failed;
-        ++c.failures;
-        if (state.acc)
-            gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, issue);
     }
     if (!state.acc)
         return;
 
     RunResult rr;
     rr.skipped     = true;
-    rr.outcome     = Outcome::Skip;
-    rr.skip_reason = std::move(reason);
-    if (infra_failure) {
-        rr.failures.push_back(issue);
-        rr.summary_issues.push_back(issue);
-    }
+    rr.outcome     = infra_failure ? Outcome::Blocked : Outcome::Skip;
+    rr.skip_reason = infra_failure ? fmt::format("blocked: {}", issue) : std::move(reason);
     gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
 }
 
@@ -297,7 +303,7 @@ bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases,
     for (const auto &plan : plans) {
         for (auto i : plan.free_like) {
             execute_and_record(state, cases[i], nullptr, counters);
-            if (fail_fast && counters.failures > 0)
+            if (fail_fast && (counters.failures > 0 || counters.blocked > 0))
                 return true;
         }
 
@@ -310,7 +316,7 @@ bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases,
                         group_reason.empty() ? std::string("fixture allocation returned null") : std::move(group_reason);
                     for (auto i : group.idxs) {
                         record_synthetic_skip(state, cases[i], msg, counters, true);
-                        if (fail_fast && counters.failures > 0)
+                        if (fail_fast && (counters.failures > 0 || counters.blocked > 0))
                             return true;
                     }
                     continue;
@@ -318,7 +324,7 @@ bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases,
 
                 for (auto i : group.idxs) {
                     execute_and_record(state, cases[i], group_ctx, counters);
-                    if (fail_fast && counters.failures > 0)
+                    if (fail_fast && (counters.failures > 0 || counters.blocked > 0))
                         return true;
                 }
             }

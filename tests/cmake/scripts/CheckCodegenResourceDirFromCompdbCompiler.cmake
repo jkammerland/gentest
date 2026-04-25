@@ -16,7 +16,7 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-find_program(_real_clang NAMES clang++-21 clang++-20 clang++ REQUIRED)
+find_program(_real_clang NAMES clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++ REQUIRED)
 file(TO_CMAKE_PATH "${_real_clang}" _real_clang_norm)
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 
@@ -33,7 +33,7 @@ set(_trap_bin_dir "${_work_dir}/trap-bin")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_bin_dir}" "${_trap_bin_dir}")
 
-foreach(_name IN ITEMS clang++ clang++-20 clang++-21 clang++-22)
+foreach(_name IN ITEMS clang++ clang++-19 clang++-20 clang++-21 clang++-22 clang++-23)
   set(_output_script "${_trap_bin_dir}/${_name}")
   configure_file(
     "${_fake_clang_script_template}"

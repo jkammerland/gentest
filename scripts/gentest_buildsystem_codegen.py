@@ -549,7 +549,7 @@ def find_clang_driver() -> pathlib.Path | None:
     llvm_bin = os.environ.get("LLVM_BIN", "").strip()
     if llvm_bin:
         llvm_bin_path = pathlib.Path(llvm_bin)
-        for suffix in ("", "-22", "-21", "-20"):
+        for suffix in ("", "-23", "-22", "-21", "-20", "-19"):
             if suffix == "":
                 candidates.append(str(llvm_bin_path / "clang++"))
             else:
@@ -559,7 +559,7 @@ def find_clang_driver() -> pathlib.Path | None:
                 str(llvm_bin_path / "clang-cl"),
             ]
         )
-    candidates.extend(["clang++-22", "clang++-21", "clang++-20", "clang++", "clang-cl"])
+    candidates.extend(["clang++-23", "clang++-22", "clang++-21", "clang++-20", "clang++-19", "clang++", "clang-cl"])
     for candidate in candidates:
         resolved = shutil.which(candidate)
         if resolved:
