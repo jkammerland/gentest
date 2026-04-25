@@ -220,7 +220,12 @@ gentest_add_cmake_script_test(
     SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckDeathLiteralSemicolonRegression.cmake"
     DEFINES
         "BUILD_ROOT=${CMAKE_BINARY_DIR}/regression_check_death_required_substrings_literal_semicolon"
-        "GENTEST_TESTS_MODULE=${PROJECT_SOURCE_DIR}/cmake/GentestTests.cmake")
+        "GENTEST_TESTS_MODULE=${PROJECT_SOURCE_DIR}/cmake/GentestTests.cmake"
+        "GENERATOR=${CMAKE_GENERATOR}"
+        "GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "BUILD_CONFIG=$<CONFIG>")
 
 gentest_add_cmake_script_test(
     NAME regression_module_artifact_manifest_asserts_exact_generated_paths
