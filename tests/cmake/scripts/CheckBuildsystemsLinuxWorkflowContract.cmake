@@ -222,6 +222,21 @@ if(_bazel_codegen_rule_pos EQUAL -1)
   message(FATAL_ERROR "BUILD.bazel must define the Bazel gentest_codegen bootstrap rule.")
 endif()
 
+foreach(_expected_bazel_llvm_probe IN ITEMS
+    [[/opt/homebrew/opt/llvm@23/bin/clang]]
+    [[/usr/local/opt/llvm@23/bin/clang++]]
+    [[/usr/lib64/llvm23/lib64/cmake/llvm]]
+    [[/usr/lib64/llvm19/bin/clang]]
+    [[/usr/lib/llvm-23/lib/cmake/clang]]
+    [[/usr/lib/llvm-19/lib/cmake/llvm]]
+    [[C:\\Tools\\llvm-23.1.0\\bin\\clang.exe]]
+    [[C:\\Tools\\llvm-19.1.7\\lib\\cmake\\clang]])
+  string(FIND "${_bazel_root_content}" "${_expected_bazel_llvm_probe}" _expected_bazel_llvm_probe_pos)
+  if(_expected_bazel_llvm_probe_pos EQUAL -1)
+    message(FATAL_ERROR "BUILD.bazel is missing expected LLVM probe token: ${_expected_bazel_llvm_probe}")
+  endif()
+endforeach()
+
 foreach(_stale_compdb_copy IN ITEMS
     [[cp $(@D)/b/compile_commands.json $(@D)/compile_commands.json]]
     [[copy /Y $(@D)\b\compile_commands.json $(@D)\compile_commands.json >NUL]])

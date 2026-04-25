@@ -1041,11 +1041,12 @@ function(gentest_find_clang_scan_deps out_program compiler_path)
   endif()
 
   list(APPEND _candidates
-    "clang-scan-deps"
+    "clang-scan-deps-23"
     "clang-scan-deps-22"
     "clang-scan-deps-21"
     "clang-scan-deps-20"
-    "clang-scan-deps-19")
+    "clang-scan-deps-19"
+    "clang-scan-deps")
 
   list(REMOVE_DUPLICATES _candidates)
   foreach(_candidate IN LISTS _candidates)

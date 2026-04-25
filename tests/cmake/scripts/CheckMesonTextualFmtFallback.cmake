@@ -22,19 +22,21 @@ endif()
 find_program(_pkg_config NAMES pkg-config pkgconf)
 
 set(_gentest_clang_search_paths
+  /usr/lib64/llvm23/bin
   /usr/lib64/llvm22/bin
   /usr/lib64/llvm21/bin
   /usr/lib64/llvm20/bin
+  /usr/lib/llvm-23/bin
   /usr/lib/llvm-22/bin
   /usr/lib/llvm-21/bin
   /usr/lib/llvm-20/bin
   /usr/bin
   /bin)
 
-find_program(_real_cc NAMES clang clang-22 clang-21 clang-20 gcc
+find_program(_real_cc NAMES clang-23 clang-22 clang-21 clang-20 clang-19 clang gcc
   PATHS ${_gentest_clang_search_paths}
   NO_DEFAULT_PATH)
-find_program(_real_cxx NAMES clang++ clang++-22 clang++-21 clang++-20 g++
+find_program(_real_cxx NAMES clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++ g++
   PATHS ${_gentest_clang_search_paths}
   NO_DEFAULT_PATH)
 if(NOT _real_cc)

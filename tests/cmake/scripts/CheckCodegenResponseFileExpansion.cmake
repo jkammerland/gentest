@@ -14,7 +14,7 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-find_program(_real_clang NAMES clang++-22 clang++-21 clang++-20 clang++ clang++.exe REQUIRED)
+find_program(_real_clang NAMES clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++ clang++.exe REQUIRED)
 file(TO_CMAKE_PATH "${_real_clang}" _real_clang_norm)
 
 set(_work_dir "${BUILD_ROOT}/codegen_response_file_expansion")

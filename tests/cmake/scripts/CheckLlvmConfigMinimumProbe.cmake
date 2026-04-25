@@ -13,9 +13,11 @@ file(REMOVE_RECURSE "${BUILD_ROOT}")
 file(MAKE_DIRECTORY
     "${BUILD_ROOT}/bin"
     "${BUILD_ROOT}/llvm18/lib/cmake/llvm"
+    "${BUILD_ROOT}/llvm23/lib/cmake/llvm"
     "${BUILD_ROOT}/llvm20/lib/cmake/llvm")
 
 file(WRITE "${BUILD_ROOT}/llvm18/lib/cmake/llvm/LLVMConfig.cmake" "# fake LLVM 18 config\n")
+file(WRITE "${BUILD_ROOT}/llvm23/lib/cmake/llvm/LLVMConfig.cmake" "# fake LLVM 23 config\n")
 file(WRITE "${BUILD_ROOT}/llvm20/lib/cmake/llvm/LLVMConfig.cmake" "# fake LLVM 20 config\n")
 
 file(WRITE "${BUILD_ROOT}/bin/llvm-config" [=[
@@ -34,15 +36,27 @@ case "$1" in
   *) exit 1 ;;
 esac
 ]=])
+file(WRITE "${BUILD_ROOT}/bin/llvm-config-23" [=[
+#!/bin/sh
+case "$1" in
+  --version) echo "23.1.0" ;;
+  --cmakedir) echo "@BUILD_ROOT@/llvm23/lib/cmake/llvm" ;;
+  *) exit 1 ;;
+esac
+]=])
 file(READ "${BUILD_ROOT}/bin/llvm-config" _llvm_config)
 file(READ "${BUILD_ROOT}/bin/llvm-config-20" _llvm_config_20)
+file(READ "${BUILD_ROOT}/bin/llvm-config-23" _llvm_config_23)
 string(REPLACE "@BUILD_ROOT@" "${BUILD_ROOT}" _llvm_config "${_llvm_config}")
 string(REPLACE "@BUILD_ROOT@" "${BUILD_ROOT}" _llvm_config_20 "${_llvm_config_20}")
+string(REPLACE "@BUILD_ROOT@" "${BUILD_ROOT}" _llvm_config_23 "${_llvm_config_23}")
 file(WRITE "${BUILD_ROOT}/bin/llvm-config" "${_llvm_config}")
 file(WRITE "${BUILD_ROOT}/bin/llvm-config-20" "${_llvm_config_20}")
+file(WRITE "${BUILD_ROOT}/bin/llvm-config-23" "${_llvm_config_23}")
 file(CHMOD
     "${BUILD_ROOT}/bin/llvm-config"
     "${BUILD_ROOT}/bin/llvm-config-20"
+    "${BUILD_ROOT}/bin/llvm-config-23"
     PERMISSIONS
         OWNER_READ OWNER_WRITE OWNER_EXECUTE
         GROUP_READ GROUP_EXECUTE
@@ -52,10 +66,18 @@ set(ENV{PATH} "${BUILD_ROOT}/bin")
 include("${SHIMS_MODULE}")
 
 gentest_seed_llvm_prefix_from_config()
+get_filename_component(_expected_prefix "${BUILD_ROOT}/llvm23/lib/cmake/llvm/../.." ABSOLUTE)
+if(NOT "${GENTEST_LLVM_DETECTED_PREFIX}" STREQUAL "${_expected_prefix}")
+    message(FATAL_ERROR
+        "Expected llvm-config-23 prefix '${_expected_prefix}', got '${GENTEST_LLVM_DETECTED_PREFIX}'")
+endif()
+
+file(REMOVE "${BUILD_ROOT}/bin/llvm-config-23")
+gentest_seed_llvm_prefix_from_config()
 get_filename_component(_expected_prefix "${BUILD_ROOT}/llvm20/lib/cmake/llvm/../.." ABSOLUTE)
 if(NOT "${GENTEST_LLVM_DETECTED_PREFIX}" STREQUAL "${_expected_prefix}")
     message(FATAL_ERROR
-        "Expected llvm-config-20 prefix '${_expected_prefix}', got '${GENTEST_LLVM_DETECTED_PREFIX}'")
+        "Expected llvm-config-20 fallback prefix '${_expected_prefix}', got '${GENTEST_LLVM_DETECTED_PREFIX}'")
 endif()
 
 file(REMOVE "${BUILD_ROOT}/bin/llvm-config-20")
