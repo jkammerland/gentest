@@ -272,6 +272,16 @@ gentest_add_cmake_script_test(
         "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
 set_property(TEST gentest_runner_registry_runtime_hidden APPEND PROPERTY LABELS "proof")
 
+gentest_add_cmake_script_test(
+    NAME gentest_vendored_indicators_compile
+    NO_EMULATOR
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckVendoredIndicatorsCompile.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/vendored_indicators_compile_check"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+
 # Lint-only checks for generator
 gentest_add_check_exit_code(
     NAME gentest_codegen_check_valid
