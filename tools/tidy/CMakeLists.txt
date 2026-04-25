@@ -49,6 +49,18 @@ gentest_prepare_llvm_package_imports()
 
 find_package(LLVM CONFIG QUIET)
 find_package(Clang CONFIG QUIET)
+gentest_get_llvm_package_major(_gentest_tidy_llvm_minimum_major LLVM)
+gentest_get_llvm_package_major(_gentest_tidy_clang_minimum_major Clang)
+if(NOT "${_gentest_tidy_llvm_minimum_major}" STREQUAL "" AND _gentest_tidy_llvm_minimum_major LESS 19)
+    message(STATUS "gentest_tidy: LLVM ${_gentest_tidy_llvm_minimum_major} is below the supported minimum; skipping plugin build")
+    return()
+endif()
+if(NOT "${_gentest_tidy_clang_minimum_major}" STREQUAL "" AND _gentest_tidy_clang_minimum_major LESS 19)
+    message(STATUS "gentest_tidy: Clang ${_gentest_tidy_clang_minimum_major} is below the supported minimum; skipping plugin build")
+    return()
+endif()
+unset(_gentest_tidy_llvm_minimum_major)
+unset(_gentest_tidy_clang_minimum_major)
 
 gentest_patch_llvm_missing_diaguids(
     LLVMDebugInfoPDB

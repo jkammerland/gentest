@@ -7,6 +7,8 @@ gentest_prepare_llvm_package_imports()
 
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
+gentest_require_llvm_package_minimum(LLVM 19)
+gentest_require_llvm_package_minimum(Clang 19)
 
 gentest_patch_llvm_missing_diaguids(LLVMDebugInfoPDB)
 
@@ -118,23 +120,6 @@ if(_gentest_use_libcxx AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(_gentest_use_libcxx FALSE)
 endif()
 
-if(_gentest_use_local_tinfo_shim AND UNIX)
-    set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
-    if(${PROJECT_NAME}_INSTALL)
-        if(APPLE)
-            list(APPEND _gentest_codegen_install_rpaths "@loader_path/../${CMAKE_INSTALL_LIBDIR}")
-        else()
-            list(APPEND _gentest_codegen_install_rpaths "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
-        endif()
-        list(REMOVE_DUPLICATES _gentest_codegen_install_rpaths)
-    endif()
-    if(NOT APPLE)
-        # Force the link editor to honor BUILD_RPATH ahead of the default search
-        # directories so the bundled libtinfo shim is chosen over any host copy.
-        target_link_options(gentest_codegen PRIVATE "-Wl,--disable-new-dtags")
-    endif()
-endif()
-
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
         AND NOT "${GENTEST_CODEGEN_DEFAULT_THREAD_STACK_SIZE}" STREQUAL ""
         AND NOT "${GENTEST_CODEGEN_DEFAULT_THREAD_STACK_SIZE}" STREQUAL "0")
@@ -182,20 +167,6 @@ endif()
 if(DEFINED _gentest_codegen_explicit_libcxx AND NOT "${_gentest_codegen_explicit_libcxx}" STREQUAL "")
     target_link_libraries(gentest_codegen_log_support INTERFACE "${_gentest_codegen_explicit_libcxx}")
     target_link_libraries(gentest_codegen_support INTERFACE "${_gentest_codegen_explicit_libcxx}")
-endif()
-
-if(UNIX AND NOT APPLE)
-    if(_gentest_use_local_tinfo_shim AND NOT TARGET gentest_tinfo_shim)
-        target_sources(gentest_codegen PRIVATE src/terminfo_shim.cpp)
-        find_library(_gentest_dl_lib dl)
-        if(_gentest_dl_lib)
-            target_link_libraries(gentest_codegen PRIVATE "${_gentest_dl_lib}")
-        else()
-            target_link_libraries(gentest_codegen PRIVATE dl)
-        endif()
-        unset(_gentest_dl_lib CACHE)
-        unset(_gentest_dl_lib)
-    endif()
 endif()
 
 set(_gentest_codegen_support_includes "")
@@ -250,9 +221,6 @@ if(TARGET clang-cpp)
     # Link it when the imported target exists; otherwise fall back to LLVMSupport.
     # Link the monolithic clang-cpp; avoid mixing in static LLVM components.
     target_link_libraries(gentest_codegen_support INTERFACE clang-cpp ${_gentest_fmt_target})
-    if(TARGET Terminfo::terminfo)
-        target_link_libraries(gentest_codegen_support INTERFACE Terminfo::terminfo)
-    endif()
     # If we discovered a monolithic libLLVM DSO, link it to satisfy LLVMSupport
     # RTTI/vtables required by our TU and by clang-cpp on some platforms.
     if(_gentest_llvm_dso)
@@ -326,10 +294,6 @@ endif()
 if(${PROJECT_NAME}_INSTALL)
     install(TARGETS gentest_codegen
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    if(TARGET gentest_tinfo_shim)
-        install(TARGETS gentest_tinfo_shim
-            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
-    endif()
 endif()
 
 unset(_gentest_llvm_support)

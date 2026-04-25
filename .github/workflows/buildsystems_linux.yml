@@ -126,7 +126,6 @@ jobs:
             gcc-c++ \
             make \
             ca-certificates \
-            ncurses-compat-libs \
             meson \
             xmake
           python3 -m pip install --upgrade pip cmake

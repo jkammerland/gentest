@@ -41,7 +41,7 @@ endfunction()
 
 macro(gentest_seed_llvm_prefix_from_config)
     set(_gentest_llvm_config_candidates llvm-config)
-    foreach(_v 22 21 20 19 18)
+    foreach(_v 22 21 20 19)
         list(APPEND _gentest_llvm_config_candidates "llvm-config-${_v}")
     endforeach()
     foreach(_cand IN LISTS _gentest_llvm_config_candidates)
@@ -61,165 +61,52 @@ macro(gentest_seed_llvm_prefix_from_config)
     unset(_gentest_llvm_config_candidates)
 endmacro()
 
-function(gentest_ensure_llvm_terminfo_target)
-    if(NOT DEFINED GENTEST_USE_SYSTEM_TERMINFO)
-        set(_gentest_use_system_terminfo_default OFF)
-        if(UNIX AND NOT APPLE AND DEFINED GENTEST_LLVM_DETECTED_PREFIX)
-            set(_gentest_llvm_probe_dirs
-                "${GENTEST_LLVM_DETECTED_PREFIX}"
-                "${GENTEST_LLVM_DETECTED_PREFIX}/lib"
-                "${GENTEST_LLVM_DETECTED_PREFIX}/lib64"
-                "${GENTEST_LLVM_DETECTED_PREFIX}/lib/x86_64-linux-gnu")
-            list(REMOVE_DUPLICATES _gentest_llvm_probe_dirs)
-
-            set(_gentest_llvm_probe_candidates "")
-            foreach(_dir IN LISTS _gentest_llvm_probe_dirs)
-                file(GLOB _gentest_found
-                    LIST_DIRECTORIES FALSE
-                    "${_dir}/libLLVM*.so*" "${_dir}/libLLVM-*.so*")
-                list(APPEND _gentest_llvm_probe_candidates ${_gentest_found})
-            endforeach()
-
-            if(_gentest_llvm_probe_candidates)
-                list(GET _gentest_llvm_probe_candidates 0 _gentest_llvm_probe)
-                find_program(_gentest_ldd ldd)
-                set(_gentest_needs_tinfo5 TRUE)
-                if(_gentest_ldd)
-                    execute_process(
-                        COMMAND ${_gentest_ldd} "${_gentest_llvm_probe}"
-                        RESULT_VARIABLE _gentest_ldd_rc
-                        OUTPUT_VARIABLE _gentest_ldd_out
-                        ERROR_VARIABLE _gentest_ldd_err
-                        OUTPUT_STRIP_TRAILING_WHITESPACE
-                        ERROR_STRIP_TRAILING_WHITESPACE)
-                    if(_gentest_ldd_rc EQUAL 0)
-                        if(NOT _gentest_ldd_out MATCHES "libtinfo\\.so\\.5")
-                            set(_gentest_needs_tinfo5 FALSE)
-                        endif()
-                    endif()
-                endif()
-                if(NOT _gentest_needs_tinfo5)
-                    set(_gentest_use_system_terminfo_default ON)
-                endif()
-            endif()
-        endif()
-
-        set(GENTEST_USE_SYSTEM_TERMINFO "${_gentest_use_system_terminfo_default}" CACHE BOOL
-            "Link against the host-provided Terminfo package instead of the bundled shim")
-    endif()
-
-    if(TARGET Terminfo::terminfo)
-        return()
-    endif()
-
-    set(_gentest_terminfo_links "")
-    set(_gentest_terminfo_includes "")
-    set(_gentest_use_local_tinfo_shim FALSE)
-    if(GENTEST_USE_SYSTEM_TERMINFO AND UNIX)
-        set(_gentest_terminfo_candidates)
-        set(_gentest_terminfo_search_dirs
-            /usr/lib64 /usr/lib /lib64 /lib
-            /usr/lib/x86_64-linux-gnu
-            /lib/x86_64-linux-gnu)
-        if(DEFINED GENTEST_LLVM_DETECTED_PREFIX)
-            list(APPEND _gentest_terminfo_search_dirs "${GENTEST_LLVM_DETECTED_PREFIX}/lib")
-        endif()
-        if(CMAKE_C_COMPILER)
-            get_filename_component(_gentest_cc_dir "${CMAKE_C_COMPILER}" DIRECTORY)
-            if(_gentest_cc_dir)
-                get_filename_component(_gentest_cc_root "${_gentest_cc_dir}/.." ABSOLUTE)
-                list(APPEND _gentest_terminfo_search_dirs "${_gentest_cc_root}/lib")
-            endif()
-        endif()
-        list(REMOVE_DUPLICATES _gentest_terminfo_search_dirs)
-
-        foreach(_gentest_dir IN LISTS _gentest_terminfo_search_dirs)
-            file(GLOB _gentest_found
-                LIST_DIRECTORIES FALSE
-                "${_gentest_dir}/libtinfo.so.6*" "${_gentest_dir}/libtinfo6.so*"
-                "${_gentest_dir}/libtinfo.so.5*" "${_gentest_dir}/libtinfo5.so*")
-            list(APPEND _gentest_terminfo_candidates ${_gentest_found})
-        endforeach()
-        if(_gentest_terminfo_candidates)
-            list(GET _gentest_terminfo_candidates 0 _gentest_best_terminfo)
-            list(APPEND _gentest_terminfo_links "${_gentest_best_terminfo}")
-        endif()
-    endif()
-    if(GENTEST_USE_SYSTEM_TERMINFO AND _gentest_terminfo_links STREQUAL "")
-        find_package(Terminfo QUIET)
-        if(Terminfo_FOUND AND Terminfo_LIBRARIES)
-            foreach(_gentest_candidate IN LISTS Terminfo_LIBRARIES)
-                if(_gentest_candidate MATCHES "libtinfo\\.so\\.5(\\..*)?$")
-                    list(APPEND _gentest_terminfo_links "${_gentest_candidate}")
-                endif()
-            endforeach()
-            if(_gentest_terminfo_links STREQUAL "" AND Terminfo_LIBRARIES)
-                list(APPEND _gentest_terminfo_links "${Terminfo_LIBRARIES}")
-            endif()
-            if(_gentest_terminfo_includes STREQUAL "" AND DEFINED Terminfo_INCLUDE_DIRS)
-                set(_gentest_terminfo_includes "${Terminfo_INCLUDE_DIRS}")
-            endif()
-        endif()
-    endif()
-    if(NOT GENTEST_USE_SYSTEM_TERMINFO)
-        if(UNIX)
-            set(_gentest_use_local_tinfo_shim TRUE)
-        endif()
-    elseif(_gentest_terminfo_links STREQUAL "" AND UNIX)
-        set(_gentest_use_local_tinfo_shim TRUE)
-    endif()
-
-    add_library(Terminfo::terminfo INTERFACE IMPORTED)
-    if(APPLE AND _gentest_use_local_tinfo_shim)
-        find_library(_gentest_ncurses_lib NAMES ncursesw ncurses curses)
-        if(_gentest_ncurses_lib)
-            list(APPEND _gentest_terminfo_links "${_gentest_ncurses_lib}")
-        else()
-            list(APPEND _gentest_terminfo_links "-lncurses")
-        endif()
-        set(_gentest_use_local_tinfo_shim FALSE)
-    endif()
-
-    if(_gentest_use_local_tinfo_shim AND UNIX)
-        add_library(gentest_tinfo_shim SHARED
-            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../tools/src/terminfo_shim.cpp")
-        target_compile_features(gentest_tinfo_shim PRIVATE cxx_std_20)
-        target_link_libraries(gentest_tinfo_shim PRIVATE dl)
-        set_target_properties(gentest_tinfo_shim PROPERTIES
-            OUTPUT_NAME tinfo
-            SOVERSION 5
-            VERSION 5
-            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-        target_link_options(gentest_tinfo_shim PRIVATE
-            "-Wl,--version-script=${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../tools/terminfo_shim.map")
-        list(APPEND _gentest_terminfo_links gentest_tinfo_shim)
-        set_property(TARGET gentest_tinfo_shim PROPERTY BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
-        set(GENTEST_TERMINFO_SHIM_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL
-            "Directory containing the Gentest Terminfo shim" FORCE)
-        set(GENTEST_USES_TERMINFO_SHIM ON CACHE INTERNAL
-            "Whether Gentest links against the bundled Terminfo shim" FORCE)
-    else()
-        set(GENTEST_TERMINFO_SHIM_DIR "" CACHE INTERNAL
-            "Directory containing the Gentest Terminfo shim" FORCE)
-        set(GENTEST_USES_TERMINFO_SHIM OFF CACHE INTERNAL
-            "Whether Gentest links against the bundled Terminfo shim" FORCE)
-    endif()
-    if(_gentest_terminfo_links)
-        set_target_properties(Terminfo::terminfo PROPERTIES
-            INTERFACE_LINK_LIBRARIES "${_gentest_terminfo_links}")
-    endif()
-    if(_gentest_terminfo_includes)
-        set_property(TARGET Terminfo::terminfo
-            PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_gentest_terminfo_includes}")
-    endif()
-endfunction()
-
 macro(gentest_prepare_llvm_package_imports)
     set(CMAKE_DISABLE_FIND_PACKAGE_LibEdit ON)
     gentest_seed_llvm_prefix_from_config()
     gentest_ensure_llvm_zstd_targets()
-    gentest_ensure_llvm_terminfo_target()
 endmacro()
+
+function(gentest_get_llvm_package_major out_var package_name)
+    set(_gentest_version "")
+    if(package_name STREQUAL "LLVM")
+        if(DEFINED LLVM_VERSION_MAJOR AND NOT "${LLVM_VERSION_MAJOR}" STREQUAL "")
+            set(_gentest_version "${LLVM_VERSION_MAJOR}")
+        elseif(DEFINED LLVM_PACKAGE_VERSION AND NOT "${LLVM_PACKAGE_VERSION}" STREQUAL "")
+            set(_gentest_version "${LLVM_PACKAGE_VERSION}")
+        elseif(DEFINED LLVM_DIR AND EXISTS "${LLVM_DIR}/LLVMConfigVersion.cmake")
+            file(STRINGS "${LLVM_DIR}/LLVMConfigVersion.cmake" _gentest_version_line REGEX "^set\\(PACKAGE_VERSION")
+            string(REGEX REPLACE ".*\"([0-9][^\"]*)\".*" "\\1" _gentest_version "${_gentest_version_line}")
+        endif()
+    elseif(package_name STREQUAL "Clang")
+        if(DEFINED CLANG_VERSION_MAJOR AND NOT "${CLANG_VERSION_MAJOR}" STREQUAL "")
+            set(_gentest_version "${CLANG_VERSION_MAJOR}")
+        elseif(DEFINED CLANG_PACKAGE_VERSION AND NOT "${CLANG_PACKAGE_VERSION}" STREQUAL "")
+            set(_gentest_version "${CLANG_PACKAGE_VERSION}")
+        elseif(DEFINED Clang_DIR AND EXISTS "${Clang_DIR}/ClangConfigVersion.cmake")
+            file(STRINGS "${Clang_DIR}/ClangConfigVersion.cmake" _gentest_version_line REGEX "^set\\(PACKAGE_VERSION")
+            string(REGEX REPLACE ".*\"([0-9][^\"]*)\".*" "\\1" _gentest_version "${_gentest_version_line}")
+        elseif(DEFINED LLVM_VERSION AND NOT "${LLVM_VERSION}" STREQUAL "")
+            set(_gentest_version "${LLVM_VERSION}")
+        endif()
+    endif()
+
+    set(_gentest_major "")
+    if(NOT "${_gentest_version}" STREQUAL "")
+        string(REGEX MATCH "^[0-9]+" _gentest_major "${_gentest_version}")
+    endif()
+    set(${out_var} "${_gentest_major}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_require_llvm_package_minimum package_name minimum_major)
+    gentest_get_llvm_package_major(_gentest_major "${package_name}")
+    if("${_gentest_major}" STREQUAL "")
+        message(FATAL_ERROR "gentest requires ${package_name} ${minimum_major}+ but could not determine the package version")
+    endif()
+    if(_gentest_major LESS minimum_major)
+        message(FATAL_ERROR "gentest requires ${package_name} ${minimum_major}+; found ${package_name} ${_gentest_major}")
+    endif()
+endfunction()
 
 function(gentest_patch_llvm_missing_diaguids)
     if(NOT WIN32)

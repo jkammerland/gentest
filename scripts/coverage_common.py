@@ -18,7 +18,6 @@ DEFAULT_POLICY = {
         "src/gentest_anchor.cpp",
         "tools/src/tooling_support.cpp",
         "src/runtime_context.cpp",
-        "tools/src/terminfo_shim.cpp",
     ],
     "no_exec": [],
     "fail_on": "missing_obj,missing_gcda,stamp_mismatch,no_match,gcov_error",

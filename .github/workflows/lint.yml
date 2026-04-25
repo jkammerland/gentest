@@ -72,8 +72,7 @@ jobs:
             gcc \
             gcc-c++ \
             make \
-            ca-certificates \
-            ncurses-compat-libs
+            ca-certificates
           python3 -m pip install --upgrade pip cmake
 
       - name: Checkout

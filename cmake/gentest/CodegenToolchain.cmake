@@ -110,15 +110,6 @@ endfunction()
 
 function(_gentest_make_codegen_command_launcher executable out_command)
     set(_gentest_command "${executable}")
-    if(GENTEST_USES_TERMINFO_SHIM AND UNIX AND NOT APPLE AND GENTEST_TERMINFO_SHIM_DIR)
-        set(_gentest_ld_library_path "${GENTEST_TERMINFO_SHIM_DIR}")
-        if(DEFINED ENV{LD_LIBRARY_PATH} AND NOT "$ENV{LD_LIBRARY_PATH}" STREQUAL "")
-            string(APPEND _gentest_ld_library_path ":$ENV{LD_LIBRARY_PATH}")
-        endif()
-        set(_gentest_command ${CMAKE_COMMAND} -E env
-            "LD_LIBRARY_PATH=${_gentest_ld_library_path}"
-            "${executable}")
-    endif()
     set(${out_command} "${_gentest_command}" PARENT_SCOPE)
 endfunction()
 

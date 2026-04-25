@@ -61,8 +61,7 @@ jobs:
             gcc \
             gcc-c++ \
             make \
-            ca-certificates \
-            ncurses-compat-libs
+            ca-certificates
           python3 -m pip install --upgrade pip cmake ninja gcovr==8.6
           python3 - <<'PY' >> "$GITHUB_PATH"
           import sysconfig

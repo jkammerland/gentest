@@ -9,7 +9,6 @@ intentional = [
   "src/gentest_anchor.cpp",
   "tools/src/tooling_support.cpp",
   "src/runtime_context.cpp",
-  "tools/src/terminfo_shim.cpp",
 ]
 
 no_exec = []
