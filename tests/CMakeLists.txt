@@ -55,6 +55,9 @@ gentest_link_mocks(${PROJECT_NAME}_concurrency_tests PRIVATE gentest_textual_sui
 # Outcome semantics target (no default add_test; contains deliberate FAIL/XPASS cases)
 gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
 
+# Coroutine async target (no default add_test; contains deliberate BLOCKED cases)
+gentest_add_suite(async TARGET ${PROJECT_NAME}_async_tests NO_CTEST)
+
 # Benchmark-only target: collect all suite translation units into one target so
 # gentest_codegen sees many wrapper sources in a single invocation (useful for
 # profiling/benchmarking internal codegen parallelism).
@@ -69,7 +72,8 @@ gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
 set(_gentest_codegen_parallel_bench_suites
     ${_gentest_default_suites}
     concurrency
-    outcomes)
+    outcomes
+    async)
 if(GENTEST_WITH_LIBASSERT)
     list(APPEND _gentest_codegen_parallel_bench_suites libassert)
 endif()
@@ -167,6 +171,58 @@ unset(_gentest_fields)
 unset(_gentest_name)
 unset(_gentest_required_substring)
 unset(_gentest_run)
+
+gentest_add_check_counts(
+    NAME async_batch_cooperative
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/batch/*)
+
+gentest_add_check_counts(
+    NAME async_value_discard
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=async/value/discard)
+
+gentest_add_check_counts(
+    NAME async_local_fixture
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=async/fixture/local_async)
+
+gentest_add_check_counts(
+    NAME async_mixed_fixtures
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=async/fixture/mixed)
+
+gentest_add_check_counts(
+    NAME async_blocked_status
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 0
+    SKIP 0
+    BLOCKED 1
+    EXPECT_RC 1
+    ARGS --run=async/blocked/never)
+
+gentest_add_check_counts(
+    NAME async_selected_dependency_blocked
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 0
+    SKIP 0
+    BLOCKED 1
+    EXPECT_RC 1
+    ARGS --run=async/batch/client)
 
 option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)

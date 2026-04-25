@@ -9,6 +9,7 @@ if(GENTEST_RUNTIME_SHARED)
 endif()
 
 add_library(gentest_runtime ${_gentest_runtime_libtype}
+    ${PROJECT_SOURCE_DIR}/src/async.cpp
     ${PROJECT_SOURCE_DIR}/src/bench_stats.cpp
     ${PROJECT_SOURCE_DIR}/src/context_api.cpp
     ${PROJECT_SOURCE_DIR}/src/runtime_context.cpp

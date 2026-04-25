@@ -13,10 +13,10 @@ struct TestCounters {
     std::size_t total    = 0;
     std::size_t passed   = 0;
     std::size_t skipped  = 0;
+    std::size_t blocked  = 0;
     std::size_t xfail    = 0;
     std::size_t xpass    = 0;
     std::size_t failed   = 0;
-    std::size_t blocked  = 0;
     int         failures = 0;
 };
 
