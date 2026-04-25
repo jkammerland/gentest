@@ -227,9 +227,10 @@ bool is_async_execution_lambda(const LambdaExpr &lambda, ASTContext &context) {
     return false;
 }
 
-bool is_set_current_token_call(const CallExpr &call) {
+bool is_current_context_adoption_call(const CallExpr &call) {
     const FunctionDecl *callee = call.getDirectCallee();
-    return callee && qualified_name_is(*callee, "gentest::set_current_token");
+    return callee &&
+           (qualified_name_is(*callee, "gentest::set_current_context") || qualified_name_is(*callee, "gentest::set_current_token"));
 }
 
 bool is_gentest_adoption_type(QualType type) {
@@ -363,10 +364,10 @@ const Stmt *declaration_lifetime_owner(const VarDecl &var, ASTContext &context) 
     return nullptr;
 }
 
-class SetCurrentTokenCallFinder : public RecursiveASTVisitor<SetCurrentTokenCallFinder> {
+class SetCurrentContextCallFinder : public RecursiveASTVisitor<SetCurrentContextCallFinder> {
   public:
     bool VisitCallExpr(CallExpr *call) {
-        if (call && is_set_current_token_call(*call)) {
+        if (call && is_current_context_adoption_call(*call)) {
             found_ = true;
             return false;
         }
@@ -379,7 +380,7 @@ class SetCurrentTokenCallFinder : public RecursiveASTVisitor<SetCurrentTokenCall
     bool found_ = false;
 };
 
-bool initializes_adoption_from_current_token(const VarDecl &var) {
+bool initializes_adoption_from_current_context(const VarDecl &var) {
     if (!is_gentest_adoption_type(var.getType())) {
         return false;
     }
@@ -387,15 +388,15 @@ bool initializes_adoption_from_current_token(const VarDecl &var) {
     if (!init) {
         return false;
     }
-    SetCurrentTokenCallFinder finder;
+    SetCurrentContextCallFinder finder;
     finder.TraverseStmt(const_cast<Expr *>(init));
     return finder.found();
 }
 
-class ActiveTokenAdoptionVisitor : public RecursiveASTVisitor<ActiveTokenAdoptionVisitor> {
+class ActiveContextAdoptionVisitor : public RecursiveASTVisitor<ActiveContextAdoptionVisitor> {
   public:
-    ActiveTokenAdoptionVisitor(ASTContext &context, const CallExpr &target, SourceLocation before,
-                               bool require_adoption_after_latest_suspend)
+    ActiveContextAdoptionVisitor(ASTContext &context, const CallExpr &target, SourceLocation before,
+                                 bool require_adoption_after_latest_suspend)
         : context_(context), target_(target), before_(before),
           require_adoption_after_latest_suspend_(require_adoption_after_latest_suspend) {}
 
@@ -411,7 +412,7 @@ class ActiveTokenAdoptionVisitor : public RecursiveASTVisitor<ActiveTokenAdoptio
 
         for (Decl *decl : decl_stmt->decls()) {
             const auto *var = dyn_cast_or_null<VarDecl>(decl);
-            if (!var || !initializes_adoption_from_current_token(*var)) {
+            if (!var || !initializes_adoption_from_current_context(*var)) {
                 continue;
             }
             SourceLocation decl_loc = context_.getSourceManager().getExpansionLoc(var->getBeginLoc());
@@ -480,9 +481,9 @@ class ActiveTokenAdoptionVisitor : public RecursiveASTVisitor<ActiveTokenAdoptio
     SourceLocation  latest_suspend_{};
 };
 
-bool has_prior_token_adoption(const Stmt &body, const CallExpr &target, SourceLocation before, ASTContext &context,
-                              bool require_adoption_after_latest_suspend) {
-    ActiveTokenAdoptionVisitor visitor(context, target, before, require_adoption_after_latest_suspend);
+bool has_prior_context_adoption(const Stmt &body, const CallExpr &target, SourceLocation before, ASTContext &context,
+                                bool require_adoption_after_latest_suspend) {
+    ActiveContextAdoptionVisitor visitor(context, target, before, require_adoption_after_latest_suspend);
     visitor.TraverseStmt(const_cast<Stmt *>(&body));
     return visitor.found();
 }
@@ -592,9 +593,10 @@ class GentestAttributesCheck : public clang::tidy::ClangTidyCheck {
     }
 };
 
-class GentestTokenAdoptionCheck : public clang::tidy::ClangTidyCheck {
+class GentestContextAdoptionCheck : public clang::tidy::ClangTidyCheck {
   public:
-    GentestTokenAdoptionCheck(llvm::StringRef Name, clang::tidy::ClangTidyContext *Context) : clang::tidy::ClangTidyCheck(Name, Context) {}
+    GentestContextAdoptionCheck(llvm::StringRef Name, clang::tidy::ClangTidyContext *Context)
+        : clang::tidy::ClangTidyCheck(Name, Context) {}
 
     void registerMatchers(MatchFinder *Finder) override {
         Finder->addMatcher(callExpr(callee(functionDecl())).bind("gentest-runtime-call"), this);
@@ -617,13 +619,13 @@ class GentestTokenAdoptionCheck : public clang::tidy::ClangTidyCheck {
         if (!risky_context || !risky_context->body) {
             return;
         }
-        if (has_prior_token_adoption(*risky_context->body, *runtime_call, call_loc, *context,
-                                     risky_context->require_adoption_after_latest_suspend)) {
+        if (has_prior_context_adoption(*risky_context->body, *runtime_call, call_loc, *context,
+                                       risky_context->require_adoption_after_latest_suspend)) {
             return;
         }
 
-        diag(call_loc, "gentest runtime call %0 in %1 may run without an active current token; keep the gentest::Adoption returned by "
-                       "gentest::set_current_token() alive in this scope")
+        diag(call_loc, "gentest runtime call %0 in %1 may run without an active current context; keep the gentest::Adoption returned by "
+                       "gentest::set_current_context() alive in this scope")
             << gentest_runtime_call_name(*runtime_call) << risky_context->kind;
     }
 };
@@ -632,7 +634,8 @@ class GentestTidyModule : public clang::tidy::ClangTidyModule {
   public:
     void addCheckFactories(clang::tidy::ClangTidyCheckFactories &Factories) override {
         Factories.registerCheck<GentestAttributesCheck>("gentest-attributes");
-        Factories.registerCheck<GentestTokenAdoptionCheck>("gentest-token-adoption");
+        Factories.registerCheck<GentestContextAdoptionCheck>("gentest-context-adoption");
+        Factories.registerCheck<GentestContextAdoptionCheck>("gentest-token-adoption");
     }
 };
 

@@ -473,10 +473,10 @@ void concurrency_adopted_ordered_dispatch() {
     });
     EXPECT_CALL(mock_calc, compute).times(1).with(1, 1).returns(22);
 
-    auto        tok   = gentest::get_current_token();
-    Calculator *iface = &mock_calc;
+    auto        context = gentest::get_current_context();
+    Calculator *iface   = &mock_calc;
     std::thread t1([&] {
-        auto guard = gentest::set_current_token(tok);
+        auto guard = gentest::set_current_context(context);
         results[0] = iface->compute(1, 1);
     });
 
@@ -486,7 +486,7 @@ void concurrency_adopted_ordered_dispatch() {
     }
 
     std::thread t2([&] {
-        auto guard = gentest::set_current_token(tok);
+        auto guard = gentest::set_current_context(context);
         results[1] = iface->compute(1, 1);
         {
             std::lock_guard<std::mutex> lk(gate_mtx);
@@ -534,10 +534,10 @@ void concurrency_late_mutation_ignored_after_runtime_start() {
     auto second = EXPECT_CALL(mock_calc, compute);
     second.times(1).with(1, 1).returns(22);
 
-    auto        tok   = gentest::get_current_token();
-    Calculator *iface = &mock_calc;
+    auto        context = gentest::get_current_context();
+    Calculator *iface   = &mock_calc;
     std::thread t1([&] {
-        auto guard = gentest::set_current_token(tok);
+        auto guard = gentest::set_current_context(context);
         results[0] = iface->compute(1, 1);
     });
 
@@ -549,7 +549,7 @@ void concurrency_late_mutation_ignored_after_runtime_start() {
     second.returns(99);
 
     std::thread t2([&] {
-        auto guard = gentest::set_current_token(tok);
+        auto guard = gentest::set_current_context(context);
         results[1] = iface->compute(1, 1);
     });
 

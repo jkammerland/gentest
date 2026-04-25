@@ -8,18 +8,22 @@
 
 namespace gentest {
 
-auto get_current_token() -> CurrentToken { return detail::current_test(); }
+auto get_current_context() -> CurrentContext { return detail::current_test(); }
 
-auto set_current_token(CurrentToken token) -> Adoption { return Adoption(std::move(token)); }
+auto set_current_context(CurrentContext context) -> Adoption { return Adoption(std::move(context)); }
 
-Adoption::Adoption(CurrentToken token) : previous_(get_current_token()), adopted_(std::move(token)) {
+auto get_current_token() -> CurrentToken { return get_current_context(); }
+
+auto set_current_token(CurrentToken context) -> Adoption { return set_current_context(std::move(context)); }
+
+Adoption::Adoption(CurrentContext context) : previous_(get_current_context()), adopted_(std::move(context)) {
     if (adopted_) {
-        adopted_->adopted_tokens.fetch_add(1, std::memory_order_acq_rel);
+        adopted_->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
     }
     try {
         detail::set_current_test(adopted_);
     } catch (...) {
-        if (adopted_ && adopted_->adopted_tokens.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        if (adopted_ && adopted_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
             adopted_->adopted_cv.notify_all();
         }
         throw;
@@ -28,7 +32,7 @@ Adoption::Adoption(CurrentToken token) : previous_(get_current_token()), adopted
 
 Adoption::~Adoption() {
     detail::set_current_test(std::move(previous_));
-    if (adopted_ && adopted_->adopted_tokens.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    if (adopted_ && adopted_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
         adopted_->adopted_cv.notify_all();
     }
 }
@@ -97,7 +101,7 @@ void xfail(std::string_view reason, const std::source_location &loc) {
     auto ctx = detail::current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
         (void)std::fputs("gentest: fatal: xfail called without an active test context.\n"
-                         "        Did you forget to set the current token in this thread/coroutine?\n",
+                         "        Did you forget to set the current context in this thread/coroutine?\n",
                          stderr);
         std::abort();
     }

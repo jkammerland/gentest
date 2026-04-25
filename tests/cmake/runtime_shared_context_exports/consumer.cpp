@@ -2,8 +2,8 @@
 #include "gentest/detail/fixture_runtime.h"
 
 int main() {
-    auto  tok                      = gentest::get_current_token();
-    auto  guard                    = gentest::set_current_token(tok);
+    auto  context                  = gentest::get_current_context();
+    auto  guard                    = gentest::set_current_context(context);
     auto *setup_shared_fixtures    = &gentest::detail::setup_shared_fixtures;
     auto *teardown_shared_fixtures = &gentest::detail::teardown_shared_fixtures;
     (void)setup_shared_fixtures;

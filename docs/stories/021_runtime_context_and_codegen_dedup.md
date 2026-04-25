@@ -51,7 +51,7 @@ Pattern today:
 3. mark active
 4. install current context
 5. run body
-6. wait for adopted tokens
+6. wait for adopted contexts
 7. flush thread-local buffers
 8. deactivate context
 9. clear or restore current context
