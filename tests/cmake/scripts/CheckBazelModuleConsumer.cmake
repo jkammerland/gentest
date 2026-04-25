@@ -203,7 +203,7 @@ if(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
       "CXX_COMPILER points to a missing clang++ executable for the Bazel module consumer smoke check.\n"
       "CXX_COMPILER: ${CXX_COMPILER}")
   endif()
-  _gentest_resolve_non_ccache_clang("${CXX_COMPILER}" _configured_cxx clang++-22 clang++-21 clang++-20 clang++)
+  _gentest_resolve_non_ccache_clang("${CXX_COMPILER}" _configured_cxx clang++-22 clang++-21 clang++-20 clang++-19 clang++)
   execute_process(
     COMMAND "${_configured_cxx}" -print-resource-dir
     RESULT_VARIABLE _configured_resource_rc
@@ -223,7 +223,7 @@ if(_codegen_host_clang STREQUAL "" AND NOT "$ENV{GENTEST_CODEGEN_HOST_CLANG}" ST
       "GENTEST_CODEGEN_HOST_CLANG points to a missing clang++ executable for the Bazel module consumer smoke check.\n"
       "GENTEST_CODEGEN_HOST_CLANG: ${_codegen_host_clang}")
   endif()
-  _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-22 clang++-21 clang++-20 clang++)
+  _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 endif()
 if(_codegen_host_clang STREQUAL "")
   if(NOT "$ENV{LLVM_BIN}" STREQUAL "" AND EXISTS "$ENV{LLVM_BIN}/clang++")
@@ -231,18 +231,18 @@ if(_codegen_host_clang STREQUAL "")
   endif()
 endif()
 if(_codegen_host_clang STREQUAL "" OR NOT EXISTS "${_codegen_host_clang}")
-  find_program(_codegen_host_clang NAMES clang++-22 clang++-21 clang++-20 clang++
+  find_program(_codegen_host_clang NAMES clang++-22 clang++-21 clang++-20 clang++-19 clang++
     PATHS ${_gentest_clang_search_paths}
     NO_DEFAULT_PATH)
 endif()
 if(NOT _codegen_host_clang)
-  find_program(_codegen_host_clang NAMES clang++-22 clang++-21 clang++-20 clang++)
+  find_program(_codegen_host_clang NAMES clang++-22 clang++-21 clang++-20 clang++-19 clang++)
   if(NOT _codegen_host_clang)
     message(STATUS "clang++ not found; skipping Bazel module consumer smoke check.")
     return()
   endif()
 endif()
-_gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-22 clang++-21 clang++-20 clang++)
+_gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 set(_clang_cxx "${_codegen_host_clang}")
 get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
 

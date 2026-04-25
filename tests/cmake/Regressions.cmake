@@ -231,6 +231,15 @@ gentest_add_cmake_script_test(
         "BUILD_ROOT=${CMAKE_BINARY_DIR}/regression_module_artifact_manifest_asserts_exact_generated_paths"
         "MODULE_ASSERTIONS=${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/ModuleArtifactManifestAssertions.cmake")
 
+gentest_add_cmake_script_test(
+    NAME regression_llvm_config_probe_ignores_unsupported_unversioned
+    NO_EMULATOR
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckLlvmConfigMinimumProbe.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/regression_llvm_config_probe_ignores_unsupported_unversioned"
+        "SHIMS_MODULE=${PROJECT_SOURCE_DIR}/cmake/GentestLlvmDependencyShims.cmake")
+
 gentest_add_check_death(
     NAME regression_bench_assert_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>

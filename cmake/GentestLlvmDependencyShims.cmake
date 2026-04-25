@@ -40,11 +40,28 @@ function(gentest_ensure_llvm_zstd_targets)
 endfunction()
 
 macro(gentest_seed_llvm_prefix_from_config)
-    set(_gentest_llvm_config_candidates llvm-config)
+    unset(GENTEST_LLVM_DETECTED_PREFIX)
+    unset(GENTEST_LLVM_DETECTED_PREFIX CACHE)
+    set(_gentest_llvm_config_candidates)
     foreach(_v 22 21 20 19)
         list(APPEND _gentest_llvm_config_candidates "llvm-config-${_v}")
     endforeach()
+    list(APPEND _gentest_llvm_config_candidates llvm-config)
     foreach(_cand IN LISTS _gentest_llvm_config_candidates)
+        execute_process(
+            COMMAND ${_cand} --version
+            RESULT_VARIABLE _gentest_llvm_config_version_rc
+            OUTPUT_VARIABLE _gentest_llvm_config_version
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+        if(NOT _gentest_llvm_config_version_rc EQUAL 0)
+            continue()
+        endif()
+        string(REGEX MATCH "^[0-9]+" _gentest_llvm_config_major "${_gentest_llvm_config_version}")
+        if("${_gentest_llvm_config_major}" STREQUAL "" OR _gentest_llvm_config_major LESS 19)
+            continue()
+        endif()
+
         execute_process(
             COMMAND ${_cand} --cmakedir
             OUTPUT_VARIABLE _gentest_llvm_cmakedir
@@ -59,6 +76,9 @@ macro(gentest_seed_llvm_prefix_from_config)
         endif()
     endforeach()
     unset(_gentest_llvm_config_candidates)
+    unset(_gentest_llvm_config_version_rc)
+    unset(_gentest_llvm_config_version)
+    unset(_gentest_llvm_config_major)
 endmacro()
 
 macro(gentest_prepare_llvm_package_imports)

@@ -1,0 +1,67 @@
+if(NOT UNIX)
+    message(STATUS "llvm-config probe regression is Unix-only")
+    return()
+endif()
+
+foreach(_required IN ITEMS BUILD_ROOT SHIMS_MODULE)
+    if(NOT DEFINED ${_required} OR "${${_required}}" STREQUAL "")
+        message(FATAL_ERROR "${_required} is required")
+    endif()
+endforeach()
+
+file(REMOVE_RECURSE "${BUILD_ROOT}")
+file(MAKE_DIRECTORY
+    "${BUILD_ROOT}/bin"
+    "${BUILD_ROOT}/llvm18/lib/cmake/llvm"
+    "${BUILD_ROOT}/llvm20/lib/cmake/llvm")
+
+file(WRITE "${BUILD_ROOT}/llvm18/lib/cmake/llvm/LLVMConfig.cmake" "# fake LLVM 18 config\n")
+file(WRITE "${BUILD_ROOT}/llvm20/lib/cmake/llvm/LLVMConfig.cmake" "# fake LLVM 20 config\n")
+
+file(WRITE "${BUILD_ROOT}/bin/llvm-config" [=[
+#!/bin/sh
+case "$1" in
+  --version) echo "18.1.8" ;;
+  --cmakedir) echo "@BUILD_ROOT@/llvm18/lib/cmake/llvm" ;;
+  *) exit 1 ;;
+esac
+]=])
+file(WRITE "${BUILD_ROOT}/bin/llvm-config-20" [=[
+#!/bin/sh
+case "$1" in
+  --version) echo "20.1.8" ;;
+  --cmakedir) echo "@BUILD_ROOT@/llvm20/lib/cmake/llvm" ;;
+  *) exit 1 ;;
+esac
+]=])
+file(READ "${BUILD_ROOT}/bin/llvm-config" _llvm_config)
+file(READ "${BUILD_ROOT}/bin/llvm-config-20" _llvm_config_20)
+string(REPLACE "@BUILD_ROOT@" "${BUILD_ROOT}" _llvm_config "${_llvm_config}")
+string(REPLACE "@BUILD_ROOT@" "${BUILD_ROOT}" _llvm_config_20 "${_llvm_config_20}")
+file(WRITE "${BUILD_ROOT}/bin/llvm-config" "${_llvm_config}")
+file(WRITE "${BUILD_ROOT}/bin/llvm-config-20" "${_llvm_config_20}")
+file(CHMOD
+    "${BUILD_ROOT}/bin/llvm-config"
+    "${BUILD_ROOT}/bin/llvm-config-20"
+    PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE)
+
+set(ENV{PATH} "${BUILD_ROOT}/bin")
+include("${SHIMS_MODULE}")
+
+gentest_seed_llvm_prefix_from_config()
+get_filename_component(_expected_prefix "${BUILD_ROOT}/llvm20/lib/cmake/llvm/../.." ABSOLUTE)
+if(NOT "${GENTEST_LLVM_DETECTED_PREFIX}" STREQUAL "${_expected_prefix}")
+    message(FATAL_ERROR
+        "Expected llvm-config-20 prefix '${_expected_prefix}', got '${GENTEST_LLVM_DETECTED_PREFIX}'")
+endif()
+
+file(REMOVE "${BUILD_ROOT}/bin/llvm-config-20")
+set(GENTEST_LLVM_DETECTED_PREFIX "stale-prefix" CACHE INTERNAL "" FORCE)
+gentest_seed_llvm_prefix_from_config()
+if(DEFINED GENTEST_LLVM_DETECTED_PREFIX)
+    message(FATAL_ERROR
+        "Unsupported unversioned llvm-config should not leave a detected prefix; got '${GENTEST_LLVM_DETECTED_PREFIX}'")
+endif()
