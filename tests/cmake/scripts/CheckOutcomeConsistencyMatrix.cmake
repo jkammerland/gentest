@@ -142,7 +142,7 @@ run_matrix_case(
   infra_skip_measured
   "${PROG_INFRA_MEASURED}"
   1
-  "Summary: passed 0/1; failed 1; skipped 0; blocked 0; xfail 0; xpass 0."
-  "tests=\"1\" failures=\"1\" skipped=\"0\" errors=\"0\""
+  "Summary: passed 0/1; failed 0; skipped 0; blocked 1; xfail 0; xpass 0."
+  "tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\""
   --run=regressions/member_shared_setup_skip_measured/bench_member
   --kind=bench)

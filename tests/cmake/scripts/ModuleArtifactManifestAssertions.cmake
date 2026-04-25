@@ -54,6 +54,26 @@ function(gentest_expect_module_artifact_manifest manifest expected_module expect
     message(FATAL_ERROR
       "Manifest module artifact must declare a generated registration header.\n${_manifest_json}")
   endif()
+  set(_expected_artifact_include_dir "${_source_registration}")
+  if(_expected_artifact_include_dir MATCHES "/")
+    string(REGEX REPLACE "/[^/]*$" "" _expected_artifact_include_dir "${_expected_artifact_include_dir}")
+  else()
+    set(_expected_artifact_include_dir ".")
+  endif()
+  set(_expected_artifact_header "${_source_registration}")
+  string(REGEX REPLACE "\\.registration\\.gentest\\.cpp$" ".gentest.h" _expected_artifact_header "${_expected_artifact_header}")
+  if(_expected_artifact_header STREQUAL _source_registration)
+    message(FATAL_ERROR
+      "Manifest registration output must use the .registration.gentest.cpp suffix.\n${_manifest_json}")
+  endif()
+  if(NOT _artifact_include_dir STREQUAL _expected_artifact_include_dir)
+    message(FATAL_ERROR
+      "Manifest generated include directory mismatch: expected '${_expected_artifact_include_dir}', got '${_artifact_include_dir}'.\n${_manifest_json}")
+  endif()
+  if(NOT _artifact_header STREQUAL _expected_artifact_header)
+    message(FATAL_ERROR
+      "Manifest generated header mismatch: expected '${_expected_artifact_header}', got '${_artifact_header}'.\n${_manifest_json}")
+  endif()
   if(_artifact_depfile MATCHES "-NOTFOUND$")
     message(FATAL_ERROR
       "Manifest module artifact must declare a depfile field, even when empty.\n${_manifest_json}")

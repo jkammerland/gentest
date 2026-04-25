@@ -124,7 +124,7 @@ like:
       "compile_context_id": "my_tests:tests/cases.cppm",
       "requires_module_scan": true,
       "generated_include_dirs": ["build/gentest"],
-      "generated_headers": [],
+      "generated_headers": ["build/gentest/tu_0000_cases.gentest.h"],
       "depfile": "build/gentest/my_tests.gentest.d"
     }
   ]

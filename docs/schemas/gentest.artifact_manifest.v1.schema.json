@@ -95,10 +95,14 @@
               "replaces_owner_source": { "const": true },
               "generated_include_dirs": {
                 "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
                 "items": { "type": "string" }
               },
               "generated_headers": {
                 "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
                 "items": { "type": "string" }
               },
               "depfile": { "type": "string" }
@@ -131,10 +135,14 @@
               "requires_module_scan": { "const": true },
               "generated_include_dirs": {
                 "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
                 "items": { "type": "string" }
               },
               "generated_headers": {
                 "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
                 "items": { "type": "string" }
               },
               "depfile": { "type": "string" }

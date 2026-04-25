@@ -205,29 +205,6 @@ enum class SharedFixtureAllocationMode {
 
 template <typename Fixture, SharedFixtureAllocationMode Mode>
 inline std::shared_ptr<void> shared_fixture_create_impl(std::string_view suite, std::string &error) {
-#if GENTEST_EXCEPTIONS_ENABLED
-    try {
-        auto       handle = FixtureHandle<Fixture>::empty();
-        const bool ok     = [&] {
-            if constexpr (Mode == SharedFixtureAllocationMode::Global && kHasGentestAllocate<Fixture>) {
-                return handle.init();
-            } else {
-                return handle.init(suite);
-            }
-        }();
-        if (!ok) {
-            error = "returned null";
-            return {};
-        }
-        return handle.shared();
-    } catch (const std::exception &e) {
-        error = std::string("std::exception: ") + e.what();
-        return {};
-    } catch (...) {
-        error = "unknown exception";
-        return {};
-    }
-#else
     auto       handle = FixtureHandle<Fixture>::empty();
     const bool ok     = [&] {
         if constexpr (Mode == SharedFixtureAllocationMode::Global && kHasGentestAllocate<Fixture>) {
@@ -241,7 +218,6 @@ inline std::shared_ptr<void> shared_fixture_create_impl(std::string_view suite, 
         return {};
     }
     return handle.shared();
-#endif
 }
 
 template <typename Fixture> inline std::shared_ptr<void> shared_fixture_create_suite(std::string_view suite, std::string &error) {
@@ -258,15 +234,7 @@ template <typename Fixture> inline void shared_fixture_setup(void *instance, std
             error = "instance missing";
             return;
         }
-#if GENTEST_EXCEPTIONS_ENABLED
-        try {
-            static_cast<Fixture *>(instance)->setUp();
-        } catch (const gentest::assertion &e) { error = e.message(); } catch (const std::exception &e) {
-            error = std::string("std::exception: ") + e.what();
-        } catch (...) { error = "unknown exception"; }
-#else
         static_cast<Fixture *>(instance)->setUp();
-#endif
     }
 }
 
@@ -276,15 +244,7 @@ template <typename Fixture> inline void shared_fixture_teardown(void *instance, 
             error = "instance missing";
             return;
         }
-#if GENTEST_EXCEPTIONS_ENABLED
-        try {
-            static_cast<Fixture *>(instance)->tearDown();
-        } catch (const gentest::assertion &e) { error = e.message(); } catch (const std::exception &e) {
-            error = std::string("std::exception: ") + e.what();
-        } catch (...) { error = "unknown exception"; }
-#else
         static_cast<Fixture *>(instance)->tearDown();
-#endif
     }
 }
 

@@ -204,6 +204,33 @@ foreach(_gentest_noexc_target
             GENTEST_EXPECT_NO_EXCEPTIONS=1)
 endforeach()
 
+gentest_add_cmake_script_test(
+    NAME regression_artifact_manifest_schema_matches_validator_contract
+    NO_EMULATOR
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckArtifactManifestSchemaContract.cmake"
+    DEFINES
+        "SCHEMA=${PROJECT_SOURCE_DIR}/docs/schemas/gentest.artifact_manifest.v1.schema.json"
+        "STORY=${PROJECT_SOURCE_DIR}/docs/stories/034_codegen_owned_artifact_manifest_and_module_registration.md")
+
+gentest_add_cmake_script_test(
+    NAME regression_check_death_required_substrings_literal_semicolon
+    NO_EMULATOR
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckDeathLiteralSemicolonRegression.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/regression_check_death_required_substrings_literal_semicolon"
+        "GENTEST_TESTS_MODULE=${PROJECT_SOURCE_DIR}/cmake/GentestTests.cmake")
+
+gentest_add_cmake_script_test(
+    NAME regression_module_artifact_manifest_asserts_exact_generated_paths
+    NO_EMULATOR
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckModuleArtifactManifestAssertionExactPaths.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/regression_module_artifact_manifest_asserts_exact_generated_paths"
+        "MODULE_ASSERTIONS=${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/ModuleArtifactManifestAssertions.cmake")
+
 gentest_add_check_death(
     NAME regression_bench_assert_failure_propagates
     PROG $<TARGET_FILE:gentest_regression_bench_assert>
@@ -1407,6 +1434,38 @@ gentest_add_run_and_check_file(
     EXPECT_RC 1
     ARGS --run=regressions/manual_free_blocked/setup_assert --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_manual_free_setup_assert.xml)
 
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_manual_free_blocked_create_skip_junit_preserves_reason
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_free_blocked>
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_manual_free_create_skip_reason.xml
+    REQUIRED_SUBSTRING "manual-free-create-skip"
+    EXPECT_RC 1
+    ARGS --run=regressions/manual_free_blocked/create_skip --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_manual_free_create_skip_reason.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_manual_free_blocked_setup_skip_junit_preserves_reason
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_free_blocked>
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_manual_free_setup_skip_reason.xml
+    REQUIRED_SUBSTRING "manual-free-setup-skip"
+    EXPECT_RC 1
+    ARGS --run=regressions/manual_free_blocked/setup_skip --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_manual_free_setup_skip_reason.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_manual_free_blocked_create_assert_junit_preserves_reason
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_free_blocked>
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_manual_free_create_assert_reason.xml
+    REQUIRED_SUBSTRING "manual-free-create-assert"
+    EXPECT_RC 1
+    ARGS --run=regressions/manual_free_blocked/create_assert --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_manual_free_create_assert_reason.xml)
+
+gentest_add_run_and_check_file(
+    NAME regression_shared_fixture_manual_free_blocked_setup_assert_junit_preserves_reason
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_free_blocked>
+    FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_manual_free_setup_assert_reason.xml
+    REQUIRED_SUBSTRING "manual-free-setup-assert"
+    EXPECT_RC 1
+    ARGS --run=regressions/manual_free_blocked/setup_assert --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_manual_free_setup_assert_reason.xml)
+
 gentest_add_check_death(
     NAME regression_shared_fixture_setup_skip_bench
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
@@ -1414,22 +1473,33 @@ gentest_add_check_death(
     ARGS --run=regressions/shared_setup_skip_bench_jitter/suite_bench --kind=bench)
 
 gentest_add_run_and_check_file(
-    NAME regression_shared_fixture_setup_skip_bench_junit_reports_failure
+    NAME regression_shared_fixture_setup_skip_bench_junit_reports_blocked
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
     FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench.xml
-    REQUIRED_SUBSTRING "failures=\"1\""
+    REQUIRED_SUBSTRING "tests=\"1\" failures=\"0\" skipped=\"1\""
     EXPECT_RC 1
     ARGS --run=regressions/shared_setup_skip_bench_jitter/suite_bench --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench.xml)
 
 gentest_add_cmake_script_test(
-    NAME regression_shared_fixture_setup_skip_bench_junit_not_skipped
+    NAME regression_shared_fixture_setup_skip_bench_junit_reports_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake"
     ARGS --run=regressions/shared_setup_skip_bench_jitter/suite_bench --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench_not_skipped.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench_not_skipped.xml"
-        "REQUIRED_SUBSTRING=shared fixture unavailable"
-        "FORBID_SUBSTRING=<skipped"
+        "REQUIRED_SUBSTRING=<skipped message=\"blocked: shared fixture unavailable"
+        "FORBID_SUBSTRING=<failure"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_shared_fixture_setup_skip_bench_junit_reports_blocked_contract
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake"
+    ARGS --run=regressions/shared_setup_skip_bench_jitter/suite_bench --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench_blocked_contract.xml
+    DEFINES
+        "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench_blocked_contract.xml"
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\""
+        "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
 gentest_add_cmake_script_test(
@@ -1441,7 +1511,7 @@ gentest_add_cmake_script_test(
         "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench_time.xml"
         "FORMAT=JUNIT"
         "ITEM_NAME=regressions/shared_setup_skip_bench_jitter/regressions/shared_setup_skip_bench_jitter/suite_bench"
-        "REQUIRED_SUBSTRING=failures=\"1\""
+        "REQUIRED_SUBSTRING=failures=\"0\""
         "EXPECT_RC=1")
 
 gentest_add_check_death(
@@ -1451,22 +1521,33 @@ gentest_add_check_death(
     ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter)
 
 gentest_add_run_and_check_file(
-    NAME regression_shared_fixture_setup_skip_jitter_junit_reports_failure
+    NAME regression_shared_fixture_setup_skip_jitter_junit_reports_blocked
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
     FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter.xml
-    REQUIRED_SUBSTRING "failures=\"1\""
+    REQUIRED_SUBSTRING "tests=\"1\" failures=\"0\" skipped=\"1\""
     EXPECT_RC 1
     ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter.xml)
 
 gentest_add_cmake_script_test(
-    NAME regression_shared_fixture_setup_skip_jitter_junit_not_skipped
+    NAME regression_shared_fixture_setup_skip_jitter_junit_reports_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake"
     ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter_not_skipped.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter_not_skipped.xml"
-        "REQUIRED_SUBSTRING=shared fixture unavailable"
-        "FORBID_SUBSTRING=<skipped"
+        "REQUIRED_SUBSTRING=<skipped message=\"blocked: shared fixture unavailable"
+        "FORBID_SUBSTRING=<failure"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_shared_fixture_setup_skip_jitter_junit_reports_blocked_contract
+    PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake"
+    ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter_blocked_contract.xml
+    DEFINES
+        "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter_blocked_contract.xml"
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\""
+        "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
 gentest_add_cmake_script_test(
@@ -1478,7 +1559,7 @@ gentest_add_cmake_script_test(
         "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter_time.xml"
         "FORMAT=JUNIT"
         "ITEM_NAME=regressions/shared_setup_skip_bench_jitter/regressions/shared_setup_skip_bench_jitter/global_jitter"
-        "REQUIRED_SUBSTRING=failures=\"1\""
+        "REQUIRED_SUBSTRING=failures=\"0\""
         "EXPECT_RC=1")
 
 gentest_add_cmake_script_test(
@@ -1498,30 +1579,41 @@ gentest_add_check_death(
     ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench)
 
 gentest_add_cmake_script_test(
-    NAME regression_member_shared_fixture_setup_skip_measured_bench_reports_failure_not_skip
+    NAME regression_member_shared_fixture_setup_skip_measured_bench_reports_blocked_not_failure
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=benchmark allocation failed for regressions/member_shared_setup_skip_measured/bench_member"
-        "FORBID_SUBSTRING=[ SKIP ] regressions/member_shared_setup_skip_measured/bench_member")
+        "REQUIRED_SUBSTRING=[ BLOCKED ] regressions/member_shared_setup_skip_measured/bench_member"
+        "FORBID_SUBSTRING=[ FAIL ] regressions/member_shared_setup_skip_measured/bench_member")
 
 gentest_add_check_death(
-    NAME regression_member_shared_fixture_setup_skip_measured_bench_summary_failed_count
+    NAME regression_member_shared_fixture_setup_skip_measured_bench_summary_blocked_count
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
-    REQUIRED_SUBSTRING "Summary: passed 0/1; failed 1; skipped 0; blocked 0; xfail 0; xpass 0."
+    REQUIRED_SUBSTRING "Summary: passed 0/1; failed 0; skipped 0; blocked 1; xfail 0; xpass 0."
     ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench)
 
 gentest_add_cmake_script_test(
-    NAME regression_member_shared_fixture_setup_skip_measured_bench_junit_not_skipped
+    NAME regression_member_shared_fixture_setup_skip_measured_bench_junit_reports_blocked
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake"
     ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_bench.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_bench.xml"
-        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"1\" skipped=\"0\" errors=\"0\""
-        "FORBID_SUBSTRING=<skipped"
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\""
+        "FORBID_SUBSTRING=<failure"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_member_shared_fixture_setup_skip_measured_bench_junit_reports_blocked_contract
+    PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake"
+    ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_bench_blocked_contract.xml
+    DEFINES
+        "FILE=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_bench_blocked_contract.xml"
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\""
+        "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
 gentest_add_check_death(
@@ -1531,30 +1623,41 @@ gentest_add_check_death(
     ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter)
 
 gentest_add_cmake_script_test(
-    NAME regression_member_shared_fixture_setup_skip_measured_jitter_reports_failure_not_skip
+    NAME regression_member_shared_fixture_setup_skip_measured_jitter_reports_blocked_not_failure
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=jitter allocation failed for regressions/member_shared_setup_skip_measured/jitter_member"
-        "FORBID_SUBSTRING=[ SKIP ] regressions/member_shared_setup_skip_measured/jitter_member")
+        "REQUIRED_SUBSTRING=[ BLOCKED ] regressions/member_shared_setup_skip_measured/jitter_member"
+        "FORBID_SUBSTRING=[ FAIL ] regressions/member_shared_setup_skip_measured/jitter_member")
 
 gentest_add_check_death(
-    NAME regression_member_shared_fixture_setup_skip_measured_jitter_summary_failed_count
+    NAME regression_member_shared_fixture_setup_skip_measured_jitter_summary_blocked_count
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
-    REQUIRED_SUBSTRING "Summary: passed 0/1; failed 1; skipped 0; blocked 0; xfail 0; xpass 0."
+    REQUIRED_SUBSTRING "Summary: passed 0/1; failed 0; skipped 0; blocked 1; xfail 0; xpass 0."
     ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter)
 
 gentest_add_cmake_script_test(
-    NAME regression_member_shared_fixture_setup_skip_measured_jitter_junit_not_skipped
+    NAME regression_member_shared_fixture_setup_skip_measured_jitter_junit_reports_blocked
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
     SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake"
     ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_jitter.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_jitter.xml"
-        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"1\" skipped=\"0\" errors=\"0\""
-        "FORBID_SUBSTRING=<skipped"
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\""
+        "FORBID_SUBSTRING=<failure"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_member_shared_fixture_setup_skip_measured_jitter_junit_reports_blocked_contract
+    PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip_bench_jitter>
+    SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckFile.cmake"
+    ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_jitter_blocked_contract.xml
+    DEFINES
+        "FILE=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_jitter_blocked_contract.xml"
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\""
+        "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
 gentest_add_check_death(
