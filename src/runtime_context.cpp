@@ -31,10 +31,7 @@ void record_failure(std::string msg) {
     auto  ctx    = current_test_storage();
     auto &buffer = current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
-                         "        Did you forget to set the current context in this thread/coroutine?\n",
-                         stderr);
-        std::abort();
+        fail_without_active_context("assertion/expectation recorded");
     }
     if (buffer.owner != ctx.get()) {
         flush_current_buffer_for(buffer.owner);
@@ -56,10 +53,7 @@ void record_failure(std::string msg, const std::source_location &loc) {
     auto  ctx    = current_test_storage();
     auto &buffer = current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
-                         "        Did you forget to set the current context in this thread/coroutine?\n",
-                         stderr);
-        std::abort();
+        fail_without_active_context("assertion/expectation recorded");
     }
     if (buffer.owner != ctx.get()) {
         flush_current_buffer_for(buffer.owner);

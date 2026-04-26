@@ -9,6 +9,20 @@ namespace {
 
 bool contains(std::string_view haystack, std::string_view needle) { return haystack.find(needle) != std::string_view::npos; }
 
+auto count_occurrences(std::string_view haystack, std::string_view needle) -> std::size_t {
+    std::size_t count = 0;
+    std::size_t pos   = 0;
+    while (!needle.empty()) {
+        pos = haystack.find(needle, pos);
+        if (pos == std::string_view::npos) {
+            break;
+        }
+        ++count;
+        pos += needle.size();
+    }
+    return count;
+}
+
 bool before(std::string_view haystack, std::string_view lhs, std::string_view rhs) {
     const auto lhs_pos = haystack.find(lhs);
     const auto rhs_pos = haystack.find(rhs);
@@ -120,14 +134,47 @@ int main() {
         return fail("final rows should be emitted as completed scrolling lines");
     }
 
+    std::ostringstream                   duplicate_out;
+    gentest::runner::AsyncStatusRenderer duplicate(duplicate_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                   {.width = 80, .height = 12});
+    duplicate.add_case(0, "async/live/no_early_completion");
+    duplicate.mark_running(0);
+    duplicate.mark_final(0, gentest::runner::AsyncLiveStatus::Pass, {}, 5);
+    const auto duplicate_before_finish = duplicate_out.str();
+    if (contains(duplicate_before_finish, "[   PASS    ] async/live/no_early_completion (5 ms)")) {
+        return fail("terminal renderer should buffer completed rows instead of printing them during live rendering",
+                    duplicate_before_finish);
+    }
+    duplicate.finish();
+
     std::ostringstream                   terminal_out;
-    gentest::runner::AsyncStatusRenderer terminal(terminal_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false);
+    gentest::runner::AsyncStatusRenderer terminal(terminal_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                  {.width = 80, .height = 12});
     terminal.add_case(0, "async/live/terminal_cleanup");
     terminal.mark_suspended(0, "waiting", "/tmp/cleanup.cpp", 9);
+    terminal.log("live log while suspended");
+    terminal.mark_running(0);
+    terminal.log("live log while running");
     terminal.finish();
+    terminal_out << "after\n";
     const auto terminal_output = terminal_out.str();
-    if (!contains(terminal_output, "\033[r\033[")) {
-        return fail("terminal renderer should restore the scroll region and move the cursor to a stable row", terminal_output);
+    if (contains(terminal_output, "\033[r") || contains(terminal_output, "\033[H") || contains(terminal_output, "\033[J") ||
+        contains(terminal_output, "\033[2J") || contains(terminal_output, "\033[?1049")) {
+        return fail("terminal renderer should not use scroll regions, home, clear-screen, or alternate screen", terminal_output);
+    }
+    if (!contains(terminal_output, "\033[1A") || !contains(terminal_output, "\033[2K")) {
+        return fail("terminal renderer should erase the local live block line-by-line", terminal_output);
+    }
+    if (!contains(terminal_output, "live log while suspended\n\r\033[2K[ SUSPENDED ]") ||
+        !contains(terminal_output, "live log while running\n\r\033[2K[  RUNNING  ]")) {
+        return fail("terminal logs should be emitted above the redrawn live block", terminal_output);
+    }
+    if (count_occurrences(terminal_output, "live log while suspended") != 1 ||
+        count_occurrences(terminal_output, "live log while running") != 1) {
+        return fail("terminal logs should not be duplicated", terminal_output);
+    }
+    if (!contains(terminal_output, "\033[?25hafter\n")) {
+        return fail("terminal finish should leave normal output at the local cursor position", terminal_output);
     }
 
     std::ostringstream                   disabled_out;

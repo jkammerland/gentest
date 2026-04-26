@@ -242,22 +242,32 @@ gentest_add_check_counts(
     ARGS --run=async/fixture/mixed)
 
 gentest_add_check_counts(
-    NAME async_blocked_status
+    NAME async_unresumable_failure
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     PASS 0
-    FAIL 0
+    FAIL 1
     SKIP 0
-    BLOCKED 1
+    BLOCKED 0
     EXPECT_RC 1
     ARGS --run=async/blocked/never)
 
+gentest_add_cmake_script_test(
+    NAME async_unresumable_failure_reason
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=async/blocked/never --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=cannot resume, resume handle never created or lost"
+        "FORBID_SUBSTRING=[ BLOCKED ] async/blocked/never")
+
 gentest_add_check_counts(
-    NAME async_selected_dependency_blocked
+    NAME async_selected_dependency_unresumable
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     PASS 0
-    FAIL 0
+    FAIL 1
     SKIP 0
-    BLOCKED 1
+    BLOCKED 0
     EXPECT_RC 1
     ARGS --run=async/batch/client)
 

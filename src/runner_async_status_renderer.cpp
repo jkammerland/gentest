@@ -143,6 +143,12 @@ auto shorten_left(std::string_view text, std::size_t max_width) -> std::string {
     return fmt::format("...{}", text.substr(text.size() - (max_width - 3)));
 }
 
+void trim_trailing_padding(std::string &text) {
+    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r' || text.back() == '\n')) {
+        text.pop_back();
+    }
+}
+
 auto percent_encode_uri_path(std::string_view path) -> std::string {
     static constexpr char kHex[] = "0123456789ABCDEF";
     std::string           encoded;
@@ -398,15 +404,18 @@ void AsyncStatusRenderer::mark_final(std::size_t id, AsyncLiveStatus status, std
     row->suspend_file.clear();
     row->suspend_label.clear();
     row->suspend_uri.clear();
-    row->suspend_line         = 0;
-    row->duration_ms          = duration_ms;
-    row->final                = true;
-    const auto completed_line = format_row(*row, color_output_, mode_ == Mode::Terminal, output_width());
+    row->suspend_line = 0;
+    row->duration_ms  = duration_ms;
+    row->final        = true;
     completed_lines_.push_back(format_row(*row, color_output_, false, output_width()));
-    if (mode_ == Mode::Terminal) {
-        write_scrolling_line(completed_line);
-    }
     render();
+}
+
+void AsyncStatusRenderer::log(std::string_view message) {
+    if (!enabled() || mode_ != Mode::Terminal) {
+        return;
+    }
+    redraw_terminal(message, true);
 }
 
 void AsyncStatusRenderer::finish() {
@@ -430,8 +439,8 @@ auto AsyncStatusRenderer::ordered_rows_for_test() const -> std::vector<AsyncLive
 
 auto AsyncStatusRenderer::render_snapshot_for_test() const -> std::string {
     std::ostringstream out;
-    for (const auto &row : ordered_rows_for_test()) {
-        out << format_row(row, color_output_, false, output_width()) << '\n';
+    for (const auto &line : active_lines_for_render(false)) {
+        out << line << '\n';
     }
     return out.str();
 }
@@ -476,96 +485,84 @@ auto AsyncStatusRenderer::location_parts(std::string_view file, unsigned line) -
     return location_cache_.emplace(key, parts).first->second;
 }
 
-void AsyncStatusRenderer::render() {
-    if (!enabled()) {
-        return;
-    }
-
+auto AsyncStatusRenderer::active_lines_for_render(bool hyperlink_locations) const -> std::vector<std::string> {
     const auto ordered = ordered_rows_for_test();
-    if (mode_ != Mode::Terminal) {
-        return;
+    if (ordered.empty()) {
+        return {};
     }
 
-    const std::size_t terminal_rows  = this->terminal_rows();
-    const std::size_t terminal_cols  = output_width();
-    const std::size_t reserved_lines = std::min<std::size_t>(ordered.size(), terminal_rows > 1 ? terminal_rows - 1 : 0);
+    const std::size_t max_rows      = mode_ == Mode::Terminal ? std::max<std::size_t>(terminal_rows(), 2) - 1 : ordered.size();
+    const std::size_t row_count     = std::min(ordered.size(), max_rows);
+    const auto        first_visible = ordered.size() - row_count;
 
-    configure_terminal_region(reserved_lines);
-    if (reserved_lines == 0) {
-        return;
+    std::vector<std::string> lines;
+    lines.reserve(row_count);
+    const std::size_t width = output_width();
+    for (std::size_t i = 0; i < row_count; ++i) {
+        auto line = format_row(ordered[first_visible + i], color_output_, hyperlink_locations, width);
+        trim_trailing_padding(line);
+        lines.push_back(std::move(line));
     }
-
-    const auto first_visible = ordered.size() - reserved_lines;
-    *out_ << "\033[s";
-    for (std::size_t i = 0; i < reserved_lines; ++i) {
-        const auto terminal_row = terminal_rows - reserved_lines + i + 1;
-        *out_ << "\033[" << terminal_row << ";1H";
-        *out_ << "\033[2K";
-        *out_ << format_row(ordered[first_visible + i], color_output_, true, terminal_cols);
-    }
-    *out_ << "\033[u" << std::flush;
+    return lines;
 }
 
-void AsyncStatusRenderer::configure_terminal_region(std::size_t reserved_lines) {
+void AsyncStatusRenderer::render() {
+    if (!enabled() || mode_ != Mode::Terminal) {
+        return;
+    }
+    redraw_terminal({}, false);
+}
+
+void AsyncStatusRenderer::erase_terminal_block() {
+    if (mode_ != Mode::Terminal || !out_ || visible_lines_ == 0) {
+        return;
+    }
+
+    *out_ << '\r';
+    *out_ << "\033[" << visible_lines_ << "A";
+    for (std::size_t i = 0; i < visible_lines_; ++i) {
+        *out_ << "\r\033[2K";
+        if (i + 1 < visible_lines_) {
+            *out_ << "\033[1B";
+        }
+    }
+    if (visible_lines_ > 1) {
+        *out_ << "\033[" << (visible_lines_ - 1) << "A";
+    }
+    visible_lines_ = 0;
+}
+
+void AsyncStatusRenderer::draw_terminal_block(const std::vector<std::string> &lines) {
+    if (mode_ != Mode::Terminal || !out_ || lines.empty()) {
+        return;
+    }
+
+    for (const auto &line : lines) {
+        *out_ << "\r\033[2K" << line << '\n';
+    }
+    visible_lines_ = lines.size();
+}
+
+void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_message) {
     if (mode_ != Mode::Terminal || !out_) {
         return;
     }
 
-    const std::size_t terminal_rows = this->terminal_rows();
-    reserved_lines                  = std::min<std::size_t>(reserved_lines, terminal_rows > 1 ? terminal_rows - 1 : 0);
-
-    if (reserved_lines_ == reserved_lines && last_terminal_rows_ == terminal_rows) {
-        return;
+    const auto lines = active_lines_for_render(true);
+    erase_terminal_block();
+    if (has_message) {
+        *out_ << termcolor::reset << message << '\n';
     }
-
-    if (reserved_lines_ > 0 && last_terminal_rows_ > 0) {
-        clear_terminal_panel(last_terminal_rows_, reserved_lines_);
-    }
-
-    reserved_lines_     = reserved_lines;
-    last_terminal_rows_ = terminal_rows;
-    if (reserved_lines_ == 0) {
-        *out_ << "\033[r\033[" << terminal_rows << ";1H" << std::flush;
-        return;
-    }
-
-    const auto scroll_bottom = terminal_rows - reserved_lines_;
-    *out_ << "\033[1;" << scroll_bottom << "r";
-    *out_ << "\033[" << scroll_bottom << ";1H" << std::flush;
-}
-
-void AsyncStatusRenderer::clear_terminal_panel(std::size_t terminal_rows, std::size_t reserved_lines) {
-    if (mode_ != Mode::Terminal || !out_ || terminal_rows == 0 || reserved_lines == 0) {
-        return;
-    }
-    reserved_lines = std::min<std::size_t>(reserved_lines, terminal_rows);
-    *out_ << "\033[s";
-    for (std::size_t i = 0; i < reserved_lines; ++i) {
-        const auto terminal_row = terminal_rows - reserved_lines + i + 1;
-        *out_ << "\033[" << terminal_row << ";1H";
-        *out_ << "\033[2K";
-    }
-    *out_ << "\033[u" << std::flush;
-}
-
-void AsyncStatusRenderer::write_scrolling_line(std::string_view line) {
-    if (mode_ != Mode::Terminal || !out_) {
-        return;
-    }
-    *out_ << line << '\n' << std::flush;
+    draw_terminal_block(lines);
+    out_->flush();
 }
 
 void AsyncStatusRenderer::restore_terminal() {
     if (mode_ != Mode::Terminal || !out_) {
         return;
     }
-    if (reserved_lines_ > 0 && last_terminal_rows_ > 0) {
-        clear_terminal_panel(last_terminal_rows_, reserved_lines_);
-    }
-    const auto restore_row = last_terminal_rows_ == 0 ? terminal_rows() : last_terminal_rows_;
-    *out_ << "\033[r\033[" << restore_row << ";1H" << termcolor::reset << "\033[?25h";
-    reserved_lines_     = 0;
-    last_terminal_rows_ = 0;
+    erase_terminal_block();
+    *out_ << termcolor::reset << "\033[?25h";
 }
 
 } // namespace gentest::runner

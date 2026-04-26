@@ -59,6 +59,7 @@ class AsyncStatusRenderer {
     void               mark_suspended(std::size_t id, std::string_view detail, std::string_view file = {},
                                       unsigned line = 0); // NOLINT(bugprone-easily-swappable-parameters)
     void               mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms);
+    void               log(std::string_view message);
     void               finish();
 
     [[nodiscard]] auto ordered_rows_for_test() const -> std::vector<AsyncLiveRowSnapshot>;
@@ -66,14 +67,13 @@ class AsyncStatusRenderer {
     [[nodiscard]] auto completed_lines_for_test() const -> const std::vector<std::string> &;
 
   private:
-    std::ostream                     *out_                = nullptr;
-    Mode                              mode_               = Mode::Disabled;
-    bool                              color_output_       = false;
-    bool                              finished_           = false;
-    std::size_t                       reserved_lines_     = 0;
-    std::size_t                       last_terminal_rows_ = 0;
-    std::size_t                       width_override_     = 0;
-    std::size_t                       height_override_    = 0;
+    std::ostream                     *out_             = nullptr;
+    Mode                              mode_            = Mode::Disabled;
+    bool                              color_output_    = false;
+    bool                              finished_        = false;
+    std::size_t                       visible_lines_   = 0;
+    std::size_t                       width_override_  = 0;
+    std::size_t                       height_override_ = 0;
     std::vector<AsyncLiveRowSnapshot> rows_;
     std::vector<std::string>          completed_lines_;
     struct LocationParts {
@@ -85,10 +85,11 @@ class AsyncStatusRenderer {
     [[nodiscard]] auto output_width() const -> std::size_t;
     [[nodiscard]] auto terminal_rows() const -> std::size_t;
     [[nodiscard]] auto location_parts(std::string_view file, unsigned line) -> LocationParts;
+    [[nodiscard]] auto active_lines_for_render(bool hyperlink_locations) const -> std::vector<std::string>;
     void               render();
-    void               configure_terminal_region(std::size_t reserved_lines);
-    void               clear_terminal_panel(std::size_t terminal_rows, std::size_t reserved_lines);
-    void               write_scrolling_line(std::string_view line);
+    void               erase_terminal_block();
+    void               draw_terminal_block(const std::vector<std::string> &lines);
+    void               redraw_terminal(std::string_view message, bool has_message);
     void               restore_terminal();
 };
 
