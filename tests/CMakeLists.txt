@@ -258,7 +258,7 @@ gentest_add_cmake_script_test(
     ARGS --run=async/blocked/never --kind=test --no-color
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=cannot resume, resume handle never created or lost"
+        "REQUIRED_SUBSTRING=cannot resume async test; suspended at tests/async/cases.cpp:"
         "FORBID_SUBSTRING=[ BLOCKED ] async/blocked/never")
 
 gentest_add_cmake_script_test(
@@ -268,8 +268,8 @@ gentest_add_cmake_script_test(
     ARGS --run=async/blocked/never --kind=test --no-color
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=last suspended at tests/async/cases.cpp:"
-        "FORBID_SUBSTRING=[ BLOCKED ] async/blocked/never")
+        "REQUIRED_SUBSTRING=cannot resume async test; suspended at tests/async/cases.cpp:"
+        "FORBID_SUBSTRINGS=[ BLOCKED ] async/blocked/never|last suspend backtrace|#0")
 
 gentest_add_check_counts(
     NAME async_selected_dependency_unresumable

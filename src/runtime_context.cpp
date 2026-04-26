@@ -98,15 +98,6 @@ void record_failure_at(std::string msg, std::string file, unsigned line) {
     throw_if_bench_call_failure(buffer.failures.back());
 }
 
-void record_failure_detail(std::string msg) {
-    if (msg.empty()) {
-        return;
-    }
-    auto &buffer = prepare_current_failure_buffer("failure detail recorded");
-    buffer.event_lines.push_back(std::move(msg));
-    buffer.event_kinds.push_back('L');
-}
-
 [[noreturn]] void skip_shared_fixture_unavailable(std::string_view reason, const std::source_location &loc) {
     (void)loc;
     request_runtime_skip(reason, TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);

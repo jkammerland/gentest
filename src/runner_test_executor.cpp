@@ -9,11 +9,9 @@
 #include "runner_test_plan.h"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
 #include <deque>
 #include <exception>
 #include <filesystem>
@@ -25,32 +23,10 @@
 #include <mutex>
 #include <source_location>
 #include <span>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
-
-#if defined(__has_include)
-#if __has_include(<stacktrace>)
-#include <stacktrace>
-#if defined(__cpp_lib_stacktrace)
-#define GENTEST_HAS_STD_STACKTRACE 1
-#endif
-#endif
-#if __has_include(<execinfo.h>) && !defined(_WIN32)
-#include <execinfo.h>
-#define GENTEST_HAS_EXECINFO_BACKTRACE 1
-#endif
-#endif
-
-#ifndef GENTEST_HAS_STD_STACKTRACE
-#define GENTEST_HAS_STD_STACKTRACE 0
-#endif
-
-#ifndef GENTEST_HAS_EXECINFO_BACKTRACE
-#define GENTEST_HAS_EXECINFO_BACKTRACE 0
-#endif
 
 namespace gentest::runner {
 namespace {
@@ -58,40 +34,9 @@ namespace {
 using Outcome   = gentest::runner::Outcome;
 using RunResult = gentest::runner::RunResult;
 
-constexpr std::string_view kAsyncCannotResumeMessage = "cannot resume, resume handle never created or lost";
+constexpr std::string_view kAsyncCannotResumeMessage = "cannot resume async test";
 
 long long duration_ms(double seconds) { return std::llround(seconds * 1000.0); }
-
-auto capture_suspend_backtrace() -> std::string {
-#if GENTEST_HAS_STD_STACKTRACE
-    const auto trace = std::stacktrace::current();
-    if (trace.empty()) {
-        return {};
-    }
-    std::ostringstream out;
-    out << "last suspend backtrace:\n" << trace;
-    return out.str();
-#elif GENTEST_HAS_EXECINFO_BACKTRACE
-    std::array<void *, 32> frames{};
-    const int              frame_count = ::backtrace(frames.data(), static_cast<int>(frames.size()));
-    if (frame_count <= 0) {
-        return {};
-    }
-
-    std::unique_ptr<char *, decltype(&std::free)> symbols(::backtrace_symbols(frames.data(), frame_count), &std::free);
-    if (!symbols) {
-        return {};
-    }
-
-    std::string out = "last suspend backtrace:";
-    for (int i = 0; i < frame_count; ++i) {
-        fmt::format_to(std::back_inserter(out), "\n  #{} {}", i, symbols.get()[i]);
-    }
-    return out;
-#else
-    return {};
-#endif
-}
 
 auto suspend_location_text(std::string_view file, unsigned line) -> std::string {
     if (file.empty() || line == 0) {
@@ -442,12 +387,11 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         }
         const auto owner = owner_for(handle);
         blocked_handles_[handle.address()] =
-            BlockedHandle{.owner     = owner,
-                          .sequence  = ++suspend_sequence_,
-                          .reason    = reason.empty() ? std::string("async test cannot resume") : std::move(reason),
-                          .file      = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
-                          .line      = loc.line(),
-                          .backtrace = capture_suspend_backtrace()};
+            BlockedHandle{.owner    = owner,
+                          .sequence = ++suspend_sequence_,
+                          .reason   = reason.empty() ? std::string("async test cannot resume") : std::move(reason),
+                          .file     = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
+                          .line     = loc.line()};
     }
 
     void yield_at(std::coroutine_handle<> handle, const std::source_location &loc) override {
@@ -543,7 +487,6 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
                 } else {
                     gentest::detail::record_failure(run.message);
                 }
-                gentest::detail::record_failure_detail(suspended.backtrace);
             }
             complete(i);
         }
@@ -558,7 +501,6 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         std::string   reason;
         std::string   file;
         unsigned      line = 0;
-        std::string   backtrace;
     };
 
     struct SuspendedState {
@@ -566,7 +508,6 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         std::string   file;
         unsigned      line     = 0;
         std::uint64_t sequence = 0;
-        std::string   backtrace;
     };
 
     [[nodiscard]] auto owner_for(std::coroutine_handle<> handle) const -> std::size_t {
@@ -582,11 +523,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         for (const auto &entry : blocked_handles_) {
             const auto &blocked = entry.second;
             if (blocked.owner == owner && !blocked.reason.empty() && blocked.sequence >= result.sequence) {
-                result = SuspendedState{.reason    = blocked.reason,
-                                        .file      = blocked.file,
-                                        .line      = blocked.line,
-                                        .sequence  = blocked.sequence,
-                                        .backtrace = blocked.backtrace};
+                result = SuspendedState{.reason = blocked.reason, .file = blocked.file, .line = blocked.line, .sequence = blocked.sequence};
             }
         }
         return result;
@@ -594,12 +531,12 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
 
     [[nodiscard]] auto format_cannot_resume_message(const SuspendedState &state) const -> std::string {
         std::string message(kAsyncCannotResumeMessage);
-        if (!state.reason.empty()) {
-            fmt::format_to(std::back_inserter(message), "; last suspend reason: {}", state.reason);
-        }
-        const auto location = suspend_location_text(state.file, state.line);
+        const auto  location = suspend_location_text(state.file, state.line);
         if (!location.empty()) {
-            fmt::format_to(std::back_inserter(message), "; last suspended at {}", location);
+            fmt::format_to(std::back_inserter(message), "; suspended at {}", location);
+        }
+        if (state.sequence != 0 && !state.reason.empty()) {
+            fmt::format_to(std::back_inserter(message), ": {}", state.reason);
         }
         return message;
     }
