@@ -58,6 +58,9 @@ gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
 # Coroutine async target (no default add_test; contains deliberate BLOCKED cases)
 gentest_add_suite(async TARGET ${PROJECT_NAME}_async_tests NO_CTEST)
 
+# Slow coroutine live-renderer demo target (no default suite add_test; intended for terminal inspection)
+gentest_add_suite(async_live_slow TARGET ${PROJECT_NAME}_async_live_slow_tests NO_CTEST)
+
 # Benchmark-only target: collect all suite translation units into one target so
 # gentest_codegen sees many wrapper sources in a single invocation (useful for
 # profiling/benchmarking internal codegen parallelism).
@@ -179,6 +182,40 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --filter=async/batch/*)
+
+gentest_add_cmake_script_test(
+    NAME async_live_renderer_non_tty_plain
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/batch/* --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "FORBID_SUBSTRINGS=RUNNING|SUSPENDED")
+
+gentest_add_check_counts(
+    NAME async_live_demo_cooperative
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/live_demo/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_stops_after_async_failure
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast/* --kind=test --fail-fast --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast/00_async_fail"
+        "FORBID_SUBSTRING=async/fail_fast/01_sync_should_not_run")
+
+gentest_add_check_counts(
+    NAME async_live_slow_demo_inventory
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    LIST
+    CASES 6
+    ARGS --kind=test)
 
 gentest_add_check_counts(
     NAME async_value_discard
@@ -1459,6 +1496,15 @@ gentest_add_manual_regression(
 gentest_add_check_exit_code(
     NAME regression_measured_report_coverage
     PROG $<TARGET_FILE:gentest_regression_measured_report_coverage>
+    EXPECT_RC 0)
+
+gentest_add_manual_regression(
+    TARGET gentest_regression_async_status_renderer
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_status_renderer.cpp)
+
+gentest_add_check_exit_code(
+    NAME regression_async_status_renderer
+    PROG $<TARGET_FILE:gentest_regression_async_status_renderer>
     EXPECT_RC 0)
 
 # CLI checks for VSCode integration

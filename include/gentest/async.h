@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <source_location>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -28,6 +29,12 @@ class AsyncScheduler {
     virtual void post(std::coroutine_handle<> handle)                                        = 0;
     virtual void block(std::coroutine_handle<> handle, std::string reason)                   = 0;
     virtual void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) = 0;
+
+    virtual void block_at(std::coroutine_handle<> handle, std::string reason, const std::source_location &) {
+        block(handle, std::move(reason));
+    }
+
+    virtual void yield_at(std::coroutine_handle<> handle, const std::source_location &) { post(handle); }
 };
 
 GENTEST_RUNTIME_API auto current_async_scheduler() noexcept -> AsyncScheduler *;
@@ -70,6 +77,8 @@ using AsyncCaseFn  = AsyncTaskPtr (*)(void *);
 namespace async {
 
 struct yield_awaitable {
+    std::source_location loc;
+
     [[nodiscard]] constexpr auto await_ready() const noexcept -> bool { return false; }
 
     void await_suspend(std::coroutine_handle<> handle) const {
@@ -77,17 +86,19 @@ struct yield_awaitable {
         if (!scheduler) {
             std::abort();
         }
-        scheduler->post(handle);
+        scheduler->yield_at(handle, loc);
     }
 
     constexpr void await_resume() const noexcept {}
 };
 
-[[nodiscard]] inline auto yield() noexcept -> yield_awaitable { return {}; }
+[[nodiscard]] inline auto yield(const std::source_location &loc = std::source_location::current()) noexcept -> yield_awaitable {
+    return yield_awaitable{.loc = loc};
+}
 
 class manual_event {
   public:
-    explicit manual_event(bool ready = false) : ready_(ready) {}
+    explicit manual_event(bool ready = false) noexcept : ready_(ready) {}
 
     void set() {
         std::vector<Waiter> waiters;
@@ -115,7 +126,8 @@ class manual_event {
 
     class awaitable {
       public:
-        awaitable(manual_event &event, std::string reason) : event_(event), reason_(std::move(reason)) {}
+        awaitable(manual_event &event, std::string reason, std::source_location loc)
+            : event_(event), reason_(std::move(reason)), loc_(loc) {}
 
         [[nodiscard]] auto await_ready() const -> bool {
             std::lock_guard<std::mutex> lk(event_.mtx_);
@@ -132,19 +144,21 @@ class manual_event {
                 scheduler->post(handle);
                 return;
             }
-            event_.waiters_.push_back(Waiter{scheduler, handle});
-            scheduler->block(handle, reason_);
+            event_.waiters_.push_back(Waiter{.scheduler = scheduler, .handle = handle});
+            scheduler->block_at(handle, reason_, loc_);
         }
 
         constexpr void await_resume() const noexcept {}
 
       private:
-        manual_event &event_;
-        std::string   reason_;
+        manual_event        &event_;
+        std::string          reason_;
+        std::source_location loc_;
     };
 
-    [[nodiscard]] auto wait(std::string reason = "manual event was not signalled") -> awaitable {
-        return awaitable{*this, std::move(reason)};
+    [[nodiscard]] auto wait(std::string                 reason = "manual event was not signalled",
+                            const std::source_location &loc    = std::source_location::current()) -> awaitable {
+        return awaitable{*this, std::move(reason), loc};
     }
 
   private:
@@ -166,7 +180,8 @@ class completion_source {
 
     class awaitable {
       public:
-        awaitable(completion_source &source, std::string reason) : source_(source), reason_(std::move(reason)) {}
+        awaitable(completion_source &source, std::string reason, std::source_location loc)
+            : source_(source), reason_(std::move(reason)), loc_(loc) {}
 
         [[nodiscard]] auto await_ready() const -> bool {
             std::lock_guard<std::mutex> lk(source_.mtx_);
@@ -183,8 +198,8 @@ class completion_source {
                 scheduler->post(handle);
                 return;
             }
-            source_.waiters_.push_back(Waiter{scheduler, handle});
-            scheduler->block(handle, reason_);
+            source_.waiters_.push_back(Waiter{.scheduler = scheduler, .handle = handle});
+            scheduler->block_at(handle, reason_, loc_);
         }
 
         void await_resume() const {
@@ -199,12 +214,14 @@ class completion_source {
         }
 
       private:
-        completion_source &source_;
-        std::string        reason_;
+        completion_source   &source_;
+        std::string          reason_;
+        std::source_location loc_;
     };
 
-    [[nodiscard]] auto wait(std::string reason = "completion source was not completed") -> awaitable {
-        return awaitable{*this, std::move(reason)};
+    [[nodiscard]] auto wait(std::string                 reason = "completion source was not completed",
+                            const std::source_location &loc    = std::source_location::current()) -> awaitable {
+        return awaitable{*this, std::move(reason), loc};
     }
 
   private:

@@ -21,9 +21,10 @@ struct TestCounters {
 };
 
 struct TestRunContext {
-    bool            color_output   = true;
-    bool            record_results = false;
-    RunAccumulator *acc            = nullptr;
+    bool            color_output         = true;
+    bool            record_results       = false;
+    bool            suppress_case_output = false;
+    RunAccumulator *acc                  = nullptr;
 };
 
 bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans, bool fail_fast,

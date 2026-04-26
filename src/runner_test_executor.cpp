@@ -1,6 +1,7 @@
 #include "runner_test_executor.h"
 
 #include "gentest/detail/runtime_context.h"
+#include "runner_async_status_renderer.h"
 #include "runner_case_invoker.h"
 #include "runner_context_scope.h"
 #include "runner_fixture_runtime.h"
@@ -14,8 +15,11 @@
 #include <exception>
 #include <fmt/color.h>
 #include <fmt/format.h>
+#include <functional>
+#include <iostream>
 #include <memory>
 #include <mutex>
+#include <source_location>
 #include <span>
 #include <string>
 #include <string_view>
@@ -49,17 +53,19 @@ RunResult make_static_skip_result(TestRunContext &state, const gentest::Case &te
     rr.outcome             = Outcome::Skip;
     rr.skip_reason         = std::string(test.skip_reason);
     const long long dur_ms = 0LL;
-    if (state.color_output) {
-        fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
-        if (!test.skip_reason.empty())
-            fmt::print(" {} :: {} ({} ms)\n", test.name, test.skip_reason, dur_ms);
-        else
-            fmt::print(" {} ({} ms)\n", test.name, dur_ms);
-    } else {
-        if (!test.skip_reason.empty())
-            fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, test.skip_reason, dur_ms);
-        else
-            fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+    if (!state.suppress_case_output) {
+        if (state.color_output) {
+            fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
+            if (!test.skip_reason.empty())
+                fmt::print(" {} :: {} ({} ms)\n", test.name, test.skip_reason, dur_ms);
+            else
+                fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+        } else {
+            if (!test.skip_reason.empty())
+                fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, test.skip_reason, dur_ms);
+            else
+                fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+        }
     }
     return rr;
 }
@@ -100,11 +106,13 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
         rr.skip_reason = inv.message.empty() ? "async test cannot resume" : inv.message;
         rr.summary_issues.push_back(fmt::format("BLOCKED: {}", rr.skip_reason));
         const auto dur_ms = duration_ms(rr.time_s);
-        if (state.color_output) {
-            fmt::print(fmt::fg(fmt::color::yellow), "[ BLOCKED ]");
-            fmt::print(" {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
-        } else {
-            fmt::print("[ BLOCKED ] {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
+        if (!state.suppress_case_output) {
+            if (state.color_output) {
+                fmt::print(fmt::fg(fmt::color::yellow), "[ BLOCKED ]");
+                fmt::print(" {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
+            } else {
+                fmt::print("[ BLOCKED ] {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
+            }
         }
         if (state.acc)
             gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, rr.summary_issues.front());
@@ -120,11 +128,13 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
             rr.skip_reason          = fmt::format("blocked: {}", issue);
             ++c.blocked;
             const auto dur_ms = duration_ms(rr.time_s);
-            if (state.color_output) {
-                fmt::print(fmt::fg(fmt::color::yellow), "[ BLOCKED ]");
-                fmt::print(" {} :: {} ({} ms)\n", test.name, issue, dur_ms);
-            } else {
-                fmt::print("[ BLOCKED ] {} :: {} ({} ms)\n", test.name, issue, dur_ms);
+            if (!state.suppress_case_output) {
+                if (state.color_output) {
+                    fmt::print(fmt::fg(fmt::color::yellow), "[ BLOCKED ]");
+                    fmt::print(" {} :: {} ({} ms)\n", test.name, issue, dur_ms);
+                } else {
+                    fmt::print("[ BLOCKED ] {} :: {} ({} ms)\n", test.name, issue, dur_ms);
+                }
             }
             return rr;
         }
@@ -133,17 +143,19 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
         rr.skipped        = true;
         rr.outcome        = Outcome::Skip;
         const auto dur_ms = duration_ms(rr.time_s);
-        if (state.color_output) {
-            fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
-            if (!rr.skip_reason.empty())
-                fmt::print(" {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
-            else
-                fmt::print(" {} ({} ms)\n", test.name, dur_ms);
-        } else {
-            if (!rr.skip_reason.empty())
-                fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
-            else
-                fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+        if (!state.suppress_case_output) {
+            if (state.color_output) {
+                fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
+                if (!rr.skip_reason.empty())
+                    fmt::print(" {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
+                else
+                    fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+            } else {
+                if (!rr.skip_reason.empty())
+                    fmt::print("[ SKIP ] {} :: {} ({} ms)\n", test.name, rr.skip_reason, dur_ms);
+                else
+                    fmt::print("[ SKIP ] {} ({} ms)\n", test.name, dur_ms);
+            }
         }
         return rr;
     }
@@ -157,17 +169,19 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
             rr.skipped        = true;
             rr.skip_reason    = rr.xfail_reason.empty() ? "xfail" : fmt::format("xfail: {}", rr.xfail_reason);
             const auto dur_ms = duration_ms(rr.time_s);
-            if (state.color_output) {
-                fmt::print(fmt::fg(fmt::color::cyan), "[ XFAIL ]");
-                if (!rr.xfail_reason.empty())
-                    fmt::print(" {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
-                else
-                    fmt::print(" {} ({} ms)\n", test.name, dur_ms);
-            } else {
-                if (!rr.xfail_reason.empty())
-                    fmt::print("[ XFAIL ] {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
-                else
-                    fmt::print("[ XFAIL ] {} ({} ms)\n", test.name, dur_ms);
+            if (!state.suppress_case_output) {
+                if (state.color_output) {
+                    fmt::print(fmt::fg(fmt::color::cyan), "[ XFAIL ]");
+                    if (!rr.xfail_reason.empty())
+                        fmt::print(" {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
+                    else
+                        fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+                } else {
+                    if (!rr.xfail_reason.empty())
+                        fmt::print("[ XFAIL ] {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
+                    else
+                        fmt::print("[ XFAIL ] {} ({} ms)\n", test.name, dur_ms);
+                }
             }
             return rr;
         }
@@ -177,19 +191,23 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
         ++c.failed;
         ++c.failures;
         const auto dur_ms = duration_ms(rr.time_s);
-        if (state.color_output) {
-            fmt::print(stderr, fmt::fg(fmt::color::red), "[ XPASS ]");
-            if (!rr.xfail_reason.empty())
-                fmt::print(stderr, " {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
-            else
-                fmt::print(stderr, " {} ({} ms)\n", test.name, dur_ms);
-        } else {
-            if (!rr.xfail_reason.empty())
-                fmt::print(stderr, "[ XPASS ] {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
-            else
-                fmt::print(stderr, "[ XPASS ] {} ({} ms)\n", test.name, dur_ms);
+        if (!state.suppress_case_output) {
+            if (state.color_output) {
+                fmt::print(stderr, fmt::fg(fmt::color::red), "[ XPASS ]");
+                if (!rr.xfail_reason.empty())
+                    fmt::print(stderr, " {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
+                else
+                    fmt::print(stderr, " {} ({} ms)\n", test.name, dur_ms);
+            } else {
+                if (!rr.xfail_reason.empty())
+                    fmt::print(stderr, "[ XPASS ] {} :: {} ({} ms)\n", test.name, rr.xfail_reason, dur_ms);
+                else
+                    fmt::print(stderr, "[ XPASS ] {} ({} ms)\n", test.name, dur_ms);
+            }
         }
-        fmt::print(stderr, "{}\n\n", rr.failures.front());
+        if (!state.suppress_case_output) {
+            fmt::print(stderr, "{}\n\n", rr.failures.front());
+        }
         std::string xpass_issue = rr.xfail_reason.empty() ? "XPASS" : fmt::format("XPASS: {}", rr.xfail_reason);
         rr.summary_issues.push_back(std::move(xpass_issue));
         if (state.acc)
@@ -204,11 +222,13 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
         ++c.failed;
         ++c.failures;
         const auto dur_ms = duration_ms(rr.time_s);
-        if (state.color_output) {
-            fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
-            fmt::print(stderr, " {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
-        } else {
-            fmt::print(stderr, "[ FAIL ] {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
+        if (!state.suppress_case_output) {
+            if (state.color_output) {
+                fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
+                fmt::print(stderr, " {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
+            } else {
+                fmt::print(stderr, "[ FAIL ] {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
+            }
         }
         std::size_t              failure_printed = 0;
         std::vector<std::string> failure_lines;
@@ -216,7 +236,9 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
             const char  kind = (i < ctxinfo->event_kinds.size() ? ctxinfo->event_kinds[i] : 'L');
             const auto &ln   = ctxinfo->event_lines[i];
             if (kind == 'F') {
-                fmt::print(stderr, "{}\n", ln);
+                if (!state.suppress_case_output) {
+                    fmt::print(stderr, "{}\n", ln);
+                }
                 failure_lines.push_back(ln);
                 std::string_view file    = test.file;
                 unsigned         line_no = test.line;
@@ -231,27 +253,35 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
                     gentest::runner::add_error_annotation(*state.acc, file, line_no, test.name, ln);
                 ++failure_printed;
             } else {
-                fmt::print(stderr, "{}\n", ln);
+                if (!state.suppress_case_output) {
+                    fmt::print(stderr, "{}\n", ln);
+                }
             }
         }
-        fmt::print(stderr, "\n");
+        if (!state.suppress_case_output) {
+            fmt::print(stderr, "\n");
+        }
         if (failure_lines.empty() && !ctxinfo->failures.empty())
             failure_lines.push_back(ctxinfo->failures.front());
         rr.summary_issues = std::move(failure_lines);
     } else if (!threw_non_skip) {
         const auto dur_ms = duration_ms(rr.time_s);
-        if (state.color_output) {
-            fmt::print(fmt::fg(fmt::color::green), "[ PASS ]");
-            fmt::print(" {} ({} ms)\n", test.name, dur_ms);
-        } else {
-            fmt::print("[ PASS ] {} ({} ms)\n", test.name, dur_ms);
+        if (!state.suppress_case_output) {
+            if (state.color_output) {
+                fmt::print(fmt::fg(fmt::color::green), "[ PASS ]");
+                fmt::print(" {} ({} ms)\n", test.name, dur_ms);
+            } else {
+                fmt::print("[ PASS ] {} ({} ms)\n", test.name, dur_ms);
+            }
         }
         rr.timeline = collect_pass_visible_timeline(ctxinfo);
-        for (const auto &ln : rr.timeline) {
-            fmt::print("{}\n", ln);
+        if (!state.suppress_case_output) {
+            for (const auto &ln : rr.timeline) {
+                fmt::print("{}\n", ln);
+            }
+            if (!rr.timeline.empty())
+                fmt::print("\n");
         }
-        if (!rr.timeline.empty())
-            fmt::print("\n");
         rr.outcome = Outcome::Pass;
         ++c.passed;
     } else {
@@ -261,13 +291,15 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
         std::string fallback_issue = inv.message.empty() ? "fatal assertion or exception (no message)" : inv.message;
         rr.failures.push_back(fallback_issue);
         const auto dur_ms = duration_ms(rr.time_s);
-        if (state.color_output) {
-            fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
-            fmt::print(stderr, " {} ({} ms)\n", test.name, dur_ms);
-        } else {
-            fmt::print(stderr, "[ FAIL ] {} ({} ms)\n", test.name, dur_ms);
+        if (!state.suppress_case_output) {
+            if (state.color_output) {
+                fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
+                fmt::print(stderr, " {} ({} ms)\n", test.name, dur_ms);
+            } else {
+                fmt::print(stderr, "[ FAIL ] {} ({} ms)\n", test.name, dur_ms);
+            }
+            fmt::print(stderr, "\n");
         }
-        fmt::print(stderr, "\n");
         rr.summary_issues.push_back(fallback_issue);
         if (state.acc)
             gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, fallback_issue);
@@ -294,11 +326,15 @@ struct AsyncCaseRun {
     std::chrono::steady_clock::time_point             end;
     InvokeException                                   exception = InvokeException::None;
     std::string                                       message;
+    bool                                              finalized = false;
 };
 
 class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
   public:
-    explicit BatchAsyncScheduler(std::vector<AsyncCaseRun> &runs) : runs_(runs) {}
+    using CompletionCallback = std::function<void(std::size_t)>;
+
+    BatchAsyncScheduler(std::vector<AsyncCaseRun> &runs, AsyncStatusRenderer *renderer, CompletionCallback completion_callback = {})
+        : runs_(runs), renderer_(renderer), completion_callback_(std::move(completion_callback)) {}
 
     void post(std::coroutine_handle<> handle) override {
         if (!handle || handle.done()) {
@@ -308,13 +344,33 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         ready_.push_back(handle);
     }
 
-    void block(std::coroutine_handle<> handle, std::string reason) override {
+    void block(std::coroutine_handle<> handle, std::string reason) override { block_at(handle, std::move(reason), std::source_location{}); }
+
+    void block_at(std::coroutine_handle<> handle, std::string reason, const std::source_location &loc) override {
         if (!handle) {
             return;
         }
         const auto owner = owner_for(handle);
         blocked_handles_[handle.address()] =
-            BlockedHandle{.owner = owner, .reason = reason.empty() ? std::string("async test cannot resume") : std::move(reason)};
+            BlockedHandle{.owner  = owner,
+                          .reason = reason.empty() ? std::string("async test cannot resume") : std::move(reason),
+                          .file   = renderer_ && loc.file_name() != nullptr ? std::string(loc.file_name()) : std::string{},
+                          .line   = renderer_ ? loc.line() : 0};
+    }
+
+    void yield_at(std::coroutine_handle<> handle, const std::source_location &loc) override {
+        if (!handle || handle.done()) {
+            return;
+        }
+        if (renderer_) {
+            const auto owner = owner_for(handle);
+            blocked_handles_[handle.address()] =
+                BlockedHandle{.owner  = owner,
+                              .reason = "yielded cooperatively",
+                              .file   = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
+                              .line   = loc.line()};
+        }
+        ready_.push_back(handle);
     }
 
     void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) override {
@@ -333,9 +389,10 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         post(task.handle());
     }
 
-    void run() {
+    void run_ready() {
         gentest::detail::AsyncSchedulerScope scheduler_scope(this);
-        while (!ready_.empty()) {
+        const auto                           ready_this_round = ready_.size();
+        for (std::size_t ready_index = 0; ready_index < ready_this_round && !ready_.empty(); ++ready_index) {
             auto handle = ready_.front();
             ready_.pop_front();
             if (!handle || handle.done()) {
@@ -345,33 +402,66 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
             if (owner >= runs_.size()) {
                 continue;
             }
-            auto                                             &run = runs_[owner];
-            gentest::runner::detail::CurrentTestAdoptionScope current_scope(run.ctxinfo);
-            try {
-                handle.resume();
-            } catch (const std::exception &e) {
-                run.exception = InvokeException::StdException;
-                run.message   = fmt::format("std::exception: {}", e.what());
-            } catch (...) {
-                run.exception = InvokeException::Unknown;
-                run.message   = "unknown exception";
+            auto &run = runs_[owner];
+            if (run.finalized) {
+                continue;
+            }
+            {
+                gentest::runner::detail::CurrentTestAdoptionScope current_scope(run.ctxinfo);
+                if (renderer_) {
+                    renderer_->mark_running(owner);
+                }
+                try {
+                    handle.resume();
+                } catch (const std::exception &e) {
+                    run.exception = InvokeException::StdException;
+                    run.message   = fmt::format("std::exception: {}", e.what());
+                } catch (...) {
+                    run.exception = InvokeException::Unknown;
+                    run.message   = "unknown exception";
+                }
+            }
+
+            if (run_is_complete(owner)) {
+                complete(owner);
+            } else if (renderer_ && run.exception == InvokeException::None) {
+                const auto suspended = suspended_state_for(owner);
+                renderer_->mark_suspended(owner, suspended.reason, suspended.file, suspended.line);
             }
         }
+    }
 
+    [[nodiscard]] auto has_ready() const noexcept -> bool { return !ready_.empty(); }
+
+    void finish_unresumable() {
+        while (!ready_.empty()) {
+            run_ready();
+        }
         for (std::size_t i = 0; i < runs_.size(); ++i) {
             auto &run = runs_[i];
-            if (!run.task || !run.task->handle() || run.task->handle().done() || run.exception != InvokeException::None) {
+            if (run.finalized || !run.task || !run.task->handle() || run.task->handle().done() || run.exception != InvokeException::None) {
                 continue;
             }
             run.exception = InvokeException::Blocked;
             run.message   = blocked_reason_for(i);
+            complete(i);
         }
     }
+
+    void run() { finish_unresumable(); }
 
   private:
     struct BlockedHandle {
         std::size_t owner = 0;
         std::string reason;
+        std::string file;
+        unsigned    line = 0;
+    };
+
+    struct SuspendedState {
+        std::string reason;
+        std::string file;
+        unsigned    line = 0;
     };
 
     [[nodiscard]] auto owner_for(std::coroutine_handle<> handle) const -> std::size_t {
@@ -392,7 +482,34 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         return "async test cannot resume";
     }
 
+    [[nodiscard]] auto suspended_state_for(std::size_t owner) const -> SuspendedState {
+        for (const auto &entry : blocked_handles_) {
+            const auto &blocked = entry.second;
+            if (blocked.owner == owner && !blocked.reason.empty()) {
+                return SuspendedState{.reason = blocked.reason, .file = blocked.file, .line = blocked.line};
+            }
+        }
+        return SuspendedState{.reason = "waiting to resume"};
+    }
+
+    [[nodiscard]] bool run_is_complete(std::size_t owner) const {
+        if (owner >= runs_.size()) {
+            return false;
+        }
+        const auto &run = runs_[owner];
+        return run.exception != InvokeException::None || !run.task || !run.task->handle() || run.task->handle().done();
+    }
+
+    void complete(std::size_t owner) {
+        if (!completion_callback_ || owner >= runs_.size() || runs_[owner].finalized) {
+            return;
+        }
+        completion_callback_(owner);
+    }
+
     std::vector<AsyncCaseRun>                &runs_;
+    AsyncStatusRenderer                      *renderer_ = nullptr;
+    CompletionCallback                        completion_callback_;
     std::deque<std::coroutine_handle<>>       ready_;
     std::unordered_map<void *, std::size_t>   owners_;
     std::unordered_map<void *, BlockedHandle> blocked_handles_;
@@ -555,50 +672,174 @@ bool plans_include_async_cases(std::span<const gentest::Case> cases, std::span<c
     return false;
 }
 
-void finish_and_record_async_runs(TestRunContext &state, std::span<const gentest::Case> cases, std::vector<AsyncCaseRun> &runs,
-                                  TestCounters &counters) {
-    BatchAsyncScheduler scheduler(runs);
-    for (std::size_t run_index = 0; run_index < runs.size(); ++run_index) {
-        auto &run = runs[run_index];
-        if (run.task && run.exception == InvokeException::None) {
-            scheduler.add_top_level(run_index, *run.task);
-        }
+auto async_live_status_for(const RunResult &result) -> AsyncLiveStatus {
+    switch (result.outcome) {
+    case Outcome::Pass: return AsyncLiveStatus::Pass;
+    case Outcome::Fail: return AsyncLiveStatus::Fail;
+    case Outcome::Skip: return AsyncLiveStatus::Skip;
+    case Outcome::Blocked: return AsyncLiveStatus::Blocked;
+    case Outcome::XFail: return AsyncLiveStatus::XFail;
+    case Outcome::XPass: return AsyncLiveStatus::XPass;
     }
-    scheduler.run();
+    return AsyncLiveStatus::Fail;
+}
 
-    for (auto &run : runs) {
-        ++counters.total;
-        auto      inv = finish_async_run(run);
-        RunResult rr  = finish_invoke_result(state, cases[run.case_index], inv, counters);
-        if (state.acc) {
-            gentest::runner::record_case_result(*state.acc, cases[run.case_index], std::move(rr), state.record_results);
+auto async_live_detail_for(const RunResult &result) -> std::string {
+    switch (result.outcome) {
+    case Outcome::Fail:
+        if (!result.failures.empty()) {
+            return fmt::format("{} issue(s)", result.failures.size());
         }
+        if (!result.summary_issues.empty()) {
+            return fmt::format("{} issue(s)", result.summary_issues.size());
+        }
+        return "failed";
+    case Outcome::Blocked:
+    case Outcome::Skip: return result.skip_reason;
+    case Outcome::XFail:
+    case Outcome::XPass: return result.xfail_reason;
+    case Outcome::Pass: return {};
+    }
+    return {};
+}
+
+auto deferred_case_line(std::string_view name, const RunResult &result) -> std::string {
+    const auto status = async_live_status_text(async_live_status_for(result));
+    auto       line   = fmt::format("[ {:^9} ] {}", status, name);
+    const auto detail = async_live_detail_for(result);
+    if (!detail.empty()) {
+        line += fmt::format(" :: {}", detail);
+    }
+    line += fmt::format(" ({} ms)", duration_ms(result.time_s));
+    return line;
+}
+
+void print_deferred_async_details(const RunResult &result) {
+    if (result.outcome == Outcome::Fail) {
+        if (!result.timeline.empty()) {
+            for (const auto &line : result.timeline) {
+                fmt::print(stderr, "{}\n", line);
+            }
+            fmt::print(stderr, "\n");
+            return;
+        }
+        for (const auto &issue : result.summary_issues) {
+            fmt::print(stderr, "{}\n", issue);
+        }
+        if (!result.summary_issues.empty()) {
+            fmt::print(stderr, "\n");
+        }
+        return;
+    }
+
+    if (result.outcome == Outcome::XPass && !result.failures.empty()) {
+        fmt::print(stderr, "{}\n\n", result.failures.front());
+        return;
+    }
+
+    if (result.outcome == Outcome::Pass && !result.timeline.empty()) {
+        for (const auto &line : result.timeline) {
+            fmt::print("{}\n", line);
+        }
+        fmt::print("\n");
     }
 }
 
 bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans,
                            bool fail_fast, TestCounters &counters) {
     std::vector<AsyncCaseRun> async_runs;
+    AsyncStatusRenderer       renderer(std::cout, AsyncStatusRenderer::terminal_mode(state.color_output), state.color_output);
+    std::vector<std::string>  deferred_case_lines;
+    std::vector<RunResult>    deferred_results;
+    TestRunContext            final_state = state;
+    final_state.suppress_case_output      = renderer.enabled();
+
+    const auto finalize_run = [&](std::size_t run_index) {
+        auto &run = async_runs[run_index];
+        if (run.finalized) {
+            return;
+        }
+        run.finalized = true;
+        ++counters.total;
+        auto      inv = finish_async_run(run);
+        RunResult rr  = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
+        if (renderer.enabled()) {
+            renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
+            if (!renderer.completed_lines_for_test().empty()) {
+                deferred_case_lines.push_back(renderer.completed_lines_for_test().back());
+            }
+            deferred_results.push_back(rr);
+        }
+        if (state.acc) {
+            gentest::runner::record_case_result(*state.acc, cases[run.case_index], std::move(rr), state.record_results);
+        }
+    };
+
+    BatchAsyncScheduler scheduler(async_runs, renderer.enabled() ? &renderer : nullptr, finalize_run);
+
+    const auto should_stop = [&] { return fail_fast && (counters.failures > 0 || counters.blocked > 0); };
+
+    const auto pump_async = [&] {
+        do {
+            scheduler.run_ready();
+            if (should_stop()) {
+                return true;
+            }
+        } while (fail_fast && scheduler.has_ready());
+        return should_stop();
+    };
 
     const auto handle_case = [&](std::size_t i, void *ctx) {
+        if (pump_async()) {
+            return true;
+        }
         const auto &test = cases[i];
         if (test.should_skip) {
-            RunResult rr = make_static_skip_result(state, test, counters);
+            RunResult rr = make_static_skip_result(renderer.enabled() ? final_state : state, test, counters);
+            if (renderer.enabled()) {
+                deferred_case_lines.push_back(deferred_case_line(test.name, rr));
+                deferred_results.push_back(rr);
+            }
             if (state.acc) {
                 gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
             }
-            return;
+            return pump_async();
         }
         if (test.async_fn) {
+            const auto run_index = async_runs.size();
             schedule_async_case(async_runs, test, i, ctx);
-            return;
+            renderer.add_case(run_index, test.name);
+            auto &run = async_runs[run_index];
+            if (run.task && run.exception == InvokeException::None) {
+                scheduler.add_top_level(run_index, *run.task);
+            } else {
+                finalize_run(run_index);
+            }
+            return pump_async();
         }
-        execute_and_record(state, test, ctx, counters);
+        if (renderer.enabled()) {
+            RunResult rr = execute_one(final_state, test, ctx, counters);
+            deferred_case_lines.push_back(deferred_case_line(test.name, rr));
+            deferred_results.push_back(rr);
+            if (state.acc) {
+                gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
+            }
+        } else {
+            execute_and_record(state, test, ctx, counters);
+        }
+        return pump_async();
     };
 
+    bool stop_requested = false;
     for (const auto &plan : plans) {
         for (auto i : plan.free_like) {
-            handle_case(i, nullptr);
+            if (handle_case(i, nullptr)) {
+                stop_requested = true;
+                break;
+            }
+        }
+        if (stop_requested) {
+            break;
         }
 
         const auto collect_groups = [&](const std::vector<gentest::runner::FixtureGroupPlan> &groups) {
@@ -610,22 +851,45 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                         group_reason.empty() ? std::string("fixture allocation returned null") : std::move(group_reason);
                     for (auto i : group.idxs) {
                         record_synthetic_skip(state, cases[i], msg, counters, true);
+                        if (should_stop()) {
+                            return true;
+                        }
                     }
                     continue;
                 }
 
                 for (auto i : group.idxs) {
-                    handle_case(i, group_ctx);
+                    if (handle_case(i, group_ctx)) {
+                        return true;
+                    }
                 }
             }
+            return false;
         };
 
-        collect_groups(plan.suite_groups);
-        collect_groups(plan.global_groups);
+        if (collect_groups(plan.suite_groups)) {
+            break;
+        }
+        if (collect_groups(plan.global_groups)) {
+            break;
+        }
     }
 
-    finish_and_record_async_runs(state, cases, async_runs, counters);
-    return fail_fast && counters.failures > 0;
+    scheduler.finish_unresumable();
+    for (std::size_t run_index = 0; run_index < async_runs.size(); ++run_index) {
+        finalize_run(run_index);
+    }
+
+    renderer.finish();
+    if (renderer.enabled()) {
+        for (const auto &line : deferred_case_lines) {
+            fmt::print("{}\n", line);
+        }
+    }
+    for (const auto &result : deferred_results) {
+        print_deferred_async_details(result);
+    }
+    return should_stop();
 }
 
 } // namespace

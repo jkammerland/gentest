@@ -105,6 +105,7 @@ libgentest_runtime = static_library(
     'src/bench_stats.cpp',
     'src/context_api.cpp',
     'src/runtime_context.cpp',
+    'src/runner_async_status_renderer.cpp',
     'src/runner_case_invoker.cpp',
     'src/runner_cli.cpp',
     'src/runner_fixture_runtime.cpp',
