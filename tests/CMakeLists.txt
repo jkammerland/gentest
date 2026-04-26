@@ -261,6 +261,16 @@ gentest_add_cmake_script_test(
         "REQUIRED_SUBSTRING=cannot resume, resume handle never created or lost"
         "FORBID_SUBSTRING=[ BLOCKED ] async/blocked/never")
 
+gentest_add_cmake_script_test(
+    NAME async_unresumable_failure_location
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=async/blocked/never --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=last suspended at tests/async/cases.cpp:"
+        "FORBID_SUBSTRING=[ BLOCKED ] async/blocked/never")
+
 gentest_add_check_counts(
     NAME async_selected_dependency_unresumable
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
