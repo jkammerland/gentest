@@ -20,7 +20,8 @@
 //   wrapper_ephemeral:{w}, {fixture}, {method}, {bench_invoke}
 //   wrapper_stateful: {w}, {fixture}, {method}
 //   case_entry:       {name}, {wrapper}, {file}, {line}, {tags}, {reqs},
-//                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite}
+//                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite},
+//                     {async_wrapper}, {is_async}
 //   group_runner_*:   {gid}, {fixture}, {count}, {idxs}
 //   array_decl_*:     {name}; or {count}, {name}, {body}
 //   forward_decl_*:   {name}; or {scope}, {lines}
@@ -39,6 +40,7 @@ inline constexpr std::string_view registration_preamble_light = R"CPP(#include <
 #include <span>
 #include <string_view>
 
+#include "gentest/async.h"
 #include "gentest/detail/registration_runtime.h"
 )CPP";
 ;
@@ -51,6 +53,7 @@ inline constexpr std::string_view registration_preamble_full = R"CPP(#include <a
 #include <type_traits>
 #include <utility>
 
+#include "gentest/async.h"
 #include "gentest/detail/generated_runtime.h"
 )CPP";
 ;
@@ -65,6 +68,26 @@ inline void gentest_maybe_setup(T& t) {
 template <typename T>
 inline void gentest_maybe_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) t.tearDown();
+}
+
+template <typename T>
+inline ::gentest::async_test<void> gentest_maybe_async_setup(T& t) {
+    if constexpr (std::is_base_of_v<gentest::AsyncFixtureSetup, T>) {
+        co_await t.setUp();
+    } else if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) {
+        t.setUp();
+    }
+    co_return;
+}
+
+template <typename T>
+inline ::gentest::async_test<void> gentest_maybe_async_teardown(T& t) {
+    if constexpr (std::is_base_of_v<gentest::AsyncFixtureTearDown, T>) {
+        co_await t.tearDown();
+    } else if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) {
+        t.tearDown();
+    }
+    co_return;
 }
 
 inline void gentest_record_fixture_failure(std::string_view fixture, std::string_view reason) {
@@ -349,7 +372,9 @@ inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
         .should_skip = {should_skip},
         .fixture = {fixture},
         .fixture_lifetime = {lifetime},
-        .suite = {suite}
+        .suite = {suite},
+        .async_fn = {async_wrapper},
+        .is_async = {is_async}
     }},
 
 )FMT";

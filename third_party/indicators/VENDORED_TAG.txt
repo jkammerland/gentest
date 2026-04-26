@@ -1,0 +1,13 @@
+p-ranav/indicators
+Source: https://github.com/p-ranav/indicators
+Tag: v2.3
+Commit: 26d39ad8fb438f5f50fb16427f554045d8431030
+
+Copied paths:
+- include/indicators -> third_party/include/indicators
+- LICENSE -> third_party/licenses/indicators-MIT.txt
+- LICENSE.termcolor -> third_party/licenses/indicators-termcolor-BSD.txt
+
+Local patches:
+- third_party/include/indicators/termcolor.hpp includes <cstdint> so the
+  vendored headers are self-contained when compiled under modern Clang.

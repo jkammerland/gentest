@@ -10,6 +10,7 @@ namespace gentest::runner {
 enum class InvokeException {
     None,
     Skip,
+    Blocked,
     Assertion,
     Failure,
     StdException,

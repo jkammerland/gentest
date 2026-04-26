@@ -5,6 +5,7 @@
 #include "gentest/log_policy.h"
 
 #include <atomic>
+#include <cassert>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -77,6 +78,17 @@ GENTEST_RUNTIME_API auto current_test_storage() -> std::shared_ptr<TestContextIn
 GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer &;
 GENTEST_RUNTIME_API auto default_log_policy_storage() -> std::atomic<std::underlying_type_t<gentest::LogPolicy>> &;
 
+[[noreturn]] inline void fail_without_active_context(std::string_view operation) {
+    (void)std::fprintf(stderr,
+                       "gentest: fatal: %.*s without an active test context.\n"
+                       "        Did you forget to set the current context in this thread/coroutine?\n",
+                       static_cast<int>(operation.size()), operation.data());
+#ifndef NDEBUG
+    assert(false && "gentest operation without an active test context");
+#endif
+    std::abort();
+}
+
 template <class T> inline void append_moved(std::vector<T> &dst, std::vector<T> &src) {
     if (src.empty()) {
         return;
@@ -137,10 +149,7 @@ inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo>
 inline void request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
     auto ctx = current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        (void)std::fputs("gentest: fatal: skip called without an active test context.\n"
-                         "        Did you forget to set the current context in this thread/coroutine?\n",
-                         stderr);
-        std::abort();
+        fail_without_active_context("skip called");
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->runtime_skip_requested.store(true, std::memory_order_relaxed);

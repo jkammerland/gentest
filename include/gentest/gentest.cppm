@@ -24,6 +24,9 @@ using ::gentest::assert_eq;
 using ::gentest::assert_false;
 using ::gentest::assert_true;
 using ::gentest::assertion;
+using ::gentest::async_test;
+using ::gentest::AsyncFixtureSetup;
+using ::gentest::AsyncFixtureTearDown;
 using ::gentest::Case;
 using ::gentest::CurrentContext;
 using ::gentest::CurrentToken;
@@ -72,6 +75,12 @@ using ::gentest::approx::Approx;
 using ::gentest::approx::operator==;
 using ::gentest::approx::operator!=;
 } // namespace approx
+
+namespace async {
+using ::gentest::async::completion_source;
+using ::gentest::async::manual_event;
+using ::gentest::async::yield;
+} // namespace async
 
 namespace asserts {
 using ::gentest::asserts::ASSERT_EQ;

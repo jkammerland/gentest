@@ -55,6 +55,12 @@ gentest_link_mocks(${PROJECT_NAME}_concurrency_tests PRIVATE gentest_textual_sui
 # Outcome semantics target (no default add_test; contains deliberate FAIL/XPASS cases)
 gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
 
+# Coroutine async target (no default add_test; contains deliberate BLOCKED cases)
+gentest_add_suite(async TARGET ${PROJECT_NAME}_async_tests NO_CTEST)
+
+# Slow coroutine live-renderer demo target (no default suite add_test; intended for terminal inspection)
+gentest_add_suite(async_live_slow TARGET ${PROJECT_NAME}_async_live_slow_tests NO_CTEST)
+
 # Benchmark-only target: collect all suite translation units into one target so
 # gentest_codegen sees many wrapper sources in a single invocation (useful for
 # profiling/benchmarking internal codegen parallelism).
@@ -69,7 +75,8 @@ gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
 set(_gentest_codegen_parallel_bench_suites
     ${_gentest_default_suites}
     concurrency
-    outcomes)
+    outcomes
+    async)
 if(GENTEST_WITH_LIBASSERT)
     list(APPEND _gentest_codegen_parallel_bench_suites libassert)
 endif()
@@ -167,6 +174,112 @@ unset(_gentest_fields)
 unset(_gentest_name)
 unset(_gentest_required_substring)
 unset(_gentest_run)
+
+gentest_add_check_counts(
+    NAME async_batch_cooperative
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/batch/*)
+
+gentest_add_cmake_script_test(
+    NAME async_live_renderer_non_tty_plain
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/batch/* --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "FORBID_SUBSTRINGS=RUNNING|SUSPENDED")
+
+gentest_add_check_counts(
+    NAME async_live_demo_cooperative
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/live_demo/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_stops_after_async_failure
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast/* --kind=test --fail-fast --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast/00_async_fail"
+        "FORBID_SUBSTRING=async/fail_fast/01_sync_should_not_run")
+
+gentest_add_check_counts(
+    NAME async_live_slow_demo_inventory
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    LIST
+    CASES 6
+    ARGS --kind=test)
+
+gentest_add_check_counts(
+    NAME async_value_discard
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=async/value/discard)
+
+gentest_add_check_counts(
+    NAME async_local_fixture
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=async/fixture/local_async)
+
+gentest_add_check_counts(
+    NAME async_mixed_fixtures
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=async/fixture/mixed)
+
+gentest_add_check_counts(
+    NAME async_unresumable_failure
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 1
+    SKIP 0
+    BLOCKED 0
+    EXPECT_RC 1
+    ARGS --run=async/blocked/never)
+
+gentest_add_cmake_script_test(
+    NAME async_unresumable_failure_reason
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=async/blocked/never --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=cannot resume async test; suspended at tests/async/cases.cpp:"
+        "FORBID_SUBSTRING=[ BLOCKED ] async/blocked/never")
+
+gentest_add_cmake_script_test(
+    NAME async_unresumable_failure_location
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=async/blocked/never --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=cannot resume async test; suspended at tests/async/cases.cpp:"
+        "FORBID_SUBSTRINGS=[ BLOCKED ] async/blocked/never|last suspend backtrace|#0")
+
+gentest_add_check_counts(
+    NAME async_selected_dependency_unresumable
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 1
+    SKIP 0
+    BLOCKED 0
+    EXPECT_RC 1
+    ARGS --run=async/batch/client)
 
 option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
@@ -271,6 +384,16 @@ gentest_add_cmake_script_test(
         "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
         "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
 set_property(TEST gentest_runner_registry_runtime_hidden APPEND PROPERTY LABELS "proof")
+
+gentest_add_cmake_script_test(
+    NAME gentest_vendored_indicators_compile
+    NO_EMULATOR
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckVendoredIndicatorsCompile.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_BINARY_DIR}/vendored_indicators_compile_check"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
 
 # Lint-only checks for generator
 gentest_add_check_exit_code(
@@ -1393,6 +1516,15 @@ gentest_add_manual_regression(
 gentest_add_check_exit_code(
     NAME regression_measured_report_coverage
     PROG $<TARGET_FILE:gentest_regression_measured_report_coverage>
+    EXPECT_RC 0)
+
+gentest_add_manual_regression(
+    TARGET gentest_regression_async_status_renderer
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_status_renderer.cpp)
+
+gentest_add_check_exit_code(
+    NAME regression_async_status_renderer
+    PROG $<TARGET_FILE:gentest_regression_async_status_renderer>
     EXPECT_RC 0)
 
 # CLI checks for VSCode integration

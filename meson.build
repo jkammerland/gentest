@@ -101,9 +101,11 @@ gentest_third_party_include_path = join_paths(meson.current_source_dir(), 'third
 libgentest_runtime = static_library(
   'gentest_runtime',
   [
+    'src/async.cpp',
     'src/bench_stats.cpp',
     'src/context_api.cpp',
     'src/runtime_context.cpp',
+    'src/runner_async_status_renderer.cpp',
     'src/runner_case_invoker.cpp',
     'src/runner_cli.cpp',
     'src/runner_fixture_runtime.cpp',

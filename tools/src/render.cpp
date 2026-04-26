@@ -106,6 +106,7 @@ struct WrapperSpec {
     std::string                 value_args; // comma-separated value args (may be empty)
     bool                        method_is_template = false;
     bool                        returns_value      = false; // whether to capture result
+    bool                        returns_async      = false;
     bool                        is_measured        = false;
 };
 
@@ -132,6 +133,25 @@ std::string build_fixture_inits(const std::vector<FreeFixtureUse> &types) {
         const std::string suite_literal =
             (fx.scope == FixtureScope::Suite) ? ("\"" + escape_string(fx.suite_name) + "\"") : std::string("std::string_view{}");
         append_format(inits, "    if (!gentest_init_shared_fixture(fx{}_, {}, {}, \"{}\")) return;\n", i, scope_literal, suite_literal,
+                      escape_string(fx.type_name));
+    }
+    return inits;
+}
+
+std::string build_fixture_async_inits(const std::vector<FreeFixtureUse> &types) {
+    std::string inits;
+    inits.reserve(types.size() * 56);
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        const auto &fx = types[i];
+        if (fx.scope == FixtureScope::Local) {
+            append_format(inits, "    if (!gentest_init_fixture(fx{}_, \"{}\")) co_return;\n", i, escape_string(fx.type_name));
+            continue;
+        }
+        const char       *scope_literal = (fx.scope == FixtureScope::Suite) ? "::gentest::detail::SharedFixtureScope::Suite"
+                                                                            : "::gentest::detail::SharedFixtureScope::Global";
+        const std::string suite_literal =
+            (fx.scope == FixtureScope::Suite) ? ("\"" + escape_string(fx.suite_name) + "\"") : std::string("std::string_view{}");
+        append_format(inits, "    if (!gentest_init_shared_fixture(fx{}_, {}, {}, \"{}\")) co_return;\n", i, scope_literal, suite_literal,
                       escape_string(fx.type_name));
     }
     return inits;
@@ -198,6 +218,34 @@ std::string build_fixture_teardown_guarded(const std::vector<FreeFixtureUse> &ty
             continue;
         }
         append_format(td, "    if ({}fx{}_teardown_armed) gentest_maybe_teardown({}fx{}_.ref());\n", flag_prefix, i, fixture_prefix, i);
+    }
+    return td;
+}
+
+std::string build_fixture_async_setup_tracked(const std::vector<FreeFixtureUse> &types, std::string_view fixture_prefix = {},
+                                              std::string_view flag_prefix = {}) {
+    std::string setup;
+    setup.reserve(types.size() * 96);
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        if (types[i].scope != FixtureScope::Local) {
+            continue;
+        }
+        append_format(setup, "    {}fx{}_teardown_armed = true;\n", flag_prefix, i);
+        append_format(setup, "    co_await gentest_maybe_async_setup({}fx{}_.ref());\n", fixture_prefix, i);
+    }
+    return setup;
+}
+
+std::string build_fixture_async_teardown_guarded(const std::vector<FreeFixtureUse> &types, std::string_view fixture_prefix = {},
+                                                 std::string_view flag_prefix = {}) {
+    std::string td;
+    td.reserve(types.size() * 88);
+    for (std::size_t i = types.size(); i-- > 0;) {
+        if (types[i].scope != FixtureScope::Local) {
+            continue;
+        }
+        append_format(td, "        if ({}fx{}_teardown_armed) co_await gentest_maybe_async_teardown({}fx{}_.ref());\n", flag_prefix, i,
+                      fixture_prefix, i);
     }
     return td;
 }
@@ -315,6 +363,10 @@ std::string forward_param_expr(std::string_view name) { return fmt::format("stat
 
 std::string helper_name_for(const WrapperSpec &spec) {
     return "__gentest_lookup_helper_" + spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
+}
+
+std::string async_helper_name_for(const WrapperSpec &spec) {
+    return "__gentest_async_lookup_helper_" + spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
 }
 
 std::string build_helper_param_decls(const std::vector<FreeFixtureUse> &fixtures, bool include_self) {
@@ -610,6 +662,152 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
     }
 }
 
+std::string make_async_await_expr(const std::string &fn, const std::string &args) { return fmt::format("co_await {}{};", fn, args); }
+
+void append_async_entrypoint(std::string &out, const WrapperSpec &spec, const std::string &body) {
+    const std::string suffix       = spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
+    const std::string body_name    = "kCaseAsyncBody_" + suffix;
+    const std::string wrapper_name = "kCaseAsyncInvoke_" + suffix;
+
+    out += "static ::gentest::async_test<void> " + body_name + "(void* ctx_) {\n";
+    out += body;
+    out += "}\n\n";
+    out += "static ::gentest::detail::AsyncTaskPtr " + wrapper_name + "(void* ctx_) {\n";
+    out += "    return ::gentest::detail::make_async_task(" + body_name + "(ctx_));\n";
+    out += "}\n\n";
+}
+
+void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
+    if (!spec.returns_async) {
+        return;
+    }
+
+    const auto helper_name      = async_helper_name_for(spec);
+    const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
+    out += build_helper_definition(spec, helper_name);
+
+    std::string body;
+    switch (spec.kind) {
+    case WrapperKind::Free: {
+        body += "    (void)ctx_;\n";
+        body += "    " + make_async_await_expr(qualified_helper, "()") + "\n";
+        append_async_entrypoint(out, spec, body);
+        return;
+    }
+    case WrapperKind::FreeWithFixtures: {
+        const std::string decls            = build_fixture_decls(spec.fixtures);
+        const std::string inits            = build_fixture_async_inits(spec.fixtures);
+        const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
+        const std::string setup_tracked    = build_fixture_async_setup_tracked(spec.fixtures);
+        const std::string teardown_guarded = build_fixture_async_teardown_guarded(spec.fixtures);
+        const auto        invoke = make_async_await_expr(qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
+        body += "    (void)ctx_;\n";
+        body += decls;
+        body += inits;
+        body += setup_flags;
+        body += "    std::exception_ptr gentest_async_error_;\n";
+        body += "    try {\n";
+        body += setup_tracked;
+        body += "        " + invoke + "\n";
+        body += "    } catch (...) {\n";
+        body += "        gentest_async_error_ = std::current_exception();\n";
+        body += "    }\n";
+        body += teardown_guarded;
+        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+        append_async_entrypoint(out, spec, body);
+        return;
+    }
+    case WrapperKind::MemberEphemeral: {
+        const auto invoke = make_async_await_expr(qualified_helper, "(fx_.ref())");
+        body += "    (void)ctx_;\n";
+        body += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
+        body += "    if (!gentest_init_fixture(fx_, \"" + escape_string(spec.callee) + "\")) co_return;\n";
+        body += "    bool fx_teardown_armed = false;\n";
+        body += "    std::exception_ptr gentest_async_error_;\n";
+        body += "    try {\n";
+        body += "        fx_teardown_armed = true;\n";
+        body += "        co_await gentest_maybe_async_setup(fx_.ref());\n";
+        body += "        " + invoke + "\n";
+        body += "    } catch (...) {\n";
+        body += "        gentest_async_error_ = std::current_exception();\n";
+        body += "    }\n";
+        body += "    if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
+        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+        append_async_entrypoint(out, spec, body);
+        return;
+    }
+    case WrapperKind::MemberShared: {
+        const auto invoke = make_async_await_expr(qualified_helper, "(*fx_)");
+        body += "    auto* fx_ = static_cast<" + spec.callee + "*>(ctx_);\n";
+        body += "    if (!fx_) {\n";
+        body += "        gentest_record_fixture_failure(\"" + escape_string(spec.callee) + "\", \"instance missing\");\n";
+        body += "        co_return;\n";
+        body += "    }\n";
+        body += "    " + invoke + "\n";
+        append_async_entrypoint(out, spec, body);
+        return;
+    }
+    case WrapperKind::MemberEphemeralWithFixtures: {
+        const std::string decls            = build_fixture_decls(spec.fixtures);
+        const std::string inits            = build_fixture_async_inits(spec.fixtures);
+        const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
+        const std::string setup_tracked    = build_fixture_async_setup_tracked(spec.fixtures);
+        const std::string teardown_guarded = build_fixture_async_teardown_guarded(spec.fixtures);
+        const auto        invoke           = make_async_await_expr(
+            qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
+        body += "    (void)ctx_;\n";
+        body += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
+        body += "    if (!gentest_init_fixture(fx_, \"" + escape_string(spec.callee) + "\")) co_return;\n";
+        body += "    bool fx_teardown_armed = false;\n";
+        body += decls;
+        body += inits;
+        body += setup_flags;
+        body += "    std::exception_ptr gentest_async_error_;\n";
+        body += "    try {\n";
+        body += "        fx_teardown_armed = true;\n";
+        body += "        co_await gentest_maybe_async_setup(fx_.ref());\n";
+        body += setup_tracked;
+        body += "        " + invoke + "\n";
+        body += "    } catch (...) {\n";
+        body += "        gentest_async_error_ = std::current_exception();\n";
+        body += "    }\n";
+        body += teardown_guarded;
+        body += "    if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
+        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+        append_async_entrypoint(out, spec, body);
+        return;
+    }
+    case WrapperKind::MemberSharedWithFixtures: {
+        const std::string decls            = build_fixture_decls(spec.fixtures);
+        const std::string inits            = build_fixture_async_inits(spec.fixtures);
+        const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
+        const std::string setup_tracked    = build_fixture_async_setup_tracked(spec.fixtures);
+        const std::string teardown_guarded = build_fixture_async_teardown_guarded(spec.fixtures);
+        const auto        invoke           = make_async_await_expr(
+            qualified_helper, format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
+        body += "    auto* fx_ = static_cast<" + spec.callee + "*>(ctx_);\n";
+        body += "    if (!fx_) {\n";
+        body += "        gentest_record_fixture_failure(\"" + escape_string(spec.callee) + "\", \"instance missing\");\n";
+        body += "        co_return;\n";
+        body += "    }\n";
+        body += decls;
+        body += inits;
+        body += setup_flags;
+        body += "    std::exception_ptr gentest_async_error_;\n";
+        body += "    try {\n";
+        body += setup_tracked;
+        body += "        " + invoke + "\n";
+        body += "    } catch (...) {\n";
+        body += "        gentest_async_error_ = std::current_exception();\n";
+        body += "    }\n";
+        body += teardown_guarded;
+        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+        append_async_entrypoint(out, spec, body);
+        return;
+    }
+    }
+}
+
 WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
     WrapperSpec spec{};
     spec.wrapper_name       = std::string("kCaseInvoke_") + std::to_string(idx);
@@ -644,6 +842,7 @@ WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
         spec.free_args = test.free_call_args;
     }
     spec.returns_value = test.returns_value;
+    spec.returns_async = test.returns_async;
     return spec;
 }
 } // namespace
@@ -655,6 +854,7 @@ std::string render_wrappers(const std::vector<TestCaseInfo> &cases, const Wrappe
         const auto &test = cases[idx];
         const auto  spec = build_wrapper_spec(test, idx);
         append_wrapper(out, spec, templates);
+        append_async_wrapper(out, spec);
     }
     return out;
 }
@@ -677,7 +877,10 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
             fmt::arg("fixture", !test.fixture_qualified_name.empty() ? "\"" + escape_string(test.fixture_qualified_name) + "\""
                                                                      : std::string("std::string_view{}")),
             fmt::arg("lifetime", fixture_lifetime_literal(test.fixture_lifetime)),
-            fmt::arg("suite", !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}")));
+            fmt::arg("suite", !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}")),
+            fmt::arg("async_wrapper",
+                     test.returns_async ? std::string("&::kCaseAsyncInvoke_") + std::to_string(idx) : std::string("nullptr")),
+            fmt::arg("is_async", test.returns_async ? "true" : "false"));
     }
     return out;
 }

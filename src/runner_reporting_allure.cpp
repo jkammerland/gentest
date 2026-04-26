@@ -129,6 +129,9 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
         obj["time"]   = it.time_s;
         boost::json::array labels;
         labels.push_back({{"name", "suite"}, {"value", it.suite}});
+        if (it.outcome == Outcome::Blocked) {
+            labels.push_back({{"name", "blocked"}, {"value", "true"}});
+        }
         if (it.skipped && it.skip_reason.starts_with("xfail")) {
             std::string_view r = it.skip_reason;
             if (r.starts_with("xfail:")) {

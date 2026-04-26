@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cctype>
 #include <clang/AST/Decl.h>
+#include <clang/AST/DeclTemplate.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/SourceManager.h>
 #include <cmath>
@@ -50,6 +51,20 @@ bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
         }
     }
     return true;
+}
+
+bool is_gentest_async_test_return(QualType type) {
+    const Type *type_ptr = type.getCanonicalType().getTypePtrOrNull();
+    if (!type_ptr) {
+        return false;
+    }
+    const auto *record = type_ptr->getAsCXXRecordDecl();
+    const auto *spec   = llvm::dyn_cast_or_null<ClassTemplateSpecializationDecl>(record);
+    if (!spec) {
+        return false;
+    }
+    const auto *templ = spec->getSpecializedTemplate();
+    return templ && templ->getQualifiedNameAsString() == "gentest::async_test";
 }
 
 std::string mis_scoped_gentest_message(std::string_view attribute) {
@@ -493,6 +508,13 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
 
+    const bool returns_async = is_gentest_async_test_return(func->getReturnType());
+    if (returns_async && (summary.is_benchmark || summary.is_jitter)) {
+        had_error_ = true;
+        report("gentest::async_test<T> return types are supported only for test cases, not bench or jitter cases");
+        return;
+    }
+
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &display_args, const std::string &call_args,
                         const std::vector<std::string>                 &free_fixture_types,
@@ -517,6 +539,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.call_arguments               = call_args;
         info.is_function_template         = is_function_template;
         info.returns_value                = !func->getReturnType()->isVoidType();
+        info.returns_async                = returns_async;
         info.namespace_parts              = namespace_parts;
         info.free_fixture_types           = free_fixture_types;
         info.free_fixture_required_scopes = free_fixture_required_scopes;

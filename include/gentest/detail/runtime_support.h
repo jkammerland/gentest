@@ -164,6 +164,7 @@ inline std::string comparison_failure_text(std::string_view label, const std::so
 
 GENTEST_RUNTIME_API void record_failure(std::string msg);
 GENTEST_RUNTIME_API void record_failure(std::string msg, const std::source_location &loc);
+GENTEST_RUNTIME_API void record_failure_at(std::string msg, std::string file, unsigned line);
 
 [[noreturn]] inline void terminate_no_exceptions_fatal(std::string_view origin) {
     ::gentest::detail::run_noexceptions_fatal_hook();

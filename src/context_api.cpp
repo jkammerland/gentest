@@ -1,8 +1,6 @@
 #include "gentest/context.h"
 #include "gentest/detail/runtime_context.h"
 
-#include <cstdio>
-#include <cstdlib>
 #include <mutex>
 #include <string>
 
@@ -41,7 +39,7 @@ void log(std::string_view message) {
     auto  ctx    = detail::current_test_storage();
     auto &buffer = detail::current_buffer_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        return;
+        detail::fail_without_active_context("log called");
     }
     if (buffer.owner != ctx.get()) {
         detail::flush_current_buffer_for(buffer.owner);
@@ -100,10 +98,7 @@ void xfail(std::string_view reason, const std::source_location &loc) {
     (void)loc;
     auto ctx = detail::current_test_storage();
     if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        (void)std::fputs("gentest: fatal: xfail called without an active test context.\n"
-                         "        Did you forget to set the current context in this thread/coroutine?\n",
-                         stderr);
-        std::abort();
+        detail::fail_without_active_context("xfail called");
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->xfail_requested = true;
