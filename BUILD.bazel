@@ -15,6 +15,7 @@ filegroup(
     srcs = glob([
         "include/gentest/*.h",
         "include/gentest/detail/*.h",
+        "third_party/include/indicators/**/*.hpp",
         "third_party/include/tabulate/*.hpp",
     ], allow_empty = False),
     visibility = ["//visibility:public"],
@@ -148,6 +149,7 @@ alias(
 cc_library(
     name = 'gentest_runtime',
     srcs = [
+        'src/async.cpp',
         'src/bench_stats.cpp',
         'src/context_api.cpp',
         'src/runtime_context.cpp',
@@ -185,6 +187,7 @@ cc_library(
     hdrs = glob([
         'include/gentest/*.h',
         'include/gentest/detail/*.h',
+        'third_party/include/indicators/**/*.hpp',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
     copts = _gentest_public_copts,
@@ -200,6 +203,7 @@ cc_library(
     hdrs = glob([
         'include/gentest/*.h',
         'include/gentest/detail/*.h',
+        'third_party/include/indicators/**/*.hpp',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
     copts = _gentest_public_module_copts,
@@ -219,6 +223,7 @@ cc_library(
     hdrs = glob([
         'include/gentest/*.h',
         'include/gentest/detail/*.h',
+        'third_party/include/indicators/**/*.hpp',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
     copts = _gentest_public_module_copts,
@@ -239,6 +244,7 @@ cc_library(
     hdrs = glob([
         'include/gentest/*.h',
         'include/gentest/detail/*.h',
+        'third_party/include/indicators/**/*.hpp',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
     copts = _gentest_public_module_copts,

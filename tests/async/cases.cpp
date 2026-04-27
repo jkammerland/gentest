@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -227,6 +228,13 @@ struct [[using gentest: fixture(suite)]] GroupFenceSuiteFixture {};
 struct [[using gentest: fixture(suite)]] GroupFenceFirstSuiteFixture {};
 struct [[using gentest: fixture(suite)]] GroupFenceSecondSuiteFixture {};
 
+struct LocalAsyncThrowingTeardownFixture : gentest::AsyncFixtureTearDown {
+    gentest::async_test<void> tearDown() override {
+        co_await gentest::async::yield();
+        throw std::runtime_error("async-teardown-secondary-marker");
+    }
+};
+
 [[using gentest: test("batch/server")]]
 gentest::async_test<void> server() {
     order.clear();
@@ -312,6 +320,12 @@ gentest::async_test<void> local_async_lifecycle_use(LocalAsyncLifecycleFixture &
     EXPECT_TRUE(fixture.setup);
     EXPECT_FALSE(fixture.torn_down);
     co_return;
+}
+
+[[using gentest: test("fixture/local_teardown_dual_failure")]]
+gentest::async_test<void> local_async_teardown_preserves_primary_failure(LocalAsyncThrowingTeardownFixture &) {
+    co_await gentest::async::yield();
+    throw std::runtime_error("async-body-primary-marker");
 }
 
 [[using gentest: test("fixture/shared_suite/00_async_wait")]]

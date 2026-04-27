@@ -245,7 +245,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 28
+    CASES 29
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
@@ -255,7 +255,7 @@ gentest_add_cmake_script_test(
     ARGS --list --kind=test
     DEFINES
         "EXPECT_RC=0"
-        "REQUIRED_SUBSTRINGS=async/fixture/local_lifecycle/00_async_use|async/fixture/shared_suite/00_async_wait|async/fixture/shared_global/01_async_wait|async/fixture/shared_suite_unresumable/00_async_never|async/fixture/shared_global_unresumable/00_async_never|async/fixture/group_fence/00_async_wait|async/fixture/group_fence/02_suite_check|async/fixture/group_fence_suite/00_async_wait")
+        "REQUIRED_SUBSTRINGS=async/fixture/local_lifecycle/00_async_use|async/fixture/local_teardown_dual_failure|async/fixture/shared_suite/00_async_wait|async/fixture/shared_global/01_async_wait|async/fixture/shared_suite_unresumable/00_async_never|async/fixture/shared_global_unresumable/00_async_never|async/fixture/group_fence/00_async_wait|async/fixture/group_fence/02_suite_check|async/fixture/group_fence_suite/00_async_wait")
 
 gentest_add_check_counts(
     NAME async_local_fixture_lifecycle
@@ -264,6 +264,16 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --filter=async/fixture/local_lifecycle/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_local_teardown_preserves_primary_failure
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=async/fixture/local_teardown_dual_failure --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=async-body-primary-marker"
+        "FORBID_SUBSTRING=async-teardown-secondary-marker")
 
 gentest_add_check_counts(
     NAME async_shared_suite_fixture_mixed

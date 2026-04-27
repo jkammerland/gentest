@@ -96,14 +96,14 @@ int main() {
 
     renderer.add_case(0, "async/live/running");
     renderer.add_case(1, "async/live/waiting");
-    renderer.mark_suspended(1, "waiting for dependency", "/tmp/waiting.cpp", 42);
+    renderer.mark_suspended(1, "waiting for dependency", "waiting.cpp", 42);
     renderer.mark_running(0);
 
     std::string snapshot = renderer.render_snapshot_for_test();
     if (!before(snapshot, "[ SUSPENDED ]", "[  RUNNING  ]")) {
         return fail("running row should render at the bottom of the active panel", snapshot);
     }
-    if (!contains(snapshot, "waiting for dependency @ /tmp/waiting.cpp:42")) {
+    if (!contains(snapshot, "waiting for dependency @ waiting.cpp:42")) {
         return fail("suspended row should show source location", snapshot);
     }
     if (gentest::runner::async_live_status_color_name(gentest::runner::AsyncLiveStatus::Running) != "green" ||

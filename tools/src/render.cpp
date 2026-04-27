@@ -689,6 +689,22 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
 
 std::string make_async_await_expr(const std::string &fn, const std::string &args) { return fmt::format("co_await {}{};", fn, args); }
 
+void append_async_teardown_and_rethrow(std::string &body, const std::string &teardown) {
+    if (teardown.empty()) {
+        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+        return;
+    }
+
+    body += "    if (gentest_async_error_) {\n";
+    body += "        try {\n";
+    body += teardown;
+    body += "        } catch (...) {\n";
+    body += "        }\n";
+    body += "        std::rethrow_exception(gentest_async_error_);\n";
+    body += "    }\n";
+    body += teardown;
+}
+
 void append_async_entrypoint(std::string &out, const WrapperSpec &spec, const std::string &body) {
     const std::string suffix       = spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
     const std::string body_name    = "kCaseAsyncBody_" + suffix;
@@ -737,13 +753,13 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += "    } catch (...) {\n";
         body += "        gentest_async_error_ = std::current_exception();\n";
         body += "    }\n";
-        body += teardown_guarded;
-        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+        append_async_teardown_and_rethrow(body, teardown_guarded);
         append_async_entrypoint(out, spec, body);
         return;
     }
     case WrapperKind::MemberEphemeral: {
-        const auto invoke = make_async_await_expr(qualified_helper, "(fx_.ref())");
+        const auto        invoke           = make_async_await_expr(qualified_helper, "(fx_.ref())");
+        const std::string teardown_guarded = "        if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
         body += "    (void)ctx_;\n";
         body += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
         body += "    if (!gentest_init_fixture(fx_, \"" + escape_string(spec.callee) + "\")) co_return;\n";
@@ -756,8 +772,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += "    } catch (...) {\n";
         body += "        gentest_async_error_ = std::current_exception();\n";
         body += "    }\n";
-        body += "    if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
-        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+        append_async_teardown_and_rethrow(body, teardown_guarded);
         append_async_entrypoint(out, spec, body);
         return;
     }
@@ -796,9 +811,9 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += "    } catch (...) {\n";
         body += "        gentest_async_error_ = std::current_exception();\n";
         body += "    }\n";
-        body += teardown_guarded;
-        body += "    if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
-        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+        std::string all_teardown = teardown_guarded;
+        all_teardown += "        if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
+        append_async_teardown_and_rethrow(body, all_teardown);
         append_async_entrypoint(out, spec, body);
         return;
     }
@@ -825,8 +840,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += "    } catch (...) {\n";
         body += "        gentest_async_error_ = std::current_exception();\n";
         body += "    }\n";
-        body += teardown_guarded;
-        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+        append_async_teardown_and_rethrow(body, teardown_guarded);
         append_async_entrypoint(out, spec, body);
         return;
     }

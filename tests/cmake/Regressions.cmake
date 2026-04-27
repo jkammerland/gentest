@@ -570,6 +570,10 @@ gentest_add_check_death(
         "Did you forget to set the current context in this thread/coroutine?"
     ARGS --run=regressions/logging_output/unadopted_thread_log_crashes --kind=test)
 
+if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
+    set_tests_properties(regression_logging_output_unadopted_thread_log_death PROPERTIES DISABLED "$<CONFIG:Debug>")
+endif()
+
 set(_gentest_measured_line_files
     "${CMAKE_CURRENT_SOURCE_DIR}/regressions/bench_assert_propagation.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_local_fixture_call_teardown_dualfail.cpp"
