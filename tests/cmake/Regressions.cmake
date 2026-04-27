@@ -1402,7 +1402,7 @@ gentest_add_run_and_check_file(
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_suite_failure_tag.xml
     REQUIRED_SUBSTRING "name=\"regressions/member_shared_setup_skip/suite_member\" time=\"0\">
-    <skipped message=\"blocked: fixture allocation failed\"/>"
+    <skipped message=\"blocked: shared fixture unavailable for 'regressions::NullMemberSuiteFixture': fixture allocation failed\"/>"
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_suite_failure_tag.xml)
 
@@ -1411,7 +1411,7 @@ gentest_add_run_and_check_file(
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_global_failure_tag.xml
     REQUIRED_SUBSTRING "name=\"regressions/member_shared_setup_skip/global_member\" time=\"0\">
-    <skipped message=\"blocked: fixture allocation failed\"/>"
+    <skipped message=\"blocked: shared fixture unavailable for 'regressions::NullMemberGlobalFixture': fixture allocation failed\"/>"
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_global_failure_tag.xml)
 
@@ -1906,7 +1906,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_create_assert_junit_reports_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_failure_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"blocked: fixture allocation failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:9: manual-create-assert\"/>"
+    REQUIRED_SUBSTRING "<skipped message=\"blocked: shared fixture unavailable for 'regressions::AssertingCreateFixture': fixture allocation failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:9: manual-create-assert\"/>"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_failure_tag.xml)
 
@@ -1944,7 +1944,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_setup_assert_junit_reports_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_failure_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"blocked: fixture setup failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:13: manual-setup-assert\"/>"
+    REQUIRED_SUBSTRING "<skipped message=\"blocked: shared fixture unavailable for 'regressions::AssertingSetupFixture': fixture setup failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:13: manual-setup-assert\"/>"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_failure_tag.xml)
 

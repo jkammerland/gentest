@@ -194,8 +194,9 @@ struct TestCaseInfo {
     std::vector<std::string> requirements;
     bool                     should_skip = false;
     std::string              skip_reason;
-    // Fixture/method support
-    // If non-empty, this case represents a member test on the given fixture type.
+    // Fixture/method support.
+    // This is populated for member tests. Free-function shared fixture parameters stay in free_fixtures; rendering may still publish the
+    // first shared free fixture as the generated Case.fixture so runner ordering can respect shared fixture boundaries.
     std::string     fixture_qualified_name;
     FixtureLifetime fixture_lifetime = FixtureLifetime::None;
     // Template instantiation info (for display and call generation)

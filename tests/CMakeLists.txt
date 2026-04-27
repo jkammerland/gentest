@@ -181,10 +181,10 @@ gentest_add_check_counts(
     PASS 2
     FAIL 0
     SKIP 0
-    ARGS --filter=async/batch/*)
+    ARGS --filter=async/batch/* --kind=test)
 
 gentest_add_cmake_script_test(
-    NAME async_live_renderer_non_tty_plain
+    NAME async_batch_non_tty_plain
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --filter=async/batch/* --kind=test
@@ -240,6 +240,126 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --run=async/fixture/mixed)
+
+gentest_add_check_counts(
+    NAME async_inventory
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    LIST
+    CASES 28
+    ARGS --kind=test)
+
+gentest_add_cmake_script_test(
+    NAME async_inventory_fixture_cases
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --list --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "REQUIRED_SUBSTRINGS=async/fixture/local_lifecycle/00_async_use|async/fixture/shared_suite/00_async_wait|async/fixture/shared_global/01_async_wait|async/fixture/shared_suite_unresumable/00_async_never|async/fixture/shared_global_unresumable/00_async_never|async/fixture/group_fence/00_async_wait|async/fixture/group_fence/02_suite_check|async/fixture/group_fence_suite/00_async_wait")
+
+gentest_add_check_counts(
+    NAME async_local_fixture_lifecycle
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/fixture/local_lifecycle/* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_shared_suite_fixture_mixed
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 3
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/fixture/shared_suite/* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_shared_global_fixture_mixed
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 4
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/fixture/shared_global/* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_shared_suite_fixture_unresumable
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 1
+    SKIP 0
+    BLOCKED 0
+    EXPECT_RC 1
+    ARGS --filter=async/fixture/shared_suite_unresumable/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_shared_suite_fixture_unresumable_reason
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fixture/shared_suite_unresumable/* --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=cannot resume async test; suspended at tests/async/cases.cpp:|suite fixture resume handle was not signalled"
+        "FORBID_SUBSTRINGS=[ BLOCKED ] async/fixture/shared_suite_unresumable/00_async_never|fixture teardown failed|gentest/shared_fixture_teardown")
+
+gentest_add_check_counts(
+    NAME async_shared_global_fixture_unresumable
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 1
+    SKIP 0
+    BLOCKED 0
+    EXPECT_RC 1
+    ARGS --filter=async/fixture/shared_global_unresumable/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_shared_global_fixture_unresumable_reason
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fixture/shared_global_unresumable/* --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=cannot resume async test; suspended at tests/async/cases.cpp:|global fixture resume handle was not signalled"
+        "FORBID_SUBSTRINGS=[ BLOCKED ] async/fixture/shared_global_unresumable/00_async_never|fixture teardown failed|gentest/shared_fixture_teardown")
+
+gentest_add_check_counts(
+    NAME async_fixture_group_fence
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 1
+    SKIP 0
+    BLOCKED 0
+    EXPECT_RC 1
+    ARGS --filter=async/fixture/group_fence/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_fixture_group_fence_reason
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fixture/group_fence/* --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=cannot resume async test; suspended at tests/async/cases.cpp:|fixture group boundary was crossed"
+        "FORBID_SUBSTRING=[ BLOCKED ] async/fixture/group_fence/00_async_wait")
+
+gentest_add_check_counts(
+    NAME async_fixture_suite_group_fence
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 1
+    SKIP 0
+    BLOCKED 0
+    EXPECT_RC 1
+    ARGS --filter=async/fixture/group_fence_suite/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_fixture_suite_group_fence_reason
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fixture/group_fence_suite/* --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=cannot resume async test; suspended at tests/async/cases.cpp:|suite fixture group boundary was crossed"
+        "FORBID_SUBSTRING=[ BLOCKED ] async/fixture/group_fence_suite/00_async_wait")
 
 gentest_add_check_counts(
     NAME async_unresumable_failure

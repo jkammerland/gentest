@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 
 namespace gentest::codegen::render {
 
@@ -90,6 +91,30 @@ std::string fixture_lifetime_literal(FixtureLifetime lt) {
     case FixtureLifetime::MemberGlobal: return "gentest::FixtureLifetime::MemberGlobal";
     }
     return "gentest::FixtureLifetime::None";
+}
+
+FixtureLifetime shared_fixture_lifetime(FixtureScope scope) {
+    switch (scope) {
+    case FixtureScope::Suite: return FixtureLifetime::MemberSuite;
+    case FixtureScope::Global: return FixtureLifetime::MemberGlobal;
+    case FixtureScope::Local: return FixtureLifetime::None;
+    }
+    return FixtureLifetime::None;
+}
+
+std::pair<std::string, FixtureLifetime> case_grouping_fixture(const TestCaseInfo &test) {
+    if (!test.fixture_qualified_name.empty()) {
+        return {test.fixture_qualified_name, test.fixture_lifetime};
+    }
+
+    for (const auto &fixture : test.free_fixtures) {
+        const auto lifetime = shared_fixture_lifetime(fixture.scope);
+        if (lifetime != FixtureLifetime::None) {
+            return {fixture.type_name, lifetime};
+        }
+    }
+
+    return {};
 }
 
 // Small helpers to simplify wrapper emission and avoid inline string assembly
@@ -864,7 +889,10 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
     std::string out;
     out.reserve(cases.size() * 160);
     for (std::size_t idx = 0; idx < cases.size(); ++idx) {
-        const auto &test = cases[idx];
+        const auto &test             = cases[idx];
+        const auto  grouping_fixture = case_grouping_fixture(test);
+        const auto &fixture_name     = grouping_fixture.first;
+        const auto  fixture_lifetime = grouping_fixture.second;
         append_format_runtime(
             out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)),
             fmt::arg("wrapper", std::string("::kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
@@ -874,9 +902,8 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
             fmt::arg("skip_reason",
                      !test.skip_reason.empty() ? "\"" + escape_string(test.skip_reason) + "\"" : std::string("std::string_view{}")),
             fmt::arg("should_skip", test.should_skip ? "true" : "false"),
-            fmt::arg("fixture", !test.fixture_qualified_name.empty() ? "\"" + escape_string(test.fixture_qualified_name) + "\""
-                                                                     : std::string("std::string_view{}")),
-            fmt::arg("lifetime", fixture_lifetime_literal(test.fixture_lifetime)),
+            fmt::arg("fixture", !fixture_name.empty() ? "\"" + escape_string(fixture_name) + "\"" : std::string("std::string_view{}")),
+            fmt::arg("lifetime", fixture_lifetime_literal(fixture_lifetime)),
             fmt::arg("suite", !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}")),
             fmt::arg("async_wrapper",
                      test.returns_async ? std::string("&::kCaseAsyncInvoke_") + std::to_string(idx) : std::string("nullptr")),

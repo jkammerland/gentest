@@ -372,7 +372,15 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         : runs_(runs), renderer_(renderer), completion_callback_(std::move(completion_callback)) {}
 
     void post(std::coroutine_handle<> handle) override {
-        if (!handle || handle.done()) {
+        if (!handle) {
+            return;
+        }
+        const auto owner = owner_for(handle);
+        if (owner >= runs_.size() || runs_[owner].finalized) {
+            blocked_handles_.erase(handle.address());
+            return;
+        }
+        if (handle.done()) {
             return;
         }
         blocked_handles_.erase(handle.address());
@@ -386,6 +394,9 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
             return;
         }
         const auto owner = owner_for(handle);
+        if (owner >= runs_.size() || runs_[owner].finalized) {
+            return;
+        }
         blocked_handles_[handle.address()] =
             BlockedHandle{.owner    = owner,
                           .sequence = ++suspend_sequence_,
@@ -399,6 +410,9 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
             return;
         }
         const auto owner = owner_for(handle);
+        if (owner >= runs_.size() || runs_[owner].finalized) {
+            return;
+        }
         blocked_handles_[handle.address()] =
             BlockedHandle{.owner    = owner,
                           .sequence = ++suspend_sequence_,
@@ -701,6 +715,16 @@ void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std
     gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
 }
 
+std::string shared_fixture_unavailable_message(std::string_view fixture, std::string reason) {
+    if (reason.empty()) {
+        reason = "fixture allocation returned null";
+    }
+    if (fixture.empty()) {
+        return reason;
+    }
+    return fmt::format("shared fixture unavailable for '{}': {}", fixture, reason);
+}
+
 bool plans_include_async_cases(std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans) {
     for (const auto &plan : plans) {
         for (auto i : plan.free_like) {
@@ -847,6 +871,18 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         return should_stop();
     };
 
+    std::size_t first_unfinalized_scan     = 0;
+    const auto  finish_pending_async_group = [&] {
+        scheduler.finish_unresumable();
+        for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
+            finalize_run(run_index);
+        }
+        while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
+            ++first_unfinalized_scan;
+        }
+        return should_stop();
+    };
+
     const auto handle_case = [&](std::size_t i, void *ctx) {
         if (pump_async()) {
             return true;
@@ -900,13 +936,16 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             break;
         }
 
+        if (finish_pending_async_group()) {
+            break;
+        }
+
         const auto collect_groups = [&](const std::vector<gentest::runner::FixtureGroupPlan> &groups) {
             for (const auto &group : groups) {
                 void       *group_ctx = nullptr;
                 std::string group_reason;
                 if (!group.idxs.empty() && !gentest::runner::acquire_case_fixture(cases[group.idxs.front()], group_ctx, group_reason)) {
-                    const std::string msg =
-                        group_reason.empty() ? std::string("fixture allocation returned null") : std::move(group_reason);
+                    const std::string msg = shared_fixture_unavailable_message(group.fixture, std::move(group_reason));
                     for (auto i : group.idxs) {
                         record_synthetic_skip(renderer.enabled() ? final_state : state, cases[i], msg, counters, true);
                         if (renderer.enabled()) {
@@ -928,6 +967,10 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                         return true;
                     }
                 }
+
+                if (finish_pending_async_group()) {
+                    return true;
+                }
             }
             return false;
         };
@@ -940,10 +983,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         }
     }
 
-    scheduler.finish_unresumable();
-    for (std::size_t run_index = 0; run_index < async_runs.size(); ++run_index) {
-        finalize_run(run_index);
-    }
+    (void)finish_pending_async_group();
 
     renderer.finish();
     return should_stop();
@@ -969,8 +1009,7 @@ bool run_tests_once(TestRunContext &state, std::span<const gentest::Case> cases,
                 void       *group_ctx = nullptr;
                 std::string group_reason;
                 if (!group.idxs.empty() && !gentest::runner::acquire_case_fixture(cases[group.idxs.front()], group_ctx, group_reason)) {
-                    const std::string msg =
-                        group_reason.empty() ? std::string("fixture allocation returned null") : std::move(group_reason);
+                    const std::string msg = shared_fixture_unavailable_message(group.fixture, std::move(group_reason));
                     for (auto i : group.idxs) {
                         record_synthetic_skip(state, cases[i], msg, counters, true);
                         if (fail_fast && (counters.failures > 0 || counters.blocked > 0))
