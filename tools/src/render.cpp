@@ -488,7 +488,11 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
     if (spec.returns_async) {
         out += "static void " + spec.wrapper_name + "(void* ctx_) {\n";
         out += "    (void)ctx_;\n";
-        out += "    ::gentest::detail::record_failure(\"async test invoked through synchronous Case::fn; use Case::async_fn\");\n";
+        out += "#if GENTEST_EXCEPTIONS_ENABLED\n";
+        out += "    throw ::gentest::failure(\"async test invoked through synchronous Case::fn; use Case::async_fn\");\n";
+        out += "#else\n";
+        out += "    std::abort();\n";
+        out += "#endif\n";
         out += "}\n\n";
         return;
     }

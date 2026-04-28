@@ -1151,8 +1151,8 @@ struct RenderedRegistrationCore {
         return true;
     }
     return std::ranges::any_of(cases, [](const TestCaseInfo &test) {
-        return test.returns_async || test.is_benchmark || test.is_jitter || !test.fixture_qualified_name.empty() ||
-               !test.free_fixtures.empty() || test.is_function_template || !test.call_arguments.empty();
+        return test.is_benchmark || test.is_jitter || !test.fixture_qualified_name.empty() || !test.free_fixtures.empty() ||
+               test.is_function_template || !test.call_arguments.empty();
     });
 }
 

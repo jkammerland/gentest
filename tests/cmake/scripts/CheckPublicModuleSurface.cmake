@@ -129,9 +129,16 @@ endfunction()
 gentest_expect_generated_boundary(
   "${_consumer_build_dir}/gentest_codegen/tu_0000_cases.registration.gentest.cpp"
   "#include \"gentest/detail/generated_runtime.h\"")
+set(_generated_header "${_consumer_build_dir}/gentest_codegen/tu_0000_cases.gentest.h")
 gentest_expect_generated_boundary(
-  "${_consumer_build_dir}/gentest_codegen/tu_0000_cases.gentest.h"
+  "${_generated_header}"
   "#include \"gentest/detail/registration_runtime.h\"")
+file(READ "${_generated_header}" _generated_header_text)
+string(FIND "${_generated_header_text}" "#include \"gentest/detail/generated_runtime.h\"" _generated_runtime_pos)
+if(NOT _generated_runtime_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Generated public-module registration header should not require generated_runtime support.\n${_generated_header_text}")
+endif()
 
 function(gentest_expect_public_module_hidden_target target expected_api_pattern)
   execute_process(
