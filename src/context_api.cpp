@@ -38,7 +38,7 @@ Adoption::~Adoption() {
 void log(std::string_view message) {
     auto  ctx    = detail::current_test_storage();
     auto &buffer = detail::current_buffer_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+    if (!detail::accepts_late_test_operation(ctx)) {
         detail::fail_without_active_context("log called");
     }
     if (buffer.owner != ctx.get()) {
@@ -97,7 +97,7 @@ void set_default_log_policy(LogPolicy policy) {
 void xfail(std::string_view reason, const std::source_location &loc) {
     (void)loc;
     auto ctx = detail::current_test_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+    if (!detail::accepts_late_test_operation(ctx)) {
         detail::fail_without_active_context("xfail called");
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);

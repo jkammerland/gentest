@@ -1,8 +1,10 @@
 #include "gentest/attributes.h"
+#include "gentest/detail/runtime_context.h"
 #include "gentest/runner.h"
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <future>
 #include <memory>
@@ -33,10 +35,13 @@ std::vector<std::string>     live_demo_order;
 
 gentest::async::manual_event fail_fast_snapshot_release;
 gentest::async::manual_event fail_fast_cancel_adopted_resume;
+gentest::async::manual_event fail_fast_cancel_adopted_context_resume;
 gentest::async::manual_event fail_fast_cancel_local_fixture_resume;
 gentest::async::manual_event fail_fast_final_drain_fail_release;
 gentest::async::manual_event fail_fast_final_drain_late_release;
 std::atomic<int>             fail_fast_final_drain_waiters{0};
+std::atomic<bool>            fail_fast_cancel_adopted_context_worker_started{false};
+std::atomic<bool>            fail_fast_cancel_adopted_context_worker_done{true};
 
 gentest::async::manual_event group_fence_release;
 std::vector<std::string>     group_fence_order;
@@ -71,6 +76,21 @@ struct ProcessExitSignal {
 };
 
 ProcessExitSignal process_exit_signal;
+
+struct FailFastCancelAdoptedContextExitWait {
+    ~FailFastCancelAdoptedContextExitWait() {
+        if (!fail_fast_cancel_adopted_context_worker_started.load(std::memory_order_acquire)) {
+            return;
+        }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!fail_fast_cancel_adopted_context_worker_done.load(std::memory_order_acquire) &&
+               std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+};
+
+FailFastCancelAdoptedContextExitWait fail_fast_cancel_adopted_context_exit_wait;
 
 gentest::async::manual_event                       adopted_resume_event;
 std::shared_ptr<gentest::async::completion_source> completion_order_source;
@@ -441,6 +461,38 @@ gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
 void fail_fast_cancel_adopted_failure_releases_pending() {
     fail_fast_cancel_adopted_resume.set();
     EXPECT_TRUE(false);
+}
+
+[[using gentest: test("fail_fast_cancel_adopted_context/00_pending_worker_logs_after_cancel")]]
+gentest::async_test<void> fail_fast_cancel_adopted_context_pending_worker_logs_after_cancel() {
+    fail_fast_cancel_adopted_context_resume.reset();
+    fail_fast_cancel_adopted_context_worker_started.store(false, std::memory_order_release);
+    fail_fast_cancel_adopted_context_worker_done.store(false, std::memory_order_release);
+
+    auto context = gentest::get_current_context();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto adoption = gentest::set_current_context(context);
+        fail_fast_cancel_adopted_context_worker_started.store(true, std::memory_order_release);
+        started->set_value();
+        while (context && context->active.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        gentest::log("adopted worker logged after fail-fast cancellation");
+        EXPECT_TRUE(true);
+        fail_fast_cancel_adopted_context_worker_done.store(true, std::memory_order_release);
+    }).detach();
+
+    ready.wait();
+    co_await fail_fast_cancel_adopted_context_resume.wait("fail-fast cancellation should leave adopted context usable");
+    gentest::fail("fail-fast cancellation resumed pending adopted context case");
+}
+
+[[using gentest: test("fail_fast_cancel_adopted_context/01_sync_failure")]]
+void fail_fast_cancel_adopted_context_sync_failure() {
+    EXPECT_TRUE(false, "fail-fast sync failure should not make adopted context operations fatal");
 }
 
 [[using gentest: test("fail_fast_cancel_local_fixture/00_pending")]]

@@ -43,6 +43,7 @@ struct TestContextInfo {
     std::vector<std::weak_ptr<AdoptedReleaseWake>> adopted_release_wakes;
     NoExceptionsFatalHookState                     noexceptions_fatal_hook;
     std::atomic<bool>                              active{false};
+    std::atomic<bool>                              canceled{false};
     std::atomic<bool>                              has_failures{false};
     std::atomic<std::size_t>                       adopted_contexts{0};
     gentest::LogPolicy                             log_policy{gentest::LogPolicy::Never};
@@ -132,6 +133,10 @@ inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
 }
 
 inline std::shared_ptr<TestContextInfo> current_test() { return current_test_storage(); }
+
+inline bool accepts_late_test_operation(const std::shared_ptr<TestContextInfo> &ctx) {
+    return ctx && (ctx->active.load(std::memory_order_relaxed) || ctx->canceled.load(std::memory_order_relaxed));
+}
 
 inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ctx) {
     if (!ctx)

@@ -16,7 +16,7 @@ std::atomic<std::underlying_type_t<gentest::LogPolicy>> g_default_log_policy{gen
 auto prepare_current_failure_buffer(std::string_view operation) -> TestContextLocalBuffer & {
     auto  ctx    = current_test_storage();
     auto &buffer = current_buffer_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+    if (!accepts_late_test_operation(ctx)) {
         fail_without_active_context(operation);
     }
     if (buffer.owner != ctx.get()) {

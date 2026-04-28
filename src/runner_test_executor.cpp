@@ -1171,7 +1171,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             const bool has_adopted_work = run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0 && run.task &&
                                           run.task->handle() && !run.task->handle().done();
             scheduler.cancel_owner(run_index);
-            gentest::runner::detail::deactivate_active_test_context_without_wait(run.ctxinfo);
+            gentest::runner::detail::cancel_active_test_context_without_wait(run.ctxinfo);
             gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
             if (has_adopted_work) {
                 // Destroying the coroutine frame can join user-owned threads that are waiting for a queued resume.

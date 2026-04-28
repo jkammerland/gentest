@@ -36,7 +36,8 @@ inline void finish_active_test_context(const std::shared_ptr<gentest::detail::Te
     }
     gentest::detail::wait_for_adopted_contexts(ctx);
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
-    ctx->active = false;
+    ctx->canceled = false;
+    ctx->active   = false;
 }
 
 inline void deactivate_active_test_context_without_wait(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
@@ -45,6 +46,15 @@ inline void deactivate_active_test_context_without_wait(const std::shared_ptr<ge
     }
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
     ctx->active = false;
+}
+
+inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
+    if (!ctx) {
+        return;
+    }
+    gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
+    ctx->canceled = true;
+    ctx->active   = false;
 }
 
 class CurrentTestScope {
