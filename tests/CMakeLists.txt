@@ -258,6 +258,15 @@ gentest_add_cmake_script_test(
         "FORBID_SUBSTRINGS=fail-fast cancellation resumed pending adopted context case|without an active test context")
 
 gentest_add_cmake_script_test(
+    NAME async_fail_fast_cancel_released_context_aborts
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast_cancel_released_context/* --kind=test --fail-fast --no-color
+    DEFINES
+        "EXPECT_RC=NONZERO"
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_cancel_released_context/01_sync_failure|without an active test context")
+
+gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_local_fixture_runs_teardown
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
@@ -318,7 +327,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 59
+    CASES 61
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(

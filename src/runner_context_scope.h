@@ -11,7 +11,7 @@ namespace gentest::runner::detail {
 inline auto make_active_test_context(std::string_view display_name) -> std::shared_ptr<gentest::detail::TestContextInfo> {
     auto ctx          = std::make_shared<gentest::detail::TestContextInfo>();
     ctx->display_name = std::string(display_name);
-    ctx->active       = true;
+    ctx->active.store(true, std::memory_order_release);
     return ctx;
 }
 
@@ -36,8 +36,8 @@ inline void finish_active_test_context(const std::shared_ptr<gentest::detail::Te
     }
     gentest::detail::wait_for_adopted_contexts(ctx);
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
-    ctx->canceled = false;
-    ctx->active   = false;
+    ctx->canceled.store(false, std::memory_order_release);
+    ctx->active.store(false, std::memory_order_release);
 }
 
 inline void deactivate_active_test_context_without_wait(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
@@ -45,7 +45,7 @@ inline void deactivate_active_test_context_without_wait(const std::shared_ptr<ge
         return;
     }
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
-    ctx->active = false;
+    ctx->active.store(false, std::memory_order_release);
 }
 
 inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
@@ -53,8 +53,9 @@ inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentes
         return;
     }
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
-    ctx->canceled = true;
-    ctx->active   = false;
+    ctx->canceled.store(true, std::memory_order_release);
+    ctx->active.store(false, std::memory_order_release);
+    gentest::detail::close_canceled_context_if_released(*ctx);
 }
 
 class CurrentTestScope {

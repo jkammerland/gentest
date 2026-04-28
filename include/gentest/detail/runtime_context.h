@@ -135,7 +135,23 @@ inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
 inline std::shared_ptr<TestContextInfo> current_test() { return current_test_storage(); }
 
 inline bool accepts_late_test_operation(const std::shared_ptr<TestContextInfo> &ctx) {
-    return ctx && (ctx->active.load(std::memory_order_relaxed) || ctx->canceled.load(std::memory_order_relaxed));
+    if (!ctx) {
+        return false;
+    }
+    if (ctx->active.load(std::memory_order_acquire)) {
+        return true;
+    }
+    return ctx->canceled.load(std::memory_order_acquire);
+}
+
+inline void close_canceled_context_if_released(TestContextInfo &ctx) noexcept {
+    if (ctx.adopted_contexts.load(std::memory_order_acquire) != 0) {
+        return;
+    }
+    if (ctx.active.load(std::memory_order_acquire)) {
+        return;
+    }
+    ctx.canceled.store(false, std::memory_order_release);
 }
 
 inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ctx) {

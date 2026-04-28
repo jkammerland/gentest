@@ -31,6 +31,7 @@ Adoption::Adoption(CurrentContext context) : previous_(get_current_context()), a
 Adoption::~Adoption() {
     detail::set_current_test(std::move(previous_));
     if (adopted_ && adopted_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        detail::close_canceled_context_if_released(*adopted_);
         detail::notify_adopted_contexts_released(*adopted_);
     }
 }
