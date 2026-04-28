@@ -152,12 +152,19 @@ inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown
 }
 
 template <typename TeardownFn>
-struct gentest_noexceptions_async_local_teardown {
+struct gentest_async_local_teardown_guard {
     TeardownFn *teardown = nullptr;
     bool        ran      = false;
 
+    explicit gentest_async_local_teardown_guard(TeardownFn *teardown_fn) : teardown(teardown_fn) {}
+
+    gentest_async_local_teardown_guard(const gentest_async_local_teardown_guard &)            = delete;
+    gentest_async_local_teardown_guard &operator=(const gentest_async_local_teardown_guard &) = delete;
+
+    ~gentest_async_local_teardown_guard() { run_blocking(); }
+
     static void run(void *user_data) noexcept {
-        auto *state = static_cast<gentest_noexceptions_async_local_teardown *>(user_data);
+        auto *state = static_cast<gentest_async_local_teardown_guard *>(user_data);
         if (!state) return;
         state->run_blocking();
     }
@@ -179,6 +186,8 @@ struct gentest_noexceptions_async_local_teardown {
 
 template <typename BodyFn, typename TeardownFn>
 inline ::gentest::async_test<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+    auto teardown_fn = std::forward<TeardownFn>(teardown);
+    gentest_async_local_teardown_guard<decltype(teardown_fn)> teardown_state{&teardown_fn};
 #if GENTEST_EXCEPTIONS_ENABLED
     std::exception_ptr error;
     try {
@@ -188,15 +197,13 @@ inline ::gentest::async_test<void> gentest_run_async_with_local_teardown(BodyFn 
     }
     if (error) {
         try {
-            co_await teardown();
+            co_await teardown_state.run_now();
         } catch (...) {
         }
         std::rethrow_exception(error);
     }
-    co_await teardown();
+    co_await teardown_state.run_now();
 #else
-    auto teardown_fn = std::forward<TeardownFn>(teardown);
-    gentest_noexceptions_async_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
     ::gentest::detail::NoExceptionsFatalHookScope fatal_scope(&decltype(teardown_state)::run, &teardown_state);
     co_await body();
     co_await teardown_state.run_now();

@@ -690,26 +690,6 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
 std::string make_async_await_expr(const std::string &fn, const std::string &args) { return fmt::format("co_await {}{};", fn, args); }
 
 void append_async_local_teardown_call(std::string &body, const std::string &body_code, const std::string &teardown_code) {
-    body += "#if GENTEST_EXCEPTIONS_ENABLED\n";
-    body += "    std::exception_ptr gentest_async_error_;\n";
-    body += "    try {\n";
-    body += body_code;
-    body += "    } catch (...) {\n";
-    body += "        gentest_async_error_ = std::current_exception();\n";
-    body += "    }\n";
-    if (teardown_code.empty()) {
-        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
-    } else {
-        body += "    if (gentest_async_error_) {\n";
-        body += "        try {\n";
-        body += teardown_code;
-        body += "        } catch (...) {\n";
-        body += "        }\n";
-        body += "        std::rethrow_exception(gentest_async_error_);\n";
-        body += "    }\n";
-        body += teardown_code;
-    }
-    body += "#else\n";
     body += "    co_await gentest_run_async_with_local_teardown(\n";
     body += "        [&]() -> ::gentest::async_test<void> {\n";
     body += body_code;
@@ -719,7 +699,6 @@ void append_async_local_teardown_call(std::string &body, const std::string &body
     body += teardown_code;
     body += "            co_return;\n";
     body += "        });\n";
-    body += "#endif\n";
 }
 
 void append_async_entrypoint(std::string &out, const WrapperSpec &spec, const std::string &body) {

@@ -33,6 +33,7 @@ std::vector<std::string>     live_demo_order;
 
 gentest::async::manual_event fail_fast_snapshot_release;
 gentest::async::manual_event fail_fast_cancel_adopted_resume;
+gentest::async::manual_event fail_fast_cancel_local_fixture_resume;
 gentest::async::manual_event fail_fast_final_drain_fail_release;
 gentest::async::manual_event fail_fast_final_drain_late_release;
 std::atomic<int>             fail_fast_final_drain_waiters{0};
@@ -119,6 +120,29 @@ struct LocalAsyncLifecycleFixture : gentest::AsyncFixtureSetup, gentest::AsyncFi
         co_await gentest::async::yield();
         torn_down = true;
         value     = 0;
+    }
+};
+
+struct FailFastCancelLocalFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
+    bool setup     = false;
+    bool torn_down = false;
+
+    ~FailFastCancelLocalFixture() override {
+        if (setup && !torn_down) {
+            (void)std::fputs("fail-fast canceled async local fixture without teardown\n", stderr);
+            (void)std::fflush(stderr);
+            std::abort();
+        }
+    }
+
+    gentest::async_test<void> setUp() override {
+        co_await gentest::async::yield();
+        setup = true;
+    }
+
+    gentest::async_test<void> tearDown() override {
+        co_await gentest::async::yield();
+        torn_down = true;
     }
 };
 
@@ -417,6 +441,18 @@ gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
 void fail_fast_cancel_adopted_failure_releases_pending() {
     fail_fast_cancel_adopted_resume.set();
     EXPECT_TRUE(false);
+}
+
+[[using gentest: test("fail_fast_cancel_local_fixture/00_pending")]]
+gentest::async_test<void> fail_fast_cancel_local_fixture_pending(FailFastCancelLocalFixture &) {
+    fail_fast_cancel_local_fixture_resume.reset();
+    co_await fail_fast_cancel_local_fixture_resume.wait("fail-fast cancellation should run async local fixture teardown");
+    gentest::fail("fail-fast cancellation resumed pending local fixture case");
+}
+
+[[using gentest: test("fail_fast_cancel_local_fixture/01_sync_failure")]]
+void fail_fast_cancel_local_fixture_sync_failure() {
+    EXPECT_TRUE(false, "fail-fast sync failure should cancel pending async local fixture with teardown");
 }
 
 [[using gentest: test("fail_fast_final_drain/00_async_fail_after_adopted_release")]]
