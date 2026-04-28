@@ -369,9 +369,49 @@ struct AsyncCaseRun {
     bool                                              finalized         = false;
 };
 
+[[nodiscard]] auto async_run_requests_xfail(const AsyncCaseRun &run) -> bool {
+    if (!run.ctxinfo) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lk(run.ctxinfo->mtx);
+    return run.ctxinfo->xfail_requested;
+}
+
+[[nodiscard]] auto async_exception_would_stop_fail_fast(const AsyncCaseRun &run) -> bool {
+    if (run.exception == InvokeException::Blocked) {
+        return true;
+    }
+    if (run.exception != InvokeException::None && run.exception != InvokeException::Skip) {
+        return !async_run_requests_xfail(run);
+    }
+    if (!run.task) {
+        return false;
+    }
+    const auto ex = run.task->exception();
+    if (!ex) {
+        return false;
+    }
+    try {
+        std::rethrow_exception(ex);
+    } catch (const gentest::detail::blocked_exception &) { return true; } catch (const gentest::detail::skip_exception &) {
+        return false;
+    } catch (...) { return !async_run_requests_xfail(run); }
+}
+
+[[nodiscard]] auto async_run_would_stop_fail_fast(const AsyncCaseRun &run) -> bool {
+    if (!run.ready_to_finalize) {
+        return false;
+    }
+    if (async_exception_would_stop_fail_fast(run)) {
+        return true;
+    }
+    return run.ctxinfo && !async_run_requests_xfail(run) && run.ctxinfo->has_failures.load(std::memory_order_acquire);
+}
+
 class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
   public:
-    using StopCallback = std::function<bool()>;
+    using StopCallback     = std::function<bool()>;
+    using ProgressCallback = std::function<bool()>;
 
     BatchAsyncScheduler(std::vector<AsyncCaseRun> &runs, AsyncStatusRenderer *renderer)
         : runs_(runs), renderer_(renderer),
@@ -504,11 +544,14 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         }
     }
 
-    [[nodiscard]] auto finish_unresumable(const StopCallback &should_stop = {}) -> bool {
-        if (drain_ready_and_adopted_work(should_stop)) {
+    [[nodiscard]] auto finish_unresumable(const StopCallback &should_stop = {}, const ProgressCallback &after_progress = {}) -> bool {
+        if (drain_ready_and_adopted_work(should_stop, after_progress)) {
             return true;
         }
         for (std::size_t i = 0; i < runs_.size(); ++i) {
+            if (after_progress && after_progress()) {
+                return true;
+            }
             if (should_stop && should_stop()) {
                 return true;
             }
@@ -528,6 +571,9 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
                 }
             }
             complete(i);
+            if (after_progress && after_progress()) {
+                return true;
+            }
             if (should_stop && should_stop()) {
                 return true;
             }
@@ -731,7 +777,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         adopted_release_wake_->cv.wait(lk, [&] { return !ready_.empty() || !has_unfinished_adopted_work(); });
     }
 
-    [[nodiscard]] auto drain_ready_and_adopted_work(const StopCallback &should_stop) -> bool {
+    [[nodiscard]] auto drain_ready_and_adopted_work(const StopCallback &should_stop, const ProgressCallback &after_progress) -> bool {
         do {
             while (has_ready()) {
                 if (should_stop && should_stop()) {
@@ -740,9 +786,15 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
                 if (!run_one_ready()) {
                     break;
                 }
+                if (after_progress && after_progress()) {
+                    return true;
+                }
                 if (should_stop && should_stop()) {
                     return true;
                 }
+            }
+            if (after_progress && after_progress()) {
+                return true;
             }
             if (should_stop && should_stop()) {
                 return true;
@@ -1051,7 +1103,11 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
     const auto finalize_completed_runs = [&] {
         for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
             auto &run = async_runs[run_index];
-            if (run.finalized || !run.ready_to_finalize || has_adopted_work(run)) {
+            if (run.finalized || !run.ready_to_finalize) {
+                continue;
+            }
+            const bool force_stop_result = fail_fast && has_adopted_work(run) && async_run_would_stop_fail_fast(run);
+            if (has_adopted_work(run) && !force_stop_result) {
                 continue;
             }
             finalize_run(run_index);
@@ -1085,7 +1141,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             return true;
         }
         const bool stopped_while_draining =
-            scheduler.finish_unresumable(fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{});
+            scheduler.finish_unresumable(fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{},
+                                         [&] { return finalize_completed_runs(); });
         if (finalize_completed_runs()) {
             return true;
         }

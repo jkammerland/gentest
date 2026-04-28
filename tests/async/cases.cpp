@@ -425,9 +425,13 @@ gentest::async_test<void> fail_fast_final_drain_async_fail_after_adopted_release
     fail_fast_final_drain_late_release.reset();
     fail_fast_final_drain_waiters.store(0, std::memory_order_release);
 
-    auto          context = gentest::get_current_context();
-    JoiningThread worker(std::thread([context = std::move(context)]() mutable {
+    auto context = gentest::get_current_context();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    JoiningThread worker(std::thread([context = std::move(context), started = std::move(started)]() mutable {
         auto adoption = gentest::set_current_context(context);
+        started->set_value();
         while (fail_fast_final_drain_waiters.load(std::memory_order_acquire) < 2) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -435,6 +439,7 @@ gentest::async_test<void> fail_fast_final_drain_async_fail_after_adopted_release
         fail_fast_final_drain_fail_release.set();
         fail_fast_final_drain_late_release.set();
     }));
+    ready.wait();
 
     fail_fast_final_drain_waiters.fetch_add(1, std::memory_order_acq_rel);
     co_await fail_fast_final_drain_fail_release.wait("final drain did not release fail-fast failure");
