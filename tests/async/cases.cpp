@@ -90,6 +90,10 @@ struct FailFastCancelAdoptedContextExitWait {
                std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+        if (!fail_fast_cancel_adopted_context_worker_done.load(std::memory_order_acquire)) {
+            (void)std::fputs("fail-fast adopted context worker did not finish\n", stderr);
+            std::abort();
+        }
     }
 };
 
@@ -503,7 +507,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_context_pending_worker_logs_a
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         gentest::log("adopted worker logged after fail-fast cancellation");
-        EXPECT_TRUE(true);
+        EXPECT_TRUE(false, "adopted worker recorded failure after fail-fast cancellation");
         fail_fast_cancel_adopted_context_worker_done.store(true, std::memory_order_release);
     }).detach();
 
