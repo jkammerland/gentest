@@ -328,6 +328,12 @@ gentest_add_cmake_script_test(
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"
     ARGS --filter=async_live_slow/panel/* --kind=test)
 
+gentest_add_cmake_script_test(
+    NAME async_live_slow_terminal_rendering_no_color
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"
+    ARGS --filter=async_live_slow/panel/* --kind=test --no-color)
+
 gentest_add_check_counts(
     NAME async_value_discard
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>

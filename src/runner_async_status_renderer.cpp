@@ -24,21 +24,6 @@
 namespace gentest::runner {
 namespace {
 
-bool env_has_value(const char *name) {
-#if defined(_WIN32) && defined(_MSC_VER)
-    char  *value = nullptr;
-    size_t len   = 0;
-    if (_dupenv_s(&value, &len, name) != 0 || value == nullptr)
-        return false;
-    const bool has_value = value[0] != '\0';
-    std::free(value);
-    return has_value;
-#else
-    const char *value = std::getenv(name);
-    return value != nullptr && value[0] != '\0';
-#endif
-}
-
 bool env_term_dumb() {
     const char *term = std::getenv("TERM");
     return term != nullptr && std::string_view(term) == "dumb";
@@ -482,9 +467,8 @@ AsyncStatusRenderer::AsyncStatusRenderer(std::ostream &out, Mode mode, bool colo
 
 AsyncStatusRenderer::~AsyncStatusRenderer() { finish(); }
 
-auto AsyncStatusRenderer::terminal_mode(bool color_output) -> Mode {
-    if (!color_output || env_has_value("NO_COLOR") || env_has_value("GENTEST_NO_COLOR") || env_term_dumb() || !stdout_is_tty() ||
-        !stdout_supports_virtual_terminal()) {
+auto AsyncStatusRenderer::terminal_mode(bool /*color_output*/) -> Mode {
+    if (env_term_dumb() || !stdout_is_tty() || !stdout_supports_virtual_terminal()) {
         return Mode::Disabled;
     }
     return Mode::Terminal;
