@@ -229,7 +229,7 @@ inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo>
 
 inline void request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
     auto ctx = current_test_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+    if (!accepts_late_test_operation(ctx)) {
         fail_without_active_context("skip called");
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);

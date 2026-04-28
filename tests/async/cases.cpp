@@ -39,6 +39,7 @@ gentest::async::manual_event fail_fast_cancel_adopted_resume;
 gentest::async::manual_event fail_fast_cancel_adopted_context_resume;
 gentest::async::manual_event fail_fast_cancel_local_fixture_resume;
 gentest::async::manual_event fail_fast_cancel_adopted_local_fixture_resume;
+gentest::async::manual_event fail_fast_cancel_adopted_skip_resume;
 gentest::async::manual_event fail_fast_final_drain_fail_release;
 gentest::async::manual_event fail_fast_final_drain_late_release;
 std::atomic<int>             fail_fast_final_drain_waiters{0};
@@ -49,6 +50,8 @@ std::atomic<bool>            fail_fast_cancel_released_context_worker_done{true}
 std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_started{false};
 std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_worker_done{true};
 std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_torn_down{true};
+std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_started{false};
+std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_done{true};
 
 gentest::async::manual_event group_fence_release;
 std::vector<std::string>     group_fence_order;
@@ -144,6 +147,24 @@ struct FailFastCancelAdoptedLocalFixtureExitWait {
 };
 
 FailFastCancelAdoptedLocalFixtureExitWait fail_fast_cancel_adopted_local_fixture_exit_wait;
+
+struct FailFastCancelAdoptedSkipExitWait {
+    ~FailFastCancelAdoptedSkipExitWait() {
+        if (!fail_fast_cancel_adopted_skip_worker_started.load(std::memory_order_acquire)) {
+            return;
+        }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!fail_fast_cancel_adopted_skip_worker_done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (!fail_fast_cancel_adopted_skip_worker_done.load(std::memory_order_acquire)) {
+            (void)std::fputs("fail-fast adopted skip worker did not finish\n", stderr);
+            std::abort();
+        }
+    }
+};
+
+FailFastCancelAdoptedSkipExitWait fail_fast_cancel_adopted_skip_exit_wait;
 
 gentest::async::manual_event                       adopted_resume_event;
 std::shared_ptr<gentest::async::completion_source> completion_order_source;
@@ -651,6 +672,39 @@ gentest::async_test<void> fail_fast_cancel_adopted_local_fixture_pending(FailFas
 [[using gentest: test("fail_fast_cancel_adopted_local_fixture/01_sync_failure")]]
 void fail_fast_cancel_adopted_local_fixture_sync_failure() {
     EXPECT_TRUE(false, "fail-fast sync failure should trigger adopted async local fixture teardown");
+}
+
+[[using gentest: test("fail_fast_cancel_adopted_skip/00_pending_worker_skips_after_cancel")]]
+gentest::async_test<void> fail_fast_cancel_adopted_skip_pending_worker_skips_after_cancel() {
+    fail_fast_cancel_adopted_skip_resume.reset();
+    fail_fast_cancel_adopted_skip_worker_started.store(false, std::memory_order_release);
+    fail_fast_cancel_adopted_skip_worker_done.store(false, std::memory_order_release);
+
+    auto context = gentest::get_current_context();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto adoption = gentest::set_current_context(context);
+        fail_fast_cancel_adopted_skip_worker_started.store(true, std::memory_order_release);
+        started->set_value();
+        while (context && context->active.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        try {
+            gentest::skip("adopted worker skipped after fail-fast cancellation");
+        } catch (...) {}
+        fail_fast_cancel_adopted_skip_worker_done.store(true, std::memory_order_release);
+    }).detach();
+
+    ready.wait();
+    co_await fail_fast_cancel_adopted_skip_resume.wait("fail-fast cancellation should leave adopted skip context usable");
+    gentest::fail("fail-fast cancellation resumed adopted skip case");
+}
+
+[[using gentest: test("fail_fast_cancel_adopted_skip/01_sync_failure")]]
+void fail_fast_cancel_adopted_skip_sync_failure() {
+    EXPECT_TRUE(false, "fail-fast sync failure should not make adopted skip fatal");
 }
 
 [[using gentest: test("fail_fast_final_drain/00_async_fail_after_adopted_release")]]
