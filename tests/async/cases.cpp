@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace gentest::asserts;
@@ -38,6 +39,26 @@ std::atomic<int>             fail_fast_final_drain_waiters{0};
 
 gentest::async::manual_event group_fence_release;
 std::vector<std::string>     group_fence_order;
+
+class JoiningThread {
+  public:
+    explicit JoiningThread(std::thread thread) : thread_(std::move(thread)) {}
+
+    JoiningThread(const JoiningThread &)            = delete;
+    JoiningThread &operator=(const JoiningThread &) = delete;
+
+    JoiningThread(JoiningThread &&) noexcept            = delete;
+    JoiningThread &operator=(JoiningThread &&) noexcept = delete;
+
+    ~JoiningThread() {
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+
+  private:
+    std::thread thread_;
+};
 
 gentest::async::manual_event suite_group_fence_release;
 std::vector<std::string>     suite_group_fence_order;
@@ -199,13 +220,13 @@ struct [[using gentest: fixture(suite)]] BlockingSchedulerAdoptedFixture : gente
         std::promise<void>           resumed;
         auto                         resumed_ready = resumed.get_future();
 
-        std::jthread worker(
+        JoiningThread worker(std::thread(
             [context = std::move(context), started = std::move(started), &release, resumed_ready = std::move(resumed_ready)]() mutable {
                 auto adoption = gentest::set_current_context(context);
                 started->set_value();
                 release.set();
                 EXPECT_TRUE(resumed_ready.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
-            });
+            }));
 
         ready.wait();
         co_await release.wait("adopted fixture setup should wake scheduler before releasing context");
@@ -379,11 +400,12 @@ gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
 
     std::promise<void> resumed;
     auto               resumed_ready = resumed.get_future();
-    std::jthread worker([context = std::move(context), started = std::move(started), resumed_ready = std::move(resumed_ready)]() mutable {
-        auto adoption = gentest::set_current_context(context);
-        started->set_value();
-        resumed_ready.wait();
-    });
+    JoiningThread      worker(
+        std::thread([context = std::move(context), started = std::move(started), resumed_ready = std::move(resumed_ready)]() mutable {
+            auto adoption = gentest::set_current_context(context);
+            started->set_value();
+            resumed_ready.wait();
+        }));
 
     ready.wait();
     co_await fail_fast_cancel_adopted_resume.wait("fail-fast cancellation resume should remain queued");
@@ -403,8 +425,8 @@ gentest::async_test<void> fail_fast_final_drain_async_fail_after_adopted_release
     fail_fast_final_drain_late_release.reset();
     fail_fast_final_drain_waiters.store(0, std::memory_order_release);
 
-    auto         context = gentest::get_current_context();
-    std::jthread worker([context = std::move(context)]() mutable {
+    auto          context = gentest::get_current_context();
+    JoiningThread worker(std::thread([context = std::move(context)]() mutable {
         auto adoption = gentest::set_current_context(context);
         while (fail_fast_final_drain_waiters.load(std::memory_order_acquire) < 2) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -412,7 +434,7 @@ gentest::async_test<void> fail_fast_final_drain_async_fail_after_adopted_release
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
         fail_fast_final_drain_fail_release.set();
         fail_fast_final_drain_late_release.set();
-    });
+    }));
 
     fail_fast_final_drain_waiters.fetch_add(1, std::memory_order_acq_rel);
     co_await fail_fast_final_drain_fail_release.wait("final drain did not release fail-fast failure");
@@ -657,12 +679,12 @@ gentest::async_test<void> adopted_worker_releases() {
     auto started = std::make_shared<std::promise<void>>();
     auto ready   = started->get_future();
 
-    std::jthread worker([context = std::move(context), started = std::move(started)] {
+    JoiningThread worker(std::thread([context = std::move(context), started = std::move(started)] {
         auto adoption = gentest::set_current_context(context);
         started->set_value();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         adopted_resume_event.set();
-    });
+    }));
 
     ready.wait();
     co_await adopted_resume_event.wait("adopted worker should release the async test");
@@ -678,13 +700,13 @@ gentest::async_test<void> adopted_worker_waits_for_resumed_ack() {
     std::promise<void>           resumed;
     auto                         resumed_ready = resumed.get_future();
 
-    std::jthread worker(
+    JoiningThread worker(std::thread(
         [context = std::move(context), started = std::move(started), &release, resumed_ready = std::move(resumed_ready)]() mutable {
             auto adoption = gentest::set_current_context(context);
             started->set_value();
             release.set();
             EXPECT_TRUE(resumed_ready.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
-        });
+        }));
 
     ready.wait();
     co_await release.wait("adopted worker should wake scheduler before releasing context");

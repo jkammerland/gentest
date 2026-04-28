@@ -11,6 +11,7 @@
 #include <indicators/termcolor.hpp>
 #include <indicators/terminal_size.hpp>
 #include <iterator>
+#include <ranges>
 #include <sstream>
 
 #if defined(_WIN32)
@@ -265,12 +266,12 @@ auto shorten_left(std::string_view text, std::size_t max_width) -> std::string {
     const std::size_t budget = max_width <= 3 ? max_width : max_width - 3;
     std::size_t       used   = 0;
     std::size_t       begin  = text.size();
-    for (auto it = spans.rbegin(); it != spans.rend(); ++it) {
-        if (used + it->width > budget) {
+    for (const auto &span : std::ranges::reverse_view(spans)) {
+        if (used + span.width > budget) {
             break;
         }
-        used  = used + it->width;
-        begin = it->begin;
+        used  = used + span.width;
+        begin = span.begin;
     }
     if (max_width <= 3) {
         return std::string(text.substr(begin));

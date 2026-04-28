@@ -23,6 +23,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <ranges>
 #include <source_location>
 #include <span>
 #include <string>
@@ -473,7 +474,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
 
     [[nodiscard]] auto has_ready() const noexcept -> bool { return !ready_empty(); }
 
-    [[nodiscard]] auto finish_unresumable(StopCallback should_stop = {}) -> bool {
+    [[nodiscard]] auto finish_unresumable(const StopCallback &should_stop = {}) -> bool {
         if (drain_ready_and_adopted_work(should_stop)) {
             return true;
         }
@@ -659,7 +660,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     }
 
     [[nodiscard]] auto has_unfinished_adopted_work() const -> bool {
-        return std::any_of(runs_.begin(), runs_.end(), [](const AsyncCaseRun &run) {
+        return std::ranges::any_of(runs_, [](const AsyncCaseRun &run) {
             return !run.finalized && run.task && run.task->handle() && !run.task->handle().done() &&
                    run.exception == InvokeException::None && run.ctxinfo &&
                    run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
@@ -1035,7 +1036,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
             if (has_adopted_work) {
                 // Destroying the coroutine frame can join user-owned threads that are waiting for a queued resume.
-                (void)run.task.release();
+                auto *leaked_task = run.task.release();
+                (void)leaked_task;
             }
             run.finalized = true;
         }
