@@ -1617,6 +1617,19 @@ gentest_add_check_death(
         ${_gentest_codegen_direct_clang_args})
 
 gentest_add_check_death(
+    NAME gentest_codegen_async_multiple_shared_fixtures
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    REQUIRED_SUBSTRING "async tests may depend on at most one suite/global fixture parameter"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/fixture_errors/async_multiple_shared_fixtures.cpp
+        --
+        ${_gentest_codegen_direct_clang_args})
+
+gentest_add_check_death(
     NAME gentest_codegen_top_level_suite_fixture
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}

@@ -1316,6 +1316,17 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
 
             emit_local(derive_local_fixture_type_name(parsed, test));
         }
+
+        if (test.returns_async) {
+            const auto shared_fixture_count = std::ranges::count_if(
+                test.free_fixtures, [](const FreeFixtureUse &fixture) { return fixture.scope != FixtureScope::Local; });
+            if (shared_fixture_count > 1) {
+                report(
+                    test,
+                    "async tests may depend on at most one suite/global fixture parameter; multiple shared fixture parameters would make "
+                    "execution order parameter-dependent");
+            }
+        }
     }
 
     return ok;
