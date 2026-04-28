@@ -7,12 +7,9 @@
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <indicators/color.hpp>
-#include <indicators/details/stream_helper.hpp>
-#include <indicators/termcolor.hpp>
 #include <indicators/terminal_size.hpp>
 #include <iterator>
 #include <ranges>
-#include <sstream>
 
 #if defined(_WIN32)
 #include <io.h>
@@ -105,17 +102,27 @@ auto find_row(const std::vector<AsyncLiveRowSnapshot> &rows, std::size_t id) -> 
 
 auto plain_status(AsyncLiveStatus status) -> std::string { return fmt::format("[ {:^9} ]", async_live_status_text(status)); }
 
+auto ansi_status_color_code(AsyncLiveStatus status) -> std::string_view {
+    switch (status_color(status)) {
+    case indicators::Color::green: return "32";
+    case indicators::Color::yellow: return "33";
+    case indicators::Color::red: return "31";
+    case indicators::Color::cyan: return "36";
+    case indicators::Color::grey: return "90";
+    case indicators::Color::blue: return "34";
+    case indicators::Color::magenta: return "35";
+    case indicators::Color::white:
+    case indicators::Color::unspecified: return "37";
+    }
+    return "37";
+}
+
 auto colored_status(AsyncLiveStatus status, bool color_output) -> std::string {
-    std::ostringstream out;
-    if (color_output) {
-        out << termcolor::colorize;
-        indicators::details::set_stream_color(out, status_color(status));
+    const auto plain = plain_status(status);
+    if (!color_output) {
+        return plain;
     }
-    out << plain_status(status);
-    if (color_output) {
-        out << termcolor::reset;
-    }
-    return out.str();
+    return fmt::format("\033[{}m{}\033[0m", ansi_status_color_code(status), plain);
 }
 
 struct Utf8Span {
@@ -690,7 +697,10 @@ void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_mes
     const auto lines = active_lines_for_render(true);
     erase_terminal_block();
     if (has_message) {
-        *out_ << termcolor::reset << message << '\n';
+        if (color_output_) {
+            *out_ << "\033[0m";
+        }
+        *out_ << message << '\n';
     }
     draw_terminal_block(lines);
     out_->flush();
@@ -701,7 +711,10 @@ void AsyncStatusRenderer::restore_terminal() {
         return;
     }
     erase_terminal_block();
-    *out_ << termcolor::reset << "\033[?25h";
+    if (color_output_) {
+        *out_ << "\033[0m";
+    }
+    *out_ << "\033[?25h";
 }
 
 } // namespace gentest::runner

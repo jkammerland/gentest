@@ -1958,6 +1958,20 @@ gentest_add_check_exit_code(
     PROG $<TARGET_FILE:gentest_regression_async_status_renderer>
     EXPECT_RC 0)
 
+add_executable(gentest_regression_async_status_renderer_noop_termcolor
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_status_renderer_noop_termcolor.cpp)
+target_compile_features(gentest_regression_async_status_renderer_noop_termcolor PRIVATE cxx_std_20)
+target_include_directories(gentest_regression_async_status_renderer_noop_termcolor PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/third_party/include
+    ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(gentest_regression_async_status_renderer_noop_termcolor PRIVATE gentest::fmt_dependency)
+
+gentest_add_check_exit_code(
+    NAME regression_async_status_renderer_noop_termcolor
+    PROG $<TARGET_FILE:gentest_regression_async_status_renderer_noop_termcolor>
+    EXPECT_RC 0)
+
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING gentest ARGS --help)
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--time-unit=<mode>" ARGS --help)
