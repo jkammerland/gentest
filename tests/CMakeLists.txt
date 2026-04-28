@@ -548,7 +548,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRINGS=[ FAIL ] async/blocked/after_failure|failure-before-blocked-marker"
-        "FORBID_SUBSTRINGS=[ BLOCKED ] async/blocked/after_failure|dependency failed after assertion")
+        "FORBID_SUBSTRING=[ BLOCKED ] async/blocked/after_failure")
 
 gentest_add_check_counts(
     NAME async_empty_reason_blocked
