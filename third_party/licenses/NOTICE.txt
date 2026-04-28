@@ -7,7 +7,7 @@ Source packages:
 
 License files included in this directory:
 - indicators-MIT.txt
-- indicators-termcolor-BSD.txt
+- indicators-setting-MIT.txt
 - tabulate-MIT.txt
 - termcolor-BSD.txt
 - boost-software-license-1.0.txt
@@ -15,7 +15,10 @@ License files included in this directory:
 
 Mapping:
 - Most files under third_party/include/indicators are from indicators and are MIT-licensed.
-- third_party/include/indicators/termcolor.hpp references termcolor and BSD license.
+- third_party/include/indicators/setting.hpp carries a distinct MIT notice for
+  Dawid Pilarski.
+- third_party/include/indicators/termcolor.hpp references termcolor and uses
+  termcolor-BSD.txt.
 - third_party/include/indicators/display_width.hpp includes Markus Kuhn's
   wcwidth()/wcswidth() Unicode column width implementation under its bundled
   permissive notice.
