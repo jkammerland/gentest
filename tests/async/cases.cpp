@@ -2,6 +2,7 @@
 #include "gentest/detail/runtime_context.h"
 #include "gentest/runner.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -546,6 +547,16 @@ gentest::async_test<int> value_discard() {
     co_await gentest::async::yield();
     EXPECT_TRUE(true);
     co_return 7;
+}
+
+[[using gentest: test("case_api/sync_fn_async_guard")]]
+void case_api_sync_fn_async_guard() {
+    auto cases = gentest::registered_cases();
+    auto it    = std::ranges::find_if(cases, [](const gentest::Case &test_case) { return test_case.name == "async/value/discard"; });
+    ASSERT_TRUE(it != cases.end());
+    ASSERT_TRUE(it->is_async);
+    ASSERT_TRUE(it->async_fn != nullptr);
+    it->fn(nullptr);
 }
 
 [[using gentest: test("fixture/local_async")]]

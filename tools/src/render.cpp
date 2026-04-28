@@ -481,6 +481,14 @@ static std::string make_invoke_for_free(const WrapperSpec &spec, const std::stri
 }
 
 static void append_wrapper(std::string &out, const WrapperSpec &spec, const WrapperTemplates &templates) {
+    if (spec.returns_async) {
+        out += "static void " + spec.wrapper_name + "(void* ctx_) {\n";
+        out += "    (void)ctx_;\n";
+        out += "    ::gentest::detail::record_failure(\"async test invoked through synchronous Case::fn; use Case::async_fn\");\n";
+        out += "}\n\n";
+        return;
+    }
+
     switch (spec.kind) {
     case WrapperKind::Free: {
         if (!spec.is_measured && !spec.method_is_template && spec.value_args.empty()) {

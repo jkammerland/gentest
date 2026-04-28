@@ -318,8 +318,17 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 58
+    CASES 59
     ARGS --kind=test)
+
+gentest_add_cmake_script_test(
+    NAME async_case_sync_fn_reports_error
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=async/case_api/sync_fn_async_guard --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/case_api/sync_fn_async_guard|async test invoked through synchronous Case::fn")
 
 gentest_add_cmake_script_test(
     NAME async_inventory_fixture_cases
