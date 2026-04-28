@@ -34,23 +34,19 @@ struct TestContextInfo {
     std::mutex               mtx;
     std::mutex               adopted_mtx;
     std::condition_variable  adopted_cv;
-    struct AdoptedReleaseListener {
-        explicit AdoptedReleaseListener(std::condition_variable &cv_in) noexcept : cv(&cv_in) {}
+    struct AdoptedReleaseWake {
+        void notify_one() noexcept { cv.notify_one(); }
+        void notify_all() noexcept { cv.notify_all(); }
 
-        void notify() const noexcept {
-            if (cv) {
-                cv->notify_all();
-            }
-        }
-
-        std::condition_variable *cv = nullptr;
+        std::condition_variable cv;
     };
-    std::vector<std::weak_ptr<AdoptedReleaseListener>> adopted_release_listeners;
-    std::atomic<bool>                                  active{false};
-    std::atomic<bool>                                  has_failures{false};
-    std::atomic<std::size_t>                           adopted_contexts{0};
-    gentest::LogPolicy                                 log_policy{gentest::LogPolicy::Never};
-    bool                                               log_policy_overridden{false};
+    std::vector<std::weak_ptr<AdoptedReleaseWake>> adopted_release_wakes;
+    NoExceptionsFatalHookState                     noexceptions_fatal_hook;
+    std::atomic<bool>                              active{false};
+    std::atomic<bool>                              has_failures{false};
+    std::atomic<std::size_t>                       adopted_contexts{0};
+    gentest::LogPolicy                             log_policy{gentest::LogPolicy::Never};
+    bool                                           log_policy_overridden{false};
 
     std::atomic<bool> runtime_skip_requested{false};
     std::string       runtime_skip_reason;
@@ -147,35 +143,47 @@ inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ct
     ctx->adopted_cv.wait(lk, [&] { return ctx->adopted_contexts.load(std::memory_order_acquire) == 0; });
 }
 
-inline void register_adopted_release_listener(const std::shared_ptr<TestContextInfo>                         &ctx,
-                                              const std::shared_ptr<TestContextInfo::AdoptedReleaseListener> &listener) {
-    if (!ctx || !listener) {
+inline void clear_context_noexceptions_fatal_hook(const std::shared_ptr<TestContextInfo> &ctx) {
+    if (!ctx) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    ctx->noexceptions_fatal_hook = {};
+}
+
+inline void register_adopted_release_wake(const std::shared_ptr<TestContextInfo>                     &ctx,
+                                          const std::shared_ptr<TestContextInfo::AdoptedReleaseWake> &wake) {
+    if (!ctx || !wake) {
         return;
     }
     std::lock_guard<std::mutex> lk(ctx->adopted_mtx);
-    auto                       &listeners = ctx->adopted_release_listeners;
-    for (auto it = listeners.begin(); it != listeners.end();) {
+    auto                       &wakes = ctx->adopted_release_wakes;
+    for (auto it = wakes.begin(); it != wakes.end();) {
         if (it->expired()) {
-            it = listeners.erase(it);
+            it = wakes.erase(it);
         } else {
             ++it;
         }
     }
-    listeners.push_back(listener);
+    wakes.push_back(wake);
 }
 
 inline void notify_adopted_contexts_released(TestContextInfo &ctx) noexcept {
+    std::vector<std::shared_ptr<TestContextInfo::AdoptedReleaseWake>> wakes;
     {
         std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
-        auto                       &listeners = ctx.adopted_release_listeners;
-        for (auto it = listeners.begin(); it != listeners.end();) {
-            if (auto listener = it->lock()) {
-                listener->notify();
+        auto                       &registered_wakes = ctx.adopted_release_wakes;
+        for (auto it = registered_wakes.begin(); it != registered_wakes.end();) {
+            if (auto wake = it->lock()) {
+                wakes.push_back(std::move(wake));
                 ++it;
             } else {
-                it = listeners.erase(it);
+                it = registered_wakes.erase(it);
             }
         }
+    }
+    for (auto &wake : wakes) {
+        wake->notify_all();
     }
     ctx.adopted_cv.notify_all();
 }

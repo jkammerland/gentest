@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fmt/format.h>
 #include <iterator>
+#include <memory>
 #include <ostream>
 #include <source_location>
 #include <sstream>
@@ -17,6 +18,8 @@
 #include <utility>
 
 namespace gentest::detail {
+
+struct TestContextInfo;
 
 inline constexpr bool exceptions_enabled = GENTEST_EXCEPTIONS_ENABLED != 0;
 
@@ -65,14 +68,34 @@ struct NoExceptionsFatalHookState {
     void                 *user_data = nullptr;
 };
 
+struct NoExceptionsFatalHookContextToken {
+    std::weak_ptr<TestContextInfo> owner;
+    NoExceptionsFatalHookState     previous{};
+};
+
 GENTEST_RUNTIME_API auto noexceptions_fatal_hook_storage() -> NoExceptionsFatalHookState &;
+GENTEST_RUNTIME_API auto install_context_noexceptions_fatal_hook(NoExceptionsFatalHookState state) noexcept
+    -> NoExceptionsFatalHookContextToken;
+GENTEST_RUNTIME_API void restore_context_noexceptions_fatal_hook(const NoExceptionsFatalHookContextToken &token) noexcept;
+GENTEST_RUNTIME_API auto has_current_noexceptions_fatal_hook_context() noexcept -> bool;
+GENTEST_RUNTIME_API auto take_context_noexceptions_fatal_hook() noexcept -> NoExceptionsFatalHookState;
 
 struct NoExceptionsFatalHookScope {
-    NoExceptionsFatalHookState previous{};
+    NoExceptionsFatalHookState        previous{};
+    NoExceptionsFatalHookContextToken context_previous{};
+    bool                              context_hook_installed = false;
 
     explicit NoExceptionsFatalHookScope(NoExceptionsFatalHook hook, void *user_data) noexcept
-        : previous(noexceptions_fatal_hook_storage()) {
-        noexceptions_fatal_hook_storage() = {
+        : context_previous(install_context_noexceptions_fatal_hook(NoExceptionsFatalHookState{
+              .hook      = hook,
+              .user_data = user_data,
+          })),
+          context_hook_installed(!context_previous.owner.expired()) {
+        if (context_hook_installed) {
+            return;
+        }
+        previous                          = noexceptions_fatal_hook_storage();
+        noexceptions_fatal_hook_storage() = NoExceptionsFatalHookState{
             .hook      = hook,
             .user_data = user_data,
         };
@@ -81,15 +104,24 @@ struct NoExceptionsFatalHookScope {
     NoExceptionsFatalHookScope(const NoExceptionsFatalHookScope &)            = delete;
     NoExceptionsFatalHookScope &operator=(const NoExceptionsFatalHookScope &) = delete;
 
-    ~NoExceptionsFatalHookScope() { noexceptions_fatal_hook_storage() = previous; }
+    ~NoExceptionsFatalHookScope() {
+        restore_context_noexceptions_fatal_hook(context_previous);
+        if (!context_hook_installed) {
+            noexceptions_fatal_hook_storage() = previous;
+        }
+    }
 };
 
 inline void run_noexceptions_fatal_hook() noexcept {
-    const auto state = noexceptions_fatal_hook_storage();
+    const bool has_context = has_current_noexceptions_fatal_hook_context();
+    auto       state       = take_context_noexceptions_fatal_hook();
+    if (!has_context && !state.hook) {
+        state = noexceptions_fatal_hook_storage();
+    }
+    noexceptions_fatal_hook_storage() = {};
     if (!state.hook) {
         return;
     }
-    noexceptions_fatal_hook_storage() = {};
     state.hook(state.user_data);
 }
 

@@ -1,6 +1,7 @@
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <future>
@@ -18,8 +19,22 @@ gentest::async::manual_event server_ready;
 gentest::async::manual_event client_done;
 std::vector<std::string>     order;
 
+void reset_batch_if_previous_round_completed() {
+    if (server_ready.is_set() && client_done.is_set()) {
+        server_ready.reset();
+        client_done.reset();
+        order.clear();
+    }
+}
+
 gentest::async::manual_event live_demo_resume;
 std::vector<std::string>     live_demo_order;
+
+gentest::async::manual_event fail_fast_snapshot_release;
+gentest::async::manual_event fail_fast_cancel_adopted_resume;
+gentest::async::manual_event fail_fast_final_drain_fail_release;
+gentest::async::manual_event fail_fast_final_drain_late_release;
+std::atomic<int>             fail_fast_final_drain_waiters{0};
 
 gentest::async::manual_event group_fence_release;
 std::vector<std::string>     group_fence_order;
@@ -38,6 +53,7 @@ ProcessExitSignal process_exit_signal;
 gentest::async::manual_event                       adopted_resume_event;
 std::shared_ptr<gentest::async::completion_source> completion_order_source;
 std::shared_ptr<gentest::async::completion_source> explicit_blocked_source;
+std::shared_ptr<gentest::async::completion_source> empty_blocked_source;
 
 constexpr int kLiveDemoRounds = 10;
 
@@ -276,6 +292,7 @@ struct LocalAsyncThrowingTeardownFixture : gentest::AsyncFixtureTearDown {
 
 [[using gentest: test("batch/server")]]
 gentest::async_test<void> server() {
+    reset_batch_if_previous_round_completed();
     order.clear();
     co_await gentest::async::yield();
     order.emplace_back("server");
@@ -288,6 +305,7 @@ gentest::async_test<void> server() {
 
 [[using gentest: test("batch/client")]]
 gentest::async_test<void> client() {
+    reset_batch_if_previous_round_completed();
     co_await server_ready.wait("server was not selected");
     order.emplace_back("client");
     client_done.set();
@@ -331,6 +349,81 @@ gentest::async_test<void> fail_fast_async_fail() {
 [[using gentest: test("fail_fast/01_sync_should_not_run")]]
 void fail_fast_sync_should_not_run() {
     gentest::fail("fail-fast allowed a later sync case to run");
+}
+
+[[using gentest: test("fail_fast_snapshot/00_async_fail_after_release")]]
+gentest::async_test<void> fail_fast_snapshot_async_fail_after_release() {
+    fail_fast_snapshot_release.reset();
+    co_await fail_fast_snapshot_release.wait("driver did not release fail-fast snapshot cases");
+    EXPECT_TRUE(false);
+}
+
+[[using gentest: test("fail_fast_snapshot/01_async_should_not_run_after_failure")]]
+gentest::async_test<void> fail_fast_snapshot_async_should_not_run_after_failure() {
+    co_await fail_fast_snapshot_release.wait("driver did not release fail-fast snapshot cases");
+    gentest::fail("fail-fast allowed a later ready async case to run");
+}
+
+[[using gentest: test("fail_fast_snapshot/02_release")]]
+void fail_fast_snapshot_release_waiters() {
+    fail_fast_snapshot_release.set();
+}
+
+[[using gentest: test("fail_fast_cancel_adopted/00_pending_needs_resume")]]
+gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
+    fail_fast_cancel_adopted_resume.reset();
+
+    auto context = gentest::get_current_context();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::promise<void> resumed;
+    auto               resumed_ready = resumed.get_future();
+    std::jthread worker([context = std::move(context), started = std::move(started), resumed_ready = std::move(resumed_ready)]() mutable {
+        auto adoption = gentest::set_current_context(context);
+        started->set_value();
+        resumed_ready.wait();
+    });
+
+    ready.wait();
+    co_await fail_fast_cancel_adopted_resume.wait("fail-fast cancellation resume should remain queued");
+    resumed.set_value();
+    gentest::fail("fail-fast cancellation resumed pending adopted case");
+}
+
+[[using gentest: test("fail_fast_cancel_adopted/01_failure_releases_pending")]]
+void fail_fast_cancel_adopted_failure_releases_pending() {
+    fail_fast_cancel_adopted_resume.set();
+    EXPECT_TRUE(false);
+}
+
+[[using gentest: test("fail_fast_final_drain/00_async_fail_after_adopted_release")]]
+gentest::async_test<void> fail_fast_final_drain_async_fail_after_adopted_release() {
+    fail_fast_final_drain_fail_release.reset();
+    fail_fast_final_drain_late_release.reset();
+    fail_fast_final_drain_waiters.store(0, std::memory_order_release);
+
+    auto         context = gentest::get_current_context();
+    std::jthread worker([context = std::move(context)]() mutable {
+        auto adoption = gentest::set_current_context(context);
+        while (fail_fast_final_drain_waiters.load(std::memory_order_acquire) < 2) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        fail_fast_final_drain_fail_release.set();
+        fail_fast_final_drain_late_release.set();
+    });
+
+    fail_fast_final_drain_waiters.fetch_add(1, std::memory_order_acq_rel);
+    co_await fail_fast_final_drain_fail_release.wait("final drain did not release fail-fast failure");
+    EXPECT_TRUE(false);
+}
+
+[[using gentest: test("fail_fast_final_drain/01_async_should_not_run_after_failure")]]
+gentest::async_test<void> fail_fast_final_drain_async_should_not_run_after_failure() {
+    fail_fast_final_drain_waiters.fetch_add(1, std::memory_order_acq_rel);
+    co_await fail_fast_final_drain_late_release.wait("final drain did not release later ready case");
+    gentest::fail("fail-fast final drain allowed a later ready async case to run");
 }
 
 [[using gentest: test("value/discard")]]
@@ -379,6 +472,12 @@ gentest::async_test<void> shared_suite_async_wait(SharedSuiteAsyncFixture &fixtu
     }
     EXPECT_EQ(&fixture, SharedSuiteAsyncFixture::first);
     EXPECT_EQ(SharedSuiteAsyncFixture::setups, 1);
+    fixture.value     = 10;
+    fixture.saw_async = false;
+    fixture.saw_sync  = false;
+    fixture.saw_check = false;
+    fixture.release_async.reset();
+    fixture.events.clear();
     EXPECT_EQ(fixture.value, 10);
     fixture.saw_async = true;
     fixture.events.emplace_back("async:start");
@@ -419,6 +518,13 @@ void shared_global_sync_seed(SharedGlobalAsyncFixture &fixture) {
     }
     EXPECT_EQ(&fixture, SharedGlobalAsyncFixture::first);
     EXPECT_EQ(SharedGlobalAsyncFixture::setups, 1);
+    fixture.value     = 100;
+    fixture.saw_seed  = false;
+    fixture.saw_async = false;
+    fixture.saw_sync  = false;
+    fixture.saw_check = false;
+    fixture.release_async.reset();
+    fixture.events.clear();
     EXPECT_EQ(fixture.value, 100);
     fixture.saw_seed = true;
     fixture.events.emplace_back("sync:seed");
@@ -602,6 +708,13 @@ gentest::async_test<void> completion_source_first_terminal_driver() {
     EXPECT_TRUE(true);
 }
 
+[[using gentest: test("completion_source/pre_failed_before_wait")]]
+gentest::async_test<void> completion_source_pre_failed_before_wait() {
+    gentest::async::completion_source source;
+    source.fail_unresumable("pre-completed dependency cannot resume");
+    co_await source.wait("pre-completed source should not suspend");
+}
+
 [[using gentest: test("blocked/explicit/00_waiter")]]
 gentest::async_test<void> explicit_blocked_waiter() {
     explicit_blocked_source = std::make_shared<gentest::async::completion_source>();
@@ -612,6 +725,19 @@ gentest::async_test<void> explicit_blocked_waiter() {
 gentest::async_test<void> explicit_blocked_driver() {
     ASSERT_TRUE(static_cast<bool>(explicit_blocked_source));
     explicit_blocked_source->fail_unresumable("external dependency cannot resume");
+    co_return;
+}
+
+[[using gentest: test("blocked/empty_reason/00_waiter")]]
+gentest::async_test<void> empty_reason_blocked_waiter() {
+    empty_blocked_source = std::make_shared<gentest::async::completion_source>();
+    co_await empty_blocked_source->wait("waiting for empty blocked marker");
+}
+
+[[using gentest: test("blocked/empty_reason/01_driver")]]
+gentest::async_test<void> empty_reason_blocked_driver() {
+    ASSERT_TRUE(static_cast<bool>(empty_blocked_source));
+    empty_blocked_source->fail_unresumable();
     co_return;
 }
 

@@ -72,6 +72,42 @@ GENTEST_RUNTIME_API auto bench_error_storage() -> std::string & { return g_bench
 
 GENTEST_RUNTIME_API auto noexceptions_fatal_hook_storage() -> NoExceptionsFatalHookState & { return g_noexceptions_fatal_hook; }
 
+GENTEST_RUNTIME_API auto install_context_noexceptions_fatal_hook(NoExceptionsFatalHookState state) noexcept
+    -> NoExceptionsFatalHookContextToken {
+    auto ctx = current_test_storage();
+    if (!ctx) {
+        return {};
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    auto                        previous = ctx->noexceptions_fatal_hook;
+    ctx->noexceptions_fatal_hook         = state;
+    return NoExceptionsFatalHookContextToken{.owner = ctx, .previous = previous};
+}
+
+GENTEST_RUNTIME_API void restore_context_noexceptions_fatal_hook(const NoExceptionsFatalHookContextToken &token) noexcept {
+    auto ctx = token.owner.lock();
+    if (!ctx) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    ctx->noexceptions_fatal_hook = token.previous;
+}
+
+GENTEST_RUNTIME_API auto has_current_noexceptions_fatal_hook_context() noexcept -> bool {
+    return static_cast<bool>(current_test_storage());
+}
+
+GENTEST_RUNTIME_API auto take_context_noexceptions_fatal_hook() noexcept -> NoExceptionsFatalHookState {
+    auto ctx = current_test_storage();
+    if (!ctx) {
+        return {};
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    auto                        state = ctx->noexceptions_fatal_hook;
+    ctx->noexceptions_fatal_hook      = {};
+    return state;
+}
+
 void record_failure(std::string msg) {
     auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");

@@ -73,10 +73,100 @@ auto visible_width(std::string_view text) -> std::size_t {
                 continue;
             }
         }
-        ++width;
-        ++i;
+        const auto byte0 = static_cast<unsigned char>(text[i]);
+        if (byte0 < 0x80U) {
+            ++width;
+            ++i;
+            continue;
+        }
+        std::size_t length = 0;
+        char32_t    cp     = 0;
+        if ((byte0 & 0xE0U) == 0xC0U) {
+            length = 2;
+            cp     = byte0 & 0x1FU;
+        } else if ((byte0 & 0xF0U) == 0xE0U) {
+            length = 3;
+            cp     = byte0 & 0x0FU;
+        } else if ((byte0 & 0xF8U) == 0xF0U) {
+            length = 4;
+            cp     = byte0 & 0x07U;
+        } else {
+            ++width;
+            ++i;
+            continue;
+        }
+        if (i + length > text.size()) {
+            ++width;
+            ++i;
+            continue;
+        }
+        bool valid = true;
+        for (std::size_t j = 1; j < length; ++j) {
+            const auto byte = static_cast<unsigned char>(text[i + j]);
+            if ((byte & 0xC0U) != 0x80U) {
+                valid = false;
+                break;
+            }
+            cp = (cp << 6U) | (byte & 0x3FU);
+        }
+        if (!valid) {
+            ++width;
+            ++i;
+            continue;
+        }
+        if (!((cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x1AB0 && cp <= 0x1AFF) || (cp >= 0x1DC0 && cp <= 0x1DFF) ||
+              (cp >= 0x20D0 && cp <= 0x20FF) || (cp >= 0xFE00 && cp <= 0xFE0F))) {
+            width += ((cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2329 && cp <= 0x232A) || (cp >= 0x2E80 && cp <= 0xA4CF) ||
+                      (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE10 && cp <= 0xFE19) ||
+                      (cp >= 0xFE30 && cp <= 0xFE6F) || (cp >= 0xFF00 && cp <= 0xFF60) || (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+                      (cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD))
+                         ? 2
+                         : 1;
+        }
+        i += length;
     }
     return width;
+}
+
+bool is_valid_utf8(std::string_view text) {
+    for (std::size_t i = 0; i < text.size();) {
+        const auto byte0 = static_cast<unsigned char>(text[i]);
+        if (byte0 < 0x80U) {
+            ++i;
+            continue;
+        }
+
+        std::size_t length = 0;
+        char32_t    cp     = 0;
+        if ((byte0 & 0xE0U) == 0xC0U) {
+            length = 2;
+            cp     = byte0 & 0x1FU;
+        } else if ((byte0 & 0xF0U) == 0xE0U) {
+            length = 3;
+            cp     = byte0 & 0x0FU;
+        } else if ((byte0 & 0xF8U) == 0xF0U) {
+            length = 4;
+            cp     = byte0 & 0x07U;
+        } else {
+            return false;
+        }
+        if (i + length > text.size()) {
+            return false;
+        }
+        for (std::size_t j = 1; j < length; ++j) {
+            const auto byte = static_cast<unsigned char>(text[i + j]);
+            if ((byte & 0xC0U) != 0x80U) {
+                return false;
+            }
+            cp = (cp << 6U) | (byte & 0x3FU);
+        }
+        if ((length == 2 && cp < 0x80) || (length == 3 && cp < 0x800) || (length == 4 && cp < 0x10000) || (cp >= 0xD800 && cp <= 0xDFFF) ||
+            cp > 0x10FFFF) {
+            return false;
+        }
+        i += length;
+    }
+    return true;
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -129,6 +219,79 @@ int main() {
     for (const auto line : lines(snapshot)) {
         if (!line.empty() && visible_width(line) >= 32) {
             return fail("terminal live rows should stay below terminal width to avoid physical wrapping", snapshot);
+        }
+    }
+
+    std::ostringstream                   utf8_out;
+    gentest::runner::AsyncStatusRenderer utf8(utf8_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                              {.width = 36, .height = 12});
+    utf8.add_case(0, "async/live/\xE6\xB8\xAC\xE8\xA9\xA6-" + std::string(20, 'n'));
+    utf8.mark_suspended(0, "e\xCC\x81 waiting " + std::string(20, 'd'), "/tmp/\xE6\xB8\xAC\xE8\xA9\xA6/case.cpp", 79);
+    snapshot = utf8.render_snapshot_for_test();
+    for (const auto line : lines(snapshot)) {
+        if (!line.empty() && visible_width(line) >= 36) {
+            return fail("terminal live rows should clip UTF-8 by display width", snapshot);
+        }
+    }
+    if (!is_valid_utf8(snapshot)) {
+        return fail("terminal live rows should not split UTF-8 code points", snapshot);
+    }
+
+    std::ostringstream                   split_guard_out;
+    gentest::runner::AsyncStatusRenderer split_guard(split_guard_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                     {.width = 19, .height = 12});
+    split_guard.add_case(0, "\xE6\xB8\xAC\xE8\xA9\xA6" + std::string(20, 'n'));
+    split_guard.mark_running(0);
+    snapshot = split_guard.render_snapshot_for_test();
+    if (!is_valid_utf8(snapshot)) {
+        return fail("right clipping should not cut through a leading UTF-8 code point", snapshot);
+    }
+    for (const auto line : lines(snapshot)) {
+        if (!line.empty() && visible_width(line) >= 19) {
+            return fail("right-clipped UTF-8 rows should stay below terminal width", snapshot);
+        }
+    }
+
+    std::ostringstream                   sanitized_out;
+    gentest::runner::AsyncStatusRenderer sanitized(sanitized_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                   {.width = 200, .height = 12});
+    sanitized.add_case(0, std::string("async/live/name\nwith\r") + '\x1B' + "controls");
+    sanitized.mark_suspended(0, std::string("detail\nwith\tcontrol") + '\x01', "/tmp/line\ncontrol.cpp", 80);
+    snapshot = sanitized.render_snapshot_for_test();
+    if (lines(snapshot).size() != 1) {
+        return fail("terminal row fields should sanitize embedded newlines instead of creating extra visible rows", snapshot);
+    }
+    if (!contains(snapshot, "\\n") || !contains(snapshot, "\\r") || !contains(snapshot, "\\t") || !contains(snapshot, "\\x1B") ||
+        !contains(snapshot, "\\x01")) {
+        return fail("terminal row fields should escape control characters", snapshot);
+    }
+
+    std::ostringstream                   malformed_out;
+    gentest::runner::AsyncStatusRenderer malformed(malformed_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                   {.width = 200, .height = 12});
+    malformed.add_case(0, std::string("async/live/bad") + '\xC3' + '(');
+    malformed.mark_suspended(0, std::string("detail/") + '\xF0' + '\x80' + '\x80' + '\x80', std::string("/tmp/bad") + '\xE0' + "/case.cpp",
+                             81);
+    snapshot = malformed.render_snapshot_for_test();
+    if (!is_valid_utf8(snapshot)) {
+        return fail("terminal row fields should replace malformed UTF-8 with valid replacement output", snapshot);
+    }
+    if (!contains(snapshot, "\xEF\xBF\xBD")) {
+        return fail("terminal row fields should show malformed UTF-8 with replacement characters", snapshot);
+    }
+
+    std::ostringstream                   fullwidth_out;
+    gentest::runner::AsyncStatusRenderer fullwidth(fullwidth_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                   {.width = 24, .height = 12});
+    fullwidth.add_case(0, std::string("wide/") + "\xF0\xA0\x80\x80\xF0\xA0\x80\x80\xF0\xA0\x80\x80\xF0\xA0\x80\x80" + std::string(16, 'x'));
+    fullwidth.mark_running(0);
+    snapshot = fullwidth.render_snapshot_for_test();
+    if (!is_valid_utf8(snapshot)) {
+        return fail("supplementary fullwidth clipping should preserve UTF-8 validity", snapshot);
+    }
+    for (const auto line : lines(snapshot)) {
+        if (!line.empty() && visible_width(line) >= 24) {
+            return fail("supplementary fullwidth code points should count as width two when clipping", snapshot);
         }
     }
 

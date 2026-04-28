@@ -207,9 +207,9 @@ class manual_event {
 
 class completion_source {
   public:
-    void complete() { complete_impl({}); }
+    void complete() { complete_impl(false, {}); }
 
-    void fail_unresumable(std::string reason) { complete_impl(std::move(reason)); }
+    void fail_unresumable(std::string reason = {}) { complete_impl(true, std::move(reason)); }
 
     class awaitable {
       public:
@@ -237,7 +237,7 @@ class completion_source {
 
         void await_resume() const {
             std::lock_guard<std::mutex> lk(source_.mtx_);
-            if (!source_.unresumable_reason_.empty()) {
+            if (source_.unresumable_) {
 #if GENTEST_EXCEPTIONS_ENABLED
                 throw detail::blocked_exception(source_.unresumable_reason_);
 #else
@@ -263,15 +263,17 @@ class completion_source {
         std::coroutine_handle<>                        handle{};
     };
 
-    void complete_impl(std::string unresumable_reason) {
+    void complete_impl(bool unresumable, std::string unresumable_reason) {
         std::vector<Waiter> waiters;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             if (completed_) {
                 return;
             }
-            completed_          = true;
-            unresumable_reason_ = std::move(unresumable_reason);
+            completed_   = true;
+            unresumable_ = unresumable;
+            unresumable_reason_ =
+                unresumable && unresumable_reason.empty() ? std::string("completion source cannot resume") : std::move(unresumable_reason);
             waiters.swap(waiters_);
         }
         for (auto &waiter : waiters) {
@@ -282,7 +284,8 @@ class completion_source {
     }
 
     mutable std::mutex  mtx_;
-    bool                completed_ = false;
+    bool                completed_   = false;
+    bool                unresumable_ = false;
     std::string         unresumable_reason_;
     std::vector<Waiter> waiters_;
 };

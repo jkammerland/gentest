@@ -183,6 +183,14 @@ gentest_add_check_counts(
     SKIP 0
     ARGS --filter=async/batch/* --kind=test)
 
+gentest_add_check_counts(
+    NAME async_batch_repeat
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 4
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/batch/* --kind=test --repeat=2)
+
 gentest_add_cmake_script_test(
     NAME async_batch_non_tty_plain
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
@@ -209,6 +217,45 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast/00_async_fail"
         "FORBID_SUBSTRING=async/fail_fast/01_sync_should_not_run")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_stops_ready_snapshot
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast_snapshot/* --kind=test --fail-fast --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_snapshot/00_async_fail_after_release"
+        "FORBID_SUBSTRING=fail-fast allowed a later ready async case to run")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_cancel_adopted_no_hang
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_cancel_adopted/* --kind=test --fail-fast --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_cancel_adopted_does_not_resume
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast_cancel_adopted/* --kind=test --fail-fast --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_cancel_adopted/01_failure_releases_pending"
+        "FORBID_SUBSTRING=fail-fast cancellation resumed pending adopted case")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_final_drain_stops_ready_snapshot
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast_final_drain/* --kind=test --fail-fast --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_final_drain/00_async_fail_after_adopted_release"
+        "FORBID_SUBSTRING=fail-fast final drain allowed a later ready async case to run")
 
 gentest_add_check_counts(
     NAME async_live_slow_demo_inventory
@@ -251,7 +298,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 43
+    CASES 53
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
@@ -298,12 +345,28 @@ gentest_add_check_counts(
     ARGS --filter=async/fixture/shared_suite/* --kind=test --no-color)
 
 gentest_add_check_counts(
+    NAME async_shared_suite_fixture_repeat
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 6
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/fixture/shared_suite/* --kind=test --repeat=2 --no-color)
+
+gentest_add_check_counts(
     NAME async_shared_global_fixture_mixed
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     PASS 4
     FAIL 0
     SKIP 0
     ARGS --filter=async/fixture/shared_global/* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_shared_global_fixture_repeat
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 8
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/fixture/shared_global/* --kind=test --repeat=2 --no-color)
 
 gentest_add_check_counts(
     NAME async_shared_suite_fixture_unresumable
@@ -402,6 +465,25 @@ gentest_add_check_counts(
     ARGS --filter=async/completion_source/order/* --kind=test --no-color)
 
 gentest_add_check_counts(
+    NAME async_completion_source_pre_failed_before_wait
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 0
+    SKIP 0
+    BLOCKED 1
+    EXPECT_RC 1
+    ARGS --run=async/completion_source/pre_failed_before_wait --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_completion_source_pre_failed_before_wait_reason
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=async/completion_source/pre_failed_before_wait --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ BLOCKED ] async/completion_source/pre_failed_before_wait|pre-completed dependency cannot resume")
+
+gentest_add_check_counts(
     NAME async_explicit_blocked
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     PASS 1
@@ -419,6 +501,25 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRINGS=[ BLOCKED ] async/blocked/explicit/00_waiter|external dependency cannot resume")
+
+gentest_add_check_counts(
+    NAME async_empty_reason_blocked
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    BLOCKED 1
+    EXPECT_RC 1
+    ARGS --filter=async/blocked/empty_reason/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_empty_reason_blocked_default_reason
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/blocked/empty_reason/* --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ BLOCKED ] async/blocked/empty_reason/00_waiter|completion source cannot resume")
 
 gentest_add_check_counts(
     NAME async_outcome_xfail_expect_fail

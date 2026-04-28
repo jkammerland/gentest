@@ -370,10 +370,11 @@ struct AsyncCaseRun {
 class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
   public:
     using CompletionCallback = std::function<void(std::size_t)>;
+    using StopCallback       = std::function<bool()>;
 
     BatchAsyncScheduler(std::vector<AsyncCaseRun> &runs, AsyncStatusRenderer *renderer, CompletionCallback completion_callback = {})
         : runs_(runs), renderer_(renderer), completion_callback_(std::move(completion_callback)),
-          adopted_release_listener_(std::make_shared<gentest::detail::TestContextInfo::AdoptedReleaseListener>(cv_)) {}
+          adopted_release_wake_(std::make_shared<gentest::detail::TestContextInfo::AdoptedReleaseWake>()) {}
     ~BatchAsyncScheduler() override { deactivate(); }
 
     void post(std::coroutine_handle<> handle) override {
@@ -393,7 +394,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
             blocked_handles_.erase(handle.address());
             ready_.push_back(handle);
         }
-        cv_.notify_one();
+        adopted_release_wake_->notify_one();
     }
 
     void block(std::coroutine_handle<> handle, std::string reason) override { block_at(handle, std::move(reason), std::source_location{}); }
@@ -432,7 +433,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
                               .line     = loc.line()};
             ready_.push_back(handle);
         }
-        cv_.notify_one();
+        adopted_release_wake_->notify_one();
     }
 
     void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) override {
@@ -447,7 +448,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     }
 
     void add_top_level(std::size_t run_index, gentest::detail::AsyncTask &task) {
-        register_adopted_release_listener_for(run_index);
+        register_adopted_release_wake_for(run_index);
         task.set_scheduler(this);
         {
             std::lock_guard<std::mutex> lk(mtx_);
@@ -456,52 +457,30 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         post(task.handle());
     }
 
+    [[nodiscard]] auto run_one_ready() -> bool {
+        gentest::detail::AsyncSchedulerScope scheduler_scope(this);
+        return resume_one_ready();
+    }
+
     void run_ready() {
         gentest::detail::AsyncSchedulerScope scheduler_scope(this);
-        const auto                           ready_this_round = ready_size();
-        for (std::size_t ready_index = 0; ready_index < ready_this_round; ++ready_index) {
-            auto handle = pop_ready();
-            if (!handle || handle.done()) {
-                continue;
-            }
-            const auto owner = owner_for(handle);
-            if (owner >= runs_.size()) {
-                continue;
-            }
-            auto &run = runs_[owner];
-            if (run.finalized) {
-                continue;
-            }
-            {
-                gentest::runner::detail::CurrentTestAdoptionScope current_scope(run.ctxinfo);
-                if (renderer_) {
-                    renderer_->mark_running(owner);
-                }
-                try {
-                    handle.resume();
-                } catch (const std::exception &e) {
-                    run.exception = InvokeException::StdException;
-                    run.message   = fmt::format("std::exception: {}", e.what());
-                } catch (...) {
-                    run.exception = InvokeException::Unknown;
-                    run.message   = "unknown exception";
-                }
-            }
-
-            if (run_is_complete(owner)) {
-                complete(owner);
-            } else if (renderer_ && run.exception == InvokeException::None) {
-                const auto suspended = suspended_state_for(owner);
-                renderer_->mark_suspended(owner, suspended.reason, suspended.file, suspended.line);
+        for (std::size_t remaining = ready_size(); remaining != 0; --remaining) {
+            if (!resume_one_ready()) {
+                return;
             }
         }
     }
 
     [[nodiscard]] auto has_ready() const noexcept -> bool { return !ready_empty(); }
 
-    void finish_unresumable() {
-        drain_ready_and_adopted_work();
+    [[nodiscard]] auto finish_unresumable(StopCallback should_stop = {}) -> bool {
+        if (drain_ready_and_adopted_work(should_stop)) {
+            return true;
+        }
         for (std::size_t i = 0; i < runs_.size(); ++i) {
+            if (should_stop && should_stop()) {
+                return true;
+            }
             auto &run = runs_[i];
             if (run.finalized || !run.task || !run.task->handle() || run.task->handle().done() || run.exception != InvokeException::None) {
                 continue;
@@ -518,10 +497,14 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
                 }
             }
             complete(i);
+            if (should_stop && should_stop()) {
+                return true;
+            }
         }
+        return false;
     }
 
-    void run() { finish_unresumable(); }
+    void run() { (void)finish_unresumable(); }
 
   private:
     struct BlockedHandle {
@@ -554,7 +537,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         return it->second;
     }
 
-    void register_adopted_release_listener_for(std::size_t run_index) {
+    void register_adopted_release_wake_for(std::size_t run_index) {
         if (run_index >= runs_.size() || !runs_[run_index].ctxinfo) {
             return;
         }
@@ -562,7 +545,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         if (!adoption_listener_contexts_.insert(ctx).second) {
             return;
         }
-        gentest::detail::register_adopted_release_listener(runs_[run_index].ctxinfo, adopted_release_listener_);
+        gentest::detail::register_adopted_release_wake(runs_[run_index].ctxinfo, adopted_release_wake_);
     }
 
     [[nodiscard]] auto suspended_state_for(std::size_t owner) const -> SuspendedState {
@@ -604,17 +587,16 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         completion_callback_(owner);
     }
 
-    std::vector<AsyncCaseRun>                                                &runs_;
-    AsyncStatusRenderer                                                      *renderer_ = nullptr;
-    CompletionCallback                                                        completion_callback_;
-    mutable std::mutex                                                        mtx_;
-    std::condition_variable                                                   cv_;
-    std::shared_ptr<gentest::detail::TestContextInfo::AdoptedReleaseListener> adopted_release_listener_;
-    std::unordered_set<gentest::detail::TestContextInfo *>                    adoption_listener_contexts_;
-    std::deque<std::coroutine_handle<>>                                       ready_;
-    std::unordered_map<void *, std::size_t>                                   owners_;
-    std::unordered_map<void *, BlockedHandle>                                 blocked_handles_;
-    std::uint64_t                                                             suspend_sequence_ = 0;
+    std::vector<AsyncCaseRun>                                            &runs_;
+    AsyncStatusRenderer                                                  *renderer_ = nullptr;
+    CompletionCallback                                                    completion_callback_;
+    mutable std::mutex                                                    mtx_;
+    std::shared_ptr<gentest::detail::TestContextInfo::AdoptedReleaseWake> adopted_release_wake_;
+    std::unordered_set<gentest::detail::TestContextInfo *>                adoption_listener_contexts_;
+    std::deque<std::coroutine_handle<>>                                   ready_;
+    std::unordered_map<void *, std::size_t>                               owners_;
+    std::unordered_map<void *, BlockedHandle>                             blocked_handles_;
+    std::uint64_t                                                         suspend_sequence_ = 0;
 
     [[nodiscard]] auto ready_size() const -> std::size_t {
         std::lock_guard<std::mutex> lk(mtx_);
@@ -636,6 +618,46 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         return handle;
     }
 
+    [[nodiscard]] auto resume_one_ready() -> bool {
+        while (auto handle = pop_ready()) {
+            if (!handle || handle.done()) {
+                continue;
+            }
+            const auto owner = owner_for(handle);
+            if (owner >= runs_.size()) {
+                continue;
+            }
+            auto &run = runs_[owner];
+            if (run.finalized) {
+                continue;
+            }
+            {
+                gentest::runner::detail::CurrentTestAdoptionScope current_scope(run.ctxinfo);
+                if (renderer_) {
+                    renderer_->mark_running(owner);
+                }
+                try {
+                    handle.resume();
+                } catch (const std::exception &e) {
+                    run.exception = InvokeException::StdException;
+                    run.message   = fmt::format("std::exception: {}", e.what());
+                } catch (...) {
+                    run.exception = InvokeException::Unknown;
+                    run.message   = "unknown exception";
+                }
+            }
+
+            if (run_is_complete(owner)) {
+                complete(owner);
+            } else if (renderer_ && run.exception == InvokeException::None) {
+                const auto suspended = suspended_state_for(owner);
+                renderer_->mark_suspended(owner, suspended.reason, suspended.file, suspended.line);
+            }
+            return true;
+        }
+        return false;
+    }
+
     [[nodiscard]] auto has_unfinished_adopted_work() const -> bool {
         return std::any_of(runs_.begin(), runs_.end(), [](const AsyncCaseRun &run) {
             return !run.finalized && run.task && run.task->handle() && !run.task->handle().done() &&
@@ -646,16 +668,27 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
 
     void wait_for_ready_or_adopted_release() {
         std::unique_lock<std::mutex> lk(mtx_);
-        cv_.wait(lk, [&] { return !ready_.empty() || !has_unfinished_adopted_work(); });
+        adopted_release_wake_->cv.wait(lk, [&] { return !ready_.empty() || !has_unfinished_adopted_work(); });
     }
 
-    void drain_ready_and_adopted_work() {
+    [[nodiscard]] auto drain_ready_and_adopted_work(const StopCallback &should_stop) -> bool {
         do {
             while (has_ready()) {
-                run_ready();
+                if (should_stop && should_stop()) {
+                    return true;
+                }
+                if (!run_one_ready()) {
+                    break;
+                }
+                if (should_stop && should_stop()) {
+                    return true;
+                }
+            }
+            if (should_stop && should_stop()) {
+                return true;
             }
             if (!has_unfinished_adopted_work()) {
-                return;
+                return false;
             }
             wait_for_ready_or_adopted_release();
         } while (true);
@@ -945,6 +978,17 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
     const auto should_stop = [&] { return fail_fast && (counters.failures > 0 || counters.blocked > 0); };
 
     const auto pump_async = [&] {
+        if (should_stop()) {
+            return true;
+        }
+        if (fail_fast) {
+            while (scheduler.run_one_ready()) {
+                if (should_stop()) {
+                    return true;
+                }
+            }
+            return should_stop();
+        }
         do {
             scheduler.run_ready();
             if (should_stop()) {
@@ -956,14 +1000,48 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
 
     std::size_t first_unfinalized_scan     = 0;
     const auto  finish_pending_async_group = [&] {
-        scheduler.finish_unresumable();
+        const bool stopped_while_draining =
+            scheduler.finish_unresumable(fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{});
+        if (stopped_while_draining) {
+            while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
+                ++first_unfinalized_scan;
+            }
+            return true;
+        }
         for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
             finalize_run(run_index);
+            if (should_stop()) {
+                while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
+                    ++first_unfinalized_scan;
+                }
+                return true;
+            }
         }
         while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
             ++first_unfinalized_scan;
         }
         return should_stop();
+    };
+
+    const auto cancel_pending_async_group = [&] {
+        for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
+            auto &run = async_runs[run_index];
+            if (run.finalized) {
+                continue;
+            }
+            const bool has_adopted_work = run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0 && run.task &&
+                                          run.task->handle() && !run.task->handle().done();
+            gentest::runner::detail::deactivate_active_test_context_without_wait(run.ctxinfo);
+            gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
+            if (has_adopted_work) {
+                // Destroying the coroutine frame can join user-owned threads that are waiting for a queued resume.
+                (void)run.task.release();
+            }
+            run.finalized = true;
+        }
+        while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
+            ++first_unfinalized_scan;
+        }
     };
 
     const auto handle_case = [&](std::size_t i, void *ctx) {
@@ -1066,7 +1144,11 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         }
     }
 
-    (void)finish_pending_async_group();
+    if (!should_stop()) {
+        (void)finish_pending_async_group();
+    } else {
+        cancel_pending_async_group();
+    }
 
     renderer.finish();
     return should_stop();

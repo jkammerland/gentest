@@ -117,30 +117,165 @@ auto colored_status(AsyncLiveStatus status, bool color_output) -> std::string {
     return out.str();
 }
 
+struct Utf8Span {
+    std::size_t begin = 0;
+    std::size_t end   = 0;
+    std::size_t width = 0;
+    char32_t    cp    = 0;
+    bool        valid = true;
+};
+
+auto codepoint_width(char32_t cp) -> std::size_t {
+    if (cp == 0 || (cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x1AB0 && cp <= 0x1AFF) || (cp >= 0x1DC0 && cp <= 0x1DFF) ||
+        (cp >= 0x20D0 && cp <= 0x20FF) || (cp >= 0xFE00 && cp <= 0xFE0F)) {
+        return 0;
+    }
+    if ((cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2329 && cp <= 0x232A) || (cp >= 0x2E80 && cp <= 0xA4CF) ||
+        (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE10 && cp <= 0xFE19) ||
+        (cp >= 0xFE30 && cp <= 0xFE6F) || (cp >= 0xFF00 && cp <= 0xFF60) || (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+        (cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x3FFFD)) {
+        return 2;
+    }
+    return 1;
+}
+
+auto next_utf8_span(std::string_view text, std::size_t begin) -> Utf8Span {
+    const auto byte0        = static_cast<unsigned char>(text[begin]);
+    auto       invalid_span = [&] { return Utf8Span{.begin = begin, .end = begin + 1, .width = 1, .cp = 0xFFFD, .valid = false}; };
+    if (byte0 < 0x80U) {
+        return Utf8Span{.begin = begin, .end = begin + 1, .width = codepoint_width(byte0), .cp = byte0};
+    }
+
+    std::size_t length = 0;
+    char32_t    cp     = 0;
+    if ((byte0 & 0xE0U) == 0xC0U) {
+        length = 2;
+        cp     = byte0 & 0x1FU;
+    } else if ((byte0 & 0xF0U) == 0xE0U) {
+        length = 3;
+        cp     = byte0 & 0x0FU;
+    } else if ((byte0 & 0xF8U) == 0xF0U) {
+        length = 4;
+        cp     = byte0 & 0x07U;
+    } else {
+        return invalid_span();
+    }
+
+    if (begin + length > text.size()) {
+        return invalid_span();
+    }
+    for (std::size_t i = 1; i < length; ++i) {
+        const auto byte = static_cast<unsigned char>(text[begin + i]);
+        if ((byte & 0xC0U) != 0x80U) {
+            return invalid_span();
+        }
+        cp = (cp << 6U) | (byte & 0x3FU);
+    }
+    if ((length == 2 && cp < 0x80) || (length == 3 && cp < 0x800) || (length == 4 && cp < 0x10000) || (cp >= 0xD800 && cp <= 0xDFFF) ||
+        cp > 0x10FFFF) {
+        return invalid_span();
+    }
+    return Utf8Span{.begin = begin, .end = begin + length, .width = codepoint_width(cp), .cp = cp};
+}
+
+auto utf8_spans(std::string_view text) -> std::vector<Utf8Span> {
+    std::vector<Utf8Span> spans;
+    spans.reserve(text.size());
+    for (std::size_t i = 0; i < text.size();) {
+        auto span = next_utf8_span(text, i);
+        spans.push_back(span);
+        i = span.end;
+    }
+    return spans;
+}
+
+auto display_width(std::string_view text) -> std::size_t {
+    std::size_t width = 0;
+    for (const auto &span : utf8_spans(text)) {
+        width += span.width;
+    }
+    return width;
+}
+
+auto sanitized_terminal_field(std::string_view text) -> std::string {
+    std::string sanitized;
+    sanitized.reserve(text.size());
+    for (const auto &span : utf8_spans(text)) {
+        if (!span.valid) {
+            sanitized.append("\xEF\xBF\xBD");
+            continue;
+        }
+        if (span.cp == U'\n') {
+            sanitized.append("\\n");
+            continue;
+        }
+        if (span.cp == U'\r') {
+            sanitized.append("\\r");
+            continue;
+        }
+        if (span.cp == U'\t') {
+            sanitized.append("\\t");
+            continue;
+        }
+        if (span.cp < 0x20 || span.cp == 0x7F) {
+            fmt::format_to(std::back_inserter(sanitized), "\\x{:02X}", static_cast<unsigned>(span.cp));
+            continue;
+        }
+        if (span.cp >= 0x80 && span.cp <= 0x9F) {
+            fmt::format_to(std::back_inserter(sanitized), "\\u{:04X}", static_cast<unsigned>(span.cp));
+            continue;
+        }
+        sanitized.append(text.substr(span.begin, span.end - span.begin));
+    }
+    return sanitized;
+}
+
 auto shorten_right(std::string_view text, std::size_t max_width) -> std::string {
     if (max_width == 0) {
         return {};
     }
-    if (text.size() <= max_width) {
+    if (display_width(text) <= max_width) {
         return std::string(text);
     }
-    if (max_width <= 3) {
-        return std::string(text.substr(0, max_width));
+    const auto        spans  = utf8_spans(text);
+    const std::size_t budget = max_width <= 3 ? max_width : max_width - 3;
+    std::size_t       used   = 0;
+    std::size_t       end    = 0;
+    for (const auto &span : spans) {
+        if (used + span.width > budget) {
+            break;
+        }
+        used = used + span.width;
+        end  = span.end;
     }
-    return fmt::format("{}...", text.substr(0, max_width - 3));
+    if (max_width <= 3) {
+        return std::string(text.substr(0, end));
+    }
+    return fmt::format("{}...", text.substr(0, end));
 }
 
 auto shorten_left(std::string_view text, std::size_t max_width) -> std::string {
     if (max_width == 0) {
         return {};
     }
-    if (text.size() <= max_width) {
+    if (display_width(text) <= max_width) {
         return std::string(text);
     }
-    if (max_width <= 3) {
-        return std::string(text.substr(text.size() - max_width));
+    const auto        spans  = utf8_spans(text);
+    const std::size_t budget = max_width <= 3 ? max_width : max_width - 3;
+    std::size_t       used   = 0;
+    std::size_t       begin  = text.size();
+    for (auto it = spans.rbegin(); it != spans.rend(); ++it) {
+        if (used + it->width > budget) {
+            break;
+        }
+        used  = used + it->width;
+        begin = it->begin;
     }
-    return fmt::format("...{}", text.substr(text.size() - (max_width - 3)));
+    if (max_width <= 3) {
+        return std::string(text.substr(begin));
+    }
+    return fmt::format("...{}", text.substr(begin));
 }
 
 void trim_trailing_padding(std::string &text) {
@@ -244,17 +379,17 @@ auto format_row(const AsyncLiveRowSnapshot &row, bool color_output, bool hyperli
     const auto status_plain = plain_status(row.status);
     const auto status       = colored_status(row.status, color_output);
 
-    std::string primary = fmt::format(" {}", row.name);
+    std::string primary = fmt::format(" {}", sanitized_terminal_field(row.name));
     if (!row.detail.empty()) {
-        primary += fmt::format(" :: {}", row.detail);
+        primary += fmt::format(" :: {}", sanitized_terminal_field(row.detail));
     }
 
     std::string location_prefix;
-    std::string location_label = row.suspend_label;
+    std::string location_label = sanitized_terminal_field(row.suspend_label);
     std::string location_uri   = row.suspend_uri;
     if (location_label.empty() && !row.suspend_file.empty() && row.suspend_line != 0) {
         const auto normalized_file = normalize_source_file(row.suspend_file);
-        location_label             = fmt::format("{}:{}", normalized_file, row.suspend_line);
+        location_label             = sanitized_terminal_field(fmt::format("{}:{}", normalized_file, row.suspend_line));
         location_uri               = terminal_location_uri(normalized_file, row.suspend_line);
     }
     if (!location_label.empty()) {
@@ -266,27 +401,29 @@ auto format_row(const AsyncLiveRowSnapshot &row, bool color_output, bool hyperli
         duration = fmt::format(" ({} ms)", row.duration_ms);
     }
 
-    if (max_width == 0 ||
-        status_plain.size() + primary.size() + location_prefix.size() + location_label.size() + duration.size() <= max_width) {
+    if (max_width == 0 || display_width(status_plain) + display_width(primary) + display_width(location_prefix) +
+                                  display_width(location_label) + display_width(duration) <=
+                              max_width) {
         return status + primary + location_prefix + link_location(location_label, location_uri, hyperlink_locations) + duration;
     }
 
-    if (max_width <= status_plain.size()) {
+    const auto status_width = display_width(status_plain);
+    if (max_width <= status_width) {
         return shorten_right(status_plain, max_width);
     }
 
-    const std::size_t tail_width = max_width - status_plain.size();
+    const std::size_t tail_width = max_width - status_width;
     if (!location_label.empty()) {
-        const std::size_t fixed_without_label = location_prefix.size() + duration.size();
+        const std::size_t fixed_without_label = display_width(location_prefix) + display_width(duration);
         if (fixed_without_label < tail_width) {
             const std::size_t label_budget = tail_width - fixed_without_label;
             std::string       clipped_label;
             std::string       clipped_primary;
-            if (location_label.size() >= label_budget) {
+            if (display_width(location_label) >= label_budget) {
                 clipped_label = shorten_left(location_label, label_budget);
             } else {
                 clipped_label                    = location_label;
-                const std::size_t primary_budget = tail_width - fixed_without_label - clipped_label.size();
+                const std::size_t primary_budget = tail_width - fixed_without_label - display_width(clipped_label);
                 clipped_primary                  = shorten_right(primary, primary_budget);
             }
             return status + clipped_primary + location_prefix + link_location(clipped_label, location_uri, hyperlink_locations) + duration;

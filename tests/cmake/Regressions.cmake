@@ -1393,12 +1393,34 @@ gentest_add_check_death(
     REQUIRED_SUBSTRING "terminating after fatal assertion"
     ARGS --run=regressions/async_local_fixture_teardown_noexceptions/fatal_assert)
 
+gentest_add_cmake_script_test(
+    NAME regression_async_local_fixture_teardown_noexceptions_interleaved_uses_current_teardown
+    PROG $<TARGET_FILE:gentest_regression_async_local_fixture_teardown_noexceptions>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=*regressions/async_local_fixture_teardown_noexceptions/interleaved/* --kind=test
+    DEFINES
+        "EXPECT_RC=NONZERO"
+        "REQUIRED_SUBSTRINGS=async-local-fixture-teardown-noexc-first-marker|terminating after fatal assertion"
+        "FORBID_SUBSTRING=async-local-fixture-teardown-noexc-second-marker")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_local_fixture_teardown_noexceptions_context_without_hook_ignores_stale_tls
+    PROG $<TARGET_FILE:gentest_regression_async_local_fixture_teardown_noexceptions>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=*regressions/async_local_fixture_teardown_noexceptions/plain_interleaved/* --kind=test
+    DEFINES
+        "EXPECT_RC=NONZERO"
+        "REQUIRED_SUBSTRING=terminating after fatal assertion"
+        "FORBID_SUBSTRING=async-local-fixture-teardown-noexc-second-marker")
+
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(
         regression_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
         regression_local_fixture_teardown_noexceptions_fatal_assert_termination_message
         regression_async_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
         regression_async_local_fixture_teardown_noexceptions_fatal_assert_termination_message
+        regression_async_local_fixture_teardown_noexceptions_interleaved_uses_current_teardown
+        regression_async_local_fixture_teardown_noexceptions_context_without_hook_ignores_stale_tls
         PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 

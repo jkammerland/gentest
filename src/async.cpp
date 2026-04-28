@@ -17,8 +17,8 @@ thread_local AsyncScheduler *g_current_async_scheduler = nullptr;
 class BlockingAsyncScheduler final : public AsyncScheduler {
   public:
     explicit BlockingAsyncScheduler(std::shared_ptr<TestContextInfo> ctx) : ctx_(std::move(ctx)) {
-        adopted_release_listener_ = std::make_shared<TestContextInfo::AdoptedReleaseListener>(cv_);
-        register_adopted_release_listener(ctx_, adopted_release_listener_);
+        adopted_release_wake_ = std::make_shared<TestContextInfo::AdoptedReleaseWake>();
+        register_adopted_release_wake(ctx_, adopted_release_wake_);
     }
     ~BlockingAsyncScheduler() override { deactivate(); }
 
@@ -31,7 +31,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
             blocked_.erase(handle.address());
             ready_.push_back(handle);
         }
-        cv_.notify_one();
+        adopted_release_wake_->notify_one();
     }
 
     void block(std::coroutine_handle<> handle, std::string reason) override {
@@ -136,16 +136,16 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
 
     void wait_for_ready_or_adopted_release() {
         std::unique_lock<std::mutex> lk(mtx_);
-        cv_.wait(lk, [&] { return !ready_.empty() || !ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0; });
+        adopted_release_wake_->cv.wait(
+            lk, [&] { return !ready_.empty() || !ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0; });
     }
 
-    std::shared_ptr<TestContextInfo>                         ctx_;
-    mutable std::mutex                                       mtx_;
-    std::condition_variable                                  cv_;
-    std::shared_ptr<TestContextInfo::AdoptedReleaseListener> adopted_release_listener_;
-    std::deque<std::coroutine_handle<>>                      ready_;
-    std::unordered_map<void *, std::size_t>                  owners_;
-    std::unordered_map<void *, std::string>                  blocked_;
+    std::shared_ptr<TestContextInfo>                     ctx_;
+    mutable std::mutex                                   mtx_;
+    std::shared_ptr<TestContextInfo::AdoptedReleaseWake> adopted_release_wake_;
+    std::deque<std::coroutine_handle<>>                  ready_;
+    std::unordered_map<void *, std::size_t>              owners_;
+    std::unordered_map<void *, std::string>              blocked_;
 };
 
 auto make_context(std::string_view label) -> std::shared_ptr<TestContextInfo> {

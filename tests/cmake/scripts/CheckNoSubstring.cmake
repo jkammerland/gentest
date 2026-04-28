@@ -2,7 +2,7 @@
 #  -DPROG=<path to executable>
 # Optional:
 #  -DARGS=<optional CLI args>
-#  -DEXPECT_RC=<expected numeric exit code>
+#  -DEXPECT_RC=<expected numeric exit code or NONZERO>
 #  -DREQUIRED_SUBSTRING=<substring that must be present in combined output>
 #  -DREQUIRED_SUBSTRINGS=<substrings delimited by '|' that must be present in combined output>
 #  -DEXPECT_COUNT_SUBSTRING=<substring whose exact occurrence count is enforced>
@@ -43,7 +43,11 @@ execute_process(
 set(_all "${out}\n${err}")
 
 if(DEFINED EXPECT_RC AND NOT "${EXPECT_RC}" STREQUAL "")
-  if(NOT rc EQUAL EXPECT_RC)
+  if("${EXPECT_RC}" STREQUAL "NONZERO")
+    if("${rc}" STREQUAL "0")
+      message(FATAL_ERROR "Expected non-zero exit, got ${rc}. Output:\n${_all}")
+    endif()
+  elseif(NOT rc EQUAL EXPECT_RC)
     message(FATAL_ERROR "Expected exit code ${EXPECT_RC}, got ${rc}. Output:\n${_all}")
   endif()
 endif()

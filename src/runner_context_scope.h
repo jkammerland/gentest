@@ -35,6 +35,15 @@ inline void finish_active_test_context(const std::shared_ptr<gentest::detail::Te
         return;
     }
     gentest::detail::wait_for_adopted_contexts(ctx);
+    gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
+    ctx->active = false;
+}
+
+inline void deactivate_active_test_context_without_wait(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
+    if (!ctx) {
+        return;
+    }
+    gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
     ctx->active = false;
 }
 
