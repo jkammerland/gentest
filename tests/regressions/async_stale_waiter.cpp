@@ -25,6 +25,7 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
         (void)reason;
     }
 
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) override {
         (void)child;
         (void)parent;

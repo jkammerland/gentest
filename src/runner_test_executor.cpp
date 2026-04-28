@@ -365,16 +365,16 @@ struct AsyncCaseRun {
     std::chrono::steady_clock::time_point             end;
     InvokeException                                   exception = InvokeException::None;
     std::string                                       message;
-    bool                                              finalized = false;
+    bool                                              ready_to_finalize = false;
+    bool                                              finalized         = false;
 };
 
 class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
   public:
-    using CompletionCallback = std::function<void(std::size_t)>;
-    using StopCallback       = std::function<bool()>;
+    using StopCallback = std::function<bool()>;
 
-    BatchAsyncScheduler(std::vector<AsyncCaseRun> &runs, AsyncStatusRenderer *renderer, CompletionCallback completion_callback = {})
-        : runs_(runs), renderer_(renderer), completion_callback_(std::move(completion_callback)),
+    BatchAsyncScheduler(std::vector<AsyncCaseRun> &runs, AsyncStatusRenderer *renderer)
+        : runs_(runs), renderer_(renderer),
           adopted_release_wake_(std::make_shared<gentest::detail::TestContextInfo::AdoptedReleaseWake>()) {}
     ~BatchAsyncScheduler() override { deactivate(); }
 
@@ -612,11 +612,12 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     }
 
     void complete(std::size_t owner) {
-        if (!completion_callback_ || owner >= runs_.size() || runs_[owner].finalized) {
+        if (owner >= runs_.size() || runs_[owner].finalized || runs_[owner].ready_to_finalize) {
             return;
         }
         cancel_owner(owner);
-        completion_callback_(owner);
+        runs_[owner].ready_to_finalize = true;
+        adopted_release_wake_->notify_one();
     }
 
     void cancel_owner_waiters_locked(std::size_t owner, std::vector<WaiterTokenPtr> &tokens) {
@@ -641,7 +642,6 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
 
     std::vector<AsyncCaseRun>                                            &runs_;
     AsyncStatusRenderer                                                  *renderer_ = nullptr;
-    CompletionCallback                                                    completion_callback_;
     mutable std::mutex                                                    mtx_;
     std::shared_ptr<gentest::detail::TestContextInfo::AdoptedReleaseWake> adopted_release_wake_;
     std::unordered_set<gentest::detail::TestContextInfo *>                adoption_listener_contexts_;
@@ -716,9 +716,13 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
 
     [[nodiscard]] auto has_unfinished_adopted_work() const -> bool {
         return std::ranges::any_of(runs_, [](const AsyncCaseRun &run) {
-            return !run.finalized && run.task && run.task->handle() && !run.task->handle().done() &&
-                   run.exception == InvokeException::None && run.ctxinfo &&
-                   run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
+            if (run.finalized || !run.ctxinfo || run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) == 0) {
+                return false;
+            }
+            if (run.ready_to_finalize) {
+                return true;
+            }
+            return run.task && run.task->handle() && !run.task->handle().done() && run.exception == InvokeException::None;
         });
     }
 
@@ -1029,54 +1033,75 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         }
     };
 
-    BatchAsyncScheduler scheduler(async_runs, renderer.enabled() ? &renderer : nullptr, finalize_run);
+    BatchAsyncScheduler scheduler(async_runs, renderer.enabled() ? &renderer : nullptr);
 
-    const auto should_stop = [&] { return fail_fast && (counters.failures > 0 || counters.blocked > 0); };
+    const auto  should_stop            = [&] { return fail_fast && (counters.failures > 0 || counters.blocked > 0); };
+    std::size_t first_unfinalized_scan = 0;
+
+    const auto advance_first_unfinalized = [&] {
+        while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
+            ++first_unfinalized_scan;
+        }
+    };
+
+    const auto has_adopted_work = [](const AsyncCaseRun &run) {
+        return run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
+    };
+
+    const auto finalize_completed_runs = [&] {
+        for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
+            auto &run = async_runs[run_index];
+            if (run.finalized || !run.ready_to_finalize || has_adopted_work(run)) {
+                continue;
+            }
+            finalize_run(run_index);
+            if (should_stop()) {
+                advance_first_unfinalized();
+                return true;
+            }
+        }
+        advance_first_unfinalized();
+        return should_stop();
+    };
 
     const auto pump_async = [&] {
-        if (should_stop()) {
+        if (finalize_completed_runs() || should_stop()) {
             return true;
         }
         if (fail_fast) {
             while (scheduler.run_one_ready()) {
-                if (should_stop()) {
+                if (finalize_completed_runs() || should_stop()) {
                     return true;
                 }
             }
-            return should_stop();
+            return finalize_completed_runs() || should_stop();
         }
-        do {
-            scheduler.run_ready();
-            if (should_stop()) {
-                return true;
-            }
-        } while (fail_fast && scheduler.has_ready());
-        return should_stop();
+        scheduler.run_ready();
+        return finalize_completed_runs() || should_stop();
     };
 
-    std::size_t first_unfinalized_scan     = 0;
-    const auto  finish_pending_async_group = [&] {
+    const auto finish_pending_async_group = [&] {
+        if (finalize_completed_runs()) {
+            return true;
+        }
         const bool stopped_while_draining =
             scheduler.finish_unresumable(fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{});
+        if (finalize_completed_runs()) {
+            return true;
+        }
         if (stopped_while_draining) {
-            while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
-                ++first_unfinalized_scan;
-            }
+            advance_first_unfinalized();
             return true;
         }
         for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
             scheduler.cancel_owner(run_index);
             finalize_run(run_index);
             if (should_stop()) {
-                while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
-                    ++first_unfinalized_scan;
-                }
+                advance_first_unfinalized();
                 return true;
             }
         }
-        while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
-            ++first_unfinalized_scan;
-        }
+        advance_first_unfinalized();
         return should_stop();
     };
 
