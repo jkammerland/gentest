@@ -77,3 +77,47 @@ if(NOT _rc EQUAL 0)
     "Vendored indicators headers failed to compile from third_party/include.\n"
     "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
 endif()
+
+set(_termcolor_source "${_work_dir}/vendored_indicators_termcolor_coinclude.cpp")
+gentest_fixture_write_file("${_termcolor_source}" [=[
+#include <tabulate/termcolor.hpp>
+#include <indicators/termcolor.hpp>
+#include <indicators/details/stream_helper.hpp>
+
+#include <sstream>
+#include <type_traits>
+
+static_assert(std::is_same_v<decltype(termcolor::_internal::colorize_index()), int>,
+              "tabulate and indicators must use the same termcolor implementation");
+
+auto smoke_termcolor_coinclude() -> void {
+    std::ostringstream stream;
+    stream << termcolor::colorize;
+    indicators::details::set_stream_color(stream, indicators::Color::green);
+    stream << termcolor::reset;
+}
+]=])
+
+gentest_make_compile_only_command_args(
+  _termcolor_compile_args
+  COMPILER "${CXX_COMPILER}"
+  STD "-std=c++20"
+  SOURCE "${_termcolor_source}"
+  OBJECT "${_work_dir}/vendored_indicators_termcolor_coinclude.o"
+  INCLUDE_ARGS ${_include_args}
+  EXTRA_ARGS ${_extra_args})
+
+execute_process(
+  COMMAND ${_termcolor_compile_args}
+  WORKING_DIRECTORY "${_work_dir}"
+  RESULT_VARIABLE _termcolor_rc
+  OUTPUT_VARIABLE _termcolor_out
+  ERROR_VARIABLE _termcolor_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+
+if(NOT _termcolor_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Vendored tabulate/indicators termcolor headers failed to co-include from third_party/include.\n"
+    "--- stdout ---\n${_termcolor_out}\n--- stderr ---\n${_termcolor_err}")
+endif()

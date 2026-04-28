@@ -1,0 +1,9 @@
+wcwidth()/wcswidth() Unicode column width implementation
+
+Author: Markus Kuhn
+Version noted in source: 2007-05-26, Unicode 5.0
+Source noted in source: http://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c
+
+Permission to use, copy, modify, and distribute this software for any
+purpose and without fee is hereby granted. The author disclaims all
+warranties with regard to this software.

@@ -11,12 +11,18 @@ License files included in this directory:
 - tabulate-MIT.txt
 - termcolor-BSD.txt
 - boost-software-license-1.0.txt
+- wcwidth-Markus-Kuhn.txt
 
 Mapping:
 - Most files under third_party/include/indicators are from indicators and are MIT-licensed.
 - third_party/include/indicators/termcolor.hpp references termcolor and BSD license.
+- third_party/include/indicators/display_width.hpp includes Markus Kuhn's
+  wcwidth()/wcswidth() Unicode column width implementation under its bundled
+  permissive notice.
 - Most files under third_party/include/tabulate are from tabulate and are MIT-licensed.
-- third_party/include/tabulate/termcolor.hpp references termcolor and BSD license.
+- third_party/include/tabulate/termcolor.hpp is a local compatibility shim that
+  delegates to third_party/include/indicators/termcolor.hpp so both p-ranav
+  libraries use one termcolor implementation; termcolor remains BSD-licensed.
 - third_party/include/tabulate/optional_lite.hpp,
   third_party/include/tabulate/string_view_lite.hpp,
   third_party/include/tabulate/variant_lite.hpp
