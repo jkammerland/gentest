@@ -153,15 +153,21 @@ inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown
 
 template <typename TeardownFn>
 struct gentest_async_local_teardown_guard {
-    TeardownFn *teardown = nullptr;
-    bool        ran      = false;
+    TeardownFn                                  *teardown = nullptr;
+    ::gentest::detail::ContextCancelHookToken    cancel_hook;
+    bool                                         ran      = false;
 
-    explicit gentest_async_local_teardown_guard(TeardownFn *teardown_fn) : teardown(teardown_fn) {}
+    explicit gentest_async_local_teardown_guard(TeardownFn *teardown_fn)
+        : teardown(teardown_fn),
+          cancel_hook(::gentest::detail::register_context_cancel_hook(::gentest::detail::ContextCancelHookState{&run, this})) {}
 
     gentest_async_local_teardown_guard(const gentest_async_local_teardown_guard &)            = delete;
     gentest_async_local_teardown_guard &operator=(const gentest_async_local_teardown_guard &) = delete;
 
-    ~gentest_async_local_teardown_guard() { run_blocking(); }
+    ~gentest_async_local_teardown_guard() {
+        ::gentest::detail::unregister_context_cancel_hook(cancel_hook);
+        run_blocking();
+    }
 
     static void run(void *user_data) noexcept {
         auto *state = static_cast<gentest_async_local_teardown_guard *>(user_data);

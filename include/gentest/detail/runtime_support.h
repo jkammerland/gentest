@@ -2,6 +2,7 @@
 
 #include "gentest/detail/runtime_base.h"
 
+#include <cstddef>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
@@ -73,12 +74,27 @@ struct NoExceptionsFatalHookContextToken {
     NoExceptionsFatalHookState     previous{};
 };
 
+using ContextCancelHook = void (*)(void *) noexcept;
+
+struct ContextCancelHookState {
+    ContextCancelHook hook      = nullptr;
+    void             *user_data = nullptr;
+};
+
+struct ContextCancelHookToken {
+    std::weak_ptr<TestContextInfo> owner;
+    std::size_t                    id = 0;
+};
+
 GENTEST_RUNTIME_API auto noexceptions_fatal_hook_storage() -> NoExceptionsFatalHookState &;
 GENTEST_RUNTIME_API auto install_context_noexceptions_fatal_hook(NoExceptionsFatalHookState state) noexcept
     -> NoExceptionsFatalHookContextToken;
 GENTEST_RUNTIME_API void restore_context_noexceptions_fatal_hook(const NoExceptionsFatalHookContextToken &token) noexcept;
 GENTEST_RUNTIME_API auto has_current_noexceptions_fatal_hook_context() noexcept -> bool;
 GENTEST_RUNTIME_API auto take_context_noexceptions_fatal_hook() noexcept -> NoExceptionsFatalHookState;
+GENTEST_RUNTIME_API auto register_context_cancel_hook(ContextCancelHookState state) noexcept -> ContextCancelHookToken;
+GENTEST_RUNTIME_API void unregister_context_cancel_hook(const ContextCancelHookToken &token) noexcept;
+GENTEST_RUNTIME_API void run_context_cancel_hooks(const std::shared_ptr<TestContextInfo> &ctx) noexcept;
 
 struct NoExceptionsFatalHookScope {
     NoExceptionsFatalHookState        previous{};

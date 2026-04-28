@@ -52,9 +52,13 @@ inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentes
     if (!ctx) {
         return;
     }
-    gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
     ctx->canceled.store(true, std::memory_order_release);
     ctx->active.store(false, std::memory_order_release);
+    {
+        CurrentTestAdoptionScope current_scope(ctx);
+        gentest::detail::run_context_cancel_hooks(ctx);
+    }
+    gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
     gentest::detail::close_canceled_context_if_released(*ctx);
 }
 

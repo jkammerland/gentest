@@ -108,6 +108,50 @@ GENTEST_RUNTIME_API auto take_context_noexceptions_fatal_hook() noexcept -> NoEx
     return state;
 }
 
+GENTEST_RUNTIME_API auto register_context_cancel_hook(ContextCancelHookState state) noexcept -> ContextCancelHookToken {
+    auto ctx = current_test_storage();
+    if (!ctx || !state.hook) {
+        return {};
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    const auto                  id = ++ctx->next_context_cancel_hook_id;
+    ctx->context_cancel_hooks.push_back(TestContextInfo::ContextCancelHookEntry{
+        .id    = id,
+        .state = state,
+    });
+    return ContextCancelHookToken{.owner = ctx, .id = id};
+}
+
+GENTEST_RUNTIME_API void unregister_context_cancel_hook(const ContextCancelHookToken &token) noexcept {
+    auto ctx = token.owner.lock();
+    if (!ctx || token.id == 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    auto                       &hooks = ctx->context_cancel_hooks;
+    std::erase_if(hooks, [&](const TestContextInfo::ContextCancelHookEntry &entry) { return entry.id == token.id; });
+}
+
+GENTEST_RUNTIME_API void run_context_cancel_hooks(const std::shared_ptr<TestContextInfo> &ctx) noexcept {
+    if (!ctx) {
+        return;
+    }
+    std::vector<ContextCancelHookState> hooks;
+    {
+        std::lock_guard<std::mutex> lk(ctx->mtx);
+        for (auto &entry : ctx->context_cancel_hooks) {
+            if (entry.ran || !entry.state.hook) {
+                continue;
+            }
+            entry.ran = true;
+            hooks.push_back(entry.state);
+        }
+    }
+    for (const auto &hook : hooks) {
+        hook.hook(hook.user_data);
+    }
+}
+
 void record_failure(std::string msg) {
     auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");

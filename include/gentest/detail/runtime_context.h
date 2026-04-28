@@ -42,12 +42,19 @@ struct TestContextInfo {
     };
     std::vector<std::weak_ptr<AdoptedReleaseWake>> adopted_release_wakes;
     NoExceptionsFatalHookState                     noexceptions_fatal_hook;
-    std::atomic<bool>                              active{false};
-    std::atomic<bool>                              canceled{false};
-    std::atomic<bool>                              has_failures{false};
-    std::atomic<std::size_t>                       adopted_contexts{0};
-    gentest::LogPolicy                             log_policy{gentest::LogPolicy::Never};
-    bool                                           log_policy_overridden{false};
+    struct ContextCancelHookEntry {
+        std::size_t            id = 0;
+        ContextCancelHookState state;
+        bool                   ran = false;
+    };
+    std::vector<ContextCancelHookEntry> context_cancel_hooks;
+    std::size_t                         next_context_cancel_hook_id = 0;
+    std::atomic<bool>                   active{false};
+    std::atomic<bool>                   canceled{false};
+    std::atomic<bool>                   has_failures{false};
+    std::atomic<std::size_t>            adopted_contexts{0};
+    gentest::LogPolicy                  log_policy{gentest::LogPolicy::Never};
+    bool                                log_policy_overridden{false};
 
     std::atomic<bool> runtime_skip_requested{false};
     std::string       runtime_skip_reason;
