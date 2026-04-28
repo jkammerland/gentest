@@ -23,15 +23,34 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     ~BlockingAsyncScheduler() override { deactivate(); }
 
     void post(std::coroutine_handle<> handle) override {
-        if (!handle || handle.done()) {
+        if (!handle) {
             return;
         }
         {
             std::lock_guard<std::mutex> lk(mtx_);
+            const auto                  owner_it = owners_.find(handle.address());
+            if (owner_it == owners_.end()) {
+                blocked_.erase(handle.address());
+                return;
+            }
+            if (handle.done()) {
+                blocked_.erase(handle.address());
+                return;
+            }
             blocked_.erase(handle.address());
             ready_.push_back(handle);
         }
         adopted_release_wake_->notify_one();
+    }
+
+    [[nodiscard]] auto make_waiter(std::coroutine_handle<> handle) -> WaiterTokenPtr override {
+        auto token = AsyncScheduler::make_waiter(handle);
+        if (!handle) {
+            return token;
+        }
+        std::lock_guard<std::mutex> lk(mtx_);
+        waiter_tokens_[handle.address()].push_back(token);
+        return token;
     }
 
     void block(std::coroutine_handle<> handle, std::string reason) override {
@@ -84,6 +103,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
             }
 
             if (!task.handle() || task.handle().done()) {
+                cancel_all_waiters();
                 return true;
             }
 
@@ -98,6 +118,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         }
 
         if (!task.handle() || task.handle().done()) {
+            cancel_all_waiters();
             return true;
         }
 
@@ -107,6 +128,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         } else {
             blocked_reason = "async task cannot resume";
         }
+        cancel_all_waiters();
         return false;
     }
 
@@ -140,12 +162,34 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
             lk, [&] { return !ready_.empty() || !ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0; });
     }
 
-    std::shared_ptr<TestContextInfo>                     ctx_;
-    mutable std::mutex                                   mtx_;
-    std::shared_ptr<TestContextInfo::AdoptedReleaseWake> adopted_release_wake_;
-    std::deque<std::coroutine_handle<>>                  ready_;
-    std::unordered_map<void *, std::size_t>              owners_;
-    std::unordered_map<void *, std::string>              blocked_;
+    void cancel_all_waiters() {
+        std::vector<WaiterTokenPtr> tokens;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            for (auto &[_, waiters] : waiter_tokens_) {
+                for (auto &weak_waiter : waiters) {
+                    if (auto waiter = weak_waiter.lock()) {
+                        tokens.push_back(std::move(waiter));
+                    }
+                }
+            }
+            waiter_tokens_.clear();
+            blocked_.clear();
+            owners_.clear();
+            ready_.clear();
+        }
+        for (auto &token : tokens) {
+            token->cancel();
+        }
+    }
+
+    std::shared_ptr<TestContextInfo>                                    ctx_;
+    mutable std::mutex                                                  mtx_;
+    std::shared_ptr<TestContextInfo::AdoptedReleaseWake>                adopted_release_wake_;
+    std::deque<std::coroutine_handle<>>                                 ready_;
+    std::unordered_map<void *, std::size_t>                             owners_;
+    std::unordered_map<void *, std::string>                             blocked_;
+    std::unordered_map<void *, std::vector<std::weak_ptr<WaiterToken>>> waiter_tokens_;
 };
 
 auto make_context(std::string_view label) -> std::shared_ptr<TestContextInfo> {

@@ -382,9 +382,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         if (!handle) {
             return;
         }
-        if (handle.done()) {
-            return;
-        }
+        bool should_notify = false;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             const auto                  owner = owner_for_locked(handle);
@@ -392,10 +390,17 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
                 blocked_handles_.erase(handle.address());
                 return;
             }
+            if (handle.done()) {
+                blocked_handles_.erase(handle.address());
+                return;
+            }
             blocked_handles_.erase(handle.address());
             ready_.push_back(handle);
+            should_notify = true;
         }
-        adopted_release_wake_->notify_one();
+        if (should_notify) {
+            adopted_release_wake_->notify_one();
+        }
     }
 
     void block(std::coroutine_handle<> handle, std::string reason) override { block_at(handle, std::move(reason), std::source_location{}); }
@@ -448,6 +453,20 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         }
     }
 
+    [[nodiscard]] auto make_waiter(std::coroutine_handle<> handle) -> WaiterTokenPtr override {
+        auto token = AsyncScheduler::make_waiter(handle);
+        if (!handle) {
+            return token;
+        }
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (owner_for_locked(handle) == kInvalidOwner) {
+            token->cancel();
+            return token;
+        }
+        waiter_tokens_[handle.address()].push_back(token);
+        return token;
+    }
+
     void add_top_level(std::size_t run_index, gentest::detail::AsyncTask &task) {
         register_adopted_release_wake_for(run_index);
         task.set_scheduler(this);
@@ -473,6 +492,17 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     }
 
     [[nodiscard]] auto has_ready() const noexcept -> bool { return !ready_empty(); }
+
+    void cancel_owner(std::size_t owner) {
+        std::vector<WaiterTokenPtr> tokens;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            cancel_owner_waiters_locked(owner, tokens);
+        }
+        for (auto &token : tokens) {
+            token->cancel();
+        }
+    }
 
     [[nodiscard]] auto finish_unresumable(const StopCallback &should_stop = {}) -> bool {
         if (drain_ready_and_adopted_work(should_stop)) {
@@ -585,7 +615,28 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         if (!completion_callback_ || owner >= runs_.size() || runs_[owner].finalized) {
             return;
         }
+        cancel_owner(owner);
         completion_callback_(owner);
+    }
+
+    void cancel_owner_waiters_locked(std::size_t owner, std::vector<WaiterTokenPtr> &tokens) {
+        for (auto it = owners_.begin(); it != owners_.end();) {
+            if (it->second != owner) {
+                ++it;
+                continue;
+            }
+            const auto waiter_it = waiter_tokens_.find(it->first);
+            if (waiter_it != waiter_tokens_.end()) {
+                for (auto &weak_waiter : waiter_it->second) {
+                    if (auto waiter = weak_waiter.lock()) {
+                        tokens.push_back(std::move(waiter));
+                    }
+                }
+                waiter_tokens_.erase(waiter_it);
+            }
+            blocked_handles_.erase(it->first);
+            it = owners_.erase(it);
+        }
     }
 
     std::vector<AsyncCaseRun>                                            &runs_;
@@ -597,6 +648,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     std::deque<std::coroutine_handle<>>                                   ready_;
     std::unordered_map<void *, std::size_t>                               owners_;
     std::unordered_map<void *, BlockedHandle>                             blocked_handles_;
+    std::unordered_map<void *, std::vector<std::weak_ptr<WaiterToken>>>   waiter_tokens_;
     std::uint64_t                                                         suspend_sequence_ = 0;
 
     [[nodiscard]] auto ready_size() const -> std::size_t {
@@ -621,11 +673,14 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
 
     [[nodiscard]] auto resume_one_ready() -> bool {
         while (auto handle = pop_ready()) {
-            if (!handle || handle.done()) {
+            if (!handle) {
                 continue;
             }
             const auto owner = owner_for(handle);
             if (owner >= runs_.size()) {
+                continue;
+            }
+            if (handle.done()) {
                 continue;
             }
             auto &run = runs_[owner];
@@ -1010,6 +1065,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             return true;
         }
         for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
+            scheduler.cancel_owner(run_index);
             finalize_run(run_index);
             if (should_stop()) {
                 while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
@@ -1032,6 +1088,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             }
             const bool has_adopted_work = run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0 && run.task &&
                                           run.task->handle() && !run.task->handle().done();
+            scheduler.cancel_owner(run_index);
             gentest::runner::detail::deactivate_active_test_context_without_wait(run.ctxinfo);
             gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
             if (has_adopted_work) {

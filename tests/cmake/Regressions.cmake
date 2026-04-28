@@ -111,6 +111,7 @@ set(_gentest_manual_regressions
     "gentest_regression_time_unit_scaling|time_unit_scaling.cpp"
     "gentest_regression_runtime_reporting|runtime_reporting_regressions.cpp"
     "gentest_regression_runtime_selection|runtime_selection_regressions.cpp"
+    "gentest_regression_async_stale_waiter|async_stale_waiter.cpp"
     "gentest_regression_reporting_attachment_collision|reporting_attachment_collision.cpp")
 
 foreach(_gentest_manual_regression IN LISTS _gentest_manual_regressions)
@@ -1412,6 +1413,11 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=NONZERO"
         "REQUIRED_SUBSTRING=terminating after fatal assertion"
         "FORBID_SUBSTRING=async-local-fixture-teardown-noexc-second-marker")
+
+gentest_add_check_exit_code(
+    NAME regression_async_stale_waiter_tokens_ignore_canceled_posts
+    PROG $<TARGET_FILE:gentest_regression_async_stale_waiter>
+    EXPECT_RC 0)
 
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(

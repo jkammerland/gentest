@@ -35,6 +35,22 @@ class AsyncScheduler {
         AsyncScheduler    *scheduler_ = nullptr;
     };
 
+    class WaiterToken {
+      public:
+        WaiterToken(std::weak_ptr<Control> control, std::coroutine_handle<> handle) : control_(std::move(control)), handle_(handle) {}
+
+        void post() const;
+        void cancel() noexcept;
+
+      private:
+        mutable std::mutex      mtx_;
+        std::weak_ptr<Control>  control_;
+        std::coroutine_handle<> handle_{};
+        bool                    active_ = true;
+    };
+
+    using WaiterTokenPtr = std::shared_ptr<WaiterToken>;
+
     AsyncScheduler() : control_(std::make_shared<Control>()) { control_->scheduler_ = this; }
     virtual ~AsyncScheduler() { deactivate(); }
 
@@ -49,6 +65,10 @@ class AsyncScheduler {
     virtual void yield_at(std::coroutine_handle<> handle, const std::source_location &) { post(handle); }
 
     [[nodiscard]] auto control() const noexcept -> std::shared_ptr<Control> { return control_; }
+
+    [[nodiscard]] virtual auto make_waiter(std::coroutine_handle<> handle) -> WaiterTokenPtr {
+        return std::make_shared<WaiterToken>(control_, handle);
+    }
 
   protected:
     void deactivate() noexcept {
@@ -68,6 +88,23 @@ inline void AsyncScheduler::Control::post(std::coroutine_handle<> handle) const 
     if (scheduler_) {
         scheduler_->post(handle);
     }
+}
+
+inline void AsyncScheduler::WaiterToken::post() const {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!active_) {
+        return;
+    }
+    if (auto control = control_.lock()) {
+        control->post(handle_);
+    }
+}
+
+inline void AsyncScheduler::WaiterToken::cancel() noexcept {
+    std::lock_guard<std::mutex> lk(mtx_);
+    active_ = false;
+    handle_ = {};
+    control_.reset();
 }
 
 GENTEST_RUNTIME_API auto current_async_scheduler() noexcept -> AsyncScheduler *;
@@ -134,15 +171,15 @@ class manual_event {
     explicit manual_event(bool ready = false) noexcept : ready_(ready) {}
 
     void set() {
-        std::vector<Waiter> waiters;
+        std::vector<detail::AsyncScheduler::WaiterTokenPtr> waiters;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             ready_ = true;
             waiters.swap(waiters_);
         }
         for (auto &waiter : waiters) {
-            if (auto scheduler = waiter.scheduler.lock()) {
-                scheduler->post(waiter.handle);
+            if (waiter) {
+                waiter->post();
             }
         }
     }
@@ -177,7 +214,7 @@ class manual_event {
                 scheduler->post(handle);
                 return;
             }
-            event_.waiters_.push_back(Waiter{.scheduler = scheduler->control(), .handle = handle});
+            event_.waiters_.push_back(scheduler->make_waiter(handle));
             scheduler->block_at(handle, reason_, loc_);
         }
 
@@ -195,14 +232,9 @@ class manual_event {
     }
 
   private:
-    struct Waiter {
-        std::weak_ptr<detail::AsyncScheduler::Control> scheduler;
-        std::coroutine_handle<>                        handle{};
-    };
-
-    mutable std::mutex  mtx_;
-    bool                ready_ = false;
-    std::vector<Waiter> waiters_;
+    mutable std::mutex                                  mtx_;
+    bool                                                ready_ = false;
+    std::vector<detail::AsyncScheduler::WaiterTokenPtr> waiters_;
 };
 
 class completion_source {
@@ -231,7 +263,7 @@ class completion_source {
                 scheduler->post(handle);
                 return;
             }
-            source_.waiters_.push_back(Waiter{.scheduler = scheduler->control(), .handle = handle});
+            source_.waiters_.push_back(scheduler->make_waiter(handle));
             scheduler->block_at(handle, reason_, loc_);
         }
 
@@ -258,13 +290,8 @@ class completion_source {
     }
 
   private:
-    struct Waiter {
-        std::weak_ptr<detail::AsyncScheduler::Control> scheduler;
-        std::coroutine_handle<>                        handle{};
-    };
-
     void complete_impl(bool unresumable, std::string unresumable_reason) {
-        std::vector<Waiter> waiters;
+        std::vector<detail::AsyncScheduler::WaiterTokenPtr> waiters;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             if (completed_) {
@@ -277,17 +304,17 @@ class completion_source {
             waiters.swap(waiters_);
         }
         for (auto &waiter : waiters) {
-            if (auto scheduler = waiter.scheduler.lock()) {
-                scheduler->post(waiter.handle);
+            if (waiter) {
+                waiter->post();
             }
         }
     }
 
-    mutable std::mutex  mtx_;
-    bool                completed_   = false;
-    bool                unresumable_ = false;
-    std::string         unresumable_reason_;
-    std::vector<Waiter> waiters_;
+    mutable std::mutex                                  mtx_;
+    bool                                                completed_   = false;
+    bool                                                unresumable_ = false;
+    std::string                                         unresumable_reason_;
+    std::vector<detail::AsyncScheduler::WaiterTokenPtr> waiters_;
 };
 
 } // namespace async
