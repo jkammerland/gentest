@@ -318,7 +318,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 57
+    CASES 58
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
@@ -521,6 +521,16 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRINGS=[ BLOCKED ] async/blocked/explicit/00_waiter|external dependency cannot resume")
+
+gentest_add_cmake_script_test(
+    NAME async_blocked_after_failure_reports_failure
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=async/blocked/after_failure --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/blocked/after_failure|failure-before-blocked-marker"
+        "FORBID_SUBSTRINGS=[ BLOCKED ] async/blocked/after_failure|dependency failed after assertion")
 
 gentest_add_check_counts(
     NAME async_empty_reason_blocked

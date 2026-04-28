@@ -137,7 +137,7 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
 
     const bool has_failures = !ctxinfo->failures.empty();
 
-    if (runtime_blocked) {
+    if (runtime_blocked && !has_failures) {
         ++c.blocked;
         ++c.failures;
         rr.skipped     = true;

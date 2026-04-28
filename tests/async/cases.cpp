@@ -843,6 +843,14 @@ gentest::async_test<void> explicit_blocked_driver() {
     co_return;
 }
 
+[[using gentest: test("blocked/after_failure")]]
+gentest::async_test<void> blocked_after_failure_reports_failure() {
+    EXPECT_TRUE(false, "failure-before-blocked-marker");
+    gentest::async::completion_source source;
+    source.fail_unresumable("dependency failed after assertion");
+    co_await source.wait("pre-completed source should not mask assertion failure");
+}
+
 [[using gentest: test("blocked/empty_reason/00_waiter")]]
 gentest::async_test<void> empty_reason_blocked_waiter() {
     empty_blocked_source = std::make_shared<gentest::async::completion_source>();
