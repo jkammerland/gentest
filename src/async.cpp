@@ -3,8 +3,10 @@
 #include "gentest/detail/runtime_context.h"
 #include "gentest/detail/runtime_support.h"
 
+#include <condition_variable>
 #include <deque>
 #include <fmt/format.h>
+#include <mutex>
 #include <unordered_map>
 
 namespace gentest::detail {
@@ -14,20 +16,29 @@ thread_local AsyncScheduler *g_current_async_scheduler = nullptr;
 
 class BlockingAsyncScheduler final : public AsyncScheduler {
   public:
-    explicit BlockingAsyncScheduler(std::shared_ptr<TestContextInfo> ctx) : ctx_(std::move(ctx)) {}
+    explicit BlockingAsyncScheduler(std::shared_ptr<TestContextInfo> ctx) : ctx_(std::move(ctx)) {
+        adopted_release_listener_ = std::make_shared<TestContextInfo::AdoptedReleaseListener>(cv_);
+        register_adopted_release_listener(ctx_, adopted_release_listener_);
+    }
+    ~BlockingAsyncScheduler() override { deactivate(); }
 
     void post(std::coroutine_handle<> handle) override {
         if (!handle || handle.done()) {
             return;
         }
-        blocked_.erase(handle.address());
-        ready_.push_back(handle);
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            blocked_.erase(handle.address());
+            ready_.push_back(handle);
+        }
+        cv_.notify_one();
     }
 
     void block(std::coroutine_handle<> handle, std::string reason) override {
         if (!handle) {
             return;
         }
+        std::lock_guard<std::mutex> lk(mtx_);
         blocked_[handle.address()] = reason.empty() ? std::string("async task cannot resume") : std::move(reason);
     }
 
@@ -35,7 +46,8 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         if (!child || !parent) {
             return;
         }
-        const auto parent_it = owners_.find(parent.address());
+        std::lock_guard<std::mutex> lk(mtx_);
+        const auto                  parent_it = owners_.find(parent.address());
         if (parent_it != owners_.end()) {
             owners_[child.address()] = parent_it->second;
         }
@@ -44,37 +56,54 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     [[nodiscard]] auto run(AsyncTask &task, std::string &blocked_reason) -> bool {
         AsyncSchedulerScope scheduler_scope(this);
         task.set_scheduler(this);
-        owners_[task.handle().address()] = 0;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            owners_[task.handle().address()] = 0;
+        }
         post(task.handle());
 
-        while (!ready_.empty()) {
-            auto handle = ready_.front();
-            ready_.pop_front();
-            if (!handle || handle.done()) {
+        while (true) {
+            while (auto handle = pop_ready()) {
+                if (!handle || handle.done()) {
+                    continue;
+                }
+                auto previous = current_test();
+                set_current_test(ctx_);
+                try {
+                    handle.resume();
+                } catch (const std::exception &e) {
+                    blocked_reason = fmt::format("async coroutine resume threw std::exception: {}", e.what());
+                    set_current_test(std::move(previous));
+                    return false;
+                } catch (...) {
+                    blocked_reason = "async coroutine resume threw unknown exception";
+                    set_current_test(std::move(previous));
+                    return false;
+                }
+                set_current_test(std::move(previous));
+            }
+
+            if (!task.handle() || task.handle().done()) {
+                return true;
+            }
+
+            if (!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) {
+                break;
+            }
+
+            wait_for_ready_or_adopted_release();
+            if (!ready_empty()) {
                 continue;
             }
-            auto previous = current_test();
-            set_current_test(ctx_);
-            try {
-                handle.resume();
-            } catch (const std::exception &e) {
-                blocked_reason = fmt::format("async coroutine resume threw std::exception: {}", e.what());
-                set_current_test(std::move(previous));
-                return false;
-            } catch (...) {
-                blocked_reason = "async coroutine resume threw unknown exception";
-                set_current_test(std::move(previous));
-                return false;
-            }
-            set_current_test(std::move(previous));
         }
 
         if (!task.handle() || task.handle().done()) {
             return true;
         }
 
-        if (!blocked_.empty()) {
-            blocked_reason = blocked_.begin()->second;
+        const auto blocked_reason_snapshot = first_blocked_reason();
+        if (!blocked_reason_snapshot.empty()) {
+            blocked_reason = blocked_reason_snapshot;
         } else {
             blocked_reason = "async task cannot resume";
         }
@@ -82,10 +111,41 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     }
 
   private:
-    std::shared_ptr<TestContextInfo>        ctx_;
-    std::deque<std::coroutine_handle<>>     ready_;
-    std::unordered_map<void *, std::size_t> owners_;
-    std::unordered_map<void *, std::string> blocked_;
+    [[nodiscard]] auto pop_ready() -> std::coroutine_handle<> {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (ready_.empty()) {
+            return {};
+        }
+        auto handle = ready_.front();
+        ready_.pop_front();
+        return handle;
+    }
+
+    [[nodiscard]] auto ready_empty() const -> bool {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return ready_.empty();
+    }
+
+    [[nodiscard]] auto first_blocked_reason() const -> std::string {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (blocked_.empty()) {
+            return {};
+        }
+        return blocked_.begin()->second;
+    }
+
+    void wait_for_ready_or_adopted_release() {
+        std::unique_lock<std::mutex> lk(mtx_);
+        cv_.wait(lk, [&] { return !ready_.empty() || !ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0; });
+    }
+
+    std::shared_ptr<TestContextInfo>                         ctx_;
+    mutable std::mutex                                       mtx_;
+    std::condition_variable                                  cv_;
+    std::shared_ptr<TestContextInfo::AdoptedReleaseListener> adopted_release_listener_;
+    std::deque<std::coroutine_handle<>>                      ready_;
+    std::unordered_map<void *, std::size_t>                  owners_;
+    std::unordered_map<void *, std::string>                  blocked_;
 };
 
 auto make_context(std::string_view label) -> std::shared_ptr<TestContextInfo> {

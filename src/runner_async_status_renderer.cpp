@@ -497,9 +497,10 @@ auto AsyncStatusRenderer::active_lines_for_render(bool hyperlink_locations) cons
 
     std::vector<std::string> lines;
     lines.reserve(row_count);
-    const std::size_t width = output_width();
+    const std::size_t width      = output_width();
+    const std::size_t line_width = mode_ == Mode::Terminal && width > 1 ? width - 1 : width;
     for (std::size_t i = 0; i < row_count; ++i) {
-        auto line = format_row(ordered[first_visible + i], color_output_, hyperlink_locations, width);
+        auto line = format_row(ordered[first_visible + i], color_output_, hyperlink_locations, line_width);
         trim_trailing_padding(line);
         lines.push_back(std::move(line));
     }

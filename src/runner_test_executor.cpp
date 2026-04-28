@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <exception>
@@ -19,6 +20,7 @@
 #include <fmt/format.h>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <source_location>
@@ -26,6 +28,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace gentest::runner {
@@ -369,22 +372,28 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     using CompletionCallback = std::function<void(std::size_t)>;
 
     BatchAsyncScheduler(std::vector<AsyncCaseRun> &runs, AsyncStatusRenderer *renderer, CompletionCallback completion_callback = {})
-        : runs_(runs), renderer_(renderer), completion_callback_(std::move(completion_callback)) {}
+        : runs_(runs), renderer_(renderer), completion_callback_(std::move(completion_callback)),
+          adopted_release_listener_(std::make_shared<gentest::detail::TestContextInfo::AdoptedReleaseListener>(cv_)) {}
+    ~BatchAsyncScheduler() override { deactivate(); }
 
     void post(std::coroutine_handle<> handle) override {
         if (!handle) {
             return;
         }
-        const auto owner = owner_for(handle);
-        if (owner >= runs_.size() || runs_[owner].finalized) {
-            blocked_handles_.erase(handle.address());
-            return;
-        }
         if (handle.done()) {
             return;
         }
-        blocked_handles_.erase(handle.address());
-        ready_.push_back(handle);
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            const auto                  owner = owner_for_locked(handle);
+            if (owner == kInvalidOwner) {
+                blocked_handles_.erase(handle.address());
+                return;
+            }
+            blocked_handles_.erase(handle.address());
+            ready_.push_back(handle);
+        }
+        cv_.notify_one();
     }
 
     void block(std::coroutine_handle<> handle, std::string reason) override { block_at(handle, std::move(reason), std::source_location{}); }
@@ -393,57 +402,65 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         if (!handle) {
             return;
         }
-        const auto owner = owner_for(handle);
-        if (owner >= runs_.size() || runs_[owner].finalized) {
-            return;
+        std::lock_guard<std::mutex> lk(mtx_);
+        const auto                  owner = owner_for_locked(handle);
+        if (owner != kInvalidOwner) {
+            blocked_handles_[handle.address()] =
+                BlockedHandle{.owner    = owner,
+                              .sequence = ++suspend_sequence_,
+                              .reason   = reason.empty() ? std::string("async test cannot resume") : std::move(reason),
+                              .file     = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
+                              .line     = loc.line()};
         }
-        blocked_handles_[handle.address()] =
-            BlockedHandle{.owner    = owner,
-                          .sequence = ++suspend_sequence_,
-                          .reason   = reason.empty() ? std::string("async test cannot resume") : std::move(reason),
-                          .file     = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
-                          .line     = loc.line()};
     }
 
     void yield_at(std::coroutine_handle<> handle, const std::source_location &loc) override {
         if (!handle || handle.done()) {
             return;
         }
-        const auto owner = owner_for(handle);
-        if (owner >= runs_.size() || runs_[owner].finalized) {
-            return;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            const auto                  owner = owner_for_locked(handle);
+            if (owner == kInvalidOwner) {
+                return;
+            }
+            blocked_handles_[handle.address()] =
+                BlockedHandle{.owner    = owner,
+                              .sequence = ++suspend_sequence_,
+                              .reason   = "yielded cooperatively",
+                              .file     = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
+                              .line     = loc.line()};
+            ready_.push_back(handle);
         }
-        blocked_handles_[handle.address()] =
-            BlockedHandle{.owner    = owner,
-                          .sequence = ++suspend_sequence_,
-                          .reason   = "yielded cooperatively",
-                          .file     = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
-                          .line     = loc.line()};
-        ready_.push_back(handle);
+        cv_.notify_one();
     }
 
     void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) override {
         if (!child || !parent) {
             return;
         }
-        const auto parent_owner = owner_for(parent);
-        if (parent_owner < runs_.size()) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        const auto                  parent_owner = owner_for_locked(parent);
+        if (parent_owner != kInvalidOwner) {
             owners_[child.address()] = parent_owner;
         }
     }
 
     void add_top_level(std::size_t run_index, gentest::detail::AsyncTask &task) {
+        register_adopted_release_listener_for(run_index);
         task.set_scheduler(this);
-        owners_[task.handle().address()] = run_index;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            owners_[task.handle().address()] = run_index;
+        }
         post(task.handle());
     }
 
     void run_ready() {
         gentest::detail::AsyncSchedulerScope scheduler_scope(this);
-        const auto                           ready_this_round = ready_.size();
-        for (std::size_t ready_index = 0; ready_index < ready_this_round && !ready_.empty(); ++ready_index) {
-            auto handle = ready_.front();
-            ready_.pop_front();
+        const auto                           ready_this_round = ready_size();
+        for (std::size_t ready_index = 0; ready_index < ready_this_round; ++ready_index) {
+            auto handle = pop_ready();
             if (!handle || handle.done()) {
                 continue;
             }
@@ -480,12 +497,10 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         }
     }
 
-    [[nodiscard]] auto has_ready() const noexcept -> bool { return !ready_.empty(); }
+    [[nodiscard]] auto has_ready() const noexcept -> bool { return !ready_empty(); }
 
     void finish_unresumable() {
-        while (!ready_.empty()) {
-            run_ready();
-        }
+        drain_ready_and_adopted_work();
         for (std::size_t i = 0; i < runs_.size(); ++i) {
             auto &run = runs_[i];
             if (run.finalized || !run.task || !run.task->handle() || run.task->handle().done() || run.exception != InvokeException::None) {
@@ -524,16 +539,35 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         std::uint64_t sequence = 0;
     };
 
+    static constexpr std::size_t kInvalidOwner = std::numeric_limits<std::size_t>::max();
+
     [[nodiscard]] auto owner_for(std::coroutine_handle<> handle) const -> std::size_t {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return owner_for_locked(handle);
+    }
+
+    [[nodiscard]] auto owner_for_locked(std::coroutine_handle<> handle) const -> std::size_t {
         const auto it = owners_.find(handle.address());
         if (it == owners_.end()) {
-            return runs_.size();
+            return kInvalidOwner;
         }
         return it->second;
     }
 
+    void register_adopted_release_listener_for(std::size_t run_index) {
+        if (run_index >= runs_.size() || !runs_[run_index].ctxinfo) {
+            return;
+        }
+        auto *ctx = runs_[run_index].ctxinfo.get();
+        if (!adoption_listener_contexts_.insert(ctx).second) {
+            return;
+        }
+        gentest::detail::register_adopted_release_listener(runs_[run_index].ctxinfo, adopted_release_listener_);
+    }
+
     [[nodiscard]] auto suspended_state_for(std::size_t owner) const -> SuspendedState {
-        SuspendedState result{.reason = "waiting to resume"};
+        SuspendedState              result{.reason = "waiting to resume"};
+        std::lock_guard<std::mutex> lk(mtx_);
         for (const auto &entry : blocked_handles_) {
             const auto &blocked = entry.second;
             if (blocked.owner == owner && !blocked.reason.empty() && blocked.sequence >= result.sequence) {
@@ -570,13 +604,62 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         completion_callback_(owner);
     }
 
-    std::vector<AsyncCaseRun>                &runs_;
-    AsyncStatusRenderer                      *renderer_ = nullptr;
-    CompletionCallback                        completion_callback_;
-    std::deque<std::coroutine_handle<>>       ready_;
-    std::unordered_map<void *, std::size_t>   owners_;
-    std::unordered_map<void *, BlockedHandle> blocked_handles_;
-    std::uint64_t                             suspend_sequence_ = 0;
+    std::vector<AsyncCaseRun>                                                &runs_;
+    AsyncStatusRenderer                                                      *renderer_ = nullptr;
+    CompletionCallback                                                        completion_callback_;
+    mutable std::mutex                                                        mtx_;
+    std::condition_variable                                                   cv_;
+    std::shared_ptr<gentest::detail::TestContextInfo::AdoptedReleaseListener> adopted_release_listener_;
+    std::unordered_set<gentest::detail::TestContextInfo *>                    adoption_listener_contexts_;
+    std::deque<std::coroutine_handle<>>                                       ready_;
+    std::unordered_map<void *, std::size_t>                                   owners_;
+    std::unordered_map<void *, BlockedHandle>                                 blocked_handles_;
+    std::uint64_t                                                             suspend_sequence_ = 0;
+
+    [[nodiscard]] auto ready_size() const -> std::size_t {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return ready_.size();
+    }
+
+    [[nodiscard]] auto ready_empty() const noexcept -> bool {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return ready_.empty();
+    }
+
+    [[nodiscard]] auto pop_ready() -> std::coroutine_handle<> {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (ready_.empty()) {
+            return {};
+        }
+        auto handle = ready_.front();
+        ready_.pop_front();
+        return handle;
+    }
+
+    [[nodiscard]] auto has_unfinished_adopted_work() const -> bool {
+        return std::any_of(runs_.begin(), runs_.end(), [](const AsyncCaseRun &run) {
+            return !run.finalized && run.task && run.task->handle() && !run.task->handle().done() &&
+                   run.exception == InvokeException::None && run.ctxinfo &&
+                   run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
+        });
+    }
+
+    void wait_for_ready_or_adopted_release() {
+        std::unique_lock<std::mutex> lk(mtx_);
+        cv_.wait(lk, [&] { return !ready_.empty() || !has_unfinished_adopted_work(); });
+    }
+
+    void drain_ready_and_adopted_work() {
+        do {
+            while (has_ready()) {
+                run_ready();
+            }
+            if (!has_unfinished_adopted_work()) {
+                return;
+            }
+            wait_for_ready_or_adopted_release();
+        } while (true);
+    }
 };
 
 void classify_async_exception(AsyncCaseRun &run) {

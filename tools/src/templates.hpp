@@ -151,6 +151,59 @@ inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown
 #endif
 }
 
+template <typename TeardownFn>
+struct gentest_noexceptions_async_local_teardown {
+    TeardownFn *teardown = nullptr;
+    bool        ran      = false;
+
+    static void run(void *user_data) noexcept {
+        auto *state = static_cast<gentest_noexceptions_async_local_teardown *>(user_data);
+        if (!state) return;
+        state->run_blocking();
+    }
+
+    ::gentest::async_test<void> run_now() {
+        if (!ran && teardown) {
+            ran = true;
+            co_await (*teardown)();
+        }
+        co_return;
+    }
+
+    void run_blocking() noexcept {
+        if (ran || !teardown) return;
+        std::string error;
+        (void)::gentest::detail::run_async_task_blocking(run_now(), "async local fixture teardown", error);
+    }
+};
+
+template <typename BodyFn, typename TeardownFn>
+inline ::gentest::async_test<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+#if GENTEST_EXCEPTIONS_ENABLED
+    std::exception_ptr error;
+    try {
+        co_await body();
+    } catch (...) {
+        error = std::current_exception();
+    }
+    if (error) {
+        try {
+            co_await teardown();
+        } catch (...) {
+        }
+        std::rethrow_exception(error);
+    }
+    co_await teardown();
+#else
+    auto teardown_fn = std::forward<TeardownFn>(teardown);
+    gentest_noexceptions_async_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
+    ::gentest::detail::NoExceptionsFatalHookScope fatal_scope(&decltype(teardown_state)::run, &teardown_state);
+    co_await body();
+    co_await teardown_state.run_now();
+#endif
+    co_return;
+}
+
 template <typename Handle>
 inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
     if (!handle.init()) {

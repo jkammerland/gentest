@@ -120,6 +120,18 @@ int main() {
         }
     }
 
+    std::ostringstream                   wrap_guard_out;
+    gentest::runner::AsyncStatusRenderer wrap_guard(wrap_guard_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                    {.width = 32, .height = 12});
+    wrap_guard.add_case(0, "async/live/" + std::string(80, 'w'));
+    wrap_guard.mark_suspended(0, "waiting " + std::string(80, 'x'), "/tmp/" + std::string(80, 'y') + "/case.cpp", 78);
+    snapshot = wrap_guard.render_snapshot_for_test();
+    for (const auto line : lines(snapshot)) {
+        if (!line.empty() && visible_width(line) >= 32) {
+            return fail("terminal live rows should stay below terminal width to avoid physical wrapping", snapshot);
+        }
+    }
+
     renderer.mark_final(0, gentest::runner::AsyncLiveStatus::Pass, {}, 7);
     renderer.mark_final(1, gentest::runner::AsyncLiveStatus::Fail, "1 issue(s)", 9);
     renderer.mark_final(2, gentest::runner::AsyncLiveStatus::Pass, {}, 11);

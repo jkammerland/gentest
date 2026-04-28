@@ -139,11 +139,24 @@ gentest_add_suite(regression_local_fixture_teardown_noexceptions
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_noexceptions.cpp
     OUTPUT_DIR regressions/local_fixture_teardown_noexceptions
     NO_CTEST)
+gentest_add_suite(regression_async_local_fixture_teardown_noexceptions
+    TARGET gentest_regression_async_local_fixture_teardown_noexceptions
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_local_fixture_teardown_noexceptions.cpp
+    OUTPUT_DIR regressions/async_local_fixture_teardown_noexceptions
+    NO_CTEST)
 target_compile_options(gentest_regression_local_fixture_teardown_noexceptions
     PRIVATE
         $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:/EHs-c->
         $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
 target_compile_definitions(gentest_regression_local_fixture_teardown_noexceptions
+    PRIVATE
+        FMT_EXCEPTIONS=0
+        _HAS_EXCEPTIONS=0)
+target_compile_options(gentest_regression_async_local_fixture_teardown_noexceptions
+    PRIVATE
+        $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:/EHs-c->
+        $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
+target_compile_definitions(gentest_regression_async_local_fixture_teardown_noexceptions
     PRIVATE
         FMT_EXCEPTIONS=0
         _HAS_EXCEPTIONS=0)
@@ -1368,10 +1381,24 @@ gentest_add_check_death(
     REQUIRED_SUBSTRING "terminating after fatal assertion"
     ARGS --run=regressions/local_fixture_teardown_noexceptions/fatal_assert)
 
+gentest_add_check_death(
+    NAME regression_async_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
+    PROG $<TARGET_FILE:gentest_regression_async_local_fixture_teardown_noexceptions>
+    REQUIRED_SUBSTRING "async-local-fixture-teardown-noexc-marker"
+    ARGS --run=regressions/async_local_fixture_teardown_noexceptions/fatal_assert)
+
+gentest_add_check_death(
+    NAME regression_async_local_fixture_teardown_noexceptions_fatal_assert_termination_message
+    PROG $<TARGET_FILE:gentest_regression_async_local_fixture_teardown_noexceptions>
+    REQUIRED_SUBSTRING "terminating after fatal assertion"
+    ARGS --run=regressions/async_local_fixture_teardown_noexceptions/fatal_assert)
+
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(
         regression_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
         regression_local_fixture_teardown_noexceptions_fatal_assert_termination_message
+        regression_async_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
+        regression_async_local_fixture_teardown_noexceptions_fatal_assert_termination_message
         PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 

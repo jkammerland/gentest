@@ -34,11 +34,23 @@ struct TestContextInfo {
     std::mutex               mtx;
     std::mutex               adopted_mtx;
     std::condition_variable  adopted_cv;
-    std::atomic<bool>        active{false};
-    std::atomic<bool>        has_failures{false};
-    std::atomic<std::size_t> adopted_contexts{0};
-    gentest::LogPolicy       log_policy{gentest::LogPolicy::Never};
-    bool                     log_policy_overridden{false};
+    struct AdoptedReleaseListener {
+        explicit AdoptedReleaseListener(std::condition_variable &cv_in) noexcept : cv(&cv_in) {}
+
+        void notify() const noexcept {
+            if (cv) {
+                cv->notify_all();
+            }
+        }
+
+        std::condition_variable *cv = nullptr;
+    };
+    std::vector<std::weak_ptr<AdoptedReleaseListener>> adopted_release_listeners;
+    std::atomic<bool>                                  active{false};
+    std::atomic<bool>                                  has_failures{false};
+    std::atomic<std::size_t>                           adopted_contexts{0};
+    gentest::LogPolicy                                 log_policy{gentest::LogPolicy::Never};
+    bool                                               log_policy_overridden{false};
 
     std::atomic<bool> runtime_skip_requested{false};
     std::string       runtime_skip_reason;
@@ -133,6 +145,39 @@ inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ct
     // completion blocks by design to preserve one-shot outcome accounting.
     std::unique_lock<std::mutex> lk(ctx->adopted_mtx);
     ctx->adopted_cv.wait(lk, [&] { return ctx->adopted_contexts.load(std::memory_order_acquire) == 0; });
+}
+
+inline void register_adopted_release_listener(const std::shared_ptr<TestContextInfo>                         &ctx,
+                                              const std::shared_ptr<TestContextInfo::AdoptedReleaseListener> &listener) {
+    if (!ctx || !listener) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(ctx->adopted_mtx);
+    auto                       &listeners = ctx->adopted_release_listeners;
+    for (auto it = listeners.begin(); it != listeners.end();) {
+        if (it->expired()) {
+            it = listeners.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    listeners.push_back(listener);
+}
+
+inline void notify_adopted_contexts_released(TestContextInfo &ctx) noexcept {
+    {
+        std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
+        auto                       &listeners = ctx.adopted_release_listeners;
+        for (auto it = listeners.begin(); it != listeners.end();) {
+            if (auto listener = it->lock()) {
+                listener->notify();
+                ++it;
+            } else {
+                it = listeners.erase(it);
+            }
+        }
+    }
+    ctx.adopted_cv.notify_all();
 }
 
 inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo> &ctx) {

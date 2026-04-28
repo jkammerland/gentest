@@ -105,7 +105,7 @@ function(_assert_build_targets_contain preset_name)
     list(APPEND _target_names "${_target_name}")
   endforeach()
 
-  foreach(_required_target IN ITEMS gentest_unit_tests gentest_mocking_tests)
+  foreach(_required_target IN ITEMS gentest_unit_tests gentest_mocking_tests gentest_async_tests)
     list(FIND _target_names "${_required_target}" _required_target_index)
     if(_required_target_index EQUAL -1)
       message(FATAL_ERROR
@@ -143,7 +143,7 @@ function(_assert_qemu_preset_bundle preset_root)
   _assert_configure_preset("testPresets" "${preset_root}" "${preset_root}")
   _assert_configure_preset("testPresets" "${preset_root}-full" "${preset_root}")
   _assert_build_targets_contain("${preset_root}")
-  _assert_test_filter_contains("${preset_root}" "^(gentest_codegen_check_valid|unit|unit_inventory|mocking)$")
+  _assert_test_filter_contains("${preset_root}" "^(gentest_codegen_check_valid|unit|unit_inventory|mocking|async_value_discard|async_batch_cooperative|async_mixed_fixtures)$")
 endfunction()
 
 _assert_workflow_steps("host-codegen" "host-codegen" "host-codegen" "")

@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <future>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -25,6 +26,18 @@ std::vector<std::string>     group_fence_order;
 
 gentest::async::manual_event suite_group_fence_release;
 std::vector<std::string>     suite_group_fence_order;
+
+gentest::async::manual_event process_exit_event;
+
+struct ProcessExitSignal {
+    ~ProcessExitSignal() { process_exit_event.set(); }
+};
+
+ProcessExitSignal process_exit_signal;
+
+gentest::async::manual_event                       adopted_resume_event;
+std::shared_ptr<gentest::async::completion_source> completion_order_source;
+std::shared_ptr<gentest::async::completion_source> explicit_blocked_source;
 
 constexpr int kLiveDemoRounds = 10;
 
@@ -156,6 +169,32 @@ struct [[using gentest: fixture(global)]] SharedGlobalAsyncFixture : gentest::As
             EXPECT_EQ(value, 200);
         }
         torn_down = true;
+    }
+};
+
+struct [[using gentest: fixture(suite)]] BlockingSchedulerAdoptedFixture : gentest::AsyncFixtureSetup {
+    bool setup = false;
+
+    gentest::async_test<void> setUp() override {
+        gentest::async::manual_event release;
+        auto                         context = gentest::get_current_context();
+        auto                         started = std::make_shared<std::promise<void>>();
+        auto                         ready   = started->get_future();
+        std::promise<void>           resumed;
+        auto                         resumed_ready = resumed.get_future();
+
+        std::jthread worker(
+            [context = std::move(context), started = std::move(started), &release, resumed_ready = std::move(resumed_ready)]() mutable {
+                auto adoption = gentest::set_current_context(context);
+                started->set_value();
+                release.set();
+                EXPECT_TRUE(resumed_ready.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
+            });
+
+        ready.wait();
+        co_await release.wait("adopted fixture setup should wake scheduler before releasing context");
+        resumed.set_value();
+        setup = true;
     }
 };
 
@@ -320,6 +359,11 @@ gentest::async_test<void> local_async_lifecycle_use(LocalAsyncLifecycleFixture &
     EXPECT_TRUE(fixture.setup);
     EXPECT_FALSE(fixture.torn_down);
     co_return;
+}
+
+[[using gentest: test("fixture/shared_async_adopted_setup")]]
+void shared_async_adopted_setup(BlockingSchedulerAdoptedFixture &fixture) {
+    EXPECT_TRUE(fixture.setup);
 }
 
 [[using gentest: test("fixture/local_teardown_dual_failure")]]
@@ -497,6 +541,125 @@ void fixture_suite_group_fence_second_check(GroupFenceSecondSuiteFixture &) {
     ASSERT_EQ(suite_group_fence_order.size(), std::size_t{2});
     EXPECT_EQ(suite_group_fence_order[0], "first:start");
     EXPECT_EQ(suite_group_fence_order[1], "second:release");
+}
+
+[[using gentest: test("adopted_resume/worker_releases")]]
+gentest::async_test<void> adopted_worker_releases() {
+    adopted_resume_event.reset();
+
+    auto context = gentest::get_current_context();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::jthread worker([context = std::move(context), started = std::move(started)] {
+        auto adoption = gentest::set_current_context(context);
+        started->set_value();
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        adopted_resume_event.set();
+    });
+
+    ready.wait();
+    co_await adopted_resume_event.wait("adopted worker should release the async test");
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("adopted_resume/worker_waits_for_resumed_ack")]]
+gentest::async_test<void> adopted_worker_waits_for_resumed_ack() {
+    gentest::async::manual_event release;
+    auto                         context = gentest::get_current_context();
+    auto                         started = std::make_shared<std::promise<void>>();
+    auto                         ready   = started->get_future();
+    std::promise<void>           resumed;
+    auto                         resumed_ready = resumed.get_future();
+
+    std::jthread worker(
+        [context = std::move(context), started = std::move(started), &release, resumed_ready = std::move(resumed_ready)]() mutable {
+            auto adoption = gentest::set_current_context(context);
+            started->set_value();
+            release.set();
+            EXPECT_TRUE(resumed_ready.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
+        });
+
+    ready.wait();
+    co_await release.wait("adopted worker should wake scheduler before releasing context");
+    resumed.set_value();
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("completion_source/order/00_waiter")]]
+gentest::async_test<void> completion_source_first_terminal_waiter() {
+    completion_order_source = std::make_shared<gentest::async::completion_source>();
+    co_await completion_order_source->wait("waiting for first terminal state");
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("completion_source/order/01_driver")]]
+gentest::async_test<void> completion_source_first_terminal_driver() {
+    ASSERT_TRUE(static_cast<bool>(completion_order_source));
+    completion_order_source->complete();
+    completion_order_source->fail_unresumable("late failure must not replace completion");
+    co_await gentest::async::yield();
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("blocked/explicit/00_waiter")]]
+gentest::async_test<void> explicit_blocked_waiter() {
+    explicit_blocked_source = std::make_shared<gentest::async::completion_source>();
+    co_await explicit_blocked_source->wait("waiting for explicit blocked marker");
+}
+
+[[using gentest: test("blocked/explicit/01_driver")]]
+gentest::async_test<void> explicit_blocked_driver() {
+    ASSERT_TRUE(static_cast<bool>(explicit_blocked_source));
+    explicit_blocked_source->fail_unresumable("external dependency cannot resume");
+    co_return;
+}
+
+[[using gentest: test("outcome/xfail_expect_fail_after_suspend")]]
+gentest::async_test<void> outcome_xfail_expect_fail_after_suspend() {
+    gentest::xfail("expected async expectation failure");
+    co_await gentest::async::yield();
+    EXPECT_TRUE(false);
+}
+
+[[using gentest: test("outcome/xfail_throw_after_suspend")]]
+gentest::async_test<void> outcome_xfail_throw_after_suspend() {
+    gentest::xfail("expected async exception");
+    co_await gentest::async::yield();
+    throw std::runtime_error("expected async throw");
+}
+
+[[using gentest: test("outcome/xfail_xpass_after_suspend")]]
+gentest::async_test<void> outcome_xfail_xpass_after_suspend() {
+    gentest::xfail("expected async failure that does not happen");
+    co_await gentest::async::yield();
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("outcome/skip_overrides_xfail_after_suspend")]]
+gentest::async_test<void> outcome_skip_overrides_xfail_after_suspend() {
+    gentest::xfail("skip should win over async xfail");
+    co_await gentest::async::yield();
+    gentest::skip("async runtime skip overrides xfail");
+}
+
+[[using gentest: test("outcome/runtime_skip_after_suspend")]]
+gentest::async_test<void> outcome_runtime_skip_after_suspend() {
+    co_await gentest::async::yield();
+    gentest::skip("async runtime skip");
+}
+
+[[using gentest: test("outcome/skip_after_failure_is_fail_after_suspend")]]
+gentest::async_test<void> outcome_skip_after_failure_is_fail_after_suspend() {
+    co_await gentest::async::yield();
+    EXPECT_TRUE(false);
+    gentest::skip("async skip after failure must not mask the failure");
+}
+
+[[using gentest: test("waiter_lifetime/process_exit_unresumable")]]
+gentest::async_test<void> waiter_lifetime_process_exit_unresumable() {
+    process_exit_event.reset();
+    co_await process_exit_event.wait("process-exit signal arrives after scheduler destruction");
 }
 
 [[using gentest: test("blocked/never")]]

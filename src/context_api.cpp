@@ -22,7 +22,7 @@ Adoption::Adoption(CurrentContext context) : previous_(get_current_context()), a
         detail::set_current_test(adopted_);
     } catch (...) {
         if (adopted_ && adopted_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            adopted_->adopted_cv.notify_all();
+            detail::notify_adopted_contexts_released(*adopted_);
         }
         throw;
     }
@@ -31,7 +31,7 @@ Adoption::Adoption(CurrentContext context) : previous_(get_current_context()), a
 Adoption::~Adoption() {
     detail::set_current_test(std::move(previous_));
     if (adopted_ && adopted_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        adopted_->adopted_cv.notify_all();
+        detail::notify_adopted_contexts_released(*adopted_);
     }
 }
 

@@ -689,20 +689,37 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
 
 std::string make_async_await_expr(const std::string &fn, const std::string &args) { return fmt::format("co_await {}{};", fn, args); }
 
-void append_async_teardown_and_rethrow(std::string &body, const std::string &teardown) {
-    if (teardown.empty()) {
-        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
-        return;
-    }
-
-    body += "    if (gentest_async_error_) {\n";
-    body += "        try {\n";
-    body += teardown;
-    body += "        } catch (...) {\n";
-    body += "        }\n";
-    body += "        std::rethrow_exception(gentest_async_error_);\n";
+void append_async_local_teardown_call(std::string &body, const std::string &body_code, const std::string &teardown_code) {
+    body += "#if GENTEST_EXCEPTIONS_ENABLED\n";
+    body += "    std::exception_ptr gentest_async_error_;\n";
+    body += "    try {\n";
+    body += body_code;
+    body += "    } catch (...) {\n";
+    body += "        gentest_async_error_ = std::current_exception();\n";
     body += "    }\n";
-    body += teardown;
+    if (teardown_code.empty()) {
+        body += "    if (gentest_async_error_) std::rethrow_exception(gentest_async_error_);\n";
+    } else {
+        body += "    if (gentest_async_error_) {\n";
+        body += "        try {\n";
+        body += teardown_code;
+        body += "        } catch (...) {\n";
+        body += "        }\n";
+        body += "        std::rethrow_exception(gentest_async_error_);\n";
+        body += "    }\n";
+        body += teardown_code;
+    }
+    body += "#else\n";
+    body += "    co_await gentest_run_async_with_local_teardown(\n";
+    body += "        [&]() -> ::gentest::async_test<void> {\n";
+    body += body_code;
+    body += "            co_return;\n";
+    body += "        },\n";
+    body += "        [&]() -> ::gentest::async_test<void> {\n";
+    body += teardown_code;
+    body += "            co_return;\n";
+    body += "        });\n";
+    body += "#endif\n";
 }
 
 void append_async_entrypoint(std::string &out, const WrapperSpec &spec, const std::string &body) {
@@ -746,14 +763,10 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += decls;
         body += inits;
         body += setup_flags;
-        body += "    std::exception_ptr gentest_async_error_;\n";
-        body += "    try {\n";
-        body += setup_tracked;
-        body += "        " + invoke + "\n";
-        body += "    } catch (...) {\n";
-        body += "        gentest_async_error_ = std::current_exception();\n";
-        body += "    }\n";
-        append_async_teardown_and_rethrow(body, teardown_guarded);
+        std::string async_body;
+        async_body += setup_tracked;
+        async_body += "            " + invoke + "\n";
+        append_async_local_teardown_call(body, async_body, teardown_guarded);
         append_async_entrypoint(out, spec, body);
         return;
     }
@@ -764,15 +777,11 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
         body += "    if (!gentest_init_fixture(fx_, \"" + escape_string(spec.callee) + "\")) co_return;\n";
         body += "    bool fx_teardown_armed = false;\n";
-        body += "    std::exception_ptr gentest_async_error_;\n";
-        body += "    try {\n";
-        body += "        fx_teardown_armed = true;\n";
-        body += "        co_await gentest_maybe_async_setup(fx_.ref());\n";
-        body += "        " + invoke + "\n";
-        body += "    } catch (...) {\n";
-        body += "        gentest_async_error_ = std::current_exception();\n";
-        body += "    }\n";
-        append_async_teardown_and_rethrow(body, teardown_guarded);
+        std::string async_body;
+        async_body += "            fx_teardown_armed = true;\n";
+        async_body += "            co_await gentest_maybe_async_setup(fx_.ref());\n";
+        async_body += "            " + invoke + "\n";
+        append_async_local_teardown_call(body, async_body, teardown_guarded);
         append_async_entrypoint(out, spec, body);
         return;
     }
@@ -802,18 +811,14 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += decls;
         body += inits;
         body += setup_flags;
-        body += "    std::exception_ptr gentest_async_error_;\n";
-        body += "    try {\n";
-        body += "        fx_teardown_armed = true;\n";
-        body += "        co_await gentest_maybe_async_setup(fx_.ref());\n";
-        body += setup_tracked;
-        body += "        " + invoke + "\n";
-        body += "    } catch (...) {\n";
-        body += "        gentest_async_error_ = std::current_exception();\n";
-        body += "    }\n";
         std::string all_teardown = teardown_guarded;
         all_teardown += "        if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
-        append_async_teardown_and_rethrow(body, all_teardown);
+        std::string async_body;
+        async_body += "            fx_teardown_armed = true;\n";
+        async_body += "            co_await gentest_maybe_async_setup(fx_.ref());\n";
+        async_body += setup_tracked;
+        async_body += "            " + invoke + "\n";
+        append_async_local_teardown_call(body, async_body, all_teardown);
         append_async_entrypoint(out, spec, body);
         return;
     }
@@ -833,14 +838,10 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += decls;
         body += inits;
         body += setup_flags;
-        body += "    std::exception_ptr gentest_async_error_;\n";
-        body += "    try {\n";
-        body += setup_tracked;
-        body += "        " + invoke + "\n";
-        body += "    } catch (...) {\n";
-        body += "        gentest_async_error_ = std::current_exception();\n";
-        body += "    }\n";
-        append_async_teardown_and_rethrow(body, teardown_guarded);
+        std::string async_body;
+        async_body += setup_tracked;
+        async_body += "            " + invoke + "\n";
+        append_async_local_teardown_call(body, async_body, teardown_guarded);
         append_async_entrypoint(out, spec, body);
         return;
     }

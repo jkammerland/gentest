@@ -217,6 +217,12 @@ gentest_add_check_counts(
     CASES 6
     ARGS --kind=test)
 
+gentest_add_cmake_script_test(
+    NAME async_live_slow_terminal_rendering
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"
+    ARGS --filter=async_live_slow/panel/* --kind=test)
+
 gentest_add_check_counts(
     NAME async_value_discard
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
@@ -245,7 +251,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 29
+    CASES 43
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
@@ -264,6 +270,14 @@ gentest_add_check_counts(
     FAIL 0
     SKIP 0
     ARGS --filter=async/fixture/local_lifecycle/* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_shared_fixture_adopted_setup
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    ARGS --run=async/fixture/shared_async_adopted_setup --kind=test --no-color)
 
 gentest_add_cmake_script_test(
     NAME async_local_teardown_preserves_primary_failure
@@ -370,6 +384,113 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRINGS=cannot resume async test; suspended at tests/async/cases.cpp:|suite fixture group boundary was crossed"
         "FORBID_SUBSTRING=[ BLOCKED ] async/fixture/group_fence_suite/00_async_wait")
+
+gentest_add_check_counts(
+    NAME async_adopted_resume
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/adopted_resume/* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_completion_source_first_terminal_wins
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/completion_source/order/* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_explicit_blocked
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 1
+    FAIL 0
+    SKIP 0
+    BLOCKED 1
+    EXPECT_RC 1
+    ARGS --filter=async/blocked/explicit/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_explicit_blocked_reason
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/blocked/explicit/* --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ BLOCKED ] async/blocked/explicit/00_waiter|external dependency cannot resume")
+
+gentest_add_check_counts(
+    NAME async_outcome_xfail_expect_fail
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 0
+    SKIP 0
+    XFAIL 1
+    XPASS 0
+    ARGS --run=async/outcome/xfail_expect_fail_after_suspend --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_outcome_xfail_throw
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 0
+    SKIP 0
+    XFAIL 1
+    XPASS 0
+    ARGS --run=async/outcome/xfail_throw_after_suspend --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_outcome_xpass
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 0
+    SKIP 0
+    XFAIL 0
+    XPASS 1
+    EXPECT_RC 1
+    ARGS --run=async/outcome/xfail_xpass_after_suspend --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_outcome_skip_overrides_xfail
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 0
+    SKIP 1
+    XFAIL 0
+    XPASS 0
+    ARGS --run=async/outcome/skip_overrides_xfail_after_suspend --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_outcome_runtime_skip_after_suspend
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 0
+    SKIP 1
+    XFAIL 0
+    XPASS 0
+    ARGS --run=async/outcome/runtime_skip_after_suspend --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_outcome_skip_after_failure_is_fail
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 1
+    SKIP 0
+    XFAIL 0
+    XPASS 0
+    EXPECT_RC 1
+    ARGS --run=async/outcome/skip_after_failure_is_fail_after_suspend --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_waiter_lifetime_process_exit
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 0
+    FAIL 1
+    SKIP 0
+    BLOCKED 0
+    EXPECT_RC 1
+    ARGS --run=async/waiter_lifetime/process_exit_unresumable --kind=test --no-color)
 
 gentest_add_check_counts(
     NAME async_unresumable_failure

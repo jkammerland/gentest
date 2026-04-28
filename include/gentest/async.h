@@ -24,7 +24,19 @@ namespace detail {
 
 class AsyncScheduler {
   public:
-    virtual ~AsyncScheduler() = default;
+    class Control {
+      public:
+        void post(std::coroutine_handle<> handle) const;
+
+      private:
+        friend class AsyncScheduler;
+
+        mutable std::mutex mtx_;
+        AsyncScheduler    *scheduler_ = nullptr;
+    };
+
+    AsyncScheduler() : control_(std::make_shared<Control>()) { control_->scheduler_ = this; }
+    virtual ~AsyncScheduler() { deactivate(); }
 
     virtual void post(std::coroutine_handle<> handle)                                        = 0;
     virtual void block(std::coroutine_handle<> handle, std::string reason)                   = 0;
@@ -35,7 +47,28 @@ class AsyncScheduler {
     }
 
     virtual void yield_at(std::coroutine_handle<> handle, const std::source_location &) { post(handle); }
+
+    [[nodiscard]] auto control() const noexcept -> std::shared_ptr<Control> { return control_; }
+
+  protected:
+    void deactivate() noexcept {
+        if (!control_) {
+            return;
+        }
+        std::lock_guard<std::mutex> lk(control_->mtx_);
+        control_->scheduler_ = nullptr;
+    }
+
+  private:
+    std::shared_ptr<Control> control_;
 };
+
+inline void AsyncScheduler::Control::post(std::coroutine_handle<> handle) const {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (scheduler_) {
+        scheduler_->post(handle);
+    }
+}
 
 GENTEST_RUNTIME_API auto current_async_scheduler() noexcept -> AsyncScheduler *;
 GENTEST_RUNTIME_API auto set_current_async_scheduler(AsyncScheduler *scheduler) noexcept -> AsyncScheduler *;
@@ -108,8 +141,8 @@ class manual_event {
             waiters.swap(waiters_);
         }
         for (auto &waiter : waiters) {
-            if (waiter.scheduler) {
-                waiter.scheduler->post(waiter.handle);
+            if (auto scheduler = waiter.scheduler.lock()) {
+                scheduler->post(waiter.handle);
             }
         }
     }
@@ -144,7 +177,7 @@ class manual_event {
                 scheduler->post(handle);
                 return;
             }
-            event_.waiters_.push_back(Waiter{.scheduler = scheduler, .handle = handle});
+            event_.waiters_.push_back(Waiter{.scheduler = scheduler->control(), .handle = handle});
             scheduler->block_at(handle, reason_, loc_);
         }
 
@@ -163,8 +196,8 @@ class manual_event {
 
   private:
     struct Waiter {
-        detail::AsyncScheduler *scheduler = nullptr;
-        std::coroutine_handle<> handle{};
+        std::weak_ptr<detail::AsyncScheduler::Control> scheduler;
+        std::coroutine_handle<>                        handle{};
     };
 
     mutable std::mutex  mtx_;
@@ -198,7 +231,7 @@ class completion_source {
                 scheduler->post(handle);
                 return;
             }
-            source_.waiters_.push_back(Waiter{.scheduler = scheduler, .handle = handle});
+            source_.waiters_.push_back(Waiter{.scheduler = scheduler->control(), .handle = handle});
             scheduler->block_at(handle, reason_, loc_);
         }
 
@@ -226,21 +259,24 @@ class completion_source {
 
   private:
     struct Waiter {
-        detail::AsyncScheduler *scheduler = nullptr;
-        std::coroutine_handle<> handle{};
+        std::weak_ptr<detail::AsyncScheduler::Control> scheduler;
+        std::coroutine_handle<>                        handle{};
     };
 
     void complete_impl(std::string unresumable_reason) {
         std::vector<Waiter> waiters;
         {
             std::lock_guard<std::mutex> lk(mtx_);
+            if (completed_) {
+                return;
+            }
             completed_          = true;
             unresumable_reason_ = std::move(unresumable_reason);
             waiters.swap(waiters_);
         }
         for (auto &waiter : waiters) {
-            if (waiter.scheduler) {
-                waiter.scheduler->post(waiter.handle);
+            if (auto scheduler = waiter.scheduler.lock()) {
+                scheduler->post(waiter.handle);
             }
         }
     }
