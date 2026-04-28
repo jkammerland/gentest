@@ -144,6 +144,10 @@ std::string build_fixture_decls(const std::vector<FreeFixtureUse> &types) {
     return decls;
 }
 
+bool has_local_fixture(const std::vector<FreeFixtureUse> &types) {
+    return std::ranges::any_of(types, [](const FreeFixtureUse &fixture) { return fixture.scope == FixtureScope::Local; });
+}
+
 std::string build_fixture_inits(const std::vector<FreeFixtureUse> &types) {
     std::string inits;
     inits.reserve(types.size() * 48);
@@ -750,10 +754,14 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += decls;
         body += inits;
         body += setup_flags;
-        std::string async_body;
-        async_body += setup_tracked;
-        async_body += "            " + invoke + "\n";
-        append_async_local_teardown_call(body, async_body, teardown_guarded);
+        if (has_local_fixture(spec.fixtures)) {
+            std::string async_body;
+            async_body += setup_tracked;
+            async_body += "            " + invoke + "\n";
+            append_async_local_teardown_call(body, async_body, teardown_guarded);
+        } else {
+            body += "    " + invoke + "\n";
+        }
         append_async_entrypoint(out, spec, body);
         return;
     }
@@ -825,10 +833,14 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += decls;
         body += inits;
         body += setup_flags;
-        std::string async_body;
-        async_body += setup_tracked;
-        async_body += "            " + invoke + "\n";
-        append_async_local_teardown_call(body, async_body, teardown_guarded);
+        if (has_local_fixture(spec.fixtures)) {
+            std::string async_body;
+            async_body += setup_tracked;
+            async_body += "            " + invoke + "\n";
+            append_async_local_teardown_call(body, async_body, teardown_guarded);
+        } else {
+            body += "    " + invoke + "\n";
+        }
         append_async_entrypoint(out, spec, body);
         return;
     }
