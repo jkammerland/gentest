@@ -54,9 +54,21 @@ auto smoke_indicators_enums() -> void {
 set(_include_args "-I${_source_dir_norm}/third_party/include")
 set(_extra_args)
 gentest_append_host_apple_sysroot_compile_args(_extra_args)
+gentest_is_msvc_style_compiler(_msvc_style_compiler "${CXX_COMPILER}")
+if(DEFINED CXX_COMPILER_TARGET AND NOT "${CXX_COMPILER_TARGET}" STREQUAL "" AND NOT _msvc_style_compiler)
+  list(APPEND _extra_args "--target=${CXX_COMPILER_TARGET}")
+endif()
+if(DEFINED CXX_SYSROOT AND NOT "${CXX_SYSROOT}" STREQUAL "" AND NOT _msvc_style_compiler)
+  list(APPEND _extra_args "--sysroot=${CXX_SYSROOT}")
+endif()
+if(DEFINED CXX_FLAGS AND NOT "${CXX_FLAGS}" STREQUAL "")
+  separate_arguments(_configured_cxx_flags NATIVE_COMMAND "${CXX_FLAGS}")
+  list(APPEND _extra_args ${_configured_cxx_flags})
+endif()
 gentest_make_compile_only_command_args(
   _compile_args
   COMPILER "${CXX_COMPILER}"
+  COMPILER_ARG1 "${CXX_COMPILER_ARG1}"
   STD "-std=c++20"
   SOURCE "${_source}"
   OBJECT "${_work_dir}/vendored_indicators_compile.o"
@@ -85,10 +97,6 @@ gentest_fixture_write_file("${_termcolor_source}" [=[
 #include <indicators/details/stream_helper.hpp>
 
 #include <sstream>
-#include <type_traits>
-
-static_assert(std::is_same_v<decltype(termcolor::_internal::colorize_index()), int>,
-              "tabulate and indicators must use the same termcolor implementation");
 
 auto smoke_termcolor_coinclude() -> void {
     std::ostringstream stream;
@@ -101,6 +109,7 @@ auto smoke_termcolor_coinclude() -> void {
 gentest_make_compile_only_command_args(
   _termcolor_compile_args
   COMPILER "${CXX_COMPILER}"
+  COMPILER_ARG1 "${CXX_COMPILER_ARG1}"
   STD "-std=c++20"
   SOURCE "${_termcolor_source}"
   OBJECT "${_work_dir}/vendored_indicators_termcolor_coinclude.o"

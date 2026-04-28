@@ -785,6 +785,12 @@ gentest_add_cmake_script_test(
         "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
 set_property(TEST gentest_runner_registry_runtime_hidden APPEND PROPERTY LABELS "proof")
 
+set(_gentest_vendored_compile_cxx_flags "${CMAKE_CXX_FLAGS}")
+if(CMAKE_BUILD_TYPE)
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" _gentest_vendored_compile_build_type)
+    string(APPEND _gentest_vendored_compile_cxx_flags " ${CMAKE_CXX_FLAGS_${_gentest_vendored_compile_build_type}}")
+    unset(_gentest_vendored_compile_build_type)
+endif()
 gentest_add_cmake_script_test(
     NAME gentest_vendored_indicators_compile
     NO_EMULATOR
@@ -793,7 +799,12 @@ gentest_add_cmake_script_test(
     DEFINES
         "BUILD_ROOT=${CMAKE_BINARY_DIR}/vendored_indicators_compile_check"
         "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
+        "CXX_COMPILER_TARGET=${CMAKE_CXX_COMPILER_TARGET}"
+        "CXX_SYSROOT=${CMAKE_SYSROOT}"
+        "CXX_FLAGS=${_gentest_vendored_compile_cxx_flags}")
+unset(_gentest_vendored_compile_cxx_flags)
 
 # Lint-only checks for generator
 gentest_add_check_exit_code(
