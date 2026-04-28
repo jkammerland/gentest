@@ -50,6 +50,7 @@ std::atomic<bool>            fail_fast_cancel_released_context_worker_done{true}
 std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_started{false};
 std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_worker_done{true};
 std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_torn_down{true};
+std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_frame_destroyed{true};
 std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_started{false};
 std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_done{true};
 
@@ -141,6 +142,10 @@ struct FailFastCancelAdoptedLocalFixtureExitWait {
         }
         if (!fail_fast_cancel_adopted_local_fixture_torn_down.load(std::memory_order_acquire)) {
             (void)std::fputs("fail-fast canceled adopted async local fixture without teardown\n", stderr);
+            std::abort();
+        }
+        if (!fail_fast_cancel_adopted_local_fixture_frame_destroyed.load(std::memory_order_acquire)) {
+            (void)std::fputs("fail-fast canceled adopted async frame was not destroyed after adopted release\n", stderr);
             std::abort();
         }
     }
@@ -262,6 +267,12 @@ struct FailFastCancelAdoptedLocalFixture : gentest::AsyncFixtureSetup, gentest::
         co_await gentest::async::yield();
         torn_down = true;
         fail_fast_cancel_adopted_local_fixture_torn_down.store(true, std::memory_order_release);
+    }
+};
+
+struct FailFastCancelAdoptedLocalFrameGuard {
+    ~FailFastCancelAdoptedLocalFrameGuard() {
+        fail_fast_cancel_adopted_local_fixture_frame_destroyed.store(true, std::memory_order_release);
     }
 };
 
@@ -648,6 +659,8 @@ gentest::async_test<void> fail_fast_cancel_adopted_local_fixture_pending(FailFas
     fail_fast_cancel_adopted_local_fixture_started.store(false, std::memory_order_release);
     fail_fast_cancel_adopted_local_fixture_worker_done.store(false, std::memory_order_release);
     fail_fast_cancel_adopted_local_fixture_torn_down.store(false, std::memory_order_release);
+    fail_fast_cancel_adopted_local_fixture_frame_destroyed.store(false, std::memory_order_release);
+    FailFastCancelAdoptedLocalFrameGuard frame_guard;
 
     auto context = gentest::get_current_context();
     auto started = std::make_shared<std::promise<void>>();

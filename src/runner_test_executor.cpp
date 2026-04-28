@@ -1100,6 +1100,49 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         return run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
     };
 
+    struct DeferredCanceledTask {
+        gentest::detail::AsyncTaskPtr                     task;
+        std::shared_ptr<gentest::detail::TestContextInfo> ctx;
+    };
+    std::vector<DeferredCanceledTask> deferred_canceled_tasks;
+
+    const auto adopted_contexts_released = [](const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
+        return !ctx || ctx->adopted_contexts.load(std::memory_order_acquire) == 0;
+    };
+
+    const auto wait_for_adopted_contexts_released = [&](const std::shared_ptr<gentest::detail::TestContextInfo> &ctx,
+                                                        std::chrono::milliseconds                                timeout) {
+        if (!ctx) {
+            return true;
+        }
+        std::unique_lock<std::mutex> lk(ctx->adopted_mtx);
+        return ctx->adopted_cv.wait_for(lk, timeout, [&] { return ctx->adopted_contexts.load(std::memory_order_acquire) == 0; });
+    };
+
+    const auto destroy_released_canceled_tasks = [&](std::chrono::milliseconds wait_budget) {
+        for (auto &deferred : deferred_canceled_tasks) {
+            if (!deferred.task) {
+                continue;
+            }
+            if (!adopted_contexts_released(deferred.ctx) && !wait_for_adopted_contexts_released(deferred.ctx, wait_budget)) {
+                continue;
+            }
+            deferred.task.reset();
+        }
+    };
+
+    const auto release_still_blocked_canceled_tasks = [&] {
+        for (auto &deferred : deferred_canceled_tasks) {
+            if (!deferred.task) {
+                continue;
+            }
+            // Destroying the coroutine frame can join user-owned threads that are waiting for a queued resume.
+            auto *leaked_task = deferred.task.release();
+            (void)leaked_task;
+        }
+        deferred_canceled_tasks.clear();
+    };
+
     const auto finalize_completed_runs = [&] {
         for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
             auto &run = async_runs[run_index];
@@ -1174,12 +1217,12 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             gentest::runner::detail::cancel_active_test_context_without_wait(run.ctxinfo);
             gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
             if (has_adopted_work) {
-                // Destroying the coroutine frame can join user-owned threads that are waiting for a queued resume.
-                auto *leaked_task = run.task.release();
-                (void)leaked_task;
+                deferred_canceled_tasks.push_back(DeferredCanceledTask{.task = std::move(run.task), .ctx = run.ctxinfo});
             }
             run.finalized = true;
         }
+        destroy_released_canceled_tasks(std::chrono::milliseconds(500));
+        release_still_blocked_canceled_tasks();
         while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
             ++first_unfinalized_scan;
         }

@@ -284,7 +284,7 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_cancel_adopted_local_fixture/01_sync_failure"
-        "FORBID_SUBSTRINGS=fail-fast canceled adopted async local fixture without teardown|fail-fast canceled adopted async local fixture destroyed without teardown|fail-fast cancellation resumed adopted local fixture case")
+        "FORBID_SUBSTRINGS=fail-fast canceled adopted async local fixture without teardown|fail-fast canceled adopted async local fixture destroyed without teardown|fail-fast canceled adopted async frame was not destroyed after adopted release|fail-fast cancellation resumed adopted local fixture case")
 
 gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_adopted_skip_no_abort
