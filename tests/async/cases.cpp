@@ -42,6 +42,7 @@ gentest::async::manual_event fail_fast_cancel_adopted_local_fixture_resume;
 gentest::async::manual_event fail_fast_cancel_adopted_skip_resume;
 gentest::async::manual_event fail_fast_final_drain_fail_release;
 gentest::async::manual_event fail_fast_final_drain_late_release;
+gentest::async::manual_event local_unresumable_teardown_never;
 std::atomic<int>             fail_fast_final_drain_waiters{0};
 std::atomic<bool>            fail_fast_cancel_adopted_context_worker_started{false};
 std::atomic<bool>            fail_fast_cancel_adopted_context_worker_done{true};
@@ -465,6 +466,13 @@ struct LocalAsyncThrowingTeardownFixture : gentest::AsyncFixtureTearDown {
     }
 };
 
+struct LocalAsyncFailingUnresumableTeardownFixture : gentest::AsyncFixtureTearDown {
+    gentest::async_test<void> tearDown() override {
+        co_await gentest::async::yield();
+        EXPECT_TRUE(false, "async-local-unresumable-teardown-marker");
+    }
+};
+
 [[using gentest: test("batch/server")]]
 gentest::async_test<void> server() {
     reset_batch_if_previous_round_completed();
@@ -801,6 +809,12 @@ void shared_async_adopted_setup(BlockingSchedulerAdoptedFixture &fixture) {
 gentest::async_test<void> local_async_teardown_preserves_primary_failure(LocalAsyncThrowingTeardownFixture &) {
     co_await gentest::async::yield();
     throw std::runtime_error("async-body-primary-marker");
+}
+
+[[using gentest: test("fixture/local_unresumable_teardown/00_async_never")]]
+gentest::async_test<void> local_async_unresumable_reports_teardown(LocalAsyncFailingUnresumableTeardownFixture &) {
+    local_unresumable_teardown_never.reset();
+    co_await local_unresumable_teardown_never.wait("local async fixture teardown should report after unresumable body");
 }
 
 [[using gentest: test("fixture/shared_suite/00_async_wait")]]

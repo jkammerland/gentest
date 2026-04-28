@@ -186,7 +186,14 @@ struct gentest_async_local_teardown_guard {
     void run_blocking() noexcept {
         if (ran || !teardown) return;
         std::string error;
-        (void)::gentest::detail::run_async_task_blocking(run_now(), "async local fixture teardown", error);
+        if (!::gentest::detail::run_async_task_blocking(run_now(), "async local fixture teardown", error)) {
+            std::string msg = "async local fixture teardown failed";
+            if (!error.empty()) {
+                msg += ": ";
+                msg += error;
+            }
+            ::gentest::detail::record_failure(std::move(msg));
+        }
     }
 };
 

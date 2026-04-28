@@ -569,6 +569,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
                 } else {
                     gentest::detail::record_failure(run.message);
                 }
+                gentest::detail::run_context_cancel_hooks(run.ctxinfo);
             }
             complete(i);
             if (after_progress && after_progress()) {

@@ -297,6 +297,15 @@ gentest_add_cmake_script_test(
         "FORBID_SUBSTRINGS=fail-fast cancellation resumed adopted skip case|without an active test context")
 
 gentest_add_cmake_script_test(
+    NAME async_local_unresumable_teardown_reports_failure
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fixture/local_unresumable_teardown/* --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fixture/local_unresumable_teardown/00_async_never|cannot resume async test; suspended at tests/async/cases.cpp|local async fixture teardown should report after unresumable body|async-local-unresumable-teardown-marker")
+
+gentest_add_cmake_script_test(
     NAME async_fail_fast_final_drain_stops_ready_snapshot
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
@@ -347,7 +356,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 65
+    CASES 66
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
