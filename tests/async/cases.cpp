@@ -714,8 +714,10 @@ gentest::async_test<void> fail_fast_cancel_adopted_skip_pending_worker_skips_aft
         }
         try {
             gentest::skip("adopted worker skipped after fail-fast cancellation");
-        } catch (...) {}
-        fail_fast_cancel_adopted_skip_worker_done.store(true, std::memory_order_release);
+        } catch (const gentest::detail::skip_exception &) {
+            fail_fast_cancel_adopted_skip_worker_done.store(true, std::memory_order_release);
+            return;
+        }
     }).detach();
 
     ready.wait();

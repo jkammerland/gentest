@@ -1,3 +1,7 @@
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX
+#endif
+
 #include "runner_async_status_renderer.h"
 
 #include <algorithm>
@@ -24,10 +28,23 @@
 namespace gentest::runner {
 namespace {
 
-bool env_term_dumb() {
-    const char *term = std::getenv("TERM");
-    return term != nullptr && std::string_view(term) == "dumb";
+bool env_equals(const char *name, std::string_view expected) {
+#if defined(_WIN32) && defined(_MSC_VER)
+    char  *value  = nullptr;
+    size_t length = 0;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
+        return false;
+    }
+    const bool matches = std::string_view(value) == expected;
+    std::free(value);
+    return matches;
+#else
+    const char *value = std::getenv(name);
+    return value != nullptr && std::string_view(value) == expected;
+#endif
 }
+
+bool env_term_dumb() { return env_equals("TERM", "dumb"); }
 
 bool stdout_is_tty() {
 #if defined(_WIN32)
@@ -103,7 +120,7 @@ auto ansi_status_color_code(AsyncLiveStatus status) -> std::string_view {
 }
 
 auto colored_status(AsyncLiveStatus status, bool color_output) -> std::string {
-    const auto plain = plain_status(status);
+    auto plain = plain_status(status);
     if (!color_output) {
         return plain;
     }
