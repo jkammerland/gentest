@@ -719,7 +719,11 @@ gentest_add_check_counts(
 option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(
-        concurrency_fail_single_death concurrency_skip_no_context_death concurrency_xfail_no_context_death concurrency_multi_noadopt_death
+        concurrency_fail_single_death
+        concurrency_skip_no_context_death
+        concurrency_xfail_no_context_death
+        concurrency_multi_noadopt_death
+        async_fail_fast_cancel_released_context_aborts
         PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 
