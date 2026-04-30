@@ -11,6 +11,7 @@ namespace gentest::runner {
 
 enum class AsyncLiveStatus {
     Suspended,
+    Yielded,
     Running,
     Pass,
     Fail,
@@ -56,6 +57,8 @@ class AsyncStatusRenderer {
     [[nodiscard]] auto enabled() const noexcept -> bool;
     void               add_case(std::size_t id, std::string_view name);
     void               mark_running(std::size_t id);
+    void               mark_yielded(std::size_t id, std::string_view detail, std::string_view file = {},
+                                    unsigned line = 0); // NOLINT(bugprone-easily-swappable-parameters)
     void               mark_suspended(std::size_t id, std::string_view detail, std::string_view file = {},
                                       unsigned line = 0); // NOLINT(bugprone-easily-swappable-parameters)
     void               mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms);

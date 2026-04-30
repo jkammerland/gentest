@@ -65,7 +65,7 @@ if(NOT _rc EQUAL 0)
   message(FATAL_ERROR "async live terminal command failed with rc=${_rc}. Output:\n${_all}")
 endif()
 
-foreach(_required IN ITEMS "SUSPENDED" "RUNNING" "async_live_slow/panel/00_async_waits_for_sync" "async_live_slow/panel/05_waiting_on_driver")
+foreach(_required IN ITEMS "SUSPENDED" "YIELDED" "RUNNING" "async_live_slow/panel/00_async_waits_for_sync" "async_live_slow/panel/05_waiting_on_driver")
   string(FIND "${_all}" "${_required}" _pos)
   if(_pos EQUAL -1)
     message(FATAL_ERROR "Expected terminal output substring not found: '${_required}'. Output:\n${_all}")

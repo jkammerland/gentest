@@ -411,6 +411,8 @@ enum class AsyncFinishMode { Normal, CancelBeforeWait };
 }
 
 class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
+    enum class SuspendKind { Suspended, Yielded };
+
   public:
     using StopCallback     = std::function<bool()>;
     using ProgressCallback = std::function<bool()>;
@@ -456,6 +458,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         if (owner != kInvalidOwner) {
             blocked_handles_[handle.address()] =
                 BlockedHandle{.owner    = owner,
+                              .kind     = SuspendKind::Suspended,
                               .sequence = ++suspend_sequence_,
                               .reason   = reason.empty() ? std::string("async test cannot resume") : std::move(reason),
                               .file     = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
@@ -475,6 +478,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
             }
             blocked_handles_[handle.address()] =
                 BlockedHandle{.owner    = owner,
+                              .kind     = SuspendKind::Yielded,
                               .sequence = ++suspend_sequence_,
                               .reason   = "yielded cooperatively",
                               .file     = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
@@ -589,6 +593,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
   private:
     struct BlockedHandle {
         std::size_t   owner    = 0;
+        SuspendKind   kind     = SuspendKind::Suspended;
         std::uint64_t sequence = 0;
         std::string   reason;
         std::string   file;
@@ -596,6 +601,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     };
 
     struct SuspendedState {
+        SuspendKind   kind = SuspendKind::Suspended;
         std::string   reason;
         std::string   file;
         unsigned      line     = 0;
@@ -634,7 +640,13 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         for (const auto &entry : blocked_handles_) {
             const auto &blocked = entry.second;
             if (blocked.owner == owner && !blocked.reason.empty() && blocked.sequence >= result.sequence) {
-                result = SuspendedState{.reason = blocked.reason, .file = blocked.file, .line = blocked.line, .sequence = blocked.sequence};
+                result = SuspendedState{
+                    .kind     = blocked.kind,
+                    .reason   = blocked.reason,
+                    .file     = blocked.file,
+                    .line     = blocked.line,
+                    .sequence = blocked.sequence,
+                };
             }
         }
         return result;
@@ -756,7 +768,11 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
                 complete(owner);
             } else if (renderer_ && run.exception == InvokeException::None) {
                 const auto suspended = suspended_state_for(owner);
-                renderer_->mark_suspended(owner, suspended.reason, suspended.file, suspended.line);
+                if (suspended.kind == SuspendKind::Yielded) {
+                    renderer_->mark_yielded(owner, suspended.reason, suspended.file, suspended.line);
+                } else {
+                    renderer_->mark_suspended(owner, suspended.reason, suspended.file, suspended.line);
+                }
             }
             return true;
         }

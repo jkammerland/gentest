@@ -186,23 +186,29 @@ int main() {
 
     renderer.add_case(0, "async/live/running");
     renderer.add_case(1, "async/live/waiting");
+    renderer.add_case(2, "async/live/yielding");
     renderer.mark_suspended(1, "waiting for dependency", "waiting.cpp", 42);
+    renderer.mark_yielded(2, "yielded cooperatively", "yielding.cpp", 43);
     renderer.mark_running(0);
 
     std::string snapshot = renderer.render_snapshot_for_test();
-    if (!before(snapshot, "[ SUSPENDED ]", "[  RUNNING  ]")) {
-        return fail("running row should render at the bottom of the active panel", snapshot);
+    if (!before(snapshot, "[ SUSPENDED ]", "[  YIELDED  ]") || !before(snapshot, "[  YIELDED  ]", "[  RUNNING  ]")) {
+        return fail("running row should render below yielded rows and yielded rows below suspended rows", snapshot);
     }
     if (!contains(snapshot, "waiting for dependency @ waiting.cpp:42")) {
         return fail("suspended row should show source location", snapshot);
     }
+    if (!contains(snapshot, "yielded cooperatively @ yielding.cpp:43")) {
+        return fail("yielded row should show source location", snapshot);
+    }
     if (gentest::runner::async_live_status_color_name(gentest::runner::AsyncLiveStatus::Running) != "green" ||
+        gentest::runner::async_live_status_color_name(gentest::runner::AsyncLiveStatus::Yielded) != "green" ||
         gentest::runner::async_live_status_color_name(gentest::runner::AsyncLiveStatus::Suspended) != "yellow") {
-        return fail("running and suspended rows should map to green/yellow colors", snapshot);
+        return fail("running, yielded, and suspended rows should map to green/green/yellow colors", snapshot);
     }
 
-    renderer.add_case(2, "async/live/" + std::string(120, 'n'));
-    renderer.mark_suspended(2, "waiting " + std::string(120, 'd'), "/tmp/" + std::string(120, 'p') + "/case.cpp", 77);
+    renderer.add_case(3, "async/live/" + std::string(120, 'n'));
+    renderer.mark_suspended(3, "waiting " + std::string(120, 'd'), "/tmp/" + std::string(120, 'p') + "/case.cpp", 77);
     snapshot = renderer.render_snapshot_for_test();
     for (const auto line : lines(snapshot)) {
         if (!line.empty() && visible_width(line) > 80) {
@@ -298,14 +304,15 @@ int main() {
     renderer.mark_final(0, gentest::runner::AsyncLiveStatus::Pass, {}, 7);
     renderer.mark_final(1, gentest::runner::AsyncLiveStatus::Fail, "1 issue(s)", 9);
     renderer.mark_final(2, gentest::runner::AsyncLiveStatus::Pass, {}, 11);
+    renderer.mark_final(3, gentest::runner::AsyncLiveStatus::Pass, {}, 13);
     snapshot = renderer.render_snapshot_for_test();
     if (!snapshot.empty()) {
         return fail("completed rows should leave the active panel", snapshot);
     }
     const auto &completed = renderer.completed_lines_for_test();
-    if (completed.size() != 3 || !contains(completed[0], "[   PASS    ]") || !contains(completed[0], "async/live/running (7 ms)") ||
+    if (completed.size() != 4 || !contains(completed[0], "[   PASS    ]") || !contains(completed[0], "async/live/running (7 ms)") ||
         !contains(completed[1], "[   FAIL    ]") || !contains(completed[1], "async/live/waiting :: 1 issue(s) (9 ms)") ||
-        visible_width(completed[2]) > 80) {
+        !contains(completed[2], "async/live/yielding (11 ms)") || visible_width(completed[3]) > 80) {
         return fail("final rows should be emitted as completed scrolling lines");
     }
 
@@ -328,6 +335,8 @@ int main() {
     terminal.add_case(0, "async/live/terminal_cleanup");
     terminal.mark_suspended(0, "waiting", "/tmp/cleanup.cpp", 9);
     terminal.log("live log while suspended");
+    terminal.mark_yielded(0, "yielded cooperatively", "/tmp/cleanup.cpp", 10);
+    terminal.log("live log while yielded");
     terminal.mark_running(0);
     terminal.log("live log while running");
     terminal.finish();
@@ -341,10 +350,12 @@ int main() {
         return fail("terminal renderer should erase the local live block line-by-line", terminal_output);
     }
     if (!contains(terminal_output, "live log while suspended\n\r\033[2K[ SUSPENDED ]") ||
+        !contains(terminal_output, "live log while yielded\n\r\033[2K[  YIELDED  ]") ||
         !contains(terminal_output, "live log while running\n\r\033[2K[  RUNNING  ]")) {
         return fail("terminal logs should be emitted above the redrawn live block", terminal_output);
     }
     if (count_occurrences(terminal_output, "live log while suspended") != 1 ||
+        count_occurrences(terminal_output, "live log while yielded") != 1 ||
         count_occurrences(terminal_output, "live log while running") != 1) {
         return fail("terminal logs should not be duplicated", terminal_output);
     }

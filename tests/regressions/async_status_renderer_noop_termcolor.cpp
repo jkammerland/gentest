@@ -17,9 +17,11 @@ int main() {
 
     renderer.add_case(0, "async/live/color");
     renderer.mark_running(0);
+    renderer.add_case(1, "async/live/yielded");
+    renderer.mark_yielded(1, "yielded cooperatively");
 
     const auto snapshot = renderer.render_snapshot_for_test();
-    if (!contains(snapshot, "\033[32m[  RUNNING  ]\033[0m")) {
+    if (!contains(snapshot, "\033[32m[  RUNNING  ]\033[0m") || !contains(snapshot, "\033[32m[  YIELDED  ]\033[0m")) {
         std::cerr << "renderer status rows should use explicit ANSI color independent of termcolor stream backend\n";
         std::cerr << snapshot << '\n';
         return 1;

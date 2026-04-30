@@ -75,6 +75,7 @@ bool stdout_supports_virtual_terminal() {
 
 auto status_color(AsyncLiveStatus status) -> indicators::Color {
     switch (status) {
+    case AsyncLiveStatus::Yielded:
     case AsyncLiveStatus::Running:
     case AsyncLiveStatus::Pass: return indicators::Color::green;
     case AsyncLiveStatus::Suspended:
@@ -88,8 +89,11 @@ auto status_color(AsyncLiveStatus status) -> indicators::Color {
 }
 
 auto status_rank(AsyncLiveStatus status) -> int {
-    if (status == AsyncLiveStatus::Running) {
+    if (status == AsyncLiveStatus::Yielded) {
         return 1;
+    }
+    if (status == AsyncLiveStatus::Running) {
+        return 2;
     }
     return 0;
 }
@@ -448,6 +452,7 @@ auto format_row(const AsyncLiveRowSnapshot &row, bool color_output, bool hyperli
 auto async_live_status_text(AsyncLiveStatus status) -> std::string_view {
     switch (status) {
     case AsyncLiveStatus::Suspended: return "SUSPENDED";
+    case AsyncLiveStatus::Yielded: return "YIELDED";
     case AsyncLiveStatus::Running: return "RUNNING";
     case AsyncLiveStatus::Pass: return "PASS";
     case AsyncLiveStatus::Fail: return "FAIL";
@@ -515,6 +520,25 @@ void AsyncStatusRenderer::mark_running(std::size_t id) {
     row->suspend_label.clear();
     row->suspend_uri.clear();
     row->suspend_line = 0;
+    render();
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+void AsyncStatusRenderer::mark_yielded(std::size_t id, std::string_view detail, std::string_view file, unsigned line) {
+    if (!enabled()) {
+        return;
+    }
+    auto row = find_row(rows_, id);
+    if (row == rows_.end() || row->final) {
+        return;
+    }
+    row->status         = AsyncLiveStatus::Yielded;
+    row->detail         = detail.empty() ? std::string("yielded cooperatively") : std::string(detail);
+    row->suspend_file   = std::string(file);
+    row->suspend_line   = line;
+    const auto location = location_parts(file, line);
+    row->suspend_label  = location.label;
+    row->suspend_uri    = location.uri;
     render();
 }
 
