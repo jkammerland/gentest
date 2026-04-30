@@ -732,6 +732,14 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         return handle;
     }
 
+    void clear_suspend_state(std::coroutine_handle<> handle) {
+        if (!handle) {
+            return;
+        }
+        std::lock_guard<std::mutex> lk(mtx_);
+        blocked_handles_.erase(handle.address());
+    }
+
     [[nodiscard]] auto resume_one_ready() -> bool {
         while (auto handle = pop_ready()) {
             if (!handle) {
@@ -753,6 +761,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
                 if (renderer_) {
                     renderer_->mark_running(owner);
                 }
+                clear_suspend_state(handle);
                 try {
                     handle.resume();
                 } catch (const std::exception &e) {

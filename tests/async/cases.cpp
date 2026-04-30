@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <coroutine>
 #include <cstdio>
 #include <cstdlib>
 #include <future>
@@ -326,6 +327,12 @@ struct FailFastCancelAdoptedLocalFrameGuard {
 
 struct FailFastCancelSlowAdoptedFrameGuard {
     ~FailFastCancelSlowAdoptedFrameGuard() { fail_fast_cancel_slow_adopted_frame_destroyed.store(true, std::memory_order_release); }
+};
+
+struct UnsupportedSuspend {
+    [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
+    constexpr void               await_suspend(std::coroutine_handle<>) const noexcept {}
+    constexpr void               await_resume() const noexcept {}
 };
 
 struct [[using gentest: fixture(suite)]] SharedSuiteAsyncFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
@@ -1282,6 +1289,12 @@ gentest::async_test<void> waiter_lifetime_process_exit_unresumable() {
 gentest::async_test<void> blocked_never() {
     gentest::async::manual_event never;
     co_await never.wait("never ready");
+}
+
+[[using gentest: test("yield/unsupported_suspend_after_yield")]]
+gentest::async_test<void> unsupported_suspend_after_yield() {
+    co_await gentest::async::yield();
+    co_await UnsupportedSuspend{};
 }
 
 } // namespace async

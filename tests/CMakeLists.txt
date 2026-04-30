@@ -198,7 +198,7 @@ gentest_add_cmake_script_test(
     ARGS --filter=async/batch/* --kind=test
     DEFINES
         "EXPECT_RC=0"
-        "FORBID_SUBSTRINGS=RUNNING|SUSPENDED")
+        "FORBID_SUBSTRINGS=RUNNING|SUSPENDED|YIELDED")
 
 gentest_add_check_counts(
     NAME async_live_demo_cooperative
@@ -407,7 +407,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 75
+    CASES 76
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
@@ -750,6 +750,16 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRING=cannot resume async test; suspended at tests/async/cases.cpp:"
         "FORBID_SUBSTRINGS=[ BLOCKED ] async/blocked/never|last suspend backtrace|#0")
+
+gentest_add_cmake_script_test(
+    NAME async_yield_stale_suspend_state_cleared
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=async/yield/unsupported_suspend_after_yield --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=cannot resume async test"
+        "FORBID_SUBSTRINGS=yielded cooperatively|suspended at tests/async/cases.cpp:")
 
 gentest_add_check_counts(
     NAME async_selected_dependency_unresumable
