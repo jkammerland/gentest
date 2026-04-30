@@ -73,16 +73,28 @@ endif()
 
 foreach(_required IN ITEMS
     "\"status\":\"skipped\""
-    "\"name\":\"blocked\"")
+    "\"name\":\"blocked\""
+    "\"value\":\"true\"")
   string(FIND "${_blocked_result_json}" "${_required}" _required_pos)
   if(_required_pos EQUAL -1)
     message(FATAL_ERROR "Expected Allure blocked result to contain '${_required}'.\n${_blocked_result_json}")
   endif()
 endforeach()
 
+set(_blocked_name_substring "\"name\":\"blocked\"")
+string(LENGTH "${_blocked_name_substring}" _blocked_name_len)
+string(LENGTH "${_blocked_result_json}" _blocked_json_len)
+string(REPLACE "${_blocked_name_substring}" "" _blocked_without_name "${_blocked_result_json}")
+string(LENGTH "${_blocked_without_name}" _blocked_without_name_len)
+math(EXPR _blocked_name_count "(${_blocked_json_len} - ${_blocked_without_name_len}) / ${_blocked_name_len}")
+if(NOT _blocked_name_count EQUAL 1)
+  message(FATAL_ERROR "Expected exactly one Allure 'blocked' label, found ${_blocked_name_count}.\n${_blocked_result_json}")
+endif()
+
 if(DEFINED EXPECTED_REASON AND NOT "${EXPECTED_REASON}" STREQUAL "")
   foreach(_required_reason IN ITEMS
       "\"message\":\"blocked: ${EXPECTED_REASON}\""
+      "\"name\":\"blocked_reason\""
       "\"value\":\"${EXPECTED_REASON}\"")
     string(FIND "${_blocked_result_json}" "${_required_reason}" _reason_pos)
     if(_reason_pos EQUAL -1)

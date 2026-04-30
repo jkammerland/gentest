@@ -149,7 +149,9 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
                 while (!r.empty() && r.front() == ' ')
                     r.remove_prefix(1);
             }
-            labels.push_back({{"name", "blocked"}, {"value", std::string(r)}});
+            if (!r.empty()) {
+                labels.push_back({{"name", "blocked_reason"}, {"value", std::string(r)}});
+            }
         }
         obj["labels"] = std::move(labels);
         if (!it.failures.empty()) {

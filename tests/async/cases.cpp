@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -39,11 +40,14 @@ gentest::async::manual_event fail_fast_cancel_adopted_resume;
 gentest::async::manual_event fail_fast_cancel_adopted_context_resume;
 gentest::async::manual_event fail_fast_cancel_local_fixture_resume;
 gentest::async::manual_event fail_fast_cancel_adopted_local_fixture_resume;
+gentest::async::manual_event fail_fast_cancel_slow_adopted_resume;
 gentest::async::manual_event fail_fast_cancel_adopted_skip_resume;
 gentest::async::manual_event fail_fast_final_drain_fail_release;
 gentest::async::manual_event fail_fast_final_drain_late_release;
 gentest::async::manual_event local_unresumable_teardown_never;
 std::atomic<int>             fail_fast_final_drain_waiters{0};
+std::atomic<bool>            fail_fast_self_adopted_worker_started{false};
+std::atomic<bool>            fail_fast_self_adopted_worker_done{true};
 std::atomic<bool>            fail_fast_cancel_adopted_context_worker_started{false};
 std::atomic<bool>            fail_fast_cancel_adopted_context_worker_done{true};
 std::atomic<bool>            fail_fast_cancel_released_context_worker_started{false};
@@ -52,6 +56,9 @@ std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_started{fals
 std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_worker_done{true};
 std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_torn_down{true};
 std::atomic<bool>            fail_fast_cancel_adopted_local_fixture_frame_destroyed{true};
+std::atomic<bool>            fail_fast_cancel_slow_adopted_worker_started{false};
+std::atomic<bool>            fail_fast_cancel_slow_adopted_worker_done{true};
+std::atomic<bool>            fail_fast_cancel_slow_adopted_frame_destroyed{true};
 std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_started{false};
 std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_done{true};
 
@@ -88,6 +95,24 @@ struct ProcessExitSignal {
 };
 
 ProcessExitSignal process_exit_signal;
+
+struct FailFastSelfAdoptedExitWait {
+    ~FailFastSelfAdoptedExitWait() {
+        if (!fail_fast_self_adopted_worker_started.load(std::memory_order_acquire)) {
+            return;
+        }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!fail_fast_self_adopted_worker_done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (!fail_fast_self_adopted_worker_done.load(std::memory_order_acquire)) {
+            (void)std::fputs("fail-fast self-adopted worker did not finish\n", stderr);
+            std::abort();
+        }
+    }
+};
+
+FailFastSelfAdoptedExitWait fail_fast_self_adopted_exit_wait;
 
 struct FailFastCancelAdoptedContextExitWait {
     ~FailFastCancelAdoptedContextExitWait() {
@@ -153,6 +178,28 @@ struct FailFastCancelAdoptedLocalFixtureExitWait {
 };
 
 FailFastCancelAdoptedLocalFixtureExitWait fail_fast_cancel_adopted_local_fixture_exit_wait;
+
+struct FailFastCancelSlowAdoptedExitWait {
+    ~FailFastCancelSlowAdoptedExitWait() {
+        if (!fail_fast_cancel_slow_adopted_worker_started.load(std::memory_order_acquire)) {
+            return;
+        }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (!fail_fast_cancel_slow_adopted_worker_done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (!fail_fast_cancel_slow_adopted_worker_done.load(std::memory_order_acquire)) {
+            (void)std::fputs("fail-fast slow adopted worker did not finish\n", stderr);
+            std::abort();
+        }
+        if (!fail_fast_cancel_slow_adopted_frame_destroyed.load(std::memory_order_acquire)) {
+            (void)std::fputs("fail-fast slow canceled adopted async frame was not destroyed after adopted release\n", stderr);
+            std::abort();
+        }
+    }
+};
+
+FailFastCancelSlowAdoptedExitWait fail_fast_cancel_slow_adopted_exit_wait;
 
 struct FailFastCancelAdoptedSkipExitWait {
     ~FailFastCancelAdoptedSkipExitWait() {
@@ -275,6 +322,10 @@ struct FailFastCancelAdoptedLocalFrameGuard {
     ~FailFastCancelAdoptedLocalFrameGuard() {
         fail_fast_cancel_adopted_local_fixture_frame_destroyed.store(true, std::memory_order_release);
     }
+};
+
+struct FailFastCancelSlowAdoptedFrameGuard {
+    ~FailFastCancelSlowAdoptedFrameGuard() { fail_fast_cancel_slow_adopted_frame_destroyed.store(true, std::memory_order_release); }
 };
 
 struct [[using gentest: fixture(suite)]] SharedSuiteAsyncFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
@@ -552,6 +603,36 @@ void fail_fast_snapshot_release_waiters() {
     fail_fast_snapshot_release.set();
 }
 
+[[using gentest: test("fail_fast_self_adopted/00_async_fails_with_adopted_worker")]]
+gentest::async_test<void> fail_fast_self_adopted_async_fails_with_adopted_worker() {
+    fail_fast_self_adopted_worker_started.store(false, std::memory_order_release);
+    fail_fast_self_adopted_worker_done.store(false, std::memory_order_release);
+
+    auto context = gentest::get_current_context();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto adoption = gentest::set_current_context(context);
+        fail_fast_self_adopted_worker_started.store(true, std::memory_order_release);
+        started->set_value();
+        while (context && context->active.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        gentest::log("self-adopted worker observed fail-fast cancellation");
+        fail_fast_self_adopted_worker_done.store(true, std::memory_order_release);
+    }).detach();
+
+    ready.wait();
+    co_await gentest::async::yield();
+    EXPECT_TRUE(false, "fail-fast async failure should cancel before waiting for adopted work");
+}
+
+[[using gentest: test("fail_fast_self_adopted/01_sync_should_not_run")]]
+void fail_fast_self_adopted_sync_should_not_run() {
+    gentest::fail("fail-fast allowed a later self-adopted sync case to run");
+}
+
 [[using gentest: test("fail_fast_cancel_adopted/00_pending_needs_resume")]]
 gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
     fail_fast_cancel_adopted_resume.reset();
@@ -695,6 +776,40 @@ void fail_fast_cancel_adopted_local_fixture_sync_failure() {
     EXPECT_TRUE(false, "fail-fast sync failure should trigger adopted async local fixture teardown");
 }
 
+[[using gentest: test("fail_fast_cancel_slow_adopted/00_pending_needs_resume")]]
+gentest::async_test<void> fail_fast_cancel_slow_adopted_pending_needs_resume() {
+    fail_fast_cancel_slow_adopted_resume.reset();
+    fail_fast_cancel_slow_adopted_worker_started.store(false, std::memory_order_release);
+    fail_fast_cancel_slow_adopted_worker_done.store(false, std::memory_order_release);
+    fail_fast_cancel_slow_adopted_frame_destroyed.store(false, std::memory_order_release);
+    FailFastCancelSlowAdoptedFrameGuard frame_guard;
+
+    auto context = gentest::get_current_context();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto adoption = gentest::set_current_context(context);
+        fail_fast_cancel_slow_adopted_worker_started.store(true, std::memory_order_release);
+        started->set_value();
+        while (context && context->active.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(800));
+        gentest::log("slow adopted worker released after cleanup soft timeout");
+        fail_fast_cancel_slow_adopted_worker_done.store(true, std::memory_order_release);
+    }).detach();
+
+    ready.wait();
+    co_await fail_fast_cancel_slow_adopted_resume.wait("fail-fast cancellation should not resume slow adopted case");
+    gentest::fail("fail-fast cancellation resumed slow adopted case");
+}
+
+[[using gentest: test("fail_fast_cancel_slow_adopted/01_sync_failure")]]
+void fail_fast_cancel_slow_adopted_sync_failure() {
+    EXPECT_TRUE(false, "fail-fast sync failure should report slow adopted cleanup");
+}
+
 [[using gentest: test("fail_fast_cancel_adopted_skip/00_pending_worker_skips_after_cancel")]]
 gentest::async_test<void> fail_fast_cancel_adopted_skip_pending_worker_skips_after_cancel() {
     fail_fast_cancel_adopted_skip_resume.reset();
@@ -792,6 +907,19 @@ gentest::async_test<void> mixed_fixtures(LocalSyncFixture &sync_fixture, LocalAs
     EXPECT_EQ(sync_fixture.value, 7);
     EXPECT_EQ(async_fixture.value, 42);
     co_return;
+}
+
+[[using gentest: test("parameterized/value"), parameters(value, 1, 2, 3)]]
+gentest::async_test<void> parameterized_value(int value) {
+    co_await gentest::async::yield();
+    EXPECT_TRUE(value >= 1 && value <= 3);
+}
+
+template <typename T>
+[[using gentest: test("template/type"), template(T, int, long)]]
+gentest::async_test<void> template_type() {
+    co_await gentest::async::yield();
+    EXPECT_TRUE(std::is_integral_v<T>);
 }
 
 [[using gentest: test("fixture/local_lifecycle/00_async_use")]]

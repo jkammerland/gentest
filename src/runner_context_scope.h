@@ -62,6 +62,15 @@ inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentes
     gentest::detail::close_canceled_context_if_released(*ctx);
 }
 
+inline void cancel_and_finish_active_test_context(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
+    if (!ctx) {
+        return;
+    }
+    cancel_active_test_context_without_wait(ctx);
+    gentest::detail::wait_for_adopted_contexts(ctx);
+    gentest::detail::close_canceled_context_if_released(*ctx);
+}
+
 class CurrentTestScope {
   public:
     explicit CurrentTestScope(std::shared_ptr<gentest::detail::TestContextInfo> ctx)

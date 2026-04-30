@@ -229,6 +229,25 @@ gentest_add_cmake_script_test(
         "FORBID_SUBSTRING=fail-fast allowed a later ready async case to run")
 
 gentest_add_cmake_script_test(
+    NAME async_fail_fast_self_adopted_no_hang
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_self_adopted/* --kind=test --fail-fast --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_self_adopted_stops_later_case
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast_self_adopted/* --kind=test --fail-fast --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_self_adopted/00_async_fails_with_adopted_worker"
+        "FORBID_SUBSTRING=fail-fast allowed a later self-adopted sync case to run")
+
+gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_adopted_no_hang
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
@@ -285,6 +304,16 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_cancel_adopted_local_fixture/01_sync_failure"
         "FORBID_SUBSTRINGS=fail-fast canceled adopted async local fixture without teardown|fail-fast canceled adopted async local fixture destroyed without teardown|fail-fast canceled adopted async frame was not destroyed after adopted release|fail-fast cancellation resumed adopted local fixture case")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_cancel_slow_adopted_reports_cleanup_issue
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast_cancel_slow_adopted/* --kind=test --fail-fast --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_cancel_slow_adopted/01_sync_failure|canceled async frame still has adopted work after cleanup timeout"
+        "FORBID_SUBSTRINGS=fail-fast cancellation resumed slow adopted case|fail-fast slow adopted worker did not finish|fail-fast slow canceled adopted async frame was not destroyed after adopted release")
 
 gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_adopted_skip_no_abort
@@ -359,10 +388,26 @@ gentest_add_check_counts(
     ARGS --run=async/fixture/mixed)
 
 gentest_add_check_counts(
+    NAME async_parameterized_values
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 3
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/parameterized/value* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_template_types
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/template/type* --kind=test --no-color)
+
+gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 66
+    CASES 75
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
