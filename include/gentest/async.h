@@ -169,8 +169,10 @@ struct yield_awaitable {
 }
 
 class manual_event {
+    struct Slot;
+
     struct WaitState {
-        std::any value;
+        Slot *slot = nullptr;
     };
 
     struct Waiter {
@@ -187,23 +189,25 @@ class manual_event {
   public:
     manual_event() = default;
 
-    void set(std::string key, std::any value = {}) {
+    void set(std::string key, std::any &&value = {}) {
         std::vector<Waiter> waiters;
-        std::any            value_snapshot;
+        Slot               *slot_ptr = nullptr;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             auto                       &slot = slots_[std::move(key)];
-            slot.ready                       = true;
             slot.value                       = std::move(value);
-            value_snapshot                   = slot.value;
+            slot.ready                       = true;
+            slot_ptr                         = &slot;
             waiters.swap(slot.waiters);
         }
         for (auto &waiter : waiters) {
             if (auto state = waiter.state.lock()) {
-                state->value = value_snapshot;
-            }
-            if (waiter.token) {
-                waiter.token->post();
+                state->slot = slot_ptr;
+                if (waiter.token) {
+                    waiter.token->post();
+                }
+            } else if (waiter.token) {
+                waiter.token->cancel();
             }
         }
     }
@@ -215,7 +219,6 @@ class manual_event {
             return;
         }
         it->second.ready = false;
-        it->second.value.reset();
     }
 
     void reset_all() {
@@ -223,7 +226,6 @@ class manual_event {
         for (auto &entry : slots_) {
             auto &slot = entry.second;
             slot.ready = false;
-            slot.value.reset();
         }
     }
 
@@ -244,7 +246,7 @@ class manual_event {
             if (it == event_.slots_.end() || !it->second.ready) {
                 return false;
             }
-            state_->value = it->second.value;
+            state_->slot = &it->second;
             return true;
         }
 
@@ -258,8 +260,8 @@ class manual_event {
                 std::lock_guard<std::mutex> lk(event_.mtx_);
                 auto                       &slot = event_.slots_[key_];
                 if (slot.ready) {
-                    state_->value = slot.value;
-                    should_post   = true;
+                    state_->slot = &slot;
+                    should_post  = true;
                 } else {
                     slot.waiters.push_back(Waiter{.token = scheduler->make_waiter(handle), .state = state_});
                     scheduler->block_at(handle, event_.blocked_reason(key_), loc_);
@@ -270,7 +272,16 @@ class manual_event {
             }
         }
 
-        auto await_resume() const -> std::any { return state_ ? state_->value : std::any{}; }
+        auto await_resume() const -> std::any & {
+            if (!state_ || state_->slot == nullptr) {
+#if GENTEST_EXCEPTIONS_ENABLED
+                throw std::runtime_error("gentest::manual_event resumed without payload slot");
+#else
+                std::abort();
+#endif
+            }
+            return state_->slot->value;
+        }
 
       private:
         manual_event              &event_;

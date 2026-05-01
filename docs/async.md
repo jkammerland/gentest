@@ -68,7 +68,7 @@ gentest::async_test<void> templated_async() {
 | Operation | Use it for | Live status | If it cannot resume |
 | --- | --- | --- | --- |
 | `gentest::async::yield()` | Move this test to the back of the ready queue | `YIELDED` | It is already queued to resume |
-| `manual_event::wait(key)` | Wait until `set(key, payload)` is called | `SUSPENDED` | `FAIL`: `cannot resume async test; suspended at file:line: manual event key 'key' was not set` |
+| `manual_event::wait(key)` | Wait until `set(key, payload)` is called, then return the key's `std::any&` slot | `SUSPENDED` | `FAIL`: `cannot resume async test; suspended at file:line: manual event key 'key' was not set` |
 | `completion_source::wait(reason)` | Wait for a one-shot operation | `SUSPENDED` | Depends on how the source completes |
 | `completion_source::fail_unresumable(reason)` | Mark an external dependency as impossible | `BLOCKED` | Fails the run and reports the reason |
 
@@ -82,8 +82,8 @@ gentest::async_test<void> yields_once() {
 }
 ```
 
-Use `manual_event` as a keyed, latched barrier. `wait(key)` returns the
-`std::any` payload stored by `set(key, payload)`.
+Use `manual_event` as a keyed, latched barrier with a stable per-key payload
+slot. `wait(key)` returns the key's `std::any&` slot.
 
 ```cpp
 [[using gentest: test("async/manual_event/pre_set")]]
@@ -91,15 +91,22 @@ gentest::async_test<void> pre_set_payload() {
     gentest::async::manual_event event;
 
     event.set("phase.loaded", std::string("ready"));
-    std::any payload = co_await event.wait("phase.loaded");
+    std::any& payload = co_await event.wait("phase.loaded");
 
-    EXPECT_EQ(std::any_cast<std::string>(payload), "ready");
+    EXPECT_EQ(std::any_cast<std::string&>(payload), "ready");
 }
 ```
 
 `set(key, payload)` wakes all current waiters for that key and keeps the key
-ready for future waiters. `reset(key)` clears only that key; `reset_all()` clears
-all latched keys. Different keys do not wake each other.
+ready for future waiters. `set(key)` stores an empty `std::any`. `is_set(key)`
+reports whether that key is currently latched ready. `reset(key)` clears only
+readiness for that key; `reset_all()` clears readiness for all keys. Resetting
+does not invalidate the key's `std::any&` slot or clear its payload. Different
+keys do not wake each other.
+
+The returned payload reference is not synchronized by gentest. If another thread
+or later `set(key, ...)` can mutate the same key's slot while you read or write
+the `std::any&`, protect that interaction yourself.
 
 Use `completion_source` for one-shot dependencies, especially when the producer
 can discover that resumption is impossible.
@@ -236,9 +243,9 @@ gentest::async_test<void> worker_thread_reports_back() {
         done.set("worker.done", std::string("ok"));
     });
 
-    std::any payload = co_await done.wait("worker.done");
+    std::any& payload = co_await done.wait("worker.done");
     worker.join();
-    EXPECT_EQ(std::any_cast<std::string>(payload), "ok");
+    EXPECT_EQ(std::any_cast<std::string&>(payload), "ok");
 }
 ```
 
@@ -335,6 +342,9 @@ Non-terminal output is final-result only; it does not print the live block.
 
 - Use stable, descriptive `manual_event` keys. The key becomes the failure or
   live status text when it cannot resume.
+- A `manual_event` payload is a stable key slot, not a per-wait snapshot. The
+  returned `std::any&` remains valid only while the event object lives, and
+  payload access is user-synchronized.
 - Keep `manual_event` and `completion_source` objects alive longer than their
   waiters.
 - Do not `co_await std::suspend_always{}` or a custom awaiter that never posts
