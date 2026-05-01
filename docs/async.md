@@ -204,6 +204,7 @@ struct LocalAsyncFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTear
 [[using gentest: test("async/fixture/local")]]
 gentest::async_test<void> uses_local_async_fixture(LocalAsyncFixture &fixture) {
     EXPECT_EQ(fixture.value, 42);
+    co_return;
 }
 ```
 
@@ -219,6 +220,7 @@ struct SyncFixture : gentest::FixtureSetup {
 gentest::async_test<void> mixed_fixtures(SyncFixture &sync, LocalAsyncFixture &async) {
     EXPECT_EQ(sync.value, 7);
     EXPECT_EQ(async.value, 42);
+    co_return;
 }
 ```
 
@@ -244,12 +246,16 @@ struct [[using gentest: fixture(suite)]] SharedAsyncFixture
 [[using gentest: test("async/fixture/shared")]]
 gentest::async_test<void> uses_shared_async_fixture(SharedAsyncFixture &fixture) {
     EXPECT_EQ(fixture.value, 10);
+    co_return;
 }
 ```
 
 A local fixture setup failure fails that case. A shared suite/global fixture
 setup failure blocks the affected fixture group. Teardown still runs for fixture
 instances whose setup completed.
+
+Every function returning `gentest::async_test<T>` must be a coroutine. If the
+body does not need to suspend, end it with `co_return;`.
 
 ## Worker Threads
 
