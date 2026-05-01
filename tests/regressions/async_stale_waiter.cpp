@@ -18,6 +18,19 @@ namespace {
 
 static_assert(std::is_same_v<gentest::async::manual_event, gentest::async::event<std::any>>);
 
+struct NoDefaultPayload {
+    NoDefaultPayload() = delete;
+    explicit NoDefaultPayload(int v) : value(v) {}
+
+    int value = 0;
+};
+
+template <typename Event>
+concept DefaultSettableEvent = requires(Event &event) { event.set("key"); };
+
+static_assert(DefaultSettableEvent<gentest::async::event<int>>);
+static_assert(!DefaultSettableEvent<gentest::async::event<NoDefaultPayload>>);
+
 class TrackingScheduler final : public gentest::detail::AsyncScheduler {
   public:
     void post(std::coroutine_handle<> handle) override {
@@ -119,6 +132,12 @@ auto wait_for_string_event_key(gentest::async::event<std::string> &event, std::s
     co_return &payload;
 }
 
+auto wait_for_no_default_event_key(gentest::async::event<NoDefaultPayload> &event, std::string key)
+    -> gentest::async_test<NoDefaultPayload *> {
+    NoDefaultPayload &payload = co_await event.wait(std::move(key));
+    co_return &payload;
+}
+
 auto wait_for_completion_source(gentest::async::completion_source &source) -> gentest::async_test<void> {
     co_await source.wait("completion source stale waiter regression");
 }
@@ -197,6 +216,17 @@ int main() try {
         auto *third_payload = third.await_resume();
         if (third_payload != first_payload || *third_payload != "new") {
             return fail("event<string> reset and set did not preserve the stable key slot");
+        }
+    }
+
+    {
+        gentest::async::event<NoDefaultPayload> event;
+        TrackingScheduler                       scheduler;
+        event.set("payload", NoDefaultPayload{17});
+        auto task = wait_for_no_default_event_key(event, "payload");
+        scheduler.run_until_blocked(task);
+        if (!task.handle().done() || task.await_resume()->value != 17) {
+            return fail("event<NoDefaultPayload> did not accept an explicit payload");
         }
     }
 
