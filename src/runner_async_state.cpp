@@ -83,13 +83,9 @@ void classify_async_exception(AsyncCaseRun &run) {
     }
 }
 
-auto finish_async_run(AsyncCaseRun &run, AsyncFinishMode mode) -> InvokeResult {
+auto finish_async_run(AsyncCaseRun &run) -> InvokeResult {
     classify_async_exception(run);
-    if (mode == AsyncFinishMode::CancelBeforeWait) {
-        gentest::runner::detail::cancel_and_finish_active_test_context(run.ctxinfo);
-    } else {
-        gentest::runner::detail::finish_active_test_context(run.ctxinfo);
-    }
+    gentest::runner::detail::finish_active_test_context(run.ctxinfo);
     gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
     run.end = std::chrono::steady_clock::now();
     InvokeResult inv;

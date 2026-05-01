@@ -640,6 +640,31 @@ void fail_fast_self_adopted_sync_should_not_run() {
     gentest::fail("fail-fast allowed a later self-adopted sync case to run");
 }
 
+[[using gentest: test("fail_fast_stuck_adopted/00_async_fails_with_stuck_worker")]]
+gentest::async_test<void> fail_fast_stuck_adopted_async_fails_with_stuck_worker() {
+    auto context = gentest::get_current_context();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto adoption = gentest::set_current_context(context);
+        started->set_value();
+        while (context && context->active.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        std::this_thread::sleep_for(std::chrono::hours(1));
+    }).detach();
+
+    ready.wait();
+    co_await gentest::async::yield();
+    EXPECT_TRUE(false, "fail-fast should report stuck adopted cleanup without hanging");
+}
+
+[[using gentest: test("fail_fast_stuck_adopted/01_sync_should_not_run")]]
+void fail_fast_stuck_adopted_sync_should_not_run() {
+    gentest::fail("fail-fast allowed a later sync case after a stuck adopted worker");
+}
+
 [[using gentest: test("fail_fast_cancel_adopted/00_pending_needs_resume")]]
 gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
     fail_fast_cancel_adopted_resume.reset_all();

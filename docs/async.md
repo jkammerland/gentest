@@ -104,9 +104,36 @@ readiness for that key; `reset_all()` clears readiness for all keys. Resetting
 does not invalidate the key's `std::any&` slot or clear its payload. Different
 keys do not wake each other.
 
+```cpp
+gentest::async::manual_event event;
+
+event.set("alpha");
+EXPECT_TRUE(event.is_set("alpha"));
+EXPECT_FALSE(event.is_set("beta"));
+
+std::any& signal_only = co_await event.wait("alpha");
+EXPECT_FALSE(signal_only.has_value());
+
+event.reset("alpha");
+EXPECT_FALSE(event.is_set("alpha"));
+
+event.set("loaded", std::string("ok"));
+
+std::any& payload = co_await event.wait("loaded");
+ASSERT_TRUE(payload.has_value());
+EXPECT_EQ(std::any_cast<std::string&>(payload), "ok");
+```
+
 The returned payload reference is not synchronized by gentest. If another thread
 or later `set(key, ...)` can mutate the same key's slot while you read or write
 the `std::any&`, protect that interaction yourself.
+
+`reset(key)` is allowed to discard a pulse. If `set(key)` and `reset(key)` race
+a waiter between its initial readiness check and waiter registration, that waiter
+may suspend until a later `set(key)`. If your protocol cannot lose a pulse,
+coordinate `set`, `reset`, and `wait` with an external primitive appropriate for
+the flow, such as an atomic state machine, mutex, channel, or fixture-owned
+sequencer.
 
 Use `completion_source` for one-shot dependencies, especially when the producer
 can discover that resumption is impossible.

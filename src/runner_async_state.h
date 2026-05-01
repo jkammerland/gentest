@@ -24,14 +24,12 @@ struct AsyncCaseRun {
     bool                                              finalized         = false;
 };
 
-enum class AsyncFinishMode { Normal, CancelBeforeWait };
-
 [[nodiscard]] auto async_run_requests_xfail(const AsyncCaseRun &run) -> bool;
 [[nodiscard]] auto async_exception_would_stop_fail_fast(const AsyncCaseRun &run) -> bool;
 [[nodiscard]] auto async_run_would_stop_fail_fast(const AsyncCaseRun &run) -> bool;
 
 void classify_async_exception(AsyncCaseRun &run);
-auto finish_async_run(AsyncCaseRun &run, AsyncFinishMode mode = AsyncFinishMode::Normal) -> InvokeResult;
+auto finish_async_run(AsyncCaseRun &run) -> InvokeResult;
 void schedule_async_case(std::vector<AsyncCaseRun> &runs, const gentest::Case &test, std::size_t case_index, void *fixture_ctx);
 
 } // namespace gentest::runner
