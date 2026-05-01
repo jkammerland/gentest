@@ -21,7 +21,7 @@ std::atomic<bool>                   releaser_case_resumed{false};
 void unused_sync(void *) {}
 
 auto completed_case_with_adopted_worker() -> gentest::async_test<void> {
-    complete_first_case.reset();
+    complete_first_case.reset_all();
     worker_release = std::make_shared<std::promise<void>>();
     first_case_resumed.store(false, std::memory_order_release);
     releaser_case_resumed.store(false, std::memory_order_release);
@@ -42,7 +42,7 @@ auto completed_case_with_adopted_worker() -> gentest::async_test<void> {
     ASSERT_TRUE(context != nullptr);
     ASSERT_TRUE(context->adopted_contexts.load(std::memory_order_acquire) != 0);
 
-    co_await complete_first_case.wait("later ready case did not resume first case");
+    co_await complete_first_case.wait("ready");
 
     first_case_resumed.store(true, std::memory_order_release);
     EXPECT_FALSE(releaser_case_resumed.load(std::memory_order_acquire));
@@ -50,7 +50,7 @@ auto completed_case_with_adopted_worker() -> gentest::async_test<void> {
 }
 
 auto release_adopted_worker_after_yield() -> gentest::async_test<void> {
-    complete_first_case.set();
+    complete_first_case.set("ready");
     co_await gentest::async::yield();
 
     releaser_case_resumed.store(true, std::memory_order_release);

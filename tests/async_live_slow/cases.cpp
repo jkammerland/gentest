@@ -20,10 +20,10 @@ constexpr auto kVisiblePause = 250ms;
 [[using gentest: test("panel/00_async_waits_for_sync")]]
 gentest::async_test<void> async_waits_for_sync() {
     mix_events.clear();
-    long_driver_done.reset();
-    sync_releases_async.reset();
+    long_driver_done.reset_all();
+    sync_releases_async.reset_all();
     mix_events.emplace_back("async:start");
-    co_await sync_releases_async.wait("waiting for sync case");
+    co_await sync_releases_async.wait("ready");
     mix_events.emplace_back("async:resumed");
     ASSERT_EQ(mix_events.size(), std::size_t{3});
     EXPECT_EQ(mix_events[0], "async:start");
@@ -36,7 +36,7 @@ void sync_releases_async_case() {
     ASSERT_EQ(mix_events.size(), std::size_t{1});
     EXPECT_EQ(mix_events[0], "async:start");
     mix_events.emplace_back("sync:ran");
-    sync_releases_async.set();
+    sync_releases_async.set("ready");
 }
 
 [[using gentest: test("panel/02_short_pass")]]
@@ -61,13 +61,13 @@ gentest::async_test<void> long_driver() {
         std::this_thread::sleep_for(kVisiblePause);
         co_await gentest::async::yield();
     }
-    long_driver_done.set();
+    long_driver_done.set("ready");
     EXPECT_TRUE(true);
 }
 
 [[using gentest: test("panel/05_waiting_on_driver")]]
 gentest::async_test<void> waiting_on_driver() {
-    co_await long_driver_done.wait("waiting for long driver");
+    co_await long_driver_done.wait("ready");
     EXPECT_TRUE(true);
 }
 

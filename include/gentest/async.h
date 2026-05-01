@@ -2,6 +2,7 @@
 
 #include "gentest/detail/runtime_base.h"
 
+#include <any>
 #include <condition_variable>
 #include <coroutine>
 #include <cstdlib>
@@ -13,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -167,41 +169,83 @@ struct yield_awaitable {
 }
 
 class manual_event {
-  public:
-    explicit manual_event(bool ready = false) noexcept : ready_(ready) {}
+    struct WaitState {
+        std::any value;
+    };
 
-    void set() {
-        std::vector<detail::AsyncScheduler::WaiterTokenPtr> waiters;
+    struct Waiter {
+        detail::AsyncScheduler::WaiterTokenPtr token;
+        std::weak_ptr<WaitState>               state;
+    };
+
+    struct Slot {
+        bool                ready = false;
+        std::any            value;
+        std::vector<Waiter> waiters;
+    };
+
+  public:
+    manual_event() = default;
+
+    void set(std::string key, std::any value = {}) {
+        std::vector<Waiter> waiters;
+        std::any            value_snapshot;
         {
             std::lock_guard<std::mutex> lk(mtx_);
-            ready_ = true;
-            waiters.swap(waiters_);
+            auto                       &slot = slots_[std::move(key)];
+            slot.ready                       = true;
+            slot.value                       = std::move(value);
+            value_snapshot                   = slot.value;
+            waiters.swap(slot.waiters);
         }
         for (auto &waiter : waiters) {
-            if (waiter) {
-                waiter->post();
+            if (auto state = waiter.state.lock()) {
+                state->value = value_snapshot;
+            }
+            if (waiter.token) {
+                waiter.token->post();
             }
         }
     }
 
-    void reset() {
+    void reset(std::string_view key) {
         std::lock_guard<std::mutex> lk(mtx_);
-        ready_ = false;
+        auto                        it = slots_.find(std::string(key));
+        if (it == slots_.end()) {
+            return;
+        }
+        it->second.ready = false;
+        it->second.value.reset();
     }
 
-    [[nodiscard]] auto is_set() const -> bool {
+    void reset_all() {
         std::lock_guard<std::mutex> lk(mtx_);
-        return ready_;
+        for (auto &entry : slots_) {
+            auto &slot = entry.second;
+            slot.ready = false;
+            slot.value.reset();
+        }
+    }
+
+    [[nodiscard]] auto is_set(std::string_view key) const -> bool {
+        std::lock_guard<std::mutex> lk(mtx_);
+        const auto                  it = slots_.find(std::string(key));
+        return it != slots_.end() && it->second.ready;
     }
 
     class awaitable {
       public:
-        awaitable(manual_event &event, std::string reason, std::source_location loc)
-            : event_(event), reason_(std::move(reason)), loc_(loc) {}
+        awaitable(manual_event &event, std::string key, std::source_location loc)
+            : event_(event), key_(std::move(key)), loc_(loc), state_(std::make_shared<WaitState>()) {}
 
-        [[nodiscard]] auto await_ready() const -> bool {
+        [[nodiscard]] auto await_ready() -> bool {
             std::lock_guard<std::mutex> lk(event_.mtx_);
-            return event_.ready_;
+            auto                        it = event_.slots_.find(key_);
+            if (it == event_.slots_.end() || !it->second.ready) {
+                return false;
+            }
+            state_->value = it->second.value;
+            return true;
         }
 
         void await_suspend(std::coroutine_handle<> handle) {
@@ -209,32 +253,49 @@ class manual_event {
             if (!scheduler) {
                 std::abort();
             }
-            std::lock_guard<std::mutex> lk(event_.mtx_);
-            if (event_.ready_) {
-                scheduler->post(handle);
-                return;
+            bool should_post = false;
+            {
+                std::lock_guard<std::mutex> lk(event_.mtx_);
+                auto                       &slot = event_.slots_[key_];
+                if (slot.ready) {
+                    state_->value = slot.value;
+                    should_post   = true;
+                } else {
+                    slot.waiters.push_back(Waiter{.token = scheduler->make_waiter(handle), .state = state_});
+                    scheduler->block_at(handle, event_.blocked_reason(key_), loc_);
+                }
             }
-            event_.waiters_.push_back(scheduler->make_waiter(handle));
-            scheduler->block_at(handle, reason_, loc_);
+            if (should_post) {
+                scheduler->post(handle);
+            }
         }
 
-        constexpr void await_resume() const noexcept {}
+        auto await_resume() const -> std::any { return state_ ? state_->value : std::any{}; }
 
       private:
-        manual_event        &event_;
-        std::string          reason_;
-        std::source_location loc_;
+        manual_event              &event_;
+        std::string                key_;
+        std::source_location       loc_;
+        std::shared_ptr<WaitState> state_;
     };
 
-    [[nodiscard]] auto wait(std::string                 reason = "manual event was not signalled",
-                            const std::source_location &loc    = std::source_location::current()) -> awaitable {
-        return awaitable{*this, std::move(reason), loc};
+    [[nodiscard]] auto wait(std::string key, const std::source_location &loc = std::source_location::current()) -> awaitable {
+        return awaitable{*this, std::move(key), loc};
     }
 
   private:
-    mutable std::mutex                                  mtx_;
-    bool                                                ready_ = false;
-    std::vector<detail::AsyncScheduler::WaiterTokenPtr> waiters_;
+    [[nodiscard]] static auto blocked_reason(std::string_view key) -> std::string {
+        if (key.empty()) {
+            return "manual event key was not set";
+        }
+        std::string reason = "manual event key '";
+        reason += key;
+        reason += "' was not set";
+        return reason;
+    }
+
+    mutable std::mutex                    mtx_;
+    std::unordered_map<std::string, Slot> slots_;
 };
 
 class completion_source {
@@ -406,6 +467,13 @@ template <typename T> class async_test final : public detail::AsyncTask {
         }
         if (handle_.promise().exception) {
             std::rethrow_exception(handle_.promise().exception);
+        }
+        if (!handle_.promise().value) {
+#if GENTEST_EXCEPTIONS_ENABLED
+            throw std::runtime_error("gentest::async_test resumed without return value");
+#else
+            std::abort();
+#endif
         }
         return std::move(*handle_.promise().value);
     }

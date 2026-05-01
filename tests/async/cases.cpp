@@ -26,9 +26,9 @@ gentest::async::manual_event client_done;
 std::vector<std::string>     order;
 
 void reset_batch_if_previous_round_completed() {
-    if (server_ready.is_set() && client_done.is_set()) {
-        server_ready.reset();
-        client_done.reset();
+    if (server_ready.is_set("ready") && client_done.is_set("ready")) {
+        server_ready.reset_all();
+        client_done.reset_all();
         order.clear();
     }
 }
@@ -92,7 +92,7 @@ std::vector<std::string>     suite_group_fence_order;
 gentest::async::manual_event process_exit_event;
 
 struct ProcessExitSignal {
-    ~ProcessExitSignal() { process_exit_event.set(); }
+    ~ProcessExitSignal() { process_exit_event.set("exit"); }
 };
 
 ProcessExitSignal process_exit_signal;
@@ -361,7 +361,7 @@ struct [[using gentest: fixture(suite)]] SharedSuiteAsyncFixture : gentest::Asyn
         saw_sync  = false;
         saw_check = false;
         torn_down = false;
-        release_async.reset();
+        release_async.reset_all();
         events.clear();
     }
 
@@ -405,7 +405,7 @@ struct [[using gentest: fixture(global)]] SharedGlobalAsyncFixture : gentest::As
         saw_sync  = false;
         saw_check = false;
         torn_down = false;
-        release_async.reset();
+        release_async.reset_all();
         events.clear();
     }
 
@@ -437,12 +437,12 @@ struct [[using gentest: fixture(suite)]] BlockingSchedulerAdoptedFixture : gente
             [context = std::move(context), started = std::move(started), &release, resumed_ready = std::move(resumed_ready)]() mutable {
                 auto adoption = gentest::set_current_context(context);
                 started->set_value();
-                release.set();
+                release.set("ready");
                 EXPECT_TRUE(resumed_ready.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
             }));
 
         ready.wait();
-        co_await release.wait("adopted fixture setup should wake scheduler before releasing context");
+        co_await release.wait("ready");
         resumed.set_value();
         setup = true;
     }
@@ -469,7 +469,7 @@ struct [[using gentest: fixture(suite)]] SharedSuiteUnresumableFixture : gentest
         saw_async = false;
         saw_sync  = false;
         torn_down = false;
-        never.reset();
+        never.reset_all();
     }
 
     void tearDown() override {
@@ -500,7 +500,7 @@ struct [[using gentest: fixture(global)]] SharedGlobalUnresumableFixture : gente
         saw_async = false;
         saw_sync  = false;
         torn_down = false;
-        never.reset();
+        never.reset_all();
     }
 
     void tearDown() override {
@@ -537,8 +537,8 @@ gentest::async_test<void> server() {
     order.clear();
     co_await gentest::async::yield();
     order.emplace_back("server");
-    server_ready.set();
-    co_await client_done.wait("client did not finish");
+    server_ready.set("ready");
+    co_await client_done.wait("ready");
     ASSERT_EQ(order.size(), std::size_t{2});
     EXPECT_EQ(order[0], "server");
     EXPECT_EQ(order[1], "client");
@@ -547,9 +547,9 @@ gentest::async_test<void> server() {
 [[using gentest: test("batch/client")]]
 gentest::async_test<void> client() {
     reset_batch_if_previous_round_completed();
-    co_await server_ready.wait("server was not selected");
+    co_await server_ready.wait("ready");
     order.emplace_back("client");
-    client_done.set();
+    client_done.set("ready");
     ASSERT_EQ(order.size(), std::size_t{2});
     EXPECT_EQ(order[0], "server");
     EXPECT_EQ(order[1], "client");
@@ -558,10 +558,10 @@ gentest::async_test<void> client() {
 [[using gentest: test("live_demo/00_suspended")]]
 gentest::async_test<void> live_demo_suspended() {
     live_demo_order.clear();
-    live_demo_resume.reset();
+    live_demo_resume.reset_all();
     live_demo_order.emplace_back("suspended:start");
 
-    co_await live_demo_resume.wait("waiting for live demo driver");
+    co_await live_demo_resume.wait("ready");
 
     live_demo_order.emplace_back("suspended:resumed");
     ASSERT_EQ(live_demo_order.size(), std::size_t{3});
@@ -578,7 +578,7 @@ gentest::async_test<void> live_demo_driver() {
     }
 
     live_demo_order.emplace_back("driver:complete");
-    live_demo_resume.set();
+    live_demo_resume.set("ready");
 }
 
 [[using gentest: test("fail_fast/00_async_fail")]]
@@ -594,20 +594,20 @@ void fail_fast_sync_should_not_run() {
 
 [[using gentest: test("fail_fast_snapshot/00_async_fail_after_release")]]
 gentest::async_test<void> fail_fast_snapshot_async_fail_after_release() {
-    fail_fast_snapshot_release.reset();
-    co_await fail_fast_snapshot_release.wait("driver did not release fail-fast snapshot cases");
+    fail_fast_snapshot_release.reset_all();
+    co_await fail_fast_snapshot_release.wait("ready");
     EXPECT_TRUE(false);
 }
 
 [[using gentest: test("fail_fast_snapshot/01_async_should_not_run_after_failure")]]
 gentest::async_test<void> fail_fast_snapshot_async_should_not_run_after_failure() {
-    co_await fail_fast_snapshot_release.wait("driver did not release fail-fast snapshot cases");
+    co_await fail_fast_snapshot_release.wait("ready");
     gentest::fail("fail-fast allowed a later ready async case to run");
 }
 
 [[using gentest: test("fail_fast_snapshot/02_release")]]
 void fail_fast_snapshot_release_waiters() {
-    fail_fast_snapshot_release.set();
+    fail_fast_snapshot_release.set("ready");
 }
 
 [[using gentest: test("fail_fast_self_adopted/00_async_fails_with_adopted_worker")]]
@@ -642,7 +642,7 @@ void fail_fast_self_adopted_sync_should_not_run() {
 
 [[using gentest: test("fail_fast_cancel_adopted/00_pending_needs_resume")]]
 gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
-    fail_fast_cancel_adopted_resume.reset();
+    fail_fast_cancel_adopted_resume.reset_all();
 
     auto context = gentest::get_current_context();
     auto started = std::make_shared<std::promise<void>>();
@@ -658,20 +658,20 @@ gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
         }));
 
     ready.wait();
-    co_await fail_fast_cancel_adopted_resume.wait("fail-fast cancellation resume should remain queued");
+    co_await fail_fast_cancel_adopted_resume.wait("ready");
     resumed.set_value();
     gentest::fail("fail-fast cancellation resumed pending adopted case");
 }
 
 [[using gentest: test("fail_fast_cancel_adopted/01_failure_releases_pending")]]
 void fail_fast_cancel_adopted_failure_releases_pending() {
-    fail_fast_cancel_adopted_resume.set();
+    fail_fast_cancel_adopted_resume.set("ready");
     EXPECT_TRUE(false);
 }
 
 [[using gentest: test("fail_fast_cancel_adopted_context/00_pending_worker_logs_after_cancel")]]
 gentest::async_test<void> fail_fast_cancel_adopted_context_pending_worker_logs_after_cancel() {
-    fail_fast_cancel_adopted_context_resume.reset();
+    fail_fast_cancel_adopted_context_resume.reset_all();
     fail_fast_cancel_adopted_context_worker_started.store(false, std::memory_order_release);
     fail_fast_cancel_adopted_context_worker_done.store(false, std::memory_order_release);
 
@@ -692,7 +692,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_context_pending_worker_logs_a
     }).detach();
 
     ready.wait();
-    co_await fail_fast_cancel_adopted_context_resume.wait("fail-fast cancellation should leave adopted context usable");
+    co_await fail_fast_cancel_adopted_context_resume.wait("ready");
     gentest::fail("fail-fast cancellation resumed pending adopted context case");
 }
 
@@ -703,7 +703,7 @@ void fail_fast_cancel_adopted_context_sync_failure() {
 
 [[using gentest: test("fail_fast_cancel_released_context/00_pending_worker_reuses_released_context")]]
 gentest::async_test<void> fail_fast_cancel_released_context_pending_worker_reuses_released_context() {
-    fail_fast_cancel_adopted_context_resume.reset();
+    fail_fast_cancel_adopted_context_resume.reset_all();
     fail_fast_cancel_released_context_worker_started.store(false, std::memory_order_release);
     fail_fast_cancel_released_context_worker_done.store(false, std::memory_order_release);
 
@@ -728,7 +728,7 @@ gentest::async_test<void> fail_fast_cancel_released_context_pending_worker_reuse
     }).detach();
 
     ready.wait();
-    co_await fail_fast_cancel_adopted_context_resume.wait("fail-fast cancellation should close released adopted context");
+    co_await fail_fast_cancel_adopted_context_resume.wait("ready");
     gentest::fail("fail-fast cancellation resumed released context case");
 }
 
@@ -739,8 +739,8 @@ void fail_fast_cancel_released_context_sync_failure() {
 
 [[using gentest: test("fail_fast_cancel_local_fixture/00_pending")]]
 gentest::async_test<void> fail_fast_cancel_local_fixture_pending(FailFastCancelLocalFixture &) {
-    fail_fast_cancel_local_fixture_resume.reset();
-    co_await fail_fast_cancel_local_fixture_resume.wait("fail-fast cancellation should run async local fixture teardown");
+    fail_fast_cancel_local_fixture_resume.reset_all();
+    co_await fail_fast_cancel_local_fixture_resume.wait("ready");
     gentest::fail("fail-fast cancellation resumed pending local fixture case");
 }
 
@@ -751,7 +751,7 @@ void fail_fast_cancel_local_fixture_sync_failure() {
 
 [[using gentest: test("fail_fast_cancel_adopted_local_fixture/00_pending")]]
 gentest::async_test<void> fail_fast_cancel_adopted_local_fixture_pending(FailFastCancelAdoptedLocalFixture &) {
-    fail_fast_cancel_adopted_local_fixture_resume.reset();
+    fail_fast_cancel_adopted_local_fixture_resume.reset_all();
     fail_fast_cancel_adopted_local_fixture_started.store(false, std::memory_order_release);
     fail_fast_cancel_adopted_local_fixture_worker_done.store(false, std::memory_order_release);
     fail_fast_cancel_adopted_local_fixture_torn_down.store(false, std::memory_order_release);
@@ -774,7 +774,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_local_fixture_pending(FailFas
     }).detach();
 
     ready.wait();
-    co_await fail_fast_cancel_adopted_local_fixture_resume.wait("fail-fast cancellation should run adopted async local fixture teardown");
+    co_await fail_fast_cancel_adopted_local_fixture_resume.wait("ready");
     gentest::fail("fail-fast cancellation resumed adopted local fixture case");
 }
 
@@ -785,7 +785,7 @@ void fail_fast_cancel_adopted_local_fixture_sync_failure() {
 
 [[using gentest: test("fail_fast_cancel_slow_adopted/00_pending_needs_resume")]]
 gentest::async_test<void> fail_fast_cancel_slow_adopted_pending_needs_resume() {
-    fail_fast_cancel_slow_adopted_resume.reset();
+    fail_fast_cancel_slow_adopted_resume.reset_all();
     fail_fast_cancel_slow_adopted_worker_started.store(false, std::memory_order_release);
     fail_fast_cancel_slow_adopted_worker_done.store(false, std::memory_order_release);
     fail_fast_cancel_slow_adopted_frame_destroyed.store(false, std::memory_order_release);
@@ -808,7 +808,7 @@ gentest::async_test<void> fail_fast_cancel_slow_adopted_pending_needs_resume() {
     }).detach();
 
     ready.wait();
-    co_await fail_fast_cancel_slow_adopted_resume.wait("fail-fast cancellation should not resume slow adopted case");
+    co_await fail_fast_cancel_slow_adopted_resume.wait("ready");
     gentest::fail("fail-fast cancellation resumed slow adopted case");
 }
 
@@ -819,7 +819,7 @@ void fail_fast_cancel_slow_adopted_sync_failure() {
 
 [[using gentest: test("fail_fast_cancel_adopted_skip/00_pending_worker_skips_after_cancel")]]
 gentest::async_test<void> fail_fast_cancel_adopted_skip_pending_worker_skips_after_cancel() {
-    fail_fast_cancel_adopted_skip_resume.reset();
+    fail_fast_cancel_adopted_skip_resume.reset_all();
     fail_fast_cancel_adopted_skip_worker_started.store(false, std::memory_order_release);
     fail_fast_cancel_adopted_skip_worker_done.store(false, std::memory_order_release);
 
@@ -843,7 +843,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_skip_pending_worker_skips_aft
     }).detach();
 
     ready.wait();
-    co_await fail_fast_cancel_adopted_skip_resume.wait("fail-fast cancellation should leave adopted skip context usable");
+    co_await fail_fast_cancel_adopted_skip_resume.wait("ready");
     gentest::fail("fail-fast cancellation resumed adopted skip case");
 }
 
@@ -854,8 +854,8 @@ void fail_fast_cancel_adopted_skip_sync_failure() {
 
 [[using gentest: test("fail_fast_final_drain/00_async_fail_after_adopted_release")]]
 gentest::async_test<void> fail_fast_final_drain_async_fail_after_adopted_release() {
-    fail_fast_final_drain_fail_release.reset();
-    fail_fast_final_drain_late_release.reset();
+    fail_fast_final_drain_fail_release.reset_all();
+    fail_fast_final_drain_late_release.reset_all();
     fail_fast_final_drain_waiters.store(0, std::memory_order_release);
 
     auto context = gentest::get_current_context();
@@ -869,20 +869,20 @@ gentest::async_test<void> fail_fast_final_drain_async_fail_after_adopted_release
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
-        fail_fast_final_drain_fail_release.set();
-        fail_fast_final_drain_late_release.set();
+        fail_fast_final_drain_fail_release.set("ready");
+        fail_fast_final_drain_late_release.set("ready");
     }));
     ready.wait();
 
     fail_fast_final_drain_waiters.fetch_add(1, std::memory_order_acq_rel);
-    co_await fail_fast_final_drain_fail_release.wait("final drain did not release fail-fast failure");
+    co_await fail_fast_final_drain_fail_release.wait("ready");
     EXPECT_TRUE(false);
 }
 
 [[using gentest: test("fail_fast_final_drain/01_async_should_not_run_after_failure")]]
 gentest::async_test<void> fail_fast_final_drain_async_should_not_run_after_failure() {
     fail_fast_final_drain_waiters.fetch_add(1, std::memory_order_acq_rel);
-    co_await fail_fast_final_drain_late_release.wait("final drain did not release later ready case");
+    co_await fail_fast_final_drain_late_release.wait("ready");
     gentest::fail("fail-fast final drain allowed a later ready async case to run");
 }
 
@@ -950,7 +950,7 @@ gentest::async_test<void> local_async_teardown_preserves_primary_failure(LocalAs
 
 [[using gentest: test("fixture/local_unresumable_teardown/00_async_never")]]
 gentest::async_test<void> local_async_unresumable_reports_teardown(LocalAsyncFailingUnresumableTeardownFixture &) {
-    local_unresumable_teardown_never.reset();
+    local_unresumable_teardown_never.reset_all();
     co_await local_unresumable_teardown_never.wait("local async fixture teardown should report after unresumable body");
 }
 
@@ -965,13 +965,13 @@ gentest::async_test<void> shared_suite_async_wait(SharedSuiteAsyncFixture &fixtu
     fixture.saw_async = false;
     fixture.saw_sync  = false;
     fixture.saw_check = false;
-    fixture.release_async.reset();
+    fixture.release_async.reset_all();
     fixture.events.clear();
     EXPECT_EQ(fixture.value, 10);
     fixture.saw_async = true;
     fixture.events.emplace_back("async:start");
 
-    co_await fixture.release_async.wait("suite sync case did not release async case");
+    co_await fixture.release_async.wait("ready");
 
     EXPECT_EQ(fixture.value, 20);
     fixture.events.emplace_back("async:done");
@@ -985,7 +985,7 @@ void shared_suite_sync_release(SharedSuiteAsyncFixture &fixture) {
     fixture.saw_sync = true;
     fixture.value    = 20;
     fixture.events.emplace_back("sync:release");
-    fixture.release_async.set();
+    fixture.release_async.set("ready");
 }
 
 [[using gentest: test("fixture/shared_suite/02_sync_check")]]
@@ -1012,7 +1012,7 @@ void shared_global_sync_seed(SharedGlobalAsyncFixture &fixture) {
     fixture.saw_async = false;
     fixture.saw_sync  = false;
     fixture.saw_check = false;
-    fixture.release_async.reset();
+    fixture.release_async.reset_all();
     fixture.events.clear();
     EXPECT_EQ(fixture.value, 100);
     fixture.saw_seed = true;
@@ -1029,7 +1029,7 @@ gentest::async_test<void> shared_global_async_wait(SharedGlobalAsyncHandle fixtu
     fixture->saw_async = true;
     fixture->events.emplace_back("async:start");
 
-    co_await fixture->release_async.wait("global sync case did not release async case");
+    co_await fixture->release_async.wait("ready");
 
     EXPECT_EQ(fixture->value, 200);
     fixture->events.emplace_back("async:done");
@@ -1044,7 +1044,7 @@ void shared_global_sync_release(SharedGlobalAsyncRawAlias fixture) {
     fixture->saw_sync = true;
     fixture->value    = 200;
     fixture->events.emplace_back("sync:release");
-    fixture->release_async.set();
+    fixture->release_async.set("ready");
 }
 
 [[using gentest: test("fixture/shared_global/03_sync_check")]]
@@ -1092,7 +1092,7 @@ void shared_global_unresumable_sync_after(SharedGlobalUnresumableFixture &fixtur
 [[using gentest: test("fixture/group_fence/00_async_wait")]]
 gentest::async_test<void> fixture_group_fence_async_wait() {
     group_fence_order.clear();
-    group_fence_release.reset();
+    group_fence_release.reset_all();
     group_fence_order.emplace_back("async:start");
     co_await group_fence_release.wait("fixture group boundary was crossed");
     group_fence_order.emplace_back("async:resumed");
@@ -1104,7 +1104,7 @@ void fixture_group_fence_suite_release(LocalSyncFixture &local_fixture, GroupFen
     ASSERT_EQ(group_fence_order.size(), std::size_t{1});
     EXPECT_EQ(group_fence_order[0], "async:start");
     group_fence_order.emplace_back("suite:release");
-    group_fence_release.set();
+    group_fence_release.set("fixture group boundary was crossed");
 }
 
 [[using gentest: test("fixture/group_fence/02_suite_check")]]
@@ -1117,7 +1117,7 @@ void fixture_group_fence_suite_check(GroupFenceSuiteFixture &) {
 [[using gentest: test("fixture/group_fence_suite/00_async_wait")]]
 gentest::async_test<void> fixture_suite_group_fence_async_wait(GroupFenceFirstSuiteFixture &) {
     suite_group_fence_order.clear();
-    suite_group_fence_release.reset();
+    suite_group_fence_release.reset_all();
     suite_group_fence_order.emplace_back("first:start");
     co_await suite_group_fence_release.wait("suite fixture group boundary was crossed");
     suite_group_fence_order.emplace_back("first:resumed");
@@ -1128,7 +1128,7 @@ void fixture_suite_group_fence_second_release(GroupFenceSecondSuiteFixture &) {
     ASSERT_EQ(suite_group_fence_order.size(), std::size_t{1});
     EXPECT_EQ(suite_group_fence_order[0], "first:start");
     suite_group_fence_order.emplace_back("second:release");
-    suite_group_fence_release.set();
+    suite_group_fence_release.set("suite fixture group boundary was crossed");
 }
 
 [[using gentest: test("fixture/group_fence_suite/02_second_check")]]
@@ -1140,7 +1140,7 @@ void fixture_suite_group_fence_second_check(GroupFenceSecondSuiteFixture &) {
 
 [[using gentest: test("adopted_resume/worker_releases")]]
 gentest::async_test<void> adopted_worker_releases() {
-    adopted_resume_event.reset();
+    adopted_resume_event.reset_all();
 
     auto context = gentest::get_current_context();
     auto started = std::make_shared<std::promise<void>>();
@@ -1150,11 +1150,11 @@ gentest::async_test<void> adopted_worker_releases() {
         auto adoption = gentest::set_current_context(context);
         started->set_value();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        adopted_resume_event.set();
+        adopted_resume_event.set("ready");
     }));
 
     ready.wait();
-    co_await adopted_resume_event.wait("adopted worker should release the async test");
+    co_await adopted_resume_event.wait("ready");
     EXPECT_TRUE(true);
 }
 
@@ -1171,12 +1171,12 @@ gentest::async_test<void> adopted_worker_waits_for_resumed_ack() {
         [context = std::move(context), started = std::move(started), &release, resumed_ready = std::move(resumed_ready)]() mutable {
             auto adoption = gentest::set_current_context(context);
             started->set_value();
-            release.set();
+            release.set("ready");
             EXPECT_TRUE(resumed_ready.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
         }));
 
     ready.wait();
-    co_await release.wait("adopted worker should wake scheduler before releasing context");
+    co_await release.wait("ready");
     resumed.set_value();
     EXPECT_TRUE(true);
 }
@@ -1281,8 +1281,8 @@ gentest::async_test<void> outcome_skip_after_failure_is_fail_after_suspend() {
 
 [[using gentest: test("waiter_lifetime/process_exit_unresumable")]]
 gentest::async_test<void> waiter_lifetime_process_exit_unresumable() {
-    process_exit_event.reset();
-    co_await process_exit_event.wait("process-exit signal arrives after scheduler destruction");
+    process_exit_event.reset_all();
+    co_await process_exit_event.wait("exit");
 }
 
 [[using gentest: test("blocked/never")]]

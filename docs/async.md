@@ -68,7 +68,7 @@ gentest::async_test<void> templated_async() {
 | Operation | Use it for | Live status | If it cannot resume |
 | --- | --- | --- | --- |
 | `gentest::async::yield()` | Move this test to the back of the ready queue | `YIELDED` | It is already queued to resume |
-| `manual_event::wait(reason)` | Wait until another case or thread calls `set()` | `SUSPENDED` | `FAIL`: `cannot resume async test; suspended at file:line: reason` |
+| `manual_event::wait(key)` | Wait until `set(key, payload)` is called | `SUSPENDED` | `FAIL`: `cannot resume async test; suspended at file:line: manual event key 'key' was not set` |
 | `completion_source::wait(reason)` | Wait for a one-shot operation | `SUSPENDED` | Depends on how the source completes |
 | `completion_source::fail_unresumable(reason)` | Mark an external dependency as impossible | `BLOCKED` | Fails the run and reports the reason |
 
@@ -82,80 +82,44 @@ gentest::async_test<void> yields_once() {
 }
 ```
 
-Use `manual_event` when another test or worker can make progress.
+Use `manual_event` as a keyed, latched barrier. `wait(key)` returns the
+`std::any` payload stored by `set(key, payload)`.
 
 ```cpp
-namespace async_example {
+[[using gentest: test("async/manual_event/pre_set")]]
+gentest::async_test<void> pre_set_payload() {
+    gentest::async::manual_event event;
 
-gentest::async::manual_event server_ready;
-gentest::async::manual_event client_done;
-std::vector<std::string>     events;
+    event.set("phase.loaded", std::string("ready"));
+    std::any payload = co_await event.wait("phase.loaded");
 
-void reset_pair_if_complete() {
-    if (server_ready.is_set() && client_done.is_set()) {
-        server_ready.reset();
-        client_done.reset();
-        events.clear();
-    }
+    EXPECT_EQ(std::any_cast<std::string>(payload), "ready");
 }
-
-[[using gentest: test("async/pair/00_server")]]
-gentest::async_test<void> server() {
-    reset_pair_if_complete();
-    events.clear();
-    events.push_back("server:start");
-    server_ready.set();
-
-    co_await client_done.wait("client did not finish");
-
-    EXPECT_EQ(events, (std::vector<std::string>{"server:start", "client:done"}));
-}
-
-[[using gentest: test("async/pair/01_client")]]
-gentest::async_test<void> client() {
-    reset_pair_if_complete();
-    co_await server_ready.wait("server did not start");
-    events.push_back("client:done");
-    client_done.set();
-}
-
-} // namespace async_example
 ```
 
-`manual_event::set()` wakes all current waiters and keeps the event ready for
-future waiters. `reset()` only affects later waits.
+`set(key, payload)` wakes all current waiters for that key and keeps the key
+ready for future waiters. `reset(key)` clears only that key; `reset_all()` clears
+all latched keys. Different keys do not wake each other.
 
 Use `completion_source` for one-shot dependencies, especially when the producer
 can discover that resumption is impossible.
 
 ```cpp
-gentest::async::completion_source ok;
-ok.complete(); // waiters resume normally
+[[using gentest: test("async/completion_source/worker")]]
+gentest::async_test<void> worker_completion() {
+    auto ok = std::make_shared<gentest::async::completion_source>();
 
-gentest::async::completion_source blocked;
-blocked.fail_unresumable("connection was closed"); // waiters report BLOCKED
-```
-
-```cpp
-namespace async_dependency {
-
-std::shared_ptr<gentest::async::completion_source> reply;
-
-[[using gentest: test("async/dependency/00_waiter")]]
-gentest::async_test<void> waits_for_reply() {
-    reply = std::make_shared<gentest::async::completion_source>();
-    co_await reply->wait("reply did not arrive");
-    EXPECT_TRUE(true);
+    std::thread worker([ok] { ok->complete(); });
+    co_await ok->wait("worker did not finish");
+    worker.join();
 }
 
-[[using gentest: test("async/dependency/01_driver")]]
-gentest::async_test<void> fails_dependency() {
-    ASSERT_TRUE(static_cast<bool>(reply));
-    reply->fail_unresumable("connection closed before reply");
-    co_return;
+[[using gentest: test("async/completion_source/blocked")]]
+gentest::async_test<void> blocked_dependency() {
+    gentest::async::completion_source blocked;
+    blocked.fail_unresumable("connection was closed");
+    co_await blocked.wait("connection handshake");
 }
-
-} // namespace async_dependency
 ```
 
 The first `complete()` or `fail_unresumable()` call wins. Later calls are ignored.
@@ -167,40 +131,21 @@ boundaries are still respected: cases from a different suite/global fixture
 group are not interleaved with the current group.
 
 ```cpp
-namespace mixed_cases {
-
-gentest::async::manual_event release_async;
-std::vector<std::string>     order;
-
-[[using gentest: test("mixed/00_async_waits")]]
-gentest::async_test<void> async_waits() {
-    if (release_async.is_set()) {
-        release_async.reset();
-    }
-    order.clear();
-    order.push_back("async:start");
-    co_await release_async.wait("sync case did not release async case");
-    order.push_back("async:done");
+[[using gentest: test("mixed/sync")]]
+void sync_case() {
+    EXPECT_TRUE(true);
 }
 
-[[using gentest: test("mixed/01_sync_releases")]]
-void sync_releases() {
-    order.push_back("sync");
-    release_async.set();
+[[using gentest: test("mixed/async")]]
+gentest::async_test<void> async_case() {
+    co_await gentest::async::yield();
+    EXPECT_TRUE(true);
 }
-
-[[using gentest: test("mixed/02_check")]]
-void check_order() {
-    EXPECT_EQ(order, (std::vector<std::string>{"async:start", "sync", "async:done"}));
-}
-
-} // namespace mixed_cases
 ```
 
-Do not depend on sleep timing for ordering. Signal with `manual_event` or
-`completion_source`. If a scenario is split over multiple cases, use ordered
-case names such as `00_waiter` / `01_driver`, reset sticky events for repeat
-runs, and do not shuffle that scenario unless it is order-independent.
+Do not coordinate async behavior by depending on test execution order. Ordered
+cross-case async choreography is an anti-pattern; use keyed barriers, worker
+signals, fixtures, or a single async case that owns the flow.
 
 ## Async Fixtures
 
@@ -288,11 +233,12 @@ gentest::async_test<void> worker_thread_reports_back() {
         auto adoption = gentest::set_current_context(context);
         gentest::log("worker reached checkpoint");
         EXPECT_TRUE(true);
-        done.set();
+        done.set("worker.done", std::string("ok"));
     });
 
-    co_await done.wait("worker did not report");
+    std::any payload = co_await done.wait("worker.done");
     worker.join();
+    EXPECT_EQ(std::any_cast<std::string>(payload), "ok");
 }
 ```
 
@@ -329,10 +275,11 @@ There are two important non-pass async failure modes.
 [[using gentest: test("async/cannot_resume")]]
 gentest::async_test<void> lost_or_never_created_resume_handle() {
     gentest::async::manual_event never_set;
-    co_await never_set.wait("driver never signalled");
+    co_await never_set.wait("external.signal");
 
     // The runner has no ready work left and reports:
-    // FAIL: cannot resume async test; suspended at this file:line: driver never signalled
+    // FAIL: cannot resume async test; suspended at this file:line:
+    // manual event key 'external.signal' was not set
 }
 ```
 
@@ -369,15 +316,15 @@ On an interactive terminal, active async cases are shown as a live block below
 normal log output:
 
 ```text
-[  RUNNING  ] async/driver
+[  RUNNING  ] async/worker
 [  YIELDED  ] async/polite
-[ SUSPENDED ] async/client :: server did not start @ tests/client.cpp:27
+[ SUSPENDED ] async/waiting :: manual event key 'external.signal' was not set @ tests/waiting.cpp:27
 ```
 
 Final results are printed in the normal result stream:
 
 ```text
-[   PASS    ] async/server (3 ms)
+[   PASS    ] async/worker (3 ms)
 [   FAIL    ] async/cannot_resume :: 1 issue(s) (3 ms)
 [  BLOCKED  ] async/blocked_dependency :: remote peer closed before handshake (3 ms)
 ```
@@ -386,8 +333,8 @@ Non-terminal output is final-result only; it does not print the live block.
 
 ## Things To Watch
 
-- Give every `wait()` a useful reason. It becomes the failure or live status
-  text.
+- Use stable, descriptive `manual_event` keys. The key becomes the failure or
+  live status text when it cannot resume.
 - Keep `manual_event` and `completion_source` objects alive longer than their
   waiters.
 - Do not `co_await std::suspend_always{}` or a custom awaiter that never posts
