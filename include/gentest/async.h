@@ -3,6 +3,7 @@
 #include "gentest/detail/runtime_base.h"
 
 #include <any>
+#include <chrono>
 #include <concepts>
 #include <condition_variable>
 #include <coroutine>
@@ -146,6 +147,9 @@ class AsyncTask {
 using AsyncTaskPtr = std::unique_ptr<AsyncTask>;
 using AsyncCaseFn  = AsyncTaskPtr (*)(void *);
 
+template <typename T, typename U>
+concept EventSetPayload = std::constructible_from<T, U &&> && std::constructible_from<T, T &&> && std::assignable_from<T &, T &&>;
+
 } // namespace detail
 
 namespace async {
@@ -192,15 +196,19 @@ template <typename T = std::any> class event {
     event() = default;
 
     void set(std::string key)
-        requires std::default_initializable<T>
+        requires std::default_initializable<T> && detail::EventSetPayload<T, T>
     {
         set_value(std::move(key), T{});
     }
 
-    void set(std::string key, T value) { set_value(std::move(key), std::move(value)); }
+    void set(std::string key, T value)
+        requires detail::EventSetPayload<T, T>
+    {
+        set_value(std::move(key), std::move(value));
+    }
 
     template <typename U>
-        requires(!std::same_as<std::remove_cvref_t<U>, T> && std::constructible_from<T, U &&>)
+        requires(!std::same_as<std::remove_cvref_t<U>, T> && detail::EventSetPayload<T, U>)
     void set(std::string key, U &&value) {
         set_value(std::move(key), T(std::forward<U>(value)));
     }
@@ -288,18 +296,16 @@ template <typename T = std::any> class event {
     }
 
   private:
-    template <typename U> void set_value(std::string key, U &&value) {
-        static_assert(std::constructible_from<T, U &&>, "gentest::async::event<T>::set requires a value constructible as T");
-        static_assert(std::assignable_from<T &, T &&>, "gentest::async::event<T> requires T to be move-assignable");
+    void set_value(std::string key, T value) {
         std::vector<Waiter> waiters;
         Slot               *slot_ptr = nullptr;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             auto                       &slot = slots_[std::move(key)];
             if (slot.value.has_value()) {
-                *slot.value = T(std::forward<U>(value));
+                *slot.value = std::move(value);
             } else {
-                slot.value.emplace(std::forward<U>(value));
+                slot.value.emplace(std::move(value));
             }
             slot.ready = true;
             slot_ptr   = &slot;
@@ -319,9 +325,9 @@ template <typename T = std::any> class event {
 
     [[nodiscard]] static auto blocked_reason(std::string_view key) -> std::string {
         if (key.empty()) {
-            return "manual event key was not set";
+            return "async event key was not set";
         }
-        std::string reason = "manual event key '";
+        std::string reason = "async event key '";
         reason += key;
         reason += "' was not set";
         return reason;
@@ -614,6 +620,8 @@ template <typename T> [[nodiscard]] inline auto make_async_task(async_test<T> ta
 }
 
 GENTEST_RUNTIME_API auto run_async_task_blocking(async_test<void> task, std::string_view label, std::string &error_out) -> bool;
+GENTEST_RUNTIME_API auto run_async_task_blocking_for(async_test<void> task, std::string_view label, std::chrono::milliseconds timeout,
+                                                     std::string &error_out) -> bool;
 
 } // namespace detail
 

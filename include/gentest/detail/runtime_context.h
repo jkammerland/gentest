@@ -161,6 +161,11 @@ inline void close_canceled_context_if_released(TestContextInfo &ctx) noexcept {
     ctx.canceled.store(false, std::memory_order_release);
 }
 
+inline void close_canceled_context_to_late_operations(TestContextInfo &ctx) noexcept {
+    ctx.active.store(false, std::memory_order_release);
+    ctx.canceled.store(false, std::memory_order_release);
+}
+
 inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ctx) {
     if (!ctx)
         return;

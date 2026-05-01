@@ -19,4 +19,12 @@ gentest::async_test<void> async_yield_case() {
     gentest::expect_true(true);
 }
 
+[[using gentest: test("async_event")]]
+gentest::async_test<void> async_event_case() {
+    gentest::async::event<int> event;
+    event.set("module.event", 42);
+    int &payload = co_await event.wait("module.event");
+    gentest::expect_eq(payload, 42);
+}
+
 } // namespace public_module_surface

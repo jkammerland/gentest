@@ -68,7 +68,7 @@ gentest::async_test<void> templated_async() {
 | Operation | Use it for | Live status | If it cannot resume |
 | --- | --- | --- | --- |
 | `gentest::async::yield()` | Move this test to the back of the ready queue | `YIELDED` | It is already queued to resume |
-| `event<T>::wait(key)` | Wait until `set(key, payload)` is called, then return the key's `T&` slot | `SUSPENDED` | `FAIL`: `cannot resume async test; suspended at file:line: manual event key 'key' was not set` |
+| `event<T>::wait(key)` | Wait until `set(key, payload)` is called, then return the key's `T&` slot | `SUSPENDED` | `FAIL`: `cannot resume async test; suspended at file:line: async event key 'key' was not set` |
 | `completion_source::wait(reason)` | Wait for a one-shot operation | `SUSPENDED` | Depends on how the source completes |
 | `completion_source::fail_unresumable(reason)` | Mark an external dependency as impossible | `BLOCKED` | Fails the run and reports the reason |
 
@@ -103,8 +103,8 @@ ready for future waiters. `set(key)` stores `T{}` when `T` is default
 constructible; for `event<std::any>`, that is an empty `std::any`.
 `is_set(key)` reports whether that key is currently latched ready. `reset(key)`
 clears only readiness for that key; `reset_all()` clears readiness for all keys.
-Resetting does not invalidate the key's payload slot or clear its payload.
-Different keys do not wake each other.
+Resetting does not unregister already suspended waiters, invalidate the key's
+payload slot, or clear its payload. Different keys do not wake each other.
 `T` must be constructible from the payload passed to `set()` and
 move-assignable so later `set()` calls can update the same stable slot.
 
@@ -334,7 +334,7 @@ gentest::async_test<void> lost_or_never_created_resume_handle() {
 
     // The runner has no ready work left and reports:
     // FAIL: cannot resume async test; suspended at this file:line:
-    // manual event key 'external.signal' was not set
+    // async event key 'external.signal' was not set
 }
 ```
 
@@ -373,7 +373,7 @@ normal log output:
 ```text
 [  RUNNING  ] async/worker
 [  YIELDED  ] async/polite
-[ SUSPENDED ] async/waiting :: manual event key 'external.signal' was not set @ tests/waiting.cpp:27
+[ SUSPENDED ] async/waiting :: async event key 'external.signal' was not set @ tests/waiting.cpp:27
 ```
 
 Final results are printed in the normal result stream:

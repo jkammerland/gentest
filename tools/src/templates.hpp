@@ -37,6 +37,7 @@
 namespace gentest::codegen::tpl {
 
 inline constexpr std::string_view registration_preamble_light = R"CPP(#include <array>
+#include <chrono>
 #include <span>
 #include <string_view>
 
@@ -46,6 +47,7 @@ inline constexpr std::string_view registration_preamble_light = R"CPP(#include <
 ;
 
 inline constexpr std::string_view registration_preamble_full = R"CPP(#include <array>
+#include <chrono>
 #include <fmt/format.h>
 #include <span>
 #include <string>
@@ -172,7 +174,7 @@ struct gentest_async_local_teardown_guard {
     static void run(void *user_data) noexcept {
         auto *state = static_cast<gentest_async_local_teardown_guard *>(user_data);
         if (!state) return;
-        state->run_blocking();
+        state->run_blocking_for(std::chrono::milliseconds(500));
     }
 
     ::gentest::async_test<void> run_now() {
@@ -187,6 +189,19 @@ struct gentest_async_local_teardown_guard {
         if (ran || !teardown) return;
         std::string error;
         if (!::gentest::detail::run_async_task_blocking(run_now(), "async local fixture teardown", error)) {
+            std::string msg = "async local fixture teardown failed";
+            if (!error.empty()) {
+                msg += ": ";
+                msg += error;
+            }
+            ::gentest::detail::record_failure(std::move(msg));
+        }
+    }
+
+    void run_blocking_for(std::chrono::milliseconds timeout) noexcept {
+        if (ran || !teardown) return;
+        std::string error;
+        if (!::gentest::detail::run_async_task_blocking_for(run_now(), "async local fixture teardown", timeout, error)) {
             std::string msg = "async local fixture teardown failed";
             if (!error.empty()) {
                 msg += ": ";

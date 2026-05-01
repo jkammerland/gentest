@@ -15,13 +15,14 @@
 namespace gentest::runner {
 namespace {
 
-auto collect_pass_visible_timeline(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo) -> std::vector<std::string> {
+auto collect_pass_visible_timeline(const std::vector<std::string> &event_lines, const std::vector<char> &event_kinds)
+    -> std::vector<std::string> {
     std::vector<std::string> lines;
-    lines.reserve(ctxinfo->event_lines.size());
-    for (std::size_t i = 0; i < ctxinfo->event_lines.size(); ++i) {
-        const char kind = (i < ctxinfo->event_kinds.size() ? ctxinfo->event_kinds[i] : 'L');
+    lines.reserve(event_lines.size());
+    for (std::size_t i = 0; i < event_lines.size(); ++i) {
+        const char kind = (i < event_kinds.size() ? event_kinds[i] : 'L');
         if (kind == 'A') {
-            lines.push_back(ctxinfo->event_lines[i]);
+            lines.push_back(event_lines[i]);
         }
     }
     return lines;
@@ -66,17 +67,25 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
     const bool threw_non_skip =
         (inv.exception != gentest::runner::InvokeException::None && inv.exception != gentest::runner::InvokeException::Skip &&
          inv.exception != gentest::runner::InvokeException::Blocked);
-    rr.time_s   = inv.elapsed_s;
-    rr.logs     = ctxinfo->logs;
-    rr.timeline = ctxinfo->event_lines;
+    rr.time_s = inv.elapsed_s;
 
-    bool        should_skip = false;
-    std::string runtime_skip_reason;
-    auto        runtime_skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
-    bool        is_xfail          = false;
-    std::string xfail_reason;
+    std::vector<std::string>                                  failures;
+    std::vector<gentest::detail::TestContextInfo::FailureLoc> failure_locations;
+    std::vector<std::string>                                  event_lines;
+    std::vector<char>                                         event_kinds;
+    bool                                                      should_skip = false;
+    std::string                                               runtime_skip_reason;
+    auto                                                      runtime_skip_kind = gentest::detail::TestContextInfo::RuntimeSkipKind::User;
+    bool                                                      is_xfail          = false;
+    std::string                                               xfail_reason;
     {
         std::lock_guard<std::mutex> lk(ctxinfo->mtx);
+        failures            = ctxinfo->failures;
+        failure_locations   = ctxinfo->failure_locations;
+        rr.logs             = ctxinfo->logs;
+        event_lines         = ctxinfo->event_lines;
+        event_kinds         = ctxinfo->event_kinds;
+        rr.timeline         = event_lines;
         should_skip         = runtime_skipped && ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
         runtime_skip_reason = ctxinfo->runtime_skip_reason;
         runtime_skip_kind   = ctxinfo->runtime_skip_kind;
@@ -84,7 +93,7 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
         xfail_reason        = ctxinfo->xfail_reason;
     }
 
-    const bool has_failures = !ctxinfo->failures.empty();
+    const bool has_failures = !failures.empty();
 
     if (runtime_blocked && !has_failures) {
         ++c.blocked;
@@ -211,9 +220,9 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
         return rr;
     }
 
-    rr.failures = ctxinfo->failures;
+    rr.failures = failures;
 
-    if (!ctxinfo->failures.empty()) {
+    if (!failures.empty()) {
         rr.outcome = Outcome::Fail;
         ++c.failed;
         ++c.failures;
@@ -221,16 +230,16 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
         if (!state.suppress_case_output) {
             if (state.color_output) {
                 fmt::print(stderr, fmt::fg(fmt::color::red), "[ FAIL ]");
-                fmt::print(stderr, " {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
+                fmt::print(stderr, " {} :: {} issue(s) ({} ms)\n", test.name, failures.size(), dur_ms);
             } else {
-                fmt::print(stderr, "[ FAIL ] {} :: {} issue(s) ({} ms)\n", test.name, ctxinfo->failures.size(), dur_ms);
+                fmt::print(stderr, "[ FAIL ] {} :: {} issue(s) ({} ms)\n", test.name, failures.size(), dur_ms);
             }
         }
         std::size_t              failure_printed = 0;
         std::vector<std::string> failure_lines;
-        for (std::size_t i = 0; i < ctxinfo->event_lines.size(); ++i) {
-            const char  kind = (i < ctxinfo->event_kinds.size() ? ctxinfo->event_kinds[i] : 'L');
-            const auto &ln   = ctxinfo->event_lines[i];
+        for (std::size_t i = 0; i < event_lines.size(); ++i) {
+            const char  kind = (i < event_kinds.size() ? event_kinds[i] : 'L');
+            const auto &ln   = event_lines[i];
             if (kind == 'F') {
                 if (!state.suppress_case_output) {
                     fmt::print(stderr, "{}\n", ln);
@@ -238,8 +247,8 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
                 failure_lines.push_back(ln);
                 std::string_view file    = test.file;
                 unsigned         line_no = test.line;
-                if (failure_printed < ctxinfo->failure_locations.size()) {
-                    const auto &fl = ctxinfo->failure_locations[failure_printed];
+                if (failure_printed < failure_locations.size()) {
+                    const auto &fl = failure_locations[failure_printed];
                     if (!fl.file.empty() && fl.line > 0) {
                         file    = fl.file;
                         line_no = fl.line;
@@ -256,8 +265,8 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
         if (!state.suppress_case_output) {
             fmt::print(stderr, "\n");
         }
-        if (failure_lines.empty() && !ctxinfo->failures.empty()) {
-            failure_lines.push_back(ctxinfo->failures.front());
+        if (failure_lines.empty() && !failures.empty()) {
+            failure_lines.push_back(failures.front());
         }
         rr.summary_issues = std::move(failure_lines);
     } else if (!threw_non_skip) {
@@ -270,7 +279,7 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
                 fmt::print("[ PASS ] {} ({} ms)\n", test.name, dur_ms);
             }
         }
-        rr.timeline = collect_pass_visible_timeline(ctxinfo);
+        rr.timeline = collect_pass_visible_timeline(event_lines, event_kinds);
         if (!state.suppress_case_output) {
             for (const auto &ln : rr.timeline) {
                 fmt::print("{}\n", ln);

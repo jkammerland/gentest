@@ -56,7 +56,8 @@ foreach(_death_test IN ITEMS
     concurrency_fail_single_death
     concurrency_skip_no_context_death
     concurrency_xfail_no_context_death
-    concurrency_multi_noadopt_death)
+    concurrency_multi_noadopt_death
+    async_fail_fast_cancel_released_context_aborts)
   string(FIND "${_tsan_gate_block}" "${_death_test}" _death_test_pos)
   if(_death_test_pos EQUAL -1)
     message(FATAL_ERROR

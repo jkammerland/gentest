@@ -25,11 +25,24 @@ struct NoDefaultPayload {
     int value = 0;
 };
 
+struct NoMoveAssignPayload {
+    explicit NoMoveAssignPayload(int v) : value(v) {}
+    NoMoveAssignPayload(NoMoveAssignPayload &&) noexcept            = default;
+    NoMoveAssignPayload &operator=(NoMoveAssignPayload &&) noexcept = delete;
+
+    int value = 0;
+};
+
 template <typename Event>
 concept DefaultSettableEvent = requires(Event &event) { event.set("key"); };
 
+template <typename Event, typename Value>
+concept PayloadSettableEvent = requires(Event &event, Value value) { event.set("key", std::move(value)); };
+
 static_assert(DefaultSettableEvent<gentest::async::event<int>>);
 static_assert(!DefaultSettableEvent<gentest::async::event<NoDefaultPayload>>);
+static_assert(PayloadSettableEvent<gentest::async::event<NoDefaultPayload>, NoDefaultPayload>);
+static_assert(!PayloadSettableEvent<gentest::async::event<NoMoveAssignPayload>, NoMoveAssignPayload>);
 
 class TrackingScheduler final : public gentest::detail::AsyncScheduler {
   public:
@@ -231,6 +244,40 @@ int main() try {
     }
 
     {
+        gentest::async::event<NoDefaultPayload> event;
+        TrackingScheduler                       scheduler;
+        auto                                    first = wait_for_no_default_event_key(event, "late");
+        scheduler.run_until_blocked(first);
+        if (first.handle().done()) {
+            return fail("event<NoDefaultPayload> completed before explicit payload set");
+        }
+
+        event.set("late", NoDefaultPayload{23});
+        scheduler.run_ready();
+        if (!first.handle().done() || first.await_resume()->value != 23) {
+            return fail("event<NoDefaultPayload> did not resume wait-before-set payload");
+        }
+        auto *first_payload = first.await_resume();
+
+        event.reset("late");
+        auto second = wait_for_no_default_event_key(event, "late");
+        scheduler.run_until_blocked(second);
+        if (second.handle().done()) {
+            return fail("event<NoDefaultPayload> reset did not suspend later waiter");
+        }
+
+        event.set("late", NoDefaultPayload{24});
+        scheduler.run_ready();
+        if (!second.handle().done()) {
+            return fail("event<NoDefaultPayload> did not resume after reset and explicit set");
+        }
+        auto *second_payload = second.await_resume();
+        if (second_payload != first_payload || second_payload->value != 24) {
+            return fail("event<NoDefaultPayload> reset and set did not preserve stable slot");
+        }
+    }
+
+    {
         gentest::async::manual_event event;
         TrackingScheduler            scheduler;
         event.set("alpha", std::string("pre-set"));
@@ -401,6 +448,45 @@ int main() try {
     {
         gentest::async::manual_event event;
         TrackingScheduler            scheduler;
+        auto                         alpha = wait_for_manual_event_key(event, "alpha");
+        auto                         beta  = wait_for_manual_event_key(event, "beta");
+        scheduler.run_until_blocked(alpha);
+        scheduler.run_until_blocked(beta);
+        event.reset("alpha");
+        event.reset_all();
+        event.set("alpha", 1);
+        event.set("beta", 2);
+        scheduler.run_ready();
+        if (!alpha.handle().done() || !beta.handle().done()) {
+            return fail("manual_event reset/reset_all unregistered suspended waiters");
+        }
+        if (!any_value_is(*alpha.await_resume(), 1) || !any_value_is(*beta.await_resume(), 2)) {
+            return fail("manual_event reset/reset_all waiters resumed with wrong payload");
+        }
+    }
+
+    {
+        gentest::async::manual_event event;
+        TrackingScheduler            scheduler;
+        event.set("replace", std::string("text"));
+        auto first = wait_for_manual_event_key(event, "replace");
+        scheduler.run_until_blocked(first);
+        if (!first.handle().done() || !any_value_is(*first.await_resume(), std::string("text"))) {
+            return fail("manual_event heterogeneous replacement did not return initial payload");
+        }
+        auto *slot = first.await_resume();
+
+        event.set("replace", 17);
+        auto second = wait_for_manual_event_key(event, "replace");
+        scheduler.run_until_blocked(second);
+        if (!second.handle().done() || second.await_resume() != slot || !any_value_is(*slot, 17)) {
+            return fail("manual_event heterogeneous replacement did not reuse stable any slot");
+        }
+    }
+
+    {
+        gentest::async::manual_event event;
+        TrackingScheduler            scheduler;
         auto                         task = gentest::detail::make_async_task(wait_for_manual_event(event));
         scheduler.run_until_blocked(*task);
         scheduler.record_late_posts_without_canceling_waiters();
@@ -421,6 +507,25 @@ int main() try {
         event.set("ready");
         if (scheduler.late_posts() != 0) {
             return fail("manual_event posted a canceled stale waiter");
+        }
+    }
+
+    {
+        gentest::async::manual_event event;
+        TrackingScheduler            scheduler;
+        auto                         stale = gentest::detail::make_async_task(wait_for_manual_event(event));
+        scheduler.run_until_blocked(*stale);
+        stale.reset();
+
+        auto live = wait_for_manual_event_key(event, "ready");
+        scheduler.run_until_blocked(live);
+        if (live.handle().done()) {
+            return fail("manual_event mixed stale/live waiter completed before set");
+        }
+        event.set("ready", 5);
+        scheduler.run_ready();
+        if (!live.handle().done() || !any_value_is(*live.await_resume(), 5)) {
+            return fail("manual_event mixed stale/live waiter did not resume live waiter");
         }
     }
 
@@ -476,6 +581,54 @@ int main() try {
             if (payload != payloads.front()) {
                 return fail("manual_event concurrent waiters did not share the stable key slot");
             }
+        }
+    }
+
+    {
+        gentest::async::manual_event event;
+        constexpr int                kWaiters = 8;
+        std::atomic<int>             registered{0};
+        std::atomic<bool>            done_resetting{false};
+        std::atomic<int>             failures{0};
+        std::vector<std::thread>     threads;
+        threads.reserve(static_cast<std::size_t>(kWaiters) + 1U);
+
+        for (int i = 0; i != kWaiters; ++i) {
+            threads.emplace_back([&, i] {
+                TrackingScheduler scheduler;
+                auto              task = wait_for_manual_event_key(event, "shared.reset");
+                scheduler.run_until_blocked(task);
+                registered.fetch_add(1, std::memory_order_acq_rel);
+                while (!done_resetting.load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                }
+                scheduler.run_ready();
+                if (!task.handle().done() || !any_value_is(*task.await_resume(), 123)) {
+                    failures.fetch_add(1, std::memory_order_acq_rel);
+                }
+            });
+        }
+
+        threads.emplace_back([&] {
+            while (registered.load(std::memory_order_acquire) != kWaiters) {
+                std::this_thread::yield();
+            }
+            for (int i = 0; i != 1000; ++i) {
+                if (i % 2 == 0) {
+                    event.reset("shared.reset");
+                } else {
+                    event.reset_all();
+                }
+            }
+            event.set("shared.reset", 123);
+            done_resetting.store(true, std::memory_order_release);
+        });
+
+        for (auto &thread : threads) {
+            thread.join();
+        }
+        if (failures.load(std::memory_order_acquire) != 0) {
+            return fail("manual_event suspended waiters did not survive concurrent reset/set");
         }
     }
 

@@ -288,6 +288,26 @@ gentest_add_cmake_script_test(
         "FORBID_SUBSTRING=fail-fast allowed a later sync case after done adopted work")
 
 gentest_add_cmake_script_test(
+    NAME async_fail_fast_done_adopted_late_records_worker_failure
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast_done_adopted_late/* --kind=test --fail-fast --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_done_adopted_late/00_done_with_late_worker_failure|adopted worker recorded failure after completed async cancellation|canceled async frame still has adopted work after cleanup timeout|[ FAIL ] async/fail_fast_done_adopted_late/01_sync_failure"
+        "FORBID_SUBSTRING=fail-fast allowed a later sync case after late adopted worker failure")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_many_stuck_adopted_shared_deadline
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_many_stuck_adopted/* --kind=test --fail-fast --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_adopted_no_hang
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
@@ -344,6 +364,15 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_cancel_adopted_local_fixture/01_sync_failure"
         "FORBID_SUBSTRINGS=fail-fast canceled adopted async local fixture without teardown|fail-fast canceled adopted async local fixture destroyed without teardown|fail-fast canceled adopted async frame was not destroyed after adopted release|fail-fast cancellation resumed adopted local fixture case")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_cancel_stuck_local_teardown_no_hang
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_cancel_stuck_local_teardown/* --kind=test --fail-fast --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1")
 
 gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_slow_adopted_reports_cleanup_issue
@@ -447,7 +476,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 81
+    CASES 90
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
@@ -826,6 +855,7 @@ option(GENTEST_SKIP_TSAN_DEATH_TESTS "Skip death tests whose stderr contract is 
 if(GENTEST_SKIP_TSAN_DEATH_TESTS)
     set_tests_properties(
         concurrency_fail_single_death concurrency_skip_no_context_death concurrency_xfail_no_context_death concurrency_multi_noadopt_death
+        async_fail_fast_cancel_released_context_aborts
         PROPERTIES DISABLED TRUE)
 endif()
 

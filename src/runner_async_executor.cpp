@@ -179,7 +179,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
 
     BatchAsyncScheduler scheduler(async_runs, renderer.enabled() ? &renderer : nullptr);
 
-    const auto  should_stop            = [&] { return fail_fast && (counters.failures > 0 || counters.blocked > 0); };
+    bool        fail_fast_stop_requested = false;
+    const auto  should_stop = [&] { return fail_fast && (fail_fast_stop_requested || counters.failures > 0 || counters.blocked > 0); };
     std::size_t first_unfinalized_scan = 0;
 
     const auto advance_first_unfinalized = [&] {
@@ -206,13 +207,13 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         return !ctx || ctx->adopted_contexts.load(std::memory_order_acquire) == 0;
     };
 
-    const auto wait_for_adopted_contexts_released = [&](const std::shared_ptr<gentest::detail::TestContextInfo> &ctx,
-                                                        std::chrono::milliseconds                                timeout) {
+    const auto wait_for_adopted_contexts_released_until = [&](const std::shared_ptr<gentest::detail::TestContextInfo> &ctx,
+                                                              std::chrono::steady_clock::time_point                    deadline) {
         if (!ctx) {
             return true;
         }
         std::unique_lock<std::mutex> lk(ctx->adopted_mtx);
-        return ctx->adopted_cv.wait_for(lk, timeout, [&] { return ctx->adopted_contexts.load(std::memory_order_acquire) == 0; });
+        return ctx->adopted_cv.wait_until(lk, deadline, [&] { return ctx->adopted_contexts.load(std::memory_order_acquire) == 0; });
     };
 
     const auto record_context_failure = [](const std::shared_ptr<gentest::detail::TestContextInfo> &ctx, std::string_view issue) {
@@ -249,15 +250,49 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         record_invoke_result(deferred.run_index, inv);
     };
 
-    const auto destroy_released_canceled_tasks = [&](std::chrono::milliseconds wait_budget) {
+    const auto record_synthetic_cleanup_result = [&](DeferredCanceledTask &deferred) {
+        if (deferred.result_recorded) {
+            return;
+        }
+        deferred.result_recorded = true;
+        auto       &run          = async_runs[deferred.run_index];
+        const auto &test         = cases[run.case_index];
+        run.end                  = std::chrono::steady_clock::now();
+
+        RunResult rr;
+        rr.outcome = Outcome::Fail;
+        rr.time_s  = std::chrono::duration<double>(run.end - run.start).count();
+        const std::string issue{kCanceledAsyncCleanupIssue};
+        rr.failures.push_back(issue);
+        rr.summary_issues.push_back(issue);
+
+        ++counters.total;
+        ++counters.failed;
+        ++counters.failures;
+
+        if (renderer.enabled()) {
+            renderer.mark_final(deferred.run_index, AsyncLiveStatus::Fail, issue, duration_ms(rr.time_s));
+            renderer.log(deferred_case_line(test.name, rr, final_state.color_output));
+            log_async_details(renderer, rr);
+        }
+        if (state.acc) {
+            gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, issue);
+            gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
+        }
+    };
+
+    const auto destroy_released_canceled_tasks_until = [&](std::chrono::steady_clock::time_point deadline) {
         for (auto &deferred : deferred_canceled_tasks) {
             if (!deferred.task) {
                 continue;
             }
-            if (!adopted_contexts_released(deferred.ctx) && !wait_for_adopted_contexts_released(deferred.ctx, wait_budget)) {
+            if (!adopted_contexts_released(deferred.ctx) && !wait_for_adopted_contexts_released_until(deferred.ctx, deadline)) {
                 continue;
             }
             deferred.task.reset();
+            if (deferred.ctx) {
+                gentest::detail::close_canceled_context_if_released(*deferred.ctx);
+            }
             if (deferred.record_result_on_cleanup) {
                 record_canceled_completed_result(deferred);
             }
@@ -266,55 +301,35 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
 
     const auto report_slow_canceled_tasks = [&] {
         for (auto &deferred : deferred_canceled_tasks) {
-            if (!deferred.task || deferred.cleanup_reported || deferred.result_recorded) {
+            if (!deferred.task || deferred.cleanup_reported) {
                 continue;
             }
             deferred.cleanup_reported = true;
-            auto       &run           = async_runs[deferred.run_index];
-            const auto &test          = cases[run.case_index];
-            gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
-            run.end = std::chrono::steady_clock::now();
-
+            auto &run                 = async_runs[deferred.run_index];
+            record_context_failure(run.ctxinfo, kCanceledAsyncCleanupIssue);
             if (deferred.record_result_on_cleanup) {
-                record_context_failure(run.ctxinfo, kCanceledAsyncCleanupIssue);
-                record_canceled_completed_result(deferred);
                 continue;
             }
-
-            RunResult rr;
-            rr.outcome = Outcome::Fail;
-            rr.time_s  = std::chrono::duration<double>(run.end - run.start).count();
-            if (run.ctxinfo) {
-                rr.logs     = run.ctxinfo->logs;
-                rr.timeline = run.ctxinfo->event_lines;
-            }
-            const std::string issue{kCanceledAsyncCleanupIssue};
-            rr.failures.push_back(issue);
-            rr.summary_issues.push_back(issue);
-
-            ++counters.total;
-            ++counters.failed;
-            ++counters.failures;
-
-            if (renderer.enabled()) {
-                renderer.mark_final(deferred.run_index, AsyncLiveStatus::Fail, issue, duration_ms(rr.time_s));
-                renderer.log(deferred_case_line(test.name, rr, final_state.color_output));
-                log_async_details(renderer, rr);
-            }
-            if (state.acc) {
-                gentest::runner::add_error_annotation(*state.acc, test.file, test.line, test.name, issue);
-                gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
-            }
+            record_synthetic_cleanup_result(deferred);
         }
     };
 
-    const auto release_still_blocked_canceled_tasks = [&] {
+    const auto close_and_release_unfinished_canceled_tasks = [&] {
         for (auto &deferred : deferred_canceled_tasks) {
             if (!deferred.task) {
                 continue;
             }
             if (!deferred.cleanup_reported) {
-                report_slow_canceled_tasks();
+                deferred.cleanup_reported = true;
+                record_context_failure(deferred.ctx, kCanceledAsyncCleanupIssue);
+            }
+            if (deferred.ctx) {
+                gentest::detail::close_canceled_context_to_late_operations(*deferred.ctx);
+            }
+            if (deferred.record_result_on_cleanup) {
+                record_canceled_completed_result(deferred);
+            } else {
+                record_synthetic_cleanup_result(deferred);
             }
             // Destroying the coroutine frame can join user-owned threads that are waiting for a queued resume.
             auto *leaked_task = deferred.task.release();
@@ -330,19 +345,24 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         }
 
         scheduler.cancel_owner(run_index);
-        run.finalized = true;
+        run.finalized            = true;
+        fail_fast_stop_requested = true;
         ++counters.total;
 
         classify_async_exception(run);
         gentest::runner::detail::cancel_active_test_context_without_wait(run.ctxinfo);
         gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
 
-        if (!adopted_contexts_released(run.ctxinfo) && !wait_for_adopted_contexts_released(run.ctxinfo, kCanceledAsyncCleanupSoftTimeout)) {
+        const auto cleanup_start    = std::chrono::steady_clock::now();
+        bool       cleanup_reported = false;
+        if (!adopted_contexts_released(run.ctxinfo) &&
+            !wait_for_adopted_contexts_released_until(run.ctxinfo, cleanup_start + kCanceledAsyncCleanupSoftTimeout)) {
             record_context_failure(run.ctxinfo, kCanceledAsyncCleanupIssue);
+            cleanup_reported = true;
         }
 
         if (!adopted_contexts_released(run.ctxinfo)) {
-            (void)wait_for_adopted_contexts_released(run.ctxinfo, kCanceledAsyncCleanupHardTimeout - kCanceledAsyncCleanupSoftTimeout);
+            (void)wait_for_adopted_contexts_released_until(run.ctxinfo, cleanup_start + kCanceledAsyncCleanupHardTimeout);
         }
 
         if (adopted_contexts_released(run.ctxinfo)) {
@@ -351,6 +371,12 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                 gentest::detail::close_canceled_context_if_released(*run.ctxinfo);
             }
         } else if (run.task) {
+            if (run.ctxinfo) {
+                gentest::detail::close_canceled_context_to_late_operations(*run.ctxinfo);
+            }
+            if (!cleanup_reported) {
+                record_context_failure(run.ctxinfo, kCanceledAsyncCleanupIssue);
+            }
             // Match pending cancellation: after the hard timeout, avoid running
             // remaining frame-destruction cleanup while adopted work is still outstanding.
             auto *leaked_task = run.task.release();
@@ -464,10 +490,11 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             }
             run.finalized = true;
         }
-        destroy_released_canceled_tasks(kCanceledAsyncCleanupSoftTimeout);
+        const auto cleanup_start = std::chrono::steady_clock::now();
+        destroy_released_canceled_tasks_until(cleanup_start + kCanceledAsyncCleanupSoftTimeout);
         report_slow_canceled_tasks();
-        destroy_released_canceled_tasks(kCanceledAsyncCleanupHardTimeout - kCanceledAsyncCleanupSoftTimeout);
-        release_still_blocked_canceled_tasks();
+        destroy_released_canceled_tasks_until(cleanup_start + kCanceledAsyncCleanupHardTimeout);
+        close_and_release_unfinished_canceled_tasks();
         while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
             ++first_unfinalized_scan;
         }
