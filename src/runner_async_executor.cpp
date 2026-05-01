@@ -154,14 +154,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
     TestRunContext             final_state = state;
     final_state.suppress_case_output       = renderer.enabled();
 
-    const auto finalize_run = [&](std::size_t run_index) {
-        auto &run = async_runs[run_index];
-        if (run.finalized) {
-            return;
-        }
-        run.finalized = true;
-        ++counters.total;
-        auto      inv = finish_async_run(run);
+    const auto record_invoke_result = [&](std::size_t run_index, const InvokeResult &inv) {
+        auto     &run = async_runs[run_index];
         RunResult rr  = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
         if (renderer.enabled()) {
             renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
@@ -171,6 +165,16 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         if (state.acc) {
             gentest::runner::record_case_result(*state.acc, cases[run.case_index], std::move(rr), state.record_results);
         }
+    };
+
+    const auto finalize_run = [&](std::size_t run_index) {
+        auto &run = async_runs[run_index];
+        if (run.finalized) {
+            return;
+        }
+        run.finalized = true;
+        ++counters.total;
+        record_invoke_result(run_index, finish_async_run(run));
     };
 
     BatchAsyncScheduler scheduler(async_runs, renderer.enabled() ? &renderer : nullptr);
@@ -191,8 +195,10 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
     struct DeferredCanceledTask {
         gentest::detail::AsyncTaskPtr                     task;
         std::shared_ptr<gentest::detail::TestContextInfo> ctx;
-        std::size_t                                       run_index        = 0;
-        bool                                              cleanup_reported = false;
+        std::size_t                                       run_index                = 0;
+        bool                                              record_result_on_cleanup = false;
+        bool                                              cleanup_reported         = false;
+        bool                                              result_recorded          = false;
     };
     std::vector<DeferredCanceledTask> deferred_canceled_tasks;
 
@@ -223,6 +229,26 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         ctx->has_failures.store(true, std::memory_order_release);
     };
 
+    const auto record_canceled_completed_result = [&](DeferredCanceledTask &deferred) {
+        if (deferred.result_recorded) {
+            return;
+        }
+        deferred.result_recorded = true;
+
+        auto &run = async_runs[deferred.run_index];
+        gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
+        run.end = std::chrono::steady_clock::now();
+
+        InvokeResult inv;
+        inv.ctxinfo   = run.ctxinfo;
+        inv.exception = run.exception;
+        inv.message   = std::move(run.message);
+        inv.elapsed_s = std::chrono::duration<double>(run.end - run.start).count();
+
+        ++counters.total;
+        record_invoke_result(deferred.run_index, inv);
+    };
+
     const auto destroy_released_canceled_tasks = [&](std::chrono::milliseconds wait_budget) {
         for (auto &deferred : deferred_canceled_tasks) {
             if (!deferred.task) {
@@ -232,12 +258,15 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                 continue;
             }
             deferred.task.reset();
+            if (deferred.record_result_on_cleanup) {
+                record_canceled_completed_result(deferred);
+            }
         }
     };
 
     const auto report_slow_canceled_tasks = [&] {
         for (auto &deferred : deferred_canceled_tasks) {
-            if (!deferred.task || deferred.cleanup_reported) {
+            if (!deferred.task || deferred.cleanup_reported || deferred.result_recorded) {
                 continue;
             }
             deferred.cleanup_reported = true;
@@ -245,6 +274,12 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             const auto &test          = cases[run.case_index];
             gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
             run.end = std::chrono::steady_clock::now();
+
+            if (deferred.record_result_on_cleanup) {
+                record_context_failure(run.ctxinfo, kCanceledAsyncCleanupIssue);
+                record_canceled_completed_result(deferred);
+                continue;
+            }
 
             RunResult rr;
             rr.outcome = Outcome::Fail;
@@ -414,14 +449,18 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             if (run.finalized) {
                 continue;
             }
-            const bool has_adopted_work = run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0 && run.task &&
-                                          run.task->handle() && !run.task->handle().done();
+            const bool adopted_work = has_adopted_work(run);
+            if (adopted_work && run.ready_to_finalize) {
+                classify_async_exception(run);
+            }
             scheduler.cancel_owner(run_index);
             gentest::runner::detail::cancel_active_test_context_without_wait(run.ctxinfo);
             gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
-            if (has_adopted_work) {
-                deferred_canceled_tasks.push_back(
-                    DeferredCanceledTask{.task = std::move(run.task), .ctx = run.ctxinfo, .run_index = run_index});
+            if (adopted_work) {
+                deferred_canceled_tasks.push_back(DeferredCanceledTask{.task                     = std::move(run.task),
+                                                                       .ctx                      = run.ctxinfo,
+                                                                       .run_index                = run_index,
+                                                                       .record_result_on_cleanup = run.ready_to_finalize});
             }
             run.finalized = true;
         }

@@ -78,6 +78,7 @@ using ::gentest::approx::operator!=;
 
 namespace async {
 using ::gentest::async::completion_source;
+using ::gentest::async::event;
 using ::gentest::async::manual_event;
 using ::gentest::async::yield;
 } // namespace async

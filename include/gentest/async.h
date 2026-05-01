@@ -3,6 +3,7 @@
 #include "gentest/detail/runtime_base.h"
 
 #include <any>
+#include <concepts>
 #include <condition_variable>
 #include <coroutine>
 #include <cstdlib>
@@ -14,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -168,7 +170,7 @@ struct yield_awaitable {
     return yield_awaitable{.loc = loc};
 }
 
-class manual_event {
+template <typename T = std::any> class event {
     struct Slot;
 
     struct WaitState {
@@ -182,34 +184,25 @@ class manual_event {
 
     struct Slot {
         bool                ready = false;
-        std::any            value;
+        std::optional<T>    value;
         std::vector<Waiter> waiters;
     };
 
   public:
-    manual_event() = default;
+    event() = default;
 
-    void set(std::string key, std::any &&value = {}) {
-        std::vector<Waiter> waiters;
-        Slot               *slot_ptr = nullptr;
-        {
-            std::lock_guard<std::mutex> lk(mtx_);
-            auto                       &slot = slots_[std::move(key)];
-            slot.value                       = std::move(value);
-            slot.ready                       = true;
-            slot_ptr                         = &slot;
-            waiters.swap(slot.waiters);
-        }
-        for (auto &waiter : waiters) {
-            if (auto state = waiter.state.lock()) {
-                state->slot = slot_ptr;
-                if (waiter.token) {
-                    waiter.token->post();
-                }
-            } else if (waiter.token) {
-                waiter.token->cancel();
-            }
-        }
+    void set(std::string key)
+        requires std::default_initializable<T>
+    {
+        set_value(std::move(key), T{});
+    }
+
+    void set(std::string key, T value) { set_value(std::move(key), std::move(value)); }
+
+    template <typename U>
+        requires(!std::same_as<std::remove_cvref_t<U>, T> && std::constructible_from<T, U &&>)
+    void set(std::string key, U &&value) {
+        set_value(std::move(key), T(std::forward<U>(value)));
     }
 
     void reset(std::string_view key) {
@@ -237,8 +230,8 @@ class manual_event {
 
     class awaitable {
       public:
-        awaitable(manual_event &event, std::string key, std::source_location loc)
-            : event_(event), key_(std::move(key)), loc_(loc), state_(std::make_shared<WaitState>()) {}
+        awaitable(event &owner, std::string key, std::source_location loc)
+            : event_(owner), key_(std::move(key)), loc_(loc), state_(std::make_shared<WaitState>()) {}
 
         [[nodiscard]] auto await_ready() -> bool {
             std::lock_guard<std::mutex> lk(event_.mtx_);
@@ -272,19 +265,19 @@ class manual_event {
             }
         }
 
-        auto await_resume() const -> std::any & {
-            if (!state_ || state_->slot == nullptr) {
+        auto await_resume() const -> T & {
+            if (!state_ || state_->slot == nullptr || !state_->slot->value.has_value()) {
 #if GENTEST_EXCEPTIONS_ENABLED
-                throw std::runtime_error("gentest::manual_event resumed without payload slot");
+                throw std::runtime_error("gentest::async::event resumed without payload slot");
 #else
                 std::abort();
 #endif
             }
-            return state_->slot->value;
+            return *state_->slot->value;
         }
 
       private:
-        manual_event              &event_;
+        event                     &event_;
         std::string                key_;
         std::source_location       loc_;
         std::shared_ptr<WaitState> state_;
@@ -295,6 +288,35 @@ class manual_event {
     }
 
   private:
+    template <typename U> void set_value(std::string key, U &&value) {
+        static_assert(std::constructible_from<T, U &&>, "gentest::async::event<T>::set requires a value constructible as T");
+        static_assert(std::assignable_from<T &, T &&>, "gentest::async::event<T> requires T to be move-assignable");
+        std::vector<Waiter> waiters;
+        Slot               *slot_ptr = nullptr;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            auto                       &slot = slots_[std::move(key)];
+            if (slot.value.has_value()) {
+                *slot.value = T(std::forward<U>(value));
+            } else {
+                slot.value.emplace(std::forward<U>(value));
+            }
+            slot.ready = true;
+            slot_ptr   = &slot;
+            waiters.swap(slot.waiters);
+        }
+        for (auto &waiter : waiters) {
+            if (auto state = waiter.state.lock()) {
+                state->slot = slot_ptr;
+                if (waiter.token) {
+                    waiter.token->post();
+                }
+            } else if (waiter.token) {
+                waiter.token->cancel();
+            }
+        }
+    }
+
     [[nodiscard]] static auto blocked_reason(std::string_view key) -> std::string {
         if (key.empty()) {
             return "manual event key was not set";
@@ -308,6 +330,8 @@ class manual_event {
     mutable std::mutex                    mtx_;
     std::unordered_map<std::string, Slot> slots_;
 };
+
+using manual_event = event<std::any>;
 
 class completion_source {
   public:

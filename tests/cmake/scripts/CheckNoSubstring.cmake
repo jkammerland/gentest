@@ -2,6 +2,7 @@
 #  -DPROG=<path to executable>
 # Optional:
 #  -DARGS=<optional CLI args>
+#  -DTIMEOUT_SEC=<seconds>
 #  -DEXPECT_RC=<expected numeric exit code or NONZERO>
 #  -DREQUIRED_SUBSTRING=<substring that must be present in combined output>
 #  -DREQUIRED_SUBSTRINGS=<substrings delimited by '|' that must be present in combined output>
@@ -32,8 +33,14 @@ if(DEFINED ARGS)
   endif()
 endif()
 
+set(_timeout_args)
+if(DEFINED TIMEOUT_SEC AND NOT "${TIMEOUT_SEC}" STREQUAL "")
+  set(_timeout_args TIMEOUT "${TIMEOUT_SEC}")
+endif()
+
 execute_process(
   COMMAND ${_emu} "${PROG}" ${_args}
+  ${_timeout_args}
   RESULT_VARIABLE rc
   OUTPUT_VARIABLE out
   ERROR_VARIABLE err
@@ -41,6 +48,10 @@ execute_process(
   ERROR_STRIP_TRAILING_WHITESPACE)
 
 set(_all "${out}\n${err}")
+
+if(DEFINED TIMEOUT_SEC AND NOT "${TIMEOUT_SEC}" STREQUAL "" AND NOT rc MATCHES "^-?[0-9]+$")
+  message(FATAL_ERROR "Process did not complete within ${TIMEOUT_SEC}s (rc='${rc}'). Output:\n${_all}")
+endif()
 
 if(DEFINED EXPECT_RC AND NOT "${EXPECT_RC}" STREQUAL "")
   if("${EXPECT_RC}" STREQUAL "NONZERO")

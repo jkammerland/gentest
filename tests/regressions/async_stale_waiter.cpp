@@ -11,9 +11,12 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 namespace {
+
+static_assert(std::is_same_v<gentest::async::manual_event, gentest::async::event<std::any>>);
 
 class TrackingScheduler final : public gentest::detail::AsyncScheduler {
   public:
@@ -106,6 +109,16 @@ auto wait_for_manual_event_key(gentest::async::manual_event &event, std::string 
     co_return &payload;
 }
 
+auto wait_for_int_event_key(gentest::async::event<int> &event, std::string key) -> gentest::async_test<int *> {
+    int &payload = co_await event.wait(std::move(key));
+    co_return &payload;
+}
+
+auto wait_for_string_event_key(gentest::async::event<std::string> &event, std::string key) -> gentest::async_test<std::string *> {
+    std::string &payload = co_await event.wait(std::move(key));
+    co_return &payload;
+}
+
 auto wait_for_completion_source(gentest::async::completion_source &source) -> gentest::async_test<void> {
     co_await source.wait("completion source stale waiter regression");
 }
@@ -123,6 +136,70 @@ template <typename T> auto any_value_is(const std::any &value, const T &expected
 } // namespace
 
 int main() try {
+    {
+        gentest::async::event<int> event;
+        TrackingScheduler          scheduler;
+        event.set("answer", 42);
+        auto task = wait_for_int_event_key(event, "answer");
+        scheduler.run_until_blocked(task);
+        if (!task.handle().done()) {
+            return fail("event<int> pre-set key did not resume immediately");
+        }
+        if (*task.await_resume() != 42) {
+            return fail("event<int> returned the wrong payload");
+        }
+    }
+
+    {
+        gentest::async::event<int> event;
+        TrackingScheduler          scheduler;
+        event.set("zero");
+        auto task = wait_for_int_event_key(event, "zero");
+        scheduler.run_until_blocked(task);
+        if (!task.handle().done() || *task.await_resume() != 0) {
+            return fail("event<int> default set did not return a value-initialized payload");
+        }
+    }
+
+    {
+        gentest::async::event<std::string> event;
+        TrackingScheduler                  scheduler;
+        event.set("alpha", "initial");
+        auto first = wait_for_string_event_key(event, "alpha");
+        scheduler.run_until_blocked(first);
+        if (!first.handle().done()) {
+            return fail("event<string> stable slot pre-set wait did not resume");
+        }
+        auto *first_payload = first.await_resume();
+        if (*first_payload != "initial") {
+            return fail("event<string> returned the wrong initial payload");
+        }
+
+        *first_payload = "mutated";
+        auto second    = wait_for_string_event_key(event, "alpha");
+        scheduler.run_until_blocked(second);
+        auto *second_payload = second.await_resume();
+        if (!second.handle().done() || second_payload != first_payload || *second_payload != "mutated") {
+            return fail("event<string> wait did not return the stable mutated key slot");
+        }
+
+        event.reset("alpha");
+        auto third = wait_for_string_event_key(event, "alpha");
+        scheduler.run_until_blocked(third);
+        if (third.handle().done()) {
+            return fail("event<string> reset(key) did not suspend later waiter");
+        }
+        event.set("alpha", std::string("new"));
+        scheduler.run_ready();
+        if (!third.handle().done()) {
+            return fail("event<string> stable slot did not resume after reset and set");
+        }
+        auto *third_payload = third.await_resume();
+        if (third_payload != first_payload || *third_payload != "new") {
+            return fail("event<string> reset and set did not preserve the stable key slot");
+        }
+    }
+
     {
         gentest::async::manual_event event;
         TrackingScheduler            scheduler;

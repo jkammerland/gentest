@@ -262,9 +262,30 @@ gentest_add_cmake_script_test(
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --filter=async/fail_fast_stuck_adopted/* --kind=test --fail-fast --no-color
     DEFINES
+        "TIMEOUT_SEC=5"
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_stuck_adopted/00_async_fails_with_stuck_worker|canceled async frame still has adopted work after cleanup timeout"
         "FORBID_SUBSTRING=fail-fast allowed a later sync case after a stuck adopted worker")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_done_adopted_no_hang
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_done_adopted/* --kind=test --fail-fast --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_done_adopted_reports_cleanup_issue
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/fail_fast_done_adopted/* --kind=test --fail-fast --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_done_adopted/00_done_with_stuck_worker|canceled async frame still has adopted work after cleanup timeout|[ FAIL ] async/fail_fast_done_adopted/01_sync_failure"
+        "FORBID_SUBSTRING=fail-fast allowed a later sync case after done adopted work")
 
 gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_adopted_no_hang
@@ -426,7 +447,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 78
+    CASES 81
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(

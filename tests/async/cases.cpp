@@ -665,6 +665,35 @@ void fail_fast_stuck_adopted_sync_should_not_run() {
     gentest::fail("fail-fast allowed a later sync case after a stuck adopted worker");
 }
 
+[[using gentest: test("fail_fast_done_adopted/00_done_with_stuck_worker")]]
+gentest::async_test<void> fail_fast_done_adopted_done_with_stuck_worker() {
+    auto context = gentest::get_current_context();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto adoption = gentest::set_current_context(context);
+        started->set_value();
+        while (context && context->active.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        std::this_thread::sleep_for(std::chrono::hours(1));
+    }).detach();
+
+    ready.wait();
+    co_return;
+}
+
+[[using gentest: test("fail_fast_done_adopted/01_sync_failure")]]
+void fail_fast_done_adopted_sync_failure() {
+    EXPECT_TRUE(false, "trigger fail-fast while earlier done async case still has adopted work");
+}
+
+[[using gentest: test("fail_fast_done_adopted/02_sync_should_not_run")]]
+void fail_fast_done_adopted_sync_should_not_run() {
+    gentest::fail("fail-fast allowed a later sync case after done adopted work");
+}
+
 [[using gentest: test("fail_fast_cancel_adopted/00_pending_needs_resume")]]
 gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
     fail_fast_cancel_adopted_resume.reset_all();
