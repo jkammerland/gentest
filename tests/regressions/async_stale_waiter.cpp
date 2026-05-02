@@ -17,6 +17,10 @@
 namespace {
 
 static_assert(std::is_same_v<gentest::async::manual_event, gentest::async::event<std::any>>);
+static_assert(!std::copy_constructible<gentest::async::future<int>>);
+static_assert(std::move_constructible<gentest::async::future<int>>);
+static_assert(!std::copy_constructible<gentest::async::promise<int>>);
+static_assert(std::move_constructible<gentest::async::promise<int>>);
 
 struct NoDefaultPayload {
     NoDefaultPayload() = delete;
@@ -151,8 +155,20 @@ auto wait_for_no_default_event_key(gentest::async::event<NoDefaultPayload> &even
     co_return &payload;
 }
 
-auto wait_for_completion_source(gentest::async::completion_source &source) -> gentest::async_test<void> {
-    co_await source.wait("completion source stale waiter regression");
+auto wait_for_promise(gentest::async::future<void> future) -> gentest::async_test<void> {
+    co_await future.wait("promise stale waiter regression");
+}
+
+auto wait_for_int_future(gentest::async::future<int> future) -> gentest::async_test<int> {
+    co_return co_await future.wait("promise int payload regression");
+}
+
+auto wait_for_string_future(gentest::async::future<std::string> future) -> gentest::async_test<std::string> {
+    co_return co_await future.wait("promise string payload regression");
+}
+
+auto wait_for_unique_ptr_future(gentest::async::future<std::unique_ptr<int>> future) -> gentest::async_test<std::unique_ptr<int>> {
+    co_return co_await future.wait("promise move-only payload regression");
 }
 
 auto fail(std::string_view message) -> int {
@@ -657,15 +673,160 @@ int main() try {
     }
 
     {
-        gentest::async::completion_source source;
-        TrackingScheduler                 scheduler;
-        auto                              task = gentest::detail::make_async_task(wait_for_completion_source(source));
+        gentest::async::promise<int> promise;
+        auto                         future = promise.get_future();
+        promise.set_value(42);
+        TrackingScheduler scheduler;
+        auto              task = wait_for_int_future(std::move(future));
+        scheduler.run_until_blocked(task);
+        if (!task.handle().done() || task.await_resume() != 42) {
+            return fail("promise<int> pre-set value did not resume immediately");
+        }
+    }
+
+    {
+        gentest::async::promise<int> promise;
+        auto                         future = promise.get_future();
+        TrackingScheduler            scheduler;
+        auto                         task = wait_for_int_future(std::move(future));
+        scheduler.run_until_blocked(task);
+        if (task.handle().done()) {
+            return fail("promise<int> wait-before-set completed too early");
+        }
+        std::thread worker([&promise] { promise.set_value(99); });
+        worker.join();
+        scheduler.run_ready();
+        if (!task.handle().done() || task.await_resume() != 99) {
+            return fail("promise<int> threaded set did not resume waiter");
+        }
+    }
+
+    {
+        gentest::async::promise<std::unique_ptr<int>> promise;
+        auto                                          future = promise.get_future();
+        promise.set_value(std::make_unique<int>(7));
+        TrackingScheduler scheduler;
+        auto              task = wait_for_unique_ptr_future(std::move(future));
+        scheduler.run_until_blocked(task);
+        auto payload = task.await_resume();
+        if (!task.handle().done() || !payload || *payload != 7) {
+            return fail("promise<unique_ptr<int>> did not move payload through future");
+        }
+    }
+
+    {
+        gentest::async::promise<std::string> promise;
+        auto                                 future = promise.get_future();
+        if (!promise.try_set_value("first")) {
+            return fail("promise<string> first try_set_value failed");
+        }
+        if (promise.try_set_value("second")) {
+            return fail("promise<string> allowed duplicate try_set_value");
+        }
+        if (promise.try_set_blocked("late blocked")) {
+            return fail("promise<string> allowed blocked state after value");
+        }
+        TrackingScheduler scheduler;
+        auto              task = wait_for_string_future(std::move(future));
+        scheduler.run_until_blocked(task);
+        if (!task.handle().done() || task.await_resume() != "first") {
+            return fail("promise<string> first terminal value did not win");
+        }
+    }
+
+    {
+        gentest::async::promise<int> promise;
+        (void)promise.get_future();
+        try {
+            (void)promise.get_future();
+            return fail("promise allowed get_future twice");
+        } catch (const std::logic_error &ex) {
+            if (std::string_view(ex.what()).empty()) {
+                return fail("promise get_future error had no diagnostic");
+            }
+        }
+    }
+
+    {
+        gentest::async::promise<int> promise;
+        auto                         future = promise.get_future();
+        promise.set_exception(std::make_exception_ptr(std::runtime_error("promise exception marker")));
+        TrackingScheduler scheduler;
+        auto              task = wait_for_int_future(std::move(future));
+        scheduler.run_until_blocked(task);
+        try {
+            (void)task.await_resume();
+            return fail("promise exception did not rethrow from future");
+        } catch (const std::runtime_error &ex) {
+            if (std::string_view(ex.what()).find("promise exception marker") == std::string_view::npos) {
+                return fail("promise exception rethrew the wrong message");
+            }
+        }
+    }
+
+    {
+        gentest::async::promise<void> promise;
+        auto                          future = promise.get_future();
+        promise.set_blocked("promise blocked marker");
+        TrackingScheduler scheduler;
+        auto              task = wait_for_promise(std::move(future));
+        scheduler.run_until_blocked(task);
+        try {
+            task.await_resume();
+            return fail("blocked promise did not block future");
+        } catch (const gentest::detail::blocked_exception &ex) {
+            if (ex.reason() != "promise blocked marker") {
+                return fail("blocked promise reported the wrong reason");
+            }
+        }
+    }
+
+    {
+        gentest::async::future<void> future;
+        {
+            gentest::async::promise<void> promise;
+            future = promise.get_future();
+        }
+        TrackingScheduler scheduler;
+        auto              task = wait_for_promise(std::move(future));
+        scheduler.run_until_blocked(task);
+        try {
+            task.await_resume();
+            return fail("broken promise did not block future");
+        } catch (const gentest::detail::blocked_exception &ex) {
+            if (ex.reason() != "async promise was abandoned before completion") {
+                return fail("broken promise reported the wrong reason");
+            }
+        }
+    }
+
+    {
+        gentest::async::promise<void> promise;
+        auto                          future  = promise.get_future();
+        auto                          awaiter = future.wait("first waiter");
+        (void)awaiter;
+        try {
+            (void)future.wait("second waiter");
+            return fail("future allowed multiple waiters");
+        } catch (const std::logic_error &ex) {
+            if (std::string_view(ex.what()).empty()) {
+                return fail("future multiple waiter error had no diagnostic");
+            }
+        }
+        promise.set_value();
+    }
+
+    {
+        gentest::async::promise<void> promise;
+        TrackingScheduler             scheduler;
+        auto                          future = promise.get_future();
+        auto                          task   = gentest::detail::make_async_task(wait_for_promise(std::move(future)));
         scheduler.run_until_blocked(*task);
         scheduler.cancel_waiters();
         task.reset();
-        source.complete();
+        promise.set_value();
         if (scheduler.late_posts() != 0) {
-            return fail("completion_source posted a canceled stale waiter");
+            return fail("promise posted a canceled stale waiter");
         }
     }
 

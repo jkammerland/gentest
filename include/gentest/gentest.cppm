@@ -77,9 +77,10 @@ using ::gentest::approx::operator!=;
 } // namespace approx
 
 namespace async {
-using ::gentest::async::completion_source;
 using ::gentest::async::event;
+using ::gentest::async::future;
 using ::gentest::async::manual_event;
+using ::gentest::async::promise;
 using ::gentest::async::yield;
 } // namespace async
 

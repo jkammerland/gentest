@@ -27,4 +27,13 @@ gentest::async_test<void> async_event_case() {
     gentest::expect_eq(payload, 42);
 }
 
+[[using gentest: test("async_promise")]]
+gentest::async_test<void> async_promise_case() {
+    gentest::async::promise<int> promise;
+    auto                         future = promise.get_future();
+    promise.set_value(42);
+    int payload = co_await future;
+    gentest::expect_eq(payload, 42);
+}
+
 } // namespace public_module_surface

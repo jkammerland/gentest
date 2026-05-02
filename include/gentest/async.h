@@ -154,6 +154,8 @@ concept EventSetPayload = std::constructible_from<T, U &&> && std::constructible
 
 namespace async {
 
+template <typename T> class promise;
+
 struct yield_awaitable {
     std::source_location loc;
 
@@ -339,87 +341,13 @@ template <typename T = std::any> class event {
 
 using manual_event = event<std::any>;
 
-class completion_source {
-  public:
-    void complete() { complete_impl(false, {}); }
-
-    void fail_unresumable(std::string reason = {}) { complete_impl(true, std::move(reason)); }
-
-    class awaitable {
-      public:
-        awaitable(completion_source &source, std::string reason, std::source_location loc)
-            : source_(source), reason_(std::move(reason)), loc_(loc) {}
-
-        [[nodiscard]] auto await_ready() const -> bool {
-            std::lock_guard<std::mutex> lk(source_.mtx_);
-            return source_.completed_;
-        }
-
-        void await_suspend(std::coroutine_handle<> handle) {
-            auto *scheduler = detail::current_async_scheduler();
-            if (!scheduler) {
-                std::abort();
-            }
-            std::lock_guard<std::mutex> lk(source_.mtx_);
-            if (source_.completed_) {
-                scheduler->post(handle);
-                return;
-            }
-            source_.waiters_.push_back(scheduler->make_waiter(handle));
-            scheduler->block_at(handle, reason_, loc_);
-        }
-
-        void await_resume() const {
-            std::lock_guard<std::mutex> lk(source_.mtx_);
-            if (source_.unresumable_) {
-#if GENTEST_EXCEPTIONS_ENABLED
-                throw detail::blocked_exception(source_.unresumable_reason_);
-#else
-                std::abort();
-#endif
-            }
-        }
-
-      private:
-        completion_source   &source_;
-        std::string          reason_;
-        std::source_location loc_;
-    };
-
-    [[nodiscard]] auto wait(std::string                 reason = "completion source was not completed",
-                            const std::source_location &loc    = std::source_location::current()) -> awaitable {
-        return awaitable{*this, std::move(reason), loc};
-    }
-
-  private:
-    void complete_impl(bool unresumable, std::string unresumable_reason) {
-        std::vector<detail::AsyncScheduler::WaiterTokenPtr> waiters;
-        {
-            std::lock_guard<std::mutex> lk(mtx_);
-            if (completed_) {
-                return;
-            }
-            completed_   = true;
-            unresumable_ = unresumable;
-            unresumable_reason_ =
-                unresumable && unresumable_reason.empty() ? std::string("completion source cannot resume") : std::move(unresumable_reason);
-            waiters.swap(waiters_);
-        }
-        for (auto &waiter : waiters) {
-            if (waiter) {
-                waiter->post();
-            }
-        }
-    }
-
-    mutable std::mutex                                  mtx_;
-    bool                                                completed_   = false;
-    bool                                                unresumable_ = false;
-    std::string                                         unresumable_reason_;
-    std::vector<detail::AsyncScheduler::WaiterTokenPtr> waiters_;
-};
-
 } // namespace async
+
+} // namespace gentest
+
+#include "gentest/detail/async_promise.h"
+
+namespace gentest {
 
 namespace detail {
 

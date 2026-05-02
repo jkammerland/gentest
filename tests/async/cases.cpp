@@ -8,6 +8,7 @@
 #include <coroutine>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <future>
 #include <memory>
 #include <stdexcept>
@@ -222,10 +223,10 @@ struct FailFastCancelAdoptedSkipExitWait {
 
 FailFastCancelAdoptedSkipExitWait fail_fast_cancel_adopted_skip_exit_wait;
 
-gentest::async::manual_event                       adopted_resume_event;
-std::shared_ptr<gentest::async::completion_source> completion_order_source;
-std::shared_ptr<gentest::async::completion_source> explicit_blocked_source;
-std::shared_ptr<gentest::async::completion_source> empty_blocked_source;
+gentest::async::manual_event                   adopted_resume_event;
+std::shared_ptr<gentest::async::promise<void>> promise_order_source;
+std::shared_ptr<gentest::async::promise<void>> explicit_blocked_source;
+std::shared_ptr<gentest::async::promise<void>> empty_blocked_source;
 
 constexpr int kLiveDemoRounds = 10;
 
@@ -1345,60 +1346,65 @@ gentest::async_test<void> adopted_worker_waits_for_resumed_ack() {
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("completion_source/order/00_waiter")]]
-gentest::async_test<void> completion_source_first_terminal_waiter() {
-    completion_order_source = std::make_shared<gentest::async::completion_source>();
-    co_await completion_order_source->wait("waiting for first terminal state");
+[[using gentest: test("promise/order/00_waiter")]]
+gentest::async_test<void> promise_first_terminal_waiter() {
+    promise_order_source = std::make_shared<gentest::async::promise<void>>();
+    auto future          = promise_order_source->get_future();
+    co_await future.wait("waiting for first terminal state");
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("completion_source/order/01_driver")]]
-gentest::async_test<void> completion_source_first_terminal_driver() {
-    ASSERT_TRUE(static_cast<bool>(completion_order_source));
-    completion_order_source->complete();
-    completion_order_source->fail_unresumable("late failure must not replace completion");
+[[using gentest: test("promise/order/01_driver")]]
+gentest::async_test<void> promise_first_terminal_driver() {
+    ASSERT_TRUE(static_cast<bool>(promise_order_source));
+    promise_order_source->set_value();
+    EXPECT_FALSE(promise_order_source->try_set_blocked("late failure must not replace completion"));
     co_await gentest::async::yield();
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("completion_source/pre_failed_before_wait")]]
-gentest::async_test<void> completion_source_pre_failed_before_wait() {
-    gentest::async::completion_source source;
-    source.fail_unresumable("pre-completed dependency cannot resume");
-    co_await source.wait("pre-completed source should not suspend");
+[[using gentest: test("promise/pre_blocked_before_wait")]]
+gentest::async_test<void> promise_pre_blocked_before_wait() {
+    gentest::async::promise<void> source;
+    auto                          future = source.get_future();
+    source.set_blocked("pre-completed dependency cannot resume");
+    co_await future.wait("pre-completed promise should not suspend");
 }
 
 [[using gentest: test("blocked/explicit/00_waiter")]]
 gentest::async_test<void> explicit_blocked_waiter() {
-    explicit_blocked_source = std::make_shared<gentest::async::completion_source>();
-    co_await explicit_blocked_source->wait("waiting for explicit blocked marker");
+    explicit_blocked_source = std::make_shared<gentest::async::promise<void>>();
+    auto future             = explicit_blocked_source->get_future();
+    co_await future.wait("waiting for explicit blocked marker");
 }
 
 [[using gentest: test("blocked/explicit/01_driver")]]
 gentest::async_test<void> explicit_blocked_driver() {
     ASSERT_TRUE(static_cast<bool>(explicit_blocked_source));
-    explicit_blocked_source->fail_unresumable("external dependency cannot resume");
+    explicit_blocked_source->set_blocked("external dependency cannot resume");
     co_return;
 }
 
 [[using gentest: test("blocked/after_failure")]]
 gentest::async_test<void> blocked_after_failure_reports_failure() {
     EXPECT_TRUE(false, "failure-before-blocked-marker");
-    gentest::async::completion_source source;
-    source.fail_unresumable("dependency failed after assertion");
-    co_await source.wait("pre-completed source should not mask assertion failure");
+    gentest::async::promise<void> source;
+    auto                          future = source.get_future();
+    source.set_blocked("dependency failed after assertion");
+    co_await future.wait("pre-completed promise should not mask assertion failure");
 }
 
 [[using gentest: test("blocked/empty_reason/00_waiter")]]
 gentest::async_test<void> empty_reason_blocked_waiter() {
-    empty_blocked_source = std::make_shared<gentest::async::completion_source>();
-    co_await empty_blocked_source->wait("waiting for empty blocked marker");
+    empty_blocked_source = std::make_shared<gentest::async::promise<void>>();
+    auto future          = empty_blocked_source->get_future();
+    co_await future.wait("waiting for empty blocked marker");
 }
 
 [[using gentest: test("blocked/empty_reason/01_driver")]]
 gentest::async_test<void> empty_reason_blocked_driver() {
     ASSERT_TRUE(static_cast<bool>(empty_blocked_source));
-    empty_blocked_source->fail_unresumable();
+    empty_blocked_source->set_blocked();
     co_return;
 }
 

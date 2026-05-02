@@ -69,8 +69,8 @@ gentest::async_test<void> templated_async() {
 | --- | --- | --- | --- |
 | `gentest::async::yield()` | Move this test to the back of the ready queue | `YIELDED` | It is already queued to resume |
 | `event<T>::wait(key)` | Wait until `set(key, payload)` is called, then return the key's `T&` slot | `SUSPENDED` | `FAIL`: `cannot resume async test; suspended at file:line: async event key 'key' was not set` |
-| `completion_source::wait(reason)` | Wait for a one-shot operation | `SUSPENDED` | Depends on how the source completes |
-| `completion_source::fail_unresumable(reason)` | Mark an external dependency as impossible | `BLOCKED` | Fails the run and reports the reason |
+| `future<T>::wait(reason)` | Wait for a one-shot `promise<T>` completion, then return `T` by value | `SUSPENDED` | Depends on how the promise completes |
+| `promise<T>::set_blocked(reason)` | Mark an external dependency as impossible | `BLOCKED` | Fails the run and reports the reason |
 
 Use `yield()` for cooperative fairness, not for polling.
 
@@ -150,28 +150,61 @@ coordinate `set`, `reset`, and `wait` with an external primitive appropriate for
 the flow, such as an atomic state machine, mutex, channel, or fixture-owned
 sequencer.
 
-Use `completion_source` for one-shot dependencies, especially when the producer
-can discover that resumption is impossible.
+Use `promise<T>` and `future<T>` for one-shot dependencies, especially when a
+worker thread, callback, or third-party event loop needs to resume a gentest
+coroutine. The API follows the STL shape: create a promise, call `get_future()`,
+complete the promise from the producer, and `co_await` the future from the test.
 
 ```cpp
-[[using gentest: test("async/completion_source/worker")]]
+[[using gentest: test("async/promise/worker")]]
 gentest::async_test<void> worker_completion() {
-    auto ok = std::make_shared<gentest::async::completion_source>();
+    gentest::async::promise<std::string> promise;
+    auto future = promise.get_future();
 
-    std::thread worker([ok] { ok->complete(); });
-    co_await ok->wait("worker did not finish");
+    std::thread worker([p = std::move(promise)]() mutable {
+        p.set_value("ok");
+    });
+
+    std::string value = co_await future.wait("worker did not finish");
     worker.join();
+    EXPECT_EQ(value, "ok");
 }
 
-[[using gentest: test("async/completion_source/blocked")]]
+[[using gentest: test("async/promise/blocked")]]
 gentest::async_test<void> blocked_dependency() {
-    gentest::async::completion_source blocked;
-    blocked.fail_unresumable("connection was closed");
-    co_await blocked.wait("connection handshake");
+    gentest::async::promise<void> promise;
+    auto future = promise.get_future();
+
+    promise.set_blocked("connection was closed");
+    co_await future.wait("connection handshake");
 }
 ```
 
-The first `complete()` or `fail_unresumable()` call wins. Later calls are ignored.
+The first terminal state wins. Use `set_value(...)`, `set_exception(...)`, or
+`set_blocked(...)` when duplicate completion is a bug. Use `try_set_value(...)`,
+`try_set_exception(...)`, or `try_set_blocked(...)` when callbacks can race and
+late completions should be ignored.
+
+```cpp
+gentest::async::promise<Response> promise;
+auto future = promise.get_future();
+
+client.async_read([p = std::move(promise)](Result<Response> result) mutable {
+    if (result.ok()) {
+        (void)p.try_set_value(std::move(result.value()));
+    } else if (result.closed()) {
+        (void)p.try_set_blocked("client closed before response");
+    } else {
+        (void)p.try_set_exception(
+            std::make_exception_ptr(std::runtime_error(result.message())));
+    }
+});
+
+Response response = co_await future.wait("client response");
+```
+
+`future<T>` is move-only and single-consumer. It returns `T` by value, so use
+move-only payloads when ownership should transfer into the coroutine.
 
 ## Sync And Async Together
 
@@ -341,9 +374,11 @@ gentest::async_test<void> lost_or_never_created_resume_handle() {
 ```cpp
 [[using gentest: test("async/blocked_dependency")]]
 gentest::async_test<void> dependency_declares_it_cannot_resume() {
-    gentest::async::completion_source source;
-    source.fail_unresumable("remote peer closed before handshake");
-    co_await source.wait("handshake did not finish");
+    gentest::async::promise<void> promise;
+    auto future = promise.get_future();
+
+    promise.set_blocked("remote peer closed before handshake");
+    co_await future.wait("handshake did not finish");
 
     // The runner reports BLOCKED and the process exits non-zero.
 }
@@ -358,8 +393,8 @@ Outcome notes:
 - `xfail()` before an assertion or exception failure reports `XFAIL`; `xfail()`
   before a clean pass reports `XPASS`.
 - `xfail()` does not make a pure blocked dependency expected. A
-  `completion_source::fail_unresumable()` result remains `BLOCKED` unless the
-  case has already recorded a normal failure.
+  `promise<T>::set_blocked()` result remains `BLOCKED` unless the case has
+  already recorded a normal failure.
 - `skip()` after suspension reports `SKIP` only if the case has not already
   failed.
 - With fail-fast enabled, the first non-expected failure or blocked dependency
@@ -393,14 +428,16 @@ Non-terminal output is final-result only; it does not print the live block.
 - An `event<T>` payload is a stable key slot, not a per-wait snapshot. The
   returned `T&` remains valid only while the event object lives, and
   payload access is user-synchronized.
-- Keep `event<T>` and `completion_source` objects alive longer than their
-  waiters.
+- Keep `event<T>` objects alive longer than their waiters. Destroying an
+  incomplete `promise<T>` marks its future as `BLOCKED` with a broken-promise
+  reason.
 - Do not `co_await std::suspend_always{}` or a custom awaiter that never posts
   back to gentest's scheduler.
 - Only `co_await` gentest async primitives from a gentest async test, async
   fixture, or awaited async helper running under the scheduler.
-- Use `gentest::async::yield()` to let other ready async cases run. Use an event
-  or completion source to wait for a condition.
+- Use `gentest::async::yield()` to let other ready async cases run. Use an
+  event for keyed/broadcast coordination, or a promise/future pair for one-shot
+  external completion.
 - Use `gentest::log()` instead of direct `std::cout` / `std::cerr` writes while
   live progress is active.
 - Adopt the current context in worker threads before using gentest APIs.

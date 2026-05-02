@@ -644,31 +644,31 @@ gentest_add_check_counts(
     ARGS --filter=async/adopted_resume/* --kind=test --no-color)
 
 gentest_add_check_counts(
-    NAME async_completion_source_first_terminal_wins
+    NAME async_promise_first_terminal_wins
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     PASS 2
     FAIL 0
     SKIP 0
-    ARGS --filter=async/completion_source/order/* --kind=test --no-color)
+    ARGS --filter=async/promise/order/* --kind=test --no-color)
 
 gentest_add_check_counts(
-    NAME async_completion_source_pre_failed_before_wait
+    NAME async_promise_pre_blocked_before_wait
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     PASS 0
     FAIL 0
     SKIP 0
     BLOCKED 1
     EXPECT_RC 1
-    ARGS --run=async/completion_source/pre_failed_before_wait --kind=test --no-color)
+    ARGS --run=async/promise/pre_blocked_before_wait --kind=test --no-color)
 
 gentest_add_cmake_script_test(
-    NAME async_completion_source_pre_failed_before_wait_reason
+    NAME async_promise_pre_blocked_before_wait_reason
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=async/completion_source/pre_failed_before_wait --kind=test --no-color
+    ARGS --run=async/promise/pre_blocked_before_wait --kind=test --no-color
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRINGS=[ BLOCKED ] async/completion_source/pre_failed_before_wait|pre-completed dependency cannot resume")
+        "REQUIRED_SUBSTRINGS=[ BLOCKED ] async/promise/pre_blocked_before_wait|pre-completed dependency cannot resume")
 
 gentest_add_check_counts(
     NAME async_explicit_blocked
@@ -716,7 +716,7 @@ gentest_add_cmake_script_test(
     ARGS --filter=async/blocked/empty_reason/* --kind=test --no-color
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRINGS=[ BLOCKED ] async/blocked/empty_reason/00_waiter|completion source cannot resume")
+        "REQUIRED_SUBSTRINGS=[ BLOCKED ] async/blocked/empty_reason/00_waiter|async promise cannot resume")
 
 gentest_add_check_counts(
     NAME async_outcome_xfail_expect_fail
