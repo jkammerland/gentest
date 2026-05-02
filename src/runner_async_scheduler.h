@@ -42,7 +42,8 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     void               run_ready();
     [[nodiscard]] auto has_ready() const noexcept -> bool;
     void               cancel_owner(std::size_t owner);
-    [[nodiscard]] auto finish_unresumable(const StopCallback &should_stop = {}, const ProgressCallback &after_progress = {}) -> bool;
+    [[nodiscard]] auto finish_unresumable(const StopCallback &should_stop = {}, const ProgressCallback &after_progress = {},
+                                          const StopCallback &should_stop_waiting_for_adopted = {}) -> bool;
     void               run();
 
   private:
@@ -79,8 +80,9 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     void               clear_suspend_state(std::coroutine_handle<> handle);
     [[nodiscard]] auto resume_one_ready() -> bool;
     [[nodiscard]] auto has_unfinished_adopted_work() const -> bool;
-    void               wait_for_ready_or_adopted_release();
-    [[nodiscard]] auto drain_ready_and_adopted_work(const StopCallback &should_stop, const ProgressCallback &after_progress) -> bool;
+    void wait_for_ready_or_adopted_release(const StopCallback &should_stop, const StopCallback &should_stop_waiting_for_adopted);
+    [[nodiscard]] auto drain_ready_and_adopted_work(const StopCallback &should_stop, const ProgressCallback &after_progress,
+                                                    const StopCallback &should_stop_waiting_for_adopted) -> bool;
 
     std::vector<AsyncCaseRun>                                            &runs_;
     AsyncStatusRenderer                                                  *renderer_ = nullptr;

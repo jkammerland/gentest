@@ -200,6 +200,15 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=0"
         "FORBID_SUBSTRINGS=RUNNING|SUSPENDED|YIELDED")
 
+gentest_add_cmake_script_test(
+    NAME async_default_binary_no_hang
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --kind=test --no-color
+    DEFINES
+        "TIMEOUT_SEC=15"
+        "EXPECT_RC=1")
+
 gentest_add_check_counts(
     NAME async_live_demo_cooperative
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
@@ -308,6 +317,33 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=1")
 
 gentest_add_cmake_script_test(
+    NAME async_stuck_adopted_non_fail_fast_no_hang
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_stuck_adopted/* --kind=test --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME async_done_adopted_non_fail_fast_no_hang
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_done_adopted/* --kind=test --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
+    NAME async_many_stuck_adopted_non_fail_fast_no_hang
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_many_stuck_adopted/* --kind=test --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1")
+
+gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_adopted_no_hang
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
@@ -340,10 +376,19 @@ gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_released_context_aborts
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --filter=async/fail_fast_cancel_released_context/* --kind=test --fail-fast --no-color
+    ARGS --filter=async/fail_fast_cancel_released_context/* --kind=test --fail-fast --include-death --no-color
     DEFINES
         "EXPECT_RC=NONZERO"
         "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_cancel_released_context/01_sync_failure|without an active test context")
+
+gentest_add_cmake_script_test(
+    NAME async_released_context_default_filter_no_abort
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_cancel_released_context/* --kind=test --no-color
+    DEFINES
+        "TIMEOUT_SEC=5"
+        "EXPECT_RC=1")
 
 gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_local_fixture_runs_teardown

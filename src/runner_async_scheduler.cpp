@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fmt/format.h>
 #include <iterator>
@@ -173,8 +174,9 @@ void BatchAsyncScheduler::cancel_owner(std::size_t owner) {
     }
 }
 
-auto BatchAsyncScheduler::finish_unresumable(const StopCallback &should_stop, const ProgressCallback &after_progress) -> bool {
-    if (drain_ready_and_adopted_work(should_stop, after_progress)) {
+auto BatchAsyncScheduler::finish_unresumable(const StopCallback &should_stop, const ProgressCallback &after_progress,
+                                             const StopCallback &should_stop_waiting_for_adopted) -> bool {
+    if (drain_ready_and_adopted_work(should_stop, after_progress, should_stop_waiting_for_adopted)) {
         return true;
     }
     for (std::size_t i = 0; i < runs_.size(); ++i) {
@@ -392,12 +394,17 @@ auto BatchAsyncScheduler::has_unfinished_adopted_work() const -> bool {
     });
 }
 
-void BatchAsyncScheduler::wait_for_ready_or_adopted_release() {
+void BatchAsyncScheduler::wait_for_ready_or_adopted_release(const StopCallback &should_stop,
+                                                            const StopCallback &should_stop_waiting_for_adopted) {
     std::unique_lock<std::mutex> lk(mtx_);
-    adopted_release_wake_->cv.wait(lk, [&] { return !ready_.empty() || !has_unfinished_adopted_work(); });
+    adopted_release_wake_->cv.wait_for(lk, std::chrono::milliseconds(10), [&] {
+        return !ready_.empty() || !has_unfinished_adopted_work() || (should_stop && should_stop()) ||
+               (should_stop_waiting_for_adopted && should_stop_waiting_for_adopted());
+    });
 }
 
-auto BatchAsyncScheduler::drain_ready_and_adopted_work(const StopCallback &should_stop, const ProgressCallback &after_progress) -> bool {
+auto BatchAsyncScheduler::drain_ready_and_adopted_work(const StopCallback &should_stop, const ProgressCallback &after_progress,
+                                                       const StopCallback &should_stop_waiting_for_adopted) -> bool {
     do {
         while (has_ready()) {
             if (should_stop && should_stop()) {
@@ -422,7 +429,10 @@ auto BatchAsyncScheduler::drain_ready_and_adopted_work(const StopCallback &shoul
         if (!has_unfinished_adopted_work()) {
             return false;
         }
-        wait_for_ready_or_adopted_release();
+        if (should_stop_waiting_for_adopted && should_stop_waiting_for_adopted()) {
+            return true;
+        }
+        wait_for_ready_or_adopted_release(should_stop, should_stop_waiting_for_adopted);
     } while (true);
 }
 

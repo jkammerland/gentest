@@ -338,15 +338,17 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         deferred_canceled_tasks.clear();
     };
 
-    const auto finalize_fail_fast_stopped_adopted_run = [&](std::size_t run_index) {
+    const auto finalize_canceled_adopted_run = [&](std::size_t run_index, bool request_stop) {
         auto &run = async_runs[run_index];
         if (run.finalized) {
             return;
         }
 
         scheduler.cancel_owner(run_index);
-        run.finalized            = true;
-        fail_fast_stop_requested = true;
+        run.finalized = true;
+        if (request_stop) {
+            fail_fast_stop_requested = true;
+        }
         ++counters.total;
 
         classify_async_exception(run);
@@ -414,7 +416,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                 continue;
             }
             if (force_stop_result) {
-                finalize_fail_fast_stopped_adopted_run(run_index);
+                finalize_canceled_adopted_run(run_index, true);
             } else {
                 finalize_run(run_index);
             }
@@ -447,24 +449,61 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         if (finalize_completed_runs()) {
             return true;
         }
+        const auto                              drain_deadline = std::chrono::steady_clock::now() + kCanceledAsyncCleanupHardTimeout;
+        const BatchAsyncScheduler::StopCallback drain_should_stop =
+            fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{};
+        const BatchAsyncScheduler::StopCallback drain_adopted_wait_timeout =
+            fail_fast ? BatchAsyncScheduler::StopCallback{}
+                      : BatchAsyncScheduler::StopCallback([&] { return std::chrono::steady_clock::now() >= drain_deadline; });
         const bool stopped_while_draining =
-            scheduler.finish_unresumable(fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{},
-                                         [&] { return finalize_completed_runs(); });
+            scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); }, drain_adopted_wait_timeout);
         if (finalize_completed_runs()) {
             return true;
         }
-        if (stopped_while_draining) {
+        if (stopped_while_draining && fail_fast) {
             advance_first_unfinalized();
             return true;
         }
         for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
-            scheduler.cancel_owner(run_index);
-            finalize_run(run_index);
+            auto &run = async_runs[run_index];
+            if (run.finalized) {
+                continue;
+            }
+            if (has_adopted_work(run)) {
+                if (run.ready_to_finalize) {
+                    classify_async_exception(run);
+                }
+                scheduler.cancel_owner(run_index);
+                gentest::runner::detail::cancel_active_test_context_without_wait(run.ctxinfo);
+                gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
+                deferred_canceled_tasks.push_back(DeferredCanceledTask{.task                     = std::move(run.task),
+                                                                       .ctx                      = run.ctxinfo,
+                                                                       .run_index                = run_index,
+                                                                       .record_result_on_cleanup = run.ready_to_finalize});
+                run.finalized = true;
+            } else {
+                scheduler.cancel_owner(run_index);
+                if (!run.ready_to_finalize) {
+                    if (run.exception == InvokeException::None) {
+                        run.exception = InvokeException::Failure;
+                        run.message   = "async test canceled before completion";
+                        record_context_failure(run.ctxinfo, run.message);
+                    }
+                    gentest::runner::detail::cancel_active_test_context_without_wait(run.ctxinfo);
+                    gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
+                }
+                finalize_run(run_index);
+            }
             if (should_stop()) {
                 advance_first_unfinalized();
                 return true;
             }
         }
+        const auto cleanup_start = std::chrono::steady_clock::now();
+        destroy_released_canceled_tasks_until(cleanup_start + kCanceledAsyncCleanupSoftTimeout);
+        report_slow_canceled_tasks();
+        destroy_released_canceled_tasks_until(cleanup_start + kCanceledAsyncCleanupHardTimeout);
+        close_and_release_unfinished_canceled_tasks();
         advance_first_unfinalized();
         return should_stop();
     };

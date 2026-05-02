@@ -854,7 +854,7 @@ void fail_fast_cancel_adopted_context_sync_failure() {
     EXPECT_TRUE(false, "fail-fast sync failure should not make adopted context operations fatal");
 }
 
-[[using gentest: test("fail_fast_cancel_released_context/00_pending_worker_reuses_released_context")]]
+[[using gentest: test("fail_fast_cancel_released_context/00_pending_worker_reuses_released_context"), death]]
 gentest::async_test<void> fail_fast_cancel_released_context_pending_worker_reuses_released_context() {
     fail_fast_cancel_adopted_context_resume.reset_all();
     fail_fast_cancel_released_context_worker_started.store(false, std::memory_order_release);
