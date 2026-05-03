@@ -1,8 +1,6 @@
 #include "gentest/context.h"
 #include "gentest/detail/runtime_context.h"
 
-#include <cstdio>
-#include <cstdlib>
 #include <mutex>
 #include <string>
 
@@ -10,38 +8,39 @@ namespace gentest {
 
 auto get_current_context() -> CurrentContext { return detail::current_test(); }
 
-auto set_current_context(CurrentContext context) -> Adoption { return Adoption(std::move(context)); }
+auto set_current_context(CurrentContext context) -> CurrentContextLease { return CurrentContextLease(std::move(context)); }
 
 auto get_current_token() -> CurrentToken { return get_current_context(); }
 
-auto set_current_token(CurrentToken context) -> Adoption { return set_current_context(std::move(context)); }
+auto set_current_token(CurrentToken context) -> CurrentContextLease { return set_current_context(std::move(context)); }
 
-Adoption::Adoption(CurrentContext context) : previous_(get_current_context()), adopted_(std::move(context)) {
-    if (adopted_) {
-        adopted_->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
+CurrentContextLease::CurrentContextLease(CurrentContext context) : previous_(get_current_context()), leased_(std::move(context)) {
+    if (leased_) {
+        leased_->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
     }
     try {
-        detail::set_current_test(adopted_);
+        detail::set_current_test(leased_);
     } catch (...) {
-        if (adopted_ && adopted_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            adopted_->adopted_cv.notify_all();
+        if (leased_ && leased_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            detail::notify_adopted_contexts_released(*leased_);
         }
         throw;
     }
 }
 
-Adoption::~Adoption() {
+CurrentContextLease::~CurrentContextLease() {
     detail::set_current_test(std::move(previous_));
-    if (adopted_ && adopted_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        adopted_->adopted_cv.notify_all();
+    if (leased_ && leased_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        detail::close_canceled_context_if_released(*leased_);
+        detail::notify_adopted_contexts_released(*leased_);
     }
 }
 
 void log(std::string_view message) {
     auto  ctx    = detail::current_test_storage();
     auto &buffer = detail::current_buffer_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        return;
+    if (!detail::accepts_late_test_operation(ctx)) {
+        detail::fail_without_active_context("log called");
     }
     if (buffer.owner != ctx.get()) {
         detail::flush_current_buffer_for(buffer.owner);
@@ -99,11 +98,8 @@ void set_default_log_policy(LogPolicy policy) {
 void xfail(std::string_view reason, const std::source_location &loc) {
     (void)loc;
     auto ctx = detail::current_test_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        (void)std::fputs("gentest: fatal: xfail called without an active test context.\n"
-                         "        Did you forget to set the current context in this thread/coroutine?\n",
-                         stderr);
-        std::abort();
+    if (!detail::accepts_late_test_operation(ctx)) {
+        detail::fail_without_active_context("xfail called");
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->xfail_requested = true;

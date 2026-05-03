@@ -20,7 +20,8 @@
 //   wrapper_ephemeral:{w}, {fixture}, {method}, {bench_invoke}
 //   wrapper_stateful: {w}, {fixture}, {method}
 //   case_entry:       {name}, {wrapper}, {file}, {line}, {tags}, {reqs},
-//                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite}
+//                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite},
+//                     {async_wrapper}, {is_async}
 //   group_runner_*:   {gid}, {fixture}, {count}, {idxs}
 //   array_decl_*:     {name}; or {count}, {name}, {body}
 //   forward_decl_*:   {name}; or {scope}, {lines}
@@ -36,14 +37,17 @@
 namespace gentest::codegen::tpl {
 
 inline constexpr std::string_view registration_preamble_light = R"CPP(#include <array>
+#include <chrono>
 #include <span>
 #include <string_view>
 
+#include "gentest/async.h"
 #include "gentest/detail/registration_runtime.h"
 )CPP";
 ;
 
 inline constexpr std::string_view registration_preamble_full = R"CPP(#include <array>
+#include <chrono>
 #include <fmt/format.h>
 #include <span>
 #include <string>
@@ -51,6 +55,7 @@ inline constexpr std::string_view registration_preamble_full = R"CPP(#include <a
 #include <type_traits>
 #include <utility>
 
+#include "gentest/async.h"
 #include "gentest/detail/generated_runtime.h"
 )CPP";
 ;
@@ -65,6 +70,26 @@ inline void gentest_maybe_setup(T& t) {
 template <typename T>
 inline void gentest_maybe_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) t.tearDown();
+}
+
+template <typename T>
+inline ::gentest::async_test<void> gentest_maybe_async_setup(T& t) {
+    if constexpr (std::is_base_of_v<gentest::AsyncFixtureSetup, T>) {
+        co_await t.setUp();
+    } else if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) {
+        t.setUp();
+    }
+    co_return;
+}
+
+template <typename T>
+inline ::gentest::async_test<void> gentest_maybe_async_teardown(T& t) {
+    if constexpr (std::is_base_of_v<gentest::AsyncFixtureTearDown, T>) {
+        co_await t.tearDown();
+    } else if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) {
+        t.tearDown();
+    }
+    co_return;
 }
 
 inline void gentest_record_fixture_failure(std::string_view fixture, std::string_view reason) {
@@ -126,6 +151,80 @@ inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown
     body();
     teardown_state.run_now();
 #endif
+}
+
+template <typename TeardownFn>
+struct gentest_async_local_teardown_guard {
+    TeardownFn                                  *teardown = nullptr;
+    ::gentest::detail::ContextCancelHookToken    cancel_hook;
+    bool                                         ran      = false;
+
+    explicit gentest_async_local_teardown_guard(TeardownFn *teardown_fn)
+        : teardown(teardown_fn),
+          cancel_hook(::gentest::detail::register_context_cancel_hook(::gentest::detail::ContextCancelHookState{&run, this})) {}
+
+    gentest_async_local_teardown_guard(const gentest_async_local_teardown_guard &)            = delete;
+    gentest_async_local_teardown_guard &operator=(const gentest_async_local_teardown_guard &) = delete;
+
+    ~gentest_async_local_teardown_guard() {
+        ::gentest::detail::unregister_context_cancel_hook(cancel_hook);
+        run_blocking();
+    }
+
+    static void run(void *user_data) noexcept {
+        auto *state = static_cast<gentest_async_local_teardown_guard *>(user_data);
+        if (!state) return;
+        state->run_blocking();
+    }
+
+    ::gentest::async_test<void> run_now() {
+        if (!ran && teardown) {
+            ran = true;
+            co_await (*teardown)();
+        }
+        co_return;
+    }
+
+    void run_blocking() noexcept {
+        if (ran || !teardown) return;
+        std::string error;
+        if (!::gentest::detail::run_async_task_blocking(run_now(), "async local fixture teardown", error)) {
+            std::string msg = "async local fixture teardown failed";
+            if (!error.empty()) {
+                msg += ": ";
+                msg += error;
+            }
+            ::gentest::detail::record_failure(std::move(msg));
+        }
+    }
+
+};
+
+template <typename BodyFn, typename TeardownFn>
+inline ::gentest::async_test<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+    auto teardown_fn = std::forward<TeardownFn>(teardown);
+    gentest_async_local_teardown_guard<decltype(teardown_fn)> teardown_state{&teardown_fn};
+#if GENTEST_EXCEPTIONS_ENABLED
+    std::exception_ptr error;
+    try {
+        co_await body();
+    } catch (...) {
+        error = std::current_exception();
+    }
+    if (error) {
+        try {
+            co_await teardown_state.run_now();
+        } catch (...) {
+        }
+        std::rethrow_exception(error);
+    }
+    co_await teardown_state.run_now();
+#else
+    ::gentest::detail::NoExceptionsFatalHookScope fatal_scope(&decltype(teardown_state)::run, &teardown_state);
+    co_await body();
+    co_await teardown_state.run_now();
+#endif
+    co_return;
 }
 
 template <typename Handle>
@@ -349,7 +448,9 @@ inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
         .should_skip = {should_skip},
         .fixture = {fixture},
         .fixture_lifetime = {lifetime},
-        .suite = {suite}
+        .suite = {suite},
+        .async_fn = {async_wrapper},
+        .is_async = {is_async}
     }},
 
 )FMT";

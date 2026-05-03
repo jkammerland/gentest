@@ -4,6 +4,7 @@
 // generated-like regression TUs include this when they need fixture binding,
 // shared-fixture registration/lookup, and case registration in one place.
 
+#include "gentest/async.h"
 #include "gentest/detail/fixture_api.h"
 #include "gentest/detail/registration_runtime.h"
 #include "gentest/detail/runtime_support.h"
@@ -229,7 +230,13 @@ template <typename Fixture> inline std::shared_ptr<void> shared_fixture_create_g
 }
 
 template <typename Fixture> inline void shared_fixture_setup(void *instance, std::string &error) {
-    if constexpr (std::is_base_of_v<gentest::FixtureSetup, Fixture>) {
+    if constexpr (std::is_base_of_v<gentest::AsyncFixtureSetup, Fixture>) {
+        if (!instance) {
+            error = "instance missing";
+            return;
+        }
+        (void)gentest::detail::run_async_task_blocking(static_cast<Fixture *>(instance)->setUp(), "fixture async setup", error);
+    } else if constexpr (std::is_base_of_v<gentest::FixtureSetup, Fixture>) {
         if (!instance) {
             error = "instance missing";
             return;
@@ -239,7 +246,13 @@ template <typename Fixture> inline void shared_fixture_setup(void *instance, std
 }
 
 template <typename Fixture> inline void shared_fixture_teardown(void *instance, std::string &error) {
-    if constexpr (std::is_base_of_v<gentest::FixtureTearDown, Fixture>) {
+    if constexpr (std::is_base_of_v<gentest::AsyncFixtureTearDown, Fixture>) {
+        if (!instance) {
+            error = "instance missing";
+            return;
+        }
+        (void)gentest::detail::run_async_task_blocking(static_cast<Fixture *>(instance)->tearDown(), "fixture async teardown", error);
+    } else if constexpr (std::is_base_of_v<gentest::FixtureTearDown, Fixture>) {
         if (!instance) {
             error = "instance missing";
             return;

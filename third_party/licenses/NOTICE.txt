@@ -1,16 +1,31 @@
-Third-party licensing notice for vendored tabulate headers.
+Third-party licensing notice for vendored sources.
 
-Source package:
+Source packages:
+- indicators (https://github.com/p-ranav/indicators), tag v2.3,
+  commit 26d39ad8fb438f5f50fb16427f554045d8431030
 - tabulate (https://github.com/p-ranav/tabulate)
 
 License files included in this directory:
+- indicators-MIT.txt
+- indicators-setting-MIT.txt
 - tabulate-MIT.txt
 - termcolor-BSD.txt
 - boost-software-license-1.0.txt
+- wcwidth-Markus-Kuhn.txt
 
 Mapping:
+- Most files under third_party/include/indicators are from indicators and are MIT-licensed.
+- third_party/include/indicators/setting.hpp carries a distinct MIT notice for
+  Dawid Pilarski.
+- third_party/include/indicators/termcolor.hpp references termcolor and uses
+  termcolor-BSD.txt.
+- third_party/include/indicators/display_width.hpp includes Markus Kuhn's
+  wcwidth()/wcswidth() Unicode column width implementation under its bundled
+  permissive notice.
 - Most files under third_party/include/tabulate are from tabulate and are MIT-licensed.
-- third_party/include/tabulate/termcolor.hpp references termcolor and BSD license.
+- third_party/include/tabulate/termcolor.hpp is a local compatibility shim that
+  delegates to third_party/include/indicators/termcolor.hpp so both p-ranav
+  libraries use one termcolor implementation; termcolor remains BSD-licensed.
 - third_party/include/tabulate/optional_lite.hpp,
   third_party/include/tabulate/string_view_lite.hpp,
   third_party/include/tabulate/variant_lite.hpp

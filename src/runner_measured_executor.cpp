@@ -342,6 +342,7 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
     switch (inv.exception) {
     case gentest::runner::InvokeException::None: break;
     case gentest::runner::InvokeException::Skip: runtime_skipped = true; break;
+    case gentest::runner::InvokeException::Blocked:
     case gentest::runner::InvokeException::Assertion:
     case gentest::runner::InvokeException::Failure:
     case gentest::runner::InvokeException::StdException:

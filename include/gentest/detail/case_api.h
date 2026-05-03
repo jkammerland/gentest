@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gentest/async.h"
 #include "gentest/detail/runtime_config.h"
 
 #include <span>
@@ -34,6 +35,8 @@ struct Case {
     std::string_view                  fixture; // empty for free tests
     FixtureLifetime                   fixture_lifetime;
     std::string_view                  suite;
+    gentest::detail::AsyncCaseFn      async_fn{nullptr};
+    bool                              is_async{false};
 };
 
 } // namespace gentest

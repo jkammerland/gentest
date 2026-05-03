@@ -2,8 +2,10 @@
 #  -DPROG=<path to executable>
 # Optional:
 #  -DARGS=<optional CLI args>
-#  -DEXPECT_RC=<expected numeric exit code>
+#  -DTIMEOUT_SEC=<seconds>
+#  -DEXPECT_RC=<expected numeric exit code or NONZERO>
 #  -DREQUIRED_SUBSTRING=<substring that must be present in combined output>
+#  -DREQUIRED_SUBSTRINGS=<substrings delimited by '|' that must be present in combined output>
 #  -DEXPECT_COUNT_SUBSTRING=<substring whose exact occurrence count is enforced>
 #  -DEXPECT_COUNT=<expected count for EXPECT_COUNT_SUBSTRING>
 #  -DFORBID_SUBSTRING=<substring that must NOT be present in combined output>
@@ -31,8 +33,14 @@ if(DEFINED ARGS)
   endif()
 endif()
 
+set(_timeout_args)
+if(DEFINED TIMEOUT_SEC AND NOT "${TIMEOUT_SEC}" STREQUAL "")
+  set(_timeout_args TIMEOUT "${TIMEOUT_SEC}")
+endif()
+
 execute_process(
   COMMAND ${_emu} "${PROG}" ${_args}
+  ${_timeout_args}
   RESULT_VARIABLE rc
   OUTPUT_VARIABLE out
   ERROR_VARIABLE err
@@ -41,8 +49,33 @@ execute_process(
 
 set(_all "${out}\n${err}")
 
+function(_gentest_result_is_process_failure out_var value)
+  if("${value}" MATCHES "^-?[0-9]+$")
+    if("${value}" STREQUAL "0")
+      set(${out_var} FALSE PARENT_SCOPE)
+    else()
+      set(${out_var} TRUE PARENT_SCOPE)
+    endif()
+  elseif("${value}" MATCHES "^Subprocess (aborted|terminated)" OR "${value}" MATCHES "^Exit code 0x[0-9A-Fa-f]+")
+    set(${out_var} TRUE PARENT_SCOPE)
+  else()
+    set(${out_var} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
+if(DEFINED TIMEOUT_SEC AND NOT "${TIMEOUT_SEC}" STREQUAL "" AND "${rc}" MATCHES "[Tt]imeout")
+  message(FATAL_ERROR "Process did not complete within ${TIMEOUT_SEC}s (rc='${rc}'). Output:\n${_all}")
+endif()
+
 if(DEFINED EXPECT_RC AND NOT "${EXPECT_RC}" STREQUAL "")
-  if(NOT rc EQUAL EXPECT_RC)
+  if("${EXPECT_RC}" STREQUAL "NONZERO")
+    _gentest_result_is_process_failure(_gentest_rc_is_process_failure "${rc}")
+    if(NOT _gentest_rc_is_process_failure)
+      message(FATAL_ERROR "Expected non-zero process exit, but process did not return an exit/termination code (rc='${rc}'). Output:\n${_all}")
+    endif()
+  elseif(NOT "${rc}" MATCHES "^-?[0-9]+$")
+    message(FATAL_ERROR "Expected exit code ${EXPECT_RC}, but process did not return a numeric exit code (rc='${rc}'). Output:\n${_all}")
+  elseif(NOT rc EQUAL EXPECT_RC)
     message(FATAL_ERROR "Expected exit code ${EXPECT_RC}, got ${rc}. Output:\n${_all}")
   endif()
 endif()
@@ -52,6 +85,17 @@ if(DEFINED REQUIRED_SUBSTRING AND NOT "${REQUIRED_SUBSTRING}" STREQUAL "")
   if(_expect_pos EQUAL -1)
     message(FATAL_ERROR "Expected substring not found: '${REQUIRED_SUBSTRING}'. Output:\n${_all}")
   endif()
+endif()
+
+if(DEFINED REQUIRED_SUBSTRINGS AND NOT "${REQUIRED_SUBSTRINGS}" STREQUAL "")
+  set(_required_values "${REQUIRED_SUBSTRINGS}")
+  string(REPLACE "|" ";" _required_values "${_required_values}")
+  foreach(_required IN LISTS _required_values)
+    string(FIND "${_all}" "${_required}" _expect_pos)
+    if(_expect_pos EQUAL -1)
+      message(FATAL_ERROR "Expected substring not found: '${_required}'. Output:\n${_all}")
+    endif()
+  endforeach()
 endif()
 
 if(DEFINED EXPECT_COUNT_SUBSTRING AND NOT "${EXPECT_COUNT_SUBSTRING}" STREQUAL "")

@@ -15,6 +15,7 @@ filegroup(
     srcs = glob([
         "include/gentest/*.h",
         "include/gentest/detail/*.h",
+        "third_party/include/indicators/**/*.hpp",
         "third_party/include/tabulate/*.hpp",
     ], allow_empty = False),
     visibility = ["//visibility:public"],
@@ -148,9 +149,21 @@ alias(
 cc_library(
     name = 'gentest_runtime',
     srcs = [
+        'src/async_timer_queue.h',
+        'src/async.cpp',
         'src/bench_stats.cpp',
         'src/context_api.cpp',
         'src/runtime_context.cpp',
+        'src/runner_async_executor.cpp',
+        'src/runner_async_executor.h',
+        'src/runner_async_scheduler.cpp',
+        'src/runner_async_scheduler.h',
+        'src/runner_async_state.cpp',
+        'src/runner_async_state.h',
+        'src/runner_async_status_renderer.cpp',
+        'src/runner_async_status_renderer.h',
+        'src/runner_case_result.cpp',
+        'src/runner_case_result.h',
         'src/runner_case_invoker.cpp',
         'src/runner_case_invoker.h',
         'src/runner_cli.cpp',
@@ -183,6 +196,7 @@ cc_library(
     hdrs = glob([
         'include/gentest/*.h',
         'include/gentest/detail/*.h',
+        'third_party/include/indicators/**/*.hpp',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
     copts = _gentest_public_copts,
@@ -198,6 +212,7 @@ cc_library(
     hdrs = glob([
         'include/gentest/*.h',
         'include/gentest/detail/*.h',
+        'third_party/include/indicators/**/*.hpp',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
     copts = _gentest_public_module_copts,
@@ -217,6 +232,7 @@ cc_library(
     hdrs = glob([
         'include/gentest/*.h',
         'include/gentest/detail/*.h',
+        'third_party/include/indicators/**/*.hpp',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
     copts = _gentest_public_module_copts,
@@ -237,6 +253,7 @@ cc_library(
     hdrs = glob([
         'include/gentest/*.h',
         'include/gentest/detail/*.h',
+        'third_party/include/indicators/**/*.hpp',
         'third_party/include/tabulate/*.hpp',
     ], allow_empty = False),
     copts = _gentest_public_module_copts,

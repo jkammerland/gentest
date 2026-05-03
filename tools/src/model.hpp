@@ -187,13 +187,16 @@ struct TestCaseInfo {
     bool is_function_template = false;
     // True when the test function/method returns a non-void value.
     bool returns_value = false;
+    // True when the discovered callable returns gentest::async_test<T>.
+    bool returns_async = false;
     // Tags and metadata
     std::vector<std::string> tags;
     std::vector<std::string> requirements;
     bool                     should_skip = false;
     std::string              skip_reason;
-    // Fixture/method support
-    // If non-empty, this case represents a member test on the given fixture type.
+    // Fixture/method support.
+    // This is populated for member tests. Free-function shared fixture parameters stay in free_fixtures; rendering may still publish the
+    // first shared free fixture as the generated Case.fixture so runner ordering can respect shared fixture boundaries.
     std::string     fixture_qualified_name;
     FixtureLifetime fixture_lifetime = FixtureLifetime::None;
     // Template instantiation info (for display and call generation)

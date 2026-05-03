@@ -227,16 +227,16 @@ bool is_async_execution_lambda(const LambdaExpr &lambda, ASTContext &context) {
     return false;
 }
 
-bool is_current_context_adoption_call(const CallExpr &call) {
+bool is_current_context_lease_call(const CallExpr &call) {
     const FunctionDecl *callee = call.getDirectCallee();
     return callee &&
            (qualified_name_is(*callee, "gentest::set_current_context") || qualified_name_is(*callee, "gentest::set_current_token"));
 }
 
-bool is_gentest_adoption_type(QualType type) {
+bool is_gentest_context_lease_type(QualType type) {
     type                        = type.getNonReferenceType().getUnqualifiedType().getCanonicalType();
     const CXXRecordDecl *record = type->getAsCXXRecordDecl();
-    return record && qualified_name_is(*record, "gentest::Adoption");
+    return record && qualified_name_is(*record, "gentest::CurrentContextLease");
 }
 
 bool is_gentest_runtime_call(const CallExpr &call) {
@@ -367,7 +367,7 @@ const Stmt *declaration_lifetime_owner(const VarDecl &var, ASTContext &context) 
 class SetCurrentContextCallFinder : public RecursiveASTVisitor<SetCurrentContextCallFinder> {
   public:
     bool VisitCallExpr(CallExpr *call) {
-        if (call && is_current_context_adoption_call(*call)) {
+        if (call && is_current_context_lease_call(*call)) {
             found_ = true;
             return false;
         }
@@ -380,8 +380,8 @@ class SetCurrentContextCallFinder : public RecursiveASTVisitor<SetCurrentContext
     bool found_ = false;
 };
 
-bool initializes_adoption_from_current_context(const VarDecl &var) {
-    if (!is_gentest_adoption_type(var.getType())) {
+bool initializes_lease_from_current_context(const VarDecl &var) {
+    if (!is_gentest_context_lease_type(var.getType())) {
         return false;
     }
     const Expr *init = var.getInit();
@@ -393,12 +393,10 @@ bool initializes_adoption_from_current_context(const VarDecl &var) {
     return finder.found();
 }
 
-class ActiveContextAdoptionVisitor : public RecursiveASTVisitor<ActiveContextAdoptionVisitor> {
+class ActiveContextLeaseVisitor : public RecursiveASTVisitor<ActiveContextLeaseVisitor> {
   public:
-    ActiveContextAdoptionVisitor(ASTContext &context, const CallExpr &target, SourceLocation before,
-                                 bool require_adoption_after_latest_suspend)
-        : context_(context), target_(target), before_(before),
-          require_adoption_after_latest_suspend_(require_adoption_after_latest_suspend) {}
+    ActiveContextLeaseVisitor(ASTContext &context, const CallExpr &target, SourceLocation before, bool require_lease_after_latest_suspend)
+        : context_(context), target_(target), before_(before), require_lease_after_latest_suspend_(require_lease_after_latest_suspend) {}
 
     bool VisitDeclStmt(DeclStmt *decl_stmt) {
         if (!decl_stmt) {
@@ -412,20 +410,20 @@ class ActiveContextAdoptionVisitor : public RecursiveASTVisitor<ActiveContextAdo
 
         for (Decl *decl : decl_stmt->decls()) {
             const auto *var = dyn_cast_or_null<VarDecl>(decl);
-            if (!var || !initializes_adoption_from_current_context(*var)) {
+            if (!var || !initializes_lease_from_current_context(*var)) {
                 continue;
             }
             SourceLocation decl_loc = context_.getSourceManager().getExpansionLoc(var->getBeginLoc());
             if (!is_before_target(decl_loc)) {
                 continue;
             }
-            if (require_adoption_after_latest_suspend_ && latest_suspend_.isValid() &&
+            if (require_lease_after_latest_suspend_ && latest_suspend_.isValid() &&
                 !context_.getSourceManager().isBeforeInTranslationUnit(latest_suspend_, decl_loc)) {
                 continue;
             }
             const Stmt *scope = declaration_lifetime_owner(*var, context_);
             if (scope && stmt_is_ancestor_of(scope, &target_, context_)) {
-                record_latest(adoption_, decl_loc);
+                record_latest(lease_, decl_loc);
             }
         }
         return true;
@@ -446,13 +444,13 @@ class ActiveContextAdoptionVisitor : public RecursiveASTVisitor<ActiveContextAdo
     }
 
     bool found() const {
-        if (adoption_.isInvalid()) {
+        if (lease_.isInvalid()) {
             return false;
         }
-        if (!require_adoption_after_latest_suspend_ || latest_suspend_.isInvalid()) {
+        if (!require_lease_after_latest_suspend_ || latest_suspend_.isInvalid()) {
             return true;
         }
-        return context_.getSourceManager().isBeforeInTranslationUnit(latest_suspend_, adoption_);
+        return context_.getSourceManager().isBeforeInTranslationUnit(latest_suspend_, lease_);
     }
 
   private:
@@ -476,14 +474,14 @@ class ActiveContextAdoptionVisitor : public RecursiveASTVisitor<ActiveContextAdo
     ASTContext     &context_;
     const CallExpr &target_;
     SourceLocation  before_;
-    bool            require_adoption_after_latest_suspend_ = false;
-    SourceLocation  adoption_{};
+    bool            require_lease_after_latest_suspend_ = false;
+    SourceLocation  lease_{};
     SourceLocation  latest_suspend_{};
 };
 
-bool has_prior_context_adoption(const Stmt &body, const CallExpr &target, SourceLocation before, ASTContext &context,
-                                bool require_adoption_after_latest_suspend) {
-    ActiveContextAdoptionVisitor visitor(context, target, before, require_adoption_after_latest_suspend);
+bool has_prior_context_lease(const Stmt &body, const CallExpr &target, SourceLocation before, ASTContext &context,
+                             bool require_lease_after_latest_suspend) {
+    ActiveContextLeaseVisitor visitor(context, target, before, require_lease_after_latest_suspend);
     visitor.TraverseStmt(const_cast<Stmt *>(&body));
     return visitor.found();
 }
@@ -491,7 +489,7 @@ bool has_prior_context_adoption(const Stmt &body, const CallExpr &target, Source
 struct RiskyExecutionContext {
     const Stmt *body = nullptr;
     std::string kind;
-    bool        require_adoption_after_latest_suspend = false;
+    bool        require_lease_after_latest_suspend = false;
 };
 
 std::optional<RiskyExecutionContext> find_risky_execution_context(const CallExpr &call, ASTContext &context) {
@@ -507,7 +505,7 @@ std::optional<RiskyExecutionContext> find_risky_execution_context(const CallExpr
             return RiskyExecutionContext{.body = lambda->getBody(), .kind = "thread-like callback"};
         }
         if (const auto *coroutine_body = current.get<CoroutineBodyStmt>()) {
-            return RiskyExecutionContext{.body = coroutine_body, .kind = "coroutine body", .require_adoption_after_latest_suspend = true};
+            return RiskyExecutionContext{.body = coroutine_body, .kind = "coroutine body", .require_lease_after_latest_suspend = true};
         }
         if (const auto *function = current.get<FunctionDecl>(); function) {
             if (const auto *method = dyn_cast<CXXMethodDecl>(function); method && method->getParent() && method->getParent()->isLambda()) {
@@ -515,7 +513,7 @@ std::optional<RiskyExecutionContext> find_risky_execution_context(const CallExpr
             }
             const Stmt *body = function->getBody();
             if (body && isa<CoroutineBodyStmt>(body)) {
-                return RiskyExecutionContext{.body = body, .kind = "coroutine body", .require_adoption_after_latest_suspend = true};
+                return RiskyExecutionContext{.body = body, .kind = "coroutine body", .require_lease_after_latest_suspend = true};
             }
             if (body && callable_decl_is_used_in_thread_like_context(*function, context)) {
                 return RiskyExecutionContext{.body = body, .kind = "thread-like callback"};
@@ -593,10 +591,9 @@ class GentestAttributesCheck : public clang::tidy::ClangTidyCheck {
     }
 };
 
-class GentestContextAdoptionCheck : public clang::tidy::ClangTidyCheck {
+class GentestContextLeaseCheck : public clang::tidy::ClangTidyCheck {
   public:
-    GentestContextAdoptionCheck(llvm::StringRef Name, clang::tidy::ClangTidyContext *Context)
-        : clang::tidy::ClangTidyCheck(Name, Context) {}
+    GentestContextLeaseCheck(llvm::StringRef Name, clang::tidy::ClangTidyContext *Context) : clang::tidy::ClangTidyCheck(Name, Context) {}
 
     void registerMatchers(MatchFinder *Finder) override {
         Finder->addMatcher(callExpr(callee(functionDecl())).bind("gentest-runtime-call"), this);
@@ -619,13 +616,14 @@ class GentestContextAdoptionCheck : public clang::tidy::ClangTidyCheck {
         if (!risky_context || !risky_context->body) {
             return;
         }
-        if (has_prior_context_adoption(*risky_context->body, *runtime_call, call_loc, *context,
-                                       risky_context->require_adoption_after_latest_suspend)) {
+        if (has_prior_context_lease(*risky_context->body, *runtime_call, call_loc, *context,
+                                    risky_context->require_lease_after_latest_suspend)) {
             return;
         }
 
-        diag(call_loc, "gentest runtime call %0 in %1 may run without an active current context; keep the gentest::Adoption returned by "
-                       "gentest::set_current_context() alive in this scope")
+        diag(call_loc,
+             "gentest runtime call %0 in %1 may run without an active current context; keep the gentest::CurrentContextLease returned by "
+             "gentest::set_current_context() alive in this scope")
             << gentest_runtime_call_name(*runtime_call) << risky_context->kind;
     }
 };
@@ -634,8 +632,8 @@ class GentestTidyModule : public clang::tidy::ClangTidyModule {
   public:
     void addCheckFactories(clang::tidy::ClangTidyCheckFactories &Factories) override {
         Factories.registerCheck<GentestAttributesCheck>("gentest-attributes");
-        Factories.registerCheck<GentestContextAdoptionCheck>("gentest-context-adoption");
-        Factories.registerCheck<GentestContextAdoptionCheck>("gentest-token-adoption");
+        Factories.registerCheck<GentestContextLeaseCheck>("gentest-context-lease");
+        Factories.registerCheck<GentestContextLeaseCheck>("gentest-token-lease");
     }
 };
 

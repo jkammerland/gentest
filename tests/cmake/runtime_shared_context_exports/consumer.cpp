@@ -8,9 +8,12 @@ int main() {
     auto *teardown_shared_fixtures = &gentest::detail::teardown_shared_fixtures;
     (void)setup_shared_fixtures;
     (void)teardown_shared_fixtures;
-    gentest::log("shared-runtime-consumer");
+    auto *log_fn   = &gentest::log;
+    auto *skip_fn  = &gentest::skip;
+    auto *xfail_fn = &gentest::xfail;
     gentest::set_log_policy(gentest::LogPolicy::Never);
+    gentest::set_default_log_policy(gentest::LogPolicy::Never);
     gentest::skip_if(false, "unused");
     gentest::xfail_if(false, "unused");
-    return 0;
+    return log_fn == nullptr || skip_fn == nullptr || xfail_fn == nullptr ? 1 : 0;
 }

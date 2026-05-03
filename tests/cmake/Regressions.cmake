@@ -111,6 +111,9 @@ set(_gentest_manual_regressions
     "gentest_regression_time_unit_scaling|time_unit_scaling.cpp"
     "gentest_regression_runtime_reporting|runtime_reporting_regressions.cpp"
     "gentest_regression_runtime_selection|runtime_selection_regressions.cpp"
+    "gentest_regression_async_blocking_timer_starvation|async_blocking_timer_starvation.cpp"
+    "gentest_regression_async_stale_waiter|async_stale_waiter.cpp"
+    "gentest_regression_async_adopted_ready_queue|async_adopted_ready_queue.cpp"
     "gentest_regression_reporting_attachment_collision|reporting_attachment_collision.cpp")
 
 foreach(_gentest_manual_regression IN LISTS _gentest_manual_regressions)
@@ -139,11 +142,24 @@ gentest_add_suite(regression_local_fixture_teardown_noexceptions
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_noexceptions.cpp
     OUTPUT_DIR regressions/local_fixture_teardown_noexceptions
     NO_CTEST)
+gentest_add_suite(regression_async_local_fixture_teardown_noexceptions
+    TARGET gentest_regression_async_local_fixture_teardown_noexceptions
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_local_fixture_teardown_noexceptions.cpp
+    OUTPUT_DIR regressions/async_local_fixture_teardown_noexceptions
+    NO_CTEST)
 target_compile_options(gentest_regression_local_fixture_teardown_noexceptions
     PRIVATE
         $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:/EHs-c->
         $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
 target_compile_definitions(gentest_regression_local_fixture_teardown_noexceptions
+    PRIVATE
+        FMT_EXCEPTIONS=0
+        _HAS_EXCEPTIONS=0)
+target_compile_options(gentest_regression_async_local_fixture_teardown_noexceptions
+    PRIVATE
+        $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:/EHs-c->
+        $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
+target_compile_definitions(gentest_regression_async_local_fixture_teardown_noexceptions
     PRIVATE
         FMT_EXCEPTIONS=0
         _HAS_EXCEPTIONS=0)
@@ -487,6 +503,17 @@ gentest_add_cmake_script_test(
         "FORBID_SUBSTRING=failure-only hidden on pass")
 
 gentest_add_cmake_script_test(
+    NAME regression_logging_output_on_failure_policy_fail_visible
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/on_failure_policy_fail_visible --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=failure-only visible on sync fail"
+        "EXPECT_COUNT_SUBSTRING=failure-only visible on sync fail"
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
     NAME regression_logging_output_always_policy_visible_on_pass
     PROG $<TARGET_FILE:gentest_regression_logging_output>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
@@ -517,6 +544,51 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=0"
         "REQUIRED_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0."
         "FORBID_SUBSTRING=default-always overridden by explicit never")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_async_on_failure_policy_fail_visible
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/async_on_failure_policy_fail_visible --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=failure-only visible on async fail"
+        "EXPECT_COUNT_SUBSTRING=failure-only visible on async fail"
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_async_always_policy_visible_on_pass
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/async_always_policy_visible_on_pass --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=0"
+        "REQUIRED_SUBSTRING=always-policy visible on async pass"
+        "EXPECT_COUNT_SUBSTRING=always-policy visible on async pass"
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_adopted_thread_on_failure_policy_fail_visible
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/adopted_thread_on_failure_log_visible --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=failure-only visible from adopted thread"
+        "EXPECT_COUNT_SUBSTRING=failure-only visible from adopted thread"
+        "EXPECT_COUNT=1")
+
+gentest_add_check_death(
+    NAME regression_logging_output_unadopted_thread_log_death
+    PROG gentest_regression_logging_output
+    REQUIRED_SUBSTRINGS
+        "gentest: fatal: log called without an active test context."
+        "Did you forget to set the current context in this thread/coroutine?"
+    ARGS --run=regressions/logging_output/unadopted_thread_log_crashes --kind=test)
+
+if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
+    set_tests_properties(regression_logging_output_unadopted_thread_log_death PROPERTIES DISABLED "$<CONFIG:Debug>")
+endif()
 
 set(_gentest_measured_line_files
     "${CMAKE_CURRENT_SOURCE_DIR}/regressions/bench_assert_propagation.cpp"
@@ -1312,10 +1384,64 @@ gentest_add_check_death(
     REQUIRED_SUBSTRING "terminating after fatal assertion"
     ARGS --run=regressions/local_fixture_teardown_noexceptions/fatal_assert)
 
+gentest_add_check_death(
+    NAME regression_async_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
+    PROG $<TARGET_FILE:gentest_regression_async_local_fixture_teardown_noexceptions>
+    REQUIRED_SUBSTRING "async-local-fixture-teardown-noexc-marker"
+    ARGS --run=regressions/async_local_fixture_teardown_noexceptions/fatal_assert)
+
+gentest_add_check_death(
+    NAME regression_async_local_fixture_teardown_noexceptions_fatal_assert_termination_message
+    PROG $<TARGET_FILE:gentest_regression_async_local_fixture_teardown_noexceptions>
+    REQUIRED_SUBSTRING "terminating after fatal assertion"
+    ARGS --run=regressions/async_local_fixture_teardown_noexceptions/fatal_assert)
+
+gentest_add_cmake_script_test(
+    NAME regression_async_local_fixture_teardown_noexceptions_interleaved_uses_current_teardown
+    PROG $<TARGET_FILE:gentest_regression_async_local_fixture_teardown_noexceptions>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=*regressions/async_local_fixture_teardown_noexceptions/interleaved/* --kind=test
+    DEFINES
+        "EXPECT_RC=NONZERO"
+        "REQUIRED_SUBSTRINGS=async-local-fixture-teardown-noexc-first-marker|terminating after fatal assertion"
+        "FORBID_SUBSTRING=async-local-fixture-teardown-noexc-second-marker")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_local_fixture_teardown_noexceptions_context_without_hook_ignores_stale_tls
+    PROG $<TARGET_FILE:gentest_regression_async_local_fixture_teardown_noexceptions>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=*regressions/async_local_fixture_teardown_noexceptions/plain_interleaved/* --kind=test
+    DEFINES
+        "EXPECT_RC=NONZERO"
+        "REQUIRED_SUBSTRING=terminating after fatal assertion"
+        "FORBID_SUBSTRING=async-local-fixture-teardown-noexc-second-marker")
+
+gentest_add_check_exit_code(
+    NAME regression_async_stale_waiter_tokens_ignore_canceled_posts
+    PROG $<TARGET_FILE:gentest_regression_async_stale_waiter>
+    EXPECT_RC 0)
+
+gentest_add_cmake_script_test(
+    NAME regression_async_blocking_timer_starvation_times_out_yielding_child
+    PROG $<TARGET_FILE:gentest_regression_async_blocking_timer_starvation>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    DEFINES TIMEOUT_SEC=5 EXPECT_RC=0)
+
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_ready_queue_completion_no_deadlock
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=regressions/async_adopted_ready_queue/* --kind=test --no-color
+    DEFINES TIMEOUT_SEC=5 EXPECT_RC=0)
+
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(
         regression_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
         regression_local_fixture_teardown_noexceptions_fatal_assert_termination_message
+        regression_async_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
+        regression_async_local_fixture_teardown_noexceptions_fatal_assert_termination_message
+        regression_async_local_fixture_teardown_noexceptions_interleaved_uses_current_teardown
+        regression_async_local_fixture_teardown_noexceptions_context_without_hook_ignores_stale_tls
         PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 
@@ -1350,7 +1476,7 @@ gentest_add_run_and_check_file(
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_suite_failure_tag.xml
     REQUIRED_SUBSTRING "name=\"regressions/member_shared_setup_skip/suite_member\" time=\"0\">
-    <skipped message=\"blocked: fixture allocation failed\"/>"
+    <skipped message=\"blocked: shared fixture unavailable for 'regressions::NullMemberSuiteFixture': fixture allocation failed\"/>"
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_suite_failure_tag.xml)
 
@@ -1359,7 +1485,7 @@ gentest_add_run_and_check_file(
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_global_failure_tag.xml
     REQUIRED_SUBSTRING "name=\"regressions/member_shared_setup_skip/global_member\" time=\"0\">
-    <skipped message=\"blocked: fixture allocation failed\"/>"
+    <skipped message=\"blocked: shared fixture unavailable for 'regressions::NullMemberGlobalFixture': fixture allocation failed\"/>"
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_global_failure_tag.xml)
 
@@ -1854,7 +1980,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_create_assert_junit_reports_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_failure_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"blocked: fixture allocation failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:9: manual-create-assert\"/>"
+    REQUIRED_SUBSTRING "<skipped message=\"blocked: shared fixture unavailable for 'regressions::AssertingCreateFixture': fixture allocation failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:9: manual-create-assert\"/>"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_failure_tag.xml)
 
@@ -1892,7 +2018,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_setup_assert_junit_reports_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_failure_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"blocked: fixture setup failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:13: manual-setup-assert\"/>"
+    REQUIRED_SUBSTRING "<skipped message=\"blocked: shared fixture unavailable for 'regressions::AssertingSetupFixture': fixture setup failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:13: manual-setup-assert\"/>"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_failure_tag.xml)
 

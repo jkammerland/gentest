@@ -1,5 +1,7 @@
 #include "gentest/detail/runtime_context.h"
 
+#include <filesystem>
+
 namespace gentest::detail {
 
 namespace {
@@ -10,6 +12,49 @@ thread_local BenchPhase                                 g_bench_phase = BenchPha
 thread_local std::string                                g_bench_error{};
 thread_local NoExceptionsFatalHookState                 g_noexceptions_fatal_hook{};
 std::atomic<std::underlying_type_t<gentest::LogPolicy>> g_default_log_policy{gentest::to_underlying(gentest::LogPolicy::Never)};
+
+auto prepare_current_failure_buffer(std::string_view operation) -> TestContextLocalBuffer & {
+    auto  ctx    = current_test_storage();
+    auto &buffer = current_buffer_storage();
+    if (!accepts_late_test_operation(ctx)) {
+        fail_without_active_context(operation);
+    }
+    if (buffer.owner != ctx.get()) {
+        flush_current_buffer_for(buffer.owner);
+        buffer.owner = ctx.get();
+    }
+    return buffer;
+}
+
+auto normalize_failure_file(std::string file) -> std::string {
+    if (file.empty()) {
+        return {};
+    }
+
+    std::filesystem::path p(std::move(file));
+    p                     = p.lexically_normal();
+    std::string s         = p.generic_string();
+    auto        keep_from = [&](std::string_view marker) -> bool {
+        const std::size_t pos = s.find(marker);
+        if (pos != std::string::npos) {
+            s = s.substr(pos);
+            return true;
+        }
+        return false;
+    };
+    (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
+    return s;
+}
+
+void throw_if_bench_call_failure(const std::string &msg) {
+#if GENTEST_EXCEPTIONS_ENABLED
+    if (bench_phase() == BenchPhase::Call) {
+        throw gentest::assertion(msg);
+    }
+#else
+    (void)msg;
+#endif
+}
 
 } // namespace
 
@@ -27,66 +72,110 @@ GENTEST_RUNTIME_API auto bench_error_storage() -> std::string & { return g_bench
 
 GENTEST_RUNTIME_API auto noexceptions_fatal_hook_storage() -> NoExceptionsFatalHookState & { return g_noexceptions_fatal_hook; }
 
+GENTEST_RUNTIME_API auto install_context_noexceptions_fatal_hook(NoExceptionsFatalHookState state) noexcept
+    -> NoExceptionsFatalHookContextToken {
+    auto ctx = current_test_storage();
+    if (!ctx) {
+        return {};
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    auto                        previous = ctx->noexceptions_fatal_hook;
+    ctx->noexceptions_fatal_hook         = state;
+    return NoExceptionsFatalHookContextToken{.owner = ctx, .previous = previous};
+}
+
+GENTEST_RUNTIME_API void restore_context_noexceptions_fatal_hook(const NoExceptionsFatalHookContextToken &token) noexcept {
+    auto ctx = token.owner.lock();
+    if (!ctx) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    ctx->noexceptions_fatal_hook = token.previous;
+}
+
+GENTEST_RUNTIME_API auto has_current_noexceptions_fatal_hook_context() noexcept -> bool {
+    return static_cast<bool>(current_test_storage());
+}
+
+GENTEST_RUNTIME_API auto take_context_noexceptions_fatal_hook() noexcept -> NoExceptionsFatalHookState {
+    auto ctx = current_test_storage();
+    if (!ctx) {
+        return {};
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    auto                        state = ctx->noexceptions_fatal_hook;
+    ctx->noexceptions_fatal_hook      = {};
+    return state;
+}
+
+GENTEST_RUNTIME_API auto register_context_cancel_hook(ContextCancelHookState state) noexcept -> ContextCancelHookToken {
+    auto ctx = current_test_storage();
+    if (!ctx || !state.hook) {
+        return {};
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    const auto                  id = ++ctx->next_context_cancel_hook_id;
+    ctx->context_cancel_hooks.push_back(TestContextInfo::ContextCancelHookEntry{
+        .id    = id,
+        .state = state,
+    });
+    return ContextCancelHookToken{.owner = ctx, .id = id};
+}
+
+GENTEST_RUNTIME_API void unregister_context_cancel_hook(const ContextCancelHookToken &token) noexcept {
+    auto ctx = token.owner.lock();
+    if (!ctx || token.id == 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    auto                       &hooks = ctx->context_cancel_hooks;
+    std::erase_if(hooks, [&](const TestContextInfo::ContextCancelHookEntry &entry) { return entry.id == token.id; });
+}
+
+GENTEST_RUNTIME_API void run_context_cancel_hooks(const std::shared_ptr<TestContextInfo> &ctx) noexcept {
+    if (!ctx) {
+        return;
+    }
+    std::vector<ContextCancelHookState> hooks;
+    {
+        std::lock_guard<std::mutex> lk(ctx->mtx);
+        for (auto &entry : ctx->context_cancel_hooks) {
+            if (entry.ran || !entry.state.hook) {
+                continue;
+            }
+            entry.ran = true;
+            hooks.push_back(entry.state);
+        }
+    }
+    for (const auto &hook : hooks) {
+        hook.hook(hook.user_data);
+    }
+}
+
 void record_failure(std::string msg) {
     auto  ctx    = current_test_storage();
-    auto &buffer = current_buffer_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
-                         "        Did you forget to set the current context in this thread/coroutine?\n",
-                         stderr);
-        std::abort();
-    }
-    if (buffer.owner != ctx.get()) {
-        flush_current_buffer_for(buffer.owner);
-        buffer.owner = ctx.get();
-    }
+    auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
     buffer.failures.push_back(std::move(msg));
     ctx->has_failures.store(true, std::memory_order_relaxed);
     buffer.failure_locations.push_back({std::string{}, 0});
     buffer.event_lines.push_back(buffer.failures.back());
     buffer.event_kinds.push_back('F');
-#if GENTEST_EXCEPTIONS_ENABLED
-    if (bench_phase() == BenchPhase::Call) {
-        throw gentest::assertion(buffer.failures.back());
-    }
-#endif
+    throw_if_bench_call_failure(buffer.failures.back());
 }
 
 void record_failure(std::string msg, const std::source_location &loc) {
+    record_failure_at(std::move(msg), loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()), loc.line());
+}
+
+void record_failure_at(std::string msg, std::string file, unsigned line) {
     auto  ctx    = current_test_storage();
-    auto &buffer = current_buffer_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        (void)std::fputs("gentest: fatal: assertion/expectation recorded without an active test context.\n"
-                         "        Did you forget to set the current context in this thread/coroutine?\n",
-                         stderr);
-        std::abort();
-    }
-    if (buffer.owner != ctx.get()) {
-        flush_current_buffer_for(buffer.owner);
-        buffer.owner = ctx.get();
-    }
+    auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
     buffer.failures.push_back(std::move(msg));
     ctx->has_failures.store(true, std::memory_order_relaxed);
-    std::filesystem::path p(std::string(loc.file_name()));
-    p                     = p.lexically_normal();
-    std::string s         = p.generic_string();
-    auto        keep_from = [&](std::string_view marker) -> bool {
-        const std::size_t pos = s.find(marker);
-        if (pos != std::string::npos) {
-            s = s.substr(pos);
-            return true;
-        }
-        return false;
-    };
-    (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
-    buffer.failure_locations.push_back({std::move(s), loc.line()});
+    buffer.failure_locations.push_back({normalize_failure_file(std::move(file)), line});
     buffer.event_lines.push_back(buffer.failures.back());
     buffer.event_kinds.push_back('F');
-#if GENTEST_EXCEPTIONS_ENABLED
-    if (bench_phase() == BenchPhase::Call) {
-        throw gentest::assertion(buffer.failures.back());
-    }
-#endif
+    throw_if_bench_call_failure(buffer.failures.back());
 }
 
 [[noreturn]] void skip_shared_fixture_unavailable(std::string_view reason, const std::source_location &loc) {

@@ -61,3 +61,25 @@ if(_workflow_flag_pos EQUAL -1)
   message(FATAL_ERROR
     "Expected Windows workflow to pass -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON during configure.")
 endif()
+
+file(READ "${SOURCE_DIR}/tests/CMakeLists.txt" _tests_cmake_content)
+string(REGEX MATCH
+       "set_tests_properties\\([^)]+PROPERTIES[ \t\r\n]+DISABLED[ \t\r\n]+\"\\$<CONFIG:Debug>\"\\)"
+       _windows_debug_skip_gate
+       "${_tests_cmake_content}")
+if(NOT _windows_debug_skip_gate)
+  message(FATAL_ERROR "Expected a Windows Debug death-test skip gate using set_tests_properties(... DISABLED \"$<CONFIG:Debug>\").")
+endif()
+
+foreach(_test IN ITEMS
+    concurrency_fail_single_death
+    concurrency_skip_no_context_death
+    concurrency_xfail_no_context_death
+    concurrency_multi_noadopt_death
+    async_fail_fast_cancel_released_context_aborts)
+  string(FIND "${_windows_debug_skip_gate}" "${_test}" _test_pos)
+  if(_test_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected Windows Debug death-test skip gate to include '${_test}'.")
+  endif()
+endforeach()

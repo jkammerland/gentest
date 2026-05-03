@@ -621,7 +621,7 @@
       "inherits": "build-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Build (Linux/aarch64, QEMU)",
-      "description": "Cross-build gentest_unit_tests and gentest_mocking_tests for Linux/aarch64 after running the host-codegen workflow",
+      "description": "Cross-build unit, mocking, and async smoke tests for Linux/aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -629,7 +629,8 @@
       },
       "targets": [
         "gentest_unit_tests",
-        "gentest_mocking_tests"
+        "gentest_mocking_tests",
+        "gentest_async_tests"
       ],
       "jobs": 0
     },
@@ -651,7 +652,7 @@
       "inherits": "build-base",
       "configurePreset": "riscv64-qemu",
       "displayName": "Build (Linux/riscv64, QEMU)",
-      "description": "Cross-build gentest_unit_tests and gentest_mocking_tests for Linux/riscv64 after running the host-codegen workflow",
+      "description": "Cross-build unit, mocking, and async smoke tests for Linux/riscv64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -659,7 +660,8 @@
       },
       "targets": [
         "gentest_unit_tests",
-        "gentest_mocking_tests"
+        "gentest_mocking_tests",
+        "gentest_async_tests"
       ],
       "jobs": 0
     },
@@ -947,7 +949,7 @@
       "inherits": "test-base",
       "configurePreset": "aarch64-qemu",
       "displayName": "Tests (Linux/aarch64, QEMU, smoke)",
-      "description": "Run a small subset of unit and mock-heavy tests under qemu-aarch64 after running the host-codegen workflow",
+      "description": "Run a small subset of unit, mock-heavy, and async tests under qemu-aarch64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -955,7 +957,7 @@
       },
       "filter": {
         "include": {
-          "name": "^(gentest_codegen_check_valid|unit|unit_inventory|mocking)$"
+          "name": "^(gentest_codegen_check_valid|unit|unit_inventory|mocking|async_value_discard|async_batch_cooperative|async_mixed_fixtures)$"
         }
       }
     },
@@ -976,7 +978,7 @@
       "inherits": "test-base",
       "configurePreset": "riscv64-qemu",
       "displayName": "Tests (Linux/riscv64, QEMU, smoke)",
-      "description": "Run a small subset of unit and mock-heavy tests under qemu-riscv64 after running the host-codegen workflow",
+      "description": "Run a small subset of unit, mock-heavy, and async tests under qemu-riscv64 after running the host-codegen workflow",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -984,7 +986,7 @@
       },
       "filter": {
         "include": {
-          "name": "^(gentest_codegen_check_valid|unit|unit_inventory|mocking)$"
+          "name": "^(gentest_codegen_check_valid|unit|unit_inventory|mocking|async_value_discard|async_batch_cooperative|async_mixed_fixtures)$"
         }
       }
     },

@@ -42,6 +42,7 @@
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/JSON.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/Process.h>
@@ -1476,6 +1477,12 @@ bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang:
     if (loc.isInvalid()) {
         return false;
     }
+    // Codegen only needs declarations from the source being scanned and its
+    // textual includes. Imported PCM declarations can drag in Clang-owned
+    // function bodies that are irrelevant here and noisy under sanitizers.
+    if (decl.isFromASTFile() || decl.isInAnotherModuleUnit()) {
+        return false;
+    }
     if (sm.isInSystemHeader(loc) || sm.isWrittenInBuiltinFile(loc)) {
         return false;
     }
@@ -1507,6 +1514,10 @@ std::vector<clang::Decl *> build_codegen_traversal_scope(clang::ASTContext &cont
 }
 
 class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
+    // MatchFinder::matchAST() traverses the full translation-unit graph,
+    // including imported modules. Limit the ASTContext traversal scope before
+    // delegating to MatchFinder so we keep its normal matcher semantics without
+    // deserializing imported PCM implementation bodies.
   public:
     ScopedTraversalASTConsumer(std::unique_ptr<clang::ASTConsumer> inner, bool allow_includes, bool allow_mock_includes)
         : inner_(std::move(inner)), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
@@ -1516,12 +1527,8 @@ class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
     bool HandleTopLevelDecl(clang::DeclGroupRef decl_group) override { return inner_->HandleTopLevelDecl(decl_group); }
 
     void HandleTranslationUnit(clang::ASTContext &context) override {
-        if (!allow_includes_ && !allow_mock_includes_) {
-            const auto scope = build_codegen_traversal_scope(context, false, allow_mock_includes_);
-            if (!scope.empty()) {
-                context.setTraversalScope(scope);
-            }
-        }
+        const auto scope = build_codegen_traversal_scope(context, allow_includes_, allow_mock_includes_);
+        context.setTraversalScope(scope);
         inner_->HandleTranslationUnit(context);
     }
 
@@ -1539,7 +1546,8 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
           skip_function_bodies_(skip_function_bodies) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
-        if (skip_function_bodies_ && !named_module_name_from_source_file(std::filesystem::path{input_file.str()}).has_value()) {
+        const bool is_named_module_input = named_module_name_from_source_file(std::filesystem::path{input_file.str()}).has_value();
+        if (skip_function_bodies_ && !is_named_module_input) {
             compiler.getFrontendOpts().SkipFunctionBodies = true;
         }
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(compiler.getSourceManager(), dependencies_));
@@ -3885,6 +3893,8 @@ void diagnose_missing_mock_phase_manifest(MockPhaseCommand mock_phase, const Col
 } // namespace
 
 int main(int argc, const char **argv) {
+    llvm::InitLLVM llvm_init(argc, argv);
+
     if (argc >= 2 && argv[1] != nullptr && std::string_view{argv[1]} == "validate-artifact-manifest") {
         return run_artifact_manifest_validator(argc - 1, argv + 1);
     }

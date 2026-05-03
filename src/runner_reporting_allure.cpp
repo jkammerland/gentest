@@ -129,6 +129,9 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
         obj["time"]   = it.time_s;
         boost::json::array labels;
         labels.push_back({{"name", "suite"}, {"value", it.suite}});
+        if (it.outcome == Outcome::Blocked) {
+            labels.push_back({{"name", "blocked"}, {"value", "true"}});
+        }
         if (it.skipped && it.skip_reason.starts_with("xfail")) {
             std::string_view r = it.skip_reason;
             if (r.starts_with("xfail:")) {
@@ -146,7 +149,9 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
                 while (!r.empty() && r.front() == ' ')
                     r.remove_prefix(1);
             }
-            labels.push_back({{"name", "blocked"}, {"value", std::string(r)}});
+            if (!r.empty()) {
+                labels.push_back({{"name", "blocked_reason"}, {"value", std::string(r)}});
+            }
         }
         obj["labels"] = std::move(labels);
         if (!it.failures.empty()) {
