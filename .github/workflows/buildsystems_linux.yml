@@ -15,6 +15,7 @@ concurrency:
 
 env:
   CCACHE_DISABLE: 1
+  BAZELISK_VERSION: "v1.29.0"
   XMAKE_VERSION: "3.0.8"
 
 jobs:
@@ -144,9 +145,27 @@ jobs:
             *) echo "Unsupported arch: $arch"; exit 1 ;;
           esac
 
-          curl -L -o /usr/local/bin/bazelisk \
-            "https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-${bazelisk_arch}"
-          chmod +x /usr/local/bin/bazelisk
+          asset="bazelisk-linux-${bazelisk_arch}"
+          base_url="https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}"
+          work_dir="$(mktemp -d)"
+          trap 'rm -rf "${work_dir}"' EXIT
+          cd "${work_dir}"
+
+          curl --fail --location --show-error --retry 5 --retry-all-errors \
+            -o "${asset}" "${base_url}/${asset}"
+          curl --fail --location --show-error --retry 5 --retry-all-errors \
+            -o "${asset}.sha256" "${base_url}/${asset}.sha256"
+          expected_sha256="$(tr -d '[:space:]' < "${asset}.sha256")"
+          actual_sha256="$(sha256sum "${asset}")"
+          actual_sha256="${actual_sha256%% *}"
+          if [[ ! "${expected_sha256}" =~ ^[0-9a-fA-F]{64}$ ]] || [[ "${actual_sha256}" != "${expected_sha256,,}" ]]; then
+            echo "Bazelisk checksum mismatch for ${asset}" >&2
+            echo "expected: ${expected_sha256}" >&2
+            echo "actual:   ${actual_sha256}" >&2
+            exit 1
+          fi
+
+          install -m 0755 "${asset}" /usr/local/bin/bazelisk
           ln -sf /usr/local/bin/bazelisk /usr/local/bin/bazel
           bazel --version
 
