@@ -218,8 +218,8 @@ if(TARGET clang-cpp)
     gentest_ensure_imported_config_artifacts(clang-cpp MINSIZEREL)
 
     # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
-    # Link it when the imported target exists; otherwise fall back to LLVMSupport.
-    # Link the monolithic clang-cpp; avoid mixing in static LLVM components.
+    # Link it when available; otherwise fall back to LLVMSupport because this
+    # tool directly uses llvm::InitLLVM.
     target_link_libraries(gentest_codegen_support INTERFACE clang-cpp ${_gentest_fmt_target})
     # If we discovered a monolithic libLLVM DSO, link it to satisfy LLVMSupport
     # RTTI/vtables required by our TU and by clang-cpp on some platforms.
@@ -231,6 +231,8 @@ if(TARGET clang-cpp)
             set_property(TARGET gentest_codegen APPEND PROPERTY BUILD_RPATH "${_gentest_llvm_dso_dir}")
             _gentest_append_codegen_runtime_rpath("${_gentest_llvm_dso_dir}")
         endif()
+    else()
+        target_link_libraries(gentest_codegen_support INTERFACE ${_gentest_llvm_support})
     endif()
 
     get_target_property(_gentest_clang_cpp_imported_configs clang-cpp IMPORTED_CONFIGURATIONS)
