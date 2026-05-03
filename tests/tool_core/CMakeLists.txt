@@ -93,6 +93,21 @@ if(TARGET gentest_codegen_support)
 endif()
 
 if(TARGET gentest_codegen_support)
+    add_executable(gentest_core_render_mocks_tests
+        render_mocks_tests.cpp
+        ${_gentest_tool_core_src_dir}/render.cpp
+        ${_gentest_tool_core_src_dir}/render_mocks.cpp)
+
+    target_compile_features(gentest_core_render_mocks_tests PRIVATE cxx_std_20)
+    target_include_directories(gentest_core_render_mocks_tests PRIVATE ${_gentest_tool_core_src_dir})
+    target_link_libraries(gentest_core_render_mocks_tests PRIVATE gentest_codegen_support)
+    _gentest_copy_codegen_runtime_settings(gentest_core_render_mocks_tests)
+
+    add_test(NAME gentest_core_render_mocks
+        COMMAND gentest_core_render_mocks_tests)
+endif()
+
+if(TARGET gentest_codegen_support)
     add_executable(gentest_core_discovery_tests
         discovery_tests.cpp
         ${_gentest_tool_core_src_dir}/discovery.cpp

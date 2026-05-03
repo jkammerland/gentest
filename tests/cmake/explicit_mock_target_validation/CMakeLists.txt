@@ -88,6 +88,26 @@ elseif(TEST_CASE STREQUAL "unsupported_include_root_genex")
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
         HEADER_NAME public/fixture_validation.hpp
         LINK_LIBRARIES explicit_validation_genex_include_root)
+elseif(TEST_CASE STREQUAL "invalid_mock_backend")
+    gentest_add_mocks(explicit_validation_invalid_backend
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/defs_a.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        BACKEND nope)
+elseif(TEST_CASE STREQUAL "third_party_module_backend")
+    gentest_add_mocks(explicit_validation_third_party_module_backend
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/good_module.cppm
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        MODULE_NAME fixture.validation_module_backend
+        BACKEND gmock)
+elseif(TEST_CASE STREQUAL "third_party_textual_backend_surface")
+    gentest_add_mocks(explicit_validation_third_party_textual_backend
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/defs_a.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/fixture_validation.hpp
+        BACKEND gmock)
 elseif(TEST_CASE STREQUAL "missing_named_module")
     gentest_add_mocks(explicit_validation_missing_named_module
         DEFS

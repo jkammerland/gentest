@@ -172,6 +172,54 @@ function(_gentest_expect_build_failure test_case expected_substring)
   endif()
 endfunction()
 
+function(_gentest_expect_configure_success test_case out_build_dir)
+  if(CMAKE_HOST_WIN32)
+    set(_work_dir "${BUILD_ROOT}/${test_case}_emts")
+  else()
+    set(_work_dir "${BUILD_ROOT}/${test_case}")
+  endif()
+  set(_src_dir "${_work_dir}/src")
+  set(_build_dir "${_work_dir}/build")
+  file(REMOVE_RECURSE "${_work_dir}")
+  file(MAKE_DIRECTORY "${_work_dir}")
+  file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
+
+  execute_process(
+    COMMAND
+      "${CMAKE_COMMAND}"
+      ${_cmake_gen_args}
+      -S "${_src_dir}"
+      -B "${_build_dir}"
+      ${_cmake_cache_args}
+      "-DTEST_CASE=${test_case}"
+    RESULT_VARIABLE _rc
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _rc EQUAL 0)
+    message(FATAL_ERROR
+      "Expected configure success for TEST_CASE='${test_case}', but configure failed.\n"
+      "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
+  endif()
+
+  set(${out_build_dir} "${_build_dir}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_expect_file_contains file expected_substring)
+  if(NOT EXISTS "${file}")
+    message(FATAL_ERROR "Expected file does not exist: ${file}")
+  endif()
+  file(READ "${file}" _content)
+  string(FIND "${_content}" "${expected_substring}" _match_pos)
+  if(_match_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected file '${file}' to contain '${expected_substring}'.\n"
+      "--- content ---\n${_content}")
+  endif()
+endfunction()
+
 _gentest_expect_configure_failure("duplicate_output_dir" "Each explicit mock target must")
 _gentest_expect_configure_failure("textual_module_name" "MODULE_NAME is not")
 _gentest_expect_configure_failure("module_header_name" "HEADER_NAME is only")
@@ -182,6 +230,15 @@ _gentest_expect_configure_failure("reserved_header_name" "reserved generated out
 _gentest_expect_configure_failure("generator_expression_defs" "generator-expression")
 _gentest_expect_configure_failure("generator_expression_output_dir" "OUTPUT_DIR")
 _gentest_expect_configure_failure("unsupported_include_root_genex" "BUILD_INTERFACE/INSTALL_INTERFACE")
+_gentest_expect_configure_failure("invalid_mock_backend" "BACKEND must be")
+_gentest_expect_configure_failure("third_party_module_backend" "supports textual DEFS only")
+_gentest_expect_configure_success("third_party_textual_backend_surface" _third_party_textual_backend_build_dir)
+set(_third_party_public_header "${_third_party_textual_backend_build_dir}/generated/public/fixture_validation.hpp")
+_gentest_expect_file_contains("${_third_party_public_header}" "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1")
+_gentest_expect_file_contains("${_third_party_public_header}" "#define GENTEST_NO_EXPECT_CALL_MACROS 1")
+_gentest_expect_file_contains("${_third_party_public_header}" "#include \"gentest/mock_fwd.h\"")
+_gentest_expect_file_contains("${_third_party_public_header}" "#undef GENTEST_NO_EXPECT_CALL_MACROS")
+_gentest_expect_file_contains("${_third_party_public_header}" "#undef GENTEST_NO_AUTO_MOCK_INCLUDE")
 _gentest_expect_build_failure("missing_named_module" "is not a named module source")
 _gentest_expect_build_failure("provider_only_module" "has no named-module mocks to re-export")
 _gentest_expect_build_failure("implementation_unit_module" "module implementation unit")

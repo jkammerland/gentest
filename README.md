@@ -538,6 +538,65 @@ gentest::mock<Clock> raw_clock;
 gentest::expect(raw_clock, &Clock::now).times(1).returns(456);
 ```
 
+Third-party mock frameworks can use the same mock definition file. Select the backend on the explicit mock target and link the
+framework target yourself:
+
+```cmake
+find_package(GTest CONFIG REQUIRED)
+
+gentest_add_mocks(clock_gmock_mocks
+  DEFS ${CMAKE_CURRENT_SOURCE_DIR}/clock_mocks.hpp
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/gmock_mocks"
+  HEADER_NAME public/clock_gmock_mocks.hpp
+  BACKEND gmock
+  LINK_LIBRARIES GTest::gmock)
+```
+
+```cpp
+#include "gentest/assertions.h"
+#include "gentest/attributes.h"
+#include "public/clock_gmock_mocks.hpp"
+#include <gmock/gmock.h>
+using namespace gentest::asserts;
+
+[[using gentest: test("mock/gmock_clock")]]
+void gmock_clock() {
+    mytests::mocks::ClockMock clock;
+    EXPECT_CALL(clock, now()).WillOnce(::testing::Return(123));
+    EXPECT_EQ(read_now(&clock), 123);
+}
+```
+
+Trompeloeil is selected the same way:
+
+```cmake
+gentest_add_mocks(clock_trompeloeil_mocks
+  DEFS ${CMAKE_CURRENT_SOURCE_DIR}/clock_mocks.hpp
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/trompeloeil_mocks"
+  HEADER_NAME public/clock_trompeloeil_mocks.hpp
+  BACKEND trompeloeil
+  LINK_LIBRARIES trompeloeil::trompeloeil)
+```
+
+```cpp
+#include "gentest/assertions.h"
+#include "gentest/attributes.h"
+#include "public/clock_trompeloeil_mocks.hpp"
+#include <trompeloeil/mock.hpp>
+using namespace gentest::asserts;
+
+[[using gentest: test("mock/trompeloeil_clock")]]
+void trompeloeil_clock() {
+    mytests::mocks::ClockMock clock;
+    REQUIRE_CALL(clock, now()).RETURN(123);
+    EXPECT_EQ(read_now(&clock), 123);
+}
+```
+
+`BACKEND gmock` and `BACKEND trompeloeil` currently support textual/header mock targets only. Named-module mocks, static methods,
+method templates, operators, and volatile-qualified methods require the default `BACKEND gentest`. The Trompeloeil backend emits the
+current arity-deducing `MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use Trompeloeil v49 or newer.
+
 Named-module mock usage is the same idea, but the public surface is a generated module:
 
 ```cmake

@@ -397,6 +397,14 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
+  "invalid mock backend"
+  1
+  "gentest_codegen: invalid --mock-backend='bogus'; expected gentest, gmock, or trompeloeil"
+  "${PROG}"
+  --mock-backend bogus
+  ${_common_args})
+
+_gentest_expect_result(
   "invalid jobs env warning"
   0
   "gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_JOBS='bogus'"
