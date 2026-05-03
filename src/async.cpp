@@ -2,6 +2,7 @@
 
 #include "gentest/detail/runtime_context.h"
 #include "gentest/detail/runtime_support.h"
+#include "runner_async_timer_queue.h"
 
 #include <algorithm>
 #include <chrono>
@@ -9,7 +10,6 @@
 #include <deque>
 #include <fmt/format.h>
 #include <mutex>
-#include <optional>
 #include <unordered_map>
 
 namespace gentest::detail {
@@ -67,7 +67,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         }
         {
             std::lock_guard<std::mutex> lk(mtx_);
-            timers_.push_back(Timer{.deadline = deadline, .token = token});
+            timers_.push(deadline, token);
         }
         adopted_release_wake_->notify_one();
     }
@@ -174,50 +174,24 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     }
 
   private:
-    struct Timer {
-        std::chrono::steady_clock::time_point deadline;
-        WaiterTokenPtr                        token;
-    };
-
     void post_due_timers() {
         std::vector<WaiterTokenPtr> due;
-        const auto                  now = std::chrono::steady_clock::now();
         {
             std::lock_guard<std::mutex> lk(mtx_);
-            for (auto it = timers_.begin(); it != timers_.end();) {
-                if (!it->token || !it->token->active()) {
-                    it = timers_.erase(it);
-                    continue;
-                }
-                if (it->deadline <= now) {
-                    due.push_back(std::move(it->token));
-                    it = timers_.erase(it);
-                    continue;
-                }
-                ++it;
-            }
+            due = timers_.pop_due(std::chrono::steady_clock::now());
         }
         for (auto &token : due) {
             token->post();
         }
     }
 
-    [[nodiscard]] auto next_timer_deadline_locked() const -> std::optional<std::chrono::steady_clock::time_point> {
-        std::optional<std::chrono::steady_clock::time_point> result;
-        for (const auto &timer : timers_) {
-            if (!timer.token || !timer.token->active()) {
-                continue;
-            }
-            if (!result || timer.deadline < *result) {
-                result = timer.deadline;
-            }
-        }
-        return result;
+    [[nodiscard]] auto next_timer_deadline_locked() -> std::optional<std::chrono::steady_clock::time_point> {
+        return timers_.next_deadline();
     }
 
-    [[nodiscard]] auto has_pending_timers() const -> bool {
+    [[nodiscard]] auto has_pending_timers() -> bool {
         std::lock_guard<std::mutex> lk(mtx_);
-        return next_timer_deadline_locked().has_value();
+        return timers_.has_pending();
     }
 
     [[nodiscard]] auto pop_ready() -> std::coroutine_handle<> {
@@ -337,7 +311,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     std::unordered_map<void *, std::vector<std::coroutine_handle<>>>    children_;
     std::unordered_map<void *, std::string>                             blocked_;
     std::unordered_map<void *, std::vector<std::weak_ptr<WaiterToken>>> waiter_tokens_;
-    std::vector<Timer>                                                  timers_;
+    gentest::runner::AsyncTimerQueue                                    timers_;
 };
 
 auto make_context(std::string_view label) -> std::shared_ptr<TestContextInfo> {

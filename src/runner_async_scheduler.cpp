@@ -144,7 +144,7 @@ void BatchAsyncScheduler::schedule_timer(std::chrono::steady_clock::time_point d
     }
     {
         std::lock_guard<std::mutex> lk(mtx_);
-        timers_.push_back(Timer{.deadline = deadline, .token = token});
+        timers_.push(deadline, token);
     }
     adopted_release_wake_->notify_one();
 }
@@ -370,43 +370,22 @@ void BatchAsyncScheduler::cancel_waiters_for_handle_locked(std::coroutine_handle
 
 void BatchAsyncScheduler::post_due_timers() {
     std::vector<WaiterTokenPtr> due;
-    const auto                  now = std::chrono::steady_clock::now();
     {
         std::lock_guard<std::mutex> lk(mtx_);
-        for (auto it = timers_.begin(); it != timers_.end();) {
-            if (!it->token || !it->token->active()) {
-                it = timers_.erase(it);
-                continue;
-            }
-            if (it->deadline <= now) {
-                due.push_back(std::move(it->token));
-                it = timers_.erase(it);
-                continue;
-            }
-            ++it;
-        }
+        due = timers_.pop_due(std::chrono::steady_clock::now());
     }
     for (auto &token : due) {
         token->post();
     }
 }
 
-auto BatchAsyncScheduler::next_timer_deadline_locked() const -> std::optional<std::chrono::steady_clock::time_point> {
-    std::optional<std::chrono::steady_clock::time_point> result;
-    for (const auto &timer : timers_) {
-        if (!timer.token || !timer.token->active()) {
-            continue;
-        }
-        if (!result || timer.deadline < *result) {
-            result = timer.deadline;
-        }
-    }
-    return result;
+auto BatchAsyncScheduler::next_timer_deadline_locked() -> std::optional<std::chrono::steady_clock::time_point> {
+    return timers_.next_deadline();
 }
 
-auto BatchAsyncScheduler::has_pending_timers() const -> bool {
+auto BatchAsyncScheduler::has_pending_timers() -> bool {
     std::lock_guard<std::mutex> lk(mtx_);
-    return next_timer_deadline_locked().has_value();
+    return timers_.has_pending();
 }
 
 auto BatchAsyncScheduler::ready_size() const -> std::size_t {

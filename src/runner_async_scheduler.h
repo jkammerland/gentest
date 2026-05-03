@@ -3,6 +3,7 @@
 #include "gentest/detail/runtime_context.h"
 #include "runner_async_state.h"
 #include "runner_async_status_renderer.h"
+#include "runner_async_timer_queue.h"
 
 #include <chrono>
 #include <coroutine>
@@ -68,11 +69,6 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         std::uint64_t sequence = 0;
     };
 
-    struct Timer {
-        std::chrono::steady_clock::time_point deadline;
-        WaiterTokenPtr                        token;
-    };
-
     static constexpr std::size_t kInvalidOwner = std::numeric_limits<std::size_t>::max();
 
     [[nodiscard]] auto owner_for(std::coroutine_handle<> handle) const -> std::size_t;
@@ -87,8 +83,8 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     void               cancel_one_handle_locked(std::coroutine_handle<> handle, std::vector<WaiterTokenPtr> &tokens);
     void               cancel_waiters_for_handle_locked(std::coroutine_handle<> handle, std::vector<WaiterTokenPtr> &tokens);
     void               post_due_timers();
-    [[nodiscard]] auto next_timer_deadline_locked() const -> std::optional<std::chrono::steady_clock::time_point>;
-    [[nodiscard]] auto has_pending_timers() const -> bool;
+    [[nodiscard]] auto next_timer_deadline_locked() -> std::optional<std::chrono::steady_clock::time_point>;
+    [[nodiscard]] auto has_pending_timers() -> bool;
     [[nodiscard]] auto ready_size() const -> std::size_t;
     [[nodiscard]] auto ready_empty() const noexcept -> bool;
     [[nodiscard]] auto pop_ready() -> std::coroutine_handle<>;
@@ -109,7 +105,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     std::unordered_map<void *, std::vector<std::coroutine_handle<>>>      children_;
     std::unordered_map<void *, BlockedHandle>                             blocked_handles_;
     std::unordered_map<void *, std::vector<std::weak_ptr<WaiterToken>>>   waiter_tokens_;
-    std::vector<Timer>                                                    timers_;
+    AsyncTimerQueue                                                       timers_;
     std::uint64_t                                                         suspend_sequence_ = 0;
 };
 
