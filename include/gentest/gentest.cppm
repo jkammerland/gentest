@@ -19,7 +19,6 @@ export module gentest;
 
 export namespace gentest {
 
-using ::gentest::Adoption;
 using ::gentest::assert_eq;
 using ::gentest::assert_false;
 using ::gentest::assert_true;
@@ -29,6 +28,7 @@ using ::gentest::AsyncFixtureSetup;
 using ::gentest::AsyncFixtureTearDown;
 using ::gentest::Case;
 using ::gentest::CurrentContext;
+using ::gentest::CurrentContextLease;
 using ::gentest::CurrentToken;
 using ::gentest::expect;
 using ::gentest::expect_eq;
@@ -81,6 +81,12 @@ using ::gentest::async::event;
 using ::gentest::async::future;
 using ::gentest::async::manual_event;
 using ::gentest::async::promise;
+using ::gentest::async::sleep_for;
+using ::gentest::async::sleep_until;
+using ::gentest::async::wait_for;
+using ::gentest::async::wait_result;
+using ::gentest::async::wait_status;
+using ::gentest::async::wait_until;
 using ::gentest::async::yield;
 } // namespace async
 

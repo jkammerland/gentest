@@ -174,7 +174,7 @@ struct gentest_async_local_teardown_guard {
     static void run(void *user_data) noexcept {
         auto *state = static_cast<gentest_async_local_teardown_guard *>(user_data);
         if (!state) return;
-        state->run_blocking_for(std::chrono::milliseconds(500));
+        state->run_blocking();
     }
 
     ::gentest::async_test<void> run_now() {
@@ -198,18 +198,6 @@ struct gentest_async_local_teardown_guard {
         }
     }
 
-    void run_blocking_for(std::chrono::milliseconds timeout) noexcept {
-        if (ran || !teardown) return;
-        std::string error;
-        if (!::gentest::detail::run_async_task_blocking_for(run_now(), "async local fixture teardown", timeout, error)) {
-            std::string msg = "async local fixture teardown failed";
-            if (!error.empty()) {
-                msg += ": ";
-                msg += error;
-            }
-            ::gentest::detail::record_failure(std::move(msg));
-        }
-    }
 };
 
 template <typename BodyFn, typename TeardownFn>

@@ -15,7 +15,7 @@ Use it to record which installed symbols or surfaces are:
 
 - `gentest::log`, `gentest::set_log_policy`, `gentest::set_default_log_policy`, `gentest::skip`,
   `gentest::skip_if`, `gentest::xfail`, `gentest::xfail_if`: `public` -> keep
-- `gentest::get_current_context`, `gentest::set_current_context`, `gentest::Adoption`: `public` -> keep
+- `gentest::get_current_context`, `gentest::set_current_context`, `gentest::CurrentContextLease`: `public` -> keep
 - `gentest::CurrentContext`: `public` -> keep as the shared-pointer context type; current reduction work hides the
   concrete `TestContextInfo` definition and removes the transitive `runtime_context.h` exposure from `context.h`
   without changing the context representation

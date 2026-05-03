@@ -8,31 +8,31 @@ namespace gentest {
 
 auto get_current_context() -> CurrentContext { return detail::current_test(); }
 
-auto set_current_context(CurrentContext context) -> Adoption { return Adoption(std::move(context)); }
+auto set_current_context(CurrentContext context) -> CurrentContextLease { return CurrentContextLease(std::move(context)); }
 
 auto get_current_token() -> CurrentToken { return get_current_context(); }
 
-auto set_current_token(CurrentToken context) -> Adoption { return set_current_context(std::move(context)); }
+auto set_current_token(CurrentToken context) -> CurrentContextLease { return set_current_context(std::move(context)); }
 
-Adoption::Adoption(CurrentContext context) : previous_(get_current_context()), adopted_(std::move(context)) {
-    if (adopted_) {
-        adopted_->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
+CurrentContextLease::CurrentContextLease(CurrentContext context) : previous_(get_current_context()), leased_(std::move(context)) {
+    if (leased_) {
+        leased_->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
     }
     try {
-        detail::set_current_test(adopted_);
+        detail::set_current_test(leased_);
     } catch (...) {
-        if (adopted_ && adopted_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            detail::notify_adopted_contexts_released(*adopted_);
+        if (leased_ && leased_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            detail::notify_adopted_contexts_released(*leased_);
         }
         throw;
     }
 }
 
-Adoption::~Adoption() {
+CurrentContextLease::~CurrentContextLease() {
     detail::set_current_test(std::move(previous_));
-    if (adopted_ && adopted_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        detail::close_canceled_context_if_released(*adopted_);
-        detail::notify_adopted_contexts_released(*adopted_);
+    if (leased_ && leased_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        detail::close_canceled_context_if_released(*leased_);
+        detail::notify_adopted_contexts_released(*leased_);
     }
 }
 

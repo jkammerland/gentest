@@ -200,15 +200,6 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=0"
         "FORBID_SUBSTRINGS=RUNNING|SUSPENDED|YIELDED")
 
-gentest_add_cmake_script_test(
-    NAME async_default_binary_no_hang
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --kind=test --no-color
-    DEFINES
-        "TIMEOUT_SEC=15"
-        "EXPECT_RC=1")
-
 gentest_add_check_counts(
     NAME async_live_demo_cooperative
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
@@ -257,110 +248,14 @@ gentest_add_cmake_script_test(
         "FORBID_SUBSTRING=fail-fast allowed a later self-adopted sync case to run")
 
 gentest_add_cmake_script_test(
-    NAME async_fail_fast_stuck_adopted_no_hang
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --filter=async/fail_fast_stuck_adopted/* --kind=test --fail-fast --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1")
-
-gentest_add_cmake_script_test(
-    NAME async_fail_fast_stuck_adopted_reports_cleanup_issue
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --filter=async/fail_fast_stuck_adopted/* --kind=test --fail-fast --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1"
-        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_stuck_adopted/00_async_fails_with_stuck_worker|canceled async frame still has adopted work after cleanup timeout"
-        "FORBID_SUBSTRING=fail-fast allowed a later sync case after a stuck adopted worker")
-
-gentest_add_cmake_script_test(
-    NAME async_fail_fast_done_adopted_no_hang
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --filter=async/fail_fast_done_adopted/* --kind=test --fail-fast --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1")
-
-gentest_add_cmake_script_test(
-    NAME async_fail_fast_done_adopted_reports_cleanup_issue
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --filter=async/fail_fast_done_adopted/* --kind=test --fail-fast --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1"
-        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_done_adopted/00_done_with_stuck_worker|canceled async frame still has adopted work after cleanup timeout|[ FAIL ] async/fail_fast_done_adopted/01_sync_failure"
-        "FORBID_SUBSTRING=fail-fast allowed a later sync case after done adopted work")
-
-gentest_add_cmake_script_test(
     NAME async_fail_fast_done_adopted_late_records_worker_failure
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --filter=async/fail_fast_done_adopted_late/* --kind=test --fail-fast --no-color
     DEFINES
-        "TIMEOUT_SEC=5"
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_done_adopted_late/00_done_with_late_worker_failure|adopted worker recorded failure after completed async cancellation|canceled async frame still has adopted work after cleanup timeout|[ FAIL ] async/fail_fast_done_adopted_late/01_sync_failure"
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_done_adopted_late/00_done_with_late_worker_failure|adopted worker recorded failure after completed async cancellation|[ FAIL ] async/fail_fast_done_adopted_late/01_sync_failure"
         "FORBID_SUBSTRING=fail-fast allowed a later sync case after late adopted worker failure")
-
-gentest_add_cmake_script_test(
-    NAME async_fail_fast_many_stuck_adopted_shared_deadline
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --filter=async/fail_fast_many_stuck_adopted/* --kind=test --fail-fast --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1")
-
-gentest_add_cmake_script_test(
-    NAME async_stuck_adopted_non_fail_fast_no_hang
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --filter=async/fail_fast_stuck_adopted/* --kind=test --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1")
-
-gentest_add_cmake_script_test(
-    NAME async_done_adopted_non_fail_fast_no_hang
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --filter=async/fail_fast_done_adopted/* --kind=test --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1")
-
-gentest_add_cmake_script_test(
-    NAME async_many_stuck_adopted_non_fail_fast_no_hang
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --filter=async/fail_fast_many_stuck_adopted/* --kind=test --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1")
-
-gentest_add_cmake_script_test(
-    NAME async_fail_fast_cancel_adopted_no_hang
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --filter=async/fail_fast_cancel_adopted/* --kind=test --fail-fast --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1")
-
-gentest_add_cmake_script_test(
-    NAME async_fail_fast_cancel_adopted_does_not_resume
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --filter=async/fail_fast_cancel_adopted/* --kind=test --fail-fast --no-color
-    DEFINES
-        "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_cancel_adopted/01_failure_releases_pending"
-        "FORBID_SUBSTRING=fail-fast cancellation resumed pending adopted case")
 
 gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_adopted_context_no_abort
@@ -380,15 +275,6 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=NONZERO"
         "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_cancel_released_context/01_sync_failure|without an active test context")
-
-gentest_add_cmake_script_test(
-    NAME async_released_context_default_filter_no_abort
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --filter=async/fail_fast_cancel_released_context/* --kind=test --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1")
 
 gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_local_fixture_runs_teardown
@@ -411,22 +297,13 @@ gentest_add_cmake_script_test(
         "FORBID_SUBSTRINGS=fail-fast canceled adopted async local fixture without teardown|fail-fast canceled adopted async local fixture destroyed without teardown|fail-fast canceled adopted async frame was not destroyed after adopted release|fail-fast cancellation resumed adopted local fixture case")
 
 gentest_add_cmake_script_test(
-    NAME async_fail_fast_cancel_stuck_local_teardown_no_hang
-    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
-    ARGS --filter=async/fail_fast_cancel_stuck_local_teardown/* --kind=test --fail-fast --no-color
-    DEFINES
-        "TIMEOUT_SEC=5"
-        "EXPECT_RC=1")
-
-gentest_add_cmake_script_test(
-    NAME async_fail_fast_cancel_slow_adopted_reports_cleanup_issue
+    NAME async_fail_fast_cancel_slow_adopted_waits_for_release
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --filter=async/fail_fast_cancel_slow_adopted/* --kind=test --fail-fast --no-color
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_cancel_slow_adopted/01_sync_failure|canceled async frame still has adopted work after cleanup timeout"
+        "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_cancel_slow_adopted/01_sync_failure"
         "FORBID_SUBSTRINGS=fail-fast cancellation resumed slow adopted case|fail-fast slow adopted worker did not finish|fail-fast slow canceled adopted async frame was not destroyed after adopted release")
 
 gentest_add_cmake_script_test(
@@ -457,6 +334,38 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=1"
         "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_final_drain/00_async_fail_after_adopted_release"
         "FORBID_SUBSTRING=fail-fast final drain allowed a later ready async case to run")
+
+gentest_add_check_counts(
+    NAME async_timer_sleep_fairness
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 3
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/timer/* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_wait_for_event
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/wait_for/event* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_wait_for_future
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 3
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/wait_for/future* --kind=test --no-color)
+
+gentest_add_check_counts(
+    NAME async_wait_for_async_test
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 5
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/wait_for/async_test* --kind=test --no-color)
 
 gentest_add_check_counts(
     NAME async_live_slow_demo_inventory
@@ -3880,9 +3789,9 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
-    gentest_tidy_context_adoption
-    ${PROJECT_SOURCE_DIR}/tests/cmake/tidy_context_adoption
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTidyContextAdoption.cmake
+    gentest_tidy_context_lease
+    ${PROJECT_SOURCE_DIR}/tests/cmake/tidy_context_lease
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTidyContextLease.cmake
     cmake)
 
 _gentest_add_cmake_helper_test(

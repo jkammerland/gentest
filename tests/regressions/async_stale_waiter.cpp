@@ -37,6 +37,27 @@ struct NoMoveAssignPayload {
     int value = 0;
 };
 
+struct DefaultOnlyPayload {
+    DefaultOnlyPayload() = default;
+
+    DefaultOnlyPayload(DefaultOnlyPayload &&) noexcept            = default;
+    DefaultOnlyPayload &operator=(DefaultOnlyPayload &&) noexcept = delete;
+
+    int value = 7;
+};
+
+struct NoMoveConstructPayload {
+    NoMoveConstructPayload() = default;
+    explicit NoMoveConstructPayload(int v) : value(v) {}
+    NoMoveConstructPayload(NoMoveConstructPayload &&) noexcept = delete;
+    NoMoveConstructPayload &operator=(NoMoveConstructPayload &&other) noexcept {
+        value = other.value;
+        return *this;
+    }
+
+    int value = 0;
+};
+
 template <typename Event>
 concept DefaultSettableEvent = requires(Event &event) { event.set("key"); };
 
@@ -45,8 +66,11 @@ concept PayloadSettableEvent = requires(Event &event, Value value) { event.set("
 
 static_assert(DefaultSettableEvent<gentest::async::event<int>>);
 static_assert(!DefaultSettableEvent<gentest::async::event<NoDefaultPayload>>);
+static_assert(!DefaultSettableEvent<gentest::async::event<DefaultOnlyPayload>>);
 static_assert(PayloadSettableEvent<gentest::async::event<NoDefaultPayload>, NoDefaultPayload>);
 static_assert(!PayloadSettableEvent<gentest::async::event<NoMoveAssignPayload>, NoMoveAssignPayload>);
+static_assert(!PayloadSettableEvent<gentest::async::event<DefaultOnlyPayload>, DefaultOnlyPayload>);
+static_assert(PayloadSettableEvent<gentest::async::event<NoMoveConstructPayload>, int>);
 
 class TrackingScheduler final : public gentest::detail::AsyncScheduler {
   public:
@@ -155,6 +179,12 @@ auto wait_for_no_default_event_key(gentest::async::event<NoDefaultPayload> &even
     co_return &payload;
 }
 
+auto wait_for_no_move_construct_event_key(gentest::async::event<NoMoveConstructPayload> &event, std::string key)
+    -> gentest::async_test<NoMoveConstructPayload *> {
+    NoMoveConstructPayload &payload = co_await event.wait(std::move(key));
+    co_return &payload;
+}
+
 auto wait_for_promise(gentest::async::future<void> future) -> gentest::async_test<void> {
     co_await future.wait("promise stale waiter regression");
 }
@@ -256,6 +286,18 @@ int main() try {
         scheduler.run_until_blocked(task);
         if (!task.handle().done() || task.await_resume()->value != 17) {
             return fail("event<NoDefaultPayload> did not accept an explicit payload");
+        }
+    }
+
+    {
+        gentest::async::event<NoMoveConstructPayload> event;
+        TrackingScheduler                             scheduler;
+        event.set("payload", 19);
+        event.set("payload", 20);
+        auto task = wait_for_no_move_construct_event_key(event, "payload");
+        scheduler.run_until_blocked(task);
+        if (!task.handle().done() || task.await_resume()->value != 20) {
+            return fail("event<NoMoveConstructPayload> did not construct and update an explicit payload");
         }
     }
 

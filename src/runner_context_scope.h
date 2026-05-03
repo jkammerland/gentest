@@ -15,16 +15,16 @@ inline auto make_active_test_context(std::string_view display_name) -> std::shar
     return ctx;
 }
 
-class CurrentTestAdoptionScope {
+class CurrentTestContextScope {
   public:
-    explicit CurrentTestAdoptionScope(std::shared_ptr<gentest::detail::TestContextInfo> ctx) : previous_(gentest::detail::current_test()) {
+    explicit CurrentTestContextScope(std::shared_ptr<gentest::detail::TestContextInfo> ctx) : previous_(gentest::detail::current_test()) {
         gentest::detail::set_current_test(std::move(ctx));
     }
 
-    CurrentTestAdoptionScope(const CurrentTestAdoptionScope &)            = delete;
-    CurrentTestAdoptionScope &operator=(const CurrentTestAdoptionScope &) = delete;
+    CurrentTestContextScope(const CurrentTestContextScope &)            = delete;
+    CurrentTestContextScope &operator=(const CurrentTestContextScope &) = delete;
 
-    ~CurrentTestAdoptionScope() { gentest::detail::set_current_test(std::move(previous_)); }
+    ~CurrentTestContextScope() { gentest::detail::set_current_test(std::move(previous_)); }
 
   private:
     std::shared_ptr<gentest::detail::TestContextInfo> previous_;
@@ -55,7 +55,7 @@ inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentes
     ctx->canceled.store(true, std::memory_order_release);
     ctx->active.store(false, std::memory_order_release);
     {
-        CurrentTestAdoptionScope current_scope(ctx);
+        CurrentTestContextScope current_scope(ctx);
         gentest::detail::run_context_cancel_hooks(ctx);
     }
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);

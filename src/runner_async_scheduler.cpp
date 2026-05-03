@@ -120,6 +120,7 @@ void BatchAsyncScheduler::attach_child(std::coroutine_handle<> child, std::corou
     const auto                  parent_owner = owner_for_locked(parent);
     if (parent_owner != kInvalidOwner) {
         owners_[child.address()] = parent_owner;
+        children_[parent.address()].push_back(child);
     }
 }
 
@@ -137,6 +138,28 @@ auto BatchAsyncScheduler::make_waiter(std::coroutine_handle<> handle) -> WaiterT
     return token;
 }
 
+void BatchAsyncScheduler::schedule_timer(std::chrono::steady_clock::time_point deadline, const WaiterTokenPtr &token) {
+    if (!token) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        timers_.push_back(Timer{.deadline = deadline, .token = token});
+    }
+    adopted_release_wake_->notify_one();
+}
+
+void BatchAsyncScheduler::cancel_waiters(std::coroutine_handle<> handle) noexcept {
+    std::vector<WaiterTokenPtr> tokens;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        cancel_waiters_for_handle_locked(handle, tokens);
+    }
+    for (auto &token : tokens) {
+        token->cancel();
+    }
+}
+
 void BatchAsyncScheduler::add_top_level(std::size_t run_index, gentest::detail::AsyncTask &task) {
     register_adopted_release_wake_for(run_index);
     task.set_scheduler(this);
@@ -149,11 +172,13 @@ void BatchAsyncScheduler::add_top_level(std::size_t run_index, gentest::detail::
 
 auto BatchAsyncScheduler::run_one_ready() -> bool {
     gentest::detail::AsyncSchedulerScope scheduler_scope(this);
+    post_due_timers();
     return resume_one_ready();
 }
 
 void BatchAsyncScheduler::run_ready() {
     gentest::detail::AsyncSchedulerScope scheduler_scope(this);
+    post_due_timers();
     for (std::size_t remaining = ready_size(); remaining != 0; --remaining) {
         if (!resume_one_ready()) {
             return;
@@ -194,7 +219,7 @@ auto BatchAsyncScheduler::finish_unresumable(const StopCallback &should_stop, co
         const auto suspended = suspended_state_for(i);
         run.message          = format_cannot_resume_message(suspended);
         {
-            gentest::runner::detail::CurrentTestAdoptionScope current_scope(run.ctxinfo);
+            gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
             if (!suspended.file.empty() && suspended.line != 0) {
                 gentest::detail::record_failure_at(run.message, suspended.file, suspended.line);
             } else {
@@ -233,7 +258,7 @@ void BatchAsyncScheduler::register_adopted_release_wake_for(std::size_t run_inde
         return;
     }
     auto *ctx = runs_[run_index].ctxinfo.get();
-    if (!adoption_listener_contexts_.insert(ctx).second) {
+    if (!context_listener_contexts_.insert(ctx).second) {
         return;
     }
     gentest::detail::register_adopted_release_wake(runs_[run_index].ctxinfo, adopted_release_wake_);
@@ -287,23 +312,100 @@ void BatchAsyncScheduler::complete(std::size_t owner) {
 }
 
 void BatchAsyncScheduler::cancel_owner_waiters_locked(std::size_t owner, std::vector<WaiterTokenPtr> &tokens) {
-    for (auto it = owners_.begin(); it != owners_.end();) {
-        if (it->second != owner) {
+    std::vector<std::coroutine_handle<>> handles;
+    for (const auto &[address, handle_owner] : owners_) {
+        if (handle_owner == owner) {
+            handles.push_back(std::coroutine_handle<>::from_address(address));
+        }
+    }
+    for (auto handle : handles) {
+        cancel_one_handle_locked(handle, tokens);
+    }
+}
+
+void BatchAsyncScheduler::remove_child_references_locked(void *address) {
+    for (auto it = children_.begin(); it != children_.end();) {
+        auto &children = it->second;
+        std::erase_if(children, [address](std::coroutine_handle<> child) { return child.address() == address; });
+        if (children.empty()) {
+            it = children_.erase(it);
+        } else {
             ++it;
+        }
+    }
+}
+
+void BatchAsyncScheduler::cancel_one_handle_locked(std::coroutine_handle<> handle, std::vector<WaiterTokenPtr> &tokens) {
+    const auto address = handle.address();
+    if (const auto child_it = children_.find(address); child_it != children_.end()) {
+        auto children = std::move(child_it->second);
+        children_.erase(child_it);
+        for (auto child : children) {
+            cancel_one_handle_locked(child, tokens);
+        }
+    }
+    remove_child_references_locked(address);
+
+    const auto waiter_it = waiter_tokens_.find(address);
+    if (waiter_it != waiter_tokens_.end()) {
+        for (auto &weak_waiter : waiter_it->second) {
+            if (auto waiter = weak_waiter.lock()) {
+                tokens.push_back(std::move(waiter));
+            }
+        }
+        waiter_tokens_.erase(waiter_it);
+    }
+    blocked_handles_.erase(address);
+    owners_.erase(address);
+    std::erase(ready_, handle);
+}
+
+void BatchAsyncScheduler::cancel_waiters_for_handle_locked(std::coroutine_handle<> handle, std::vector<WaiterTokenPtr> &tokens) {
+    if (!handle) {
+        return;
+    }
+    cancel_one_handle_locked(handle, tokens);
+}
+
+void BatchAsyncScheduler::post_due_timers() {
+    std::vector<WaiterTokenPtr> due;
+    const auto                  now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        for (auto it = timers_.begin(); it != timers_.end();) {
+            if (!it->token || !it->token->active()) {
+                it = timers_.erase(it);
+                continue;
+            }
+            if (it->deadline <= now) {
+                due.push_back(std::move(it->token));
+                it = timers_.erase(it);
+                continue;
+            }
+            ++it;
+        }
+    }
+    for (auto &token : due) {
+        token->post();
+    }
+}
+
+auto BatchAsyncScheduler::next_timer_deadline_locked() const -> std::optional<std::chrono::steady_clock::time_point> {
+    std::optional<std::chrono::steady_clock::time_point> result;
+    for (const auto &timer : timers_) {
+        if (!timer.token || !timer.token->active()) {
             continue;
         }
-        const auto waiter_it = waiter_tokens_.find(it->first);
-        if (waiter_it != waiter_tokens_.end()) {
-            for (auto &weak_waiter : waiter_it->second) {
-                if (auto waiter = weak_waiter.lock()) {
-                    tokens.push_back(std::move(waiter));
-                }
-            }
-            waiter_tokens_.erase(waiter_it);
+        if (!result || timer.deadline < *result) {
+            result = timer.deadline;
         }
-        blocked_handles_.erase(it->first);
-        it = owners_.erase(it);
     }
+    return result;
+}
+
+auto BatchAsyncScheduler::has_pending_timers() const -> bool {
+    std::lock_guard<std::mutex> lk(mtx_);
+    return next_timer_deadline_locked().has_value();
 }
 
 auto BatchAsyncScheduler::ready_size() const -> std::size_t {
@@ -351,7 +453,7 @@ auto BatchAsyncScheduler::resume_one_ready() -> bool {
             continue;
         }
         {
-            gentest::runner::detail::CurrentTestAdoptionScope current_scope(run.ctxinfo);
+            gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
             if (renderer_) {
                 renderer_->mark_running(owner);
             }
@@ -397,15 +499,32 @@ auto BatchAsyncScheduler::has_unfinished_adopted_work() const -> bool {
 void BatchAsyncScheduler::wait_for_ready_or_adopted_release(const StopCallback &should_stop,
                                                             const StopCallback &should_stop_waiting_for_adopted) {
     std::unique_lock<std::mutex> lk(mtx_);
-    adopted_release_wake_->cv.wait_for(lk, std::chrono::milliseconds(10), [&] {
-        return !ready_.empty() || !has_unfinished_adopted_work() || (should_stop && should_stop()) ||
-               (should_stop_waiting_for_adopted && should_stop_waiting_for_adopted());
-    });
+    while (true) {
+        auto       wake_deadline    = next_timer_deadline_locked();
+        const auto stop_or_progress = [&] {
+            return !ready_.empty() || (!has_unfinished_adopted_work() && !next_timer_deadline_locked()) || (should_stop && should_stop()) ||
+                   (should_stop_waiting_for_adopted && should_stop_waiting_for_adopted());
+        };
+        if (stop_or_progress()) {
+            break;
+        }
+        if (wake_deadline) {
+            if (!adopted_release_wake_->cv.wait_until(lk, *wake_deadline, stop_or_progress)) {
+                break;
+            }
+            continue;
+        }
+        adopted_release_wake_->cv.wait(lk, stop_or_progress);
+        break;
+    }
+    lk.unlock();
+    post_due_timers();
 }
 
 auto BatchAsyncScheduler::drain_ready_and_adopted_work(const StopCallback &should_stop, const ProgressCallback &after_progress,
                                                        const StopCallback &should_stop_waiting_for_adopted) -> bool {
     do {
+        post_due_timers();
         while (has_ready()) {
             if (should_stop && should_stop()) {
                 return true;
@@ -426,7 +545,7 @@ auto BatchAsyncScheduler::drain_ready_and_adopted_work(const StopCallback &shoul
         if (should_stop && should_stop()) {
             return true;
         }
-        if (!has_unfinished_adopted_work()) {
+        if (!has_unfinished_adopted_work() && !has_pending_timers()) {
             return false;
         }
         if (should_stop_waiting_for_adopted && should_stop_waiting_for_adopted()) {

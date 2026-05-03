@@ -33,7 +33,7 @@ auto completed_case_with_adopted_worker() -> gentest::async_test<void> {
     auto ready          = started->get_future();
 
     std::thread([context = std::move(worker_context), started = std::move(started), release_future = std::move(release_future)]() mutable {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         started->set_value();
         release_future.wait();
     }).detach();

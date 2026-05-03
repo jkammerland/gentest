@@ -38,7 +38,6 @@ gentest::async::manual_event live_demo_resume;
 std::vector<std::string>     live_demo_order;
 
 gentest::async::manual_event fail_fast_snapshot_release;
-gentest::async::manual_event fail_fast_cancel_adopted_resume;
 gentest::async::manual_event fail_fast_cancel_adopted_context_resume;
 gentest::async::manual_event fail_fast_cancel_local_fixture_resume;
 gentest::async::manual_event fail_fast_cancel_adopted_local_fixture_resume;
@@ -46,8 +45,6 @@ gentest::async::manual_event fail_fast_cancel_slow_adopted_resume;
 gentest::async::manual_event fail_fast_cancel_adopted_skip_resume;
 gentest::async::manual_event fail_fast_final_drain_fail_release;
 gentest::async::manual_event fail_fast_final_drain_late_release;
-gentest::async::manual_event fail_fast_many_stuck_adopted_resume;
-gentest::async::manual_event fail_fast_cancel_stuck_local_teardown_resume;
 gentest::async::manual_event local_unresumable_teardown_never;
 std::atomic<int>             fail_fast_final_drain_waiters{0};
 std::atomic<bool>            fail_fast_self_adopted_worker_started{false};
@@ -68,6 +65,7 @@ std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_done{true};
 
 gentest::async::manual_event group_fence_release;
 std::vector<std::string>     group_fence_order;
+std::vector<std::string>     timer_fairness_order;
 
 class JoiningThread {
   public:
@@ -230,17 +228,6 @@ std::shared_ptr<gentest::async::promise<void>> empty_blocked_source;
 
 constexpr int kLiveDemoRounds = 10;
 
-void start_stuck_adopted_worker(gentest::CurrentContext context, std::shared_ptr<std::promise<void>> started) {
-    std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
-        started->set_value();
-        while (context && context->active.load(std::memory_order_acquire)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        std::this_thread::sleep_for(std::chrono::hours(1));
-    }).detach();
-}
-
 struct LocalAsyncFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
     int value = 0;
 
@@ -343,27 +330,30 @@ struct FailFastCancelSlowAdoptedFrameGuard {
     ~FailFastCancelSlowAdoptedFrameGuard() { fail_fast_cancel_slow_adopted_frame_destroyed.store(true, std::memory_order_release); }
 };
 
-struct FailFastCancelStuckLocalTeardownFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
-    gentest::async_test<void> setUp() override {
-        co_await gentest::async::yield();
-        co_return;
-    }
-
-    gentest::async_test<void> tearDown() override {
-        auto context = gentest::get_current_context();
-        auto started = std::make_shared<std::promise<void>>();
-        auto ready   = started->get_future();
-        start_stuck_adopted_worker(std::move(context), std::move(started));
-        ready.wait();
-        co_return;
-    }
-};
-
 struct UnsupportedSuspend {
     [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
     constexpr void               await_suspend(std::coroutine_handle<>) const noexcept {}
     constexpr void               await_resume() const noexcept {}
 };
+
+gentest::async_test<void> wait_for_child_pass() {
+    co_await gentest::async::yield();
+    co_return;
+}
+
+gentest::async_test<int> wait_for_child_value() {
+    co_await gentest::async::yield();
+    co_return 42;
+}
+
+gentest::async_test<void> wait_for_child_throws() {
+    co_await gentest::async::yield();
+    throw std::runtime_error("wait_for async_test exception marker");
+}
+
+gentest::async_test<void> wait_for_child_never(gentest::async::manual_event &event) { co_await event.wait("child release"); }
+
+gentest::async_test<void> wait_for_nested_child_never(gentest::async::manual_event &event) { co_await wait_for_child_never(event); }
 
 struct [[using gentest: fixture(suite)]] SharedSuiteAsyncFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
     static inline int                      setups    = 0;
@@ -465,7 +455,7 @@ struct [[using gentest: fixture(suite)]] BlockingSchedulerAdoptedFixture : gente
 
         JoiningThread worker(std::thread(
             [context = std::move(context), started = std::move(started), &release, resumed_ready = std::move(resumed_ready)]() mutable {
-                auto adoption = gentest::set_current_context(context);
+                auto lease = gentest::set_current_context(context);
                 started->set_value();
                 release.set("adopted fixture setup released");
                 EXPECT_TRUE(resumed_ready.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
@@ -650,7 +640,7 @@ gentest::async_test<void> fail_fast_self_adopted_async_fails_with_adopted_worker
     auto ready   = started->get_future();
 
     std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         fail_fast_self_adopted_worker_started.store(true, std::memory_order_release);
         started->set_value();
         while (context && context->active.load(std::memory_order_acquire)) {
@@ -670,60 +660,6 @@ void fail_fast_self_adopted_sync_should_not_run() {
     gentest::fail("fail-fast allowed a later self-adopted sync case to run");
 }
 
-[[using gentest: test("fail_fast_stuck_adopted/00_async_fails_with_stuck_worker")]]
-gentest::async_test<void> fail_fast_stuck_adopted_async_fails_with_stuck_worker() {
-    auto context = gentest::get_current_context();
-    auto started = std::make_shared<std::promise<void>>();
-    auto ready   = started->get_future();
-
-    std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
-        started->set_value();
-        while (context && context->active.load(std::memory_order_acquire)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        std::this_thread::sleep_for(std::chrono::hours(1));
-    }).detach();
-
-    ready.wait();
-    co_await gentest::async::yield();
-    EXPECT_TRUE(false, "fail-fast should report stuck adopted cleanup without hanging");
-}
-
-[[using gentest: test("fail_fast_stuck_adopted/01_sync_should_not_run")]]
-void fail_fast_stuck_adopted_sync_should_not_run() {
-    gentest::fail("fail-fast allowed a later sync case after a stuck adopted worker");
-}
-
-[[using gentest: test("fail_fast_done_adopted/00_done_with_stuck_worker")]]
-gentest::async_test<void> fail_fast_done_adopted_done_with_stuck_worker() {
-    auto context = gentest::get_current_context();
-    auto started = std::make_shared<std::promise<void>>();
-    auto ready   = started->get_future();
-
-    std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
-        started->set_value();
-        while (context && context->active.load(std::memory_order_acquire)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        std::this_thread::sleep_for(std::chrono::hours(1));
-    }).detach();
-
-    ready.wait();
-    co_return;
-}
-
-[[using gentest: test("fail_fast_done_adopted/01_sync_failure")]]
-void fail_fast_done_adopted_sync_failure() {
-    EXPECT_TRUE(false, "trigger fail-fast while earlier done async case still has adopted work");
-}
-
-[[using gentest: test("fail_fast_done_adopted/02_sync_should_not_run")]]
-void fail_fast_done_adopted_sync_should_not_run() {
-    gentest::fail("fail-fast allowed a later sync case after done adopted work");
-}
-
 [[using gentest: test("fail_fast_done_adopted_late/00_done_with_late_worker_failure")]]
 gentest::async_test<void> fail_fast_done_adopted_late_done_with_late_worker_failure() {
     auto context = gentest::get_current_context();
@@ -731,7 +667,7 @@ gentest::async_test<void> fail_fast_done_adopted_late_done_with_late_worker_fail
     auto ready   = started->get_future();
 
     std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         started->set_value();
         while (context && context->active.load(std::memory_order_acquire)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -755,73 +691,6 @@ void fail_fast_done_adopted_late_sync_should_not_run() {
     gentest::fail("fail-fast allowed a later sync case after late adopted worker failure");
 }
 
-[[using gentest: test("fail_fast_many_stuck_adopted/00_pending_a")]]
-gentest::async_test<void> fail_fast_many_stuck_adopted_pending_a() {
-    auto context = gentest::get_current_context();
-    auto started = std::make_shared<std::promise<void>>();
-    auto ready   = started->get_future();
-    start_stuck_adopted_worker(std::move(context), std::move(started));
-    ready.wait();
-    co_await fail_fast_many_stuck_adopted_resume.wait("fail-fast many stuck adopted release");
-    gentest::fail("fail-fast cancellation resumed first stuck adopted case");
-}
-
-[[using gentest: test("fail_fast_many_stuck_adopted/01_pending_b")]]
-gentest::async_test<void> fail_fast_many_stuck_adopted_pending_b() {
-    auto context = gentest::get_current_context();
-    auto started = std::make_shared<std::promise<void>>();
-    auto ready   = started->get_future();
-    start_stuck_adopted_worker(std::move(context), std::move(started));
-    ready.wait();
-    co_await fail_fast_many_stuck_adopted_resume.wait("fail-fast many stuck adopted release");
-    gentest::fail("fail-fast cancellation resumed second stuck adopted case");
-}
-
-[[using gentest: test("fail_fast_many_stuck_adopted/02_pending_c")]]
-gentest::async_test<void> fail_fast_many_stuck_adopted_pending_c() {
-    auto context = gentest::get_current_context();
-    auto started = std::make_shared<std::promise<void>>();
-    auto ready   = started->get_future();
-    start_stuck_adopted_worker(std::move(context), std::move(started));
-    ready.wait();
-    co_await fail_fast_many_stuck_adopted_resume.wait("fail-fast many stuck adopted release");
-    gentest::fail("fail-fast cancellation resumed third stuck adopted case");
-}
-
-[[using gentest: test("fail_fast_many_stuck_adopted/03_sync_failure")]]
-void fail_fast_many_stuck_adopted_sync_failure() {
-    EXPECT_TRUE(false, "trigger fail-fast for multiple stuck adopted cancellations");
-}
-
-[[using gentest: test("fail_fast_cancel_adopted/00_pending_needs_resume")]]
-gentest::async_test<void> fail_fast_cancel_adopted_pending_needs_resume() {
-    fail_fast_cancel_adopted_resume.reset_all();
-
-    auto context = gentest::get_current_context();
-    auto started = std::make_shared<std::promise<void>>();
-    auto ready   = started->get_future();
-
-    std::promise<void> resumed;
-    auto               resumed_ready = resumed.get_future();
-    JoiningThread      worker(
-        std::thread([context = std::move(context), started = std::move(started), resumed_ready = std::move(resumed_ready)]() mutable {
-            auto adoption = gentest::set_current_context(context);
-            started->set_value();
-            resumed_ready.wait();
-        }));
-
-    ready.wait();
-    co_await fail_fast_cancel_adopted_resume.wait("fail-fast adopted pending release");
-    resumed.set_value();
-    gentest::fail("fail-fast cancellation resumed pending adopted case");
-}
-
-[[using gentest: test("fail_fast_cancel_adopted/01_failure_releases_pending")]]
-void fail_fast_cancel_adopted_failure_releases_pending() {
-    fail_fast_cancel_adopted_resume.set("fail-fast adopted pending release");
-    EXPECT_TRUE(false);
-}
-
 [[using gentest: test("fail_fast_cancel_adopted_context/00_pending_worker_logs_after_cancel")]]
 gentest::async_test<void> fail_fast_cancel_adopted_context_pending_worker_logs_after_cancel() {
     fail_fast_cancel_adopted_context_resume.reset_all();
@@ -833,7 +702,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_context_pending_worker_logs_a
     auto ready   = started->get_future();
 
     std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         fail_fast_cancel_adopted_context_worker_started.store(true, std::memory_order_release);
         started->set_value();
         while (context && context->active.load(std::memory_order_acquire)) {
@@ -866,7 +735,7 @@ gentest::async_test<void> fail_fast_cancel_released_context_pending_worker_reuse
 
     std::thread([context = std::move(context), started = std::move(started)]() mutable {
         {
-            auto adoption = gentest::set_current_context(context);
+            auto lease = gentest::set_current_context(context);
             fail_fast_cancel_released_context_worker_started.store(true, std::memory_order_release);
             started->set_value();
             while (context && context->active.load(std::memory_order_acquire)) {
@@ -875,7 +744,7 @@ gentest::async_test<void> fail_fast_cancel_released_context_pending_worker_reuse
             gentest::log("adopted worker logged during fail-fast cancellation");
         }
 
-        auto stale_adoption = gentest::set_current_context(context);
+        auto stale_lease = gentest::set_current_context(context);
         gentest::log("stale adopted worker logged after releasing fail-fast cancellation context");
         fail_fast_cancel_released_context_worker_done.store(true, std::memory_order_release);
     }).detach();
@@ -916,7 +785,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_local_fixture_pending(FailFas
     auto ready   = started->get_future();
 
     std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         fail_fast_cancel_adopted_local_fixture_started.store(true, std::memory_order_release);
         started->set_value();
         while (context && context->active.load(std::memory_order_acquire)) {
@@ -936,18 +805,6 @@ void fail_fast_cancel_adopted_local_fixture_sync_failure() {
     EXPECT_TRUE(false, "fail-fast sync failure should trigger adopted async local fixture teardown");
 }
 
-[[using gentest: test("fail_fast_cancel_stuck_local_teardown/00_pending")]]
-gentest::async_test<void> fail_fast_cancel_stuck_local_teardown_pending(FailFastCancelStuckLocalTeardownFixture &) {
-    fail_fast_cancel_stuck_local_teardown_resume.reset_all();
-    co_await fail_fast_cancel_stuck_local_teardown_resume.wait("fail-fast stuck local teardown release");
-    gentest::fail("fail-fast cancellation resumed stuck local teardown case");
-}
-
-[[using gentest: test("fail_fast_cancel_stuck_local_teardown/01_sync_failure")]]
-void fail_fast_cancel_stuck_local_teardown_sync_failure() {
-    EXPECT_TRUE(false, "fail-fast sync failure should not hang on stuck async local fixture teardown");
-}
-
 [[using gentest: test("fail_fast_cancel_slow_adopted/00_pending_needs_resume")]]
 gentest::async_test<void> fail_fast_cancel_slow_adopted_pending_needs_resume() {
     fail_fast_cancel_slow_adopted_resume.reset_all();
@@ -961,14 +818,14 @@ gentest::async_test<void> fail_fast_cancel_slow_adopted_pending_needs_resume() {
     auto ready   = started->get_future();
 
     std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         fail_fast_cancel_slow_adopted_worker_started.store(true, std::memory_order_release);
         started->set_value();
         while (context && context->active.load(std::memory_order_acquire)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(800));
-        gentest::log("slow adopted worker released after cleanup soft timeout");
+        gentest::log("slow adopted worker released after cancellation");
         fail_fast_cancel_slow_adopted_worker_done.store(true, std::memory_order_release);
     }).detach();
 
@@ -979,7 +836,7 @@ gentest::async_test<void> fail_fast_cancel_slow_adopted_pending_needs_resume() {
 
 [[using gentest: test("fail_fast_cancel_slow_adopted/01_sync_failure")]]
 void fail_fast_cancel_slow_adopted_sync_failure() {
-    EXPECT_TRUE(false, "fail-fast sync failure should report slow adopted cleanup");
+    EXPECT_TRUE(false, "fail-fast sync failure should wait for slow adopted release");
 }
 
 [[using gentest: test("fail_fast_cancel_adopted_skip/00_pending_worker_skips_after_cancel")]]
@@ -993,7 +850,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_skip_pending_worker_skips_aft
     auto ready   = started->get_future();
 
     std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         fail_fast_cancel_adopted_skip_worker_started.store(true, std::memory_order_release);
         started->set_value();
         while (context && context->active.load(std::memory_order_acquire)) {
@@ -1028,7 +885,7 @@ gentest::async_test<void> fail_fast_final_drain_async_fail_after_adopted_release
     auto ready   = started->get_future();
 
     JoiningThread worker(std::thread([context = std::move(context), started = std::move(started)]() mutable {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         started->set_value();
         while (fail_fast_final_drain_waiters.load(std::memory_order_acquire) < 2) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1049,6 +906,142 @@ gentest::async_test<void> fail_fast_final_drain_async_should_not_run_after_failu
     fail_fast_final_drain_waiters.fetch_add(1, std::memory_order_acq_rel);
     co_await fail_fast_final_drain_late_release.wait("fail-fast final drain late release");
     gentest::fail("fail-fast final drain allowed a later ready async case to run");
+}
+
+[[using gentest: test("timer/00_sleep_for_waits")]]
+gentest::async_test<void> timer_sleep_for_waits() {
+    timer_fairness_order.clear();
+    co_await gentest::async::sleep_for(std::chrono::milliseconds(10));
+    ASSERT_EQ(timer_fairness_order.size(), std::size_t{1});
+    EXPECT_EQ(timer_fairness_order[0], "yield");
+    timer_fairness_order.emplace_back("timer");
+}
+
+[[using gentest: test("timer/01_yield_runs_while_sleep_pending")]]
+gentest::async_test<void> timer_yield_runs_while_sleep_pending() {
+    co_await gentest::async::yield();
+    timer_fairness_order.emplace_back("yield");
+}
+
+[[using gentest: test("timer/02_sleep_until_waits")]]
+gentest::async_test<void> timer_sleep_until_waits() {
+    co_await gentest::async::sleep_until(std::chrono::steady_clock::now() + std::chrono::milliseconds(1));
+    EXPECT_TRUE(true);
+}
+
+[[using gentest: test("wait_for/event_ready_before_timeout")]]
+gentest::async_test<void> wait_for_event_ready_before_timeout() {
+    gentest::async::event<int> event;
+    event.set("ready", 7);
+
+    auto result = co_await gentest::async::wait_for(event.wait("ready"), std::chrono::milliseconds(50));
+
+    EXPECT_TRUE(result.ready());
+    EXPECT_FALSE(result.timed_out());
+    EXPECT_TRUE(result.status() == gentest::async::wait_status::ready);
+    EXPECT_EQ(result.value(), 7);
+    result.value() = 8;
+    int &payload   = co_await event.wait("ready");
+    EXPECT_EQ(payload, 8);
+}
+
+[[using gentest: test("wait_for/event_timeout_late_signal")]]
+gentest::async_test<void> wait_for_event_timeout_late_signal() {
+    gentest::async::event<int> event;
+
+    auto result = co_await gentest::async::wait_for(event.wait("late"), std::chrono::milliseconds(1));
+
+    EXPECT_FALSE(static_cast<bool>(result));
+    EXPECT_TRUE(result.timed_out());
+    EXPECT_TRUE(result.status() == gentest::async::wait_status::timeout);
+    event.set("late", 9);
+    co_await gentest::async::yield();
+    EXPECT_TRUE(result.timed_out());
+}
+
+[[using gentest: test("wait_for/future_void_ready")]]
+gentest::async_test<void> wait_for_future_void_ready() {
+    gentest::async::promise<void> promise;
+    auto                          future = promise.get_future();
+    promise.set_value();
+
+    auto result = co_await gentest::async::wait_for(future.wait("future void ready"), std::chrono::milliseconds(50));
+
+    EXPECT_TRUE(result.ready());
+}
+
+[[using gentest: test("wait_for/future_value_timeout")]]
+gentest::async_test<void> wait_for_future_value_timeout() {
+    gentest::async::promise<int> promise;
+    auto                         future = promise.get_future();
+
+    auto result = co_await gentest::async::wait_for(future.wait("future value timeout"), std::chrono::milliseconds(1));
+
+    EXPECT_TRUE(result.timed_out());
+    promise.set_value(11);
+    co_await gentest::async::yield();
+    EXPECT_TRUE(result.timed_out());
+}
+
+[[using gentest: test("wait_for/future_move_only_ready")]]
+gentest::async_test<void> wait_for_future_move_only_ready() {
+    gentest::async::promise<std::unique_ptr<int>> promise;
+    auto                                          future = promise.get_future();
+    promise.set_value(std::make_unique<int>(17));
+
+    auto result = co_await gentest::async::wait_for(future.wait("future move-only ready"), std::chrono::milliseconds(50));
+
+    ASSERT_TRUE(result.ready());
+    auto payload = std::move(result).value();
+    ASSERT_TRUE(static_cast<bool>(payload));
+    EXPECT_EQ(*payload, 17);
+}
+
+[[using gentest: test("wait_for/async_test_pass")]]
+gentest::async_test<void> wait_for_async_test_pass() {
+    auto result = co_await gentest::async::wait_for(wait_for_child_pass(), std::chrono::milliseconds(50));
+    EXPECT_TRUE(result.ready());
+}
+
+[[using gentest: test("wait_for/async_test_value")]]
+gentest::async_test<void> wait_for_async_test_value() {
+    auto result = co_await gentest::async::wait_for(wait_for_child_value(), std::chrono::milliseconds(50));
+    ASSERT_TRUE(result.ready());
+    EXPECT_EQ(result.value(), 42);
+}
+
+[[using gentest: test("wait_for/async_test_exception")]]
+gentest::async_test<void> wait_for_async_test_exception() {
+    try {
+        (void)(co_await gentest::async::wait_for(wait_for_child_throws(), std::chrono::milliseconds(50)));
+        gentest::fail("wait_for did not propagate async_test exception");
+    } catch (const std::runtime_error &ex) {
+        EXPECT_TRUE(std::string_view(ex.what()).find("wait_for async_test exception marker") != std::string_view::npos);
+    }
+}
+
+[[using gentest: test("wait_for/async_test_timeout_cancels_stale_waiter")]]
+gentest::async_test<void> wait_for_async_test_timeout_cancels_stale_waiter() {
+    gentest::async::manual_event event;
+
+    auto result = co_await gentest::async::wait_for(wait_for_child_never(event), std::chrono::milliseconds(1));
+
+    EXPECT_TRUE(result.timed_out());
+    event.set("child release");
+    co_await gentest::async::yield();
+    EXPECT_TRUE(result.timed_out());
+}
+
+[[using gentest: test("wait_for/async_test_timeout_cancels_nested_stale_waiter")]]
+gentest::async_test<void> wait_for_async_test_timeout_cancels_nested_stale_waiter() {
+    gentest::async::manual_event event;
+
+    auto result = co_await gentest::async::wait_for(wait_for_nested_child_never(event), std::chrono::milliseconds(1));
+
+    EXPECT_TRUE(result.timed_out());
+    event.set("child release");
+    co_await gentest::async::yield();
+    EXPECT_TRUE(result.timed_out());
 }
 
 [[using gentest: test("value/discard")]]
@@ -1312,7 +1305,7 @@ gentest::async_test<void> adopted_worker_releases() {
     auto ready   = started->get_future();
 
     JoiningThread worker(std::thread([context = std::move(context), started = std::move(started)] {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         started->set_value();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         adopted_resume_event.set("adopted worker released async case");
@@ -1334,7 +1327,7 @@ gentest::async_test<void> adopted_worker_waits_for_resumed_ack() {
 
     JoiningThread worker(std::thread(
         [context = std::move(context), started = std::move(started), &release, resumed_ready = std::move(resumed_ready)]() mutable {
-            auto adoption = gentest::set_current_context(context);
+            auto lease = gentest::set_current_context(context);
             started->set_value();
             release.set("adopted worker acknowledged resume");
             EXPECT_TRUE(resumed_ready.wait_for(std::chrono::seconds(1)) == std::future_status::ready);

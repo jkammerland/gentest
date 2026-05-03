@@ -59,7 +59,7 @@ void classify_async_exception(AsyncCaseRun &run) {
         return;
     }
 
-    gentest::runner::detail::CurrentTestAdoptionScope current_scope(run.ctxinfo);
+    gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
     try {
         std::rethrow_exception(ex);
     } catch (const gentest::detail::blocked_exception &e) {
@@ -104,7 +104,7 @@ void schedule_async_case(std::vector<AsyncCaseRun> &runs, const gentest::Case &t
     run.start       = std::chrono::steady_clock::now();
 
     {
-        gentest::runner::detail::CurrentTestAdoptionScope current_scope(run.ctxinfo);
+        gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
         try {
             if (test.async_fn) {
                 run.task = test.async_fn(fixture_ctx);

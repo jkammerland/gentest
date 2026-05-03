@@ -38,7 +38,7 @@ void measured_call_phase_body_timing(void *) {
     std::promise<void> adopted_started;
     auto               adopted_ready = adopted_started.get_future();
     std::thread([context = std::move(context), adopted_started = std::move(adopted_started)]() mutable {
-        auto adoption = gentest::set_current_context(std::move(context));
+        auto lease = gentest::set_current_context(std::move(context));
         adopted_started.set_value();
         std::this_thread::sleep_for(kAdoptedWait);
     }).detach();

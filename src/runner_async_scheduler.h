@@ -4,6 +4,7 @@
 #include "runner_async_state.h"
 #include "runner_async_status_renderer.h"
 
+#include <chrono>
 #include <coroutine>
 #include <cstddef>
 #include <cstdint>
@@ -12,6 +13,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <source_location>
 #include <string>
 #include <unordered_map>
@@ -36,6 +38,8 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     void               yield_at(std::coroutine_handle<> handle, const std::source_location &loc) override;
     void               attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) override;
     [[nodiscard]] auto make_waiter(std::coroutine_handle<> handle) -> WaiterTokenPtr override;
+    void               schedule_timer(std::chrono::steady_clock::time_point deadline, const WaiterTokenPtr &token) override;
+    void               cancel_waiters(std::coroutine_handle<> handle) noexcept override;
 
     void               add_top_level(std::size_t run_index, gentest::detail::AsyncTask &task);
     [[nodiscard]] auto run_one_ready() -> bool;
@@ -64,6 +68,11 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
         std::uint64_t sequence = 0;
     };
 
+    struct Timer {
+        std::chrono::steady_clock::time_point deadline;
+        WaiterTokenPtr                        token;
+    };
+
     static constexpr std::size_t kInvalidOwner = std::numeric_limits<std::size_t>::max();
 
     [[nodiscard]] auto owner_for(std::coroutine_handle<> handle) const -> std::size_t;
@@ -74,6 +83,12 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     [[nodiscard]] bool run_is_complete(std::size_t owner) const;
     void               complete(std::size_t owner);
     void               cancel_owner_waiters_locked(std::size_t owner, std::vector<WaiterTokenPtr> &tokens);
+    void               remove_child_references_locked(void *address);
+    void               cancel_one_handle_locked(std::coroutine_handle<> handle, std::vector<WaiterTokenPtr> &tokens);
+    void               cancel_waiters_for_handle_locked(std::coroutine_handle<> handle, std::vector<WaiterTokenPtr> &tokens);
+    void               post_due_timers();
+    [[nodiscard]] auto next_timer_deadline_locked() const -> std::optional<std::chrono::steady_clock::time_point>;
+    [[nodiscard]] auto has_pending_timers() const -> bool;
     [[nodiscard]] auto ready_size() const -> std::size_t;
     [[nodiscard]] auto ready_empty() const noexcept -> bool;
     [[nodiscard]] auto pop_ready() -> std::coroutine_handle<>;
@@ -88,11 +103,13 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     AsyncStatusRenderer                                                  *renderer_ = nullptr;
     mutable std::mutex                                                    mtx_;
     std::shared_ptr<gentest::detail::TestContextInfo::AdoptedReleaseWake> adopted_release_wake_;
-    std::unordered_set<gentest::detail::TestContextInfo *>                adoption_listener_contexts_;
+    std::unordered_set<gentest::detail::TestContextInfo *>                context_listener_contexts_;
     std::deque<std::coroutine_handle<>>                                   ready_;
     std::unordered_map<void *, std::size_t>                               owners_;
+    std::unordered_map<void *, std::vector<std::coroutine_handle<>>>      children_;
     std::unordered_map<void *, BlockedHandle>                             blocked_handles_;
     std::unordered_map<void *, std::vector<std::weak_ptr<WaiterToken>>>   waiter_tokens_;
+    std::vector<Timer>                                                    timers_;
     std::uint64_t                                                         suspend_sequence_ = 0;
 };
 

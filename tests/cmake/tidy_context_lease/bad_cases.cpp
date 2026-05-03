@@ -19,13 +19,13 @@ struct DetachedTask {
     };
 };
 
-void function_thread_entry_without_context() { gentest::log("missing function thread adoption"); }
+void function_thread_entry_without_context() { gentest::log("missing function thread lease"); }
 
 void missing_thread_context() {
-    header_tidy_context_adoption::missing_header_thread_context();
+    header_tidy_context_lease::missing_header_thread_context();
 
     std::thread worker([] {
-        gentest::log("missing thread adoption");
+        gentest::log("missing thread lease");
         EXPECT_TRUE(true);
     });
     worker.join();
@@ -51,7 +51,7 @@ void discarded_thread_context() {
     auto        context = gentest::get_current_context();
     std::thread worker([context] {
         static_cast<void>(gentest::set_current_context(context));
-        gentest::log("discarded adoption");
+        gentest::log("discarded lease");
     });
     worker.join();
 }
@@ -59,7 +59,7 @@ void discarded_thread_context() {
 void expired_scope_thread_context() {
     auto        context = gentest::get_current_context();
     std::thread worker([context] {
-        { auto adoption = gentest::set_current_context(context); }
+        { auto lease = gentest::set_current_context(context); }
         gentest::expect(true);
     });
     worker.join();
@@ -69,7 +69,7 @@ void conditional_thread_context() {
     auto        context = gentest::get_current_context();
     std::thread worker([context] {
         if (context) {
-            auto adoption = gentest::set_current_context(context);
+            auto lease = gentest::set_current_context(context);
         }
         EXPECT_EQ(1, 1);
     });
@@ -79,8 +79,8 @@ void conditional_thread_context() {
 void control_init_scope_thread_context() {
     auto        context = gentest::get_current_context();
     std::thread worker([context] {
-        if (auto adoption = gentest::set_current_context(context); context) {
-            (void)adoption;
+        if (auto lease = gentest::set_current_context(context); context) {
+            (void)lease;
         }
         EXPECT_TRUE(true);
     });

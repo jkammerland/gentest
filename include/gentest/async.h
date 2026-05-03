@@ -3,12 +3,14 @@
 #include "gentest/detail/runtime_base.h"
 
 #include <any>
+#include <atomic>
 #include <chrono>
 #include <concepts>
 #include <condition_variable>
 #include <coroutine>
 #include <cstdlib>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -19,6 +21,7 @@
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace gentest {
@@ -42,16 +45,21 @@ class AsyncScheduler {
 
     class WaiterToken {
       public:
+        using BeforePost = std::function<bool()>;
+
         WaiterToken(std::weak_ptr<Control> control, std::coroutine_handle<> handle) : control_(std::move(control)), handle_(handle) {}
 
-        void post() const;
-        void cancel() noexcept;
+        void               post();
+        void               cancel() noexcept;
+        void               set_before_post(BeforePost before_post);
+        [[nodiscard]] auto active() const noexcept -> bool;
 
       private:
         mutable std::mutex      mtx_;
         std::weak_ptr<Control>  control_;
         std::coroutine_handle<> handle_{};
-        bool                    active_ = true;
+        BeforePost              before_post_;
+        std::atomic_bool        active_{true};
     };
 
     using WaiterTokenPtr = std::shared_ptr<WaiterToken>;
@@ -68,6 +76,16 @@ class AsyncScheduler {
     }
 
     virtual void yield_at(std::coroutine_handle<> handle, const std::source_location &) { post(handle); }
+
+    virtual void schedule_timer(std::chrono::steady_clock::time_point deadline, const WaiterTokenPtr &token) {
+        if (deadline <= std::chrono::steady_clock::now() && token) {
+            token->post();
+            return;
+        }
+        std::abort();
+    }
+
+    virtual void cancel_waiters(std::coroutine_handle<> handle) noexcept { (void)handle; }
 
     [[nodiscard]] auto control() const noexcept -> std::shared_ptr<Control> { return control_; }
 
@@ -95,22 +113,44 @@ inline void AsyncScheduler::Control::post(std::coroutine_handle<> handle) const 
     }
 }
 
-inline void AsyncScheduler::WaiterToken::post() const {
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (!active_) {
+inline void AsyncScheduler::WaiterToken::post() {
+    if (!active_.exchange(false, std::memory_order_acq_rel)) {
         return;
     }
-    if (auto control = control_.lock()) {
-        control->post(handle_);
+    std::shared_ptr<Control> control;
+    std::coroutine_handle<>  handle{};
+    BeforePost               before_post;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        control = control_.lock();
+        handle  = handle_;
+        handle_ = {};
+        control_.reset();
+        before_post = std::move(before_post_);
+    }
+    if (before_post && !before_post()) {
+        return;
+    }
+    if (control && handle) {
+        control->post(handle);
     }
 }
 
 inline void AsyncScheduler::WaiterToken::cancel() noexcept {
+    if (!active_.exchange(false, std::memory_order_acq_rel)) {
+        return;
+    }
     std::lock_guard<std::mutex> lk(mtx_);
-    active_ = false;
     handle_ = {};
     control_.reset();
 }
+
+inline void AsyncScheduler::WaiterToken::set_before_post(BeforePost before_post) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    before_post_ = std::move(before_post);
+}
+
+inline auto AsyncScheduler::WaiterToken::active() const noexcept -> bool { return active_.load(std::memory_order_acquire); }
 
 GENTEST_RUNTIME_API auto current_async_scheduler() noexcept -> AsyncScheduler *;
 GENTEST_RUNTIME_API auto set_current_async_scheduler(AsyncScheduler *scheduler) noexcept -> AsyncScheduler *;
@@ -147,8 +187,11 @@ class AsyncTask {
 using AsyncTaskPtr = std::unique_ptr<AsyncTask>;
 using AsyncCaseFn  = AsyncTaskPtr (*)(void *);
 
+template <typename T>
+concept EventDefaultSetPayload = std::default_initializable<T> && std::assignable_from<T &, T &&>;
+
 template <typename T, typename U>
-concept EventSetPayload = std::constructible_from<T, U &&> && std::constructible_from<T, T &&> && std::assignable_from<T &, T &&>;
+concept EventSetPayload = std::constructible_from<T, U &&> && std::assignable_from<T &, T &&>;
 
 } // namespace detail
 
@@ -156,7 +199,108 @@ namespace async {
 
 template <typename T> class promise;
 
+enum class wait_status { ready, timeout };
+
+namespace wait_result_detail {
+
+[[noreturn]] inline void wait_result_timeout_value() {
+#if GENTEST_EXCEPTIONS_ENABLED
+    throw std::logic_error("gentest::async::wait_result has no value because the wait timed out");
+#else
+    std::abort();
+#endif
+}
+
+} // namespace wait_result_detail
+
+template <typename T> class wait_result {
+    struct empty_value {};
+    using storage_type = std::variant<empty_value, T>;
+
+  public:
+    [[nodiscard]] static auto make_ready(T value) -> wait_result {
+        return wait_result(wait_status::ready, storage_type{std::in_place_index<1>, std::move(value)});
+    }
+    [[nodiscard]] static auto make_timeout() -> wait_result {
+        return wait_result(wait_status::timeout, storage_type{std::in_place_index<0>});
+    }
+
+    [[nodiscard]] auto     ready() const noexcept -> bool { return status_ == wait_status::ready; }
+    [[nodiscard]] auto     timed_out() const noexcept -> bool { return status_ == wait_status::timeout; }
+    [[nodiscard]] auto     status() const noexcept -> wait_status { return status_; }
+    [[nodiscard]] explicit operator bool() const noexcept { return ready(); }
+
+    [[nodiscard]] auto value() & -> T & {
+        ensure_value();
+        return std::get<1>(value_);
+    }
+
+    [[nodiscard]] auto value() const & -> const T & {
+        ensure_value();
+        return std::get<1>(value_);
+    }
+
+    [[nodiscard]] auto value() && -> T {
+        ensure_value();
+        return std::get<1>(std::move(value_));
+    }
+
+  private:
+    explicit wait_result(wait_status status, storage_type value) : status_(status), value_(std::move(value)) {}
+
+    void ensure_value() const {
+        if (!std::holds_alternative<T>(value_)) {
+            wait_result_detail::wait_result_timeout_value();
+        }
+    }
+
+    wait_status  status_ = wait_status::timeout;
+    storage_type value_;
+};
+
+template <typename T> class wait_result<T &> {
+  public:
+    [[nodiscard]] static auto make_ready(T &value) -> wait_result { return wait_result(wait_status::ready, &value); }
+    [[nodiscard]] static auto make_timeout() -> wait_result { return wait_result(wait_status::timeout, nullptr); }
+
+    [[nodiscard]] auto     ready() const noexcept -> bool { return status_ == wait_status::ready; }
+    [[nodiscard]] auto     timed_out() const noexcept -> bool { return status_ == wait_status::timeout; }
+    [[nodiscard]] auto     status() const noexcept -> wait_status { return status_; }
+    [[nodiscard]] explicit operator bool() const noexcept { return ready(); }
+
+    [[nodiscard]] auto value() const -> T & {
+        if (!value_) {
+            wait_result_detail::wait_result_timeout_value();
+        }
+        return *value_;
+    }
+
+  private:
+    constexpr wait_result(wait_status status, T *value) noexcept : status_(status), value_(value) {}
+
+    wait_status status_ = wait_status::timeout;
+    T          *value_  = nullptr;
+};
+
+template <> class wait_result<void> {
+  public:
+    [[nodiscard]] static constexpr auto make_ready() noexcept -> wait_result { return wait_result(wait_status::ready); }
+    [[nodiscard]] static constexpr auto make_timeout() noexcept -> wait_result { return wait_result(wait_status::timeout); }
+
+    [[nodiscard]] constexpr auto     ready() const noexcept -> bool { return status_ == wait_status::ready; }
+    [[nodiscard]] constexpr auto     timed_out() const noexcept -> bool { return status_ == wait_status::timeout; }
+    [[nodiscard]] constexpr auto     status() const noexcept -> wait_status { return status_; }
+    [[nodiscard]] constexpr explicit operator bool() const noexcept { return ready(); }
+
+  private:
+    explicit constexpr wait_result(wait_status status) noexcept : status_(status) {}
+
+    wait_status status_ = wait_status::timeout;
+};
+
 struct yield_awaitable {
+    using gentest_async_wait_supported = void;
+
     std::source_location loc;
 
     [[nodiscard]] constexpr auto await_ready() const noexcept -> bool { return false; }
@@ -169,6 +313,14 @@ struct yield_awaitable {
         scheduler->yield_at(handle, loc);
     }
 
+    void await_suspend_with_token(std::coroutine_handle<> handle, detail::AsyncScheduler &scheduler,
+                                  const detail::AsyncScheduler::WaiterTokenPtr &token) const {
+        scheduler.block_at(handle, "yielded cooperatively", loc);
+        if (token) {
+            token->post();
+        }
+    }
+
     constexpr void await_resume() const noexcept {}
 };
 
@@ -176,11 +328,67 @@ struct yield_awaitable {
     return yield_awaitable{.loc = loc};
 }
 
+class sleep_awaitable {
+  public:
+    using gentest_async_wait_supported = void;
+
+    sleep_awaitable(std::chrono::steady_clock::time_point deadline, std::source_location loc) : deadline_(deadline), loc_(loc) {}
+
+    [[nodiscard]] auto await_ready() const noexcept -> bool { return std::chrono::steady_clock::now() >= deadline_; }
+
+    void await_suspend(std::coroutine_handle<> handle) {
+        auto *scheduler = detail::current_async_scheduler();
+        if (!scheduler) {
+            std::abort();
+        }
+        await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
+    }
+
+    void await_suspend_with_token(std::coroutine_handle<> handle, detail::AsyncScheduler &scheduler,
+                                  const detail::AsyncScheduler::WaiterTokenPtr &token) {
+        token_ = token;
+        if (std::chrono::steady_clock::now() >= deadline_) {
+            if (token_) {
+                token_->post();
+            }
+            return;
+        }
+        scheduler.block_at(handle, "async timer has not elapsed", loc_);
+        scheduler.schedule_timer(deadline_, token_);
+    }
+
+    constexpr void await_resume() const noexcept {}
+
+    ~sleep_awaitable() {
+        if (token_) {
+            token_->cancel();
+        }
+    }
+
+  private:
+    std::chrono::steady_clock::time_point  deadline_;
+    std::source_location                   loc_;
+    detail::AsyncScheduler::WaiterTokenPtr token_;
+};
+
+template <typename Rep, typename Period>
+[[nodiscard]] inline auto sleep_for(std::chrono::duration<Rep, Period> duration,
+                                    const std::source_location        &loc = std::source_location::current()) -> sleep_awaitable {
+    return sleep_awaitable{std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration),
+                           loc};
+}
+
+template <typename Duration>
+[[nodiscard]] inline auto sleep_until(std::chrono::time_point<std::chrono::steady_clock, Duration> deadline,
+                                      const std::source_location &loc = std::source_location::current()) -> sleep_awaitable {
+    return sleep_awaitable{std::chrono::time_point_cast<std::chrono::steady_clock::duration>(deadline), loc};
+}
+
 template <typename T = std::any> class event {
     struct Slot;
 
     struct WaitState {
-        Slot *slot = nullptr;
+        T *value = nullptr;
     };
 
     struct Waiter {
@@ -198,21 +406,21 @@ template <typename T = std::any> class event {
     event() = default;
 
     void set(std::string key)
-        requires std::default_initializable<T> && detail::EventSetPayload<T, T>
+        requires detail::EventDefaultSetPayload<T>
     {
-        set_value(std::move(key), T{});
+        set_default(std::move(key));
     }
 
-    void set(std::string key, T value)
+    void set(std::string key, std::type_identity_t<T> value)
         requires detail::EventSetPayload<T, T>
     {
         set_value(std::move(key), std::move(value));
     }
 
     template <typename U>
-        requires(!std::same_as<std::remove_cvref_t<U>, T> && detail::EventSetPayload<T, U>)
+        requires detail::EventSetPayload<T, U>
     void set(std::string key, U &&value) {
-        set_value(std::move(key), T(std::forward<U>(value)));
+        set_value(std::move(key), std::forward<U>(value));
     }
 
     void reset(std::string_view key) {
@@ -240,6 +448,8 @@ template <typename T = std::any> class event {
 
     class awaitable {
       public:
+        using gentest_async_wait_supported = void;
+
         awaitable(event &owner, std::string key, std::source_location loc)
             : event_(owner), key_(std::move(key)), loc_(loc), state_(std::make_shared<WaitState>()) {}
 
@@ -249,7 +459,7 @@ template <typename T = std::any> class event {
             if (it == event_.slots_.end() || !it->second.ready) {
                 return false;
             }
-            state_->slot = &it->second;
+            state_->value = value_ptr(it->second);
             return true;
         }
 
@@ -258,32 +468,41 @@ template <typename T = std::any> class event {
             if (!scheduler) {
                 std::abort();
             }
+            await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
+        }
+
+        void await_suspend_with_token(std::coroutine_handle<> handle, detail::AsyncScheduler &scheduler,
+                                      const detail::AsyncScheduler::WaiterTokenPtr &token) {
             bool should_post = false;
             {
                 std::lock_guard<std::mutex> lk(event_.mtx_);
                 auto                       &slot = event_.slots_[key_];
                 if (slot.ready) {
-                    state_->slot = &slot;
-                    should_post  = true;
+                    state_->value = value_ptr(slot);
+                    should_post   = true;
                 } else {
-                    slot.waiters.push_back(Waiter{.token = scheduler->make_waiter(handle), .state = state_});
-                    scheduler->block_at(handle, event_.blocked_reason(key_), loc_);
+                    slot.waiters.push_back(Waiter{.token = token, .state = state_});
+                    scheduler.block_at(handle, event_.blocked_reason(key_), loc_);
                 }
             }
             if (should_post) {
-                scheduler->post(handle);
+                if (token) {
+                    token->post();
+                } else {
+                    scheduler.post(handle);
+                }
             }
         }
 
         auto await_resume() const -> T & {
-            if (!state_ || state_->slot == nullptr || !state_->slot->value.has_value()) {
+            if (!state_ || state_->value == nullptr) {
 #if GENTEST_EXCEPTIONS_ENABLED
                 throw std::runtime_error("gentest::async::event resumed without payload slot");
 #else
                 std::abort();
 #endif
             }
-            return *state_->slot->value;
+            return *state_->value;
         }
 
       private:
@@ -298,24 +517,46 @@ template <typename T = std::any> class event {
     }
 
   private:
-    void set_value(std::string key, T value) {
+    void set_default(std::string key) {
         std::vector<Waiter> waiters;
         Slot               *slot_ptr = nullptr;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             auto                       &slot = slots_[std::move(key)];
             if (slot.value.has_value()) {
-                *slot.value = std::move(value);
+                *slot.value = T{};
             } else {
-                slot.value.emplace(std::move(value));
+                slot.value.emplace();
             }
             slot.ready = true;
             slot_ptr   = &slot;
             waiters.swap(slot.waiters);
         }
+        post_waiters(waiters, slot_ptr);
+    }
+
+    template <typename U> void set_value(std::string key, U &&value) {
+        std::vector<Waiter> waiters;
+        Slot               *slot_ptr = nullptr;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            auto                       &slot = slots_[std::move(key)];
+            if (slot.value.has_value()) {
+                *slot.value = T(std::forward<U>(value));
+            } else {
+                slot.value.emplace(std::forward<U>(value));
+            }
+            slot.ready = true;
+            slot_ptr   = &slot;
+            waiters.swap(slot.waiters);
+        }
+        post_waiters(waiters, slot_ptr);
+    }
+
+    void post_waiters(std::vector<Waiter> &waiters, Slot *slot_ptr) {
         for (auto &waiter : waiters) {
             if (auto state = waiter.state.lock()) {
-                state->slot = slot_ptr;
+                state->value = value_ptr(*slot_ptr);
                 if (waiter.token) {
                     waiter.token->post();
                 }
@@ -333,6 +574,13 @@ template <typename T = std::any> class event {
         reason += key;
         reason += "' was not set";
         return reason;
+    }
+
+    [[nodiscard]] static auto value_ptr(Slot &slot) noexcept -> T * {
+        if (!slot.value.has_value()) {
+            return nullptr;
+        }
+        return std::addressof(*slot.value);
     }
 
     mutable std::mutex                    mtx_;
@@ -356,7 +604,9 @@ struct final_resume_awaiter {
 
     template <typename Promise> void await_suspend(std::coroutine_handle<Promise> handle) const noexcept {
         auto &promise = handle.promise();
-        if (promise.continuation && promise.scheduler) {
+        if (promise.continuation_token) {
+            promise.continuation_token->post();
+        } else if (promise.continuation && promise.scheduler) {
             promise.scheduler->post(promise.continuation);
         }
     }
@@ -368,11 +618,14 @@ struct final_resume_awaiter {
 
 template <typename T> class async_test final : public detail::AsyncTask {
   public:
+    using gentest_async_wait_supported = void;
+
     struct promise_type {
-        detail::AsyncScheduler *scheduler = nullptr;
-        std::coroutine_handle<> continuation{};
-        std::exception_ptr      exception{};
-        std::optional<T>        value{};
+        detail::AsyncScheduler                *scheduler = nullptr;
+        std::coroutine_handle<>                continuation{};
+        detail::AsyncScheduler::WaiterTokenPtr continuation_token{};
+        std::exception_ptr                     exception{};
+        std::optional<T>                       value{};
 
         [[nodiscard]] auto get_return_object() noexcept -> async_test {
             return async_test{std::coroutine_handle<promise_type>::from_promise(*this)};
@@ -420,10 +673,26 @@ template <typename T> class async_test final : public detail::AsyncTask {
         if (!scheduler || !handle_) {
             std::abort();
         }
-        handle_.promise().scheduler    = scheduler;
-        handle_.promise().continuation = continuation;
-        scheduler->attach_child(handle_, continuation);
-        scheduler->post(handle_);
+        await_suspend_with_token(continuation, *scheduler, scheduler->make_waiter(continuation));
+    }
+
+    void await_suspend_with_token(std::coroutine_handle<> continuation, detail::AsyncScheduler &scheduler,
+                                  const detail::AsyncScheduler::WaiterTokenPtr &token) {
+        if (!handle_) {
+            std::abort();
+        }
+        handle_.promise().scheduler          = &scheduler;
+        handle_.promise().continuation       = continuation;
+        handle_.promise().continuation_token = token;
+        scheduler.attach_child(handle_, continuation);
+        scheduler.post(handle_);
+    }
+
+    void cancel_wait(detail::AsyncScheduler &scheduler) noexcept {
+        if (handle_) {
+            scheduler.cancel_waiters(handle_);
+            handle_.promise().continuation_token.reset();
+        }
     }
 
     auto await_resume() -> T {
@@ -460,10 +729,13 @@ template <typename T> class async_test final : public detail::AsyncTask {
 
 template <> class async_test<void> final : public detail::AsyncTask {
   public:
+    using gentest_async_wait_supported = void;
+
     struct promise_type {
-        detail::AsyncScheduler *scheduler = nullptr;
-        std::coroutine_handle<> continuation{};
-        std::exception_ptr      exception{};
+        detail::AsyncScheduler                *scheduler = nullptr;
+        std::coroutine_handle<>                continuation{};
+        detail::AsyncScheduler::WaiterTokenPtr continuation_token{};
+        std::exception_ptr                     exception{};
 
         [[nodiscard]] auto get_return_object() noexcept -> async_test {
             return async_test{std::coroutine_handle<promise_type>::from_promise(*this)};
@@ -511,10 +783,26 @@ template <> class async_test<void> final : public detail::AsyncTask {
         if (!scheduler || !handle_) {
             std::abort();
         }
-        handle_.promise().scheduler    = scheduler;
-        handle_.promise().continuation = continuation;
-        scheduler->attach_child(handle_, continuation);
-        scheduler->post(handle_);
+        await_suspend_with_token(continuation, *scheduler, scheduler->make_waiter(continuation));
+    }
+
+    void await_suspend_with_token(std::coroutine_handle<> continuation, detail::AsyncScheduler &scheduler,
+                                  const detail::AsyncScheduler::WaiterTokenPtr &token) {
+        if (!handle_) {
+            std::abort();
+        }
+        handle_.promise().scheduler          = &scheduler;
+        handle_.promise().continuation       = continuation;
+        handle_.promise().continuation_token = token;
+        scheduler.attach_child(handle_, continuation);
+        scheduler.post(handle_);
+    }
+
+    void cancel_wait(detail::AsyncScheduler &scheduler) noexcept {
+        if (handle_) {
+            scheduler.cancel_waiters(handle_);
+            handle_.promise().continuation_token.reset();
+        }
     }
 
     void await_resume() const {
@@ -541,6 +829,210 @@ template <> class async_test<void> final : public detail::AsyncTask {
     std::coroutine_handle<promise_type> handle_{};
 };
 
+namespace async {
+namespace timeout_detail {
+
+template <typename T>
+concept SupportedTimedAwaitable = requires(T &awaitable, std::coroutine_handle<> handle, gentest::detail::AsyncScheduler &scheduler,
+                                           gentest::detail::AsyncScheduler::WaiterTokenPtr token) {
+    typename T::gentest_async_wait_supported;
+    { awaitable.await_ready() } -> std::convertible_to<bool>;
+    awaitable.await_suspend_with_token(handle, scheduler, std::move(token));
+    awaitable.await_resume();
+};
+
+template <typename T> inline constexpr bool always_false_v = false;
+
+template <typename Awaitable> using await_resume_t = decltype(std::declval<Awaitable &>().await_resume());
+
+template <typename Awaitable> struct timed_wait_result {
+    using type = wait_result<await_resume_t<Awaitable>>;
+};
+
+template <typename Awaitable> struct timed_wait_result<Awaitable &> {
+    using type = wait_result<await_resume_t<Awaitable>>;
+};
+
+struct timed_wait_state {
+    enum class winner { none, ready, timeout };
+
+    [[nodiscard]] auto try_ready() noexcept -> bool {
+        winner expected = winner::none;
+        return selected.compare_exchange_strong(expected, winner::ready, std::memory_order_acq_rel, std::memory_order_acquire);
+    }
+
+    [[nodiscard]] auto try_timeout() noexcept -> bool {
+        winner expected = winner::none;
+        return selected.compare_exchange_strong(expected, winner::timeout, std::memory_order_acq_rel, std::memory_order_acquire);
+    }
+
+    [[nodiscard]] auto timed_out() const noexcept -> bool { return selected.load(std::memory_order_acquire) == winner::timeout; }
+
+    std::atomic<winner> selected{winner::none};
+};
+
+template <typename Awaitable> void cancel_supported_awaitable(Awaitable &awaitable, gentest::detail::AsyncScheduler &scheduler) noexcept {
+    if constexpr (requires { awaitable.cancel_wait(scheduler); }) {
+        awaitable.cancel_wait(scheduler);
+    }
+}
+
+template <SupportedTimedAwaitable Awaitable> class timeout_awaitable {
+  public:
+    using result_type = typename timed_wait_result<Awaitable>::type;
+
+    timeout_awaitable(Awaitable awaitable, std::chrono::steady_clock::time_point deadline, std::source_location loc)
+        : awaitable_(std::move(awaitable)), deadline_(deadline), loc_(loc) {}
+
+    timeout_awaitable(timeout_awaitable &&) noexcept            = default;
+    timeout_awaitable &operator=(timeout_awaitable &&) noexcept = default;
+
+    timeout_awaitable(const timeout_awaitable &)            = delete;
+    timeout_awaitable &operator=(const timeout_awaitable &) = delete;
+
+    ~timeout_awaitable() {
+        cancel_tokens();
+        if (scheduler_) {
+            cancel_supported_awaitable(awaitable_, *scheduler_);
+        }
+    }
+
+    [[nodiscard]] auto await_ready() -> bool {
+        if (awaitable_.await_ready()) {
+            (void)state_->try_ready();
+            return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline_) {
+            (void)state_->try_timeout();
+            return true;
+        }
+        return false;
+    }
+
+    void await_suspend(std::coroutine_handle<> handle) {
+        scheduler_ = gentest::detail::current_async_scheduler();
+        if (!scheduler_) {
+            std::abort();
+        }
+        if (awaitable_.await_ready()) {
+            (void)state_->try_ready();
+            scheduler_->post(handle);
+            return;
+        }
+        if (std::chrono::steady_clock::now() >= deadline_) {
+            (void)state_->try_timeout();
+            scheduler_->post(handle);
+            return;
+        }
+
+        ready_token_   = scheduler_->make_waiter(handle);
+        timeout_token_ = scheduler_->make_waiter(handle);
+
+        auto state         = state_;
+        auto timeout_token = timeout_token_;
+        ready_token_->set_before_post([state, timeout_token] {
+            if (!state->try_ready()) {
+                return false;
+            }
+            if (timeout_token) {
+                timeout_token->cancel();
+            }
+            return true;
+        });
+
+        auto ready_token = ready_token_;
+        timeout_token_->set_before_post([this, state, ready_token] {
+            if (!state->try_timeout()) {
+                return false;
+            }
+            if (ready_token) {
+                ready_token->cancel();
+            }
+            if (scheduler_) {
+                cancel_supported_awaitable(awaitable_, *scheduler_);
+            }
+            return true;
+        });
+
+        scheduler_->schedule_timer(deadline_, timeout_token_);
+        awaitable_.await_suspend_with_token(handle, *scheduler_, ready_token_);
+    }
+
+    [[nodiscard]] auto await_resume() -> result_type {
+        const bool timed_out = state_->timed_out();
+        cancel_tokens();
+        if (timed_out) {
+            if (scheduler_) {
+                cancel_supported_awaitable(awaitable_, *scheduler_);
+            }
+            return result_type::make_timeout();
+        }
+        if constexpr (std::is_void_v<await_resume_t<Awaitable>>) {
+            awaitable_.await_resume();
+            return result_type::make_ready();
+        } else {
+            return result_type::make_ready(awaitable_.await_resume());
+        }
+    }
+
+  private:
+    void cancel_tokens() noexcept {
+        if (ready_token_) {
+            ready_token_->cancel();
+        }
+        if (timeout_token_) {
+            timeout_token_->cancel();
+        }
+    }
+
+    Awaitable                                       awaitable_;
+    std::chrono::steady_clock::time_point           deadline_;
+    std::source_location                            loc_;
+    std::shared_ptr<timed_wait_state>               state_     = std::make_shared<timed_wait_state>();
+    gentest::detail::AsyncScheduler                *scheduler_ = nullptr;
+    gentest::detail::AsyncScheduler::WaiterTokenPtr ready_token_;
+    gentest::detail::AsyncScheduler::WaiterTokenPtr timeout_token_;
+};
+
+} // namespace timeout_detail
+
+template <typename Awaitable, typename Duration>
+    requires timeout_detail::SupportedTimedAwaitable<std::remove_cvref_t<Awaitable>>
+[[nodiscard]] auto wait_until(Awaitable &&awaitable, std::chrono::time_point<std::chrono::steady_clock, Duration> deadline,
+                              const std::source_location &loc = std::source_location::current()) {
+    using Stored = std::remove_cvref_t<Awaitable>;
+    return timeout_detail::timeout_awaitable<Stored>{std::forward<Awaitable>(awaitable),
+                                                     std::chrono::time_point_cast<std::chrono::steady_clock::duration>(deadline), loc};
+}
+
+template <typename Awaitable, typename Duration>
+    requires(!timeout_detail::SupportedTimedAwaitable<std::remove_cvref_t<Awaitable>>)
+[[nodiscard]] auto wait_until(Awaitable &&, std::chrono::time_point<std::chrono::steady_clock, Duration>,
+                              const std::source_location & = std::source_location::current()) {
+    static_assert(timeout_detail::always_false_v<Awaitable>,
+                  "gentest::async::wait_until only supports gentest-owned awaitables: event<T>::wait(...), future<T>::wait(...), "
+                  "sleep_for/sleep_until awaitables, yield(), and async_test<T>");
+}
+
+template <typename Awaitable, typename Rep, typename Period>
+    requires timeout_detail::SupportedTimedAwaitable<std::remove_cvref_t<Awaitable>>
+[[nodiscard]] auto wait_for(Awaitable &&awaitable, std::chrono::duration<Rep, Period> duration,
+                            const std::source_location &loc = std::source_location::current()) {
+    return wait_until(std::forward<Awaitable>(awaitable),
+                      std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration), loc);
+}
+
+template <typename Awaitable, typename Rep, typename Period>
+    requires(!timeout_detail::SupportedTimedAwaitable<std::remove_cvref_t<Awaitable>>)
+[[nodiscard]] auto wait_for(Awaitable &&, std::chrono::duration<Rep, Period>,
+                            const std::source_location & = std::source_location::current()) {
+    static_assert(timeout_detail::always_false_v<Awaitable>,
+                  "gentest::async::wait_for only supports gentest-owned awaitables: event<T>::wait(...), future<T>::wait(...), "
+                  "sleep_for/sleep_until awaitables, yield(), and async_test<T>");
+}
+
+} // namespace async
+
 namespace detail {
 
 template <typename T> [[nodiscard]] inline auto make_async_task(async_test<T> task) -> AsyncTaskPtr {
@@ -548,8 +1040,6 @@ template <typename T> [[nodiscard]] inline auto make_async_task(async_test<T> ta
 }
 
 GENTEST_RUNTIME_API auto run_async_task_blocking(async_test<void> task, std::string_view label, std::string &error_out) -> bool;
-GENTEST_RUNTIME_API auto run_async_task_blocking_for(async_test<void> task, std::string_view label, std::chrono::milliseconds timeout,
-                                                     std::string &error_out) -> bool;
 
 } // namespace detail
 

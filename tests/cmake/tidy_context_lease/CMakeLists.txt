@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.31)
-project(gentest_tidy_context_adoption LANGUAGES C CXX)
+project(gentest_tidy_context_lease LANGUAGES C CXX)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -14,32 +14,32 @@ namespace detail {
 struct TestContextInfo;
 }
 
-// Public context adoption API for multi-threaded/coroutine tests.
+// Public context lease API for multi-threaded/coroutine tests.
 using CurrentContext = std::shared_ptr<detail::TestContextInfo>;
 using CurrentToken   = CurrentContext;
 
-struct Adoption;
+struct CurrentContextLease;
 
 [[nodiscard]] GENTEST_RUNTIME_API auto get_current_context() -> CurrentContext;
-[[nodiscard]] GENTEST_RUNTIME_API auto set_current_context(CurrentContext context) -> Adoption;
+[[nodiscard]] GENTEST_RUNTIME_API auto set_current_context(CurrentContext context) -> CurrentContextLease;
 [[nodiscard]] GENTEST_RUNTIME_API auto get_current_token() -> CurrentToken;
-[[nodiscard]] GENTEST_RUNTIME_API auto set_current_token(CurrentToken context) -> Adoption;
+[[nodiscard]] GENTEST_RUNTIME_API auto set_current_token(CurrentToken context) -> CurrentContextLease;
 
-struct [[nodiscard]] Adoption {
-    Adoption(const Adoption &)            = delete;
-    Adoption &operator=(const Adoption &) = delete;
-    Adoption(Adoption &&)                 = delete;
-    Adoption &operator=(Adoption &&)      = delete;
+struct [[nodiscard]] CurrentContextLease {
+    CurrentContextLease(const CurrentContextLease &)            = delete;
+    CurrentContextLease &operator=(const CurrentContextLease &) = delete;
+    CurrentContextLease(CurrentContextLease &&)                 = delete;
+    CurrentContextLease &operator=(CurrentContextLease &&)      = delete;
 
-    GENTEST_RUNTIME_API ~Adoption();
+    GENTEST_RUNTIME_API ~CurrentContextLease();
 
   private:
-    friend auto set_current_context(CurrentContext context) -> Adoption;
+    friend auto set_current_context(CurrentContext context) -> CurrentContextLease;
 
-    GENTEST_RUNTIME_API explicit Adoption(CurrentContext context);
+    GENTEST_RUNTIME_API explicit CurrentContextLease(CurrentContext context);
 
     CurrentContext previous_{};
-    CurrentContext adopted_{};
+    CurrentContext leased_{};
 };
 
 // Lightweight per-test logging.

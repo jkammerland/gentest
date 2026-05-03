@@ -88,12 +88,12 @@ template <typename T> class AsyncPromiseSharedState {
 
     [[nodiscard]] auto wait_or_post(std::coroutine_handle<> handle, AsyncScheduler &scheduler,
                                     const std::shared_ptr<AsyncPromiseWaitState> &wait_state, std::string reason,
-                                    const std::source_location &loc) -> bool {
+                                    const std::source_location &loc, AsyncScheduler::WaiterTokenPtr token) -> bool {
         std::lock_guard<std::mutex> lk(mtx_);
         if (terminal_ != AsyncPromiseTerminal::Pending) {
             return true;
         }
-        waiters_.push_back(AsyncPromiseWaiter{.token = scheduler.make_waiter(handle), .state = wait_state});
+        waiters_.push_back(AsyncPromiseWaiter{.token = std::move(token), .state = wait_state});
         scheduler.block_at(handle, async_promise_wait_reason(std::move(reason)), loc);
         return false;
     }
@@ -228,12 +228,12 @@ template <> class AsyncPromiseSharedState<void> {
 
     [[nodiscard]] auto wait_or_post(std::coroutine_handle<> handle, AsyncScheduler &scheduler,
                                     const std::shared_ptr<AsyncPromiseWaitState> &wait_state, std::string reason,
-                                    const std::source_location &loc) -> bool {
+                                    const std::source_location &loc, AsyncScheduler::WaiterTokenPtr token) -> bool {
         std::lock_guard<std::mutex> lk(mtx_);
         if (terminal_ != AsyncPromiseTerminal::Pending) {
             return true;
         }
-        waiters_.push_back(AsyncPromiseWaiter{.token = scheduler.make_waiter(handle), .state = wait_state});
+        waiters_.push_back(AsyncPromiseWaiter{.token = std::move(token), .state = wait_state});
         scheduler.block_at(handle, async_promise_wait_reason(std::move(reason)), loc);
         return false;
     }
@@ -349,6 +349,8 @@ template <typename T> class future {
 
     class awaitable {
       public:
+        using gentest_async_wait_supported = void;
+
         awaitable(std::shared_ptr<detail::AsyncPromiseSharedState<T>> state, std::string reason, std::source_location loc)
             : state_(std::move(state)), reason_(std::move(reason)), loc_(loc),
               wait_state_(std::make_shared<detail::AsyncPromiseWaitState>()) {}
@@ -360,8 +362,17 @@ template <typename T> class future {
             if (!scheduler) {
                 std::abort();
             }
-            if (state_->wait_or_post(handle, *scheduler, wait_state_, reason_, loc_)) {
-                scheduler->post(handle);
+            await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
+        }
+
+        void await_suspend_with_token(std::coroutine_handle<> handle, detail::AsyncScheduler &scheduler,
+                                      const detail::AsyncScheduler::WaiterTokenPtr &token) {
+            if (state_->wait_or_post(handle, scheduler, wait_state_, reason_, loc_, token)) {
+                if (token) {
+                    token->post();
+                } else {
+                    scheduler.post(handle);
+                }
             }
         }
 
@@ -507,6 +518,8 @@ template <> class future<void> {
 
     class awaitable {
       public:
+        using gentest_async_wait_supported = void;
+
         awaitable(std::shared_ptr<detail::AsyncPromiseSharedState<void>> state, std::string reason, std::source_location loc)
             : state_(std::move(state)), reason_(std::move(reason)), loc_(loc),
               wait_state_(std::make_shared<detail::AsyncPromiseWaitState>()) {}
@@ -518,8 +531,17 @@ template <> class future<void> {
             if (!scheduler) {
                 std::abort();
             }
-            if (state_->wait_or_post(handle, *scheduler, wait_state_, reason_, loc_)) {
-                scheduler->post(handle);
+            await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
+        }
+
+        void await_suspend_with_token(std::coroutine_handle<> handle, detail::AsyncScheduler &scheduler,
+                                      const detail::AsyncScheduler::WaiterTokenPtr &token) {
+            if (state_->wait_or_post(handle, scheduler, wait_state_, reason_, loc_, token)) {
+                if (token) {
+                    token->post();
+                } else {
+                    scheduler.post(handle);
+                }
             }
         }
 

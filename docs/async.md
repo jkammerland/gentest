@@ -68,8 +68,10 @@ gentest::async_test<void> templated_async() {
 | Operation | Use it for | Live status | If it cannot resume |
 | --- | --- | --- | --- |
 | `gentest::async::yield()` | Move this test to the back of the ready queue | `YIELDED` | It is already queued to resume |
+| `gentest::async::sleep_for(...)`, `sleep_until(...)` | Suspend until a scheduler-owned steady-clock timer expires | `SUSPENDED` | The timer is canceled if the waiter is canceled |
 | `event<T>::wait(key)` | Wait until `set(key, payload)` is called, then return the key's `T&` slot | `SUSPENDED` | `FAIL`: `cannot resume async test; suspended at file:line: async event key 'key' was not set` |
 | `future<T>::wait(reason)` | Wait for a one-shot `promise<T>` completion, then return `T` by value | `SUSPENDED` | Depends on how the promise completes |
+| `gentest::async::wait_for(...)`, `wait_until(...)` | Race a gentest-owned awaitable against a scheduler-owned timer | `SUSPENDED` | Returns `wait_result<T>` with `wait_status::timeout` |
 | `promise<T>::set_blocked(reason)` | Mark an external dependency as impossible | `BLOCKED` | Fails the run and reports the reason |
 
 Use `yield()` for cooperative fairness, not for polling.
@@ -206,6 +208,43 @@ Response response = co_await future.wait("client response");
 `future<T>` is move-only and single-consumer. It returns `T` by value, so use
 move-only payloads when ownership should transfer into the coroutine.
 
+## Timers And Timeouts
+
+`sleep_for(duration)` and `sleep_until(deadline)` use the gentest scheduler;
+they do not start a timer thread. Other ready async cases in the same fixture
+group continue while the sleeper is pending.
+
+Use `wait_for(awaitable, duration)` or `wait_until(awaitable, deadline)` when a
+test owns a timeout. Supported awaitables are gentest-owned primitives:
+`event<T>::wait(...)`, `future<T>::wait(...)`, `sleep_for`/`sleep_until`,
+`yield()`, and `async_test<T>` helper tasks. Custom awaiters are rejected at
+compile time.
+
+```cpp
+[[using gentest: test("async/timeout")]]
+gentest::async_test<void> explicit_timeout() {
+    gentest::async::manual_event ready;
+
+    auto result = co_await gentest::async::wait_for(
+        ready.wait("external ready"),
+        std::chrono::milliseconds(50));
+
+    if (result.timed_out()) {
+        gentest::skip("external service did not become ready");
+    }
+}
+```
+
+`wait_result<T>::ready()`, `timed_out()`, `status()`, and `operator bool`
+report the outcome. `value()` returns the ready value, returns `T&` for
+reference awaitables such as `event<T>::wait(...)`, and moves out of an rvalue
+`wait_result<T>`. Calling `value()` after a timeout is a logic error.
+
+Default waits are intentionally unbounded. If a test leaks a
+`CurrentContextLease`, or waits forever without an explicit `wait_for` /
+`wait_until`, the run may hang by contract. Gentest does not add a hidden
+cleanup timeout.
+
 ## Sync And Async Together
 
 Gentest can run sync cases while async cases are suspended. Fixture group
@@ -308,7 +347,7 @@ body does not need to suspend, end it with `co_return;`.
 ## Worker Threads
 
 The runner resumes async tests on one thread, but tests may start their own
-threads. Worker threads must adopt the current context before calling
+threads. Worker threads must lease the current context before calling
 `gentest::log()`, `EXPECT_*`, or other gentest APIs.
 
 ```cpp
@@ -318,7 +357,7 @@ gentest::async_test<void> worker_thread_reports_back() {
     auto                               context = gentest::get_current_context();
 
     std::thread worker([context, &done] {
-        auto adoption = gentest::set_current_context(context);
+        auto lease = gentest::set_current_context(context);
         gentest::log("worker reached checkpoint");
         EXPECT_TRUE(true);
         done.set("worker.done", "ok");
@@ -330,10 +369,10 @@ gentest::async_test<void> worker_thread_reports_back() {
 }
 ```
 
-Without an adopted context, test operations from a worker are a hard test
-program error. Keep the `Adoption` object alive for the whole worker region that
-uses gentest APIs. Prefer non-fatal `EXPECT_*` and `gentest::log()` in worker
-threads. Fatal operations such as `ASSERT_*`, `gentest::fail()`, and
+Without a leased context, test operations from a worker are a hard test program
+error. Keep the `CurrentContextLease` object alive for the whole worker region
+that uses gentest APIs. Prefer non-fatal `EXPECT_*` and `gentest::log()` in
+worker threads. Fatal operations such as `ASSERT_*`, `gentest::fail()`, and
 `gentest::skip()` throw when exceptions are enabled; do not let those exceptions
 escape a `std::thread` entry point. Signal the async test and perform the fatal
 operation on the runner coroutine, or catch and translate the worker exception.
@@ -440,6 +479,6 @@ Non-terminal output is final-result only; it does not print the live block.
   external completion.
 - Use `gentest::log()` instead of direct `std::cout` / `std::cerr` writes while
   live progress is active.
-- Adopt the current context in worker threads before using gentest APIs.
+- Lease the current context in worker threads before using gentest APIs.
 - Top-level `async_test<T>` values are discarded; only awaited helper tasks use
   their returned value.
