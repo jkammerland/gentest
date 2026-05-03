@@ -319,8 +319,10 @@ posts a resume token:
 - `event<T>::wait(key)` resumes when `set(key, ...)` posts the key's waiters.
 - `future<T>::wait(...)` resumes when the promise reaches a terminal state.
 - `sleep_for` / `sleep_until` resumes when the scheduler observes the deadline.
-- `wait_for` resumes when either the wrapped awaitable posts first or the
-  timeout timer posts first. The loser is canceled.
+- `wait_for` resumes when either the wrapped awaitable wins before the deadline
+  or the timeout wins. Once a suspended timed wait observes an expired deadline,
+  a later event, future, or child completion returns `wait_status::timeout`. The
+  loser is canceled.
 
 While async cases are suspended on timers or events, sync cases in the same
 fixture group may still run. At the end of a fixture group, the runner drains

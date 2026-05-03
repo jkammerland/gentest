@@ -375,6 +375,16 @@ gentest_add_check_counts(
     SKIP 0
     ARGS --filter=async/wait_for/async_test* --kind=test --no-color)
 
+gentest_add_cmake_script_test(
+    NAME async_wait_for_no_raw_this_token_callbacks
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS -E cat "${PROJECT_SOURCE_DIR}/include/gentest/async.h"
+    DEFINES
+        "EXPECT_RC=0"
+    ENCODED_DEFINES
+        "FORBID_SUBSTRING=7365745f6265666f72655f706f7374285b74686973")
+
 gentest_add_check_counts(
     NAME async_live_slow_demo_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>

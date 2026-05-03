@@ -934,16 +934,14 @@ template <SupportedTimedAwaitable Awaitable> class timeout_awaitable {
 
         auto state         = state_;
         auto timeout_token = timeout_token_;
-        ready_token_->set_before_post([this, state, timeout_token] {
-            if (std::chrono::steady_clock::now() >= deadline_) {
+        auto deadline      = deadline_;
+        ready_token_->set_before_post([state, timeout_token, deadline] {
+            if (std::chrono::steady_clock::now() >= deadline) {
                 if (!state->try_timeout()) {
                     return false;
                 }
                 if (timeout_token) {
                     timeout_token->cancel();
-                }
-                if (scheduler_) {
-                    cancel_supported_awaitable(awaitable_, *scheduler_);
                 }
                 return true;
             }
@@ -957,15 +955,12 @@ template <SupportedTimedAwaitable Awaitable> class timeout_awaitable {
         });
 
         auto ready_token = ready_token_;
-        timeout_token_->set_before_post([this, state, ready_token] {
+        timeout_token_->set_before_post([state, ready_token] {
             if (!state->try_timeout()) {
                 return false;
             }
             if (ready_token) {
                 ready_token->cancel();
-            }
-            if (scheduler_) {
-                cancel_supported_awaitable(awaitable_, *scheduler_);
             }
             return true;
         });
