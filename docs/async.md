@@ -182,6 +182,20 @@ gentest::async_test<void> blocked_dependency() {
 }
 ```
 
+`set_blocked(reason)` means "stop waiting; this dependency can never produce a
+successful value." Any current or future waiter resumes and the test is reported
+as `BLOCKED` with that reason. Use it for missing prerequisites or permanent
+external conditions, not for product bugs.
+
+```cpp
+p.set_value(response);            // waiter returns response
+p.set_exception(error);           // waiter throws; test FAILS
+p.set_blocked("not available");   // waiter reports BLOCKED
+```
+
+This is different from a timeout. A timeout says "not ready yet within this
+duration." `set_blocked(...)` says "it will not become ready."
+
 The first terminal state wins. Use `set_value(...)`, `set_exception(...)`, or
 `set_blocked(...)` when duplicate completion is a bug. Use `try_set_value(...)`,
 `try_set_exception(...)`, or `try_set_blocked(...)` when callbacks can race and
