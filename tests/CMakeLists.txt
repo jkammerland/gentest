@@ -3314,6 +3314,15 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_module_command_retargeting APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_scoped_traversal
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenScopedTraversal.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_scoped_traversal APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_forced_nonclang_compiler_fallback
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenForcedNonclangCompilerFallback.cmake
