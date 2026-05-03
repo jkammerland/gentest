@@ -73,6 +73,9 @@ static_assert(!PayloadSettableEvent<gentest::async::event<NoMoveAssignPayload>, 
 static_assert(!PayloadSettableEvent<gentest::async::event<DefaultOnlyPayload>, DefaultOnlyPayload>);
 static_assert(PayloadSettableEvent<gentest::async::event<NoMoveConstructPayload>, int>);
 
+constexpr auto kLateCompletionTimeout = std::chrono::milliseconds(500);
+constexpr auto kLateCompletionDelay   = std::chrono::milliseconds(650);
+
 class TrackingScheduler final : public gentest::detail::AsyncScheduler {
   public:
     void post(std::coroutine_handle<> handle) override {
@@ -214,12 +217,12 @@ auto wait_for_unique_ptr_future(gentest::async::future<std::unique_ptr<int>> fut
 }
 
 auto wait_for_late_event_after_deadline(gentest::async::event<int> &event) -> gentest::async_test<gentest::async::wait_status> {
-    auto result = co_await gentest::async::wait_for(event.wait("late"), std::chrono::milliseconds(1));
+    auto result = co_await gentest::async::wait_for(event.wait("late"), kLateCompletionTimeout);
     co_return result.status();
 }
 
 auto wait_for_late_future_after_deadline(gentest::async::future<int> future) -> gentest::async_test<gentest::async::wait_status> {
-    auto result = co_await gentest::async::wait_for(future.wait("late future"), std::chrono::milliseconds(1));
+    auto result = co_await gentest::async::wait_for(future.wait("late future"), kLateCompletionTimeout);
     co_return result.status();
 }
 
@@ -926,7 +929,7 @@ int main() try {
         if (task.handle().done()) {
             return fail("event wait_for completed before either deadline or event");
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::this_thread::sleep_for(kLateCompletionDelay);
         event.set("late", 42);
         scheduler.run_ready();
         if (!task.handle().done()) {
@@ -946,7 +949,7 @@ int main() try {
         if (task.handle().done()) {
             return fail("future wait_for completed before either deadline or future");
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::this_thread::sleep_for(kLateCompletionDelay);
         promise.set_value(42);
         scheduler.run_ready();
         if (!task.handle().done()) {
