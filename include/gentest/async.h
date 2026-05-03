@@ -881,7 +881,11 @@ template <SupportedTimedAwaitable Awaitable> class timeout_awaitable {
   public:
     using result_type = typename timed_wait_result<Awaitable>::type;
 
-    timeout_awaitable(Awaitable awaitable, std::chrono::steady_clock::time_point deadline, std::source_location loc)
+    timeout_awaitable(const Awaitable &awaitable, std::chrono::steady_clock::time_point deadline, std::source_location loc)
+        requires std::copy_constructible<Awaitable>
+        : awaitable_(awaitable), deadline_(deadline), loc_(loc) {}
+
+    timeout_awaitable(Awaitable &&awaitable, std::chrono::steady_clock::time_point deadline, std::source_location loc)
         : awaitable_(std::move(awaitable)), deadline_(deadline), loc_(loc) {}
 
     timeout_awaitable(timeout_awaitable &&) noexcept            = default;

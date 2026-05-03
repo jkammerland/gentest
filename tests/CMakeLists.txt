@@ -344,6 +344,14 @@ gentest_add_check_counts(
     ARGS --filter=async/timer/* --kind=test --no-color)
 
 gentest_add_check_counts(
+    NAME async_timer_stress_repeat
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 160
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/timer_stress/* --kind=test --repeat=20 --no-color)
+
+gentest_add_check_counts(
     NAME async_wait_for_event
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     PASS 2
@@ -430,7 +438,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 90
+    CASES 98
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(

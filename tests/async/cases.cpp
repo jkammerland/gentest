@@ -63,9 +63,17 @@ std::atomic<bool>            fail_fast_cancel_slow_adopted_frame_destroyed{true}
 std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_started{false};
 std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_done{true};
 
-gentest::async::manual_event group_fence_release;
-std::vector<std::string>     group_fence_order;
-std::vector<std::string>     timer_fairness_order;
+gentest::async::manual_event                          group_fence_release;
+std::vector<std::string>                              group_fence_order;
+std::vector<std::string>                              timer_fairness_order;
+gentest::async::manual_event                          timer_stress_start;
+gentest::async::manual_event                          timer_stress_all_started;
+gentest::async::manual_event                          timer_stress_all_done;
+std::atomic<int>                                      timer_stress_started{0};
+std::atomic<int>                                      timer_stress_completed{0};
+std::atomic<std::chrono::steady_clock::duration::rep> timer_stress_deadline_ticks{0};
+constexpr int                                         kTimerStressSleepers   = 4;
+constexpr int                                         kTimerStressIterations = 32;
 
 class JoiningThread {
   public:
@@ -927,6 +935,113 @@ gentest::async_test<void> timer_yield_runs_while_sleep_pending() {
 gentest::async_test<void> timer_sleep_until_waits() {
     co_await gentest::async::sleep_until(std::chrono::steady_clock::now() + std::chrono::milliseconds(1));
     EXPECT_TRUE(true);
+}
+
+[[using gentest: test("timer_stress/00_ready_wins_expired_timeout")]]
+gentest::async_test<void> timer_stress_ready_wins_expired_timeout() {
+    gentest::async::event<int> event;
+
+    for (int i = 0; i != kTimerStressIterations; ++i) {
+        const auto key = "ready." + std::to_string(i);
+        event.set(key, i);
+
+        auto result = co_await gentest::async::wait_for(event.wait(key), std::chrono::milliseconds(-1));
+
+        ASSERT_TRUE(result.ready());
+        EXPECT_EQ(result.value(), i);
+    }
+}
+
+[[using gentest: test("timer_stress/01_timeout_cancels_late_event_waiter")]]
+gentest::async_test<void> timer_stress_timeout_cancels_late_event_waiter() {
+    gentest::async::event<int> event;
+
+    for (int i = 0; i != kTimerStressIterations; ++i) {
+        const auto key = "late." + std::to_string(i);
+
+        auto result = co_await gentest::async::wait_for(event.wait(key), std::chrono::milliseconds(1));
+
+        ASSERT_TRUE(result.timed_out());
+        event.set(key, i);
+        co_await gentest::async::yield();
+        EXPECT_TRUE(result.timed_out());
+    }
+}
+
+[[using gentest: test("timer_stress/02_timeout_cancels_inner_sleep_timer")]]
+gentest::async_test<void> timer_stress_timeout_cancels_inner_sleep_timer() {
+    for (int i = 0; i != kTimerStressIterations; ++i) {
+        auto result =
+            co_await gentest::async::wait_for(gentest::async::sleep_for(std::chrono::milliseconds(25)), std::chrono::milliseconds(1));
+
+        EXPECT_TRUE(result.timed_out());
+    }
+
+    auto flush =
+        co_await gentest::async::wait_for(gentest::async::sleep_for(std::chrono::milliseconds(30)), std::chrono::milliseconds(250));
+    EXPECT_TRUE(flush.ready());
+}
+
+auto timer_stress_simultaneous_sleeper() -> gentest::async_test<void> {
+    co_await timer_stress_start.wait("timer stress start");
+
+    const int started = timer_stress_started.fetch_add(1, std::memory_order_acq_rel) + 1;
+    EXPECT_TRUE(started <= kTimerStressSleepers);
+    if (started == kTimerStressSleepers) {
+        timer_stress_all_started.set("timer stress all started");
+    }
+
+    const auto deadline = std::chrono::steady_clock::time_point{
+        std::chrono::steady_clock::duration{timer_stress_deadline_ticks.load(std::memory_order_acquire)}};
+    co_await gentest::async::sleep_until(deadline);
+
+    const int completed = timer_stress_completed.fetch_add(1, std::memory_order_acq_rel) + 1;
+    EXPECT_TRUE(completed <= kTimerStressSleepers);
+    if (completed == kTimerStressSleepers) {
+        timer_stress_all_done.set("timer stress all done");
+    }
+}
+
+[[using gentest: test("timer_stress/03_simultaneous_driver")]]
+gentest::async_test<void> timer_stress_simultaneous_driver() {
+    timer_stress_start.reset_all();
+    timer_stress_all_started.reset_all();
+    timer_stress_all_done.reset_all();
+    timer_stress_started.store(0, std::memory_order_release);
+    timer_stress_completed.store(0, std::memory_order_release);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(25);
+    timer_stress_deadline_ticks.store(deadline.time_since_epoch().count(), std::memory_order_release);
+
+    timer_stress_start.set("timer stress start");
+
+    auto started =
+        co_await gentest::async::wait_for(timer_stress_all_started.wait("timer stress all started"), std::chrono::milliseconds(250));
+    ASSERT_TRUE(started.ready());
+    EXPECT_EQ(timer_stress_started.load(std::memory_order_acquire), kTimerStressSleepers);
+
+    auto completed = co_await gentest::async::wait_for(timer_stress_all_done.wait("timer stress all done"), std::chrono::milliseconds(250));
+    ASSERT_TRUE(completed.ready());
+    EXPECT_EQ(timer_stress_completed.load(std::memory_order_acquire), kTimerStressSleepers);
+}
+
+[[using gentest: test("timer_stress/04_simultaneous_sleeper_a")]]
+gentest::async_test<void> timer_stress_simultaneous_sleeper_a() {
+    co_await timer_stress_simultaneous_sleeper();
+}
+
+[[using gentest: test("timer_stress/05_simultaneous_sleeper_b")]]
+gentest::async_test<void> timer_stress_simultaneous_sleeper_b() {
+    co_await timer_stress_simultaneous_sleeper();
+}
+
+[[using gentest: test("timer_stress/06_simultaneous_sleeper_c")]]
+gentest::async_test<void> timer_stress_simultaneous_sleeper_c() {
+    co_await timer_stress_simultaneous_sleeper();
+}
+
+[[using gentest: test("timer_stress/07_simultaneous_sleeper_d")]]
+gentest::async_test<void> timer_stress_simultaneous_sleeper_d() {
+    co_await timer_stress_simultaneous_sleeper();
 }
 
 [[using gentest: test("wait_for/event_ready_before_timeout")]]

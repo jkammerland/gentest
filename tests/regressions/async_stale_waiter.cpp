@@ -2,6 +2,7 @@
 
 #include <any>
 #include <atomic>
+#include <chrono>
 #include <coroutine>
 #include <deque>
 #include <exception>
@@ -199,6 +200,30 @@ auto wait_for_string_future(gentest::async::future<std::string> future) -> gente
 
 auto wait_for_unique_ptr_future(gentest::async::future<std::unique_ptr<int>> future) -> gentest::async_test<std::unique_ptr<int>> {
     co_return co_await future.wait("promise move-only payload regression");
+}
+
+auto blocking_timer_stress_task() -> gentest::async_test<void> {
+    for (int i = 0; i != 32; ++i) {
+        auto result =
+            co_await gentest::async::wait_for(gentest::async::sleep_for(std::chrono::milliseconds(2)), std::chrono::milliseconds(200));
+        if (!result.ready()) {
+            throw std::runtime_error("blocking scheduler sleep timer did not become ready");
+        }
+    }
+
+    for (int i = 0; i != 32; ++i) {
+        auto result =
+            co_await gentest::async::wait_for(gentest::async::sleep_for(std::chrono::milliseconds(25)), std::chrono::milliseconds(1));
+        if (!result.timed_out()) {
+            throw std::runtime_error("blocking scheduler timeout did not beat inner sleep timer");
+        }
+    }
+
+    auto flush =
+        co_await gentest::async::wait_for(gentest::async::sleep_for(std::chrono::milliseconds(30)), std::chrono::milliseconds(250));
+    if (!flush.ready()) {
+        throw std::runtime_error("blocking scheduler did not flush canceled inner timers");
+    }
 }
 
 auto fail(std::string_view message) -> int {
@@ -869,6 +894,13 @@ int main() try {
         promise.set_value();
         if (scheduler.late_posts() != 0) {
             return fail("promise posted a canceled stale waiter");
+        }
+    }
+
+    {
+        std::string error;
+        if (!gentest::detail::run_async_task_blocking(blocking_timer_stress_task(), "blocking timer stress", error)) {
+            return fail(std::string("blocking timer stress failed: ") + error);
         }
     }
 
