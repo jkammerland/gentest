@@ -141,13 +141,19 @@ inline void AsyncScheduler::WaiterToken::cancel() noexcept {
         return;
     }
     std::lock_guard<std::mutex> lk(mtx_);
-    handle_ = {};
+    handle_      = {};
+    before_post_ = {};
     control_.reset();
 }
 
 inline void AsyncScheduler::WaiterToken::set_before_post(BeforePost before_post) {
+    if (!active_.load(std::memory_order_acquire)) {
+        return;
+    }
     std::lock_guard<std::mutex> lk(mtx_);
-    before_post_ = std::move(before_post);
+    if (active_.load(std::memory_order_acquire)) {
+        before_post_ = std::move(before_post);
+    }
 }
 
 inline auto AsyncScheduler::WaiterToken::active() const noexcept -> bool { return active_.load(std::memory_order_acquire); }

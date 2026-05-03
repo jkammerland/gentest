@@ -8,7 +8,7 @@
 #include <queue>
 #include <vector>
 
-namespace gentest::runner {
+namespace gentest::detail {
 
 class AsyncTimerQueue {
   public:
@@ -24,14 +24,17 @@ class AsyncTimerQueue {
 
     [[nodiscard]] auto pop_due(time_point now) -> std::vector<WaiterTokenPtr> {
         std::vector<WaiterTokenPtr> due;
-        purge_stale();
-        while (!timers_.empty() && timers_.top().deadline <= now) {
+        while (!timers_.empty()) {
             auto token = timers_.top().token;
-            timers_.pop();
-            if (token && token->active()) {
-                due.push_back(std::move(token));
+            if (!token || !token->active()) {
+                timers_.pop();
+                continue;
             }
-            purge_stale();
+            if (timers_.top().deadline > now) {
+                break;
+            }
+            timers_.pop();
+            due.push_back(std::move(token));
         }
         return due;
     }
@@ -78,4 +81,4 @@ class AsyncTimerQueue {
     std::uint64_t                                                        next_sequence_ = 0;
 };
 
-} // namespace gentest::runner
+} // namespace gentest::detail

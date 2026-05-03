@@ -1,9 +1,9 @@
 #pragma once
 
+#include "async_timer_queue.h"
 #include "gentest/detail/runtime_context.h"
 #include "runner_async_state.h"
 #include "runner_async_status_renderer.h"
-#include "runner_async_timer_queue.h"
 
 #include <chrono>
 #include <coroutine>
@@ -105,7 +105,7 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     std::unordered_map<void *, std::vector<std::coroutine_handle<>>>      children_;
     std::unordered_map<void *, BlockedHandle>                             blocked_handles_;
     std::unordered_map<void *, std::vector<std::weak_ptr<WaiterToken>>>   waiter_tokens_;
-    AsyncTimerQueue                                                       timers_;
+    gentest::detail::AsyncTimerQueue                                      timers_;
     std::uint64_t                                                         suspend_sequence_ = 0;
 };
 

@@ -1,8 +1,8 @@
 #include "gentest/async.h"
 
+#include "async_timer_queue.h"
 #include "gentest/detail/runtime_context.h"
 #include "gentest/detail/runtime_support.h"
-#include "runner_async_timer_queue.h"
 
 #include <algorithm>
 #include <chrono>
@@ -311,7 +311,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     std::unordered_map<void *, std::vector<std::coroutine_handle<>>>    children_;
     std::unordered_map<void *, std::string>                             blocked_;
     std::unordered_map<void *, std::vector<std::weak_ptr<WaiterToken>>> waiter_tokens_;
-    gentest::runner::AsyncTimerQueue                                    timers_;
+    AsyncTimerQueue                                                     timers_;
 };
 
 auto make_context(std::string_view label) -> std::shared_ptr<TestContextInfo> {
