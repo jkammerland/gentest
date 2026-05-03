@@ -519,7 +519,7 @@ template <typename T = std::any> class event {
   private:
     void set_default(std::string key) {
         std::vector<Waiter> waiters;
-        Slot               *slot_ptr = nullptr;
+        T                  *payload = nullptr;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             auto                       &slot = slots_[std::move(key)];
@@ -529,15 +529,15 @@ template <typename T = std::any> class event {
                 slot.value.emplace();
             }
             slot.ready = true;
-            slot_ptr   = &slot;
+            payload    = value_ptr(slot);
             waiters.swap(slot.waiters);
         }
-        post_waiters(waiters, slot_ptr);
+        post_waiters(waiters, payload);
     }
 
     template <typename U> void set_value(std::string key, U &&value) {
         std::vector<Waiter> waiters;
-        Slot               *slot_ptr = nullptr;
+        T                  *payload = nullptr;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             auto                       &slot = slots_[std::move(key)];
@@ -547,16 +547,16 @@ template <typename T = std::any> class event {
                 slot.value.emplace(std::forward<U>(value));
             }
             slot.ready = true;
-            slot_ptr   = &slot;
+            payload    = value_ptr(slot);
             waiters.swap(slot.waiters);
         }
-        post_waiters(waiters, slot_ptr);
+        post_waiters(waiters, payload);
     }
 
-    void post_waiters(std::vector<Waiter> &waiters, Slot *slot_ptr) {
+    void post_waiters(std::vector<Waiter> &waiters, T *payload) {
         for (auto &waiter : waiters) {
             if (auto state = waiter.state.lock()) {
-                state->value = value_ptr(*slot_ptr);
+                state->value = payload;
                 if (waiter.token) {
                     waiter.token->post();
                 }
@@ -918,13 +918,13 @@ template <SupportedTimedAwaitable Awaitable> class timeout_awaitable {
         if (!scheduler_) {
             std::abort();
         }
-        if (awaitable_.await_ready()) {
-            (void)state_->try_ready();
+        if (std::chrono::steady_clock::now() >= deadline_) {
+            (void)state_->try_timeout();
             scheduler_->post(handle);
             return;
         }
-        if (std::chrono::steady_clock::now() >= deadline_) {
-            (void)state_->try_timeout();
+        if (awaitable_.await_ready()) {
+            (void)state_->try_ready();
             scheduler_->post(handle);
             return;
         }
@@ -934,7 +934,19 @@ template <SupportedTimedAwaitable Awaitable> class timeout_awaitable {
 
         auto state         = state_;
         auto timeout_token = timeout_token_;
-        ready_token_->set_before_post([state, timeout_token] {
+        ready_token_->set_before_post([this, state, timeout_token] {
+            if (std::chrono::steady_clock::now() >= deadline_) {
+                if (!state->try_timeout()) {
+                    return false;
+                }
+                if (timeout_token) {
+                    timeout_token->cancel();
+                }
+                if (scheduler_) {
+                    cancel_supported_awaitable(awaitable_, *scheduler_);
+                }
+                return true;
+            }
             if (!state->try_ready()) {
                 return false;
             }

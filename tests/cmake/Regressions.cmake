@@ -111,6 +111,7 @@ set(_gentest_manual_regressions
     "gentest_regression_time_unit_scaling|time_unit_scaling.cpp"
     "gentest_regression_runtime_reporting|runtime_reporting_regressions.cpp"
     "gentest_regression_runtime_selection|runtime_selection_regressions.cpp"
+    "gentest_regression_async_blocking_timer_starvation|async_blocking_timer_starvation.cpp"
     "gentest_regression_async_stale_waiter|async_stale_waiter.cpp"
     "gentest_regression_async_adopted_ready_queue|async_adopted_ready_queue.cpp"
     "gentest_regression_reporting_attachment_collision|reporting_attachment_collision.cpp")
@@ -1419,6 +1420,12 @@ gentest_add_check_exit_code(
     NAME regression_async_stale_waiter_tokens_ignore_canceled_posts
     PROG $<TARGET_FILE:gentest_regression_async_stale_waiter>
     EXPECT_RC 0)
+
+gentest_add_cmake_script_test(
+    NAME regression_async_blocking_timer_starvation_times_out_yielding_child
+    PROG $<TARGET_FILE:gentest_regression_async_blocking_timer_starvation>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    DEFINES TIMEOUT_SEC=5 EXPECT_RC=0)
 
 gentest_add_cmake_script_test(
     NAME regression_async_adopted_ready_queue_completion_no_deadlock

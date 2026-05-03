@@ -113,8 +113,13 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         post(task.handle());
 
         while (true) {
-            while (auto handle = pop_ready()) {
-                if (!handle || handle.done()) {
+            while (true) {
+                post_due_timers();
+                auto handle = pop_ready();
+                if (!handle) {
+                    break;
+                }
+                if (handle.done()) {
                     continue;
                 }
                 auto previous = current_test();

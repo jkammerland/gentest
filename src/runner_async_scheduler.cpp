@@ -180,6 +180,7 @@ void BatchAsyncScheduler::run_ready() {
     gentest::detail::AsyncSchedulerScope scheduler_scope(this);
     post_due_timers();
     for (std::size_t remaining = ready_size(); remaining != 0; --remaining) {
+        post_due_timers();
         if (!resume_one_ready()) {
             return;
         }

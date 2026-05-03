@@ -102,6 +102,11 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
         return token;
     }
 
+    void schedule_timer(std::chrono::steady_clock::time_point deadline, const WaiterTokenPtr &token) override {
+        std::lock_guard<std::mutex> lk(mtx_);
+        timers_.push_back(Timer{.deadline = deadline, .token = token});
+    }
+
     void run_until_blocked(gentest::detail::AsyncTask &task) {
         gentest::detail::AsyncSchedulerScope scheduler_scope(this);
         task.set_scheduler(this);
@@ -150,9 +155,15 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
     }
 
   private:
+    struct Timer {
+        std::chrono::steady_clock::time_point deadline;
+        WaiterTokenPtr                        token;
+    };
+
     mutable std::mutex                  mtx_;
     std::deque<std::coroutine_handle<>> ready_;
     std::vector<WaiterTokenPtr>         waiters_;
+    std::vector<Timer>                  timers_;
     bool                                record_late_posts_ = false;
     int                                 late_posts_        = 0;
 };
@@ -200,6 +211,16 @@ auto wait_for_string_future(gentest::async::future<std::string> future) -> gente
 
 auto wait_for_unique_ptr_future(gentest::async::future<std::unique_ptr<int>> future) -> gentest::async_test<std::unique_ptr<int>> {
     co_return co_await future.wait("promise move-only payload regression");
+}
+
+auto wait_for_late_event_after_deadline(gentest::async::event<int> &event) -> gentest::async_test<gentest::async::wait_status> {
+    auto result = co_await gentest::async::wait_for(event.wait("late"), std::chrono::milliseconds(1));
+    co_return result.status();
+}
+
+auto wait_for_late_future_after_deadline(gentest::async::future<int> future) -> gentest::async_test<gentest::async::wait_status> {
+    auto result = co_await gentest::async::wait_for(future.wait("late future"), std::chrono::milliseconds(1));
+    co_return result.status();
 }
 
 auto blocking_timer_stress_task() -> gentest::async_test<void> {
@@ -894,6 +915,45 @@ int main() try {
         promise.set_value();
         if (scheduler.late_posts() != 0) {
             return fail("promise posted a canceled stale waiter");
+        }
+    }
+
+    {
+        gentest::async::event<int> event;
+        TrackingScheduler          scheduler;
+        auto                       task = wait_for_late_event_after_deadline(event);
+        scheduler.run_until_blocked(task);
+        if (task.handle().done()) {
+            return fail("event wait_for completed before either deadline or event");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        event.set("late", 42);
+        scheduler.run_ready();
+        if (!task.handle().done()) {
+            return fail("late event completion did not resume timed wait");
+        }
+        if (task.await_resume() != gentest::async::wait_status::timeout) {
+            return fail("late event completion after expired deadline won wait_for race");
+        }
+    }
+
+    {
+        gentest::async::promise<int> promise;
+        auto                         future = promise.get_future();
+        TrackingScheduler            scheduler;
+        auto                         task = wait_for_late_future_after_deadline(std::move(future));
+        scheduler.run_until_blocked(task);
+        if (task.handle().done()) {
+            return fail("future wait_for completed before either deadline or future");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        promise.set_value(42);
+        scheduler.run_ready();
+        if (!task.handle().done()) {
+            return fail("late future completion did not resume timed wait");
+        }
+        if (task.await_resume() != gentest::async::wait_status::timeout) {
+            return fail("late future completion after expired deadline won wait_for race");
         }
     }
 
