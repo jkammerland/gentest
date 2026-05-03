@@ -235,6 +235,55 @@ gentest::async_test<void> explicit_timeout() {
 }
 ```
 
+For `event<T>::wait(key)`, a ready result contains the stable key slot by
+reference. A timeout contains no value and cancels only that waiter. The event
+itself keeps working; a later `set(key, value)` stores the payload for future
+waiters.
+
+```cpp
+[[using gentest: test("async/event_timeout")]]
+gentest::async_test<void> event_timeout() {
+    gentest::async::event<int> event;
+
+    auto result = co_await gentest::async::wait_for(
+        event.wait("loaded"),
+        std::chrono::milliseconds(10));
+
+    if (result.timed_out()) {
+        event.set("loaded", 42); // stored for a later waiter
+        co_return;
+    }
+
+    int& payload = result.value();
+    EXPECT_EQ(payload, 42);
+}
+```
+
+For `future<T>::wait(reason)`, a ready result contains the future value by
+value. A timeout contains no value and cancels that waiter. `future<T>` remains
+single-consumer: starting a timed wait counts as the future's one waiter, even
+if the timeout wins.
+
+```cpp
+[[using gentest: test("async/future_timeout")]]
+gentest::async_test<void> future_timeout() {
+    gentest::async::promise<std::string> promise;
+    auto future = promise.get_future();
+
+    auto result = co_await gentest::async::wait_for(
+        future.wait("reply"),
+        std::chrono::milliseconds(10));
+
+    if (result.timed_out()) {
+        (void)promise.try_set_value("late"); // ignored by this timed-out wait
+        co_return;
+    }
+
+    std::string reply = std::move(result).value();
+    EXPECT_EQ(reply, "ok");
+}
+```
+
 `wait_result<T>::ready()`, `timed_out()`, `status()`, and `operator bool`
 report the outcome. `value()` returns the ready value, returns `T&` for
 reference awaitables such as `event<T>::wait(...)`, and moves out of an rvalue
@@ -244,6 +293,39 @@ Default waits are intentionally unbounded. If a test leaks a
 `CurrentContextLease`, or waits forever without an explicit `wait_for` /
 `wait_until`, the run may hang by contract. Gentest does not add a hidden
 cleanup timeout.
+
+## Scheduler Ordering
+
+The async runner is cooperative. It never preempts a running coroutine or sync
+case. A coroutine runs until it returns, throws, or reaches a `co_await` that
+suspends.
+
+Ready work is kept in a FIFO queue. Starting an async case, `yield()`, an event
+set, a promise completion, and an expired timer all post work to that queue.
+`yield()` posts the current coroutine at the back of the queue, so other already
+ready cases run first.
+
+Timers are checked at scheduler checkpoints: before ready work is pumped and
+when the scheduler is otherwise waiting for progress. When a timer expires, its
+waiter is posted to the ready queue; it does not interrupt the case currently
+running. If ready work is already queued, that queued work keeps its FIFO order
+and the expired timer resumes after it. Multiple timers found due in the same
+scan are posted together; do not depend on a stable order for equal or nearly
+equal deadlines.
+
+Unready coroutines do not execute. They stay suspended until their primitive
+posts a resume token:
+
+- `event<T>::wait(key)` resumes when `set(key, ...)` posts the key's waiters.
+- `future<T>::wait(...)` resumes when the promise reaches a terminal state.
+- `sleep_for` / `sleep_until` resumes when the scheduler observes the deadline.
+- `wait_for` resumes when either the wrapped awaitable posts first or the
+  timeout timer posts first. The loser is canceled.
+
+While async cases are suspended on timers or events, sync cases in the same
+fixture group may still run. At the end of a fixture group, the runner drains
+remaining ready work and waits for pending scheduler timers or adopted work
+before deciding whether suspended async cases are unresumable.
 
 ## Sync And Async Together
 
